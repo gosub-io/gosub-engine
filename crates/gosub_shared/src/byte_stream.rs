@@ -352,74 +352,70 @@ impl ByteStream {
                 }
             }
             Encoding::UTF8 => {
-                let first_byte = self.buffer[*buf_pos];
-                let width = utf8_char_width(first_byte);
-
-                if *buf_pos + width > self.buffer.len() {
-                    return (StreamEmpty, self.buffer.len() - *buf_pos);
-                }
-
-                let ch = match width {
-                    1 => u32::from(first_byte),
-                    2 => ((u32::from(first_byte) & 0x1F) << 6) | (u32::from(self.buffer[*buf_pos + 1]) & 0x3F),
-                    3 => {
-                        ((u32::from(first_byte) & 0x0F) << 12)
-                            | ((u32::from(self.buffer[*buf_pos + 1]) & 0x3F) << 6)
-                            | (u32::from(self.buffer[*buf_pos + 2]) & 0x3F)
+                let remaining = &self.buffer[*buf_pos..];
+                match std::str::from_utf8(remaining) {
+                    Ok(s) => {
+                        let ch = s.chars().next().expect("non-empty remaining buffer");
+                        (Ch(ch), ch.len_utf8())
                     }
-                    4 => {
-                        ((u32::from(first_byte) & 0x07) << 18)
-                            | ((u32::from(self.buffer[*buf_pos + 1]) & 0x3F) << 12)
-                            | ((u32::from(self.buffer[*buf_pos + 2]) & 0x3F) << 6)
-                            | (u32::from(self.buffer[*buf_pos + 3]) & 0x3F)
+                    Err(e) => {
+                        if e.valid_up_to() > 0 {
+                            // At least one valid char precedes the invalid byte — decode it
+                            let s = unsafe { std::str::from_utf8_unchecked(&remaining[..e.valid_up_to()]) };
+                            let ch = s.chars().next().expect("valid_up_to > 0");
+                            (Ch(ch), ch.len_utf8())
+                        } else {
+                            match e.error_len() {
+                                Some(n) => (Ch(REPLACEMENT_CHARACTER), n), // invalid sequence — skip it
+                                None => (StreamEmpty, remaining.len()),    // incomplete sequence at buffer end
+                            }
+                        }
                     }
-                    _ => 0xFFFD, // Invalid UTF-8 byte sequence
-                };
-
-                if ch > 0x10FFFF || (ch > 0xD800 && ch <= 0xDFFF) {
-                    (Surrogate(ch as u16), width)
-                } else {
-                    (char::from_u32(ch).map_or(Ch(REPLACEMENT_CHARACTER), Ch), width)
                 }
             }
             Encoding::UTF16LE => {
-                if *buf_pos + 1 < self.buffer.len() {
-                    let code_unit = u16::from_le_bytes([self.buffer[*buf_pos], self.buffer[*buf_pos + 1]]);
-                    (
-                        char::from_u32(u32::from(code_unit)).map_or(Ch(REPLACEMENT_CHARACTER), Ch),
-                        2,
-                    )
-                } else {
-                    (StreamEmpty, 1)
+                if *buf_pos + 2 > self.buffer.len() {
+                    return (StreamEmpty, 1);
                 }
+                let cu = u16::from_le_bytes([self.buffer[*buf_pos], self.buffer[*buf_pos + 1]]);
+                decode_utf16_char(cu, || {
+                    if *buf_pos + 4 <= self.buffer.len() {
+                        Some(u16::from_le_bytes([self.buffer[*buf_pos + 2], self.buffer[*buf_pos + 3]]))
+                    } else {
+                        None
+                    }
+                })
             }
             Encoding::UTF16BE => {
-                if *buf_pos + 1 < self.buffer.len() {
-                    let code_unit = u16::from_be_bytes([self.buffer[*buf_pos], self.buffer[*buf_pos + 1]]);
-                    (
-                        char::from_u32(u32::from(code_unit)).map_or(Ch(REPLACEMENT_CHARACTER), Ch),
-                        2,
-                    )
-                } else {
-                    (StreamEmpty, 1)
+                if *buf_pos + 2 > self.buffer.len() {
+                    return (StreamEmpty, 1);
                 }
+                let cu = u16::from_be_bytes([self.buffer[*buf_pos], self.buffer[*buf_pos + 1]]);
+                decode_utf16_char(cu, || {
+                    if *buf_pos + 4 <= self.buffer.len() {
+                        Some(u16::from_be_bytes([self.buffer[*buf_pos + 2], self.buffer[*buf_pos + 3]]))
+                    } else {
+                        None
+                    }
+                })
             }
         }
     }
 
     /// Populates the current buffer with the contents of given file f
     pub fn read_from_file(&mut self, mut f: impl Read) -> io::Result<()> {
-        // First we read the u8 bytes into a buffer
-        f.read_to_end(&mut self.buffer).expect("uh oh");
+        f.read_to_end(&mut self.buffer)?;
         self.close();
         self.reset_stream();
-        self.close();
         Ok(())
     }
 
     /// Populates the current buffer with the contents of the given string s
-    pub fn read_from_str(&mut self, s: &str, _encoding: Option<Encoding>) {
+    pub fn read_from_str(&mut self, s: &str, encoding: Option<Encoding>) {
         self.buffer = Vec::from(s.as_bytes());
+        if let Some(enc) = encoding {
+            self.encoding = enc;
+        }
         self.reset_stream();
     }
 
@@ -512,14 +508,13 @@ impl ByteStream {
         encoding_detector.feed(buf, complete);
 
         let encoding = encoding_detector.guess(None, true);
-        if encoding == encoding_rs::UTF_8 {
-            Encoding::UTF8
-        } else if encoding == encoding_rs::UTF_16BE {
+        if encoding == encoding_rs::UTF_16BE {
             Encoding::UTF16BE
         } else if encoding == encoding_rs::UTF_16LE {
             Encoding::UTF16LE
         } else {
-            panic!("Unsupported encoding");
+            // Default to UTF-8 for all other detected encodings (including ASCII-compatible ones)
+            Encoding::UTF8
         }
     }
 
@@ -627,21 +622,23 @@ impl LocationHandler {
     }
 }
 
-/// Returns the width of the given UTF8 character, which is based on the first byte
-#[inline]
-fn utf8_char_width(first_byte: u8) -> usize {
-    if first_byte < 0x80 {
-        1
-    } else {
-        2 + usize::from(first_byte >= 0xE0) + usize::from(first_byte >= 0xF0)
+/// Decode one UTF-16 code unit, calling `next_cu` to fetch the following code unit when a
+/// surrogate pair is encountered. Returns `(Character, bytes_consumed)`.
+fn decode_utf16_char(cu: u16, next_cu: impl FnOnce() -> Option<u16>) -> (Character, usize) {
+    match cu {
+        0xD800..=0xDBFF => {
+            // High surrogate — must be followed by a low surrogate
+            match next_cu() {
+                Some(low @ 0xDC00..=0xDFFF) => {
+                    let codepoint = 0x10000u32 + ((u32::from(cu) - 0xD800) << 10) + (u32::from(low) - 0xDC00);
+                    (char::from_u32(codepoint).map_or(Ch(REPLACEMENT_CHARACTER), Ch), 4)
+                }
+                _ => (Surrogate(cu), 2), // unpaired high surrogate
+            }
+        }
+        0xDC00..=0xDFFF => (Surrogate(cu), 2), // lone low surrogate
+        _ => (char::from_u32(u32::from(cu)).map_or(Ch(REPLACEMENT_CHARACTER), Ch), 2),
     }
-    // match first_byte {
-    //     0..=0x7F => 1,
-    //     0xC2..=0xDF => 2,
-    //     0xE0..=0xEF => 3,
-    //     0xF0..=0xF4 => 4,
-    //     _ => 1,
-    // }
 }
 
 #[cfg(test)]
