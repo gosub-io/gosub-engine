@@ -327,11 +327,11 @@ impl TileList {
             self.tiles.insert(*layer_id, tile_layer);
 
             // Get elements in this layer
-            let Some(layer) = layer_list.get(&layer_id) else {
+            let Some(layer) = layer_list.get(layer_id) else {
                 continue;
             };
 
-            let Some(tile_layer) = self.tiles.get(&layer_id) else {
+            let Some(tile_layer) = self.tiles.get(layer_id) else {
                 continue;
             };
 
@@ -347,7 +347,7 @@ impl TileList {
                 // Find all tile_ids that contain this element
                 let matching_tile_ids = tile_layer.intersects_with(margin_box);
                 for tile_id in &matching_tile_ids {
-                    let tile = self.arena.get_mut(&tile_id).unwrap();
+                    let tile = self.arena.get_mut(tile_id).unwrap();
                     let position = Coordinate::new(
                         tile.rect.x.max(margin_box.x) - margin_box.x,
                         tile.rect.y.max(margin_box.y) - margin_box.y,
@@ -395,16 +395,8 @@ impl TileList {
 }
 
 fn get_background_color_from_node(node_id: Option<NodeId>, doc: &Document) -> Option<(f32, f32, f32, f32)> {
-    let node_id = match node_id {
-        Some(node_id) => node_id,
-        None => {
-            return None;
-        }
-    };
-
-    let Some(node) = doc.get_node_by_id(node_id) else {
-        return None;
-    };
+    let node_id = node_id?;
+    let node = doc.get_node_by_id(node_id)?;
 
     let NodeType::Element(data) = &node.node_type else {
         return None;
@@ -423,12 +415,7 @@ fn get_background_color_from_node(node_id: Option<NodeId>, doc: &Document) -> Op
 fn convert_color(color: &StyleColor) -> Option<(f32, f32, f32, f32)> {
     let c = match color {
         StyleColor::Rgb(r, g, b) => Some((*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0, 1.0)),
-        StyleColor::Rgba(r, g, b, a) => Some((
-            *r as f32 / 255.0,
-            *g as f32 / 255.0,
-            *b as f32 / 255.0,
-            *a as f32 / 255.0,
-        )),
+        StyleColor::Rgba(r, g, b, a) => Some((*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0, *a / 255.0)),
         StyleColor::Named(name) => {
             let c = Color::from_css(name.as_str());
             Some((c.r(), c.g(), c.b(), c.a()))

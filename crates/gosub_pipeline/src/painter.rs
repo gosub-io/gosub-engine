@@ -55,22 +55,22 @@ impl Painter {
             && state.current_hovered_element.is_some()
             && state.current_hovered_element.unwrap() == layout_element.id
         {
-            commands.extend(self.generate_boxmodel_commands(&layout_element));
+            commands.extend(self.generate_boxmodel_commands(layout_element));
         }
 
         match state.wireframed {
             WireframeState::Only => {
                 // Paint only the wireframe of the element
-                commands.extend(self.generate_wireframe_commands(&layout_element));
+                commands.extend(self.generate_wireframe_commands(layout_element));
             }
             WireframeState::Both => {
                 // Paint both the wireframe and element
-                commands.extend(self.generate_element_commands(&layout_element, &dom_node));
-                commands.extend(self.generate_wireframe_commands(&layout_element));
+                commands.extend(self.generate_element_commands(layout_element, dom_node));
+                commands.extend(self.generate_wireframe_commands(layout_element));
             }
             WireframeState::None => {
                 // Paint only the element. No debug/developer wireframe is needed.
-                commands.extend(self.generate_element_commands(&layout_element, &dom_node));
+                commands.extend(self.generate_element_commands(layout_element, dom_node));
             }
         }
 

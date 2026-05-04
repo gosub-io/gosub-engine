@@ -105,7 +105,12 @@ impl Rectangle {
         &self.border
     }
 
-    pub fn radius(&self) -> (Radius, Radius, Radius, Radius) {
-        (self.radius_top, self.radius_right, self.radius_bottom, self.radius_left)
+    pub fn radius(&self) -> (f64, f64, f64, f64) {
+        (
+            self.radius_top.x,
+            self.radius_right.x,
+            self.radius_bottom.x,
+            self.radius_left.x,
+        )
     }
 }

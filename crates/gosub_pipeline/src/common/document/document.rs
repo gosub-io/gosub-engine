@@ -39,7 +39,7 @@ impl Document {
                 if data.is_self_closing() {
                     result.push_str("/>");
                 } else {
-                    result.push_str(">");
+                    result.push('>');
                 }
 
                 for child_id in &node.children {
@@ -66,14 +66,14 @@ impl Document {
         style: Option<StylePropertyList>,
     ) -> NodeId {
         let node = Node::new_element(self, parent_id, tag_name.to_string(), attributes, self_closing, style);
-        let node_id = node.node_id.clone();
-        self.arena.insert(node_id.clone(), node);
+        let node_id = node.node_id;
+        self.arena.insert(node_id, node);
 
         // We will be needing the html and body tags later on for background color purposes. Save them so we can do quick lookups.
         if tag_name == "html" && self.html_node_id.is_none() {
-            self.html_node_id = Some(node_id.clone());
+            self.html_node_id = Some(node_id);
         } else if tag_name == "body" && self.body_node_id.is_none() {
-            self.body_node_id = Some(node_id.clone());
+            self.body_node_id = Some(node_id);
         }
 
         node_id
@@ -81,15 +81,15 @@ impl Document {
 
     pub fn new_comment(&mut self, parent_id: Option<NodeId>, comment: &str) -> NodeId {
         let node = Node::new_comment(self, parent_id, comment.to_string());
-        let node_id = node.node_id.clone();
-        self.arena.insert(node_id.clone(), node);
+        let node_id = node.node_id;
+        self.arena.insert(node_id, node);
         node_id
     }
 
     pub fn new_text(&mut self, parent_id: Option<NodeId>, text: &str, style: Option<StylePropertyList>) -> NodeId {
         let node = Node::new_text(self, parent_id, text.to_string(), style);
-        let node_id = node.node_id.clone();
-        self.arena.insert(node_id.clone(), node);
+        let node_id = node.node_id;
+        self.arena.insert(node_id, node);
         node_id
     }
 

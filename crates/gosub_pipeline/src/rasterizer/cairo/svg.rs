@@ -1,9 +1,9 @@
-use gtk4::cairo::Context;
 use crate::common::get_media_store;
 use crate::common::media::MediaId;
 use crate::painter::commands::rectangle::Rectangle;
-use resvg::usvg::Transform;
 use crate::tiler::Tile;
+use gtk4::cairo::Context;
+use resvg::usvg::Transform;
 
 pub(crate) fn do_paint_svg(cr: &Context, _tile: &Tile, rect: &Rectangle, media_id: MediaId) {
     println!("Painting SVG: {:?}", media_id);
@@ -18,10 +18,9 @@ pub(crate) fn do_paint_svg(cr: &Context, _tile: &Tile, rect: &Rectangle, media_i
     // With "normal" images, we would just scale the image, but since SVG is vector-based, we want to re-render it from
     // the source. It might be better to either render each dimension into a separate media, or store only an X amount of
     // different dimensions. This is a trade-off between memory and CPU usage.
-    if  media_dimension != rect.rect().dimension() {
+    if media_dimension != rect.rect().dimension() {
         let pixmap_size = media.svg.tree.size().to_int_size();
-        let mut pixmap =
-            resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
         resvg::render(&media.svg.tree, Transform::default(), &mut pixmap.as_mut());
 
         let mut var = media.svg.rendered_data.write().unwrap();
@@ -41,7 +40,8 @@ pub(crate) fn do_paint_svg(cr: &Context, _tile: &Tile, rect: &Rectangle, media_i
         svg_dimension.width as i32,
         svg_dimension.height as i32,
         svg_dimension.width as i32 * 4,
-    ).unwrap();
+    )
+    .unwrap();
 
     _ = cr.set_source_surface(&surface, 0.0, 0.0);
     _ = cr.paint();

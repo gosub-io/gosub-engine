@@ -42,14 +42,14 @@ impl MediaStore {
 
         // Add "default svg" to the store.
         let default_svg_tree =
-            usvg::Tree::from_data(&DEFAULT_SVG_DATA, &usvg::Options::default()).expect("Failed to load default svg");
+            usvg::Tree::from_data(DEFAULT_SVG_DATA, &usvg::Options::default()).expect("Failed to load default svg");
         let mut entries = store.entries.write().expect("Failed to lock images");
         let media = Media::svg("gosub://default/svg", Svg::new(default_svg_tree));
         entries.insert(DEFAULT_SVG_ID, Arc::new(media));
         drop(entries);
 
         // Add "default image" to the store.
-        let default_image = image::load_from_memory(&DEFAULT_IMAGE_DATA)
+        let default_image = image::load_from_memory(DEFAULT_IMAGE_DATA)
             .expect("Failed to load default image")
             .to_rgba8();
         let mut entries = store.entries.write().expect("Failed to lock images");
@@ -261,11 +261,11 @@ impl MediaStore {
 
         // Seems that content type and file binaries are not matching. We will trust the file binary
         // over the content type.
-        if detected_file_type.is_none() {
-            Ok((detected_content_type.unwrap(), raw_bytes))
-        } else {
+        if let Some(file_type) = detected_file_type {
             // Seems we cannot detect the file type from the binary. We will trust the content type
-            Ok((detected_file_type.unwrap(), raw_bytes))
+            Ok((file_type, raw_bytes))
+        } else {
+            Ok((detected_content_type.unwrap(), raw_bytes))
         }
     }
 }

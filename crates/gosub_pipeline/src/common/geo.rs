@@ -47,15 +47,15 @@ impl Rect {
     }
 }
 
-impl Into<Coordinate> for Rect {
-    fn into(self) -> Coordinate {
-        Coordinate::new(self.x, self.y)
+impl From<Rect> for Coordinate {
+    fn from(val: Rect) -> Self {
+        Coordinate::new(val.x, val.y)
     }
 }
 
-impl Into<Dimension> for Rect {
-    fn into(self) -> Dimension {
-        Dimension::new(self.width, self.height)
+impl From<Rect> for Dimension {
+    fn from(val: Rect) -> Self {
+        Dimension::new(val.width, val.height)
     }
 }
 

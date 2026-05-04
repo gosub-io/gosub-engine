@@ -11,6 +11,12 @@ pub struct AttrMap {
     attributes: HashMap<String, String>,
 }
 
+impl Default for AttrMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AttrMap {
     pub fn new() -> AttrMap {
         AttrMap {
@@ -32,6 +38,7 @@ impl AttrMap {
     }
 
     #[allow(unused)]
+    #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         let mut result = String::new();
 
@@ -71,9 +78,9 @@ impl ElementData {
     ) -> ElementData {
         ElementData {
             tag_name,
-            attributes: attributes.unwrap_or(AttrMap::new()),
+            attributes: attributes.unwrap_or_default(),
             self_closing: is_self_closing,
-            styles: styles.unwrap_or(StylePropertyList::new()),
+            styles: styles.unwrap_or_default(),
         }
     }
 
@@ -215,10 +222,7 @@ impl Node {
 
     /// Returns true when the node is a text node
     pub fn is_text(&self) -> bool {
-        match &self.node_type {
-            NodeType::Text(_, _) => true,
-            _ => false,
-        }
+        matches!(&self.node_type, NodeType::Text(_, _))
     }
 
     pub fn get_style_f32(&self, prop: StyleProperty) -> f32 {
@@ -240,7 +244,7 @@ impl Node {
             node_id: doc.next_node_id(),
             parent_id,
             children: vec![],
-            node_type: NodeType::Text(text, style.unwrap_or(StylePropertyList::new())),
+            node_type: NodeType::Text(text, style.unwrap_or_default()),
         }
     }
 

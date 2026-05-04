@@ -8,6 +8,7 @@ use gtk4::cairo;
 
 mod brush;
 mod rectangle;
+mod svg;
 mod text;
 
 pub struct CairoRasterizer {}
@@ -19,7 +20,7 @@ impl CairoRasterizer {
 }
 
 impl Rasterable for CairoRasterizer {
-    fn rasterize(&self, tile: &Tile) -> TextureId {
+    fn rasterize(&self, tile: &Tile) -> Option<TextureId> {
         let mut surface =
             cairo::ImageSurface::create(cairo::Format::ARgb32, tile.rect.width as i32, tile.rect.height as i32)
                 .expect("Failed to create image surface");
@@ -34,7 +35,7 @@ impl Rasterable for CairoRasterizer {
                 for command in &element.paint_commands {
                     match command {
                         PaintCommand::Svg(command) => {
-                            svg::do_paint_svg(&cr.clone(), &tile, &command);
+                            svg::do_paint_svg(&cr.clone(), tile, &command.rect, command.media_id);
                         }
                         PaintCommand::Rectangle(command) => {
                             rectangle::do_paint_rectangle(&cr.clone(), &tile, &command);
@@ -63,6 +64,6 @@ impl Rasterable for CairoRasterizer {
         let mut texture_store = binding.write().expect("Failed to get texture store");
         let texture_id = texture_store.add(w, h, data.to_vec());
 
-        texture_id
+        Some(texture_id)
     }
 }

@@ -63,7 +63,7 @@ impl TextureStore {
             let img =
                 match image::RgbaImage::from_raw(texture.width as u32, texture.height as u32, texture.data.clone()) {
                     Some(img) => img,
-                    None => return Err(format!("Failed to create image from texture data")),
+                    None => return Err("Failed to create image from texture data".to_string()),
                 };
 
             let mut png_data = Vec::new();

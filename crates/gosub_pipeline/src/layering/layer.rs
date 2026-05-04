@@ -135,7 +135,7 @@ impl LayerList {
     }
 
     #[allow(unused)]
-    fn get_layer(&self, layer_id: LayerId) -> Option<std::sync::RwLockReadGuard<HashMap<LayerId, Layer>>> {
+    fn get_layer(&self, layer_id: LayerId) -> Option<std::sync::RwLockReadGuard<'_, HashMap<LayerId, Layer>>> {
         let layers = self.layers.read().expect("Failed to lock layers");
         if layers.contains_key(&layer_id) {
             Some(layers)
@@ -144,7 +144,7 @@ impl LayerList {
         }
     }
 
-    fn get_layer_mut(&self, layer_id: LayerId) -> Option<std::sync::RwLockWriteGuard<HashMap<LayerId, Layer>>> {
+    fn get_layer_mut(&self, layer_id: LayerId) -> Option<std::sync::RwLockWriteGuard<'_, HashMap<LayerId, Layer>>> {
         let layers = self.layers.write().expect("Failed to lock layers");
         if layers.contains_key(&layer_id) {
             Some(layers)
@@ -190,13 +190,11 @@ impl LayerList {
                     log::warn!("Image layer {} not found in HashMap", image_layer_id);
                 }
             }
-        } else {
-            if let Some(mut layers) = self.get_layer_mut(layer_id) {
-                if let Some(layer) = layers.get_mut(&layer_id) {
-                    layer.add_element(layout_element.id);
-                } else {
-                    log::warn!("Layer {} not found in HashMap", layer_id);
-                }
+        } else if let Some(mut layers) = self.get_layer_mut(layer_id) {
+            if let Some(layer) = layers.get_mut(&layer_id) {
+                layer.add_element(layout_element.id);
+            } else {
+                log::warn!("Layer {} not found in HashMap", layer_id);
             }
         }
 

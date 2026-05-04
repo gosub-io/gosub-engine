@@ -68,6 +68,12 @@ impl TaffyContext {
     }
 }
 
+impl Default for TaffyLayouter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TaffyLayouter {
     pub fn new() -> Self {
         Self {
@@ -153,7 +159,7 @@ impl TaffyLayouter {
     // Populate the layout tree with the box models that we now can generate
     fn populate_boxmodel(&self, layout_tree: &mut LayoutTree, layout_node_id: LayoutElementId, offset: Coordinate) {
         let taffy_node_id = self.layout_taffy_mapping.get(&layout_node_id).unwrap();
-        let layout = self.tree.layout(*taffy_node_id).unwrap().clone();
+        let layout = *self.tree.layout(*taffy_node_id).unwrap();
 
         let el = layout_tree.get_node_by_id_mut(layout_node_id).unwrap();
         el.box_model = taffy_layout_to_boxmodel(&layout, offset);
@@ -182,10 +188,7 @@ impl TaffyLayouter {
             rstar_tree: rstar::RTree::new(),
         };
 
-        let Some((layout_element_root_id, taffy_root_id)) = self.generate_taffy_element(&mut layout_tree, root_id)
-        else {
-            return None;
-        };
+        let (layout_element_root_id, taffy_root_id) = self.generate_taffy_element(&mut layout_tree, root_id)?;
 
         layout_tree.root_id = layout_element_root_id;
         self.root_id = taffy_root_id;
@@ -252,26 +255,21 @@ impl TaffyLayouter {
         render_node_id: RenderNodeId,
     ) -> Option<(LayoutElementId, TaffyNodeId)> {
         // Find render node and dom node from the layout tree
-        let Some(render_node) = layout_tree.render_tree.get_node_by_id(render_node_id) else {
-            return None;
-        };
-        let Some(dom_node) = layout_tree
+        let render_node = layout_tree.render_tree.get_node_by_id(render_node_id)?;
+        let dom_node = layout_tree
             .render_tree
             .doc
-            .get_node_by_id(DomNodeId::from(render_node.node_id))
-        else {
-            return None;
-        };
+            .get_node_by_id(DomNodeId::from(render_node.node_id))?;
 
         // Extract taffy data from the DOM node
-        let Some((taffy_context, taffy_style)) = self.extract_taffy_data(&layout_tree, &dom_node) else {
+        let Some((taffy_context, taffy_style)) = self.extract_taffy_data(layout_tree, &dom_node) else {
             // Could not extract taffy data from the DOM node
             return None;
         };
 
         // The context will be moved to the taffy tree, so we need to convert it before that happens.
         let element_context = match taffy_context {
-            Some(ref ctx) => to_element_context(Some(&ctx)),
+            Some(ref ctx) => to_element_context(Some(ctx)),
             None => to_element_context(None),
         };
 
@@ -319,7 +317,7 @@ impl TaffyLayouter {
 
             println!("Element {:?} is not an inline", child_node.node_id);
 
-            self.process_inlines(&mut current_inline_group, &mut element_node, leaf_id);
+            self.process_inlines(&current_inline_group, &mut element_node, leaf_id);
             current_inline_group = Vec::new();
 
             // Add this child
@@ -328,7 +326,7 @@ impl TaffyLayouter {
         }
 
         // Deal with any remaining inline elements in the current inline group
-        self.process_inlines(&mut current_inline_group, &mut element_node, leaf_id);
+        self.process_inlines(&current_inline_group, &mut element_node, leaf_id);
 
         // Finally, we can insert the generated element also in the layout-tree. This is the ultimate
         // structure we must return to the rest of the pipeline. Taffy itself will stay internal to this
@@ -411,27 +409,23 @@ impl TaffyLayouter {
                     Some(parent_id) => layout_tree.render_tree.doc.get_node_by_id(parent_id),
                     None => None,
                 };
-                if parent_node.is_none() {
-                    return None;
-                }
+                parent_node?;
 
                 // Default font
                 let mut font_size = DEFAULT_FONT_SIZE;
                 let mut font_family = DEFAULT_FONT_FAMILY.to_string();
 
-                match node_style.get_property(StyleProperty::FontSize) {
-                    Some(StyleValue::Unit(value, unit)) => match unit {
+                if let Some(StyleValue::Unit(value, unit)) = node_style.get_property(StyleProperty::FontSize) {
+                    match unit {
                         Unit::Px => font_size = *value as f64,
                         Unit::Em => panic!("Don't know how to deal with em units for fonts"),
                         Unit::Rem => panic!("Don't know how to deal with rem units for fonts"),
                         _ => panic!("Incorrect font-size property unit"),
-                    },
-                    _ => {}
+                    }
                 }
 
-                match node_style.get_property(StyleProperty::FontFamily) {
-                    Some(StyleValue::Keyword(value)) => font_family = value.clone(),
-                    _ => {}
+                if let Some(StyleValue::Keyword(value)) = node_style.get_property(StyleProperty::FontFamily) {
+                    font_family = value.clone()
                 }
 
                 let font_weight = match node_style.get_property(StyleProperty::FontWeight) {
@@ -558,7 +552,7 @@ fn to_element_context(taffy_context: Option<&TaffyContext>) -> ElementContext {
         Some(TaffyContext::Image(image_ctx)) => ElementContext::image(
             image_ctx.src.as_str(),
             image_ctx.media_id,
-            image_ctx.dimension.clone(),
+            image_ctx.dimension,
             image_ctx.node_id,
         ),
         Some(TaffyContext::Svg(svg_ctx)) => ElementContext::svg(

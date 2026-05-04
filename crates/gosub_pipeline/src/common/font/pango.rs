@@ -1,7 +1,7 @@
 use gtk4::gio::Settings;
-use gtk4::pango;
 use gtk4::pango::Weight;
 use gtk4::prelude::{FontFamilyExt, SettingsExt};
+use pangocairo::pango;
 
 const DEFAULT_FONT_FAMILY: &str = "sans";
 
@@ -28,7 +28,7 @@ pub fn find_available_font(families: &str, ctx: &pango::Context) -> String {
     DEFAULT_FONT_FAMILY.to_string()
 }
 
-pub fn to_pango_weight(w: usize) -> Weight {
+pub fn to_pango_weight(w: i32) -> Weight {
     match w {
         100 => Weight::Thin,
         200 => Weight::Ultralight,
@@ -42,7 +42,7 @@ pub fn to_pango_weight(w: usize) -> Weight {
         800 => Weight::Ultrabold,
         900 => Weight::Heavy,
         1000 => Weight::Ultraheavy,
-        _ => Weight::__Unknown(w as i32),
+        _ => Weight::__Unknown(w),
     }
 }
 

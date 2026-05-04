@@ -89,14 +89,8 @@ impl RenderTree {
     }
 
     pub(crate) fn get_document_node_by_render_id(&self, render_node_id: RenderNodeId) -> Option<&Node> {
-        let Some(node) = self.arena.get(&render_node_id) else {
-            return None;
-        };
-
-        let Some(doc_node) = self.doc.get_node_by_id(NodeId::new(node.node_id.to_u64())) else {
-            return None;
-        };
-
+        let node = self.arena.get(&render_node_id)?;
+        let doc_node = self.doc.get_node_by_id(NodeId::new(node.node_id.to_u64()))?;
         Some(doc_node)
     }
 }
@@ -134,13 +128,10 @@ impl RenderTree {
                     return false;
                 }
 
-                match element.get_style(StyleProperty::Display) {
-                    Some(StyleValue::Display(display)) => {
-                        if *display == CssDisplay::None {
-                            return false;
-                        }
+                if let Some(StyleValue::Display(display)) = element.get_style(StyleProperty::Display) {
+                    if *display == CssDisplay::None {
+                        return false;
                     }
-                    _ => {}
                 }
 
                 true
@@ -149,9 +140,7 @@ impl RenderTree {
     }
 
     fn build_rendertree(&mut self, node_id: NodeId) -> Option<RenderNodeId> {
-        let Some(node) = self.doc.get_node_by_id(node_id) else {
-            return None;
-        };
+        let node = self.doc.get_node_by_id(node_id)?;
 
         if !self.is_visible(node) {
             return None;

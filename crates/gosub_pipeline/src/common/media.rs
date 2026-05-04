@@ -1,6 +1,7 @@
 mod image;
 mod svg;
 
+#[allow(clippy::module_inception)]
 mod media;
 mod media_store;
 
