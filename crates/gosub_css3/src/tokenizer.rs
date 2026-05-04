@@ -358,11 +358,6 @@ impl<'stream> Tokenizer<'stream> {
                 Token::new(TokenType::Delim('\u{FFFD}'), loc)
             }
             Character::StreamEnd => Token::new(TokenType::Eof, loc),
-            Character::StreamEmpty => {
-                // @todo: we are in a situation where we don't have more characters yet, but the stream is still open. We should wait
-                // for more characters to come in.
-                Token::new(TokenType::Eof, loc)
-            }
             Ch(c) if c.is_whitespace() => {
                 self.consume_whitespace();
                 Token::new(TokenType::Whitespace(c.to_string()), loc)

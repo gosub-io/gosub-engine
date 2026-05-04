@@ -1,4 +1,3 @@
-use std::cell::{Cell, RefCell};
 use std::char::REPLACEMENT_CHARACTER;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::Read;
@@ -34,13 +33,11 @@ pub enum Character {
     Ch(char),
     /// Surrogate character (since they cannot be stored in char)
     Surrogate(u16),
-    /// Stream buffer empty and closed
+    /// Stream buffer empty and closed (or open but exhausted)
     StreamEnd,
-    /// Stream buffer empty (but not closed)
-    StreamEmpty,
 }
 
-use Character::{Ch, StreamEmpty, StreamEnd, Surrogate};
+use Character::{Ch, StreamEnd, Surrogate};
 
 /// Converts the given character to a char. This is only valid for UTF8 characters. Surrogate
 /// and EOF characters are converted to 0x0000
@@ -48,8 +45,7 @@ impl From<&Character> for char {
     fn from(c: &Character) -> Self {
         match c {
             Ch(c) => *c,
-            Surrogate(..) => 0x0000 as char,
-            StreamEmpty | StreamEnd => 0x0000 as char,
+            Surrogate(..) | StreamEnd => 0x0000 as char,
         }
     }
 }
@@ -58,8 +54,7 @@ impl From<Character> for char {
     fn from(c: Character) -> Self {
         match c {
             Ch(c) => c,
-            Surrogate(..) => 0x0000 as char,
-            StreamEmpty | StreamEnd => 0x0000 as char,
+            Surrogate(..) | StreamEnd => 0x0000 as char,
         }
     }
 }
@@ -70,7 +65,6 @@ impl fmt::Display for Character {
             Ch(ch) => write!(f, "{ch}"),
             Surrogate(surrogate) => write!(f, "U+{surrogate:04X}"),
             StreamEnd => write!(f, "StreamEnd"),
-            StreamEmpty => write!(f, "StreamEmpty"),
         }
     }
 }
@@ -122,7 +116,7 @@ pub struct ByteStream {
     /// Byte offset of each decoded character in `buffer`
     char_byte_offsets: Vec<usize>,
     /// Current position in the decoded chars array
-    char_pos: Cell<usize>,
+    char_pos: usize,
     /// True when the stream is closed (no more data will be added)
     closed: bool,
     /// Current encoding
@@ -130,9 +124,9 @@ pub struct ByteStream {
     /// Configuration for the stream
     config: Config,
     /// Current line/column/offset position
-    cur_location: Cell<Location>,
+    cur_location: Location,
     /// Column widths of previous lines, used to restore column on dec()
-    column_stack: RefCell<Vec<usize>>,
+    column_stack: Vec<usize>,
 }
 
 /// Opaque snapshot of stream position and location for mark/reset.
@@ -144,35 +138,35 @@ pub struct StreamMark {
 
 /// Generic stream trait
 pub trait Stream {
-    /// Read current character
+    /// Read current character without advancing
     fn read(&self) -> Character;
     /// Read current character and advance to next
-    fn read_and_next(&self) -> Character;
-    /// Look ahead in the stream
+    fn read_and_next(&mut self) -> Character;
+    /// Look ahead without advancing
     fn look_ahead(&self, offset: usize) -> Character;
     /// Advance with 1 character
-    fn next(&self);
+    fn next(&mut self);
     /// Advance with offset characters
-    fn next_n(&self, offset: usize);
+    fn next_n(&mut self, offset: usize);
     /// Unread the current character
-    fn prev(&self);
+    fn prev(&mut self);
     /// Unread n characters
-    fn prev_n(&self, n: usize);
-    // Seek to a specific position in bytes!
-    fn seek_bytes(&self, offset: usize);
-    // Tell the current position in bytes
+    fn prev_n(&mut self, n: usize);
+    /// Seek to a specific position in bytes
+    fn seek_bytes(&mut self, offset: usize);
+    /// Return the current position in bytes
     fn tell_bytes(&self) -> usize;
-    /// Retrieves a slice of the buffer
-    fn get_slice(&self, len: usize) -> Vec<Character>;
+    /// Retrieves a slice of the buffer without advancing
+    fn get_slice(&mut self, len: usize) -> Vec<Character>;
     /// Resets the stream back to the start position
-    fn reset_stream(&self);
+    fn reset_stream(&mut self);
     /// Closes the stream (no more data can be added)
     fn close(&mut self);
     /// Returns true when the stream is closed
     fn closed(&self) -> bool;
-    /// Returns true when the stream is empty (but still open)
+    /// Returns true when the stream is exhausted (position past all chars)
     fn exhausted(&self) -> bool;
-    /// Returns true when the stream is closed and empty
+    /// Returns true when the stream is closed and exhausted
     fn eof(&self) -> bool;
     /// Returns the current line/column/offset location
     fn location(&self) -> Location;
@@ -186,25 +180,22 @@ impl Default for ByteStream {
 
 impl Stream for ByteStream {
     fn read(&self) -> Character {
-        let pos = self.char_pos.get();
-        if pos < self.chars.len() {
-            self.chars[pos]
-        } else if self.closed {
-            StreamEnd
+        if self.char_pos < self.chars.len() {
+            self.chars[self.char_pos]
         } else {
-            StreamEmpty
+            StreamEnd
         }
     }
 
-    fn read_and_next(&self) -> Character {
+    fn read_and_next(&mut self) -> Character {
         let ch = self.read();
-        if matches!(ch, StreamEnd | StreamEmpty) {
+        if matches!(ch, StreamEnd) {
             return ch;
         }
-        self.char_pos.set(self.char_pos.get() + 1);
+        self.char_pos += 1;
 
         let returned = if self.config.cr_lf_as_one && ch == Ch(CHAR_CR) && self.read() == Ch(CHAR_LF) {
-            self.char_pos.set(self.char_pos.get() + 1);
+            self.char_pos += 1;
             Ch(CHAR_LF)
         } else if self.config.replace_cr_as_lf && ch == Ch(CHAR_CR) && self.read() != Ch(CHAR_LF) {
             Ch(CHAR_LF)
@@ -217,51 +208,46 @@ impl Stream for ByteStream {
     }
 
     fn look_ahead(&self, offset: usize) -> Character {
-        let pos = self.char_pos.get() + offset;
+        let pos = self.char_pos + offset;
         if pos < self.chars.len() {
             self.chars[pos]
-        } else if self.closed {
-            StreamEnd
         } else {
-            StreamEmpty
+            StreamEnd
         }
     }
 
-    fn next(&self) {
+    fn next(&mut self) {
         self.next_n(1);
     }
 
-    fn next_n(&self, offset: usize) {
-        let new_pos = (self.char_pos.get() + offset).min(self.chars.len());
-        self.char_pos.set(new_pos);
+    fn next_n(&mut self, offset: usize) {
+        self.char_pos = (self.char_pos + offset).min(self.chars.len());
     }
 
-    fn prev(&self) {
+    fn prev(&mut self) {
         self.prev_n(1);
     }
 
-    fn prev_n(&self, n: usize) {
+    fn prev_n(&mut self, n: usize) {
         for _ in 0..n {
-            self.char_pos.set(self.char_pos.get().saturating_sub(1));
+            self.char_pos = self.char_pos.saturating_sub(1);
             if self.config.cr_lf_as_one && self.read() == Ch(CHAR_CR) && self.look_ahead(1) == Ch(CHAR_LF) {
-                self.char_pos.set(self.char_pos.get().saturating_sub(1));
+                self.char_pos = self.char_pos.saturating_sub(1);
             }
             self.loc_dec();
         }
     }
 
-    fn seek_bytes(&self, offset: usize) {
-        // Find the first char whose byte offset is >= the requested offset
+    fn seek_bytes(&mut self, offset: usize) {
         let pos = self.char_byte_offsets.partition_point(|&b| b < offset);
-        self.char_pos.set(pos.min(self.chars.len()));
+        self.char_pos = pos.min(self.chars.len());
     }
 
     fn tell_bytes(&self) -> usize {
-        let pos = self.char_pos.get();
-        self.char_byte_offsets.get(pos).copied().unwrap_or(self.buffer.len())
+        self.char_byte_offsets.get(self.char_pos).copied().unwrap_or(self.buffer.len())
     }
 
-    fn get_slice(&self, len: usize) -> Vec<Character> {
+    fn get_slice(&mut self, len: usize) -> Vec<Character> {
         let mark = self.mark();
         let mut slice = Vec::with_capacity(len);
         for _ in 0..len {
@@ -271,10 +257,10 @@ impl Stream for ByteStream {
         slice
     }
 
-    fn reset_stream(&self) {
-        self.char_pos.set(0);
-        self.cur_location.set(Location::default());
-        self.column_stack.borrow_mut().clear();
+    fn reset_stream(&mut self) {
+        self.char_pos = 0;
+        self.cur_location = Location::default();
+        self.column_stack.clear();
     }
 
     fn close(&mut self) {
@@ -286,7 +272,7 @@ impl Stream for ByteStream {
     }
 
     fn exhausted(&self) -> bool {
-        self.char_pos.get() >= self.chars.len()
+        self.char_pos >= self.chars.len()
     }
 
     fn eof(&self) -> bool {
@@ -294,7 +280,7 @@ impl Stream for ByteStream {
     }
 
     fn location(&self) -> Location {
-        self.cur_location.get()
+        self.cur_location
     }
 }
 
@@ -303,59 +289,56 @@ impl ByteStream {
     pub fn new(encoding: Encoding, config: Option<Config>) -> Self {
         Self {
             config: config.unwrap_or_default(),
-            char_pos: Cell::new(0),
+            char_pos: 0,
             buffer: Vec::new(),
             chars: Vec::new(),
             char_byte_offsets: Vec::new(),
             closed: false,
             encoding,
-            cur_location: Cell::new(Location::default()),
-            column_stack: RefCell::new(Vec::new()),
+            cur_location: Location::default(),
+            column_stack: Vec::new(),
         }
     }
 
     /// Take a snapshot of the current position and location for later restoration.
     pub fn mark(&self) -> StreamMark {
         StreamMark {
-            char_pos: self.char_pos.get(),
-            location: self.cur_location.get(),
-            column_stack: self.column_stack.borrow().clone(),
+            char_pos: self.char_pos,
+            location: self.cur_location,
+            column_stack: self.column_stack.clone(),
         }
     }
 
     /// Restore position and location to a previously saved mark.
-    pub fn reset_to_mark(&self, mark: StreamMark) {
-        self.char_pos.set(mark.char_pos);
-        self.cur_location.set(mark.location);
-        *self.column_stack.borrow_mut() = mark.column_stack;
+    pub fn reset_to_mark(&mut self, mark: StreamMark) {
+        self.char_pos = mark.char_pos;
+        self.cur_location = mark.location;
+        self.column_stack = mark.column_stack;
     }
 
-    fn loc_inc(&self, ch: Character) {
-        let mut loc = self.cur_location.get();
+    fn loc_inc(&mut self, ch: Character) {
         match ch {
             Ch(CHAR_LF) => {
-                self.column_stack.borrow_mut().push(loc.column);
-                loc.line += 1;
-                loc.column = 1;
-                loc.offset += 1;
-                self.cur_location.set(loc);
+                self.column_stack.push(self.cur_location.column);
+                self.cur_location.line += 1;
+                self.cur_location.column = 1;
+                self.cur_location.offset += 1;
             }
             Ch(_) => {
-                loc.column += 1;
-                loc.offset += 1;
-                self.cur_location.set(loc);
+                self.cur_location.column += 1;
+                self.cur_location.offset += 1;
             }
             _ => {}
         }
     }
 
-    fn loc_dec(&self) {
-        let loc = self.cur_location.get();
+    fn loc_dec(&mut self) {
+        let loc = self.cur_location;
         if loc.column > 1 {
-            self.cur_location.set(Location::new(loc.line, loc.column - 1, loc.offset - 1));
+            self.cur_location = Location::new(loc.line, loc.column - 1, loc.offset - 1);
         } else if loc.line > 1 {
-            let prev_col = self.column_stack.borrow_mut().pop().unwrap_or(1);
-            self.cur_location.set(Location::new(loc.line - 1, prev_col, loc.offset - 1));
+            let prev_col = self.column_stack.pop().unwrap_or(1);
+            self.cur_location = Location::new(loc.line - 1, prev_col, loc.offset - 1);
         }
     }
 
@@ -439,10 +422,10 @@ impl ByteStream {
     }
 
     pub fn append_str(&mut self, s: &str) {
-        let saved = self.char_pos.get();
+        let saved = self.char_pos;
         self.buffer.extend_from_slice(s.as_bytes());
         self.decode_buffer();
-        self.char_pos.set(saved.min(self.chars.len()));
+        self.char_pos = saved.min(self.chars.len());
     }
 
     pub fn close(&mut self) {
@@ -460,7 +443,7 @@ impl ByteStream {
 
     #[cfg(test)]
     fn chars_left(&self) -> usize {
-        self.chars.len() - self.char_pos.get()
+        self.chars.len() - self.char_pos
     }
 }
 
@@ -506,7 +489,7 @@ impl ByteStream {
         self.decode_buffer();
         // Remap char_pos to the same byte offset in the newly-decoded buffer
         let new_pos = self.char_byte_offsets.partition_point(|&b| b < current_byte_offset);
-        self.char_pos.set(new_pos.min(self.chars.len()));
+        self.char_pos = new_pos.min(self.chars.len());
     }
 }
 
@@ -601,14 +584,13 @@ impl LocationHandler {
                 self.cur_location.column += 1;
                 self.cur_location.offset += 1;
             }
-            StreamEnd | StreamEmpty => {}
             _ => {}
         }
     }
 }
 
 /// Decode one UTF-8 character from the start of `buf`. Returns `(Character, bytes_consumed)`.
-/// Returns `(StreamEmpty, 0)` for an incomplete sequence at the end of an open stream.
+/// Returns `(StreamEnd, 0)` for an incomplete sequence at the end of an open stream (signals loop stop).
 fn decode_one_utf8(buf: &[u8], closed: bool) -> (Character, usize) {
     match std::str::from_utf8(buf) {
         Ok(s) => {
@@ -627,7 +609,7 @@ fn decode_one_utf8(buf: &[u8], closed: bool) -> (Character, usize) {
                         if closed {
                             (Ch(REPLACEMENT_CHARACTER), buf.len())
                         } else {
-                            (StreamEmpty, 0)
+                            (StreamEnd, 0)
                         }
                     }
                 }
@@ -788,14 +770,14 @@ mod test {
         assert_eq!(stream.read_and_next(), Ch('a'));
         assert_eq!(stream.read_and_next(), Ch('b'));
         assert_eq!(stream.read_and_next(), Ch('c'));
-        assert!(matches!(stream.read_and_next(), StreamEmpty));
-        assert!(matches!(stream.read_and_next(), StreamEmpty));
+        assert!(matches!(stream.read_and_next(), StreamEnd));
+        assert!(matches!(stream.read_and_next(), StreamEnd));
 
         stream.append_str("def");
         assert_eq!(stream.read_and_next(), Ch('d'));
         assert_eq!(stream.read_and_next(), Ch('e'));
         assert_eq!(stream.read_and_next(), Ch('f'));
-        assert!(matches!(stream.read_and_next(), StreamEmpty));
+        assert!(matches!(stream.read_and_next(), StreamEnd));
 
         stream.append_str("ghi");
         stream.close();
