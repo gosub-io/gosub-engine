@@ -1824,10 +1824,7 @@ mod test {
 
     #[test]
     fn parse_css_seq_5() {
-        let mut stream = ByteStream::from_str(
-            "test { color: #123; background-color: #11223344 }",
-            Encoding::UTF8,
-        );
+        let mut stream = ByteStream::from_str("test { color: #123; background-color: #11223344 }", Encoding::UTF8);
 
         let tokens = vec![
             Token::new_ident("test", Location::default()),
@@ -1858,10 +1855,7 @@ mod test {
 
     #[test]
     fn location() {
-        let mut stream = ByteStream::from_str(
-            "test { color: #123; background-color: #11223344 }",
-            Encoding::UTF8,
-        );
+        let mut stream = ByteStream::from_str("test { color: #123; background-color: #11223344 }", Encoding::UTF8);
 
         let tokens = vec![
             Token::new_ident("test", Location::new(1, 1, 0)),

@@ -244,7 +244,10 @@ impl Stream for ByteStream {
     }
 
     fn tell_bytes(&self) -> usize {
-        self.char_byte_offsets.get(self.char_pos).copied().unwrap_or(self.buffer.len())
+        self.char_byte_offsets
+            .get(self.char_pos)
+            .copied()
+            .unwrap_or(self.buffer.len())
     }
 
     fn get_slice(&mut self, len: usize) -> Vec<Character> {
@@ -384,7 +387,10 @@ impl ByteStream {
                 while byte_pos + 2 <= self.buffer.len() {
                     let cu = u16::from_le_bytes([self.buffer[byte_pos], self.buffer[byte_pos + 1]]);
                     let next = if byte_pos + 4 <= self.buffer.len() {
-                        Some(u16::from_le_bytes([self.buffer[byte_pos + 2], self.buffer[byte_pos + 3]]))
+                        Some(u16::from_le_bytes([
+                            self.buffer[byte_pos + 2],
+                            self.buffer[byte_pos + 3],
+                        ]))
                     } else {
                         None
                     };
@@ -399,7 +405,10 @@ impl ByteStream {
                 while byte_pos + 2 <= self.buffer.len() {
                     let cu = u16::from_be_bytes([self.buffer[byte_pos], self.buffer[byte_pos + 1]]);
                     let next = if byte_pos + 4 <= self.buffer.len() {
-                        Some(u16::from_be_bytes([self.buffer[byte_pos + 2], self.buffer[byte_pos + 3]]))
+                        Some(u16::from_be_bytes([
+                            self.buffer[byte_pos + 2],
+                            self.buffer[byte_pos + 3],
+                        ]))
                     } else {
                         None
                     };
@@ -538,7 +547,6 @@ impl Debug for Location {
         write!(f, "({}:{})", self.line, self.column)
     }
 }
-
 
 /// Decode one UTF-8 character from the start of `buf`. Returns `(Character, bytes_consumed)`.
 /// Returns `(StreamEnd, 0)` for an incomplete sequence at the end of an open stream (signals loop stop).
@@ -724,7 +732,11 @@ mod test {
     fn test_replace_cr_as_lf() {
         let mut stream = ByteStream::new(
             Encoding::UTF8,
-            Some(Config { cr_lf_as_one: false, replace_cr_as_lf: true, replace_high_ascii: false }),
+            Some(Config {
+                cr_lf_as_one: false,
+                replace_cr_as_lf: true,
+                replace_high_ascii: false,
+            }),
         );
         stream.read_from_str("a\rb\r\nc", Some(Encoding::UTF8));
         stream.close();
@@ -810,7 +822,11 @@ mod test {
         // Without replace_high_ascii: bytes 0xE9 (é) and 0xFC (ü) pass through as char
         let mut stream = ByteStream::new(
             Encoding::Latin1,
-            Some(Config { cr_lf_as_one: false, replace_cr_as_lf: false, replace_high_ascii: false }),
+            Some(Config {
+                cr_lf_as_one: false,
+                replace_cr_as_lf: false,
+                replace_high_ascii: false,
+            }),
         );
         stream.read_from_bytes(&[0x41, 0xE9, 0xFC]).unwrap(); // A, é, ü
         assert_eq!(stream.read_and_next(), Ch('A'));
@@ -822,7 +838,11 @@ mod test {
     fn test_latin1_replace_high_ascii() {
         let mut stream = ByteStream::new(
             Encoding::Latin1,
-            Some(Config { cr_lf_as_one: false, replace_cr_as_lf: false, replace_high_ascii: true }),
+            Some(Config {
+                cr_lf_as_one: false,
+                replace_cr_as_lf: false,
+                replace_high_ascii: true,
+            }),
         );
         stream.read_from_bytes(&[0x41, 0xE9, 0x42]).unwrap(); // A, é (replaced), B
         assert_eq!(stream.read_and_next(), Ch('A'));
@@ -1195,5 +1215,4 @@ mod test {
         stream.prev_n(4);
         assert_eq!(stream.read_and_next(), Ch('c'));
     }
-
 }
