@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::char::REPLACEMENT_CHARACTER;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::Read;
@@ -115,15 +115,19 @@ impl Default for Config {
 }
 
 pub struct ByteStream {
-    /// Actual buffer stream in u8 bytes
+    /// Raw bytes of the source data
     buffer: Vec<u8>,
-    /// Current position in the stream
-    buffer_pos: RefCell<usize>,
-    /// True when the buffer is empty and not yet have a closed stream
+    /// Pre-decoded characters (filled by decode_buffer)
+    chars: Vec<Character>,
+    /// Byte offset of each decoded character in `buffer`
+    char_byte_offsets: Vec<usize>,
+    /// Current position in the decoded chars array
+    char_pos: Cell<usize>,
+    /// True when the stream is closed (no more data will be added)
     closed: bool,
     /// Current encoding
     encoding: Encoding,
-    // Configuration for the stream
+    /// Configuration for the stream
     config: Config,
 }
 
@@ -168,28 +172,28 @@ impl Default for ByteStream {
 }
 
 impl Stream for ByteStream {
-    /// Read the current character
     fn read(&self) -> Character {
-        let (ch, _) = self.read_with_length();
-        ch
+        let pos = self.char_pos.get();
+        if pos < self.chars.len() {
+            self.chars[pos]
+        } else if self.closed {
+            StreamEnd
+        } else {
+            StreamEmpty
+        }
     }
 
-    /// Read a character and advance to the next
     fn read_and_next(&self) -> Character {
-        let (ch, len) = self.read_with_length();
-
-        {
-            let mut pos = self.buffer_pos.borrow_mut();
-            *pos += len;
+        let ch = self.read();
+        if matches!(ch, StreamEnd | StreamEmpty) {
+            return ch;
         }
+        self.char_pos.set(self.char_pos.get() + 1);
 
-        // Make sure we skip the CR if it is followed by a LF
         if self.config.cr_lf_as_one && ch == Ch(CHAR_CR) && self.read() == Ch(CHAR_LF) {
-            self.next();
+            self.char_pos.set(self.char_pos.get() + 1);
             return Ch(CHAR_LF);
         }
-
-        // Replace CR with LF if it is not followed by a LF
         if self.config.replace_cr_as_lf && ch == Ch(CHAR_CR) && self.read() != Ch(CHAR_LF) {
             return Ch(CHAR_LF);
         }
@@ -197,237 +201,191 @@ impl Stream for ByteStream {
         ch
     }
 
-    /// Looks ahead in the stream, can use an optional index if we want to seek further
-    /// (or back) in the stream.
     fn look_ahead(&self, offset: usize) -> Character {
-        if self.buffer.is_empty() {
-            return StreamEnd;
+        let pos = self.char_pos.get() + offset;
+        if pos < self.chars.len() {
+            self.chars[pos]
+        } else if self.closed {
+            StreamEnd
+        } else {
+            StreamEmpty
         }
-
-        let original_pos = *self.buffer_pos.borrow();
-
-        self.next_n(offset);
-        let ch = self.read();
-
-        let mut pos = self.buffer_pos.borrow_mut();
-        *pos = original_pos;
-
-        ch
     }
 
-    /// Returns the next character in the stream
     fn next(&self) {
         self.next_n(1);
     }
 
-    /// Returns the n'th character in the stream
     fn next_n(&self, offset: usize) {
-        for _ in 0..offset {
-            let (_, len) = self.read_with_length();
-            if len == 0 {
-                return;
-            }
-
-            let mut pos = self.buffer_pos.borrow_mut();
-            *pos += len;
-        }
+        let new_pos = (self.char_pos.get() + offset).min(self.chars.len());
+        self.char_pos.set(new_pos);
     }
 
-    /// Unread the current character
     fn prev(&self) {
         self.prev_n(1);
     }
 
-    /// Unread n characters
     fn prev_n(&self, n: usize) {
-        // No need for extra checks, so we can just move back n characters
         if !self.config.cr_lf_as_one {
-            self.move_back(n);
+            self.char_pos.set(self.char_pos.get().saturating_sub(n));
             return;
         }
-
-        // We need to loop n times, as we might encounter CR/LF pairs we need to take into account
         for _ in 0..n {
-            self.move_back(1);
-
-            if self.config.cr_lf_as_one && self.read() == Ch(CHAR_CR) && self.look_ahead(1) == Ch(CHAR_LF) {
-                self.move_back(1);
+            self.char_pos.set(self.char_pos.get().saturating_sub(1));
+            if self.read() == Ch(CHAR_CR) && self.look_ahead(1) == Ch(CHAR_LF) {
+                self.char_pos.set(self.char_pos.get().saturating_sub(1));
             }
         }
     }
 
-    /// Seeks to a specific position in the stream
     fn seek_bytes(&self, offset: usize) {
-        let mut pos = self.buffer_pos.borrow_mut();
-        *pos = offset;
+        // Find the first char whose byte offset is >= the requested offset
+        let pos = self.char_byte_offsets.partition_point(|&b| b < offset);
+        self.char_pos.set(pos.min(self.chars.len()));
     }
 
     fn tell_bytes(&self) -> usize {
-        *self.buffer_pos.borrow()
+        let pos = self.char_pos.get();
+        self.char_byte_offsets.get(pos).copied().unwrap_or(self.buffer.len())
     }
 
-    /// Retrieves a slice of the buffer
     fn get_slice(&self, len: usize) -> Vec<Character> {
-        let current_pos = self.tell_bytes();
-
+        let saved = self.char_pos.get();
         let mut slice = Vec::with_capacity(len);
         for _ in 0..len {
             slice.push(self.read_and_next());
         }
-
-        self.seek_bytes(current_pos);
-
-        slice.clone()
+        self.char_pos.set(saved);
+        slice
     }
 
-    /// Resets the stream to the first character of the stream
     fn reset_stream(&self) {
-        let mut pos = self.buffer_pos.borrow_mut();
-        *pos = 0;
+        self.char_pos.set(0);
     }
 
-    /// Closes the stream so no more data can be added
     fn close(&mut self) {
         self.closed = true;
     }
 
-    /// Returns true when the stream is closed and no more input can be read after this buffer
-    /// is emptied
     fn closed(&self) -> bool {
         self.closed
     }
 
-    /// Returns true when the buffer is empty and there is no more input to read
-    /// Note that it does not check if the stream is closed. Use `closed` for that.
     fn exhausted(&self) -> bool {
-        *self.buffer_pos.borrow() >= self.buffer.len()
+        self.char_pos.get() >= self.chars.len()
     }
 
-    /// Returns true when the stream is closed and all the bytes have been read
     fn eof(&self) -> bool {
         self.closed() && self.exhausted()
     }
 }
 
 impl ByteStream {
-    /// Create a new default empty input stream
     #[must_use]
     pub fn new(encoding: Encoding, config: Option<Config>) -> Self {
         Self {
             config: config.unwrap_or_default(),
-            buffer_pos: RefCell::new(0),
+            char_pos: Cell::new(0),
             buffer: Vec::new(),
+            chars: Vec::new(),
+            char_byte_offsets: Vec::new(),
             closed: false,
             encoding,
         }
     }
 
-    // Read the character and return it together with the number of bytes the character took
-    fn read_with_length(&self) -> (Character, usize) {
-        if self.eof() || self.buffer.is_empty() || *self.buffer_pos.borrow() >= self.buffer.len() {
-            if self.closed {
-                return (StreamEnd, 0);
-            }
-            return (StreamEmpty, 0);
-        }
-
-        let buf_pos = self.buffer_pos.borrow();
+    /// Decode `self.buffer` into `self.chars` and `self.char_byte_offsets` using the current encoding.
+    fn decode_buffer(&mut self) {
+        self.chars.clear();
+        self.char_byte_offsets.clear();
 
         match self.encoding {
-            Encoding::UNKNOWN => {
-                todo!("Unknown encoding. Please detect encoding first");
-            }
+            Encoding::UNKNOWN => {}
             Encoding::ASCII => {
-                if *buf_pos >= self.buffer.len() {
-                    if self.closed {
-                        return (StreamEnd, 0);
+                for (i, &byte) in self.buffer.iter().enumerate() {
+                    self.char_byte_offsets.push(i);
+                    if self.config.replace_high_ascii && byte > 127 {
+                        self.chars.push(Ch('?'));
+                    } else {
+                        self.chars.push(Ch(byte as char));
                     }
-                    return (StreamEmpty, 0);
-                }
-
-                if self.config.replace_high_ascii && self.buffer[*buf_pos] > 127 {
-                    (Ch('?'), 1)
-                } else {
-                    (Ch(self.buffer[*buf_pos] as char), 1)
                 }
             }
             Encoding::UTF8 => {
-                let remaining = &self.buffer[*buf_pos..];
-                match std::str::from_utf8(remaining) {
-                    Ok(s) => {
-                        let ch = s.chars().next().expect("non-empty remaining buffer");
-                        (Ch(ch), ch.len_utf8())
+                let mut byte_pos = 0;
+                while byte_pos < self.buffer.len() {
+                    let (ch, len) = decode_one_utf8(&self.buffer[byte_pos..], self.closed);
+                    if len == 0 {
+                        break; // incomplete sequence at end of open stream — stop
                     }
-                    Err(e) => {
-                        if e.valid_up_to() > 0 {
-                            // At least one valid char precedes the invalid byte — decode it
-                            let s = unsafe { std::str::from_utf8_unchecked(&remaining[..e.valid_up_to()]) };
-                            let ch = s.chars().next().expect("valid_up_to > 0");
-                            (Ch(ch), ch.len_utf8())
-                        } else {
-                            match e.error_len() {
-                                Some(n) => (Ch(REPLACEMENT_CHARACTER), n), // invalid sequence — skip it
-                                None => (StreamEmpty, remaining.len()),    // incomplete sequence at buffer end
-                            }
-                        }
-                    }
+                    self.char_byte_offsets.push(byte_pos);
+                    self.chars.push(ch);
+                    byte_pos += len;
                 }
             }
             Encoding::UTF16LE => {
-                if *buf_pos + 2 > self.buffer.len() {
-                    return (StreamEmpty, 1);
-                }
-                let cu = u16::from_le_bytes([self.buffer[*buf_pos], self.buffer[*buf_pos + 1]]);
-                decode_utf16_char(cu, || {
-                    if *buf_pos + 4 <= self.buffer.len() {
-                        Some(u16::from_le_bytes([self.buffer[*buf_pos + 2], self.buffer[*buf_pos + 3]]))
+                let mut byte_pos = 0;
+                while byte_pos + 2 <= self.buffer.len() {
+                    let cu = u16::from_le_bytes([self.buffer[byte_pos], self.buffer[byte_pos + 1]]);
+                    let next = if byte_pos + 4 <= self.buffer.len() {
+                        Some(u16::from_le_bytes([self.buffer[byte_pos + 2], self.buffer[byte_pos + 3]]))
                     } else {
                         None
-                    }
-                })
+                    };
+                    let (ch, len) = decode_utf16_char(cu, || next);
+                    self.char_byte_offsets.push(byte_pos);
+                    self.chars.push(ch);
+                    byte_pos += len;
+                }
             }
             Encoding::UTF16BE => {
-                if *buf_pos + 2 > self.buffer.len() {
-                    return (StreamEmpty, 1);
-                }
-                let cu = u16::from_be_bytes([self.buffer[*buf_pos], self.buffer[*buf_pos + 1]]);
-                decode_utf16_char(cu, || {
-                    if *buf_pos + 4 <= self.buffer.len() {
-                        Some(u16::from_be_bytes([self.buffer[*buf_pos + 2], self.buffer[*buf_pos + 3]]))
+                let mut byte_pos = 0;
+                while byte_pos + 2 <= self.buffer.len() {
+                    let cu = u16::from_be_bytes([self.buffer[byte_pos], self.buffer[byte_pos + 1]]);
+                    let next = if byte_pos + 4 <= self.buffer.len() {
+                        Some(u16::from_be_bytes([self.buffer[byte_pos + 2], self.buffer[byte_pos + 3]]))
                     } else {
                         None
-                    }
-                })
+                    };
+                    let (ch, len) = decode_utf16_char(cu, || next);
+                    self.char_byte_offsets.push(byte_pos);
+                    self.chars.push(ch);
+                    byte_pos += len;
+                }
             }
         }
     }
 
-    /// Populates the current buffer with the contents of given file f
     pub fn read_from_file(&mut self, mut f: impl Read) -> io::Result<()> {
         f.read_to_end(&mut self.buffer)?;
         self.close();
+        self.decode_buffer();
         self.reset_stream();
         Ok(())
     }
 
-    /// Populates the current buffer with the contents of the given string s
     pub fn read_from_str(&mut self, s: &str, encoding: Option<Encoding>) {
         self.buffer = Vec::from(s.as_bytes());
         if let Some(enc) = encoding {
             self.encoding = enc;
         }
+        self.decode_buffer();
         self.reset_stream();
     }
 
     pub fn append_str(&mut self, s: &str) {
+        let saved = self.char_pos.get();
         self.buffer.extend_from_slice(s.as_bytes());
+        self.decode_buffer();
+        self.char_pos.set(saved.min(self.chars.len()));
     }
 
     pub fn close(&mut self) {
         self.closed = true;
+        // Re-decode so any trailing incomplete sequence is resolved
+        self.decode_buffer();
     }
 
-    /// Read directly from bytes
     pub fn read_from_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.buffer = bytes.to_vec();
         self.close();
@@ -435,50 +393,9 @@ impl ByteStream {
         Ok(())
     }
 
-    /// Returns the number of characters left in the buffer
     #[cfg(test)]
     fn chars_left(&self) -> usize {
-        self.buffer.len() - *self.buffer_pos.borrow()
-    }
-
-    // Moves back n characters in the stream
-    fn move_back(&self, n: usize) {
-        let mut pos = self.buffer_pos.borrow_mut();
-
-        match self.encoding {
-            Encoding::ASCII => {
-                if *pos > n {
-                    *pos -= n;
-                } else {
-                    *pos = 0;
-                }
-            }
-            Encoding::UTF8 => {
-                let mut n = n;
-                while n > 0 && *pos > 0 {
-                    *pos -= 1;
-
-                    if self.buffer[*pos] & 0b1100_0000 != 0b1000_0000 {
-                        n -= 1;
-                    }
-                }
-            }
-            Encoding::UTF16LE => {
-                if *pos > n * 2 {
-                    *pos -= n * 2;
-                } else {
-                    *pos = 0;
-                }
-            }
-            Encoding::UTF16BE => {
-                if *pos > n * 2 {
-                    *pos -= n * 2;
-                } else {
-                    *pos = 0;
-                }
-            }
-            _ => {}
-        }
+        self.chars.len() - self.char_pos.get()
     }
 }
 
@@ -518,10 +435,13 @@ impl ByteStream {
         }
     }
 
-    /// Changes the encoding that the decoder uses to read the buffer. Note that this does not reset
-    /// the buffer, so it might start on a non-valid character.
     pub fn set_encoding(&mut self, e: Encoding) {
+        let current_byte_offset = self.tell_bytes();
         self.encoding = e;
+        self.decode_buffer();
+        // Remap char_pos to the same byte offset in the newly-decoded buffer
+        let new_pos = self.char_byte_offsets.partition_point(|&b| b < current_byte_offset);
+        self.char_pos.set(new_pos.min(self.chars.len()));
     }
 }
 
@@ -618,6 +538,35 @@ impl LocationHandler {
             }
             StreamEnd | StreamEmpty => {}
             _ => {}
+        }
+    }
+}
+
+/// Decode one UTF-8 character from the start of `buf`. Returns `(Character, bytes_consumed)`.
+/// Returns `(StreamEmpty, 0)` for an incomplete sequence at the end of an open stream.
+fn decode_one_utf8(buf: &[u8], closed: bool) -> (Character, usize) {
+    match std::str::from_utf8(buf) {
+        Ok(s) => {
+            let ch = s.chars().next().expect("non-empty buf");
+            (Ch(ch), ch.len_utf8())
+        }
+        Err(e) => {
+            if e.valid_up_to() > 0 {
+                let s = unsafe { std::str::from_utf8_unchecked(&buf[..e.valid_up_to()]) };
+                let ch = s.chars().next().expect("valid_up_to > 0");
+                (Ch(ch), ch.len_utf8())
+            } else {
+                match e.error_len() {
+                    Some(n) => (Ch(REPLACEMENT_CHARACTER), n),
+                    None => {
+                        if closed {
+                            (Ch(REPLACEMENT_CHARACTER), buf.len())
+                        } else {
+                            (StreamEmpty, 0)
+                        }
+                    }
+                }
+            }
         }
     }
 }
