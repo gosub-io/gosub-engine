@@ -224,8 +224,14 @@ impl Stream for ByteStream {
     fn prev_n(&mut self, n: usize) {
         for _ in 0..n {
             self.char_pos = self.char_pos.saturating_sub(1);
-            if self.config.cr_lf_as_one && self.read() == Ch(CHAR_CR) && self.look_ahead(1) == Ch(CHAR_LF) {
-                self.char_pos = self.char_pos.saturating_sub(1);
+            // read_and_next() consumes CR+LF as a single step, advancing by 2.
+            // Stepping back from after the pair lands on LF; skip the CR too.
+            if self.config.cr_lf_as_one
+                && self.read() == Ch(CHAR_LF)
+                && self.char_pos > 0
+                && self.chars[self.char_pos - 1] == Ch(CHAR_CR)
+            {
+                self.char_pos -= 1;
             }
         }
     }
@@ -1223,6 +1229,25 @@ mod test {
         assert_eq!(stream.read_and_next(), Ch('\r'));
         stream.prev_n(4);
         assert_eq!(stream.read_and_next(), Ch('c'));
+    }
+
+    #[test]
+    fn test_prev_across_crlf_pair() {
+        // read_and_next() on \r\n (with cr_lf_as_one) advances char_pos by 2.
+        // prev() must step back over both so the next read_and_next returns the
+        // same LF again, not get stuck on the bare \n.
+        let mut stream = ByteStream::new(
+            Encoding::UTF8,
+            Some(Config { cr_lf_as_one: true, replace_cr_as_lf: false, replace_high_ascii: false }),
+        );
+        stream.read_from_str("a\r\nb", Some(Encoding::UTF8));
+        stream.close();
+
+        assert_eq!(stream.read_and_next(), Ch('a'));
+        assert_eq!(stream.read_and_next(), Ch('\n')); // CR+LF collapsed
+        stream.prev();                                // back over the newline
+        assert_eq!(stream.read_and_next(), Ch('\n')); // must get the same newline again
+        assert_eq!(stream.read_and_next(), Ch('b'));
     }
 
     // ── regression tests ─────────────────────────────────────────────────────
