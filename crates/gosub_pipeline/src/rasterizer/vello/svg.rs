@@ -18,10 +18,9 @@ pub(crate) fn do_paint_svg(scene: &mut vello::Scene, media_id: MediaId, rect: &R
     // With "normal" images, we would just scale the image, but since SVG is vector-based, we want to re-render it from
     // the source. It might be better to either render each dimension into a separate media, or store only an X amount of
     // different dimensions. This is a trade-off between memory and CPU usage.
-    if  media_dimension != rect.rect().dimension() {
+    if media_dimension != rect.rect().dimension() {
         let pixmap_size = media.svg.tree.size().to_int_size();
-        let mut pixmap =
-            resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
         resvg::render(&media.svg.tree, Transform::default(), &mut pixmap.as_mut());
 
         let mut var = media.svg.rendered_data.write().unwrap();

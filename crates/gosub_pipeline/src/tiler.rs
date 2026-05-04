@@ -1,19 +1,19 @@
+use crate::common::document::document::Document;
+use crate::common::document::node::{NodeId, NodeType};
+use crate::common::document::style::StyleProperty::BackgroundColor;
+use crate::common::document::style::{Color as StyleColor, StyleProperty, StyleValue};
+use crate::common::geo::{Coordinate, Dimension, Rect};
+use crate::common::texture::TextureId;
+use crate::layering::layer::{LayerId, LayerList};
+use crate::layouter::{LayoutElementId, LayoutElementNode};
 use crate::painter::commands::color::Color;
+use crate::painter::commands::PaintCommand;
+use rstar::primitives::GeomWithData;
+use rstar::AABB;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::AddAssign;
 use std::sync::{Arc, RwLock};
-use rstar::AABB;
-use rstar::primitives::GeomWithData;
-use crate::common::document::document::Document;
-use crate::common::document::node::{NodeId, NodeType};
-use crate::common::document::style::{Color as StyleColor, StyleProperty, StyleValue};
-use crate::common::document::style::StyleProperty::BackgroundColor;
-use crate::common::geo::{Coordinate, Dimension, Rect};
-use crate::layering::layer::{LayerId, LayerList};
-use crate::layouter::{LayoutElementId, LayoutElementNode};
-use crate::painter::commands::PaintCommand;
-use crate::common::texture::TextureId;
 
 /*
 
@@ -162,7 +162,7 @@ impl TileLayer {
         self.rstar_tree
             .locate_in_envelope_intersecting(&AABB::from_corners(
                 [rect.x, rect.y],
-                [rect.x + rect.width, rect.y + rect.height]
+                [rect.x + rect.width, rect.y + rect.height],
             ))
             .map(|x| x.data)
             .collect()
@@ -179,7 +179,7 @@ pub struct TileList {
     pub tiles: HashMap<LayerId, TileLayer>,
 
     /// Arena of layout nodes
-    pub arena : HashMap<TileId, Tile>,
+    pub arena: HashMap<TileId, Tile>,
     /// Next node ID
     next_node_id: Arc<RwLock<TileId>>,
 
@@ -255,14 +255,22 @@ impl TileList {
 
     // @TODO: Optimize: remove all tiles that are empty
     pub fn generate(&mut self) {
-        let rows = (self.layer_list.layout_tree.root_dimension.height / self.default_tile_dimension.height).ceil() as usize;
-        let cols = (self.layer_list.layout_tree.root_dimension.width / self.default_tile_dimension.width).ceil() as usize;
+        let rows =
+            (self.layer_list.layout_tree.root_dimension.height / self.default_tile_dimension.height).ceil() as usize;
+        let cols =
+            (self.layer_list.layout_tree.root_dimension.width / self.default_tile_dimension.width).ceil() as usize;
 
         // Detect canvas color. We paint the whole canvas with the background color from either the html or body nodes.
         let mut bgcolor = None;
-        bgcolor = get_background_color_from_node(self.layer_list.layout_tree.render_tree.doc.html_node_id, &self.layer_list.layout_tree.render_tree.doc);
+        bgcolor = get_background_color_from_node(
+            self.layer_list.layout_tree.render_tree.doc.html_node_id,
+            &self.layer_list.layout_tree.render_tree.doc,
+        );
         if bgcolor.is_none() {
-            bgcolor = get_background_color_from_node(self.layer_list.layout_tree.render_tree.doc.body_node_id, &self.layer_list.layout_tree.render_tree.doc);
+            bgcolor = get_background_color_from_node(
+                self.layer_list.layout_tree.render_tree.doc.body_node_id,
+                &self.layer_list.layout_tree.render_tree.doc,
+            );
         }
 
         let mut layer_list = self.layer_list.layers.read().unwrap();
@@ -275,7 +283,6 @@ impl TileList {
             // Generate tiles for this layer
             for y in 0..rows {
                 for x in 0..cols {
-
                     let tile_id = self.next_node_id();
                     let tile = Tile {
                         id: tile_id,
@@ -297,16 +304,19 @@ impl TileList {
                 }
             }
 
-            let rtree_data: Vec<_> = tile_ids.iter().map(|tile_id| {
-                let tile = self.arena.get(tile_id).unwrap();
-                GeomWithData::new(
-                    rstar::primitives::Rectangle::from_corners(
-                        [tile.rect.x, tile.rect.y],
-                        [tile.rect.x + tile.rect.width, tile.rect.y + tile.rect.height]
-                    ),
-                    *tile_id
-                )
-            }).collect();
+            let rtree_data: Vec<_> = tile_ids
+                .iter()
+                .map(|tile_id| {
+                    let tile = self.arena.get(tile_id).unwrap();
+                    GeomWithData::new(
+                        rstar::primitives::Rectangle::from_corners(
+                            [tile.rect.x, tile.rect.y],
+                            [tile.rect.x + tile.rect.width, tile.rect.y + tile.rect.height],
+                        ),
+                        *tile_id,
+                    )
+                })
+                .collect();
 
             // Add all remaining tiles to the tile layer
             let tile_layer = TileLayer {
@@ -340,14 +350,16 @@ impl TileList {
                     let tile = self.arena.get_mut(&tile_id).unwrap();
                     let position = Coordinate::new(
                         tile.rect.x.max(margin_box.x) - margin_box.x,
-                        tile.rect.y.max(margin_box.y) - margin_box.y
+                        tile.rect.y.max(margin_box.y) - margin_box.y,
                     );
 
                     let dimension = Rect::new(
                         margin_box.x.max(tile.rect.x) - tile.rect.x,
                         margin_box.y.max(tile.rect.y) - tile.rect.y,
-                        (tile.rect.x + tile.rect.width).min(margin_box.x + margin_box.width) - tile.rect.x.max(margin_box.x),
-                        (tile.rect.y + tile.rect.height).min(margin_box.y + margin_box.height) - tile.rect.y.max(margin_box.y),
+                        (tile.rect.x + tile.rect.width).min(margin_box.x + margin_box.width)
+                            - tile.rect.x.max(margin_box.x),
+                        (tile.rect.y + tile.rect.height).min(margin_box.y + margin_box.height)
+                            - tile.rect.y.max(margin_box.y),
                     );
 
                     let tiled_element = TiledLayoutElement {
@@ -411,11 +423,16 @@ fn get_background_color_from_node(node_id: Option<NodeId>, doc: &Document) -> Op
 fn convert_color(color: &StyleColor) -> Option<(f32, f32, f32, f32)> {
     let c = match color {
         StyleColor::Rgb(r, g, b) => Some((*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0, 1.0)),
-        StyleColor::Rgba(r, g, b, a) => Some((*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0, *a as f32 / 255.0)),
+        StyleColor::Rgba(r, g, b, a) => Some((
+            *r as f32 / 255.0,
+            *g as f32 / 255.0,
+            *b as f32 / 255.0,
+            *a as f32 / 255.0,
+        )),
         StyleColor::Named(name) => {
             let c = Color::from_css(name.as_str());
             Some((c.r(), c.g(), c.b(), c.a()))
-        },
+        }
     };
 
     // Check if the color is transparent. If so, we return None
@@ -426,8 +443,7 @@ fn convert_color(color: &StyleColor) -> Option<(f32, f32, f32, f32)> {
             } else {
                 None
             }
-        },
+        }
         None => None,
     }
 }
-

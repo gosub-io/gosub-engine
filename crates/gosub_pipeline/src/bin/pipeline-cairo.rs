@@ -3,17 +3,11 @@ compile_error!("This binary can only be used with the feature 'backend_cairo' en
 
 use gtk4::glib::clone;
 use gtk4::prelude::{
-    AdjustmentExt, ApplicationExt, ApplicationExtManual, DrawingAreaExt, DrawingAreaExtManual,
-    GtkWindowExt, WidgetExt,
+    AdjustmentExt, ApplicationExt, ApplicationExtManual, DrawingAreaExt, DrawingAreaExtManual, GtkWindowExt, WidgetExt,
 };
-use gtk4::{
-    glib, Adjustment, Application, ApplicationWindow, DrawingArea, EventControllerMotion,
-    ScrolledWindow,
-};
+use gtk4::{glib, Adjustment, Application, ApplicationWindow, DrawingArea, EventControllerMotion, ScrolledWindow};
 use poc_pipeline::common;
-use poc_pipeline::common::browser_state::{
-    get_browser_state, init_browser_state, BrowserState, WireframeState,
-};
+use poc_pipeline::common::browser_state::{get_browser_state, init_browser_state, BrowserState, WireframeState};
 use poc_pipeline::common::geo::{Dimension, Rect};
 use poc_pipeline::compositor::cairo::{CairoCompositor, CairoCompositorConfig};
 use poc_pipeline::compositor::Composable;
@@ -80,9 +74,7 @@ fn main() {
     // is completed in the draw function of the UI.
 
     // Render the layout-tree into a GTK window
-    let app = Application::builder()
-        .application_id("io.gosub.renderer")
-        .build();
+    let app = Application::builder().application_id("io.gosub.renderer").build();
 
     let browser_state = BrowserState {
         visible_layer_list: vec![true; 10],
@@ -167,13 +159,7 @@ fn build_ui(app: &Application) {
     motion_controller.connect_motion(move |_, x, y| {
         let binding = get_browser_state();
         let state = binding.read().expect("Failed to get browser state");
-        let el_id = state
-            .tile_list
-            .read()
-            .unwrap()
-            .layer_list
-            .find_element_at(x, y)
-            .clone();
+        let el_id = state.tile_list.read().unwrap().layer_list.find_element_at(x, y).clone();
         let che = state.current_hovered_element.clone();
 
         let mut tile_ids = vec![];
@@ -230,11 +216,7 @@ fn build_ui(app: &Application) {
         if state.current_hovered_element != el_id {
             if el_id.is_some() {
                 let binding = state.tile_list.read().unwrap();
-                let layout_element = binding
-                    .layer_list
-                    .layout_tree
-                    .get_node_by_id(el_id.unwrap())
-                    .unwrap();
+                let layout_element = binding.layer_list.layout_tree.get_node_by_id(el_id.unwrap()).unwrap();
                 println!("Hovered element id:");
                 println!("   Layout ID : {:?}", el_id);
                 println!("   DOM ID    : {:?}", layout_element.dom_node_id);
@@ -470,10 +452,7 @@ fn on_viewport_changed(area: &DrawingArea, hadj: &Adjustment, vadj: &Adjustment)
     let width = hadj.page_size(); // Visible width
     let height = vadj.page_size(); // Visible height
 
-    println!(
-        "Visible viewport: x={} y={} width={} height={}",
-        x, y, width, height
-    );
+    println!("Visible viewport: x={} y={} width={} height={}", x, y, width, height);
 
     let binding = get_browser_state();
     let mut state = binding.write().expect("Failed to get browser state");

@@ -1,7 +1,7 @@
-use parley::GenericFamily;
 use crate::layouter::text::Alignment;
-use std::sync::{Mutex, OnceLock};
+use parley::GenericFamily;
 use parley::{AlignmentOptions, Layout};
+use std::sync::{Mutex, OnceLock};
 
 static FONT_CTX: OnceLock<Mutex<parley::FontContext>> = OnceLock::new();
 static LAYOUT_CTX: OnceLock<Mutex<parley::LayoutContext>> = OnceLock::new();
@@ -20,8 +20,14 @@ fn get_layout_context() -> std::sync::MutexGuard<'static, parley::LayoutContext>
         .expect("Failed to lock layout context")
 }
 
-
-pub fn get_parley_layout(text: &str, font_family: &str, font_size: f64, line_height: f64, max_width: f64, alignment: Alignment) -> Layout<[u8; 4]> {
+pub fn get_parley_layout(
+    text: &str,
+    font_family: &str,
+    font_size: f64,
+    line_height: f64,
+    max_width: f64,
+    alignment: Alignment,
+) -> Layout<[u8; 4]> {
     let font_stack = parley::FontStack::from(font_family);
 
     let display_scale = 1.0;

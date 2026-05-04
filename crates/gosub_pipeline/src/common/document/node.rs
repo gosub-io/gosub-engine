@@ -1,9 +1,9 @@
+use crate::common::document::document::Document;
+use crate::common::document::style::{Display, StyleProperty, StylePropertyList, StyleValue};
+use crate::rendertree_builder::RenderNodeId;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::ops::AddAssign;
-use crate::common::document::document::Document;
-use crate::common::document::style::{StylePropertyList, StyleValue, StyleProperty, Display};
-use crate::rendertree_builder::RenderNodeId;
 
 /// Map of attributes for a html element (a href, src, data-*, etc)
 #[derive(Debug, Clone)]
@@ -63,7 +63,12 @@ pub struct ElementData {
 }
 
 impl ElementData {
-    pub fn new(tag_name: String, attributes: Option<AttrMap>, is_self_closing: bool, styles: Option<StylePropertyList>) -> ElementData {
+    pub fn new(
+        tag_name: String,
+        attributes: Option<AttrMap>,
+        is_self_closing: bool,
+        styles: Option<StylePropertyList>,
+    ) -> ElementData {
         ElementData {
             tag_name,
             attributes: attributes.unwrap_or(AttrMap::new()),
@@ -93,18 +98,14 @@ impl ElementData {
 
     pub fn is_inline_element(&self) -> bool {
         match self.get_style(StyleProperty::Display) {
-            Some(StyleValue::Display(display)) => {
-                *display == Display::Inline
-            }
+            Some(StyleValue::Display(display)) => *display == Display::Inline,
             _ => false,
         }
     }
 
     pub fn is_inline_block_element(&self) -> bool {
         match self.get_style(StyleProperty::Display) {
-            Some(StyleValue::Display(display)) => {
-                *display == Display::InlineBlock
-            }
+            Some(StyleValue::Display(display)) => *display == Display::InlineBlock,
             _ => false,
         }
     }
@@ -180,32 +181,23 @@ pub struct Node {
 }
 
 impl Node {
-
     /// Returns true if the node is a block element
     pub fn is_block_element(&self) -> bool {
         match &self.node_type {
-            NodeType::Element(data) => {
-                match data.get_style(StyleProperty::Display) {
-                    Some(StyleValue::Display(display)) => {
-                        *display == Display::Block
-                    }
-                    _ => false,
-                }
-            }
+            NodeType::Element(data) => match data.get_style(StyleProperty::Display) {
+                Some(StyleValue::Display(display)) => *display == Display::Block,
+                _ => false,
+            },
             _ => false,
         }
     }
 
     pub fn is_inline_block_element(&self) -> bool {
         match &self.node_type {
-            NodeType::Element(data) => {
-                match data.get_style(StyleProperty::Display) {
-                    Some(StyleValue::Display(display)) => {
-                        *display == Display::InlineBlock
-                    }
-                    _ => false,
-                }
-            }
+            NodeType::Element(data) => match data.get_style(StyleProperty::Display) {
+                Some(StyleValue::Display(display)) => *display == Display::InlineBlock,
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -213,14 +205,10 @@ impl Node {
     /// Returns true if the node is an element node and is inline
     pub fn is_inline_element(&self) -> bool {
         match &self.node_type {
-            NodeType::Element(data) => {
-                match data.get_style(StyleProperty::Display) {
-                    Some(StyleValue::Display(display)) => {
-                        *display == Display::Inline
-                    }
-                    _ => false,
-                }
-            }
+            NodeType::Element(data) => match data.get_style(StyleProperty::Display) {
+                Some(StyleValue::Display(display)) => *display == Display::Inline,
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -235,13 +223,11 @@ impl Node {
 
     pub fn get_style_f32(&self, prop: StyleProperty) -> f32 {
         match &self.node_type {
-            NodeType::Element(data) => {
-                match data.get_style(prop) {
-                    Some(StyleValue::Unit(px, _)) => *px,
-                    Some(StyleValue::Number(px)) => *px,
-                    _ => 0.0,
-                }
-            }
+            NodeType::Element(data) => match data.get_style(prop) {
+                Some(StyleValue::Unit(px, _)) => *px,
+                Some(StyleValue::Number(px)) => *px,
+                _ => 0.0,
+            },
             _ => 0.0,
         }
     }
@@ -273,15 +259,13 @@ impl Node {
         tag_name: String,
         attributes: Option<AttrMap>,
         self_closing: bool,
-        style: Option<StylePropertyList>
+        style: Option<StylePropertyList>,
     ) -> Node {
         Node {
             node_id: doc.next_node_id(),
             parent_id,
             children: vec![],
-            node_type: NodeType::Element(
-                ElementData::new(tag_name, attributes, self_closing, style)
-            ),
+            node_type: NodeType::Element(ElementData::new(tag_name, attributes, self_closing, style)),
         }
     }
 }

@@ -1,9 +1,9 @@
+use crate::common::document::document::Document;
+use crate::common::document::node::{Node, NodeId, NodeType};
+use crate::common::document::style::{Display as CssDisplay, StyleProperty, StyleValue};
 use std::collections::HashMap;
 use std::ops::AddAssign;
 use std::sync::Arc;
-use crate::common::document::document::Document;
-use crate::common::document::node::{Node, NodeType, NodeId};
-use crate::common::document::style::{StyleProperty, StyleValue, Display as CssDisplay};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RenderNodeId(u64);
@@ -36,13 +36,11 @@ impl std::fmt::Display for RenderNodeId {
     }
 }
 
-
 #[derive(Clone)]
 pub struct RenderNode {
     pub node_id: RenderNodeId,
     pub children: Vec<RenderNodeId>,
 }
-
 
 /// A RenderTree holds both the DOM and the render tree. This tree holds all the visible nodes in
 /// the DOM.
@@ -103,7 +101,7 @@ impl RenderTree {
     }
 }
 
-const INVISIBLE_ELEMENTS: [&str; 6] = [ "head",  "style",  "script",  "meta",  "link",  "title" ];
+const INVISIBLE_ELEMENTS: [&str; 6] = ["head", "style", "script", "meta", "link", "title"];
 
 impl RenderTree {
     pub fn new(doc: Arc<Document>) -> Self {

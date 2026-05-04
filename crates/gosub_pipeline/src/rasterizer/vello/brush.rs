@@ -1,9 +1,9 @@
-use vello::peniko::{Blob, Brush as VelloBrush};
-use vello::peniko::color::{AlphaColor, Rgba8};
 use crate::common::geo::Rect;
-use crate::painter::commands::brush::Brush;
-use vello::peniko::Image as PenikoImage;
 use crate::common::get_media_store;
+use crate::painter::commands::brush::Brush;
+use vello::peniko::color::{AlphaColor, Rgba8};
+use vello::peniko::Image as PenikoImage;
+use vello::peniko::{Blob, Brush as VelloBrush};
 
 pub fn set_brush(brush: &Brush, _rect: Rect) -> VelloBrush {
     match brush {

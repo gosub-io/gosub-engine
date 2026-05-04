@@ -1,8 +1,8 @@
-use std::ops::AddAssign;
-use std::sync::Arc;
 use crate::common::hash::{hash_from_string, Sha256Hash};
 use crate::common::media::Image;
 use crate::common::media::Svg;
+use std::ops::AddAssign;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MediaId(u64);
@@ -61,7 +61,7 @@ impl Media {
         Media::Svg(Arc::new(MediaSvg {
             src: src.to_string(),
             hash: hash_from_string(&src),
-            svg
+            svg,
         }))
     }
 
@@ -69,7 +69,7 @@ impl Media {
         Media::Image(Arc::new(MediaImage {
             src: src.to_string(),
             hash: hash_from_string(&src),
-            image
+            image,
         }))
     }
 }

@@ -1,8 +1,8 @@
-use gtk4::cairo;
 use crate::common::browser_state::get_browser_state;
 use crate::compositor::cairo::compositor::cairo_compositor;
 use crate::compositor::Composable;
 use crate::layering::layer::LayerId;
+use gtk4::cairo;
 
 pub struct CairoCompositorConfig {
     pub cr: cairo::Context,
@@ -17,7 +17,6 @@ impl Composable for CairoCompositor {
     type Return = ();
 
     fn compose(config: Self::Config) {
-
         let binding = get_browser_state();
         let state = binding.read().expect("Failed to get browser state");
 

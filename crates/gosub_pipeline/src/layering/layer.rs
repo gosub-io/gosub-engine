@@ -1,7 +1,7 @@
+use crate::layouter::{LayoutElementId, LayoutTree};
 use std::collections::HashMap;
 use std::ops::AddAssign;
 use std::sync::{Arc, RwLock};
-use crate::layouter::{LayoutElementId, LayoutTree};
 
 /// ID for layers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -25,7 +25,6 @@ impl std::fmt::Display for LayerId {
     }
 }
 
-
 #[derive(Clone)]
 pub struct Layer {
     /// Layer ID
@@ -34,7 +33,7 @@ pub struct Layer {
     #[allow(unused)]
     pub order: isize,
     /// Elements in this layer
-    pub elements: Vec<LayoutElementId>
+    pub elements: Vec<LayoutElementId>,
 }
 
 impl Layer {
@@ -42,7 +41,7 @@ impl Layer {
         Layer {
             layer_id,
             order,
-            elements: Vec::new()
+            elements: Vec::new(),
         }
     }
 
@@ -53,9 +52,7 @@ impl Layer {
 
 impl std::fmt::Debug for Layer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Layer")
-            .field("elements", &self.elements)
-            .finish()
+        f.debug_struct("Layer").field("elements", &self.elements).finish()
     }
 }
 
@@ -104,14 +101,17 @@ impl LayerList {
             };
 
             for element_id in layer.elements.iter().rev() {
-                let layout_element = self.layout_tree.get_node_by_id(*element_id).expect("Failed to get layout element");
+                let layout_element = self
+                    .layout_tree
+                    .get_node_by_id(*element_id)
+                    .expect("Failed to get layout element");
                 let box_model = &layout_element.box_model;
 
                 // @TODO: use rtree for this
-                if x >= box_model.margin_box.x &&
-                    x < box_model.margin_box.x + box_model.margin_box.width &&
-                    y >= box_model.margin_box.y &&
-                    y < box_model.margin_box.y + box_model.margin_box.height
+                if x >= box_model.margin_box.x
+                    && x < box_model.margin_box.x + box_model.margin_box.width
+                    && y >= box_model.margin_box.y
+                    && y < box_model.margin_box.y + box_model.margin_box.height
                 {
                     return Some(*element_id);
                 }
@@ -126,7 +126,10 @@ impl LayerList {
         let layer = Layer::new(self.next_layer_id(), order);
         let layer_id = layer.layer_id;
         self.layer_ids.write().expect("Failed to lock layer IDs").push(layer_id);
-        self.layers.write().expect("Failed to lock layers").insert(layer_id, layer);
+        self.layers
+            .write()
+            .expect("Failed to lock layers")
+            .insert(layer_id, layer);
 
         layer_id
     }
@@ -164,12 +167,15 @@ impl LayerList {
             return;
         };
 
-        let is_image = self.layout_tree.render_tree.doc
+        let is_image = self
+            .layout_tree
+            .render_tree
+            .doc
             .get_node_by_id(layout_element.dom_node_id)
             .and_then(|dom_node| match dom_node.node_type {
                 crate::common::document::node::NodeType::Element(ref element_data) => {
                     Some(element_data.tag_name.eq_ignore_ascii_case("img"))
-                },
+                }
                 _ => None,
             })
             .unwrap_or(false);

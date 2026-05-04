@@ -8,7 +8,12 @@ pub struct Rect {
 }
 
 impl Rect {
-    pub const ZERO : Rect = Rect { x: 0.0, y: 0.0, width: 0.0, height: 0.0 };
+    pub const ZERO: Rect = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 0.0,
+        height: 0.0,
+    };
 
     /// Create a new rectangle with the given position and dimensions.
     pub fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
@@ -54,7 +59,6 @@ impl Into<Dimension> for Rect {
     }
 }
 
-
 /// A coordinate is an X/Y position. Could be negative if needed.
 #[allow(unused)]
 #[derive(Clone, Copy, Debug)]
@@ -64,7 +68,7 @@ pub struct Coordinate {
 }
 
 impl Coordinate {
-    pub const ZERO : Coordinate = Coordinate { x: 0.0, y: 0.0 };
+    pub const ZERO: Coordinate = Coordinate { x: 0.0, y: 0.0 };
 
     pub fn new(x: f64, y: f64) -> Self {
         Self { x, y }
@@ -80,14 +84,16 @@ pub struct Dimension {
 }
 
 impl Dimension {
-    pub const ZERO : Dimension = Dimension { width: 0.0, height: 0.0 };
+    pub const ZERO: Dimension = Dimension {
+        width: 0.0,
+        height: 0.0,
+    };
 
     #[allow(unused)]
     pub fn new(width: f64, height: f64) -> Self {
         Self { width, height }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

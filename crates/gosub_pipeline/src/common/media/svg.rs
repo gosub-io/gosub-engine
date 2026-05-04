@@ -1,6 +1,6 @@
-use std::sync::{Arc, RwLock};
-use resvg::usvg;
 use crate::common::geo::Dimension;
+use resvg::usvg;
+use std::sync::{Arc, RwLock};
 
 #[derive(Clone)]
 pub struct Svg {

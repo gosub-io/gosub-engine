@@ -1,20 +1,20 @@
-use crate::rasterizer::vello::text::do_paint_text;
-use std::cell::RefCell;
-use crate::painter::commands::PaintCommand;
-use vello::peniko::{Color, Mix};
-use vello::{AaConfig, Renderer, Scene};
-use vello::kurbo::{Affine, Rect, Vec2};
-use vello::wgpu::{Device, Queue, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
 use crate::common::geo::Dimension;
-use crate::rasterizer::Rasterable;
-use crate::common::texture::TextureId;
 use crate::common::get_texture_store;
+use crate::common::texture::TextureId;
+use crate::painter::commands::PaintCommand;
+use crate::rasterizer::vello::text::do_paint_text;
+use crate::rasterizer::Rasterable;
 use crate::tiler::{Tile, TileId};
+use std::cell::RefCell;
+use vello::kurbo::{Affine, Rect, Vec2};
+use vello::peniko::{Color, Mix};
+use vello::wgpu::{Device, Queue, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
+use vello::{AaConfig, Renderer, Scene};
 
-mod rectangle;
 mod brush;
-mod text;
+mod rectangle;
 mod svg;
+mod text;
 
 pub struct VelloRasterizer<'a> {
     device: &'a Device,
@@ -60,14 +60,12 @@ impl Rasterable for VelloRasterizer<'_> {
                     PaintCommand::Rectangle(command) => {
                         rectangle::do_paint_rectangle(&mut scene, &command, affine);
                     }
-                    PaintCommand::Text(command) => {
-                        match do_paint_text(&mut scene, &command, tile_size, affine) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                println!("Failed to paint text: {:?}", e);
-                            }
+                    PaintCommand::Text(command) => match do_paint_text(&mut scene, &command, tile_size, affine) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            println!("Failed to paint text: {:?}", e);
                         }
-                    }
+                    },
                 }
             }
         }
@@ -77,25 +75,39 @@ impl Rasterable for VelloRasterizer<'_> {
         let texture = create_offscreen_texture(&self.device, tile_size.width as u32, tile_size.height as u32);
 
         let render_params = vello::RenderParams {
-            base_color: Color::new([0.0, 0.0, 0.0, 0.0]),   // Transparent texture
+            base_color: Color::new([0.0, 0.0, 0.0, 0.0]), // Transparent texture
             width: tile.rect.width as u32,
             height: tile.rect.height as u32,
             antialiasing_method: AaConfig::Msaa16,
         };
 
-        self.renderer.borrow_mut().render_to_texture(
+        self.renderer
+            .borrow_mut()
+            .render_to_texture(
+                &self.device,
+                &self.queue,
+                &scene,
+                &texture.create_view(&Default::default()),
+                &render_params,
+            )
+            .unwrap();
+
+        let texture_data = read_texture_to_image(
             &self.device,
             &self.queue,
-            &scene,
-            &texture.create_view(&Default::default()),
-            &render_params,
-        ).unwrap();
-
-        let texture_data = read_texture_to_image(&self.device, &self.queue, &texture, tile_size.width as u32, tile_size.height as u32, tile.id);
+            &texture,
+            tile_size.width as u32,
+            tile_size.height as u32,
+            tile.id,
+        );
 
         let binding = get_texture_store();
         let mut texture_store = binding.write().expect("Failed to get texture store");
-        let texture_id = texture_store.add(tile_size.width as usize, tile_size.height as usize, texture_data.to_vec());
+        let texture_id = texture_store.add(
+            tile_size.width as usize,
+            tile_size.height as usize,
+            texture_data.to_vec(),
+        );
 
         texture_id
     }
@@ -118,7 +130,14 @@ fn create_offscreen_texture(device: &Device, width: u32, height: u32) -> Texture
     })
 }
 
-fn read_texture_to_image(device: &Device, queue: &Queue, texture: &Texture, width: u32, height: u32, _id: TileId) -> Vec<u8> {
+fn read_texture_to_image(
+    device: &Device,
+    queue: &Queue,
+    texture: &Texture,
+    width: u32,
+    height: u32,
+    _id: TileId,
+) -> Vec<u8> {
     let buffer_size = (width * height * 4) as vello::wgpu::BufferAddress;
     let buffer = device.create_buffer(&vello::wgpu::BufferDescriptor {
         label: Some("Texture Read Buffer"),

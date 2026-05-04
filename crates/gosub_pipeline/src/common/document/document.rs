@@ -1,7 +1,7 @@
+use crate::common::document::node::{AttrMap, Node, NodeId, NodeType};
+use crate::common::document::style::StylePropertyList;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use crate::common::document::node::{Node, NodeType, NodeId, AttrMap};
-use crate::common::document::style::StylePropertyList;
 
 /// Main DOM document structure
 #[derive(Clone)]
@@ -50,7 +50,6 @@ impl Document {
                     result.push_str(&format!("</{}>", data.tag_name));
                 }
 
-
                 result
             }
             NodeType::Text(text, _) => text.clone(),
@@ -58,8 +57,14 @@ impl Document {
         }
     }
 
-
-    pub fn new_element(&mut self, parent_id: Option<NodeId>, tag_name: &str, attributes: Option<AttrMap>, self_closing: bool, style: Option<StylePropertyList>) -> NodeId {
+    pub fn new_element(
+        &mut self,
+        parent_id: Option<NodeId>,
+        tag_name: &str,
+        attributes: Option<AttrMap>,
+        self_closing: bool,
+        style: Option<StylePropertyList>,
+    ) -> NodeId {
         let node = Node::new_element(self, parent_id, tag_name.to_string(), attributes, self_closing, style);
         let node_id = node.node_id.clone();
         self.arena.insert(node_id.clone(), node);
@@ -111,8 +116,8 @@ impl Document {
 
 #[allow(unused)]
 pub enum NodeVisit {
-    Enter,      // Callback enters the node
-    Exit,       // Callback exists the node
+    Enter, // Callback enters the node
+    Exit,  // Callback exists the node
 }
 
 impl Document {
@@ -147,40 +152,52 @@ impl Document {
             return Ok(());
         }
 
-        self.walk_depth_first(
-            self.root_id.unwrap(),
-            &mut |node_id, level, visit_mode| {
-                let Some(node) = self.get_node_by_id(node_id) else {
-                    return;
-                };
+        self.walk_depth_first(self.root_id.unwrap(), &mut |node_id, level, visit_mode| {
+            let Some(node) = self.get_node_by_id(node_id) else {
+                return;
+            };
 
-                let indent = " ".repeat(level * 4);
-                match visit_mode {
-                    NodeVisit::Enter => {
-                        match &node.node_type {
-                            NodeType::Comment(comment) => writeln!(writer, "{}({}) <!-- {} -->", indent, node.node_id, comment).unwrap(),
-                            NodeType::Text(text, _) => writeln!(writer, "{}({}) '{}'", indent, node.node_id, text).unwrap(),
-                            NodeType::Element(element) => {
-                                if element.is_self_closing() {
-                                    writeln!(writer, "{}({}) <{} {}/>", indent, node.node_id, element.tag_name, element.attributes.to_string()).unwrap();
-                                } else {
-                                    writeln!(writer, "{}({}) <{} {}>", indent, node.node_id, element.tag_name, element.attributes.to_string()).unwrap();
-                                }
-                            }
+            let indent = " ".repeat(level * 4);
+            match visit_mode {
+                NodeVisit::Enter => match &node.node_type {
+                    NodeType::Comment(comment) => {
+                        writeln!(writer, "{}({}) <!-- {} -->", indent, node.node_id, comment).unwrap()
+                    }
+                    NodeType::Text(text, _) => writeln!(writer, "{}({}) '{}'", indent, node.node_id, text).unwrap(),
+                    NodeType::Element(element) => {
+                        if element.is_self_closing() {
+                            writeln!(
+                                writer,
+                                "{}({}) <{} {}/>",
+                                indent,
+                                node.node_id,
+                                element.tag_name,
+                                element.attributes.to_string()
+                            )
+                            .unwrap();
+                        } else {
+                            writeln!(
+                                writer,
+                                "{}({}) <{} {}>",
+                                indent,
+                                node.node_id,
+                                element.tag_name,
+                                element.attributes.to_string()
+                            )
+                            .unwrap();
                         }
                     }
-                    NodeVisit::Exit => {
-                        if let NodeType::Element(element) = &node.node_type {
-                            if ! element.is_self_closing() {
-                                writeln!(writer, "{}</{}>", indent, element.tag_name).unwrap();
-                            }
+                },
+                NodeVisit::Exit => {
+                    if let NodeType::Element(element) = &node.node_type {
+                        if !element.is_self_closing() {
+                            writeln!(writer, "{}</{}>", indent, element.tag_name).unwrap();
                         }
                     }
                 }
-            },
-        );
+            }
+        });
 
         Ok(())
     }
 }
-

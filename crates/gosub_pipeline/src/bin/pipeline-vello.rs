@@ -2,9 +2,7 @@
 compile_error!("This binary can only be used with the feature 'backend_vello' enabled");
 
 use poc_pipeline::common;
-use poc_pipeline::common::browser_state::{
-    get_browser_state, init_browser_state, BrowserState, WireframeState,
-};
+use poc_pipeline::common::browser_state::{get_browser_state, init_browser_state, BrowserState, WireframeState};
 use poc_pipeline::common::geo::{Dimension, Rect};
 use poc_pipeline::compositor::vello::{VelloCompositor, VelloCompositorConfig};
 use poc_pipeline::compositor::Composable;
@@ -50,12 +48,7 @@ fn main() {
         debug_hover: false,
         current_hovered_element: None,
         show_tilegrid: true,
-        viewport: Rect::new(
-            0.0,
-            0.0,
-            viewport_dimension.width,
-            viewport_dimension.height,
-        ),
+        viewport: Rect::new(0.0, 0.0, viewport_dimension.width, viewport_dimension.height),
         document: Arc::new(doc),
         tile_list: None,
         dpi_scale_factor: 1.0,
@@ -106,8 +99,7 @@ struct Env<'s> {
 
 impl std::fmt::Debug for Env<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Env")
-            .finish()
+        f.debug_struct("Env").finish()
     }
 }
 
@@ -145,7 +137,7 @@ impl ApplicationHandler for App<'_> {
         self.env = Some(create_window_env(
             event_loop,
             self.window_title.as_str(),
-            self.window_size
+            self.window_size,
         ));
 
         reflow();
@@ -163,11 +155,8 @@ impl ApplicationHandler for App<'_> {
 
                 let (width, height): (u32, u32) = physical_size.into();
 
-                env.render_ctx.resize_surface(
-                    &mut env.surface.as_mut().unwrap(),
-                    width,
-                    height,
-                );
+                env.render_ctx
+                    .resize_surface(&mut env.surface.as_mut().unwrap(), width, height);
 
                 let binding = get_browser_state();
                 let mut state = binding.write().unwrap();
@@ -204,7 +193,6 @@ impl ApplicationHandler for App<'_> {
                     .get_current_texture()
                     .expect("Failed to get current texture");
 
-
                 let binding = get_browser_state();
                 let state = binding.read().unwrap();
 
@@ -221,13 +209,7 @@ impl ApplicationHandler for App<'_> {
 
                 let binding = env.renderer.clone().unwrap();
                 let mut renderer = binding.borrow_mut();
-                let _ = renderer.render_to_surface(
-                    device,
-                    queue,
-                    &scene,
-                    &surface_texture,
-                    &render_params,
-                );
+                let _ = renderer.render_to_surface(device, queue, &scene, &surface_texture, &render_params);
 
                 surface_texture.present();
             }
@@ -290,10 +272,7 @@ impl ApplicationHandler for App<'_> {
                         return;
                     };
 
-                    tile_list
-                        .write()
-                        .expect("Failed to get tile list")
-                        .invalidate_all();
+                    tile_list.write().expect("Failed to get tile list").invalidate_all();
                     window.request_redraw();
                 }
 
@@ -312,7 +291,6 @@ impl ApplicationHandler for App<'_> {
                     state.show_tilegrid = !state.show_tilegrid;
                     window.request_redraw();
                 }
-
             }
             _ => (),
         }
@@ -322,7 +300,9 @@ impl ApplicationHandler for App<'_> {
 fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> Env<'s> {
     log::info!(
         "Creating ({}x{}) window with title: {} ",
-        size.width, size.height, title
+        size.width,
+        size.height,
+        title
     );
 
     let mut render_ctx = RenderContext::new();
@@ -333,12 +313,8 @@ fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> 
     let window = Arc::new(el.create_window(attribs).unwrap());
 
     let size = window.inner_size();
-    let surface_future = render_ctx.create_surface(
-        window.clone(),
-        size.width,
-        size.height,
-        wgpu::PresentMode::AutoVsync,
-    );
+    let surface_future =
+        render_ctx.create_surface(window.clone(), size.width, size.height, wgpu::PresentMode::AutoVsync);
     let surface = pollster::block_on(surface_future).expect("Failed to create surface");
 
     let dev_handle = &render_ctx.devices[surface.dev_id];
@@ -364,7 +340,6 @@ fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> 
 
     env
 }
-
 
 fn do_paint(layer_id: LayerId) {
     let binding = get_browser_state();
@@ -401,12 +376,7 @@ fn do_paint(layer_id: LayerId) {
     }
 }
 
-fn do_rasterize(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    renderer: Arc<RefCell<Renderer>>,
-    layer_id: LayerId,
-) {
+fn do_rasterize(device: &wgpu::Device, queue: &wgpu::Queue, renderer: Arc<RefCell<Renderer>>, layer_id: LayerId) {
     let binding = get_browser_state();
     let state = binding.read().unwrap();
 
@@ -431,7 +401,6 @@ fn do_rasterize(
         if tile.state == TileState::Clean || tile.state == TileState::Empty {
             continue;
         }
-
 
         let Some(tile) = binding.get_tile_mut(tile_id) else {
             log::warn!("Tile not found: {:?}", tile_id);

@@ -161,7 +161,7 @@ pub enum TextWrap {
     Inherit,
     Revert,
     RevertLayer,
-    Unset
+    Unset,
 }
 
 impl StylePropertyList {
