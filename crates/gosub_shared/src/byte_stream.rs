@@ -115,6 +115,8 @@ pub struct ByteStream {
     chars: Vec<Character>,
     /// Byte offset of each decoded character in `buffer`
     char_byte_offsets: Vec<usize>,
+    /// char_pos of the first character on each line (index 0 = line 1)
+    line_starts: Vec<usize>,
     /// Current position in the decoded chars array
     char_pos: usize,
     /// True when the stream is closed (no more data will be added)
@@ -123,17 +125,11 @@ pub struct ByteStream {
     encoding: Encoding,
     /// Configuration for the stream
     config: Config,
-    /// Current line/column/offset position
-    cur_location: Location,
-    /// Column widths of previous lines, used to restore column on dec()
-    column_stack: Vec<usize>,
 }
 
-/// Opaque snapshot of stream position and location for mark/reset.
+/// Opaque snapshot of stream position for mark/reset.
 pub struct StreamMark {
     char_pos: usize,
-    location: Location,
-    column_stack: Vec<usize>,
 }
 
 /// Generic stream trait
@@ -194,17 +190,14 @@ impl Stream for ByteStream {
         }
         self.char_pos += 1;
 
-        let returned = if self.config.cr_lf_as_one && ch == Ch(CHAR_CR) && self.read() == Ch(CHAR_LF) {
+        if self.config.cr_lf_as_one && ch == Ch(CHAR_CR) && self.read() == Ch(CHAR_LF) {
             self.char_pos += 1;
             Ch(CHAR_LF)
         } else if self.config.replace_cr_as_lf && ch == Ch(CHAR_CR) && self.read() != Ch(CHAR_LF) {
             Ch(CHAR_LF)
         } else {
             ch
-        };
-
-        self.loc_inc(returned);
-        returned
+        }
     }
 
     fn look_ahead(&self, offset: usize) -> Character {
@@ -234,7 +227,6 @@ impl Stream for ByteStream {
             if self.config.cr_lf_as_one && self.read() == Ch(CHAR_CR) && self.look_ahead(1) == Ch(CHAR_LF) {
                 self.char_pos = self.char_pos.saturating_sub(1);
             }
-            self.loc_dec();
         }
     }
 
@@ -262,8 +254,6 @@ impl Stream for ByteStream {
 
     fn reset_stream(&mut self) {
         self.char_pos = 0;
-        self.cur_location = Location::default();
-        self.column_stack.clear();
     }
 
     fn close(&mut self) {
@@ -283,7 +273,14 @@ impl Stream for ByteStream {
     }
 
     fn location(&self) -> Location {
-        self.cur_location
+        // Binary search for the last line that starts at or before char_pos.
+        // line_starts[0] = 0, so partition_point always returns >= 1.
+        let idx = self.line_starts.partition_point(|&s| s <= self.char_pos) - 1;
+        Location {
+            line: idx + 1,
+            column: self.char_pos - self.line_starts[idx] + 1,
+            offset: self.char_byte_offsets.get(self.char_pos).copied().unwrap_or(self.buffer.len()),
+        }
     }
 }
 
@@ -296,10 +293,9 @@ impl ByteStream {
             buffer: Vec::new(),
             chars: Vec::new(),
             char_byte_offsets: Vec::new(),
+            line_starts: vec![0],
             closed: false,
             encoding,
-            cur_location: Location::default(),
-            column_stack: Vec::new(),
         }
     }
 
@@ -311,46 +307,14 @@ impl ByteStream {
         stream
     }
 
-    /// Take a snapshot of the current position and location for later restoration.
+    /// Take a snapshot of the current position for later restoration.
     pub fn mark(&self) -> StreamMark {
-        StreamMark {
-            char_pos: self.char_pos,
-            location: self.cur_location,
-            column_stack: self.column_stack.clone(),
-        }
+        StreamMark { char_pos: self.char_pos }
     }
 
-    /// Restore position and location to a previously saved mark.
+    /// Restore position to a previously saved mark.
     pub fn reset_to_mark(&mut self, mark: StreamMark) {
         self.char_pos = mark.char_pos;
-        self.cur_location = mark.location;
-        self.column_stack = mark.column_stack;
-    }
-
-    fn loc_inc(&mut self, ch: Character) {
-        match ch {
-            Ch(CHAR_LF) => {
-                self.column_stack.push(self.cur_location.column);
-                self.cur_location.line += 1;
-                self.cur_location.column = 1;
-                self.cur_location.offset += 1;
-            }
-            Ch(_) => {
-                self.cur_location.column += 1;
-                self.cur_location.offset += 1;
-            }
-            _ => {}
-        }
-    }
-
-    fn loc_dec(&mut self) {
-        let loc = self.cur_location;
-        if loc.column > 1 {
-            self.cur_location = Location::new(loc.line, loc.column - 1, loc.offset - 1);
-        } else if loc.line > 1 {
-            let prev_col = self.column_stack.pop().unwrap_or(1);
-            self.cur_location = Location::new(loc.line - 1, prev_col, loc.offset - 1);
-        }
     }
 
     /// Decode `self.buffer` into `self.chars` and `self.char_byte_offsets` using the current encoding.
@@ -419,9 +383,43 @@ impl ByteStream {
                 }
             }
         }
+        self.compute_line_starts();
+    }
+
+    /// Build the `line_starts` table from `self.chars`, respecting CR/LF config.
+    /// `line_starts[n]` is the char_pos of the first character on line n+1.
+    fn compute_line_starts(&mut self) {
+        self.line_starts.clear();
+        self.line_starts.push(0);
+        let mut i = 0;
+        while i < self.chars.len() {
+            match self.chars[i] {
+                Ch(CHAR_CR)
+                    if self.config.cr_lf_as_one
+                        && i + 1 < self.chars.len()
+                        && self.chars[i + 1] == Ch(CHAR_LF) =>
+                {
+                    self.line_starts.push(i + 2);
+                    i += 2;
+                    continue;
+                }
+                Ch(CHAR_CR)
+                    if self.config.replace_cr_as_lf
+                        && (i + 1 >= self.chars.len() || self.chars[i + 1] != Ch(CHAR_LF)) =>
+                {
+                    self.line_starts.push(i + 1);
+                }
+                Ch(CHAR_LF) => {
+                    self.line_starts.push(i + 1);
+                }
+                _ => {}
+            }
+            i += 1;
+        }
     }
 
     pub fn read_from_file(&mut self, mut f: impl Read) -> io::Result<()> {
+        self.buffer.clear();
         f.read_to_end(&mut self.buffer)?;
         self.close();
         self.decode_buffer();
@@ -506,7 +504,9 @@ impl ByteStream {
         self.decode_buffer();
         // Remap char_pos to the same byte offset in the newly-decoded buffer
         let new_pos = self.char_byte_offsets.partition_point(|&b| b < current_byte_offset);
-        self.char_pos = new_pos.min(self.chars.len());
+        // self.char_pos = new_pos.min(self.chars.len());
+        self.reset_stream();
+        self.next_n(new_pos);
     }
 }
 
@@ -875,6 +875,15 @@ mod test {
     }
 
     #[test]
+    fn test_seek_bytes_updates_location() {
+        // "ab\ncd" — after seeking to byte 3 ('c') location should be (2,1)
+        let mut stream = ByteStream::from_str("ab\ncd", Encoding::UTF8);
+        stream.seek_bytes(3);
+        assert_eq!(stream.location(), Location::new(2, 1, 3));
+        assert_eq!(stream.read(), Ch('c'));
+    }
+
+    #[test]
     fn test_stream() {
         let mut stream = ByteStream::new(
             Encoding::UTF8,
@@ -1214,5 +1223,33 @@ mod test {
         assert_eq!(stream.read_and_next(), Ch('\r'));
         stream.prev_n(4);
         assert_eq!(stream.read_and_next(), Ch('c'));
+    }
+
+    // ── regression tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_read_from_file_replaces_buffer() {
+        use std::io::Cursor;
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
+        stream.read_from_str("hello", Some(Encoding::UTF8));
+        stream.read_from_file(Cursor::new(b"world")).unwrap();
+        stream.reset_stream();
+        assert_eq!(stream.read_and_next(), Ch('w'));
+    }
+
+    #[test]
+    fn test_next_updates_location() {
+        let mut stream = ByteStream::from_str("abc", Encoding::UTF8);
+        stream.next(); // skip 'a'
+        stream.next(); // skip 'b'
+        assert_eq!(stream.location(), Location::new(1, 3, 2));
+    }
+
+    #[test]
+    fn test_location_offset_is_byte_count() {
+        // 'é' = U+00E9 = 2 bytes in UTF-8; after reading it offset should be 2.
+        let mut stream = ByteStream::from_str("é", Encoding::UTF8);
+        stream.read_and_next();
+        assert_eq!(stream.location().offset, 2);
     }
 }
