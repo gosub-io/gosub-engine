@@ -33,6 +33,13 @@ pub struct MediaStore {
 }
 
 impl MediaStore {
+    fn allocate_media_id(&self) -> MediaId {
+        let mut next_id = self.next_id.write().expect("Failed to lock next media ID");
+        let id = *next_id;
+        *next_id += 1;
+        id
+    }
+
     pub fn new() -> MediaStore {
         let store = MediaStore {
             entries: RwLock::new(HashMap::new()),
@@ -102,8 +109,7 @@ impl MediaStore {
                 };
 
                 let media = Media::svg("gosub://data/svg", Svg::new(svg_tree));
-                let media_id = *self.next_id.read().expect("Failed to lock next media ID");
-                *self.next_id.write().expect("Failed to lock next media ID") += 1;
+                let media_id = self.allocate_media_id();
 
                 let mut entries = self.entries.write().expect("Failed to lock entries");
                 entries.insert(media_id, Arc::new(media));
@@ -122,8 +128,7 @@ impl MediaStore {
                 };
 
                 let media = Media::image("gosub://data/image", img.to_rgba8());
-                let media_id = *self.next_id.read().expect("Failed to lock next media ID");
-                *self.next_id.write().expect("Failed to lock next media ID") += 1;
+                let media_id = self.allocate_media_id();
 
                 let mut entries = self.entries.write().expect("Failed to lock entries");
                 entries.insert(media_id, Arc::new(media));
@@ -134,9 +139,6 @@ impl MediaStore {
                 media_id
             }
         };
-
-        let mut cache = self.cache.write().expect("Failed to lock cache");
-        cache.insert(h, media_id);
 
         Ok(media_id)
     }
@@ -170,8 +172,7 @@ impl MediaStore {
             }
         };
 
-        let media_id = *self.next_id.read().expect("Failed to lock next media ID");
-        *self.next_id.write().expect("Failed to lock next media ID") += 1;
+        let media_id = self.allocate_media_id();
 
         let mut entries = self.entries.write().expect("Failed to lock entries");
         entries.insert(media_id, Arc::new(media));
@@ -184,7 +185,14 @@ impl MediaStore {
         let media = self.get(media_id, MediaType::Image);
         match &*media {
             Media::Image(media_image) => media_image.clone(),
-            _ => unreachable!("Media is not an image"),
+            _ => {
+                log::warn!("Media {:?} is not an image, returning default", media_id);
+                let default = self.default_media(MediaType::Image);
+                match &*default {
+                    Media::Image(img) => img.clone(),
+                    _ => unreachable!("Default image is not an image"),
+                }
+            }
         }
     }
 
@@ -193,7 +201,14 @@ impl MediaStore {
         let media = self.get(media_id, MediaType::Svg);
         match &*media {
             Media::Svg(media_svg) => media_svg.clone(),
-            _ => unreachable!("Media is not an image"),
+            _ => {
+                log::warn!("Media {:?} is not an SVG, returning default", media_id);
+                let default = self.default_media(MediaType::Svg);
+                match &*default {
+                    Media::Svg(svg) => svg.clone(),
+                    _ => unreachable!("Default SVG is not an SVG"),
+                }
+            }
         }
     }
 
