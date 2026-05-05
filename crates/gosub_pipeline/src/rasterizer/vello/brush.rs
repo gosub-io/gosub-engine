@@ -13,7 +13,10 @@ pub fn set_brush(brush: &Brush, _rect: Rect) -> VelloBrush {
         }
         Brush::Image(media_id) => {
             let binding = get_media_store();
-            let media_store = binding.read().expect("Failed to get image store");
+            let Ok(media_store) = binding.read() else {
+                log::warn!("Failed to acquire media store lock, returning transparent brush");
+                return VelloBrush::Solid(AlphaColor::from(Rgba8::from_u8_array([0, 0, 0, 0])));
+            };
             let media = media_store.get_image(*media_id);
 
             VelloBrush::Image(PenikoImage::new(
