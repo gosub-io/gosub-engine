@@ -20,7 +20,7 @@ pub fn compose_layer(canvas: &skia_safe::canvas::Canvas, layer_id: LayerId) {
 
     let tile_ids = tile_list.read().expect("Failed to get tile list").get_intersecting_tiles(layer_id, state.viewport);
     for tile_id in tile_ids {
-        let binding = tile_list.write().expect("Failed to get tile list");
+        let binding = tile_list.read().expect("Failed to get tile list");
         let Some(tile) = binding.get_tile(tile_id) else {
             log::warn!("Tile not found: {:?}", tile_id);
             continue;
@@ -50,9 +50,12 @@ pub fn compose_layer(canvas: &skia_safe::canvas::Canvas, layer_id: LayerId) {
         #[allow(unsafe_code)]
         let data = unsafe { Data::new_bytes(&texture.data.as_slice()) };
 
-        let img = skia_safe::images::raster_from_data(
+        let Some(img) = skia_safe::images::raster_from_data(
             &image_info, &data, texture.width * 4
-        ).unwrap();
+        ) else {
+            log::error!("Failed to create skia image from texture data for tile {:?}", tile_id);
+            continue;
+        };
 
         canvas.draw_image(
             &img,

@@ -6,8 +6,10 @@ use gtk4::cairo::Context;
 use resvg::usvg::Transform;
 
 pub(crate) fn do_paint_svg(cr: &Context, _tile: &Tile, rect: &Rectangle, media_id: MediaId) {
-    println!("Painting SVG: {:?}", media_id);
-    let binding = get_media_store().read().unwrap();
+    let Ok(binding) = get_media_store().read() else {
+        log::warn!("Failed to acquire media store lock, skipping SVG paint");
+        return;
+    };
     let media = binding.get_svg(media_id);
 
     let lock = media.svg.rendered_dimension.read().unwrap();

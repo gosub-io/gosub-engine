@@ -20,13 +20,11 @@ impl Composable for CairoCompositor {
         let binding = get_browser_state();
         let state = binding.read().expect("Failed to get browser state");
 
-        let mut layers = vec![];
-        if state.visible_layer_list[0] {
-            layers.push(LayerId::new(0));
-        }
-        if state.visible_layer_list[1] {
-            layers.push(LayerId::new(1));
-        }
+        let layers: Vec<LayerId> = state.visible_layer_list
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &visible)| if visible { Some(LayerId::new(i as u64)) } else { None })
+            .collect();
 
         cairo_compositor(&config.cr, layers);
     }
