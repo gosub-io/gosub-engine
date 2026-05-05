@@ -347,6 +347,19 @@ impl ByteStream {
                 }
             }
             Encoding::UTF8 => {
+                // Fast path: closed stream with fully valid UTF-8 (the common case).
+                // std::str::from_utf8 validates in one pass; char_indices is then linear.
+                if self.closed {
+                    if let Ok(s) = std::str::from_utf8(&self.buffer) {
+                        for (byte_pos, ch) in s.char_indices() {
+                            self.char_byte_offsets.push(byte_pos);
+                            self.chars.push(Ch(ch));
+                        }
+                        self.compute_line_starts();
+                        return;
+                    }
+                }
+                // Fallback: open stream or buffer with encoding errors.
                 let mut byte_pos = 0;
                 while byte_pos < self.buffer.len() {
                     let (ch, len) = decode_one_utf8(&self.buffer[byte_pos..], self.closed);
