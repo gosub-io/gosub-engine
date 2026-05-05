@@ -439,6 +439,7 @@ impl ByteStream {
 
     pub fn read_from_str(&mut self, s: &str, encoding: Option<Encoding>) {
         self.buffer = Vec::from(s.as_bytes());
+        self.closed = false;
         if let Some(enc) = encoding {
             self.encoding = enc;
         }
