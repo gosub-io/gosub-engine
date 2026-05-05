@@ -213,7 +213,6 @@ impl Painter {
 
 /// Converts a css style color to a paint command color
 fn convert_css_color(css_color: &StyleColor) -> Color {
-    log::info!("Converting css color: {:?}", css_color);
     match css_color {
         StyleColor::Named(name) => Color::from_css(name.as_str()),
         StyleColor::Rgb(r, g, b) => Color::from_rgb8(*r, *g, *b),

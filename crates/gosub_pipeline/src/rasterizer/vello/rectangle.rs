@@ -91,8 +91,8 @@ fn draw_double_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine
     let inner_border_rect = Rect::new(
         rect.rect().x + width as f64 + gap_size,
         rect.rect().y + width as f64 + gap_size,
-        rect.rect().width - width as f64 - gap_size,
-        rect.rect().height - width as f64 - gap_size
+        rect.rect().x + rect.rect().width - width as f64 - gap_size,
+        rect.rect().y + rect.rect().height - width as f64 - gap_size,
     );
     scene.stroke(
         &kurbo::Stroke::new(width as f64),

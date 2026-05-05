@@ -1,15 +1,13 @@
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
 use crate::common::document::style::{FontWeight, StyleProperty, StyleValue, TextAlign, Unit};
-use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo::Coordinate;
 use crate::common::media::{Media, MediaId, MediaType};
 use crate::common::{geo, get_media_store};
-use crate::layouter::box_model::Edges;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
 use crate::layouter::text::get_text_layout;
 use crate::layouter::{
-    box_model, CanLayout, ElementContext, ElementContextImage, ElementContextSvg, ElementContextText, LayoutElementId,
-    LayoutElementNode, LayoutTree,
+    box_model, CanLayout, ElementContext, ElementContextImage, ElementContextSvg,
+    ElementContextText, LayoutElementId, LayoutElementNode, LayoutTree,
 };
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use std::borrow::Borrow;
@@ -17,6 +15,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use taffy::prelude::*;
 use taffy::NodeId as TaffyNodeId;
+use crate::common::font::{FontAlignment, FontInfo};
+use crate::layouter::box_model::Edges;
 
 const DEFAULT_FONT_SIZE: f64 = 16.0;
 const DEFAULT_FONT_FAMILY: &str = "Sans";
@@ -40,7 +40,12 @@ pub enum TaffyContext {
 }
 
 impl TaffyContext {
-    fn text(text: &str, font_info: FontInfo, node_id: DomNodeId, text_offset: Coordinate) -> TaffyContext {
+    fn text(
+        text: &str,
+        font_info: FontInfo,
+        node_id: DomNodeId,
+        text_offset: Coordinate,
+    ) -> TaffyContext {
         TaffyContext::Text(ElementContextText {
             node_id,
             font_info,
@@ -49,7 +54,12 @@ impl TaffyContext {
         })
     }
 
-    fn image(src: &str, media_id: MediaId, dimension: geo::Dimension, node_id: DomNodeId) -> TaffyContext {
+    fn image(
+        src: &str,
+        media_id: MediaId,
+        dimension: geo::Dimension,
+        node_id: DomNodeId,
+    ) -> TaffyContext {
         TaffyContext::Image(ElementContextImage {
             node_id,
             src: src.to_string(),
@@ -68,12 +78,6 @@ impl TaffyContext {
     }
 }
 
-impl Default for TaffyLayouter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TaffyLayouter {
     pub fn new() -> Self {
         Self {
@@ -89,12 +93,7 @@ impl TaffyLayouter {
 }
 
 impl CanLayout for TaffyLayouter {
-    fn layout(
-        &mut self,
-        render_tree: RenderTree,
-        viewport: Option<geo::Dimension>,
-        dpi_scale_factor: f32,
-    ) -> LayoutTree {
+    fn layout(&mut self, render_tree: RenderTree, viewport: Option<geo::Dimension>, dpi_scale_factor: f32) -> LayoutTree {
         let root_id = render_tree.root_id.unwrap();
         // let root_id = RenderNodeId::new(2);
         let Some(mut layout_tree) = self.generate_tree(render_tree, root_id) else {
@@ -118,16 +117,15 @@ impl CanLayout for TaffyLayouter {
                     Some(TaffyContext::Text(text_ctx)) => {
                         let max_width = match v_as.width {
                             AvailableSpace::Definite(width) => width as f64,
-                            AvailableSpace::MaxContent => 1_000_000_000.0, // f64::MAX doesn't work. Seems some kind of overflow. Same goes for f32::MAX
+                            AvailableSpace::MaxContent => 1_000_000_000.0,      // f64::MAX doesn't work. Seems some kind of overflow. Same goes for f32::MAX
                             AvailableSpace::MinContent => 0.0,
                         };
 
                         // Calculate the text layout dimensions and return it to taffy
-                        let text_layout =
-                            get_text_layout(text_ctx.text.as_str(), &text_ctx.font_info, max_width, dpi_scale_factor);
+                        let text_layout = get_text_layout(text_ctx.text.as_str(), &text_ctx.font_info, max_width, dpi_scale_factor);
                         match text_layout {
                             Ok(text_layout) => Size {
-                                width: text_layout.width as f32, // Note that we cast width down to 32bits.. we might need to take care of overflows
+                                width: text_layout.width as f32,        // Note that we cast width down to 32bits.. we might need to take care of overflows
                                 height: text_layout.height as f32,
                             },
                             Err(_) => Size::ZERO,
@@ -157,9 +155,14 @@ impl CanLayout for TaffyLayouter {
 
 impl TaffyLayouter {
     // Populate the layout tree with the box models that we now can generate
-    fn populate_boxmodel(&self, layout_tree: &mut LayoutTree, layout_node_id: LayoutElementId, offset: Coordinate) {
+    fn populate_boxmodel(
+        &self,
+        layout_tree: &mut LayoutTree,
+        layout_node_id: LayoutElementId,
+        offset: Coordinate,
+    ) {
         let taffy_node_id = self.layout_taffy_mapping.get(&layout_node_id).unwrap();
-        let layout = *self.tree.layout(*taffy_node_id).unwrap();
+        let layout = self.tree.layout(*taffy_node_id).unwrap().clone();
 
         let el = layout_tree.get_node_by_id_mut(layout_node_id).unwrap();
         el.box_model = taffy_layout_to_boxmodel(&layout, offset);
@@ -169,13 +172,20 @@ impl TaffyLayouter {
             self.populate_boxmodel(
                 layout_tree,
                 child_id,
-                Coordinate::new(offset.x + layout.location.x as f64, offset.y + layout.location.y as f64),
+                Coordinate::new(
+                    offset.x + layout.location.x as f64,
+                    offset.y + layout.location.y as f64,
+                ),
             );
         }
     }
 
     /// Generate the layout tree from the render tree
-    fn generate_tree(&mut self, render_tree: RenderTree, root_id: RenderNodeId) -> Option<LayoutTree> {
+    fn generate_tree(
+        &mut self,
+        render_tree: RenderTree,
+        root_id: RenderNodeId,
+    ) -> Option<LayoutTree> {
         self.tree = TaffyTree::new();
         self.root_id = TaffyNodeId::new(0); // Will be filled in later
 
@@ -188,13 +198,18 @@ impl TaffyLayouter {
             rstar_tree: rstar::RTree::new(),
         };
 
-        let (layout_element_root_id, taffy_root_id) = self.generate_taffy_element(&mut layout_tree, root_id)?;
+        let Some((layout_element_root_id, taffy_root_id)) =
+            self.generate_taffy_element(&mut layout_tree, root_id)
+        else {
+            return None;
+        };
 
         layout_tree.root_id = layout_element_root_id;
         self.root_id = taffy_root_id;
 
         Some(layout_tree)
     }
+
 
     // Process inline elements by adding them to the taffy tree and element_node children vec. It will
     // automatically create an anonymous taffy block element to store multiple inline elements.
@@ -204,7 +219,6 @@ impl TaffyLayouter {
         element_node: &mut LayoutElementNode,
         leaf_id: TaffyNodeId,
     ) {
-        println!("Processing inline elements: {:?}", current_inline_group.len());
 
         // No inline elements to process
         if current_inline_group.is_empty() {
@@ -234,7 +248,7 @@ impl TaffyLayouter {
                 width: Dimension::Auto,
                 height: Dimension::Auto,
             },
-            ..Default::default()
+            .. Default::default()
         }) else {
             return;
         };
@@ -247,35 +261,42 @@ impl TaffyLayouter {
         }
     }
 
+
     // Process node and turn it into a taffy node. It will recursively process any children and takes care to wrap any multiple inline elements
     // into an anonymous taffy block element. This way we can sort of emulate inline elements within taffy.
-    fn generate_taffy_element(
-        &mut self,
-        layout_tree: &mut LayoutTree,
-        render_node_id: RenderNodeId,
-    ) -> Option<(LayoutElementId, TaffyNodeId)> {
+    fn generate_taffy_element(&mut self, layout_tree: &mut LayoutTree, render_node_id: RenderNodeId) -> Option<(LayoutElementId, TaffyNodeId)> {
         // Find render node and dom node from the layout tree
-        let render_node = layout_tree.render_tree.get_node_by_id(render_node_id)?;
-        let dom_node = layout_tree
+        let Some(render_node) = layout_tree.render_tree.get_node_by_id(render_node_id) else {
+            return None;
+        };
+        let Some(dom_node) = layout_tree
             .render_tree
             .doc
-            .get_node_by_id(DomNodeId::from(render_node.node_id))?;
+            .get_node_by_id(DomNodeId::from(render_node.node_id))
+        else {
+            return None;
+        };
 
         // Extract taffy data from the DOM node
-        let Some((taffy_context, taffy_style)) = self.extract_taffy_data(layout_tree, &dom_node) else {
+        let Some((taffy_context, taffy_style)) = self.extract_taffy_data(
+            &layout_tree,
+            &dom_node,
+        ) else {
             // Could not extract taffy data from the DOM node
             return None;
         };
 
         // The context will be moved to the taffy tree, so we need to convert it before that happens.
         let element_context = match taffy_context {
-            Some(ref ctx) => to_element_context(Some(ctx)),
+            Some(ref ctx) => to_element_context(Some(&ctx)),
             None => to_element_context(None),
         };
 
         // We add the element to the taffy tree. If we have a context, make sure we add it with the context as well.
         let result = match taffy_context {
-            Some(ctx) => self.tree.new_leaf_with_context(taffy_style.to_owned(), ctx),
+            Some(ctx) => self
+                .tree
+                .new_leaf_with_context(taffy_style.to_owned(), ctx),
             None => self.tree.new_leaf(taffy_style.to_owned()),
         };
 
@@ -299,7 +320,8 @@ impl TaffyLayouter {
         let mut current_inline_group = Vec::new();
         let render_node_children = render_node.children.clone();
         for child_id in render_node_children.iter() {
-            let Some((child_layout_element_id, child_taffy_id)) = self.generate_taffy_element(layout_tree, *child_id)
+            let Some((child_layout_element_id, child_taffy_id)) =
+                self.generate_taffy_element(layout_tree, *child_id)
             else {
                 continue;
             };
@@ -310,14 +332,15 @@ impl TaffyLayouter {
 
             // Don't add inline elements to the taffy tree yet. We need to group them first and possibly wrap inside a block
             if child_node.is_inline_element() || child_node.is_text() {
-                println!("Pushing element as inline: {:?}", child_node.node_id);
                 current_inline_group.push((child_layout_element_id, child_taffy_id));
                 continue;
             }
 
-            println!("Element {:?} is not an inline", child_node.node_id);
-
-            self.process_inlines(&current_inline_group, &mut element_node, leaf_id);
+            self.process_inlines(
+                &mut current_inline_group,
+                &mut element_node,
+                leaf_id,
+            );
             current_inline_group = Vec::new();
 
             // Add this child
@@ -326,7 +349,11 @@ impl TaffyLayouter {
         }
 
         // Deal with any remaining inline elements in the current inline group
-        self.process_inlines(&current_inline_group, &mut element_node, leaf_id);
+        self.process_inlines(
+            &mut current_inline_group,
+            &mut element_node,
+            leaf_id,
+        );
 
         // Finally, we can insert the generated element also in the layout-tree. This is the ultimate
         // structure we must return to the rest of the pipeline. Taffy itself will stay internal to this
@@ -362,7 +389,6 @@ impl TaffyLayouter {
                     let src = data.get_attribute("src").unwrap();
                     let src = to_absolute_url(src, base_url);
 
-                    println!("Loading (image) resource: {}", src);
 
                     let media_store = get_media_store();
                     let Ok(media_id) = media_store.read().unwrap().load_media(src.as_str()) else {
@@ -375,13 +401,20 @@ impl TaffyLayouter {
                     let binding = media_store.read().unwrap();
                     let media = binding.get(media_id, MediaType::Image);
                     taffy_context = match media.borrow() {
-                        Media::Svg(_) => Some(TaffyContext::svg(src.as_str(), media_id, dom_node.node_id)),
+                        Media::Svg(_) => {
+                            Some(TaffyContext::svg(src.as_str(), media_id, dom_node.node_id))
+                        }
                         Media::Image(media_image) => {
                             let dimension = geo::Dimension::new(
                                 media_image.image.width() as f64,
                                 media_image.image.height() as f64,
                             );
-                            Some(TaffyContext::image(src.as_str(), media_id, dimension, dom_node.node_id))
+                            Some(TaffyContext::image(
+                                src.as_str(),
+                                media_id,
+                                dimension,
+                                dom_node.node_id,
+                            ))
                         }
                     }
                 }
@@ -396,7 +429,11 @@ impl TaffyLayouter {
                         .load_media_from_data(MediaType::Svg, inner_html.into_bytes().as_slice())
                     {
                         Ok(media_id) => {
-                            taffy_context = Some(TaffyContext::svg("gosub://internal", media_id, dom_node.node_id));
+                            taffy_context = Some(TaffyContext::svg(
+                                "gosub://internal",
+                                media_id,
+                                dom_node.node_id,
+                            ));
                         }
                         Err(e) => {
                             log::info!("Could not load SVG media: {:?}", e);
@@ -409,23 +446,27 @@ impl TaffyLayouter {
                     Some(parent_id) => layout_tree.render_tree.doc.get_node_by_id(parent_id),
                     None => None,
                 };
-                parent_node?;
+                if parent_node.is_none() {
+                    return None;
+                }
 
                 // Default font
                 let mut font_size = DEFAULT_FONT_SIZE;
                 let mut font_family = DEFAULT_FONT_FAMILY.to_string();
 
-                if let Some(StyleValue::Unit(value, unit)) = node_style.get_property(StyleProperty::FontSize) {
-                    match unit {
+                match node_style.get_property(StyleProperty::FontSize) {
+                    Some(StyleValue::Unit(value, unit)) => match unit {
                         Unit::Px => font_size = *value as f64,
                         Unit::Em => panic!("Don't know how to deal with em units for fonts"),
                         Unit::Rem => panic!("Don't know how to deal with rem units for fonts"),
                         _ => panic!("Incorrect font-size property unit"),
-                    }
+                    },
+                    _ => {}
                 }
 
-                if let Some(StyleValue::Keyword(value)) = node_style.get_property(StyleProperty::FontFamily) {
-                    font_family = value.clone()
+                match node_style.get_property(StyleProperty::FontFamily) {
+                    Some(StyleValue::Keyword(value)) => font_family = value.clone(),
+                    _ => {}
                 }
 
                 let font_weight = match node_style.get_property(StyleProperty::FontWeight) {
@@ -446,8 +487,8 @@ impl TaffyLayouter {
                 let alignment = match node_style.get_property(StyleProperty::TextAlign) {
                     Some(StyleValue::TextAlign(value)) => match value {
                         TextAlign::Center => FontAlignment::Center,
-                        TextAlign::Right => FontAlignment::Start,
-                        TextAlign::Left => FontAlignment::End,
+                        TextAlign::Right => FontAlignment::End,
+                        TextAlign::Left => FontAlignment::Start,
                         TextAlign::Justify => FontAlignment::Justify,
                         TextAlign::Start => FontAlignment::Start,
                         TextAlign::End => FontAlignment::End,
@@ -515,7 +556,10 @@ impl TaffyLayouter {
             }
         }
 
-        Some((taffy_context, taffy_style))
+        Some((
+            taffy_context,
+            taffy_style,
+        ))
     }
 }
 
@@ -552,7 +596,7 @@ fn to_element_context(taffy_context: Option<&TaffyContext>) -> ElementContext {
         Some(TaffyContext::Image(image_ctx)) => ElementContext::image(
             image_ctx.src.as_str(),
             image_ctx.media_id,
-            image_ctx.dimension,
+            image_ctx.dimension.clone(),
             image_ctx.node_id,
         ),
         Some(TaffyContext::Svg(svg_ctx)) => ElementContext::svg(
