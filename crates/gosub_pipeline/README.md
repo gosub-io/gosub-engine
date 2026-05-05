@@ -45,18 +45,19 @@ fully rendered frame.
 
 
 ## Passing of data
+
 Each stage will take the data from the previous stage and transform it into a new format. Note that the data from earlier stages are still available 
 by wrapping these structures.
 
 For instance, the layering stage will take the layout tree and the render tree as input. The output of the layering stage is a list of layers.
 Note that we have a wrapped layout tree, which in turn has a wrapped render tree which in turn has a wrapped DOM document.
 
+## Data structure throughout the pipelines
 
-# Data structure throughout the pipelines
 Note that each structure wraps the previous structure so it's always possible to look back into the previous stage for information. Normally,
 the layout list and dom nodes are important for later stages.
 
-```
+```text
 TileList
     - layers: HashMap<LayerId, Vec<TileId>>
     - default_tile_width
@@ -89,12 +90,14 @@ TileList
 
 
 # Directory layout
+
 Each stage has its own file in the `src` directory. The `main.rs` file contains the main function that runs the pipeline. If a stage is larger (most of them are), it will 
 be split into a module with the corresponding name. Some code is shared between stages (geometry, document, texture and images stores etc), and they are placed into the 
 `common` module. Note that it's possible for any pipeline module to use the `common` module, but not the other way around.
 
 
 # Main demo applications
+
 There are three demo applications, each running with its own backend.
 
 | Binary         | 2d rendering lib | text rendering lib |
@@ -105,15 +108,18 @@ There are three demo applications, each running with its own backend.
 
 
 # Media store
+
 The media store is a simple in-memory store that keeps external (or inline) resources. It's used for storing images and SVG files but it allows to store 
 any kind of data. This media-store can be an offline cache for resources in the future. 
 
 
 # Texture store
+
 The texture store keeps all the textures from page tiles. This way we only need to rerender tiles when elements on them are dirty. For scrolling and other 
 purposes, we do not need to rerender the tiles but the compositor can take care of this. Even though we can use GPU accelerated rendering, we still need to 
 store the textures in memory. A good optimization might be to store the textures on the GPU and reference them in the texture store.
 
 # Rstar
+
 This pipeline relies on rstar for spatial searched. For instance, we need to know which elements are visible on the screen. Or which elements are at a certain position.
 Some of the pipeline data structures will have a separate rstar tree for this purpose. 
