@@ -411,9 +411,9 @@ impl TaffyLayouter {
                 if let Some(StyleValue::Unit(value, unit)) = node_style.get_property(StyleProperty::FontSize) {
                     match unit {
                         Unit::Px => font_size = *value as f64,
-                        Unit::Em => panic!("Don't know how to deal with em units for fonts"),
-                        Unit::Rem => panic!("Don't know how to deal with rem units for fonts"),
-                        _ => panic!("Incorrect font-size property unit"),
+                        Unit::Em | Unit::Rem | _ => {
+                            log::warn!("Unsupported font-size unit, using default");
+                        }
                     }
                 }
 
@@ -426,12 +426,8 @@ impl TaffyLayouter {
                         FontWeight::Normal => 400.0,
                         FontWeight::Bold => 700.0,
                         FontWeight::Number(value) => *value as f64,
-                        FontWeight::Bolder => {
-                            unimplemented!("FontWeight::Bolder is not implemented yet")
-                        }
-                        FontWeight::Lighter => {
-                            unimplemented!("FontWeight::Lighter is not implemented yet")
-                        }
+                        FontWeight::Bolder => 700.0,
+                        FontWeight::Lighter => 300.0,
                     },
                     _ => 400.0,
                 };
@@ -444,21 +440,11 @@ impl TaffyLayouter {
                         TextAlign::Justify => FontAlignment::Justify,
                         TextAlign::Start => FontAlignment::Start,
                         TextAlign::End => FontAlignment::End,
-                        TextAlign::MatchParent => {
-                            unimplemented!("TextAlign::MatchParent is not implemented yet")
-                        }
-                        TextAlign::Initial => {
-                            unimplemented!("TextAlign::Initial is not implemented yet")
-                        }
-                        TextAlign::Inherit => {
-                            unimplemented!("TextAlign::Inherit is not implemented yet")
-                        }
-                        TextAlign::Revert => {
-                            unimplemented!("TextAlign::Revert is not implemented yet")
-                        }
-                        TextAlign::Unset => {
-                            unimplemented!("TextAlign::Unset is not implemented yet")
-                        }
+                        TextAlign::MatchParent
+                        | TextAlign::Initial
+                        | TextAlign::Inherit
+                        | TextAlign::Revert
+                        | TextAlign::Unset => FontAlignment::Start,
                     },
                     _ => FontAlignment::Start,
                 };
@@ -466,11 +452,10 @@ impl TaffyLayouter {
                 let line_height = match node_style.get_property(StyleProperty::LineHeight) {
                     Some(StyleValue::Unit(value, unit)) => match unit {
                         Unit::Px => *value as f64,
-                        Unit::Em => panic!("Don't know how to deal with em units for line-height"),
-                        Unit::Rem => {
-                            panic!("Don't know how to deal with rem units for line-height")
+                        Unit::Em | Unit::Rem | _ => {
+                            log::warn!("Unsupported line-height unit, using font-size as fallback");
+                            font_size
                         }
-                        _ => panic!("Incorrect line-height property unit"),
                     },
                     _ => font_size,
                 };

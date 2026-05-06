@@ -4,12 +4,11 @@ use crate::painter::commands::brush::Brush;
 use crate::painter::commands::text::Text;
 use crate::rasterizer::vello::brush::set_brush;
 use parley::layout::{GlyphRun, PositionedLayoutItem};
-use std::fmt::Error;
 use vello::kurbo::Affine;
 use vello::peniko::Fill;
 use vello::Scene;
 
-pub fn do_paint_text(scene: &mut Scene, cmd: &Text, _tile_size: Dimension, affine: Affine) -> Result<(), Error> {
+pub fn do_paint_text(scene: &mut Scene, cmd: &Text, _tile_size: Dimension, affine: Affine) -> Result<(), anyhow::Error> {
     let layout = get_parley_layout(
         cmd.text.as_str(),
         cmd.font_info.family.as_str(),
@@ -26,7 +25,7 @@ pub fn do_paint_text(scene: &mut Scene, cmd: &Text, _tile_size: Dimension, affin
                     render_glyph_run(scene, glyph_run, &cmd.brush, &cmd.rect, affine);
                 }
                 PositionedLayoutItem::InlineBox(_inline_box) => {
-                    todo!("Inline boxes are not supported yet");
+                    continue;
                 }
             };
         }

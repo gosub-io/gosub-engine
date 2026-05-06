@@ -219,8 +219,9 @@ impl TileList {
     }
 
     pub fn invalidate_tile(&mut self, tile_id: TileId) {
-        let tile = self.arena.get_mut(&tile_id).unwrap();
-        tile.state = TileState::Dirty;
+        if let Some(tile) = self.arena.get_mut(&tile_id) {
+            tile.state = TileState::Dirty;
+        }
     }
 
     pub fn get_tile_mut(&mut self, tile_id: TileId) -> Option<&mut Tile> {
@@ -262,7 +263,6 @@ impl TileList {
             );
             return;
         }
-
         let rows =
             (self.layer_list.layout_tree.root_dimension.height / self.default_tile_dimension.height).ceil() as usize;
         let cols =

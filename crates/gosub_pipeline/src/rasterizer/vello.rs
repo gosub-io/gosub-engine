@@ -81,7 +81,7 @@ impl Rasterable for VelloRasterizer<'_> {
             antialiasing_method: AaConfig::Msaa16,
         };
 
-        self.renderer
+        if let Err(e) = self.renderer
             .borrow_mut()
             .render_to_texture(
                 self.device,
@@ -90,7 +90,10 @@ impl Rasterable for VelloRasterizer<'_> {
                 &texture.create_view(&Default::default()),
                 &render_params,
             )
-            .unwrap();
+        {
+            log::error!("Vello render_to_texture failed: {:?}", e);
+            return None;
+        }
 
         let texture_data = read_texture_to_image(
             self.device,

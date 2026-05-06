@@ -34,7 +34,10 @@ pub(crate) fn do_paint_svg(cr: &Context, _tile: &Tile, rect: &Rectangle, media_i
 
     // Re-render SVG at the required dimension, then update the cache atomically.
     let pixmap_size = media.svg.tree.size().to_int_size();
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
+    let Some(mut pixmap) = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()) else {
+        log::warn!("SVG has zero or invalid dimensions, skipping render");
+        return;
+    };
     resvg::render(&media.svg.tree, Transform::default(), &mut pixmap.as_mut());
     let new_data = pixmap.data().to_vec();
 
