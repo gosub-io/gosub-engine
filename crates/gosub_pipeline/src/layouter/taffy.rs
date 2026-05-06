@@ -133,6 +133,11 @@ impl CanLayout for TaffyLayouter {
                             Err(_) => Size::ZERO,
                         }
                     }
+                    // Return image intrinsic dimensions; CSS width/height constraints applied by taffy
+                    Some(TaffyContext::Image(image_ctx)) => Size {
+                        width: image_ctx.dimension.width as f32,
+                        height: image_ctx.dimension.height as f32,
+                    },
                     _ => Size::ZERO,
                 }
             })
@@ -204,6 +209,8 @@ impl TaffyLayouter {
         element_node: &mut LayoutElementNode,
         leaf_id: TaffyNodeId,
     ) {
+        log::debug!("Processing inline elements: {:?}", current_inline_group.len());
+
         // No inline elements to process
         if current_inline_group.is_empty() {
             return;
@@ -308,9 +315,12 @@ impl TaffyLayouter {
 
             // Don't add inline elements to the taffy tree yet. We need to group them first and possibly wrap inside a block
             if child_node.is_inline_element() || child_node.is_text() {
+                log::debug!("Pushing element as inline: {:?}", child_node.node_id);
                 current_inline_group.push((child_layout_element_id, child_taffy_id));
                 continue;
             }
+
+            log::debug!("Element {:?} is not an inline", child_node.node_id);
 
             self.process_inlines(&current_inline_group, &mut element_node, leaf_id);
             current_inline_group = Vec::new();
@@ -354,13 +364,18 @@ impl TaffyLayouter {
                 // Check if element type is an image, if so, set the taffy context
                 if data.tag_name.eq_ignore_ascii_case("img") {
                     let base_url = layout_tree.render_tree.doc.base_url();
-                    let src = data.get_attribute("src")?;
+                    let Some(src) = data.get_attribute("src") else {
+                        log::warn!("img element missing src attribute");
+                        return None;
+                    };
                     let src = to_absolute_url(src, &base_url);
+
+                    log::debug!("Loading (image) resource: {}", src);
 
                     let media_store = get_media_store();
                     let Ok(media_id) = media_store.read().unwrap().load_media(src.as_str()) else {
                         // Could not load media
-                        log::info!("Could not load media from path: {}", src);
+                        log::warn!("Could not load media from path: {}", src);
                         return None;
                     };
 
@@ -392,7 +407,7 @@ impl TaffyLayouter {
                             taffy_context = Some(TaffyContext::svg("gosub://internal", media_id, dom_node.node_id));
                         }
                         Err(e) => {
-                            log::info!("Could not load SVG media: {:?}", e);
+                            log::warn!("Could not load SVG media: {:?}", e);
                         }
                     }
                 }
@@ -411,7 +426,7 @@ impl TaffyLayouter {
                 if let Some(StyleValue::Unit(value, unit)) = node_style.get_property(StyleProperty::FontSize) {
                     match unit {
                         Unit::Px => font_size = *value as f64,
-                        Unit::Em | Unit::Rem | _ => {
+                        _ => {
                             log::warn!("Unsupported font-size unit, using default");
                         }
                     }
@@ -452,7 +467,7 @@ impl TaffyLayouter {
                 let line_height = match node_style.get_property(StyleProperty::LineHeight) {
                     Some(StyleValue::Unit(value, unit)) => match unit {
                         Unit::Px => *value as f64,
-                        Unit::Em | Unit::Rem | _ => {
+                        _ => {
                             log::warn!("Unsupported line-height unit, using font-size as fallback");
                             font_size
                         }
@@ -499,22 +514,22 @@ impl TaffyLayouter {
 
 // Convert a URI to an absolute URL based on the base URL if this is needed
 fn to_absolute_url(uri: &str, base_uri: &str) -> String {
-    if uri.starts_with("http://") || uri.starts_with("https://") {
+    if uri.starts_with("http://") || uri.starts_with("https://") || uri.starts_with("file://") {
         return uri.to_string();
     }
 
     // We have a relative path, so we need to prepend the base URL
     // Make sure we don't have double slashes
-    if base_uri.ends_with("/") && uri.starts_with("/") {
-        return format!("{}{}", base_uri, &uri[1..]).to_string();
+    if base_uri.ends_with('/') && uri.starts_with('/') {
+        return format!("{}{}", base_uri, &uri[1..]);
     }
 
     // Neither has a /
-    if !base_uri.ends_with("/") && !uri.starts_with("/") {
-        return format!("{}/{}", base_uri, uri).to_string();
+    if !base_uri.ends_with('/') && !uri.starts_with('/') {
+        return format!("{}/{}", base_uri, uri);
     }
 
-    format!("{}{}", base_uri, uri).to_string()
+    format!("{}{}", base_uri, uri)
 }
 
 /// Convert a taffy context to an element context. Optionally, these two structures should be merged

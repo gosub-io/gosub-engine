@@ -16,6 +16,7 @@ use gosub_pipeline::rendertree_builder::RenderTree;
 use gosub_pipeline::tiler::{TileList, TileState};
 use std::cell::RefCell;
 use std::fmt::Formatter;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Instant;
@@ -42,8 +43,7 @@ fn main() {
     let viewport_dimension = Dimension::new(1024.0, 768.0);
 
     let browser_state = BrowserState {
-        // visible_layer_list: vec![true; 10],
-        visible_layer_list: vec![true, false, false, false, false, false, false, false, false, false],
+        visible_layer_list: vec![],
         wireframed: WireframeState::None,
         debug_hover: false,
         current_hovered_element: None,
@@ -85,15 +85,18 @@ fn reflow() {
 
     drop(state);
 
+    let layer_count = tile_list.layer_list.layer_ids.read().unwrap().len();
+
     let binding = get_browser_state();
     let mut state = binding.write().unwrap();
+    state.visible_layer_list.resize(layer_count, true);
     state.tile_list = Some(RwLock::new(tile_list));
 }
 
 #[allow(clippy::arc_with_non_send_sync)] // wgpu Renderer is single-threaded by design
 struct Env<'s> {
     pub render_ctx: RenderContext,
-    pub renderer: Option<Arc<RefCell<Renderer>>>,
+    pub renderer: Option<Rc<RefCell<Renderer>>>,
     pub surface: Option<RenderSurface<'s>>, // Surface must be before window for safety during cleanup
     pub window: Option<Arc<Window>>,
 }
@@ -164,7 +167,7 @@ impl ApplicationHandler for App<'_> {
                 state.viewport = Rect::new(0.0, 0.0, width as f64, height as f64);
                 drop(state);
 
-                // reflow();
+                reflow();
             }
             WindowEvent::RedrawRequested => {
                 self.frame += 1;
@@ -182,8 +185,8 @@ impl ApplicationHandler for App<'_> {
 
                 let renderer = &mut env.renderer.as_mut().unwrap();
 
-                for (i, layer_visible) in vis_layers.iter().enumerate().take(10) {
-                    if *layer_visible {
+                for (i, &visible) in vis_layers.iter().enumerate() {
+                    if visible {
                         do_paint(LayerId::new(i as u64));
                         do_rasterize(device, queue, renderer.clone(), LayerId::new(i as u64));
                     }
@@ -254,7 +257,9 @@ impl ApplicationHandler for App<'_> {
                         Code(KeyCode::Digit0) => 9,
                         _ => unreachable!(),
                     };
-                    state.visible_layer_list[layer_id] = !state.visible_layer_list[layer_id];
+                    if let Some(v) = state.visible_layer_list.get_mut(layer_id) {
+                        *v = !*v;
+                    }
                     window.request_redraw();
                 }
 
@@ -282,6 +287,10 @@ impl ApplicationHandler for App<'_> {
                     let mut state = binding.write().unwrap();
 
                     state.debug_hover = !state.debug_hover;
+
+                    if let Some(ref tile_list) = state.tile_list {
+                        tile_list.write().expect("Failed to get tile list").invalidate_all();
+                    }
                     window.request_redraw();
                 }
 
@@ -335,7 +344,7 @@ fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> 
         render_ctx,
         window: Some(window),
         surface: Some(surface),
-        renderer: Some(Arc::new(RefCell::new(renderer.unwrap()))),
+        renderer: Some(Rc::new(RefCell::new(renderer.unwrap()))),
     };
 
     log::info!("vello window created");
@@ -378,7 +387,7 @@ fn do_paint(layer_id: LayerId) {
     }
 }
 
-fn do_rasterize(device: &wgpu::Device, queue: &wgpu::Queue, renderer: Arc<RefCell<Renderer>>, layer_id: LayerId) {
+fn do_rasterize(device: &wgpu::Device, queue: &wgpu::Queue, renderer: Rc<RefCell<Renderer>>, layer_id: LayerId) {
     let binding = get_browser_state();
     let state = binding.read().unwrap();
 

@@ -74,7 +74,7 @@ fn create_dom_from_json(doc: &mut Document, node: &DomNode, parent_id: Option<No
     }
 
     let Some(tag) = &node.tag else {
-        eprintln!("Warning: Encountered node without a tag! {:?}", node);
+        log::warn!("Encountered node without a tag! {:?}", node);
         return None;
     };
 

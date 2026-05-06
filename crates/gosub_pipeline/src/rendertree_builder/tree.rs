@@ -30,9 +30,9 @@ impl From<RenderNodeId> for NodeId {
     }
 }
 
-impl AddAssign<i32> for RenderNodeId {
-    fn add_assign(&mut self, rhs: i32) {
-        self.0 += rhs as u64;
+impl AddAssign<u64> for RenderNodeId {
+    fn add_assign(&mut self, rhs: u64) {
+        self.0 += rhs;
     }
 }
 
@@ -107,6 +107,9 @@ impl RenderTree {
     }
 
     pub fn parse(&mut self) {
+        self.arena.clear();
+        self.root_id = None;
+
         let Some(root_id) = self.doc.root() else {
             panic!("Document has no root node");
         };

@@ -129,6 +129,11 @@ impl CssTaffyConverter {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Column;
             }
+            Some(StyleValue::Display(CssDisplay::InlineBlock)) => {
+                ts.display = Display::Flex;
+                ts.flex_direction = FlexDirection::Row;
+                ts.flex_wrap = FlexWrap::NoWrap;
+            }
             Some(StyleValue::Display(CssDisplay::Inline)) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Row;
@@ -165,7 +170,10 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Unit(val, _unit) => Dimension::from_length(*val),
+            StyleValue::Unit(val, unit) => match unit {
+                CssUnit::Percent => Dimension::Percent(*val / 100.0),
+                _ => Dimension::from_length(*val),
+            },
             StyleValue::Number(val) => Dimension::from_length(*val),
             StyleValue::Keyword(val) if val == "auto" => Dimension::Auto,
             _ => default,
@@ -271,7 +279,7 @@ impl CssTaffyConverter {
         match val {
             StyleValue::Unit(value, unit) => match unit {
                 CssUnit::Px => Dimension::from_length(*value),
-                CssUnit::Percent => Dimension::from_length(*value),
+                CssUnit::Percent => Dimension::Percent(*value / 100.0),
                 _ => default,
             },
             StyleValue::Number(value) => Dimension::from_length(*value),

@@ -1,3 +1,4 @@
+use cow_utils::CowUtils;
 use gtk4::gio::Settings;
 use gtk4::pango;
 use gtk4::pango::Weight;
@@ -9,11 +10,11 @@ pub fn find_available_font(families: &str, ctx: &pango::Context) -> String {
     let available_fonts: Vec<String> = ctx
         .list_families()
         .iter()
-        .map(|f| f.name().to_ascii_lowercase())
+        .map(|f| f.name().cow_to_ascii_lowercase().into_owned())
         .collect();
 
     for font in families.split(',') {
-        let font_name = font.trim().replace('"', "");
+        let font_name = font.trim().cow_replace('"', "").into_owned();
 
         // system-ui is a special keyword resolved via the desktop environment
         if font_name.eq_ignore_ascii_case("system-ui") {
@@ -24,7 +25,7 @@ pub fn find_available_font(families: &str, ctx: &pango::Context) -> String {
             continue;
         }
 
-        if available_fonts.contains(&font_name.to_ascii_lowercase()) {
+        if available_fonts.contains(&font_name.cow_to_ascii_lowercase().into_owned()) {
             return font_name;
         }
     }

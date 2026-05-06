@@ -64,8 +64,9 @@ fn main() {
     // Render the layout-tree into a GTK window
     let app = Application::builder().application_id("io.gosub.renderer").build();
 
+    let layer_count = tile_list.layer_list.layer_ids.read().unwrap().len();
     let browser_state = BrowserState {
-        visible_layer_list: vec![true; 10],
+        visible_layer_list: vec![true; layer_count],
         wireframed: WireframeState::None,
         debug_hover: false,
         current_hovered_element: None,
@@ -117,7 +118,6 @@ fn build_ui(app: &Application) {
         .unwrap()
         .layer_list
         .layout_tree
-        .clone()
         .root_dimension;
 
     let area = DrawingArea::new();
@@ -129,13 +129,11 @@ fn build_ui(app: &Application) {
         let vis_layers = state.visible_layer_list.clone();
         drop(state);
 
-        if vis_layers[0] {
-            do_paint(LayerId::new(0));
-            do_rasterize(LayerId::new(0));
-        }
-        if vis_layers[1] {
-            do_paint(LayerId::new(1));
-            do_rasterize(LayerId::new(1));
+        for (i, &visible) in vis_layers.iter().enumerate() {
+            if visible {
+                do_paint(LayerId::new(i as u64));
+                do_rasterize(LayerId::new(i as u64));
+            }
         }
 
         CairoCompositor::compose(CairoCompositorConfig { cr: cr.clone() });
@@ -214,9 +212,9 @@ fn build_ui(app: &Application) {
 
         let mut state = binding.write().expect("Failed to get browser state");
         if state.current_hovered_element != el_id {
-            if let Some(el_id) = el_id {
+            if let Some(id) = el_id {
                 let binding = state.tile_list.as_ref().unwrap().read().unwrap();
-                let layout_element = binding.layer_list.layout_tree.get_node_by_id(el_id).unwrap();
+                let layout_element = binding.layer_list.layout_tree.get_node_by_id(id).unwrap();
                 println!("Hovered element id:");
                 println!("   Layout ID : {:?}", el_id);
                 println!("   DOM ID    : {:?}", layout_element.dom_node_id);

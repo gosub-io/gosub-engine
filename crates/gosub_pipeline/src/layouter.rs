@@ -26,9 +26,9 @@ impl LayoutElementId {
     }
 }
 
-impl AddAssign<i32> for LayoutElementId {
-    fn add_assign(&mut self, rhs: i32) {
-        self.0 += rhs as u64;
+impl AddAssign<u64> for LayoutElementId {
+    fn add_assign(&mut self, rhs: u64) {
+        self.0 += rhs;
     }
 }
 

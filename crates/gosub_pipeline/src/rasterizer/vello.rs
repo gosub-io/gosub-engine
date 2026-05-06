@@ -63,7 +63,7 @@ impl Rasterable for VelloRasterizer<'_> {
                     PaintCommand::Text(command) => match do_paint_text(&mut scene, command, tile_size, affine) {
                         Ok(_) => {}
                         Err(e) => {
-                            println!("Failed to paint text: {:?}", e);
+                            log::warn!("Failed to paint text: {:?}", e);
                         }
                     },
                 }

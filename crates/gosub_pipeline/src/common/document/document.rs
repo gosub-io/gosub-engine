@@ -94,8 +94,12 @@ impl Document {
     }
 
     pub fn add_child(&mut self, parent_id: NodeId, child_id: NodeId) {
-        let parent = self.arena.get_mut(&parent_id).unwrap();
-        parent.children.push(child_id);
+        if let Some(parent) = self.arena.get_mut(&parent_id) {
+            parent.children.push(child_id);
+        }
+        if let Some(child) = self.arena.get_mut(&child_id) {
+            child.parent_id = Some(parent_id);
+        }
     }
 
     pub fn get_node_by_id(&self, node_id: NodeId) -> Option<&Node> {

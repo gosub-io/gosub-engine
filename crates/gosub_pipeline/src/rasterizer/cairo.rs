@@ -10,16 +10,8 @@ mod rectangle;
 mod svg;
 mod text;
 
-#[cfg(feature = "text_pango")]
-use crate::rasterizer::cairo::text::pango::do_paint_text;
-
+#[derive(Default)]
 pub struct CairoRasterizer {}
-
-impl Default for CairoRasterizer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 impl CairoRasterizer {
     pub fn new() -> CairoRasterizer {
@@ -47,11 +39,24 @@ impl Rasterable for CairoRasterizer {
                         }
                         PaintCommand::Text(command) => {
                             #[cfg(feature = "text_pango")]
-                            if let Err(e) = do_paint_text(&cr.clone(), tile, command) {
-                                log::warn!("Failed to paint text: {:?}", e);
+                            match text::pango::do_paint_text(&cr.clone(), tile, command) {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    log::warn!("Failed to paint text: {:?}", e);
+                                }
                             }
-                            #[cfg(not(feature = "text_pango"))]
-                            log::warn!("No text backend enabled for Cairo, skipping text command");
+                            #[cfg(all(not(feature = "text_pango"), feature = "text_parley"))]
+                            match text::parley::do_paint_text(&cr.clone(), tile, command) {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    log::warn!("Failed to paint text: {:?}", e);
+                                }
+                            }
+                            #[cfg(not(any(feature = "text_pango", feature = "text_parley")))]
+                            {
+                                let _ = command;
+                                log::warn!("No text backend enabled; text will not be rendered");
+                            }
                         }
                     }
                 }

@@ -54,9 +54,9 @@ impl TileId {
     }
 }
 
-impl AddAssign<i32> for TileId {
-    fn add_assign(&mut self, rhs: i32) {
-        self.0 += rhs as u64;
+impl AddAssign<u64> for TileId {
+    fn add_assign(&mut self, rhs: u64) {
+        self.0 += rhs;
     }
 }
 
@@ -256,11 +256,11 @@ impl TileList {
 
     // @TODO: Optimize: remove all tiles that are empty
     pub fn generate(&mut self) {
-        if self.default_tile_dimension.width <= 0.0 || self.default_tile_dimension.height <= 0.0 {
-            log::error!(
-                "Tile dimensions must be positive, got {:?}",
-                self.default_tile_dimension
-            );
+        self.tiles.clear();
+        self.arena.clear();
+
+        if self.default_tile_dimension.width == 0.0 || self.default_tile_dimension.height == 0.0 {
+            log::error!("Tile dimension is zero, cannot generate tiles");
             return;
         }
         let rows =
@@ -405,17 +405,18 @@ impl TileList {
 fn get_background_color_from_node(node_id: Option<NodeId>, doc: &dyn PipelineDocument) -> Option<(f32, f32, f32, f32)> {
     let node_id = node_id?;
 
-    if let Some(StyleValue::Color(color)) = doc.get_style(node_id, BackgroundColor) {
-        return convert_color(&color);
-    }
-
-    None
+    doc.get_style(node_id, BackgroundColor).and_then(|value| {
+        if let StyleValue::Color(color) = value {
+            return convert_color(&color);
+        }
+        None
+    })
 }
 
 fn convert_color(color: &StyleColor) -> Option<(f32, f32, f32, f32)> {
     let c = match color {
         StyleColor::Rgb(r, g, b) => Some((*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0, 1.0)),
-        StyleColor::Rgba(r, g, b, a) => Some((*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0, *a / 255.0)),
+        StyleColor::Rgba(r, g, b, a) => Some((*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0, *a)),
         StyleColor::Named(name) => {
             let c = Color::from_css(name.as_str());
             Some((c.r(), c.g(), c.b(), c.a()))

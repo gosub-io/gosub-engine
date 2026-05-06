@@ -13,9 +13,9 @@ impl TextureId {
     }
 }
 
-impl AddAssign<i32> for TextureId {
-    fn add_assign(&mut self, rhs: i32) {
-        self.0 += rhs as u64;
+impl AddAssign<u64> for TextureId {
+    fn add_assign(&mut self, rhs: u64) {
+        self.0 += rhs;
     }
 }
 

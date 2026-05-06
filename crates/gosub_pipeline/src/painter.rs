@@ -130,7 +130,7 @@ impl Painter {
                 let brush = self.get_parent_brush(dom_node_id, StyleProperty::Color, Brush::solid(Color::BLACK));
 
                 // let r = layout_element.box_model.content_box().shift(ctx.text_offset);
-                let r = layout_element.box_model.padding_box;
+                let r = layout_element.box_model.content_box;
                 // let brush = Brush::solid(Color::from_rgb8(130, 130, 130));
                 let t = Text::new(r, &ctx.text, &ctx.font_info, brush);
                 commands.push(PaintCommand::text(t));
@@ -232,6 +232,7 @@ impl Painter {
 
 /// Converts a css style color to a paint command color
 fn convert_css_color(css_color: &StyleColor) -> Color {
+    log::debug!("Converting css color: {:?}", css_color);
     match css_color {
         StyleColor::Named(name) => Color::from_css(name.as_str()),
         StyleColor::Rgb(r, g, b) => Color::from_rgb8(*r, *g, *b),
