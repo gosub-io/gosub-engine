@@ -242,7 +242,8 @@ fn parse_style_value(value: &str) -> StyleValue {
 
 fn parse_font_weight(value: &str) -> StyleValue {
     match value {
-        "bold" | "bolder" => StyleValue::FontWeight(FontWeight::Bolder),
+        "bold" => StyleValue::FontWeight(FontWeight::Bold),
+        "bolder" => StyleValue::FontWeight(FontWeight::Bolder),
         "lighter" => StyleValue::FontWeight(FontWeight::Lighter),
         "normal" => StyleValue::FontWeight(FontWeight::Normal),
         _ => {

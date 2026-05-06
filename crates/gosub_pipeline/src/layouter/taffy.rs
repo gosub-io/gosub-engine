@@ -386,7 +386,9 @@ impl TaffyLayouter {
                 // Check if element type is an image, if so, set the taffy context
                 if data.tag_name.eq_ignore_ascii_case("img") {
                     let base_url = layout_tree.render_tree.doc.base_url();
-                    let src = data.get_attribute("src").unwrap();
+                    let Some(src) = data.get_attribute("src") else {
+                        return None;
+                    };
                     let src = to_absolute_url(src, base_url);
 
 

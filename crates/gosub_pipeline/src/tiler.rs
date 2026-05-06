@@ -255,6 +255,11 @@ impl TileList {
 
     // @TODO: Optimize: remove all tiles that are empty
     pub fn generate(&mut self) {
+        if self.default_tile_dimension.width <= 0.0 || self.default_tile_dimension.height <= 0.0 {
+            log::error!("Tile dimensions must be positive, got {:?}", self.default_tile_dimension);
+            return;
+        }
+
         let rows = (self.layer_list.layout_tree.root_dimension.height / self.default_tile_dimension.height).ceil() as usize;
         let cols = (self.layer_list.layout_tree.root_dimension.width / self.default_tile_dimension.width).ceil() as usize;
 
