@@ -26,6 +26,11 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect) {
             let media = media_store.get_image(*media_id);
             let img = &media.image;
 
+            if img.width() == 0 || img.height() == 0 {
+                log::warn!("Image has zero dimensions, skipping image brush");
+                return;
+            }
+
             let bytes = Bytes::from(img.as_raw().as_slice());
             let pixbuf = Pixbuf::from_bytes(
                 &bytes,

@@ -60,8 +60,8 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
                 cr.rectangle(
                     rectangle.rect().x + width as f64 + gap_size,
                     rectangle.rect().y + width as f64 + gap_size,
-                    rectangle.rect().width - width as f64 - gap_size,
-                    rectangle.rect().height - width as f64 - gap_size,
+                    rectangle.rect().width - 2.0 * (width as f64 + gap_size),
+                    rectangle.rect().height - 2.0 * (width as f64 + gap_size),
                 );
                 _ = cr.stroke();
             } else {

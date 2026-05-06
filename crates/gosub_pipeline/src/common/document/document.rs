@@ -28,7 +28,9 @@ impl Document {
 
     /// Returns the inner HTML generated from the document
     pub fn inner_html(&self, node_id: NodeId) -> String {
-        let node = self.get_node_by_id(node_id).unwrap();
+        let Some(node) = self.get_node_by_id(node_id) else {
+            return String::new();
+        };
         match &node.node_type {
             NodeType::Element(data) => {
                 let mut result = String::new();
@@ -143,7 +145,9 @@ impl Document {
         F: FnMut(NodeId, usize, NodeVisit),
     {
         cb(node_id, level, NodeVisit::Enter);
-        let node = self.get_node_by_id(node_id).unwrap();
+        let Some(node) = self.get_node_by_id(node_id) else {
+            return;
+        };
         for child_id in &node.children {
             self.walk_depth_first_helper(*child_id, level + 1, cb);
         }
@@ -165,31 +169,31 @@ impl Document {
             match visit_mode {
                 NodeVisit::Enter => match &node.node_type {
                     NodeType::Comment(comment) => {
-                        writeln!(writer, "{}({}) <!-- {} -->", indent, node.node_id, comment).unwrap()
+                        let _ = writeln!(writer, "{}({}) <!-- {} -->", indent, node.node_id, comment);
                     }
-                    NodeType::Text(text, _) => writeln!(writer, "{}({}) '{}'", indent, node.node_id, text).unwrap(),
+                    NodeType::Text(text, _) => {
+                        let _ = writeln!(writer, "{}({}) '{}'", indent, node.node_id, text);
+                    }
                     NodeType::Element(element) => {
                         if element.is_self_closing() {
-                            writeln!(
+                            let _ = writeln!(
                                 writer,
                                 "{}({}) <{} {}/>",
                                 indent, node.node_id, element.tag_name, element.attributes
-                            )
-                            .unwrap();
+                            );
                         } else {
-                            writeln!(
+                            let _ = writeln!(
                                 writer,
                                 "{}({}) <{} {}>",
                                 indent, node.node_id, element.tag_name, element.attributes
-                            )
-                            .unwrap();
+                            );
                         }
                     }
                 },
                 NodeVisit::Exit => {
                     if let NodeType::Element(element) = &node.node_type {
                         if !element.is_self_closing() {
-                            writeln!(writer, "{}</{}>", indent, element.tag_name).unwrap();
+                            let _ = writeln!(writer, "{}</{}>", indent, element.tag_name);
                         }
                     }
                 }

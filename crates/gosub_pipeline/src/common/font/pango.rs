@@ -51,9 +51,14 @@ pub fn to_pango_weight(w: usize) -> Weight {
     }
 }
 
-/// Returns the font as defined by the gnome settings. Other platforms like windows and osx will
-/// deal with this differently.
+/// Returns the font family as defined by the gnome settings, with the size suffix stripped.
+/// Other platforms like windows and osx will deal with this differently.
 fn get_system_ui_font() -> String {
     let settings = Settings::new("org.gnome.desktop.interface");
-    settings.string("font-name").to_string()
+    let full_name = settings.string("font-name").to_string();
+    // GSettings returns "Family Name <size>" — strip the trailing size token.
+    match full_name.rsplit_once(' ') {
+        Some((family, size_token)) if size_token.parse::<f32>().is_ok() => family.to_string(),
+        _ => full_name,
+    }
 }

@@ -7,7 +7,10 @@ use vello::peniko::{Blob, ImageFormat};
 
 pub(crate) fn do_paint_svg(scene: &mut vello::Scene, media_id: MediaId, rect: &Rectangle, affine: Affine) {
     log::debug!("Painting SVG: {:?}", media_id);
-    let binding = get_media_store().read().unwrap();
+    let Ok(binding) = get_media_store().read() else {
+        log::warn!("Failed to acquire media store lock, skipping SVG paint");
+        return;
+    };
     let media = binding.get_svg(media_id);
 
     let target_dim = rect.rect().dimension();

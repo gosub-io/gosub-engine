@@ -64,7 +64,14 @@ impl Rectangle {
     }
 
     pub(crate) fn is_rounded(&self) -> bool {
-        self.radius_top.x > 0.0 || self.radius_right.x > 0.0 || self.radius_bottom.x > 0.0 || self.radius_left.x > 0.0
+        self.radius_top.x > 0.0
+            || self.radius_top.y > 0.0
+            || self.radius_right.x > 0.0
+            || self.radius_right.y > 0.0
+            || self.radius_bottom.x > 0.0
+            || self.radius_bottom.y > 0.0
+            || self.radius_left.x > 0.0
+            || self.radius_left.y > 0.0
     }
 
     pub fn with_radius_tlrb(mut self, top: Radius, right: Radius, bottom: Radius, left: Radius) -> Self {

@@ -67,11 +67,21 @@ impl Color {
     };
 
     pub fn from_rgb(r: f32, g: f32, b: f32) -> Self {
-        Color { r, g, b, a: 1.0 }
+        Color {
+            r: r.clamp(0.0, 1.0),
+            g: g.clamp(0.0, 1.0),
+            b: b.clamp(0.0, 1.0),
+            a: 1.0,
+        }
     }
 
     pub fn from_rgba(r: f32, g: f32, b: f32, a: f32) -> Self {
-        Color { r, g, b, a }
+        Color {
+            r: r.clamp(0.0, 1.0),
+            g: g.clamp(0.0, 1.0),
+            b: b.clamp(0.0, 1.0),
+            a: a.clamp(0.0, 1.0),
+        }
     }
 
     pub fn from_rgb8(r: u8, g: u8, b: u8) -> Self {

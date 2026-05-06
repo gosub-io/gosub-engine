@@ -281,7 +281,7 @@ impl TileList {
             );
         }
 
-        let mut layer_list = self.layer_list.layers.read().unwrap();
+        let layer_list = self.layer_list.layers.read().unwrap();
 
         // iterate each layer
         for layer_id in self.layer_list.layer_ids.read().unwrap().iter() {

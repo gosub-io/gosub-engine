@@ -1,2 +1,3 @@
 /target
-*.json
+/output*.json
+/page.json

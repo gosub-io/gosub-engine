@@ -106,7 +106,7 @@ impl Rasterable for VelloRasterizer<'_> {
         let texture_id = texture_store.add(
             tile_size.width as usize,
             tile_size.height as usize,
-            texture_data.to_vec(),
+            texture_data,
         );
 
         Some(texture_id)
