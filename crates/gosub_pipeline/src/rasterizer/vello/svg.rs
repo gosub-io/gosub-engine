@@ -37,7 +37,11 @@ pub(crate) fn do_paint_svg(scene: &mut vello::Scene, media_id: MediaId, rect: &R
     let scale_x = target_w as f32 / intrinsic.width().max(1) as f32;
     let scale_y = target_h as f32 / intrinsic.height().max(1) as f32;
     let mut pixmap = resvg::tiny_skia::Pixmap::new(target_w, target_h).unwrap();
-    resvg::render(&media.svg.tree, Transform::from_scale(scale_x, scale_y), &mut pixmap.as_mut());
+    resvg::render(
+        &media.svg.tree,
+        Transform::from_scale(scale_x, scale_y),
+        &mut pixmap.as_mut(),
+    );
     let new_data = pixmap.data().to_vec();
 
     let mut cached = media.svg.rendered.write().unwrap();

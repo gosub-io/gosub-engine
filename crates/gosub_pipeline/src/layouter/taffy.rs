@@ -108,7 +108,10 @@ impl CanLayout for TaffyLayouter {
         };
         // let root_id = RenderNodeId::new(2);
         let Some(mut layout_tree) = self.generate_tree(render_tree, root_id) else {
-            panic!("Failed to generate layout tree: root node {:?} could not be processed", root_id);
+            panic!(
+                "Failed to generate layout tree: root node {:?} could not be processed",
+                root_id
+            );
         };
 
         // // Compute the layout based on the viewport

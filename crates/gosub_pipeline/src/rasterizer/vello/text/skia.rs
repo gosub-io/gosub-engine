@@ -21,9 +21,15 @@ pub fn do_paint_text(scene: &mut Scene, cmd: &Text, tile_size: Dimension, affine
     // kurbo Affine coeffs: [a, b, c, d, e, f] → x' = ax + cy + e, y' = bx + dy + f
     let c = affine.as_coeffs();
     let matrix = skia_safe::Matrix::new_all(
-        c[0] as f32, c[2] as f32, c[4] as f32,
-        c[1] as f32, c[3] as f32, c[5] as f32,
-        0.0, 0.0, 1.0,
+        c[0] as f32,
+        c[2] as f32,
+        c[4] as f32,
+        c[1] as f32,
+        c[3] as f32,
+        c[5] as f32,
+        0.0,
+        0.0,
+        1.0,
     );
     canvas.concat(&matrix);
 

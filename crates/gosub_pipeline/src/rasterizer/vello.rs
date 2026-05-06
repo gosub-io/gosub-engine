@@ -103,11 +103,7 @@ impl Rasterable for VelloRasterizer<'_> {
 
         let binding = get_texture_store();
         let mut texture_store = binding.write().expect("Failed to get texture store");
-        let texture_id = texture_store.add(
-            tile_size.width as usize,
-            tile_size.height as usize,
-            texture_data,
-        );
+        let texture_id = texture_store.add(tile_size.width as usize, tile_size.height as usize, texture_data);
 
         Some(texture_id)
     }
