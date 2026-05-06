@@ -1,7 +1,6 @@
 use crate::common::font::skia::get_skia_paragraph;
 use crate::common::geo::Dimension;
 use crate::painter::commands::text::Text;
-use skia_safe::Vector;
 use vello::kurbo::Affine;
 use vello::peniko::Blob;
 use vello::Scene;
@@ -18,8 +17,15 @@ pub fn do_paint_text(scene: &mut Scene, cmd: &Text, tile_size: Dimension, affine
         None,
         None,
     );
-    let transform = affine.translation();
-    canvas.translate(Vector::new(transform.x as f32, transform.y as f32));
+    // Apply the full affine (scale, rotation, skew, translation) to the canvas.
+    // kurbo Affine coeffs: [a, b, c, d, e, f] → x' = ax + cy + e, y' = bx + dy + f
+    let c = affine.as_coeffs();
+    let matrix = skia_safe::Matrix::new_all(
+        c[0] as f32, c[2] as f32, c[4] as f32,
+        c[1] as f32, c[3] as f32, c[5] as f32,
+        0.0, 0.0, 1.0,
+    );
+    canvas.concat(&matrix);
 
     canvas.clear(skia_safe::Color::TRANSPARENT);
     paragraph.paint(&mut canvas, (cmd.rect.x as f32, cmd.rect.y as f32));
