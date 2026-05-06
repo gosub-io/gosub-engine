@@ -6,10 +6,10 @@ use crate::tiler::Tile;
 
 #[cfg(feature = "backend_cairo")]
 pub mod cairo;
-#[cfg(feature = "backend_vello")]
-pub mod vello;
 #[cfg(feature = "backend_skia")]
 pub mod skia;
+#[cfg(feature = "backend_vello")]
+pub mod vello;
 
 pub trait Rasterable {
     fn rasterize(&self, tile: &Tile) -> Option<TextureId>;

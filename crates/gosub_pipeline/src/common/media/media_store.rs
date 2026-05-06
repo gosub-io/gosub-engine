@@ -247,7 +247,10 @@ impl MediaStore {
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()?;
-        let response = client.get(src).send().map_err(|e| anyhow::anyhow!("Failed to fetch resource: {e}"))?;
+        let response = client
+            .get(src)
+            .send()
+            .map_err(|e| anyhow::anyhow!("Failed to fetch resource: {e}"))?;
 
         if !response.status().is_success() {
             anyhow::bail!("HTTP {} fetching resource", response.status());
@@ -264,7 +267,9 @@ impl MediaStore {
         );
 
         // Detect through content bytes
-        let raw_bytes = response.bytes().map_err(|e| anyhow::anyhow!("Failed to read response body: {e}"))?;
+        let raw_bytes = response
+            .bytes()
+            .map_err(|e| anyhow::anyhow!("Failed to read response body: {e}"))?;
         let detected_file_type = detect_file_type(&raw_bytes);
 
         if detected_content_type.is_none() && detected_file_type.is_none() {

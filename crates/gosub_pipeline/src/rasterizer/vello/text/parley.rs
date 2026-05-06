@@ -8,7 +8,12 @@ use vello::kurbo::Affine;
 use vello::peniko::Fill;
 use vello::Scene;
 
-pub fn do_paint_text(scene: &mut Scene, cmd: &Text, _tile_size: Dimension, affine: Affine) -> Result<(), anyhow::Error> {
+pub fn do_paint_text(
+    scene: &mut Scene,
+    cmd: &Text,
+    _tile_size: Dimension,
+    affine: Affine,
+) -> Result<(), anyhow::Error> {
     let layout = get_parley_layout(
         cmd.text.as_str(),
         cmd.font_info.family.as_str(),

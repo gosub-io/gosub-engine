@@ -1,7 +1,7 @@
-use skia_safe::{AlphaType, ColorType, Data, ISize, ImageInfo};
 use crate::common::browser_state::get_browser_state;
 use crate::common::get_texture_store;
 use crate::layering::layer::LayerId;
+use skia_safe::{AlphaType, ColorType, Data, ISize, ImageInfo};
 
 pub fn skia_compositor(canvas: &skia_safe::Canvas, layer_ids: Vec<LayerId>) {
     for layer_id in layer_ids {
@@ -18,7 +18,10 @@ pub fn compose_layer(canvas: &skia_safe::Canvas, layer_id: LayerId) {
         return;
     };
 
-    let tile_ids = tile_list.read().expect("Failed to get tile list").get_intersecting_tiles(layer_id, state.viewport);
+    let tile_ids = tile_list
+        .read()
+        .expect("Failed to get tile list")
+        .get_intersecting_tiles(layer_id, state.viewport);
     for tile_id in tile_ids {
         let binding = tile_list.read().expect("Failed to get tile list");
         let Some(tile) = binding.get_tile(tile_id) else {
@@ -49,25 +52,16 @@ pub fn compose_layer(canvas: &skia_safe::Canvas, layer_id: LayerId) {
 
         let data = Data::new_copy(texture.data.as_slice());
 
-        let Some(img) = skia_safe::images::raster_from_data(
-            &image_info, &data, texture.width * 4
-        ) else {
+        let Some(img) = skia_safe::images::raster_from_data(&image_info, &data, texture.width * 4) else {
             log::error!("Failed to create Skia image for tile {:?}", tile_id);
             continue;
         };
 
-        canvas.draw_image(
-            &img,
-            (tile.rect.x.round() as f32, tile.rect.y.round() as f32),
-            None,
-        );
+        canvas.draw_image(&img, (tile.rect.x.round() as f32, tile.rect.y.round() as f32), None);
 
         // Display rectangles around the tiles
         if state.show_tilegrid {
-            let mut paint = skia_safe::Paint::new(
-                skia_safe::Color4f::new(1.0, 0.0, 0.0, 0.25),
-                None,
-            );
+            let mut paint = skia_safe::Paint::new(skia_safe::Color4f::new(1.0, 0.0, 0.0, 0.25), None);
             paint.set_stroke(true);
 
             let rect = skia_safe::Rect::from_xywh(
@@ -79,5 +73,4 @@ pub fn compose_layer(canvas: &skia_safe::Canvas, layer_id: LayerId) {
             canvas.draw_rect(rect, &paint);
         }
     }
-
 }

@@ -1,15 +1,15 @@
-use skia_safe::{Bitmap, Canvas, Matrix, Paint, Rect, SamplingOptions, TileMode};
+use crate::common::get_texture_store;
+use crate::common::texture::TextureId;
+use crate::layering::layer::LayerId;
 use crate::painter::commands::PaintCommand;
 use crate::rasterizer::Rasterable;
-use crate::common::texture::TextureId;
-use crate::common::get_texture_store;
-use crate::layering::layer::LayerId;
 use crate::tiler::Tile;
+use skia_safe::{Bitmap, Canvas, Matrix, Paint, Rect, SamplingOptions, TileMode};
 
-mod rectangle;
 mod paint;
-mod text;
+mod rectangle;
 mod svg;
+mod text;
 
 pub struct SkiaRasterizer {
     dpi_scale_factor: f32,
@@ -17,9 +17,7 @@ pub struct SkiaRasterizer {
 
 impl SkiaRasterizer {
     pub fn new(dpi_scale_factor: f32) -> Self {
-        Self {
-            dpi_scale_factor,
-        }
+        Self { dpi_scale_factor }
     }
 }
 
@@ -33,9 +31,8 @@ impl Rasterable for SkiaRasterizer {
             return None;
         }
 
-        let mut surface = skia_safe::surfaces::raster_n32_premul(
-            skia_safe::ISize::new(width as i32, height as i32),
-        ).unwrap();
+        let mut surface =
+            skia_safe::surfaces::raster_n32_premul(skia_safe::ISize::new(width as i32, height as i32)).unwrap();
 
         let canvas = surface.canvas();
 
@@ -52,11 +49,7 @@ impl Rasterable for SkiaRasterizer {
             }
         }
 
-        canvas.clip_rect(
-            Rect::new(0.0, 0.0, width as f32, height as f32),
-            None,
-            None,
-        );
+        canvas.clip_rect(Rect::new(0.0, 0.0, width as f32, height as f32), None, None);
         canvas.translate((-tile.rect.x as f32, -tile.rect.y as f32));
 
         for element in &tile.elements {
@@ -113,7 +106,11 @@ fn clear_canvas(canvas: &Canvas, size: (i32, i32)) {
 
     let shader = bitmap
         .as_image()
-        .to_shader((TileMode::Repeat, TileMode::Repeat), SamplingOptions::default(), Matrix::i())
+        .to_shader(
+            (TileMode::Repeat, TileMode::Repeat),
+            SamplingOptions::default(),
+            Matrix::i(),
+        )
         .unwrap();
 
     let mut paint = Paint::default();

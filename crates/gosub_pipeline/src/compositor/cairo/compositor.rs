@@ -24,9 +24,7 @@ pub fn compose_layer(cr: &cairo::Context, layer_id: LayerId) {
         .expect("Failed to get tile list")
         .get_intersecting_tiles(layer_id, state.viewport);
     for tile_id in tile_ids {
-        let binding = tile_list
-            .read()
-            .expect("Failed to get tile list");
+        let binding = tile_list.read().expect("Failed to get tile list");
         let Some(tile) = binding.get_tile(tile_id) else {
             log::warn!("Tile not found: {:?}", tile_id);
             continue;

@@ -5,12 +5,12 @@ pub mod parley;
 #[cfg(feature = "text_skia")]
 pub mod skia;
 
+#[cfg(all(feature = "text_pango", not(feature = "text_parley"), not(feature = "text_skia")))]
+pub use crate::layouter::text::pango::get_text_layout;
 #[cfg(feature = "text_parley")]
 pub use crate::layouter::text::parley::get_text_layout;
 #[cfg(all(feature = "text_skia", not(feature = "text_parley")))]
 pub use crate::layouter::text::skia::get_text_layout;
-#[cfg(all(feature = "text_pango", not(feature = "text_parley"), not(feature = "text_skia")))]
-pub use crate::layouter::text::pango::get_text_layout;
 
 // Stub used when no text backend feature is enabled. Returns zero size.
 #[cfg(not(any(feature = "text_parley", feature = "text_pango", feature = "text_skia")))]
