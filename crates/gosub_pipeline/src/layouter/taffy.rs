@@ -95,10 +95,20 @@ impl CanLayout for TaffyLayouter {
         viewport: Option<geo::Dimension>,
         dpi_scale_factor: f32,
     ) -> LayoutTree {
-        let root_id = render_tree.root_id.unwrap();
+        let Some(root_id) = render_tree.root_id else {
+            log::error!("Render tree has no root node; was parse() called? Returning empty layout.");
+            return LayoutTree {
+                render_tree,
+                arena: HashMap::new(),
+                root_id: LayoutElementId::new(0),
+                next_node_id: Arc::new(RwLock::new(LayoutElementId::new(0))),
+                root_dimension: geo::Dimension::ZERO,
+                rstar_tree: rstar::RTree::new(),
+            };
+        };
         // let root_id = RenderNodeId::new(2);
         let Some(mut layout_tree) = self.generate_tree(render_tree, root_id) else {
-            panic!("Failed to generate root node render tree");
+            panic!("Failed to generate layout tree: root node {:?} could not be processed", root_id);
         };
 
         // // Compute the layout based on the viewport

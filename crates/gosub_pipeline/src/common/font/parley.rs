@@ -10,14 +10,14 @@ pub fn get_font_context() -> std::sync::MutexGuard<'static, parley::FontContext>
     FONT_CTX
         .get_or_init(|| Mutex::new(parley::FontContext::new()))
         .lock()
-        .expect("Failed to lock font context")
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 fn get_layout_context() -> std::sync::MutexGuard<'static, parley::LayoutContext> {
     LAYOUT_CTX
         .get_or_init(|| Mutex::new(parley::LayoutContext::new()))
         .lock()
-        .expect("Failed to lock layout context")
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn get_parley_layout(
