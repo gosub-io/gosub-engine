@@ -9,7 +9,7 @@ pub fn skia_compositor(canvas: &skia_safe::Canvas, layer_ids: Vec<LayerId>) {
     }
 }
 
-pub fn compose_layer(canvas: &skia_safe::canvas::Canvas, layer_id: LayerId) {
+pub fn compose_layer(canvas: &skia_safe::Canvas, layer_id: LayerId) {
     let binding = get_browser_state();
     let state = binding.read().expect("Failed to get browser state");
 
@@ -47,13 +47,12 @@ pub fn compose_layer(canvas: &skia_safe::canvas::Canvas, layer_id: LayerId) {
             None,
         );
 
-        #[allow(unsafe_code)]
-        let data = unsafe { Data::new_bytes(&texture.data.as_slice()) };
+        let data = Data::new_copy(texture.data.as_slice());
 
         let Some(img) = skia_safe::images::raster_from_data(
             &image_info, &data, texture.width * 4
         ) else {
-            log::error!("Failed to create skia image from texture data for tile {:?}", tile_id);
+            log::error!("Failed to create Skia image for tile {:?}", tile_id);
             continue;
         };
 

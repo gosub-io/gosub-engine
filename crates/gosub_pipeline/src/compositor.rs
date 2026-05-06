@@ -2,6 +2,8 @@
 pub mod cairo;
 #[cfg(feature = "backend_vello")]
 pub mod vello;
+#[cfg(feature = "backend_skia")]
+pub mod skia;
 
 pub trait Composable {
     type Config;

@@ -3694,6 +3694,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "skia-safe",
  "taffy 0.7.7",
  "vello 0.4.1",
  "winit",
