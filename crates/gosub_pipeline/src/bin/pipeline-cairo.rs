@@ -118,8 +118,7 @@ fn build_ui(app: &Application) {
         .layer_list
         .layout_tree
         .clone()
-        .root_dimension
-        .clone();
+        .root_dimension;
 
     let area = DrawingArea::new();
     area.set_content_width(dim.width as i32);
@@ -154,9 +153,8 @@ fn build_ui(app: &Application) {
             .read()
             .unwrap()
             .layer_list
-            .find_element_at(x, y)
-            .clone();
-        let che = state.current_hovered_element.clone();
+            .find_element_at(x, y);
+        let che = state.current_hovered_element;
 
         let mut tile_ids = vec![];
         match (che, el_id) {
@@ -216,9 +214,9 @@ fn build_ui(app: &Application) {
 
         let mut state = binding.write().expect("Failed to get browser state");
         if state.current_hovered_element != el_id {
-            if el_id.is_some() {
+            if let Some(el_id) = el_id {
                 let binding = state.tile_list.as_ref().unwrap().read().unwrap();
-                let layout_element = binding.layer_list.layout_tree.get_node_by_id(el_id.unwrap()).unwrap();
+                let layout_element = binding.layer_list.layout_tree.get_node_by_id(el_id).unwrap();
                 println!("Hovered element id:");
                 println!("   Layout ID : {:?}", el_id);
                 println!("   DOM ID    : {:?}", layout_element.dom_node_id);

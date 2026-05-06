@@ -10,7 +10,7 @@ pub(crate) fn do_paint_svg(scene: &mut vello::Scene, media_id: MediaId, rect: &R
     let media = binding.get_svg(media_id);
 
     let lock = media.svg.rendered_dimension.read().unwrap();
-    let media_dimension = lock.clone();
+    let media_dimension = *lock;
     drop(lock);
 
     // Check if we need to re-render the SVG. This happens when we need a different dimension for the same SVG.

@@ -3674,6 +3674,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "colog",
+ "cow-utils",
  "csscolorparser 0.7.2",
  "file_type",
  "gosub_interface",

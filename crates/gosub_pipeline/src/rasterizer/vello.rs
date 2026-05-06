@@ -58,9 +58,9 @@ impl Rasterable for VelloRasterizer<'_> {
                         svg::do_paint_svg(&mut scene, command.media_id, &command.rect, affine);
                     }
                     PaintCommand::Rectangle(command) => {
-                        rectangle::do_paint_rectangle(&mut scene, &command, affine);
+                        rectangle::do_paint_rectangle(&mut scene, command, affine);
                     }
-                    PaintCommand::Text(command) => match do_paint_text(&mut scene, &command, tile_size, affine) {
+                    PaintCommand::Text(command) => match do_paint_text(&mut scene, command, tile_size, affine) {
                         Ok(_) => {}
                         Err(e) => {
                             println!("Failed to paint text: {:?}", e);
@@ -72,7 +72,7 @@ impl Rasterable for VelloRasterizer<'_> {
 
         scene.pop_layer();
 
-        let texture = create_offscreen_texture(&self.device, tile_size.width as u32, tile_size.height as u32);
+        let texture = create_offscreen_texture(self.device, tile_size.width as u32, tile_size.height as u32);
 
         let render_params = vello::RenderParams {
             base_color: Color::new([0.0, 0.0, 0.0, 0.0]), // Transparent texture
@@ -84,8 +84,8 @@ impl Rasterable for VelloRasterizer<'_> {
         self.renderer
             .borrow_mut()
             .render_to_texture(
-                &self.device,
-                &self.queue,
+                self.device,
+                self.queue,
                 &scene,
                 &texture.create_view(&Default::default()),
                 &render_params,
@@ -93,8 +93,8 @@ impl Rasterable for VelloRasterizer<'_> {
             .unwrap();
 
         let texture_data = read_texture_to_image(
-            &self.device,
-            &self.queue,
+            self.device,
+            self.queue,
             &texture,
             tile_size.width as u32,
             tile_size.height as u32,

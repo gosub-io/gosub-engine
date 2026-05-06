@@ -1,8 +1,9 @@
+use crate::common::document::node::Node;
+use crate::common::document::pipeline_doc::{PipelineDocument, PipelineNodeKind};
+use gosub_shared::node::NodeId;
 use std::collections::HashMap;
 use std::ops::AddAssign;
 use std::sync::Arc;
-use gosub_shared::node::NodeId;
-use crate::common::document::pipeline_doc::{PipelineDocument, PipelineNodeKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RenderNodeId(u64);
@@ -23,6 +24,12 @@ impl From<NodeId> for RenderNodeId {
     }
 }
 
+impl From<RenderNodeId> for NodeId {
+    fn from(id: RenderNodeId) -> Self {
+        NodeId::from(id.0)
+    }
+}
+
 impl AddAssign<i32> for RenderNodeId {
     fn add_assign(&mut self, rhs: i32) {
         self.0 += rhs as u64;
@@ -35,13 +42,11 @@ impl std::fmt::Display for RenderNodeId {
     }
 }
 
-
 #[derive(Clone)]
 pub struct RenderNode {
     pub node_id: RenderNodeId,
     pub children: Vec<RenderNodeId>,
 }
-
 
 /// A RenderTree holds a filtered view of the DOM — only the nodes that should be rendered.
 #[derive(Clone)]
@@ -53,9 +58,7 @@ pub struct RenderTree {
 
 impl std::fmt::Debug for RenderTree {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RenderTree")
-            .field("root_id", &self.root_id)
-            .finish()
+        f.debug_struct("RenderTree").field("root_id", &self.root_id).finish()
     }
 }
 
@@ -73,6 +76,10 @@ impl RenderTree {
 
     pub fn get_node_by_id(&self, node_id: RenderNodeId) -> Option<&RenderNode> {
         self.arena.get(&node_id)
+    }
+
+    pub fn get_document_node_by_render_id(&self, render_id: RenderNodeId) -> Option<Node> {
+        self.doc.get_node_by_id(NodeId::from(render_id))
     }
 
     fn print_node(&self, node_id: RenderNodeId, level: usize) {

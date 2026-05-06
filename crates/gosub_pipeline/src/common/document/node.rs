@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::common::document::document::Document;
-use crate::common::document::style::{StylePropertyList, StyleValue, StyleProperty, Display};
+use crate::common::document::style::{Display, StyleProperty, StylePropertyList, StyleValue};
+use std::collections::HashMap;
 
 pub use gosub_shared::node::NodeId;
 
@@ -8,6 +8,12 @@ pub use gosub_shared::node::NodeId;
 #[derive(Debug, Clone)]
 pub struct AttrMap {
     attributes: HashMap<String, String>,
+}
+
+impl Default for AttrMap {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AttrMap {
@@ -29,21 +35,17 @@ impl AttrMap {
     pub fn all(&self) -> &HashMap<String, String> {
         &self.attributes
     }
+}
 
-    #[allow(unused)]
-    pub fn to_string(&self) -> String {
-        let mut result = String::new();
-
-        // Make sure keys are always ordered in the same way
-        let keys = self.attributes.keys();
-        let mut keys: Vec<&String> = keys.collect();
+impl std::fmt::Display for AttrMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut keys: Vec<&String> = self.attributes.keys().collect();
         keys.sort();
-
-        for key in keys {
-            let value = self.attributes.get(key).unwrap();
-            result.push_str(&format!("{}=\"{}\" ", key, value));
-        }
-        result.trim_end().to_string()
+        let parts: Vec<String> = keys
+            .iter()
+            .map(|k| format!("{}=\"{}\"", k, self.attributes[*k]))
+            .collect();
+        write!(f, "{}", parts.join(" "))
     }
 }
 
@@ -62,12 +64,17 @@ pub struct ElementData {
 }
 
 impl ElementData {
-    pub fn new(tag_name: String, attributes: Option<AttrMap>, is_self_closing: bool, styles: Option<StylePropertyList>) -> ElementData {
+    pub fn new(
+        tag_name: String,
+        attributes: Option<AttrMap>,
+        is_self_closing: bool,
+        styles: Option<StylePropertyList>,
+    ) -> ElementData {
         ElementData {
             tag_name,
-            attributes: attributes.unwrap_or(AttrMap::new()),
+            attributes: attributes.unwrap_or_default(),
             self_closing: is_self_closing,
-            styles: styles.unwrap_or(StylePropertyList::new()),
+            styles: styles.unwrap_or_default(),
         }
     }
 
@@ -92,18 +99,14 @@ impl ElementData {
 
     pub fn is_inline_element(&self) -> bool {
         match self.get_style(StyleProperty::Display) {
-            Some(StyleValue::Display(display)) => {
-                *display == Display::Inline
-            }
+            Some(StyleValue::Display(display)) => *display == Display::Inline,
             _ => false,
         }
     }
 
     pub fn is_inline_block_element(&self) -> bool {
         match self.get_style(StyleProperty::Display) {
-            Some(StyleValue::Display(display)) => {
-                *display == Display::InlineBlock
-            }
+            Some(StyleValue::Display(display)) => *display == Display::InlineBlock,
             _ => false,
         }
     }
@@ -119,7 +122,6 @@ pub enum NodeType {
     Element(ElementData),
 }
 
-
 #[derive(Clone, Debug)]
 pub struct Node {
     pub node_id: NodeId,
@@ -129,32 +131,23 @@ pub struct Node {
 }
 
 impl Node {
-
     /// Returns true if the node is a block element
     pub fn is_block_element(&self) -> bool {
         match &self.node_type {
-            NodeType::Element(data) => {
-                match data.get_style(StyleProperty::Display) {
-                    Some(StyleValue::Display(display)) => {
-                        *display == Display::Block
-                    }
-                    _ => false,
-                }
-            }
+            NodeType::Element(data) => match data.get_style(StyleProperty::Display) {
+                Some(StyleValue::Display(display)) => *display == Display::Block,
+                _ => false,
+            },
             _ => false,
         }
     }
 
     pub fn is_inline_block_element(&self) -> bool {
         match &self.node_type {
-            NodeType::Element(data) => {
-                match data.get_style(StyleProperty::Display) {
-                    Some(StyleValue::Display(display)) => {
-                        *display == Display::InlineBlock
-                    }
-                    _ => false,
-                }
-            }
+            NodeType::Element(data) => match data.get_style(StyleProperty::Display) {
+                Some(StyleValue::Display(display)) => *display == Display::InlineBlock,
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -162,35 +155,26 @@ impl Node {
     /// Returns true if the node is an element node and is inline
     pub fn is_inline_element(&self) -> bool {
         match &self.node_type {
-            NodeType::Element(data) => {
-                match data.get_style(StyleProperty::Display) {
-                    Some(StyleValue::Display(display)) => {
-                        *display == Display::Inline
-                    }
-                    _ => false,
-                }
-            }
+            NodeType::Element(data) => match data.get_style(StyleProperty::Display) {
+                Some(StyleValue::Display(display)) => *display == Display::Inline,
+                _ => false,
+            },
             _ => false,
         }
     }
 
     /// Returns true when the node is a text node
     pub fn is_text(&self) -> bool {
-        match &self.node_type {
-            NodeType::Text(_, _) => true,
-            _ => false,
-        }
+        matches!(&self.node_type, NodeType::Text(_, _))
     }
 
     pub fn get_style_f32(&self, prop: StyleProperty) -> f32 {
         match &self.node_type {
-            NodeType::Element(data) => {
-                match data.get_style(prop) {
-                    Some(StyleValue::Unit(px, _)) => *px,
-                    Some(StyleValue::Number(px)) => *px,
-                    _ => 0.0,
-                }
-            }
+            NodeType::Element(data) => match data.get_style(prop) {
+                Some(StyleValue::Unit(px, _)) => *px,
+                Some(StyleValue::Number(px)) => *px,
+                _ => 0.0,
+            },
             _ => 0.0,
         }
     }
@@ -203,7 +187,7 @@ impl Node {
             node_id: doc.next_node_id(),
             parent_id,
             children: vec![],
-            node_type: NodeType::Text(text, style.unwrap_or(StylePropertyList::new())),
+            node_type: NodeType::Text(text, style.unwrap_or_default()),
         }
     }
 
@@ -222,15 +206,13 @@ impl Node {
         tag_name: String,
         attributes: Option<AttrMap>,
         self_closing: bool,
-        style: Option<StylePropertyList>
+        style: Option<StylePropertyList>,
     ) -> Node {
         Node {
             node_id: doc.next_node_id(),
             parent_id,
             children: vec![],
-            node_type: NodeType::Element(
-                ElementData::new(tag_name, attributes, self_closing, style)
-            ),
+            node_type: NodeType::Element(ElementData::new(tag_name, attributes, self_closing, style)),
         }
     }
 }

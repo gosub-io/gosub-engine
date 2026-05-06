@@ -90,6 +90,7 @@ fn reflow() {
     state.tile_list = Some(RwLock::new(tile_list));
 }
 
+#[allow(clippy::arc_with_non_send_sync)] // wgpu Renderer is single-threaded by design
 struct Env<'s> {
     pub render_ctx: RenderContext,
     pub renderer: Option<Arc<RefCell<Renderer>>>,
@@ -156,7 +157,7 @@ impl ApplicationHandler for App<'_> {
                 let (width, height): (u32, u32) = physical_size.into();
 
                 env.render_ctx
-                    .resize_surface(&mut env.surface.as_mut().unwrap(), width, height);
+                    .resize_surface(env.surface.as_mut().unwrap(), width, height);
 
                 let binding = get_browser_state();
                 let mut state = binding.write().unwrap();
@@ -181,8 +182,8 @@ impl ApplicationHandler for App<'_> {
 
                 let renderer = &mut env.renderer.as_mut().unwrap();
 
-                for i in 0..10 {
-                    if vis_layers[i] {
+                for (i, layer_visible) in vis_layers.iter().enumerate().take(10) {
+                    if *layer_visible {
                         do_paint(LayerId::new(i as u64));
                         do_rasterize(device, queue, renderer.clone(), LayerId::new(i as u64));
                     }
@@ -329,6 +330,7 @@ fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> 
         },
     );
 
+    #[allow(clippy::arc_with_non_send_sync)]
     let env = Env {
         render_ctx,
         window: Some(window),

@@ -10,7 +10,7 @@ use pangocairo::pango::{FontDescription, WrapMode};
 pub(crate) fn do_paint_text(cr: &Context, tile: &Tile, cmd: &Text) -> Result<(), Error> {
     let surface = create_text_layout(cmd)?;
 
-    _ = cr.save()?;
+    cr.save()?;
 
     cr.translate(-tile.rect.x, -tile.rect.y);
     cr.rectangle(tile.rect.x, tile.rect.y, tile.rect.width, tile.rect.height);
@@ -35,7 +35,7 @@ fn create_text_layout(cmd: &Text) -> Result<ImageSurface, Error> {
     let mut font_desc = FontDescription::new();
     font_desc.set_family(&selected_family);
     font_desc.set_size((cmd.font_info.size * SCALE as f64) as i32);
-    font_desc.set_weight(to_pango_weight(cmd.font_info.weight));
+    font_desc.set_weight(to_pango_weight(cmd.font_info.weight as usize));
     layout.set_font_description(Some(&font_desc));
 
     layout.set_text(cmd.text.as_str());

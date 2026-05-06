@@ -169,20 +169,14 @@ impl Document {
                             writeln!(
                                 writer,
                                 "{}({}) <{} {}/>",
-                                indent,
-                                node.node_id,
-                                element.tag_name,
-                                element.attributes.to_string()
+                                indent, node.node_id, element.tag_name, element.attributes
                             )
                             .unwrap();
                         } else {
                             writeln!(
                                 writer,
                                 "{}({}) <{} {}>",
-                                indent,
-                                node.node_id,
-                                element.tag_name,
-                                element.attributes.to_string()
+                                indent, node.node_id, element.tag_name, element.attributes
                             )
                             .unwrap();
                         }

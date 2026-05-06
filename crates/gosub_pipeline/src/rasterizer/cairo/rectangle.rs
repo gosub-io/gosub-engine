@@ -15,13 +15,10 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
     cr.clip();
 
     // Create initial rect
-    match rectangle.background() {
-        Some(brush) => {
-            setup_rectangle_path(cr, rectangle);
-            set_brush(cr, brush, rectangle.rect());
-            _ = cr.fill();
-        }
-        None => {}
+    if let Some(brush) = rectangle.background() {
+        setup_rectangle_path(cr, rectangle);
+        set_brush(cr, brush, rectangle.rect());
+        _ = cr.fill();
     }
 
     // Create border

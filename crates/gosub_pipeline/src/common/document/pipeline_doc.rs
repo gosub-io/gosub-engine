@@ -1,7 +1,7 @@
-use gosub_shared::node::NodeId;
 use crate::common::document::document::Document;
-use crate::common::document::node::NodeType;
-use crate::common::document::style::{StyleProperty, StyleValue, Display};
+use crate::common::document::node::{Node, NodeType};
+use crate::common::document::style::{Display, StyleProperty, StyleValue};
+use gosub_shared::node::NodeId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineNodeKind {
@@ -23,6 +23,9 @@ pub trait PipelineDocument: Send + Sync {
     fn body_node_id(&self) -> Option<NodeId>;
     fn base_url(&self) -> String;
     fn inner_html(&self, id: NodeId) -> String;
+    fn get_node_by_id(&self, _id: NodeId) -> Option<Node> {
+        None
+    }
 }
 
 // impl for poc's own Document (field-based, self-contained)
@@ -32,9 +35,7 @@ impl PipelineDocument for Document {
     }
 
     fn children(&self, id: NodeId) -> Vec<NodeId> {
-        self.arena.get(&id)
-            .map(|n| n.children.clone())
-            .unwrap_or_default()
+        self.arena.get(&id).map(|n| n.children.clone()).unwrap_or_default()
     }
 
     fn node_kind(&self, id: NodeId) -> PipelineNodeKind {
@@ -56,13 +57,16 @@ impl PipelineDocument for Document {
     }
 
     fn is_display_none(&self, id: NodeId) -> bool {
-        self.arena.get(&id).map(|node| match &node.node_type {
-            NodeType::Element(data) => matches!(
-                data.get_style(StyleProperty::Display),
-                Some(StyleValue::Display(d)) if *d == Display::None
-            ),
-            _ => false,
-        }).unwrap_or(false)
+        self.arena
+            .get(&id)
+            .map(|node| match &node.node_type {
+                NodeType::Element(data) => matches!(
+                    data.get_style(StyleProperty::Display),
+                    Some(StyleValue::Display(d)) if *d == Display::None
+                ),
+                _ => false,
+            })
+            .unwrap_or(false)
     }
 
     fn parent(&self, id: NodeId) -> Option<NodeId> {
@@ -96,6 +100,10 @@ impl PipelineDocument for Document {
         self.base_url.clone()
     }
 
+    fn get_node_by_id(&self, id: NodeId) -> Option<Node> {
+        self.arena.get(&id).cloned()
+    }
+
     fn inner_html(&self, id: NodeId) -> String {
         self.inner_html(id)
     }
@@ -118,7 +126,10 @@ where
     D: gosub_interface::document::Document<C>,
 {
     pub fn new(doc: D) -> Self {
-        Self { doc, _phantom: std::marker::PhantomData }
+        Self {
+            doc,
+            _phantom: std::marker::PhantomData,
+        }
     }
 }
 

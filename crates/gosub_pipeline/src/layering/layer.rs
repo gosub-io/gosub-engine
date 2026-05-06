@@ -1,7 +1,7 @@
+use crate::layouter::{LayoutElementId, LayoutTree};
 use std::collections::HashMap;
 use std::ops::AddAssign;
 use std::sync::{Arc, RwLock};
-use crate::layouter::{LayoutElementId, LayoutTree};
 
 /// ID for layers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -25,7 +25,6 @@ impl std::fmt::Display for LayerId {
     }
 }
 
-
 #[derive(Clone)]
 pub struct Layer {
     /// Layer ID
@@ -34,7 +33,7 @@ pub struct Layer {
     #[allow(unused)]
     pub order: isize,
     /// Elements in this layer
-    pub elements: Vec<LayoutElementId>
+    pub elements: Vec<LayoutElementId>,
 }
 
 impl Layer {
@@ -42,7 +41,7 @@ impl Layer {
         Layer {
             layer_id,
             order,
-            elements: Vec::new()
+            elements: Vec::new(),
         }
     }
 
@@ -53,9 +52,7 @@ impl Layer {
 
 impl std::fmt::Debug for Layer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Layer")
-            .field("elements", &self.elements)
-            .finish()
+        f.debug_struct("Layer").field("elements", &self.elements).finish()
     }
 }
 
@@ -104,14 +101,17 @@ impl LayerList {
             };
 
             for element_id in layer.elements.iter().rev() {
-                let layout_element = self.layout_tree.get_node_by_id(*element_id).expect("Failed to get layout element");
+                let layout_element = self
+                    .layout_tree
+                    .get_node_by_id(*element_id)
+                    .expect("Failed to get layout element");
                 let box_model = &layout_element.box_model;
 
                 // @TODO: use rtree for this
-                if x >= box_model.margin_box.x &&
-                    x < box_model.margin_box.x + box_model.margin_box.width &&
-                    y >= box_model.margin_box.y &&
-                    y < box_model.margin_box.y + box_model.margin_box.height
+                if x >= box_model.margin_box.x
+                    && x < box_model.margin_box.x + box_model.margin_box.width
+                    && y >= box_model.margin_box.y
+                    && y < box_model.margin_box.y + box_model.margin_box.height
                 {
                     return Some(*element_id);
                 }
@@ -126,13 +126,16 @@ impl LayerList {
         let layer = Layer::new(self.next_layer_id(), order);
         let layer_id = layer.layer_id;
         self.layer_ids.write().expect("Failed to lock layer IDs").push(layer_id);
-        self.layers.write().expect("Failed to lock layers").insert(layer_id, layer);
+        self.layers
+            .write()
+            .expect("Failed to lock layers")
+            .insert(layer_id, layer);
 
         layer_id
     }
 
     #[allow(unused)]
-    fn get_layer(&self, layer_id: LayerId) -> Option<std::sync::RwLockReadGuard<HashMap<LayerId, Layer>>> {
+    fn get_layer(&self, layer_id: LayerId) -> Option<std::sync::RwLockReadGuard<'_, HashMap<LayerId, Layer>>> {
         let layers = self.layers.read().expect("Failed to lock layers");
         if layers.contains_key(&layer_id) {
             Some(layers)
@@ -141,7 +144,7 @@ impl LayerList {
         }
     }
 
-    fn get_layer_mut(&self, layer_id: LayerId) -> Option<std::sync::RwLockWriteGuard<HashMap<LayerId, Layer>>> {
+    fn get_layer_mut(&self, layer_id: LayerId) -> Option<std::sync::RwLockWriteGuard<'_, HashMap<LayerId, Layer>>> {
         let layers = self.layers.write().expect("Failed to lock layers");
         if layers.contains_key(&layer_id) {
             Some(layers)
@@ -164,7 +167,10 @@ impl LayerList {
             return;
         };
 
-        let is_image = self.layout_tree.render_tree.doc
+        let is_image = self
+            .layout_tree
+            .render_tree
+            .doc
             .tag_name(layout_element.dom_node_id)
             .map(|tag| tag.eq_ignore_ascii_case("img"))
             .unwrap_or(false);
@@ -179,13 +185,11 @@ impl LayerList {
                     log::warn!("Image layer {} not found in HashMap", image_layer_id);
                 }
             }
-        } else {
-            if let Some(mut layers) = self.get_layer_mut(layer_id) {
-                if let Some(layer) = layers.get_mut(&layer_id) {
-                    layer.add_element(layout_element.id);
-                } else {
-                    log::warn!("Layer {} not found in HashMap", layer_id);
-                }
+        } else if let Some(mut layers) = self.get_layer_mut(layer_id) {
+            if let Some(layer) = layers.get_mut(&layer_id) {
+                layer.add_element(layout_element.id);
+            } else {
+                log::warn!("Layer {} not found in HashMap", layer_id);
             }
         }
 

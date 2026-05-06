@@ -1,22 +1,22 @@
 pub mod commands;
 
-use std::ops::AddAssign;
-use std::sync::Arc;
-use rand::Rng;
 use crate::common::browser_state::{get_browser_state, BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
-use crate::common::document::style::{StyleProperty, StyleValue, Color as StyleColor};
+use crate::common::document::style::{Color as StyleColor, StyleProperty, StyleValue};
+use crate::common::get_media_store;
+use crate::common::media::{Media, MediaType};
 use crate::layering::layer::LayerList;
 use crate::layouter::{ElementContext, LayoutElementNode};
+use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::color::Color;
 use crate::painter::commands::rectangle::{Radius, Rectangle};
-use crate::painter::commands::PaintCommand;
-use crate::common::get_media_store;
-use crate::common::media::{Media, MediaType};
-use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::text::Text;
+use crate::painter::commands::PaintCommand;
 use crate::tiler::{Tile, TiledLayoutElement};
+use rand::Rng;
+use std::ops::AddAssign;
+use std::sync::Arc;
 
 /// Painter works with the layout tree and generates paint commands for the renderer. It does not
 /// generate a new data structure as output, but will update the existing layout elements with
@@ -27,9 +27,7 @@ pub struct Painter {
 
 impl Painter {
     pub fn new(layer_list: Arc<LayerList>) -> Painter {
-        Painter {
-            layer_list
-        }
+        Painter { layer_list }
     }
 
     // Generate paint commands for the given tile
@@ -45,20 +43,23 @@ impl Painter {
         let state = binding.read().unwrap();
 
         // Paint boxmodel for the hovered element if needed
-        if state.debug_hover && state.current_hovered_element.is_some() && state.current_hovered_element.unwrap() == layout_element.id {
-            commands.extend(self.generate_boxmodel_commands(&layout_element));
+        if state.debug_hover
+            && state.current_hovered_element.is_some()
+            && state.current_hovered_element.unwrap() == layout_element.id
+        {
+            commands.extend(self.generate_boxmodel_commands(layout_element));
         }
 
         match state.wireframed {
             WireframeState::Only => {
-                commands.extend(self.generate_wireframe_commands(&layout_element));
+                commands.extend(self.generate_wireframe_commands(layout_element));
             }
             WireframeState::Both => {
-                commands.extend(self.generate_element_commands(&layout_element, dom_node_id));
-                commands.extend(self.generate_wireframe_commands(&layout_element));
+                commands.extend(self.generate_element_commands(layout_element, dom_node_id));
+                commands.extend(self.generate_wireframe_commands(layout_element));
             }
             WireframeState::None => {
-                commands.extend(self.generate_element_commands(&layout_element, dom_node_id));
+                commands.extend(self.generate_element_commands(layout_element, dom_node_id));
             }
         }
 
@@ -85,12 +86,16 @@ impl Painter {
     fn generate_wireframe_commands(&self, layout_element: &LayoutElementNode) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
 
-        let border = Border::new(1.0, BorderStyle::Solid, [
-            Brush::Solid(Color::RED),
-            Brush::Solid(Color::RED),
-            Brush::Solid(Color::RED),
-            Brush::Solid(Color::RED),
-        ]);
+        let border = Border::new(
+            1.0,
+            BorderStyle::Solid,
+            [
+                Brush::Solid(Color::RED),
+                Brush::Solid(Color::RED),
+                Brush::Solid(Color::RED),
+                Brush::Solid(Color::RED),
+            ],
+        );
         let r = Rectangle::new(layout_element.box_model.border_box).with_border(border);
         commands.push(PaintCommand::rectangle(r));
 
@@ -127,12 +132,7 @@ impl Painter {
                 // let r = layout_element.box_model.content_box().shift(ctx.text_offset);
                 let r = layout_element.box_model.padding_box;
                 // let brush = Brush::solid(Color::from_rgb8(130, 130, 130));
-                let t = Text::new(
-                    r,
-                    &ctx.text,
-                    &ctx.font_info,
-                    brush,
-                );
+                let t = Text::new(r, &ctx.text, &ctx.font_info, brush);
                 commands.push(PaintCommand::text(t));
 
                 // let border = Border::new(1.0, BorderStyle::Solid, Brush::Solid(Color::RED));
@@ -160,7 +160,11 @@ impl Painter {
                 // brush.
 
                 let doc = &self.layer_list.layout_tree.render_tree.doc;
-                let brush = self.get_brush(dom_node_id, StyleProperty::BackgroundColor, Brush::solid(Color::TRANSPARENT));
+                let brush = self.get_brush(
+                    dom_node_id,
+                    StyleProperty::BackgroundColor,
+                    Brush::solid(Color::TRANSPARENT),
+                );
                 let mut r = Rectangle::new(layout_element.box_model.border_box).with_background(brush);
 
                 // Get border
@@ -169,11 +173,22 @@ impl Painter {
                 let border_bottom_width = doc.get_style_f32(dom_node_id, StyleProperty::BorderBottomWidth);
                 let border_left_width = doc.get_style_f32(dom_node_id, StyleProperty::BorderLeftWidth);
 
-                if border_top_width != 0.0 || border_right_width != 0.0 || border_bottom_width != 0.0 || border_left_width != 0.0 {
-                    let border_top_color = self.get_brush(dom_node_id, StyleProperty::BorderTopColor, Brush::solid(Color::BLACK));
-                    let border_right_color = self.get_brush(dom_node_id, StyleProperty::BorderRightColor, Brush::solid(Color::BLACK));
-                    let border_bottom_color = self.get_brush(dom_node_id, StyleProperty::BorderBottomColor, Brush::solid(Color::BLACK));
-                    let border_left_color = self.get_brush(dom_node_id, StyleProperty::BorderLeftColor, Brush::solid(Color::BLACK));
+                if border_top_width != 0.0
+                    || border_right_width != 0.0
+                    || border_bottom_width != 0.0
+                    || border_left_width != 0.0
+                {
+                    let border_top_color =
+                        self.get_brush(dom_node_id, StyleProperty::BorderTopColor, Brush::solid(Color::BLACK));
+                    let border_right_color =
+                        self.get_brush(dom_node_id, StyleProperty::BorderRightColor, Brush::solid(Color::BLACK));
+                    let border_bottom_color = self.get_brush(
+                        dom_node_id,
+                        StyleProperty::BorderBottomColor,
+                        Brush::solid(Color::BLACK),
+                    );
+                    let border_left_color =
+                        self.get_brush(dom_node_id, StyleProperty::BorderLeftColor, Brush::solid(Color::BLACK));
 
                     let border = Border::new(
                         border_top_width,
@@ -183,7 +198,7 @@ impl Painter {
                             border_right_color,
                             border_bottom_color,
                             border_left_color,
-                        ]
+                        ],
                     );
                     r = r.with_border(border);
                 }
@@ -194,12 +209,16 @@ impl Painter {
                 let radius_top_left = doc.get_style_f32(dom_node_id, StyleProperty::BorderTopLeftRadius);
                 let radius_top_right = doc.get_style_f32(dom_node_id, StyleProperty::BorderTopRightRadius);
 
-                if (radius_bottom_left != 0.0 || radius_bottom_right != 0.0 || radius_top_left != 0.0 || radius_top_right != 0.0) {
+                if (radius_bottom_left != 0.0
+                    || radius_bottom_right != 0.0
+                    || radius_top_left != 0.0
+                    || radius_top_right != 0.0)
+                {
                     r = r.with_radius_tlrb(
                         Radius::new(radius_top_left as f64),
                         Radius::new(radius_top_right as f64),
                         Radius::new(radius_bottom_right as f64),
-                        Radius::new(radius_bottom_left as f64)
+                        Radius::new(radius_bottom_left as f64),
                     );
                 }
 
@@ -219,4 +238,3 @@ fn convert_css_color(css_color: &StyleColor) -> Color {
         StyleColor::Rgba(r, g, b, a) => Color::from_rgba8(*r, *g, *b, (*a * 255.0) as u8),
     }
 }
-

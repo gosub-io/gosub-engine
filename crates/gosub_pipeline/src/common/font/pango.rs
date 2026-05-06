@@ -6,7 +6,11 @@ use gtk4::prelude::{FontFamilyExt, SettingsExt};
 const DEFAULT_FONT_FAMILY: &str = "sans";
 
 pub fn find_available_font(families: &str, ctx: &pango::Context) -> String {
-    let available_fonts: Vec<String> = ctx.list_families().iter().map(|f| f.name().to_ascii_lowercase()).collect();
+    let available_fonts: Vec<String> = ctx
+        .list_families()
+        .iter()
+        .map(|f| f.name().to_ascii_lowercase())
+        .collect();
 
     for font in families.split(',') {
         let font_name = font.trim().replace('"', "");

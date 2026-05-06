@@ -1,20 +1,20 @@
-use std::collections::HashMap;
-use std::ops::AddAssign;
-use std::sync::{Arc, RwLock};
-use rstar::primitives::GeomWithData;
-use crate::layouter::box_model::BoxModel;
-use crate::rendertree_builder::{RenderTree, RenderNodeId};
 use crate::common::document::node::NodeId as DomNodeId;
 use crate::common::font::FontInfo;
 use crate::common::geo::{Coordinate, Dimension};
 use crate::common::media::MediaId;
+use crate::layouter::box_model::BoxModel;
+use crate::rendertree_builder::{RenderNodeId, RenderTree};
+use rstar::primitives::GeomWithData;
+use std::collections::HashMap;
+use std::ops::AddAssign;
+use std::sync::{Arc, RwLock};
 
-#[cfg(any(feature = "backend_cairo", feature = "backend_vello"))]
-pub mod taffy;
-pub mod text;
 mod box_model;
 #[cfg(any(feature = "backend_cairo", feature = "backend_vello"))]
 mod css_taffy_converter;
+#[cfg(any(feature = "backend_cairo", feature = "backend_vello"))]
+pub mod taffy;
+pub mod text;
 
 /// ID's for layout elements
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -80,12 +80,12 @@ pub enum ElementContext {
     None,
     Text(ElementContextText),
     Image(ElementContextImage),
-    Svg(ElementContextSvg)
+    Svg(ElementContextSvg),
 }
 
 impl ElementContext {
     pub(crate) fn text(text: &str, font_info: FontInfo, node_id: DomNodeId, text_offset: Coordinate) -> ElementContext {
-        Self::Text(ElementContextText{
+        Self::Text(ElementContextText {
             text: text.to_string(),
             font_info,
             node_id,
@@ -110,7 +110,6 @@ impl ElementContext {
             dimension,
         })
     }
-
 }
 
 #[derive(Debug, Clone)]
@@ -132,7 +131,7 @@ pub struct LayoutTree {
     /// Wrapped render tree
     pub render_tree: RenderTree,
     /// Arena of layout nodes
-    pub arena : HashMap<LayoutElementId, LayoutElementNode>,
+    pub arena: HashMap<LayoutElementId, LayoutElementNode>,
     /// Root node of the layout tree
     pub root_id: LayoutElementId,
     /// Next node ID

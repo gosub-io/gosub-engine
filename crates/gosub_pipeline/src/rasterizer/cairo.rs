@@ -1,12 +1,12 @@
-use gtk4::cairo;
+use crate::common::get_texture_store;
+use crate::common::texture::TextureId;
 use crate::painter::commands::PaintCommand;
 use crate::rasterizer::Rasterable;
-use crate::common::texture::TextureId;
-use crate::common::get_texture_store;
 use crate::tiler::Tile;
+use gtk4::cairo;
 
-mod rectangle;
 mod brush;
+mod rectangle;
 mod svg;
 mod text;
 
@@ -15,6 +15,12 @@ use crate::rasterizer::cairo::text::pango::do_paint_text;
 
 pub struct CairoRasterizer {}
 
+impl Default for CairoRasterizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CairoRasterizer {
     pub fn new() -> CairoRasterizer {
         CairoRasterizer {}
@@ -22,8 +28,10 @@ impl CairoRasterizer {
 }
 
 impl Rasterable for CairoRasterizer {
-    fn rasterize(&self, tile: &Tile) -> TextureId {
-        let mut surface = cairo::ImageSurface::create(cairo::Format::ARgb32, tile.rect.width as i32, tile.rect.height as i32).expect("Failed to create image surface");
+    fn rasterize(&self, tile: &Tile) -> Option<TextureId> {
+        let mut surface =
+            cairo::ImageSurface::create(cairo::Format::ARgb32, tile.rect.width as i32, tile.rect.height as i32)
+                .expect("Failed to create image surface");
 
         {
             // Each tile has a number of elements which have paint commands. We need to execute these paint commands in order
@@ -66,6 +74,6 @@ impl Rasterable for CairoRasterizer {
         let mut texture_store = binding.write().expect("Failed to get texture store");
         let texture_id = texture_store.add(w, h, data.to_vec());
 
-        texture_id
+        Some(texture_id)
     }
 }
