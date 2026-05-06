@@ -6,7 +6,9 @@ use file_type::FileType;
 use reqwest::header::HeaderValue;
 use resvg::usvg;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
+use std::time::Duration;
 
 const DEFAULT_SVG_ID: MediaId = MediaId::new(0);
 const DEFAULT_IMAGE_ID: MediaId = MediaId::new(1);
@@ -28,23 +30,20 @@ pub struct MediaStore {
     pub entries: RwLock<HashMap<MediaId, Arc<Media>>>,
     /// List of all images by hash(src)
     pub cache: RwLock<HashMap<Sha256Hash, MediaId>>,
-    /// Next media ID
-    next_id: RwLock<MediaId>,
+    /// Next media ID (atomic to prevent allocation races)
+    next_id: AtomicU64,
 }
 
 impl MediaStore {
     fn allocate_media_id(&self) -> MediaId {
-        let mut next_id = self.next_id.write().expect("Failed to lock next media ID");
-        let id = *next_id;
-        *next_id += 1;
-        id
+        MediaId::new(self.next_id.fetch_add(1, Ordering::Relaxed))
     }
 
     pub fn new() -> MediaStore {
         let store = MediaStore {
             entries: RwLock::new(HashMap::new()),
             cache: RwLock::new(HashMap::new()),
-            next_id: RwLock::new(MediaId::new(FIRST_FREE_IMAGE_ID)),
+            next_id: AtomicU64::new(FIRST_FREE_IMAGE_ID),
         };
 
         // Add "default svg" to the store.
@@ -74,7 +73,7 @@ impl MediaStore {
         let h = hash_from_string(src);
         let cache = self.cache.read().expect("Failed to lock cache");
         if let Some(media_id) = cache.get(&h) {
-            println!("Loading cached media from path: {}", src);
+            log::debug!("Loading cached media from path: {}", src);
             return Ok(*media_id);
         }
         drop(cache);
@@ -94,7 +93,7 @@ impl MediaStore {
         let h = hash_from_data(data);
         let cache = self.cache.read().expect("Failed to lock cache");
         if let Some(media_id) = cache.get(&h) {
-            println!("Loading cached media from data");
+            log::debug!("Loading cached media from data");
             return Ok(*media_id);
         }
         drop(cache);
@@ -113,6 +112,7 @@ impl MediaStore {
 
                 let mut entries = self.entries.write().expect("Failed to lock entries");
                 entries.insert(media_id, Arc::new(media));
+                drop(entries);
 
                 let mut cache = self.cache.write().expect("Failed to lock cache");
                 cache.insert(h, media_id);
@@ -132,6 +132,7 @@ impl MediaStore {
 
                 let mut entries = self.entries.write().expect("Failed to lock entries");
                 entries.insert(media_id, Arc::new(media));
+                drop(entries);
 
                 let mut cache = self.cache.write().expect("Failed to lock cache");
                 cache.insert(h, media_id);
@@ -144,7 +145,7 @@ impl MediaStore {
     }
 
     fn load_media_from_source(&self, src: &str) -> anyhow::Result<MediaId> {
-        println!("Loading non-cached media from path: {}", src);
+        log::debug!("Loading non-cached media from path: {}", src);
         let Ok((media_type, raw_data)) = self.fetch_resource(src) else {
             anyhow::bail!("Failed to fetch resource");
         };
@@ -243,13 +244,13 @@ impl MediaStore {
     /// Fetch resource from the web (or local file system, depending on the src) and returns the media type and raw
     /// bytes. This is blocking.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(MediaType, bytes::Bytes)> {
-        let result = reqwest::blocking::get(src);
-        let Ok(response) = result else {
-            anyhow::bail!("Failed to fetch resource");
-        };
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()?;
+        let response = client.get(src).send().map_err(|e| anyhow::anyhow!("Failed to fetch resource: {e}"))?;
 
         if !response.status().is_success() {
-            anyhow::bail!("Incorrect http status code returned");
+            anyhow::bail!("HTTP {} fetching resource", response.status());
         }
 
         // Detect through content type
@@ -263,7 +264,7 @@ impl MediaStore {
         );
 
         // Detect through content bytes
-        let raw_bytes = response.bytes().unwrap_or(Bytes::new());
+        let raw_bytes = response.bytes().map_err(|e| anyhow::anyhow!("Failed to read response body: {e}"))?;
         let detected_file_type = detect_file_type(&raw_bytes);
 
         if detected_content_type.is_none() && detected_file_type.is_none() {

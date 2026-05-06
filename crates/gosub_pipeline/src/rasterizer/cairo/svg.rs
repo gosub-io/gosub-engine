@@ -12,36 +12,42 @@ pub(crate) fn do_paint_svg(cr: &Context, _tile: &Tile, rect: &Rectangle, media_i
     };
     let media = binding.get_svg(media_id);
 
-    let lock = media.svg.rendered_dimension.read().unwrap();
-    let media_dimension = *lock;
-    drop(lock);
+    let target_dim = rect.rect().dimension();
 
-    // Check if we need to re-render the SVG. This happens when we need a different dimension for the same SVG.
-    // With "normal" images, we would just scale the image, but since SVG is vector-based, we want to re-render it from
-    // the source. It might be better to either render each dimension into a separate media, or store only an X amount of
-    // different dimensions. This is a trade-off between memory and CPU usage.
-    if media_dimension != rect.rect().dimension() {
-        let pixmap_size = media.svg.tree.size().to_int_size();
-        let mut pixmap = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
-        resvg::render(&media.svg.tree, Transform::default(), &mut pixmap.as_mut());
-
-        let mut var = media.svg.rendered_data.write().unwrap();
-        *var = pixmap.data().to_vec();
-        let mut var = media.svg.rendered_dimension.write().unwrap();
-        *var = rect.rect().dimension();
+    {
+        let cached = media.svg.rendered.read().unwrap();
+        if cached.dimension == target_dim && !cached.data.is_empty() {
+            // Cache hit — use existing render
+            let surface = gtk4::cairo::ImageSurface::create_for_data(
+                cached.data.clone(),
+                gtk4::cairo::Format::ARgb32,
+                cached.dimension.width as i32,
+                cached.dimension.height as i32,
+                cached.dimension.width as i32 * 4,
+            )
+            .unwrap();
+            _ = cr.set_source_surface(&surface, 0.0, 0.0);
+            _ = cr.paint();
+            return;
+        }
     }
 
-    // At this point, we have the SVG rendered to raw image data. We can now render that data onto an image.
+    // Re-render SVG at the required dimension, then update the cache atomically.
+    let pixmap_size = media.svg.tree.size().to_int_size();
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
+    resvg::render(&media.svg.tree, Transform::default(), &mut pixmap.as_mut());
+    let new_data = pixmap.data().to_vec();
 
-    let svg_dimension = media.svg.rendered_dimension.read().unwrap();
-    let svg_rendered_data = media.svg.rendered_data.read().unwrap();
+    let mut cached = media.svg.rendered.write().unwrap();
+    cached.data = new_data;
+    cached.dimension = target_dim;
 
     let surface = gtk4::cairo::ImageSurface::create_for_data(
-        svg_rendered_data.to_vec(),
+        cached.data.clone(),
         gtk4::cairo::Format::ARgb32,
-        svg_dimension.width as i32,
-        svg_dimension.height as i32,
-        svg_dimension.width as i32 * 4,
+        cached.dimension.width as i32,
+        cached.dimension.height as i32,
+        cached.dimension.width as i32 * 4,
     )
     .unwrap();
 

@@ -1,7 +1,6 @@
 use crate::common::hash::{hash_from_string, Sha256Hash};
 use crate::common::media::Image;
 use crate::common::media::Svg;
-use std::ops::AddAssign;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -10,12 +9,6 @@ pub struct MediaId(u64);
 impl MediaId {
     pub const fn new(val: u64) -> Self {
         Self(val)
-    }
-}
-
-impl AddAssign<i32> for MediaId {
-    fn add_assign(&mut self, rhs: i32) {
-        self.0 += rhs as u64;
     }
 }
 

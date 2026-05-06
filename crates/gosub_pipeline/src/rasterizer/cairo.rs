@@ -34,11 +34,8 @@ impl Rasterable for CairoRasterizer {
                 .expect("Failed to create image surface");
 
         {
-            // Each tile has a number of elements which have paint commands. We need to execute these paint commands in order
-            // onto this surface
             let cr = cairo::Context::new(&surface).expect("Failed to create cairo context");
 
-            // Iterate all elements on this tile
             for element in &tile.elements {
                 for command in &element.paint_commands {
                     match command {
@@ -67,7 +64,8 @@ impl Rasterable for CairoRasterizer {
         let h = surface.height() as usize;
 
         let Ok(data) = surface.data() else {
-            panic!("Failed to get surface data");
+            log::error!("Failed to get Cairo surface data");
+            return None;
         };
 
         let binding = get_texture_store();

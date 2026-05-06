@@ -138,7 +138,11 @@ fn read_texture_to_image(
     height: u32,
     _id: TileId,
 ) -> Vec<u8> {
-    let buffer_size = (width * height * 4) as vello::wgpu::BufferAddress;
+    // WGPU requires bytes_per_row to be a multiple of 256.
+    let unpadded_bytes_per_row = width * 4;
+    let padded_bytes_per_row = (unpadded_bytes_per_row + 255) & !255;
+
+    let buffer_size = (padded_bytes_per_row * height) as vello::wgpu::BufferAddress;
     let buffer = device.create_buffer(&vello::wgpu::BufferDescriptor {
         label: Some("Texture Read Buffer"),
         size: buffer_size,
@@ -155,7 +159,7 @@ fn read_texture_to_image(
             buffer: &buffer,
             layout: vello::wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(width * 4),
+                bytes_per_row: Some(padded_bytes_per_row),
                 rows_per_image: Some(height),
             },
         },
@@ -167,7 +171,6 @@ fn read_texture_to_image(
     );
     queue.submit(std::iter::once(encoder.finish()));
 
-    // Map the buffer and read the data
     let buffer_slice = buffer.slice(..);
     let (sender, receiver) = std::sync::mpsc::channel();
     buffer_slice.map_async(vello::wgpu::MapMode::Read, move |result| {
@@ -176,14 +179,16 @@ fn read_texture_to_image(
     device.poll(vello::wgpu::Maintain::Wait);
     receiver.recv().unwrap().unwrap();
 
-    let data = buffer_slice.get_mapped_range();
-    let result = data.to_vec();
-    drop(data);
+    let padded = buffer_slice.get_mapped_range();
+    // Strip per-row padding before returning pixel data.
+    let mut result = Vec::with_capacity((unpadded_bytes_per_row * height) as usize);
+    for row in 0..height {
+        let start = (row * padded_bytes_per_row) as usize;
+        let end = start + unpadded_bytes_per_row as usize;
+        result.extend_from_slice(&padded[start..end]);
+    }
+    drop(padded);
     buffer.unmap();
-
-    // // write bytes to file
-    // let image = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, result.clone()).unwrap();
-    // image.save_with_format(format!("test-{}.png", id), image::ImageFormat::Png).unwrap();
 
     result
 }
