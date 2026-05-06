@@ -14,6 +14,7 @@ pub fn get_text_layout(
         font_info.family.as_str(),
         font_info.size,
         font_info.line_height,
+        font_info.weight,
         max_width,
         font_info.alignment.clone(),
     );

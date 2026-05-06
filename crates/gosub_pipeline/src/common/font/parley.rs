@@ -25,6 +25,7 @@ pub fn get_parley_layout(
     font_family: &str,
     font_size: f64,
     line_height: f64,
+    font_weight: i32,
     max_width: f64,
     alignment: FontAlignment,
 ) -> Layout<[u8; 4]> {
@@ -40,6 +41,7 @@ pub fn get_parley_layout(
     builder.push_default(font_stack);
     builder.push_default(parley::StyleProperty::LineHeight(line_height as f32 / font_size as f32));
     builder.push_default(parley::StyleProperty::FontSize(font_size as f32));
+    builder.push_default(parley::StyleProperty::FontWeight(parley::FontWeight::new(font_weight as f32)));
     builder.push_default(GenericFamily::SystemUi);
 
     let align = match alignment {

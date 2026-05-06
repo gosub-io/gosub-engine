@@ -25,6 +25,10 @@ pub enum StyleProperty {
     BorderTopColor,
     BorderLeftColor,
     BorderRightColor,
+    BorderTopStyle,
+    BorderRightStyle,
+    BorderBottomStyle,
+    BorderLeftStyle,
     // MarginBlockStart,
     // MarginBlockEnd,
     FontFamily,
@@ -81,6 +85,21 @@ pub enum Unit {
 }
 
 #[allow(unused)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum BorderStyle {
+    None,
+    Hidden,
+    Solid,
+    Dashed,
+    Dotted,
+    Double,
+    Groove,
+    Ridge,
+    Inset,
+    Outset,
+}
+
+#[allow(unused)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Color {
     Rgb(u8, u8, u8),
@@ -128,6 +147,7 @@ pub enum StyleValue {
     FontWeight(FontWeight),
     TextWrap(TextWrap),
     TextAlign(TextAlign),
+    BorderStyle(BorderStyle),
 }
 
 #[derive(Debug, Clone)]

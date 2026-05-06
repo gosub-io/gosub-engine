@@ -11,7 +11,7 @@ required-features = ["text_pango", "backend_cairo"]
 [[bin]]
 name = "pipeline-vello"
 path = "src/bin/pipeline-vello.rs"
-required-features = ["backend_vello"]
+required-features = ["backend_vello", "text_parley"]
 
 
 [dependencies]

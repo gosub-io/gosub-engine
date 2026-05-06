@@ -2,7 +2,7 @@ pub mod commands;
 
 use crate::common::browser_state::{get_browser_state, BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
-use crate::common::document::style::{Color as StyleColor, StyleProperty, StyleValue};
+use crate::common::document::style::{BorderStyle as CssBorderStyle, Color as StyleColor, StyleProperty, StyleValue};
 use crate::common::get_media_store;
 use crate::common::media::{Media, MediaType};
 use crate::layering::layer::LayerList;
@@ -190,9 +190,13 @@ impl Painter {
                     let border_left_color =
                         self.get_brush(dom_node_id, StyleProperty::BorderLeftColor, Brush::solid(Color::BLACK));
 
+                    let border_style = match doc.get_style(dom_node_id, StyleProperty::BorderTopStyle) {
+                        Some(StyleValue::BorderStyle(s)) => css_border_style_to_paint(&s),
+                        _ => BorderStyle::Solid,
+                    };
                     let border = Border::new(
                         border_top_width,
-                        BorderStyle::Solid,
+                        border_style,
                         [
                             border_top_color,
                             border_right_color,
@@ -227,6 +231,21 @@ impl Painter {
         }
 
         commands
+    }
+}
+
+fn css_border_style_to_paint(s: &CssBorderStyle) -> BorderStyle {
+    match s {
+        CssBorderStyle::Solid => BorderStyle::Solid,
+        CssBorderStyle::Dashed => BorderStyle::Dashed,
+        CssBorderStyle::Dotted => BorderStyle::Dotted,
+        CssBorderStyle::Double => BorderStyle::Double,
+        CssBorderStyle::Groove => BorderStyle::Groove,
+        CssBorderStyle::Ridge => BorderStyle::Ridge,
+        CssBorderStyle::Inset => BorderStyle::Inset,
+        CssBorderStyle::Outset => BorderStyle::Outset,
+        CssBorderStyle::Hidden => BorderStyle::Hidden,
+        CssBorderStyle::None => BorderStyle::None,
     }
 }
 

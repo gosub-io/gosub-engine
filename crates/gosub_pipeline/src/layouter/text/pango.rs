@@ -30,7 +30,11 @@ pub fn get_text_layout(
     layout.set_width((max_width * SCALE as f64) as i32);
     layout.set_wrap(WrapMode::Word);
     layout.set_spacing(0);
-    layout.set_line_spacing(0.0);
+    if font_info.line_height > 0.0 && font_info.size > 0.0 {
+        layout.set_line_spacing((font_info.line_height / font_info.size) as f32);
+    } else {
+        layout.set_line_spacing(0.0);
+    }
 
     match font_info.alignment {
         FontAlignment::Start => layout.set_alignment(gtk4::pango::Alignment::Left),

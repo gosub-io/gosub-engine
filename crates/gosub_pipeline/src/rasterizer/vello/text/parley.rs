@@ -19,6 +19,7 @@ pub fn do_paint_text(
         cmd.font_info.family.as_str(),
         cmd.font_info.size,
         cmd.font_info.line_height,
+        cmd.font_info.weight,
         cmd.rect.width,
         cmd.font_info.alignment.clone(),
     );

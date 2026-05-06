@@ -2,7 +2,7 @@ use crate::common::document::document::Document;
 use crate::common::document::node::{AttrMap, NodeId, NodeType};
 use crate::common::document::style::TextAlign;
 use crate::common::document::style::{
-    Color, Display, FontWeight, StyleProperty, StylePropertyList, StyleValue, TextWrap, Unit,
+    BorderStyle, Color, Display, FontWeight, StyleProperty, StylePropertyList, StyleValue, TextWrap, Unit,
 };
 use cow_utils::CowUtils;
 use regex::Regex;
@@ -125,6 +125,10 @@ fn get_style_from_node(node: &DomNode) -> StylePropertyList {
             "border-top-right-radius" => {
                 style.set_property(StyleProperty::BorderTopRightRadius, parse_style_value(value))
             }
+            "border-top-style" => style.set_property(StyleProperty::BorderTopStyle, parse_border_style(value)),
+            "border-right-style" => style.set_property(StyleProperty::BorderRightStyle, parse_border_style(value)),
+            "border-bottom-style" => style.set_property(StyleProperty::BorderBottomStyle, parse_border_style(value)),
+            "border-left-style" => style.set_property(StyleProperty::BorderLeftStyle, parse_border_style(value)),
             "border-top-color" => style.set_property(
                 StyleProperty::BorderTopColor,
                 StyleValue::Color(Color::Named(value.to_string())),
@@ -265,6 +269,22 @@ fn parse_style_value(value: &str) -> StyleValue {
     } else {
         StyleValue::Keyword(value.to_string())
     }
+}
+
+fn parse_border_style(value: &str) -> StyleValue {
+    let bs = match value {
+        "solid" => BorderStyle::Solid,
+        "dashed" => BorderStyle::Dashed,
+        "dotted" => BorderStyle::Dotted,
+        "double" => BorderStyle::Double,
+        "groove" => BorderStyle::Groove,
+        "ridge" => BorderStyle::Ridge,
+        "inset" => BorderStyle::Inset,
+        "outset" => BorderStyle::Outset,
+        "hidden" => BorderStyle::Hidden,
+        _ => BorderStyle::None,
+    };
+    StyleValue::BorderStyle(bs)
 }
 
 fn parse_font_weight(value: &str) -> StyleValue {

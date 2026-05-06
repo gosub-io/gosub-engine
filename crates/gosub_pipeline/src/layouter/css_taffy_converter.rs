@@ -35,6 +35,7 @@ impl CssTaffyConverter {
             StyleValue::TextWrap(_) => default,
             StyleValue::Percentage(_) => default,
             StyleValue::TextAlign(_) => default,
+            StyleValue::BorderStyle(_) => default,
         }
     }
 
