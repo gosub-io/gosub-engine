@@ -14,8 +14,8 @@ url = "2.5.8"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gosub_engine = { version = "0.1.0", path = "../gosub_engine" }
 tokio = { version = "1.45.0", features = ["rt"] }
-reqwest = { version = "0.12.22", features = ["rustls-tls", "stream"] }
+reqwest = { version = "0.13.3", features = ["rustls", "stream"] }
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-reqwest = { version = "0.12.22", default-features = false }
+reqwest = { version = "0.13.3", default-features = false }
