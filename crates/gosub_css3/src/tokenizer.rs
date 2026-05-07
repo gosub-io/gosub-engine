@@ -3,7 +3,7 @@ use std::fmt::Debug;
 
 use gosub_shared::byte_stream::Character::Ch;
 use gosub_shared::byte_stream::{ByteStream, Character};
-use gosub_shared::byte_stream::{Location, LocationHandler, Stream};
+use gosub_shared::byte_stream::{Location, Stream};
 
 use crate::unicode::{get_unicode_char, UnicodeChar};
 
@@ -228,8 +228,6 @@ pub struct Tokenizer<'stream> {
     token_position: usize,
     /// Full list of all tokens produced by the tokenizer
     tokens: Vec<Token>,
-    /// Handles line/col
-    location_handler: LocationHandler,
     /// When true, the stream is closed and no more tokens can be produced
     eof: bool,
 }
@@ -238,11 +236,11 @@ impl<'stream> Tokenizer<'stream> {
     /// Creates a new tokenizer with the given stream that starts on the given location. This does not have
     /// to be 1/1, but can be any location.
     pub fn new(stream: &'stream mut ByteStream, start_location: Location) -> Self {
+        let _ = start_location;
         Self {
             stream,
             token_position: 0,
             tokens: Vec::new(),
-            location_handler: LocationHandler::new(start_location),
             eof: false,
         }
     }
@@ -255,7 +253,7 @@ impl<'stream> Tokenizer<'stream> {
     /// Returns the current location (line/col) of the tokenizer
     #[must_use]
     pub fn current_location(&self) -> Location {
-        self.location_handler.cur_location
+        self.stream.location()
     }
 
     /// Returns true when there is no next element, and the stream is closed
@@ -360,11 +358,6 @@ impl<'stream> Tokenizer<'stream> {
                 Token::new(TokenType::Delim('\u{FFFD}'), loc)
             }
             Character::StreamEnd => Token::new(TokenType::Eof, loc),
-            Character::StreamEmpty => {
-                // @todo: we are in a situation where we don't have more characters yet, but the stream is still open. We should wait
-                // for more characters to come in.
-                Token::new(TokenType::Eof, loc)
-            }
             Ch(c) if c.is_whitespace() => {
                 self.consume_whitespace();
                 Token::new(TokenType::Whitespace(c.to_string()), loc)
@@ -922,9 +915,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     fn next_char(&mut self) -> Character {
-        let c = self.stream.read_and_next();
-        self.location_handler.inc(c);
-        c
+        self.stream.read_and_next()
     }
 
     fn look_ahead_slice(&self, len: usize) -> String {
@@ -955,9 +946,7 @@ mod test {
 
     #[test]
     fn parse_comment() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-        stream.read_from_str("/* css comment */", Some(Encoding::UTF8));
-        stream.close();
+        let mut stream = ByteStream::from_str("/* css comment */", Encoding::UTF8);
 
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
         tokenizer.consume_comment();
@@ -1142,10 +1131,7 @@ mod test {
 
     #[test]
     fn produce_stream_of_double_quoted_strings() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str("\"\" \"Lorem 'îpsum'\" \"a\\\nb\" \"a\nb \"eof", Some(Encoding::UTF8));
-        stream.close();
+        let mut stream = ByteStream::from_str("\"\" \"Lorem 'îpsum'\" \"a\\\nb\" \"a\nb \"eof", Encoding::UTF8);
 
         let tokens = vec![
             // `\"\"`
@@ -1174,10 +1160,7 @@ mod test {
 
     #[test]
     fn procude_stream_of_single_quoted_strings() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str("'' 'Lorem \"îpsum\"' 'a\\\nb' 'a\nb 'eof", Some(Encoding::UTF8));
-        stream.close();
+        let mut stream = ByteStream::from_str("'' 'Lorem \"îpsum\"' 'a\\\nb' 'a\nb 'eof", Encoding::UTF8);
 
         let tokens = vec![
             // `\"\"`
@@ -1206,13 +1189,10 @@ mod test {
 
     #[test]
     fn parse_urls_with_strings() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "url( '') url('Lorem \"îpsum\"'\n) url('a\\\nb' ) url('a\nb) url('eof",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let tokens = vec![
             // `url( '')`
@@ -1254,9 +1234,7 @@ mod test {
 
     #[test]
     fn produce_valid_stream_of_css_tokens() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "
         /* Navbar */
         #header .nav {
@@ -1269,9 +1247,8 @@ mod test {
 
         background: url(https://gosub.io);
         ",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let tokens = vec![
             // 1st css rule
@@ -1329,15 +1306,12 @@ mod test {
 
     #[test]
     fn parse_rgba_expr() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "
             rgba(255, 50%, 0%, 1)
         ",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let tokens = vec![
             Token::new(TokenType::Whitespace("\n".into()), Location::default()),
@@ -1364,10 +1338,7 @@ mod test {
 
     #[test]
     fn parse_cdo_and_cdc() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str("/* CDO/CDC are not special */ <!-- --> {}", Some(Encoding::UTF8));
-        stream.close();
+        let mut stream = ByteStream::from_str("/* CDO/CDC are not special */ <!-- --> {}", Encoding::UTF8);
 
         let tokens = vec![
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
@@ -1387,10 +1358,7 @@ mod test {
 
     #[test]
     fn parse_spaced_comments() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str("/*/*///** /* **/*//* ", Some(Encoding::UTF8));
-        stream.close();
+        let mut stream = ByteStream::from_str("/*/*///** /* **/*//* ", Encoding::UTF8);
 
         let tokens = vec![
             Token::new_delim('/', Location::default()),
@@ -1410,10 +1378,7 @@ mod test {
 
     #[test]
     fn parse_all_whitespaces() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str("  \t\t\r\n\nRed ", Some(Encoding::UTF8));
-        stream.close();
+        let mut stream = ByteStream::from_str("  \t\t\r\n\nRed ", Encoding::UTF8);
 
         let tokens = vec![
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
@@ -1432,13 +1397,10 @@ mod test {
 
     #[test]
     fn parse_at_keywords() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "@media0 @-Media @--media @0media @-0media @_media @.media @medİa @\\30 media\\",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let tokens = vec![
             Token::new_atkeyword("media0", Location::default()),
@@ -1481,13 +1443,10 @@ mod test {
 
     #[test]
     fn parse_id_selectors() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "#red0 #-Red #--red #-\\-red #0red #-0red #_Red #.red #rêd #êrd #\\.red\\",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let tokens = vec![
             Token::new_hash("red0", Location::default()),
@@ -1534,13 +1493,10 @@ mod test {
 
     #[test]
     fn parse_dimension_tokens() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "12red0 12.0-red 12--red 12-\\-red 120red 12-0red 12\\0000red 12_Red 12.red 12rêd",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let tokens = vec![
             // `12red0`
@@ -1587,13 +1543,10 @@ mod test {
 
     #[test]
     fn parse_dimension_tokens_2() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "12e2px +34e+1px -45E-0px .68e+3px +.79e-1px -.01E2px 2.3E+1px +45.0e6px -0.67e0px",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let tokens = vec![
             // `12e2px`
@@ -1635,13 +1588,10 @@ mod test {
 
     #[test]
     fn parse_percentage() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "12e2% +34e+1% -45E-0% .68e+3% +.79e-1% -.01E2% 2.3E+1% +45.0e6% -0.67e0%",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let tokens = vec![
             // `12e2%`
@@ -1683,13 +1633,10 @@ mod test {
 
     #[test]
     fn parse_css_seq_1() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "a:not([href^=http\\:],  [href ^=\t'https\\:'\n]) { color: rgba(0%, 100%, 50%); }",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let tokens = vec![
             Token::new_ident("a", Location::default()),
@@ -1743,10 +1690,7 @@ mod test {
 
     #[test]
     fn parse_css_seq_2() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str("red-->/* Not CDC */", Some(Encoding::UTF8));
-        stream.close();
+        let mut stream = ByteStream::from_str("red-->/* Not CDC */", Encoding::UTF8);
 
         let tokens = vec![
             Token::new_ident("red--", Location::default()),
@@ -1772,13 +1716,10 @@ mod test {
 
     #[test]
     fn parse_css_seq_3() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "\\- red0 -red --red -\\-red\\ blue 0red -0red \\0000red _Red .red rêd r\\êd \\007F\\0080\\0081",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let tokens = vec![
             // `\\-`
@@ -1832,13 +1773,10 @@ mod test {
 
     #[test]
     fn parse_css_seq_4() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "p[example=\"\\\nfoo(int x) {\\\n   this.x = x;\\\n}\\\n\"]",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let tokens = vec![
             Token::new_ident("p", Location::default()),
@@ -1859,9 +1797,7 @@ mod test {
 
     #[test]
     fn consume_tokenizer_as_stream_of_tokens() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-        stream.read_from_str("[][]", Some(Encoding::UTF8));
-        stream.close();
+        let mut stream = ByteStream::from_str("[][]", Encoding::UTF8);
 
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
         tokenizer.consume_all();
@@ -1888,13 +1824,7 @@ mod test {
 
     #[test]
     fn parse_css_seq_5() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
-            "test { color: #123; background-color: #11223344 }",
-            Some(Encoding::UTF8),
-        );
-        stream.close();
+        let mut stream = ByteStream::from_str("test { color: #123; background-color: #11223344 }", Encoding::UTF8);
 
         let tokens = vec![
             Token::new_ident("test", Location::default()),
@@ -1925,13 +1855,7 @@ mod test {
 
     #[test]
     fn location() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
-            "test { color: #123; background-color: #11223344 }",
-            Some(Encoding::UTF8),
-        );
-        stream.close();
+        let mut stream = ByteStream::from_str("test { color: #123; background-color: #11223344 }", Encoding::UTF8);
 
         let tokens = vec![
             Token::new_ident("test", Location::new(1, 1, 0)),
@@ -1963,13 +1887,10 @@ mod test {
 
     #[test]
     fn location_multiline() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "test {\n    color: #123;\n    background-color: #11223344\n}",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let tokens = vec![
             Token::new_ident("test", Location::new(1, 1, 0)),

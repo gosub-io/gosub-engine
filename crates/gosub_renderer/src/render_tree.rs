@@ -31,9 +31,7 @@ pub fn load_html_rendertree_source<C: HasRenderTree + HasHtmlParser + HasDocumen
     url: Url,
     source_html: &str,
 ) -> gosub_shared::types::Result<(C::RenderTree, C::Document)> {
-    let mut stream = ByteStream::new(Encoding::UTF8, None);
-    stream.read_from_str(source_html, Some(Encoding::UTF8));
-    stream.close();
+    let mut stream = ByteStream::from_str(source_html, Encoding::UTF8);
 
     let mut doc = C::Document::new(DocumentType::HTML, Some(url));
     let parse_errors = C::HtmlParser::parse(&mut stream, &mut doc, None)?;
