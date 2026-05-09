@@ -2897,26 +2897,27 @@ dependencies = [
 
 [[package]]
 name = "gdk4-wayland"
-version = "0.9.6"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd34518488cd624a85e75e82540bc24c72cfeb0aea6bad7faed683ca3977dba0"
+checksum = "7027433b8f19075ab22f01d0e0ba4373e303ffdb4ce4f846a2763cb020ea9bdc"
 dependencies = [
- "gdk4 0.9.6",
+ "gdk4 0.11.2",
  "gdk4-wayland-sys",
- "gio 0.20.12",
- "glib 0.20.12",
+ "gio 0.22.6",
+ "glib 0.22.7",
  "libc",
  "wayland-backend",
  "wayland-client",
+ "wayland-protocols",
 ]
 
 [[package]]
 name = "gdk4-wayland-sys"
-version = "0.9.6"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c7a0f2332c531d62ee3f14f5e839ac1abac59e9b052adf1495124c00d89a34b"
+checksum = "653cafb8715f2ac1c56edaf8060d9360ae3acbe3c6fb61b676a2917d42b668cf"
 dependencies = [
- "glib-sys 0.20.10",
+ "glib-sys 0.22.6",
  "libc",
  "system-deps",
 ]
