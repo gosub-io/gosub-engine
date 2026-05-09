@@ -10,7 +10,7 @@ crate-type = ["rlib"]
 [dependencies]
 uuid = { version = "1.17.0", features = ["v4", "serde"] }
 reqwest = { version = "0.13.3", features = ["json", "gzip", "brotli", "deflate", "cookies", "rustls", "stream"] }
-tokio = { version = "1.47", features = [
+tokio = { version = "1.52", features = [
     "macros",
     "rt-multi-thread",
     "full",
