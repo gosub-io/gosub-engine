@@ -9,6 +9,9 @@ use egui::StrokeKind;
 use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::render::backend::ExternalHandle;
+#[cfg(unix)]
+use gosub_engine::render::backends::cairo::CairoBackend;
+#[cfg(not(unix))]
 use gosub_engine::render::backends::vello::VelloBackend;
 use gosub_engine::render::{DefaultCompositor, Viewport};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
@@ -70,8 +73,14 @@ impl GosubApp {
         let ctx_provider =
             Arc::new(EguiWgpuContextProvider::from_eframe(cc).expect("Failed to create EguiWgpuContextProvider"));
 
-        let backend = VelloBackend::new(Arc::clone(&ctx_provider)).expect("VelloBackend::new failed");
-        let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
+        #[cfg(unix)]
+        let backend: Arc<dyn gosub_engine::render::backend::RenderBackend + Send + Sync> =
+            Arc::new(CairoBackend::new());
+        #[cfg(not(unix))]
+        let backend: Arc<dyn gosub_engine::render::backend::RenderBackend + Send + Sync> =
+            Arc::new(VelloBackend::new(Arc::clone(&ctx_provider)).expect("VelloBackend::new failed"));
+
+        let mut engine = GosubEngine::new(None, backend, compositor.clone());
         let _engine_join_handle = engine.start().expect("Engine start failed");
         let event_rx = engine.subscribe_events();
 
@@ -159,6 +168,7 @@ impl GosubApp {
         if let Some(tab) = self.tabs.get(&tab_id).cloned() {
             TOKIO_RT.spawn(async move {
                 let _ = tab.navigate(url.as_str()).await;
+                let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
                 ctx.request_repaint();
             });
         }
@@ -420,6 +430,31 @@ impl eframe::App for GosubApp {
                             let size_points = egui::Vec2::new(width as f32, height as f32);
                             ui.put(rect_ui, egui::Image::new(SizedTexture::new(tid, size_points)));
                         }
+                        ExternalHandle::CpuPixelsOwned {
+                            width,
+                            height,
+                            stride,
+                            pixels,
+                            ..
+                        } => {
+                            let rgba = bgra_to_rgba(width, height, stride, &pixels);
+                            let image = egui::ColorImage::from_rgba_premultiplied(
+                                [width as usize, height as usize],
+                                &rgba,
+                            );
+                            let texture = ctx.load_texture(
+                                format!("gosub_tab_{tab_id:?}"),
+                                image,
+                                Default::default(),
+                            );
+                            ui.put(
+                                rect_ui,
+                                egui::Image::new(SizedTexture::new(
+                                    texture.id(),
+                                    egui::Vec2::new(rect_ui.width(), rect_ui.height()),
+                                )),
+                            );
+                        }
                         _ => {
                             ui.painter().rect_filled(rect_ui, 0.0, egui::Color32::from_gray(30));
                         }
@@ -468,6 +503,19 @@ impl eframe::App for GosubApp {
             }
         }
     }
+}
+
+/// Convert Cairo's ARgb32 (BGRA in memory on little-endian) to RGBA for egui.
+fn bgra_to_rgba(width: u32, height: u32, stride: u32, data: &[u8]) -> Vec<u8> {
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for row in 0..height as usize {
+        let row_start = row * stride as usize;
+        let row_bytes = &data[row_start..row_start + width as usize * 4];
+        for pixel in row_bytes.chunks_exact(4) {
+            rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+        }
+    }
+    rgba
 }
 
 fn main() -> Result<(), eframe::Error> {
