@@ -2,17 +2,11 @@ use crate::tiling::{
     close_leaf, collect_leaves, compute_layout, find_leaf_at, split_leaf_into_cols, split_leaf_into_rows, LayoutHandle,
     LayoutNode, Rect,
 };
-use crate::wgpu_context_provider::EguiWgpuContextProvider;
 use eframe::{egui, CreationContext};
-use egui::load::SizedTexture;
 use egui::StrokeKind;
 use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
-use gosub_engine::render::backend::ExternalHandle;
-#[cfg(unix)]
-use gosub_engine::render::backends::cairo::CairoBackend;
-#[cfg(not(unix))]
-use gosub_engine::render::backends::vello::VelloBackend;
+use gosub_engine::render::backends::null::NullBackend;
 use gosub_engine::render::{DefaultCompositor, Viewport};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
@@ -25,9 +19,7 @@ use tokio::runtime::{Builder, Runtime};
 use url::Url;
 use uuid::uuid;
 
-mod compositor;
 mod tiling;
-mod wgpu_context_provider;
 
 /// We use a fixed UUID for the main zone in this example. This allows us to easily
 /// reconnect to the same zone if we restart the app and want to keep cookies/localStorage.
@@ -53,34 +45,22 @@ struct GosubApp {
     active_tab: TabId,
     tabs: HashMap<TabId, TabHandle>,
     last_size: (i32, i32),
-    compositor: Arc<RwLock<DefaultCompositor>>,
     current_url_input: String,
     needs_redraw: bool,
     pointer_pos: (f64, f64),
-    backend_initialized: bool,
-    ctx_provider: Arc<EguiWgpuContextProvider>,
     last_panel_size: egui::Vec2,
     event_rx: tokio::sync::broadcast::Receiver<EngineEvent>,
 }
 
 impl GosubApp {
-    fn new(cc: &CreationContext) -> Self {
+    fn new(_cc: &CreationContext) -> Self {
         // Enter Tokio so any internal tokio::spawn/time/io in engine works
         let _rt_guard = TOKIO_RT.enter();
 
+        let backend = Arc::new(NullBackend::new().expect("NullBackend::new failed"));
         let compositor = Arc::new(RwLock::new(DefaultCompositor::default()));
 
-        let ctx_provider =
-            Arc::new(EguiWgpuContextProvider::from_eframe(cc).expect("Failed to create EguiWgpuContextProvider"));
-
-        #[cfg(unix)]
-        let backend: Arc<dyn gosub_engine::render::backend::RenderBackend + Send + Sync> =
-            Arc::new(CairoBackend::new());
-        #[cfg(not(unix))]
-        let backend: Arc<dyn gosub_engine::render::backend::RenderBackend + Send + Sync> =
-            Arc::new(VelloBackend::new(Arc::clone(&ctx_provider)).expect("VelloBackend::new failed"));
-
-        let mut engine = GosubEngine::new(None, backend, compositor.clone());
+        let mut engine = GosubEngine::new(None, backend, compositor);
         let _engine_join_handle = engine.start().expect("Engine start failed");
         let event_rx = engine.subscribe_events();
 
@@ -140,12 +120,9 @@ impl GosubApp {
             active_tab,
             tabs,
             last_size: (DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
-            compositor,
             current_url_input: String::new(),
             needs_redraw: true,
             pointer_pos: (0.0, 0.0),
-            backend_initialized: false,
-            ctx_provider,
             last_panel_size: egui::Vec2::ZERO,
             event_rx,
         }
@@ -308,24 +285,12 @@ impl GosubApp {
             self.needs_redraw = true;
         }
     }
-
-    fn init_vello_backend(&mut self) {
-        if self.backend_initialized {
-            return;
-        }
-        // TODO: swap the null backend for a real Vello backend once the engine supports
-        // replacing the backend after construction.
-        self.backend_initialized = true;
-        self.needs_redraw = true;
-    }
 }
 
 impl eframe::App for GosubApp {
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
-
-        self.init_vello_backend();
 
         ctx.global_style_mut(|style| {
             style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 16.0;
@@ -416,46 +381,28 @@ impl eframe::App for GosubApp {
                     egui::pos2((rect.x + rect.w) as f32, (rect.y + rect.h) as f32),
                 );
 
-                if let Some(handle) = self.compositor.read().unwrap().frame_for(tab_id) {
-                    match handle {
-                        ExternalHandle::WgpuTextureId { id, width, height, .. } => {
-                            let (_, view) = self.ctx_provider.get_texture(id).unwrap();
+                let source = self
+                    .tabs
+                    .get(&tab_id)
+                    .and_then(|t| t.sink.source_html.read().ok()?.clone());
 
-                            let mut renderer = frame.wgpu_render_state().unwrap().renderer.write();
-                            let device = &frame.wgpu_render_state().unwrap().device;
-
-                            let tid =
-                                renderer.register_native_texture(device, &view, eframe::wgpu::FilterMode::Nearest);
-
-                            let size_points = egui::Vec2::new(width as f32, height as f32);
-                            ui.put(rect_ui, egui::Image::new(SizedTexture::new(tid, size_points)));
-                        }
-                        ExternalHandle::CpuPixelsOwned {
-                            width,
-                            height,
-                            stride,
-                            pixels,
-                            ..
-                        } => {
-                            let rgba = bgra_to_rgba(width, height, stride, &pixels);
-                            let image =
-                                egui::ColorImage::from_rgba_premultiplied([width as usize, height as usize], &rgba);
-                            let texture = ctx.load_texture(format!("gosub_tab_{tab_id:?}"), image, Default::default());
-                            ui.put(
-                                rect_ui,
-                                egui::Image::new(SizedTexture::new(
-                                    texture.id(),
-                                    egui::Vec2::new(rect_ui.width(), rect_ui.height()),
-                                )),
-                            );
-                        }
-                        _ => {
-                            ui.painter().rect_filled(rect_ui, 0.0, egui::Color32::from_gray(30));
-                        }
-                    }
-                } else {
-                    ui.painter().rect_filled(rect_ui, 0.0, egui::Color32::from_gray(30));
-                }
+                ui.painter().rect_filled(rect_ui, 0.0, egui::Color32::WHITE);
+                ui.scope_builder(egui::UiBuilder::new().max_rect(rect_ui), |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt(tab_id)
+                        .max_height(rect_ui.height())
+                        .show(ui, |ui| {
+                            if let Some(html) = source {
+                                ui.add(egui::Label::new(egui::RichText::new(html).monospace().size(12.0)).wrap());
+                            } else {
+                                ui.label(
+                                    egui::RichText::new("No page loaded")
+                                        .italics()
+                                        .color(egui::Color32::GRAY),
+                                );
+                            }
+                        });
+                });
 
                 let col = if is_active {
                     egui::Color32::YELLOW
@@ -497,19 +444,6 @@ impl eframe::App for GosubApp {
             }
         }
     }
-}
-
-/// Convert Cairo's ARgb32 (BGRA in memory on little-endian) to RGBA for egui.
-fn bgra_to_rgba(width: u32, height: u32, stride: u32, data: &[u8]) -> Vec<u8> {
-    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-    for row in 0..height as usize {
-        let row_start = row * stride as usize;
-        let row_bytes = &data[row_start..row_start + width as usize * 4];
-        for pixel in row_bytes.chunks_exact(4) {
-            rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
-        }
-    }
-    rgba
 }
 
 fn main() -> Result<(), eframe::Error> {

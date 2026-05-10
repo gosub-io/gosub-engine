@@ -18,6 +18,8 @@ pub struct TabSink {
     pub current_url: RwLock<Option<Url>>,
     /// Last time we painted a frame
     pub last_paint: RwLock<Option<Instant>>,
+    /// Raw HTML source of the current document, set after each document load
+    pub source_html: RwLock<Option<String>>,
 }
 
 impl Default for TabSink {
@@ -35,6 +37,7 @@ impl TabSink {
             nav_id: RwLock::new(None),
             current_url: RwLock::new(None),
             last_paint: RwLock::new(None),
+            source_html: RwLock::new(None),
         }
     }
 
@@ -55,6 +58,9 @@ impl TabSink {
     }
     pub fn set_current_url(&self, url: Url) {
         *self.current_url.write().unwrap() = Some(url);
+    }
+    pub fn set_source_html(&self, html: String) {
+        *self.source_html.write().unwrap() = Some(html);
     }
 
     pub fn snapshot(&self) -> TabMetricsSnapshot {
