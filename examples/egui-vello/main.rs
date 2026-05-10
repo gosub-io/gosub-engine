@@ -55,6 +55,7 @@ struct GosubApp {
     backend_initialized: bool,
     ctx_provider: Arc<EguiWgpuContextProvider>,
     last_panel_size: egui::Vec2,
+    event_rx: tokio::sync::broadcast::Receiver<EngineEvent>,
 }
 
 impl GosubApp {
@@ -67,7 +68,7 @@ impl GosubApp {
         let backend = gosub_engine::render::backends::null::NullBackend::new().expect("NullBackend::new failed");
         let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
         let _engine_join_handle = engine.start().expect("Engine start failed");
-        let _event_rx = engine.subscribe_events();
+        let event_rx = engine.subscribe_events();
 
         let ctx_provider =
             Arc::new(EguiWgpuContextProvider::from_eframe(cc).expect("Failed to create EguiWgpuContextProvider"));
@@ -132,10 +133,11 @@ impl GosubApp {
             backend_initialized: false,
             ctx_provider,
             last_panel_size: egui::Vec2::ZERO,
+            event_rx,
         }
     }
 
-    fn handle_navigation(&mut self) {
+    fn handle_navigation(&mut self, ctx: egui::Context) {
         let composed_url = self.current_url_input.clone();
 
         let url_str = if !composed_url.starts_with("http://") && !composed_url.starts_with("https://") {
@@ -152,6 +154,7 @@ impl GosubApp {
         if let Some(tab) = self.tabs.get(&tab_id).cloned() {
             TOKIO_RT.spawn(async move {
                 let _ = tab.navigate(url.as_str()).await;
+                ctx.request_repaint();
             });
         }
         self.needs_redraw = true;
@@ -316,14 +319,14 @@ impl eframe::App for GosubApp {
         }
 
         // Drain engine events to check for redraws / page loads
-        let mut event_rx = self.engine.subscribe_events();
-        while let Ok(ev) = event_rx.try_recv() {
+        while let Ok(ev) = self.event_rx.try_recv() {
             if let EngineEvent::Navigation {
                 event: NavigationEvent::Finished { .. },
                 ..
             } = ev
             {
                 self.needs_redraw = true;
+                ctx.request_repaint();
             }
         }
 
@@ -341,7 +344,7 @@ impl eframe::App for GosubApp {
                     );
 
                     if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        self.handle_navigation();
+                        self.handle_navigation(ctx.clone());
                     }
                 });
             });
