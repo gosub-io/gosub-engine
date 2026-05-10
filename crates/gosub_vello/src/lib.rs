@@ -169,7 +169,10 @@ impl RenderBackend for VelloBackend {
         let height = active_data.surface.config.height;
         let width = active_data.surface.config.width;
 
-        let surface_texture = active_data.surface.surface.get_current_texture()?;
+        let surface_texture = match active_data.surface.surface.get_current_texture() {
+            vello::wgpu::CurrentSurfaceTexture::Success(t) | vello::wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
+            other => return Err(anyhow!("Failed to acquire surface texture: {:?}", other)),
+        };
         let surface_view = surface_texture
             .texture
             .create_view(&vello::wgpu::TextureViewDescriptor::default());

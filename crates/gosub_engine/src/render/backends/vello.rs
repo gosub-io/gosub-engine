@@ -7,8 +7,7 @@ use crate::render::backends::vello::text_renderer::{TextKey, TextRenderer};
 use crate::render::DisplayItem;
 use anyhow::{anyhow, Result};
 use std::any::Any;
-use std::cell::RefCell;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use vello::kurbo::Affine;
 use vello::peniko::{Color, Fill};
 use vello::wgpu;
@@ -33,10 +32,10 @@ pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
     /// The wgpu context provider that we can use for device, queue, and texture management.
     context: Arc<C>,
     /// The Vello renderer instance.
-    renderer: RefCell<Renderer>,
-    text_renderer: RefCell<TextRenderer>,
-    font_manager: RefCell<FontManager>,
-    font_cache: RefCell<FontCache>,
+    renderer: Mutex<Renderer>,
+    text_renderer: Mutex<TextRenderer>,
+    font_manager: Mutex<FontManager>,
+    font_cache: Mutex<FontCache>,
 }
 
 impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
@@ -45,10 +44,10 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
 
         Ok(Self {
             context,
-            renderer: RefCell::new(renderer),
-            text_renderer: RefCell::new(TextRenderer::new()),
-            font_manager: RefCell::new(FontManager::new()),
-            font_cache: RefCell::new(FontCache::new()),
+            renderer: Mutex::new(renderer),
+            text_renderer: Mutex::new(TextRenderer::new()),
+            font_manager: Mutex::new(FontManager::new()),
+            font_cache: Mutex::new(FontCache::new()),
         })
     }
 
@@ -60,7 +59,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
             .get_texture(surface.texture_store_id)
             .expect("invalid texture id in VelloSurface");
 
-        self.renderer.borrow_mut().render_to_texture(
+        self.renderer.lock().unwrap().render_to_texture(
             self.context.device(),
             self.context.queue(),
             scene,
@@ -169,9 +168,9 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
 
         // Generate a scene which contains the gpu render commands
         let scene = {
-            let mut tr = self.text_renderer.borrow_mut();
-            let mut fm = self.font_manager.borrow_mut();
-            let mut fc = self.font_cache.borrow_mut();
+            let mut tr = self.text_renderer.lock().unwrap();
+            let mut fm = self.font_manager.lock().unwrap();
+            let mut fc = self.font_cache.lock().unwrap();
             self.convert_browsing_context_to_scene(&mut tr, &mut fm, &mut fc, ctx)?
         };
 

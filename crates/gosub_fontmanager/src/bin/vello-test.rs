@@ -116,10 +116,10 @@ impl ApplicationHandler for App<'_> {
                 let width = surface.config.width;
                 let height = surface.config.height;
 
-                let surface_texture = surface
-                    .surface
-                    .get_current_texture()
-                    .expect("Failed to get current texture");
+                let surface_texture = match surface.surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
+                    _ => return,
+                };
                 let render_params = RenderParams {
                     base_color: color::palette::css::YELLOW_GREEN,
                     width,

@@ -137,6 +137,10 @@ gosub_cairo = { version = "0.1.1", path = "./crates/gosub_cairo", features = [],
 gtk4 = "0.11.1"
 gosub_engine = { path = "./crates/gosub_engine", features = ["gtk4", "backend_cairo"] }
 
+[patch.crates-io]
+vello = { git = "https://github.com/linebender/vello", rev = "1b24e77ba4e01d12f5db86a9b1b5f2cf828a6a33" }
+vello_encoding = { git = "https://github.com/linebender/vello", rev = "1b24e77ba4e01d12f5db86a9b1b5f2cf828a6a33" }
+
 [profile.release]
 lto = "fat"
 opt-level = 3

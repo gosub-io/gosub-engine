@@ -9,6 +9,7 @@ use egui::StrokeKind;
 use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::render::backend::ExternalHandle;
+use gosub_engine::render::backends::vello::VelloBackend;
 use gosub_engine::render::{DefaultCompositor, Viewport};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
@@ -42,6 +43,7 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 });
 
 struct GosubApp {
+    #[allow(dead_code)]
     engine: GosubEngine,
     zone: Zone,
     root: LayoutHandle,
@@ -65,13 +67,13 @@ impl GosubApp {
 
         let compositor = Arc::new(RwLock::new(DefaultCompositor::default()));
 
-        let backend = gosub_engine::render::backends::null::NullBackend::new().expect("NullBackend::new failed");
+        let ctx_provider =
+            Arc::new(EguiWgpuContextProvider::from_eframe(cc).expect("Failed to create EguiWgpuContextProvider"));
+
+        let backend = VelloBackend::new(Arc::clone(&ctx_provider)).expect("VelloBackend::new failed");
         let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
         let _engine_join_handle = engine.start().expect("Engine start failed");
         let event_rx = engine.subscribe_events();
-
-        let ctx_provider =
-            Arc::new(EguiWgpuContextProvider::from_eframe(cc).expect("Failed to create EguiWgpuContextProvider"));
 
         // Setup zone
         let zone_cfg = ZoneConfig::builder()
@@ -382,12 +384,12 @@ impl eframe::App for GosubApp {
             for (tab_id, rect) in pairs {
                 let is_active = tab_id == active_tab_id;
 
-                if let Some(handle) = self.compositor.read().unwrap().frame_for(tab_id) {
-                    let rect_ui = egui::Rect::from_min_max(
-                        egui::pos2(rect.x as f32, rect.y as f32),
-                        egui::pos2(rect.w as f32, rect.h as f32),
-                    );
+                let rect_ui = egui::Rect::from_min_max(
+                    egui::pos2(rect.x as f32, rect.y as f32),
+                    egui::pos2((rect.x + rect.w) as f32, (rect.y + rect.h) as f32),
+                );
 
+                if let Some(handle) = self.compositor.read().unwrap().frame_for(tab_id) {
                     match handle {
                         ExternalHandle::WgpuTextureId { id, width, height, .. } => {
                             let (_, view) = self.ctx_provider.get_texture(id).unwrap();
@@ -398,23 +400,24 @@ impl eframe::App for GosubApp {
                             let tid =
                                 renderer.register_native_texture(device, &view, eframe::wgpu::FilterMode::Nearest);
 
-                            let size_points = egui::Vec2::new((width - 25) as f32, (height - 25) as f32);
-                            ui.add(egui::Image::new(SizedTexture::new(tid, size_points)));
+                            let size_points = egui::Vec2::new(width as f32, height as f32);
+                            ui.put(rect_ui, egui::Image::new(SizedTexture::new(tid, size_points)));
                         }
                         _ => {
-                            eprintln!("Unsupported handle type for tab {:?}: {:?}", tab_id, handle);
+                            ui.painter().rect_filled(rect_ui, 0.0, egui::Color32::from_gray(30));
                         }
                     }
-
-                    let col = if is_active {
-                        egui::Color32::YELLOW
-                    } else {
-                        egui::Color32::DARK_GRAY
-                    };
-
-                    ui.painter()
-                        .rect_stroke(rect_ui, 0.0, egui::Stroke::new(1.0, col), StrokeKind::Outside);
+                } else {
+                    ui.painter().rect_filled(rect_ui, 0.0, egui::Color32::from_gray(30));
                 }
+
+                let col = if is_active {
+                    egui::Color32::YELLOW
+                } else {
+                    egui::Color32::DARK_GRAY
+                };
+                ui.painter()
+                    .rect_stroke(rect_ui, 0.0, egui::Stroke::new(2.0, col), StrokeKind::Outside);
             }
 
             if self.needs_redraw {
