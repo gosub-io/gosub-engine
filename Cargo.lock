@@ -3623,7 +3623,6 @@ dependencies = [
  "gosub_shared",
  "image",
  "log",
- "pango 0.22.6",
  "url",
  "wasm-bindgen-futures",
  "web-sys",
