@@ -103,15 +103,18 @@ impl GosubApp {
 
         let tab = TOKIO_RT
             .block_on(async {
-                zone.create_tab(
-                    TabDefaults {
-                        url: None,
-                        title: Some("New Tab".to_string()),
-                        viewport: Some(Viewport::new(0, 0, DEFAULT_WIDTH, DEFAULT_HEIGHT)),
-                    },
-                    None,
-                )
-                .await
+                let tab = zone
+                    .create_tab(
+                        TabDefaults {
+                            url: None,
+                            title: Some("New Tab".to_string()),
+                            viewport: Some(Viewport::new(0, 0, DEFAULT_WIDTH, DEFAULT_HEIGHT)),
+                        },
+                        None,
+                    )
+                    .await?;
+                let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
+                Ok::<TabHandle, gosub_engine::EngineError>(tab)
             })
             .expect("create_tab failed");
 
@@ -165,14 +168,21 @@ impl GosubApp {
     fn handle_split_col(&mut self) {
         let (w, h) = self.last_size;
         let new_tab = TOKIO_RT
-            .block_on(self.zone.create_tab(
-                TabDefaults {
-                    url: None,
-                    title: Some("New Tab".to_string()),
-                    viewport: Some(Viewport::new(0, 0, (w / 2).max(1) as u32, h as u32)),
-                },
-                None,
-            ))
+            .block_on(async {
+                let tab = self
+                    .zone
+                    .create_tab(
+                        TabDefaults {
+                            url: None,
+                            title: Some("New Tab".to_string()),
+                            viewport: Some(Viewport::new(0, 0, (w / 2).max(1) as u32, h as u32)),
+                        },
+                        None,
+                    )
+                    .await?;
+                let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
+                Ok::<TabHandle, gosub_engine::EngineError>(tab)
+            })
             .expect("create_tab failed");
 
         let new_id = new_tab.tab_id;
@@ -196,14 +206,21 @@ impl GosubApp {
     fn handle_split_row(&mut self) {
         let (w, h) = self.last_size;
         let new_tab = TOKIO_RT
-            .block_on(self.zone.create_tab(
-                TabDefaults {
-                    url: None,
-                    title: Some("New Tab".to_string()),
-                    viewport: Some(Viewport::new(0, 0, w as u32, (h / 2).max(1) as u32)),
-                },
-                None,
-            ))
+            .block_on(async {
+                let tab = self
+                    .zone
+                    .create_tab(
+                        TabDefaults {
+                            url: None,
+                            title: Some("New Tab".to_string()),
+                            viewport: Some(Viewport::new(0, 0, w as u32, (h / 2).max(1) as u32)),
+                        },
+                        None,
+                    )
+                    .await?;
+                let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
+                Ok::<TabHandle, gosub_engine::EngineError>(tab)
+            })
             .expect("create_tab failed");
 
         let new_id = new_tab.tab_id;
