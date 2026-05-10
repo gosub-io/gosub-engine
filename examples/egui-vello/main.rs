@@ -438,15 +438,9 @@ impl eframe::App for GosubApp {
                             ..
                         } => {
                             let rgba = bgra_to_rgba(width, height, stride, &pixels);
-                            let image = egui::ColorImage::from_rgba_premultiplied(
-                                [width as usize, height as usize],
-                                &rgba,
-                            );
-                            let texture = ctx.load_texture(
-                                format!("gosub_tab_{tab_id:?}"),
-                                image,
-                                Default::default(),
-                            );
+                            let image =
+                                egui::ColorImage::from_rgba_premultiplied([width as usize, height as usize], &rgba);
+                            let texture = ctx.load_texture(format!("gosub_tab_{tab_id:?}"), image, Default::default());
                             ui.put(
                                 rect_ui,
                                 egui::Image::new(SizedTexture::new(
