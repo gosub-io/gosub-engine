@@ -67,7 +67,6 @@ gosub_jsapi = { version = "0.1.1", path = "./crates/gosub_jsapi", features = [],
 gosub_rendering = { version = "0.1.1", path = "crates/gosub_rendering", features = [], registry = "gosub" }
 gosub_renderer = { version = "0.1.1", path = "./crates/gosub_renderer", features = [], registry = "gosub" }
 gosub_vello = { version = "0.1.1", path = "./crates/gosub_vello", features = [], registry = "gosub" }
-gosub_cairo = { version = "0.1.1", path = "./crates/gosub_cairo", features = [], registry = "gosub" }
 gosub_taffy = { version = "0.1.1", path = "./crates/gosub_taffy", features = [], registry = "gosub" }
 gosub_net = { version = "0.1.1", path = "./crates/gosub_net", features = [], registry = "gosub" }
 gosub_instance = { version = "0.1.0", path = "./crates/gosub_instance", features = [], registry = "gosub" }
@@ -86,7 +85,6 @@ walkdir = "2.5.0"
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
 test-case = "3.3.1"
-gtk4 = "0.11.1"
 winit = "0.30.12"
 cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.8"
@@ -96,7 +94,7 @@ log = "0.4.29"
 anyhow = "1.0.102"
 image = "0.25.10"
 slotmap = "1.1.1"
-gosub_engine = { path = "./crates/gosub_engine", features = ["gtk4", "backend_cairo", "ui_eframe", "backend_vello"] }
+gosub_engine = { path = "./crates/gosub_engine", features = ["ui_eframe", "backend_vello"] }
 once_cell = "1.21"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util"] }
 uuid = { version = "1", features = ["v4", "macro-diagnostics"] }
@@ -131,6 +129,13 @@ gosub_v8 = { version = "0.1.1", path = "./crates/gosub_v8", features = [], regis
 gosub_webexecutor = { version = "0.1.1", path = "./crates/gosub_webexecutor", features = [], registry = "gosub" }
 reqwest = { version = "0.13.3", features = ["blocking", "rustls"] }
 futures = "0.3.32"
+
+[target.'cfg(unix)'.dependencies]
+gosub_cairo = { version = "0.1.1", path = "./crates/gosub_cairo", features = [], registry = "gosub" }
+
+[target.'cfg(unix)'.dev-dependencies]
+gtk4 = "0.11.1"
+gosub_engine = { path = "./crates/gosub_engine", features = ["gtk4", "backend_cairo"] }
 
 [profile.release]
 lto = "fat"

@@ -3470,7 +3470,6 @@ dependencies = [
  "futures-core",
  "futures-intrusive",
  "futures-util",
- "gdk4 0.11.2",
  "gdk4-wayland",
  "gdk4-x11",
  "gtk4",
