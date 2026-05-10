@@ -34,7 +34,7 @@ tracing-log = "0.2"
 tracing = "0.1.41"
 
 r2d2 = { version = "0.8", optional = true }
-r2d2_sqlite = { version = "0.33", optional = true }
+r2d2_sqlite = { version = "0.33", optional = true, features = ["bundled"] }
 
 gtk4 = { version = "0.11", optional = true }
 cairo-rs = { version = "0.22", features = ["use_glib"], optional = true }
