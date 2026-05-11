@@ -43,10 +43,6 @@ impl Rasterable for VelloRasterizer<'_> {
         let clip = Rect::new(0.0, 0.0, tile_size.width, tile_size.height);
         scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &clip);
 
-        // let shape = Rect::new(10.0, 10.0, 20.0, 20.0);
-        // let brush = Brush::Solid(Color::new([1.0, 0.0, 0.0, 1.0]));
-        // scene.fill(Fill::NonZero, Affine::IDENTITY, &brush, None, &shape);
-
         // Vello does not allow us to transform the scene so we can use relative coordinates (ie: 0,0 is the top left of the tile)
         // So we need to render each element by adding the transform manually
         let affine = Affine::translate(Vec2::new(-tile.rect.x, -tile.rect.y));

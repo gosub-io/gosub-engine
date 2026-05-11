@@ -123,7 +123,7 @@ impl Document {
 #[allow(unused)]
 pub enum NodeVisit {
     Enter, // Callback enters the node
-    Exit,  // Callback exists the node
+    Exit,  // Callback exits the node
 }
 
 impl Document {

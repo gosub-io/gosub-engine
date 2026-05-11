@@ -1,6 +1,5 @@
 use crate::common::media::MediaId;
 use crate::painter::commands::color::Color;
-use crate::painter::commands::image::Image;
 
 #[derive(Clone, Debug)]
 pub enum Brush {

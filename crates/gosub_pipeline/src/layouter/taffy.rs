@@ -122,7 +122,7 @@ impl CanLayout for TaffyLayouter {
             None => Size::MAX_CONTENT,
         };
 
-        /// Compute the layout with a measure function
+        // Compute the layout with a measure function
         if let Err(e) = self.tree.compute_layout_with_measure(
             self.root_id,
             size,
@@ -359,8 +359,8 @@ impl TaffyLayouter {
         let layout_element_id = element_node.id;
         layout_tree.arena.insert(layout_element_id, element_node);
 
-        /// Create a mapping between the layout element id and the taffy node id. We need this to generate
-        /// the boxmodel at a later time in this pipeline stage.
+        // Create a mapping between the layout element id and the taffy node id. We need this to generate
+        // the boxmodel at a later time in this pipeline stage.
         self.layout_taffy_mapping.insert(layout_element_id, leaf_id);
 
         Some((layout_element_id, leaf_id))

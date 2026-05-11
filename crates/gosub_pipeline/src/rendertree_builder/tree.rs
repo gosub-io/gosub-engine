@@ -38,7 +38,7 @@ impl AddAssign<u64> for RenderNodeId {
 
 impl std::fmt::Display for RenderNodeId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "RenderNodeID({})", self.0)
+        write!(f, "RenderNodeId({})", self.0)
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::common::font::parley::get_parley_layout;
 use crate::common::font::FontInfo;
 use crate::common::geo::Dimension;
-use std::fmt::Error;
+
 
 pub fn get_text_layout(
     text: &str,

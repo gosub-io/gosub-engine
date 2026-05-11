@@ -1,7 +1,6 @@
 import json
 import sys
 import asyncio
-from bs4 import BeautifulSoup, Comment
 from playwright.async_api import async_playwright
 
 
@@ -13,9 +12,6 @@ async def fetch_and_parse_html(url):
 
         await page.set_viewport_size({"width": 1280, "height": 1144})
         await page.goto(url, wait_until="domcontentloaded")
-
-        # Get the fully rendered HTML
-        html_content = await page.content()
 
         # Extract computed styles for each node
         computed_styles_script = """

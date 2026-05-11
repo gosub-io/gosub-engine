@@ -134,7 +134,7 @@ pub struct Tile {
     /// Elements found in the tile
     pub elements: Vec<TiledLayoutElement>,
     /// Texture that this tile is rendered to. If it does not have a texture id, it's not rendered
-    /// yet. Note that when the staet is DIRTY, the texture_id is still valid, but the texture needs
+    /// yet. Note that when the state is DIRTY, the texture_id is still valid, but the texture needs
     /// to be repainted.
     pub texture_id: Option<TextureId>,
     /// State of the tile

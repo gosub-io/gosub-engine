@@ -1,6 +1,6 @@
 # Render pipeline POC
 
-This repo contains a proof of concept for a render pipeline that can be used to render a webpage.
+This crate contains a proof of concept for a render pipeline that can be used to render a webpage.
 
 The pipeline consists of multiple stages. Each stage is responsible for transforming the data from the previous stage into a new format or 
 updates on current data. Depending on any changes in the data, the pipeline can be re-run to update the rendering. It's possible that not 
@@ -37,11 +37,11 @@ still valid do not have to be rendered again.
 The painting generates commands that are needed to render pixels onto the tiles. However, it does not execute this painting. It merely generates
 the commands.
 
-The rastering phase will get the tiles and the paint commands and execute the painting per tile into textures.
+The rasterizing phase will get the tiles and the paint commands and execute the painting per tile into textures.
 
 The final step is compositing. Here we combine the visible tiles in the layers onto the screen. When we have CSS animations like transitions, we
 do not need to repaint the tiles, but merely update the position of the tiles (or their opacity). The compositing will take care of this and returns 
-fully rendered frame.
+a fully rendered frame.
 
 
 ## Passing of data
@@ -121,5 +121,5 @@ store the textures in memory. A good optimization might be to store the textures
 
 # Rstar
 
-This pipeline relies on rstar for spatial searched. For instance, we need to know which elements are visible on the screen. Or which elements are at a certain position.
+This pipeline relies on rstar for spatial searches. For instance, we need to know which elements are visible on the screen. Or which elements are at a certain position.
 Some of the pipeline data structures will have a separate rstar tree for this purpose. 

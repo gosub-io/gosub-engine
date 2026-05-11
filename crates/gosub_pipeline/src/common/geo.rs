@@ -25,7 +25,7 @@ impl Rect {
         Dimension::new(self.width, self.height)
     }
 
-    /// Converts a size and dimension into a rectangle.
+    /// Converts a coordinate and dimension into a rectangle.
     #[allow(unused)]
     pub fn from_coord_dimension(coord: Coordinate, dimension: Dimension) -> Self {
         Self {
