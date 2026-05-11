@@ -193,9 +193,7 @@ macro_rules! timing_start {
     }};
 
     ($namespace:expr) => {{
-        $crate::timing::TIMING_TABLE
-            .lock()
-            .start_timer($namespace, None)
+        $crate::timing::TIMING_TABLE.lock().start_timer($namespace, None)
     }};
 }
 
@@ -211,21 +209,15 @@ macro_rules! timing_stop {
 #[macro_export]
 macro_rules! timing_display {
     () => {{
-        $crate::timing::TIMING_TABLE
-            .lock()
-            .print_timings(false, Scale::Auto);
+        $crate::timing::TIMING_TABLE.lock().print_timings(false, Scale::Auto);
     }};
 
     ($scale:expr) => {{
-        $crate::timing::TIMING_TABLE
-            .lock()
-            .print_timings(false, $scale);
+        $crate::timing::TIMING_TABLE.lock().print_timings(false, $scale);
     }};
 
     ($details:expr, $scale:expr) => {{
-        $crate::timing::TIMING_TABLE
-            .lock()
-            .print_timings($details, $scale);
+        $crate::timing::TIMING_TABLE.lock().print_timings($details, $scale);
     }};
 }
 

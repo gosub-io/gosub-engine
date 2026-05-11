@@ -1,8 +1,8 @@
 extern crate proc_macro;
 
+use parking_lot::RwLock;
 use proc_macro::TokenStream;
 use std::collections::HashMap;
-use parking_lot::RwLock;
 
 use crate::function::Function;
 use crate::impl_function::impl_js_functions;

@@ -1,7 +1,7 @@
+use parking_lot::Mutex;
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use parking_lot::Mutex;
 use std::sync::Arc;
 
 use anyhow::anyhow;

@@ -49,10 +49,10 @@ use crate::cookies::DefaultCookieJar;
 use crate::engine::cookies::store::CookieStore;
 use crate::engine::cookies::CookieJar;
 use crate::zone::ZoneId;
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::ops::Deref;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::sync::Arc;
 
 /// A handle to a cookie jar trait.

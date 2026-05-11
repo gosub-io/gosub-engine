@@ -7,9 +7,9 @@ use crate::storage::MemoryStorageAdapter;
 use gosub_shared::types::Result;
 use lazy_static::lazy_static;
 use log::warn;
+use parking_lot::RwLock;
 use serde_derive::Deserialize;
 use serde_json::Value;
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::mem;
 use std::str::FromStr;
@@ -241,10 +241,7 @@ impl ConfigStore {
             return;
         }
 
-        self.settings
-            .lock()
-            .borrow_mut()
-            .insert(key.to_owned(), value.clone());
+        self.settings.lock().borrow_mut().insert(key.to_owned(), value.clone());
 
         self.storage.set(key, value);
     }

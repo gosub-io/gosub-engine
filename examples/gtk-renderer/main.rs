@@ -25,8 +25,8 @@ use gtk4::gio::{ApplicationCommandLine, ApplicationFlags};
 use gtk4::prelude::*;
 use gtk4::{glib, Application, ApplicationWindow, DrawingArea};
 use log::{info, LevelFilter};
-use simple_logger::SimpleLogger;
 use parking_lot::Mutex;
+use simple_logger::SimpleLogger;
 use std::sync::Arc;
 use url::Url;
 

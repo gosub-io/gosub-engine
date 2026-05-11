@@ -2,10 +2,10 @@ use crate::settings::Setting;
 use crate::StorageAdapter;
 use gosub_shared::types::Result;
 use log::warn;
+use parking_lot::Mutex;
 use rusqlite::{named_params, Connection};
 use std::collections::HashMap;
 use std::str::FromStr;
-use parking_lot::Mutex;
 
 pub struct SqliteStorageAdapter {
     connection: Mutex<Connection>,

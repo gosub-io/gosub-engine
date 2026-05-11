@@ -17,10 +17,10 @@ use gtk4::{
     glib, Application, ApplicationWindow, Box as GtkBox, Button, DrawingArea, Entry, EventControllerMotion, Orientation,
 };
 use once_cell::sync::Lazy;
+use parking_lot::RwLock;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
 use url::Url;

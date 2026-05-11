@@ -2,12 +2,12 @@ use crate::settings::Setting;
 use crate::StorageAdapter;
 use gosub_shared::types::Result;
 use log::warn;
+use parking_lot::Mutex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Seek, Write};
-use parking_lot::Mutex;
 
 pub struct JsonStorageAdapter {
     path: String,

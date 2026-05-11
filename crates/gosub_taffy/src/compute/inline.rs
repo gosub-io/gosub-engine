@@ -1,6 +1,6 @@
+use parking_lot::Mutex;
 use parley::fontique::{FallbackKey, FontWeight, Script};
 use parley::{AlignmentOptions, FontContext};
-use parking_lot::Mutex;
 use std::sync::LazyLock;
 use taffy::{
     AvailableSpace, CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, Point, Rect,

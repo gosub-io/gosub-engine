@@ -1,9 +1,9 @@
 use crate::tab::TabId;
 use crate::NavigationId;
 use dashmap::{DashMap, Entry};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fmt::Display;
-use parking_lot::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 

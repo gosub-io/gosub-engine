@@ -13,8 +13,8 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
 use url::Url;
@@ -382,10 +382,7 @@ impl eframe::App for GosubApp {
                     egui::pos2((rect.x + rect.w) as f32, (rect.y + rect.h) as f32),
                 );
 
-                let source = self
-                    .tabs
-                    .get(&tab_id)
-                    .and_then(|t| t.sink.source_html.read().clone());
+                let source = self.tabs.get(&tab_id).and_then(|t| t.sink.source_html.read().clone());
 
                 ui.painter().rect_filled(rect_ui, 0.0, egui::Color32::WHITE);
                 ui.scope_builder(egui::UiBuilder::new().max_rect(rect_ui), |ui| {

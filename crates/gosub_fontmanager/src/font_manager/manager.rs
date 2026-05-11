@@ -4,9 +4,9 @@ use font_kit::handle::Handle;
 use gosub_interface::font::FontManager as TFontManager;
 use gosub_interface::font::FontStyle;
 use log::error;
+use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 #[allow(dead_code)]

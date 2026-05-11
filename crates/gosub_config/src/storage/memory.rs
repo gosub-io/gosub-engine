@@ -1,8 +1,8 @@
 use crate::settings::Setting;
 use crate::StorageAdapter;
 use gosub_shared::types::Result;
-use std::collections::HashMap;
 use parking_lot::Mutex;
+use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct MemoryStorageAdapter {
