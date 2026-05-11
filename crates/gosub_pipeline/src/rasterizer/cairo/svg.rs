@@ -47,8 +47,10 @@ pub(crate) fn do_paint_svg(cr: &Context, tile: &Tile, rect: &Rectangle, media_id
     let target_h = (target_dim.height as u32).max(1);
 
     let pixmap_size = media.svg.tree.size().to_int_size();
-    let sx = target_w as f32 / pixmap_size.width() as f32;
-    let sy = target_h as f32 / pixmap_size.height() as f32;
+    let intrinsic_w = pixmap_size.width().max(1) as f32;
+    let intrinsic_h = pixmap_size.height().max(1) as f32;
+    let sx = target_w as f32 / intrinsic_w;
+    let sy = target_h as f32 / intrinsic_h;
 
     let Some(mut pixmap) = resvg::tiny_skia::Pixmap::new(target_w, target_h) else {
         log::warn!("SVG has zero or invalid dimensions, skipping render");
