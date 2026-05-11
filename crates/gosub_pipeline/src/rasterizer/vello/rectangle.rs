@@ -36,7 +36,8 @@ pub(crate) fn do_paint_rectangle(scene: &mut vello::Scene, rect: &Rectangle, aff
 }
 
 fn draw_single_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine, dashes: Vec<f64>) {
-    let Some(brush) = rect.border().brushes().first() else {
+    let binding = rect.border().brushes();
+    let Some(brush) = binding.first() else {
         return;
     };
     let vello_shape = setup_rectangle_path(rect);
@@ -47,7 +48,8 @@ fn draw_single_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine
 }
 
 fn draw_double_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine) {
-    let Some(brush) = rect.border().brushes().first() else {
+    let binding = rect.border().brushes();
+    let Some(brush) = binding.first() else {
         return;
     };
     let vello_shape = setup_rectangle_path(rect);

@@ -118,10 +118,9 @@ impl CanLayout for TaffyLayouter {
         };
 
         // Compute the layout with a measure function
-        if let Err(e) = self.tree.compute_layout_with_measure(
-            self.root_id,
-            size,
-            |v_kd, v_as, v_ni, v_nc, v_s| {
+        if let Err(e) = self
+            .tree
+            .compute_layout_with_measure(self.root_id, size, |v_kd, v_as, v_ni, v_nc, v_s| {
                 match v_nc {
                     // Calculate text node
                     Some(TaffyContext::Text(text_ctx)) => {
@@ -149,8 +148,8 @@ impl CanLayout for TaffyLayouter {
                     },
                     _ => Size::ZERO,
                 }
-            },
-        ) {
+            })
+        {
             log::error!("Failed to compute taffy layout: {:?}", e);
             return layout_tree;
         }
@@ -215,8 +214,7 @@ impl TaffyLayouter {
             root_dimension: geo::Dimension::ZERO,
         };
 
-        let Some((layout_element_root_id, taffy_root_id)) =
-            self.generate_taffy_element(&mut layout_tree, root_id)
+        let Some((layout_element_root_id, taffy_root_id)) = self.generate_taffy_element(&mut layout_tree, root_id)
         else {
             log::error!("Failed to generate taffy element for root node {:?}", root_id);
             return layout_tree;
@@ -439,9 +437,7 @@ impl TaffyLayouter {
                         log::warn!("Failed to acquire media store lock for SVG");
                         return None;
                     };
-                    match store_guard
-                        .load_media_from_data(MediaType::Svg, inner_html.into_bytes().as_slice())
-                    {
+                    match store_guard.load_media_from_data(MediaType::Svg, inner_html.into_bytes().as_slice()) {
                         Ok(media_id) => {
                             taffy_context = Some(TaffyContext::svg("gosub://internal", media_id, dom_node.node_id));
                         }

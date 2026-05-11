@@ -71,7 +71,10 @@ impl MediaStore {
     pub fn load_media(&self, src: &str) -> anyhow::Result<MediaId> {
         // Check if the media from src is already loaded into the cache. If so, return that
         let h = hash_from_string(src);
-        let cache = self.cache.read().map_err(|e| anyhow::anyhow!("Cache lock poisoned: {e}"))?;
+        let cache = self
+            .cache
+            .read()
+            .map_err(|e| anyhow::anyhow!("Cache lock poisoned: {e}"))?;
         if let Some(media_id) = cache.get(&h) {
             log::debug!("Loading cached media from path: {}", src);
             return Ok(*media_id);
@@ -94,7 +97,10 @@ impl MediaStore {
 
     pub fn load_media_from_data(&self, media_type: MediaType, data: &[u8]) -> anyhow::Result<MediaId> {
         let h = hash_from_data(data);
-        let cache = self.cache.read().map_err(|e| anyhow::anyhow!("Cache lock poisoned: {e}"))?;
+        let cache = self
+            .cache
+            .read()
+            .map_err(|e| anyhow::anyhow!("Cache lock poisoned: {e}"))?;
         if let Some(media_id) = cache.get(&h) {
             log::debug!("Loading cached media from data");
             return Ok(*media_id);
@@ -113,11 +119,17 @@ impl MediaStore {
                 let media = Media::svg("gosub://data/svg", Svg::new(svg_tree));
                 let media_id = self.allocate_media_id();
 
-                let mut entries = self.entries.write().map_err(|e| anyhow::anyhow!("Entries lock poisoned: {e}"))?;
+                let mut entries = self
+                    .entries
+                    .write()
+                    .map_err(|e| anyhow::anyhow!("Entries lock poisoned: {e}"))?;
                 entries.insert(media_id, Arc::new(media));
                 drop(entries);
 
-                let mut cache = self.cache.write().map_err(|e| anyhow::anyhow!("Cache write lock poisoned: {e}"))?;
+                let mut cache = self
+                    .cache
+                    .write()
+                    .map_err(|e| anyhow::anyhow!("Cache write lock poisoned: {e}"))?;
                 cache.insert(h, media_id);
 
                 media_id
@@ -133,11 +145,17 @@ impl MediaStore {
                 let media = Media::image("gosub://data/image", img.to_rgba8());
                 let media_id = self.allocate_media_id();
 
-                let mut entries = self.entries.write().map_err(|e| anyhow::anyhow!("Entries lock poisoned: {e}"))?;
+                let mut entries = self
+                    .entries
+                    .write()
+                    .map_err(|e| anyhow::anyhow!("Entries lock poisoned: {e}"))?;
                 entries.insert(media_id, Arc::new(media));
                 drop(entries);
 
-                let mut cache = self.cache.write().map_err(|e| anyhow::anyhow!("Cache write lock poisoned: {e}"))?;
+                let mut cache = self
+                    .cache
+                    .write()
+                    .map_err(|e| anyhow::anyhow!("Cache write lock poisoned: {e}"))?;
                 cache.insert(h, media_id);
 
                 media_id
@@ -178,7 +196,10 @@ impl MediaStore {
 
         let media_id = self.allocate_media_id();
 
-        let mut entries = self.entries.write().map_err(|e| anyhow::anyhow!("Entries lock poisoned: {e}"))?;
+        let mut entries = self
+            .entries
+            .write()
+            .map_err(|e| anyhow::anyhow!("Entries lock poisoned: {e}"))?;
         entries.insert(media_id, Arc::new(media));
 
         Ok(media_id)

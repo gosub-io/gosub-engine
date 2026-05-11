@@ -110,7 +110,9 @@ fn clear_canvas(canvas: &Canvas, size: (i32, i32)) {
     let mut bitmap = Bitmap::new();
     bitmap.alloc_n32_pixels((2 * tile_size as i32, 2 * tile_size as i32), true);
     {
-        let Some(tmp_canvas) = Canvas::from_bitmap(&bitmap, None) else { return; };
+        let Some(tmp_canvas) = Canvas::from_bitmap(&bitmap, None) else {
+            return;
+        };
         tmp_canvas.clear(CHECKERED_COLOR_1);
 
         let paint = Paint::new(CHECKERED_COLOR_2, None);

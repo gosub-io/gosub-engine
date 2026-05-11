@@ -47,8 +47,13 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect) {
 
             // Create a scaled version of the image. This does not really sound like a good idea, but i have to find better ways to deal
             // with scaled images.
-            let Some(scaled_pixbuf) = Pixbuf::new(Colorspace::Rgb, true, 8, rect.width as i32, rect.height as i32) else {
-                log::warn!("Failed to create scaled pixbuf for dimensions {}x{}", rect.width, rect.height);
+            let Some(scaled_pixbuf) = Pixbuf::new(Colorspace::Rgb, true, 8, rect.width as i32, rect.height as i32)
+            else {
+                log::warn!(
+                    "Failed to create scaled pixbuf for dimensions {}x{}",
+                    rect.width,
+                    rect.height
+                );
                 return;
             };
             pixbuf.scale(
