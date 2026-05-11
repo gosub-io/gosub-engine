@@ -1,6 +1,6 @@
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::sync::Mutex;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
@@ -189,14 +189,12 @@ macro_rules! timing_start {
     ($namespace:expr, $context:expr) => {{
         $crate::timing::TIMING_TABLE
             .lock()
-            .unwrap()
             .start_timer($namespace, Some($context.to_string()))
     }};
 
     ($namespace:expr) => {{
         $crate::timing::TIMING_TABLE
             .lock()
-            .unwrap()
             .start_timer($namespace, None)
     }};
 }
@@ -205,7 +203,7 @@ macro_rules! timing_start {
 #[macro_export]
 macro_rules! timing_stop {
     ($timer_id:expr) => {{
-        $crate::timing::TIMING_TABLE.lock().unwrap().stop_timer($timer_id);
+        $crate::timing::TIMING_TABLE.lock().stop_timer($timer_id);
     }};
 }
 
@@ -215,21 +213,18 @@ macro_rules! timing_display {
     () => {{
         $crate::timing::TIMING_TABLE
             .lock()
-            .unwrap()
             .print_timings(false, Scale::Auto);
     }};
 
     ($scale:expr) => {{
         $crate::timing::TIMING_TABLE
             .lock()
-            .unwrap()
             .print_timings(false, $scale);
     }};
 
     ($details:expr, $scale:expr) => {{
         $crate::timing::TIMING_TABLE
             .lock()
-            .unwrap()
             .print_timings($details, $scale);
     }};
 }
@@ -358,7 +353,7 @@ mod tests {
         sleep(Duration::from_millis(20));
         timing_stop!(t);
 
-        TIMING_TABLE.lock().unwrap().print_timings(true, Scale::Auto);
+        TIMING_TABLE.lock().print_timings(true, Scale::Auto);
     }
 
     #[wasm_bindgen_test]
@@ -392,7 +387,7 @@ mod tests {
         sleep(window, Duration::from_millis(20));
         timing_stop!(t);
 
-        TIMING_TABLE.lock().unwrap().print_timings(true, Scale::Auto);
+        TIMING_TABLE.lock().print_timings(true, Scale::Auto);
     }
 
     //This should only be used for testing purposes

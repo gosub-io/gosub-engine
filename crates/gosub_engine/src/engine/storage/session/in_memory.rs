@@ -1,6 +1,7 @@
 use anyhow::Result;
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use crate::engine::storage::area::{SessionStore, StorageArea};
 use crate::engine::storage::types::PartitionKey;
@@ -37,7 +38,7 @@ impl SessionStore for InMemorySessionStore {
         );
 
         {
-            let mut guard = self.data.write().unwrap();
+            let mut guard = self.data.write();
             guard.entry(k.clone()).or_default();
         }
 
@@ -48,7 +49,7 @@ impl SessionStore for InMemorySessionStore {
     }
 
     fn drop_tab(&self, zone: ZoneId, tab: TabId) {
-        let mut guard = self.data.write().unwrap();
+        let mut guard = self.data.write();
         guard.retain(|(z, t, _, _), _| *z != zone || *t != tab);
     }
 }
@@ -60,13 +61,12 @@ struct SessionArea {
 
 impl StorageArea for SessionArea {
     fn get_item(&self, k: &str) -> Option<String> {
-        self.data.read().unwrap().get(&self.key).and_then(|m| m.get(k).cloned())
+        self.data.read().get(&self.key).and_then(|m| m.get(k).cloned())
     }
 
     fn set_item(&self, k: &str, v: &str) -> Result<()> {
         self.data
             .write()
-            .unwrap()
             .get_mut(&self.key)
             .unwrap()
             .insert(k.to_string(), v.to_string());
@@ -74,23 +74,22 @@ impl StorageArea for SessionArea {
     }
 
     fn remove_item(&self, k: &str) -> Result<()> {
-        self.data.write().unwrap().get_mut(&self.key).map(|m| m.remove(k));
+        self.data.write().get_mut(&self.key).map(|m| m.remove(k));
         Ok(())
     }
 
     fn clear(&self) -> Result<()> {
-        self.data.write().unwrap().insert(self.key.clone(), HashMap::new());
+        self.data.write().insert(self.key.clone(), HashMap::new());
         Ok(())
     }
 
     fn len(&self) -> usize {
-        self.data.read().unwrap().get(&self.key).map(|m| m.len()).unwrap_or(0)
+        self.data.read().get(&self.key).map(|m| m.len()).unwrap_or(0)
     }
 
     fn keys(&self) -> Vec<String> {
         self.data
             .read()
-            .unwrap()
             .get(&self.key)
             .map(|m| m.keys().cloned().collect())
             .unwrap_or_default()

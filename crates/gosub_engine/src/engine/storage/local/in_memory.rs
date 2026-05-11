@@ -2,8 +2,9 @@ use crate::engine::storage::area::{LocalStore, StorageArea};
 use crate::engine::storage::types::PartitionKey;
 use crate::zone::ZoneId;
 use anyhow::Result;
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 type LocalAreaMap = HashMap<(ZoneId, PartitionKey, url::Origin), Arc<dyn StorageArea>>;
 
@@ -23,7 +24,7 @@ impl InMemoryLocalStore {
 impl LocalStore for InMemoryLocalStore {
     fn area(&self, zone: ZoneId, part: &PartitionKey, origin: &url::Origin) -> Result<Arc<dyn StorageArea>> {
         let key = (zone, part.clone(), origin.clone());
-        let mut guard = self.areas.lock().unwrap();
+        let mut guard = self.areas.lock();
         Ok(guard
             .entry(key)
             .or_insert_with(|| Arc::new(InMemoryLocalArea::default()) as Arc<dyn StorageArea>)
@@ -38,30 +39,30 @@ struct InMemoryLocalArea {
 
 impl StorageArea for InMemoryLocalArea {
     fn get_item(&self, key: &str) -> Option<String> {
-        self.map.lock().ok()?.get(key).cloned()
+        self.map.lock().get(key).cloned()
     }
 
     fn set_item(&self, key: &str, value: &str) -> Result<()> {
-        self.map.lock().unwrap().insert(key.to_string(), value.to_string());
+        self.map.lock().insert(key.to_string(), value.to_string());
         Ok(())
     }
 
     fn remove_item(&self, key: &str) -> Result<()> {
-        self.map.lock().unwrap().remove(key);
+        self.map.lock().remove(key);
         Ok(())
     }
 
     fn clear(&self) -> Result<()> {
-        self.map.lock().unwrap().clear();
+        self.map.lock().clear();
         Ok(())
     }
 
     fn len(&self) -> usize {
-        self.map.lock().unwrap().len()
+        self.map.lock().len()
     }
 
     fn keys(&self) -> Vec<String> {
-        let mut v: Vec<String> = self.map.lock().unwrap().keys().cloned().collect();
+        let mut v: Vec<String> = self.map.lock().keys().cloned().collect();
         v.sort_unstable(); // stable order if you want deterministic tests
         v
     }

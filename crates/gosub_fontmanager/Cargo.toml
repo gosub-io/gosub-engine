@@ -30,6 +30,7 @@ path = "src/bin/vello-test.rs"
 
 [dependencies]
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
+parking_lot = "0.12"
 colog = "1.4.0"
 log = "0.4.29"
 anyhow = "1.0.102"

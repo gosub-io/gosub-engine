@@ -1,6 +1,7 @@
 use crate::engine::types::NavigationId;
+use parking_lot::RwLock;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{OnceLock, RwLock};
+use std::sync::OnceLock;
 use std::time::Instant;
 use url::Url;
 
@@ -47,20 +48,20 @@ impl TabSink {
     }
     pub fn inc_frame(&self) {
         self.frames_drawn.fetch_add(1, Ordering::Relaxed);
-        *self.last_paint.write().unwrap() = Some(Instant::now());
+        *self.last_paint.write() = Some(Instant::now());
     }
     pub fn set_fps(&self, fps: f32) {
         let v = (fps * 100.0).clamp(0.0, u32::MAX as f32) as u32;
         self.last_fps_times100.store(v, Ordering::Relaxed);
     }
     pub fn set_nav(&self, id: NavigationId) {
-        *self.nav_id.write().unwrap() = Some(id);
+        *self.nav_id.write() = Some(id);
     }
     pub fn set_current_url(&self, url: Url) {
-        *self.current_url.write().unwrap() = Some(url);
+        *self.current_url.write() = Some(url);
     }
     pub fn set_source_html(&self, html: String) {
-        *self.source_html.write().unwrap() = Some(html);
+        *self.source_html.write() = Some(html);
     }
 
     pub fn snapshot(&self) -> TabMetricsSnapshot {
@@ -68,9 +69,9 @@ impl TabSink {
             worker_started: self.worker_started.get().copied(),
             frames_drawn: self.frames_drawn.load(Ordering::Relaxed),
             last_fps: self.last_fps_times100.load(Ordering::Relaxed) as f32 / 100.0,
-            nav_id: *self.nav_id.read().unwrap(),
-            current_url: self.current_url.read().unwrap().clone(),
-            last_paint: *self.last_paint.read().unwrap(),
+            nav_id: *self.nav_id.read(),
+            current_url: self.current_url.read().clone(),
+            last_paint: *self.last_paint.read(),
         }
     }
 }

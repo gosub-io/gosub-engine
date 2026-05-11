@@ -18,8 +18,8 @@ use crate::util::spawn_named;
 use crate::Action;
 use bytes::Bytes;
 use dashmap::{DashMap, Entry};
+use parking_lot::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::RwLock;
 use std::time::Instant;
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 use tokio::sync::{oneshot, Notify, Semaphore};
@@ -433,7 +433,7 @@ impl Fetcher {
 
             // Setup the observer to emit events to the UA
             let observer: Arc<dyn NetObserver + Send + Sync> = {
-                let guard = self.request_reference_map.read().unwrap();
+                let guard = self.request_reference_map.read();
                 match guard.get(&req.reference) {
                     Some(tab_id) => Arc::new(EngineEventEmitter::new(
                         *tab_id, // here is where we connect "events" to tabs

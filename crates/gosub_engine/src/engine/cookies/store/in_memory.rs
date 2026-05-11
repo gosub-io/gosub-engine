@@ -1,5 +1,5 @@
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::RwLock;
 
 use crate::engine::cookies::cookie_jar::DefaultCookieJar;
 use crate::engine::cookies::store::CookieStore;
@@ -31,7 +31,7 @@ impl CookieStore for InMemoryCookieStore {
     fn jar_for(&self, zone_id: ZoneId) -> Option<CookieJarHandle> {
         use std::collections::hash_map::Entry;
 
-        let mut jars = self.jars.write().unwrap();
+        let mut jars = self.jars.write();
         let handle = match jars.entry(zone_id) {
             Entry::Occupied(o) => o.get().clone(),
             Entry::Vacant(v) => {
@@ -46,7 +46,7 @@ impl CookieStore for InMemoryCookieStore {
     fn persist_zone_from_snapshot(&self, _zone_id: ZoneId, _snapshot: &DefaultCookieJar) {}
 
     fn remove_zone(&self, zone_id: ZoneId) {
-        self.jars.write().unwrap().remove(&zone_id);
+        self.jars.write().remove(&zone_id);
     }
 
     fn persist_all(&self) {}

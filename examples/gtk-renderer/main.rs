@@ -26,7 +26,8 @@ use gtk4::prelude::*;
 use gtk4::{glib, Application, ApplicationWindow, DrawingArea};
 use log::{info, LevelFilter};
 use simple_logger::SimpleLogger;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use url::Url;
 
 const APP_ID: &str = "io.gosub.gtk-renderer";
@@ -143,7 +144,7 @@ fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> glib::ExitCode {
         block_on(async move {
             tx.send(InstanceMessage::Redraw(size)).await.unwrap();
 
-            let scene = rx.lock().unwrap().next().await;
+            let scene = rx.lock().next().await;
 
             if let Some(scene) = scene {
                 info!("Rendering scene to context");

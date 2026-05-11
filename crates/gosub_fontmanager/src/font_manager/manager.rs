@@ -6,7 +6,8 @@ use gosub_interface::font::FontStyle;
 use log::error;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 #[allow(dead_code)]
 pub const LOG_TARGET: &str = "font-manager";

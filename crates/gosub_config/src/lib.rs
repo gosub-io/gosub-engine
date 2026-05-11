@@ -9,10 +9,10 @@ use lazy_static::lazy_static;
 use log::warn;
 use serde_derive::Deserialize;
 use serde_json::Value;
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::mem;
 use std::str::FromStr;
-use std::sync::RwLock;
 use wildmatch::WildMatch;
 
 /// Settings are stored in a json file, but this is included in the binary for mostly easy editting.
@@ -45,12 +45,12 @@ lazy_static! {
 
 /// Returns a reference to the config store, which is locked by a mutex.
 /// Any callers of the config store can just do  `config::config_store().get("dns.local.enabled`")
-pub fn config_store() -> std::sync::RwLockReadGuard<'static, ConfigStore> {
-    CONFIG_STORE.read().unwrap()
+pub fn config_store() -> parking_lot::RwLockReadGuard<'static, ConfigStore> {
+    CONFIG_STORE.read()
 }
 
-pub fn config_store_write() -> std::sync::RwLockWriteGuard<'static, ConfigStore> {
-    CONFIG_STORE.write().unwrap()
+pub fn config_store_write() -> parking_lot::RwLockWriteGuard<'static, ConfigStore> {
+    CONFIG_STORE.write()
 }
 
 /// These macro's can be used to simplify the calls to the config store. You can simply do:
@@ -131,7 +131,7 @@ pub struct ConfigStore {
     /// The mutex allows to share between multiple threads,
     /// The refcell allows us to use mutable references in a non-mutable way (ie: settings can be
     /// stored while doing a immutable `get()`)
-    settings: std::sync::Mutex<std::cell::RefCell<HashMap<String, Setting>>>,
+    settings: parking_lot::Mutex<std::cell::RefCell<HashMap<String, Setting>>>,
     /// A hashmap of all setting descriptions, default values and type information
     settings_info: HashMap<String, SettingInfo>,
     /// Keys of all settings so we can iterate keys easily
@@ -143,7 +143,7 @@ pub struct ConfigStore {
 impl Default for ConfigStore {
     fn default() -> Self {
         let mut store = ConfigStore {
-            settings: std::sync::Mutex::new(std::cell::RefCell::new(HashMap::new())),
+            settings: parking_lot::Mutex::new(std::cell::RefCell::new(HashMap::new())),
             settings_info: HashMap::new(),
             setting_keys: Vec::new(),
             storage: Box::new(MemoryStorageAdapter::new()),
@@ -166,14 +166,14 @@ impl ConfigStore {
         // Find all keys, and add them to the configuration store
         if let Ok(all_settings) = self.storage.all() {
             for (key, value) in all_settings {
-                self.settings.lock().unwrap().borrow_mut().insert(key, value);
+                self.settings.lock().borrow_mut().insert(key, value);
             }
         }
     }
 
     /// Returns true when the storage knows about the given key
     pub fn has(&self, key: &str) -> bool {
-        self.settings.lock().unwrap().borrow().contains_key(key)
+        self.settings.lock().borrow().contains_key(key)
     }
 
     /// Returns a list of keys that matches the given search string (can use ? and *) for search
@@ -202,7 +202,7 @@ impl ConfigStore {
     /// return the default value for the given key. Note that if the key is not found and no
     /// default value is specified, this function will panic.
     pub fn get(&self, key: &str) -> Option<Setting> {
-        if let Some(setting) = self.settings.lock().unwrap().borrow().get(key) {
+        if let Some(setting) = self.settings.lock().borrow().get(key) {
             return Some(setting.clone());
         }
 
@@ -210,7 +210,6 @@ impl ConfigStore {
         if let Some(setting) = self.storage.get(key) {
             self.settings
                 .lock()
-                .unwrap()
                 .borrow_mut()
                 .insert(key.to_string(), setting.clone());
             return Some(setting.clone());
@@ -244,7 +243,6 @@ impl ConfigStore {
 
         self.settings
             .lock()
-            .unwrap()
             .borrow_mut()
             .insert(key.to_owned(), value.clone());
 
@@ -274,7 +272,6 @@ impl ConfigStore {
                     self.settings_info.insert(key.clone(), info.clone());
                     self.settings
                         .lock()
-                        .unwrap()
                         .borrow_mut()
                         .insert(key.clone(), info.default.clone());
                 }

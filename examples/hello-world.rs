@@ -13,7 +13,8 @@ use gosub_engine::{
     Action, EngineConfig, EngineError, GosubEngine, NavigationId,
 };
 use http::header;
-use std::sync::{Arc, RwLock};
+use parking_lot::RwLock;
+use std::sync::Arc;
 use std::time::Duration;
 
 fn init_tracing() {

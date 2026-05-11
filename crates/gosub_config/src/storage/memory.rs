@@ -2,7 +2,7 @@ use crate::settings::Setting;
 use crate::StorageAdapter;
 use gosub_shared::types::Result;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 #[derive(Default)]
 pub struct MemoryStorageAdapter {
@@ -20,18 +20,18 @@ impl MemoryStorageAdapter {
 
 impl StorageAdapter for MemoryStorageAdapter {
     fn get(&self, key: &str) -> Option<Setting> {
-        let lock = self.settings.lock().unwrap();
+        let lock = self.settings.lock();
         let v = lock.get(key);
         v.cloned()
     }
 
     fn set(&self, key: &str, value: Setting) {
-        let mut lock = self.settings.lock().unwrap();
+        let mut lock = self.settings.lock();
         lock.insert(key.to_owned(), value);
     }
 
     fn all(&self) -> Result<HashMap<String, Setting>> {
-        let lock = self.settings.lock().unwrap();
+        let lock = self.settings.lock();
         Ok(lock.clone())
     }
 }

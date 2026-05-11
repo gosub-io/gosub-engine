@@ -1,6 +1,7 @@
 use parley::fontique::{FallbackKey, FontWeight, Script};
 use parley::{AlignmentOptions, FontContext};
-use std::sync::{LazyLock, Mutex};
+use parking_lot::Mutex;
+use std::sync::LazyLock;
 use taffy::{
     AvailableSpace, CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, Point, Rect,
     RunMode, Size,
@@ -244,7 +245,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
     let mut layout_cx: parley::LayoutContext<usize> = parley::LayoutContext::new();
     // let mut scale_cx = ScaleContext::new();
 
-    let mut font_context = FONT_CX.lock().unwrap();
+    let mut font_context = FONT_CX.lock();
 
     let mut builder = layout_cx.ranged_builder(&mut font_context, &str_buf, 1.0, false);
     let mut align = parley::Alignment::default();

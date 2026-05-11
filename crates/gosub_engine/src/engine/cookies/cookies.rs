@@ -52,7 +52,8 @@ use crate::zone::ZoneId;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::ops::Deref;
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::Arc;
 
 /// A handle to a cookie jar trait.
 ///
@@ -103,10 +104,10 @@ impl CookieJarHandle {
     }
 
     pub fn read(&self) -> RwLockReadGuard<'_, Box<dyn CookieJar + Send + Sync>> {
-        self.0.read().expect("poisoned CookieJarHandle")
+        self.0.read()
     }
     pub fn write(&self) -> RwLockWriteGuard<'_, Box<dyn CookieJar + Send + Sync>> {
-        self.0.write().expect("poisoned CookieJarHandle")
+        self.0.write()
     }
 }
 

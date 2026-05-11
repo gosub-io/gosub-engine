@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Seek, Write};
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 pub struct JsonStorageAdapter {
     path: String,
@@ -48,19 +48,19 @@ impl TryFrom<&String> for JsonStorageAdapter {
 
 impl StorageAdapter for JsonStorageAdapter {
     fn get(&self, key: &str) -> Option<Setting> {
-        let lock = self.elements.lock().unwrap();
+        let lock = self.elements.lock();
         lock.get(key).cloned()
     }
 
     fn set(&self, key: &str, value: Setting) {
-        let mut lock = self.elements.lock().unwrap();
+        let mut lock = self.elements.lock();
         lock.insert(key.to_owned(), value);
 
         // self.write_file()
     }
 
     fn all(&self) -> Result<HashMap<String, Setting>> {
-        let lock = self.elements.lock().unwrap();
+        let lock = self.elements.lock();
 
         Ok(lock.clone())
     }
@@ -80,7 +80,7 @@ impl JsonStorageAdapter {
         if let Value::Object(settings) = parsed_json {
             self.elements = Mutex::new(HashMap::new());
 
-            let mut lock = self.elements.lock().unwrap();
+            let mut lock = self.elements.lock();
             for (key, value) in &settings {
                 match serde_json::from_value(value.clone()) {
                     Ok(setting) => {
@@ -102,7 +102,7 @@ impl JsonStorageAdapter {
         // against concurrent processes.
         let mut file = File::open(&self.path).expect("failed to open json file");
 
-        let json = serde_json::to_string_pretty(&self.elements).expect("failed to serialize");
+        let json = serde_json::to_string_pretty(&*self.elements.lock()).expect("failed to serialize");
 
         file.set_len(0).expect("failed to truncate file");
         file.seek(std::io::SeekFrom::Start(0)).expect("failed to seek");

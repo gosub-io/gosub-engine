@@ -26,7 +26,8 @@ use gosub_shared::types::Result;
 use log::{error, info};
 use std::future::Future;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use url::Url;
 
 mod img;

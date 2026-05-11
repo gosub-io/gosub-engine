@@ -3,8 +3,9 @@ use crate::NavigationId;
 use dashmap::{DashMap, Entry};
 use std::collections::HashMap;
 use std::fmt::Display;
+use parking_lot::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 pub type RequestReferenceMap = HashMap<RequestReference, TabId>;
 
@@ -90,7 +91,7 @@ impl RequestRefTracker {
             drop(entry);
 
             if new == 0 && fin {
-                map.write().unwrap().remove(r);
+                map.write().remove(r);
                 self.inner.remove(r);
             }
         }
@@ -104,11 +105,11 @@ impl RequestRefTracker {
             drop(entry);
 
             if now == 0 {
-                map.write().unwrap().remove(r);
+                map.write().remove(r);
                 self.inner.remove(r);
             }
         } else {
-            map.write().unwrap().remove(r);
+            map.write().remove(r);
         }
     }
 }
