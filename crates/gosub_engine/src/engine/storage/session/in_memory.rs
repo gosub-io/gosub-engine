@@ -65,11 +65,9 @@ impl StorageArea for SessionArea {
     }
 
     fn set_item(&self, k: &str, v: &str) -> Result<()> {
-        self.data
-            .write()
-            .get_mut(&self.key)
-            .unwrap()
-            .insert(k.to_string(), v.to_string());
+        if let Some(map) = self.data.write().get_mut(&self.key) {
+            map.insert(k.to_string(), v.to_string());
+        }
         Ok(())
     }
 

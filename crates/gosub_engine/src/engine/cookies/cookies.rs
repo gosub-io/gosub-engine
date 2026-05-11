@@ -16,13 +16,13 @@
 //! // Acquire cookies for a request
 //! let jar = zone.cookie_jar(); // -> CookieJarHandle
 //! let cookies_header = {
-//!     let guard = jar.read().unwrap();
+//!     let guard = jar.read();
 //!     guard.get_request_cookies(&url)
 //! };
 //!
 //! // Store cookies from a response
 //! {
-//!     let mut guard = jar.write().unwrap();
+//!     let mut guard = jar.write();
 //!     guard.store_response_cookies(&url, &headers);
 //! }
 //! ```
@@ -65,10 +65,10 @@ use std::sync::Arc;
 /// ```ignore,no_run
 /// let jar: CookieJarHandle = zone.cookie_jar();
 /// {
-///     let cookies = jar.read().unwrap().get_request_cookies(&url);
+///     let cookies = jar.read().get_request_cookies(&url);
 /// }
 /// {
-///     let mut guard = jar.write().unwrap();
+///     let mut guard = jar.write();
 ///     guard.clear();
 /// }
 /// ```
