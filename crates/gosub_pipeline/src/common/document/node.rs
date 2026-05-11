@@ -1,0 +1,218 @@
+use crate::common::document::document::Document;
+use crate::common::document::style::{Display, StyleProperty, StylePropertyList, StyleValue};
+use std::collections::HashMap;
+
+pub use gosub_shared::node::NodeId;
+
+/// Map of attributes for a html element (a href, src, data-*, etc)
+#[derive(Debug, Clone)]
+pub struct AttrMap {
+    attributes: HashMap<String, String>,
+}
+
+impl Default for AttrMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AttrMap {
+    pub fn new() -> AttrMap {
+        AttrMap {
+            attributes: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, key: &str) -> Option<&String> {
+        self.attributes.get(key)
+    }
+
+    pub fn set(&mut self, key: &str, value: &str) {
+        self.attributes.insert(key.to_string(), value.to_string());
+    }
+
+    #[allow(unused)]
+    pub fn all(&self) -> &HashMap<String, String> {
+        &self.attributes
+    }
+}
+
+impl std::fmt::Display for AttrMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut keys: Vec<&String> = self.attributes.keys().collect();
+        keys.sort();
+        let parts: Vec<String> = keys
+            .iter()
+            .map(|k| format!("{}=\"{}\"", k, self.attributes[*k]))
+            .collect();
+        write!(f, "{}", parts.join(" "))
+    }
+}
+
+/// Data for a html element (tag name, attributes, styles etc)
+#[derive(Clone, Debug)]
+pub struct ElementData {
+    /// Element name (ie: P, DIV, IMG etc)
+    pub tag_name: String,
+    /// Element attributes (src, href, class etc)
+    pub attributes: AttrMap,
+    /// Is this element self-closing (ie: <img />)
+    #[allow(unused)]
+    pub self_closing: bool,
+    /// Element styles (color, font-size etc)
+    pub styles: StylePropertyList,
+}
+
+impl ElementData {
+    pub fn new(
+        tag_name: String,
+        attributes: Option<AttrMap>,
+        is_self_closing: bool,
+        styles: Option<StylePropertyList>,
+    ) -> ElementData {
+        ElementData {
+            tag_name,
+            attributes: attributes.unwrap_or_default(),
+            self_closing: is_self_closing,
+            styles: styles.unwrap_or_default(),
+        }
+    }
+
+    pub fn get_style(&self, key: StyleProperty) -> Option<&StyleValue> {
+        self.styles.properties.get(&key)
+    }
+
+    #[allow(unused)]
+    pub fn get_attribute(&self, key: &str) -> Option<&String> {
+        self.attributes.get(key)
+    }
+
+    #[allow(unused)]
+    pub fn set_attribute(&mut self, key: &str, value: &str) {
+        self.attributes.set(key, value);
+    }
+
+    #[allow(unused)]
+    pub fn is_self_closing(&self) -> bool {
+        self.self_closing
+    }
+
+    pub fn is_inline_element(&self) -> bool {
+        match self.get_style(StyleProperty::Display) {
+            Some(StyleValue::Display(display)) => *display == Display::Inline,
+            _ => false,
+        }
+    }
+
+    pub fn is_inline_block_element(&self) -> bool {
+        match self.get_style(StyleProperty::Display) {
+            Some(StyleValue::Display(display)) => *display == Display::InlineBlock,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum NodeType {
+    // Comment node (<!-- comment -->)
+    Comment(String),
+    // Text node (ie: Some text). Does not contain any children
+    Text(String, StylePropertyList),
+    // Element node (ie: <div></div>)
+    Element(ElementData),
+}
+
+#[derive(Clone, Debug)]
+pub struct Node {
+    pub node_id: NodeId,
+    pub parent_id: Option<NodeId>,
+    pub node_type: NodeType,
+    pub children: Vec<NodeId>,
+}
+
+impl Node {
+    /// Returns true if the node is a block element
+    pub fn is_block_element(&self) -> bool {
+        match &self.node_type {
+            NodeType::Element(data) => match data.get_style(StyleProperty::Display) {
+                Some(StyleValue::Display(display)) => *display == Display::Block,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    pub fn is_inline_block_element(&self) -> bool {
+        match &self.node_type {
+            NodeType::Element(data) => match data.get_style(StyleProperty::Display) {
+                Some(StyleValue::Display(display)) => *display == Display::InlineBlock,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// Returns true if the node is an element node and is inline
+    pub fn is_inline_element(&self) -> bool {
+        match &self.node_type {
+            NodeType::Element(data) => match data.get_style(StyleProperty::Display) {
+                Some(StyleValue::Display(display)) => *display == Display::Inline,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// Returns true when the node is a text node
+    pub fn is_text(&self) -> bool {
+        matches!(&self.node_type, NodeType::Text(_, _))
+    }
+
+    pub fn get_style_f32(&self, prop: StyleProperty) -> f32 {
+        match &self.node_type {
+            NodeType::Element(data) => match data.get_style(prop) {
+                Some(StyleValue::Unit(px, _)) => *px,
+                Some(StyleValue::Number(px)) => *px,
+                _ => 0.0,
+            },
+            _ => 0.0,
+        }
+    }
+}
+
+impl Node {
+    /// Text nodes also have styles. Normally this is taken from the parent element that the text resides in.
+    pub fn new_text(doc: &Document, parent_id: Option<NodeId>, text: String, style: Option<StylePropertyList>) -> Node {
+        Node {
+            node_id: doc.next_node_id(),
+            parent_id,
+            children: vec![],
+            node_type: NodeType::Text(text, style.unwrap_or_default()),
+        }
+    }
+
+    pub fn new_comment(doc: &Document, parent_id: Option<NodeId>, comment: String) -> Node {
+        Node {
+            node_id: doc.next_node_id(),
+            parent_id,
+            children: vec![],
+            node_type: NodeType::Comment(comment),
+        }
+    }
+
+    pub fn new_element(
+        doc: &Document,
+        parent_id: Option<NodeId>,
+        tag_name: String,
+        attributes: Option<AttrMap>,
+        self_closing: bool,
+        style: Option<StylePropertyList>,
+    ) -> Node {
+        Node {
+            node_id: doc.next_node_id(),
+            parent_id,
+            children: vec![],
+            node_type: NodeType::Element(ElementData::new(tag_name, attributes, self_closing, style)),
+        }
+    }
+}
