@@ -11,20 +11,26 @@ pub fn skia_compositor(canvas: &skia_safe::Canvas, layer_ids: Vec<LayerId>) {
 
 pub fn compose_layer(canvas: &skia_safe::Canvas, layer_id: LayerId) {
     let binding = get_browser_state();
-    let state = binding.read().expect("Failed to get browser state");
+    let Ok(state) = binding.read() else {
+        log::error!("Failed to acquire browser state lock, skipping skia compose");
+        return;
+    };
 
     let Some(ref tile_list) = state.tile_list else {
         log::error!("No tile list found");
         return;
     };
 
-    let tile_ids = tile_list
-        .read()
-        .expect("Failed to get tile list")
-        .get_intersecting_tiles(layer_id, state.viewport);
+    let Ok(tile_list_guard) = tile_list.read() else {
+        log::error!("Failed to acquire tile list lock");
+        return;
+    };
+
+    let tile_ids = tile_list_guard.get_intersecting_tiles(layer_id, state.viewport);
+    let show_tilegrid = state.show_tilegrid;
+
     for tile_id in tile_ids {
-        let binding = tile_list.read().expect("Failed to get tile list");
-        let Some(tile) = binding.get_tile(tile_id) else {
+        let Some(tile) = tile_list_guard.get_tile(tile_id) else {
             log::warn!("Tile not found: {:?}", tile_id);
             continue;
         };
@@ -35,13 +41,15 @@ pub fn compose_layer(canvas: &skia_safe::Canvas, layer_id: LayerId) {
         };
 
         let binding = get_texture_store();
-        let texture_store = binding.read().expect("Failed to get texture store");
+        let Ok(texture_store) = binding.read() else {
+            log::error!("Failed to acquire texture store lock for tile {:?}", tile_id);
+            continue;
+        };
 
         let Some(texture) = texture_store.get(texture_id) else {
             log::error!("No texture found for tile: {:?}", tile_id);
             continue;
         };
-        drop(texture_store);
 
         let image_info = ImageInfo::new(
             ISize::new(texture.width as i32, texture.height as i32),
@@ -59,8 +67,7 @@ pub fn compose_layer(canvas: &skia_safe::Canvas, layer_id: LayerId) {
 
         canvas.draw_image(&img, (tile.rect.x.round() as f32, tile.rect.y.round() as f32), None);
 
-        // Display rectangles around the tiles
-        if state.show_tilegrid {
+        if show_tilegrid {
             let mut paint = skia_safe::Paint::new(skia_safe::Color4f::new(1.0, 0.0, 0.0, 0.25), None);
             paint.set_stroke(true);
 

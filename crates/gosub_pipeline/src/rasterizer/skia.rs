@@ -31,8 +31,12 @@ impl Rasterable for SkiaRasterizer {
             return None;
         }
 
-        let mut surface =
-            skia_safe::surfaces::raster_n32_premul(skia_safe::ISize::new(width as i32, height as i32)).unwrap();
+        let Some(mut surface) =
+            skia_safe::surfaces::raster_n32_premul(skia_safe::ISize::new(width as i32, height as i32))
+        else {
+            log::error!("Failed to create Skia surface for tile rasterization");
+            return None;
+        };
 
         let canvas = surface.canvas();
 
@@ -40,7 +44,7 @@ impl Rasterable for SkiaRasterizer {
         if tile.layer_id == LayerId::new(0) {
             if tile.bgcolor.is_some() {
                 // We have detected a background color in a root element (html or body)
-                let bgcolor = tile.bgcolor.unwrap();
+                let bgcolor = tile.bgcolor.expect("bgcolor checked above");
                 canvas.clear(skia_safe::Color4f::new(bgcolor.0, bgcolor.1, bgcolor.2, bgcolor.3));
             } else {
                 // No color detected. Use our own checkered background as the default useragent style
@@ -68,11 +72,21 @@ impl Rasterable for SkiaRasterizer {
             }
         }
 
-        let peek = canvas.peek_pixels().unwrap();
-        let pixels = peek.bytes().unwrap().to_vec();
+        let Some(peek) = canvas.peek_pixels() else {
+            log::error!("Failed to peek pixels from Skia canvas");
+            return None;
+        };
+        let Some(bytes) = peek.bytes() else {
+            log::error!("Failed to get bytes from Skia pixel info");
+            return None;
+        };
+        let pixels = bytes.to_vec();
 
         let binding = get_texture_store();
-        let mut texture_store = binding.write().expect("Failed to get texture store");
+        let Ok(mut texture_store) = binding.write() else {
+            log::error!("Failed to acquire texture store lock, dropping tile result");
+            return None;
+        };
         let texture_id = texture_store.add(width as usize, height as usize, pixels);
 
         // _ = texture_store.save_to_disk(texture_id);
@@ -96,7 +110,7 @@ fn clear_canvas(canvas: &Canvas, size: (i32, i32)) {
     let mut bitmap = Bitmap::new();
     bitmap.alloc_n32_pixels((2 * tile_size as i32, 2 * tile_size as i32), true);
     {
-        let tmp_canvas = Canvas::from_bitmap(&bitmap, None).unwrap();
+        let Some(tmp_canvas) = Canvas::from_bitmap(&bitmap, None) else { return; };
         tmp_canvas.clear(CHECKERED_COLOR_1);
 
         let paint = Paint::new(CHECKERED_COLOR_2, None);
@@ -104,14 +118,13 @@ fn clear_canvas(canvas: &Canvas, size: (i32, i32)) {
         tmp_canvas.draw_rect(Rect::new(0.0, tile_size, tile_size, tile_size * 2.0), &paint);
     }
 
-    let shader = bitmap
-        .as_image()
-        .to_shader(
-            (TileMode::Repeat, TileMode::Repeat),
-            SamplingOptions::default(),
-            Matrix::i(),
-        )
-        .unwrap();
+    let Some(shader) = bitmap.as_image().to_shader(
+        (TileMode::Repeat, TileMode::Repeat),
+        SamplingOptions::default(),
+        Matrix::i(),
+    ) else {
+        return;
+    };
 
     let mut paint = Paint::default();
     paint.set_shader(shader);

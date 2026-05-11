@@ -1,5 +1,4 @@
 use crate::common::font::FontAlignment;
-use parley::GenericFamily;
 use parley::{AlignmentOptions, Layout};
 use std::sync::{Mutex, OnceLock};
 
@@ -44,7 +43,6 @@ pub fn get_parley_layout(
     builder.push_default(parley::StyleProperty::FontWeight(parley::FontWeight::new(
         font_weight as f32,
     )));
-    builder.push_default(GenericFamily::SystemUi);
 
     let align = match alignment {
         FontAlignment::Start => parley::layout::Alignment::Start,

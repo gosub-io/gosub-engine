@@ -18,7 +18,10 @@ impl Composable for CairoCompositor {
 
     fn compose(config: Self::Config) {
         let binding = get_browser_state();
-        let state = binding.read().expect("Failed to get browser state");
+        let Ok(state) = binding.read() else {
+            log::error!("Failed to acquire browser state lock, skipping cairo compose");
+            return;
+        };
 
         let layers: Vec<LayerId> = state
             .visible_layer_list

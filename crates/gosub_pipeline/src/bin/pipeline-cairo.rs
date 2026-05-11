@@ -253,44 +253,34 @@ fn build_ui(app: &Application) {
 
         match keyval {
             key if key == gtk4::gdk::Key::_1 => {
-                state.visible_layer_list[0] = !state.visible_layer_list[0];
-                area.queue_draw();
+                if let Some(v) = state.visible_layer_list.get_mut(0) { *v = !*v; area.queue_draw(); }
             }
             key if key == gtk4::gdk::Key::_2 => {
-                state.visible_layer_list[1] = !state.visible_layer_list[1];
-                area.queue_draw();
+                if let Some(v) = state.visible_layer_list.get_mut(1) { *v = !*v; area.queue_draw(); }
             }
             key if key == gtk4::gdk::Key::_3 => {
-                state.visible_layer_list[2] = !state.visible_layer_list[2];
-                area.queue_draw();
+                if let Some(v) = state.visible_layer_list.get_mut(2) { *v = !*v; area.queue_draw(); }
             }
             key if key == gtk4::gdk::Key::_4 => {
-                state.visible_layer_list[3] = !state.visible_layer_list[3];
-                area.queue_draw();
+                if let Some(v) = state.visible_layer_list.get_mut(3) { *v = !*v; area.queue_draw(); }
             }
             key if key == gtk4::gdk::Key::_5 => {
-                state.visible_layer_list[4] = !state.visible_layer_list[4];
-                area.queue_draw();
+                if let Some(v) = state.visible_layer_list.get_mut(4) { *v = !*v; area.queue_draw(); }
             }
             key if key == gtk4::gdk::Key::_6 => {
-                state.visible_layer_list[5] = !state.visible_layer_list[5];
-                area.queue_draw();
+                if let Some(v) = state.visible_layer_list.get_mut(5) { *v = !*v; area.queue_draw(); }
             }
             key if key == gtk4::gdk::Key::_7 => {
-                state.visible_layer_list[6] = !state.visible_layer_list[6];
-                area.queue_draw();
+                if let Some(v) = state.visible_layer_list.get_mut(6) { *v = !*v; area.queue_draw(); }
             }
             key if key == gtk4::gdk::Key::_8 => {
-                state.visible_layer_list[7] = !state.visible_layer_list[7];
-                area.queue_draw();
+                if let Some(v) = state.visible_layer_list.get_mut(7) { *v = !*v; area.queue_draw(); }
             }
             key if key == gtk4::gdk::Key::_9 => {
-                state.visible_layer_list[8] = !state.visible_layer_list[8];
-                area.queue_draw();
+                if let Some(v) = state.visible_layer_list.get_mut(8) { *v = !*v; area.queue_draw(); }
             }
             key if key == gtk4::gdk::Key::_0 => {
-                state.visible_layer_list[9] = !state.visible_layer_list[9];
-                area.queue_draw();
+                if let Some(v) = state.visible_layer_list.get_mut(9) { *v = !*v; area.queue_draw(); }
             }
             key if key == gtk4::gdk::Key::w => {
                 match state.wireframed {

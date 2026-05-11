@@ -135,26 +135,43 @@ impl RenderTree {
         }
     }
 
-    fn build_rendertree(&mut self, node_id: NodeId) -> Option<RenderNodeId> {
-        if !self.is_visible(node_id) {
-            return None;
+    fn build_rendertree(&mut self, root_id: NodeId) -> Option<RenderNodeId> {
+        enum Frame {
+            Process(NodeId),
+            Collect { node_id: NodeId, num_children: usize },
         }
 
-        let mut render_node = RenderNode {
-            node_id: RenderNodeId::from(node_id),
-            children: Vec::new(),
-        };
+        let mut stack: Vec<Frame> = vec![Frame::Process(root_id)];
+        let mut results: Vec<Option<RenderNodeId>> = Vec::new();
 
-        let children = self.doc.children(node_id);
-        for child_id in children {
-            if let Some(render_child) = self.build_rendertree(child_id) {
-                render_node.children.push(render_child);
+        while let Some(frame) = stack.pop() {
+            match frame {
+                Frame::Process(node_id) => {
+                    if !self.is_visible(node_id) {
+                        results.push(None);
+                        continue;
+                    }
+                    let children = self.doc.children(node_id);
+                    let num_children = children.len();
+                    stack.push(Frame::Collect { node_id, num_children });
+                    for child_id in children.into_iter().rev() {
+                        stack.push(Frame::Process(child_id));
+                    }
+                }
+                Frame::Collect { node_id, num_children } => {
+                    let start = results.len().saturating_sub(num_children);
+                    let child_render_ids: Vec<RenderNodeId> = results.drain(start..).flatten().collect();
+                    let render_node = RenderNode {
+                        node_id: RenderNodeId::from(node_id),
+                        children: child_render_ids,
+                    };
+                    let render_node_id = render_node.node_id;
+                    self.arena.insert(render_node_id, render_node);
+                    results.push(Some(render_node_id));
+                }
             }
         }
 
-        let render_node_id = render_node.node_id;
-        self.arena.insert(render_node_id, render_node);
-
-        Some(render_node_id)
+        results.pop().flatten()
     }
 }

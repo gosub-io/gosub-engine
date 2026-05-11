@@ -11,7 +11,7 @@ async def fetch_and_parse_html(url):
         page = await browser.new_page()
 
         await page.set_viewport_size({"width": 1280, "height": 1144})
-        await page.goto(url, wait_until="domcontentloaded")
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
         # Extract computed styles for each node
         computed_styles_script = """
@@ -75,5 +75,5 @@ async def main():
     print("DOM tree with computed styles saved to output.json")
 
 
-# Run the async function
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

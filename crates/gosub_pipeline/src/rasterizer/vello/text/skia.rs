@@ -31,9 +31,8 @@ pub fn do_paint_text(scene: &mut Scene, cmd: &Text, tile_size: Dimension, affine
         0.0,
         1.0,
     );
-    canvas.concat(&matrix);
-
     canvas.clear(skia_safe::Color::TRANSPARENT);
+    canvas.concat(&matrix);
     paragraph.paint(&mut canvas, (cmd.rect.x as f32, cmd.rect.y as f32));
 
     let Some(peek) = canvas.peek_pixels() else {

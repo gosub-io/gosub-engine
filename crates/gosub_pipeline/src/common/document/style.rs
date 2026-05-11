@@ -197,7 +197,7 @@ impl StylePropertyList {
     }
 
     pub fn set_property(&mut self, prop: StyleProperty, value: StyleValue) {
-        self.properties.insert(prop, value.clone());
+        self.properties.insert(prop, value);
     }
 
     pub fn get_property(&self, prop: StyleProperty) -> Option<&StyleValue> {

@@ -15,7 +15,10 @@ impl Composable for VelloCompositor {
 
     fn compose(_config: Self::Config) -> Self::Return {
         let binding = get_browser_state();
-        let state = binding.read().expect("Failed to get browser state");
+        let Ok(state) = binding.read() else {
+            log::error!("Failed to acquire browser state lock, composing empty scene");
+            return vello_compositor(vec![]);
+        };
 
         let mut layers = vec![];
         for i in 0..state.visible_layer_list.len() {

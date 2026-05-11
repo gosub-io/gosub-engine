@@ -244,7 +244,7 @@ impl CssTaffyConverter {
         match val {
             StyleValue::Unit(value, unit) => match unit {
                 CssUnit::Px => LengthPercentageAuto::Length(*value),
-                CssUnit::Percent => LengthPercentageAuto::Percent(*value),
+                CssUnit::Percent => LengthPercentageAuto::Percent(*value / 100.0),
                 _ => default,
             },
             StyleValue::Number(value) => LengthPercentageAuto::Length(*value),
@@ -261,7 +261,7 @@ impl CssTaffyConverter {
         match val {
             StyleValue::Unit(value, unit) => match unit {
                 CssUnit::Px => LengthPercentage::Length(*value),
-                CssUnit::Percent => LengthPercentage::Percent(*value),
+                CssUnit::Percent => LengthPercentage::Percent(*value / 100.0),
                 _ => default,
             },
             StyleValue::Number(value) => LengthPercentage::Length(*value),
@@ -293,7 +293,7 @@ impl CssTaffyConverter {
         match val {
             StyleValue::Unit(value, unit) => match unit {
                 CssUnit::Px => Size::length(*value),
-                CssUnit::Percent => Size::percent(*value),
+                CssUnit::Percent => Size::percent(*value / 100.0),
                 _ => default,
             },
             StyleValue::Number(value) => Size::length(*value),

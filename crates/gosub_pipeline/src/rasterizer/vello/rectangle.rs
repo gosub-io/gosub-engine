@@ -36,16 +36,22 @@ pub(crate) fn do_paint_rectangle(scene: &mut vello::Scene, rect: &Rectangle, aff
 }
 
 fn draw_single_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine, dashes: Vec<f64>) {
+    let Some(brush) = rect.border().brushes().first() else {
+        return;
+    };
     let vello_shape = setup_rectangle_path(rect);
-    let vello_brush = set_brush(rect.border().brushes().first().unwrap(), rect.rect());
+    let vello_brush = set_brush(brush, rect.rect());
     let vello_stroke = kurbo::Stroke::new(rect.border().width() as f64).with_dashes(0.0, dashes);
 
     scene.stroke(&vello_stroke, affine, &vello_brush, None, &vello_shape);
 }
 
 fn draw_double_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine) {
+    let Some(brush) = rect.border().brushes().first() else {
+        return;
+    };
     let vello_shape = setup_rectangle_path(rect);
-    let vello_brush = set_brush(rect.border().brushes().first().unwrap(), rect.rect());
+    let vello_brush = set_brush(brush, rect.rect());
 
     if rect.border().width() < 3.0 {
         // When the width is less than 3.0, we just draw a single line as there is no room for

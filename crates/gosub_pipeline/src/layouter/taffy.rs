@@ -106,12 +106,7 @@ impl CanLayout for TaffyLayouter {
             };
         };
         // let root_id = RenderNodeId::new(2);
-        let Some(mut layout_tree) = self.generate_tree(render_tree, root_id) else {
-            panic!(
-                "Failed to generate layout tree: root node {:?} could not be processed",
-                root_id
-            );
-        };
+        let mut layout_tree = self.generate_tree(render_tree, root_id);
 
         // // Compute the layout based on the viewport
         let size = match viewport {
@@ -167,10 +162,11 @@ impl CanLayout for TaffyLayouter {
         self.populate_boxmodel(&mut layout_tree, root_id, Coordinate::ZERO);
 
         // get dimension of the root node
-        let root = layout_tree.get_node_by_id(root_id).unwrap();
-        let w = root.box_model.margin_box.width as f32; // + 100.0;
-        let h = root.box_model.margin_box.height as f32; // + 100.0;
-        layout_tree.root_dimension = geo::Dimension::new(w as f64, h as f64);
+        if let Some(root) = layout_tree.get_node_by_id(root_id) {
+            let w = root.box_model.margin_box.width as f32;
+            let h = root.box_model.margin_box.height as f32;
+            layout_tree.root_dimension = geo::Dimension::new(w as f64, h as f64);
+        }
 
         self.tree.print_tree(self.root_id);
         layout_tree
@@ -180,10 +176,20 @@ impl CanLayout for TaffyLayouter {
 impl TaffyLayouter {
     // Populate the layout tree with the box models that we now can generate
     fn populate_boxmodel(&self, layout_tree: &mut LayoutTree, layout_node_id: LayoutElementId, offset: Coordinate) {
-        let taffy_node_id = self.layout_taffy_mapping.get(&layout_node_id).unwrap();
-        let layout = *self.tree.layout(*taffy_node_id).unwrap();
+        let Some(taffy_node_id) = self.layout_taffy_mapping.get(&layout_node_id) else {
+            log::warn!("No taffy mapping for layout node {:?}", layout_node_id);
+            return;
+        };
+        let Ok(layout) = self.tree.layout(*taffy_node_id) else {
+            log::warn!("Failed to get taffy layout for node {:?}", taffy_node_id);
+            return;
+        };
+        let layout = *layout;
 
-        let el = layout_tree.get_node_by_id_mut(layout_node_id).unwrap();
+        let Some(el) = layout_tree.get_node_by_id_mut(layout_node_id) else {
+            log::warn!("Layout node {:?} not found in arena", layout_node_id);
+            return;
+        };
         el.box_model = taffy_layout_to_boxmodel(&layout, offset);
         let child_ids = el.children.clone();
 
@@ -197,7 +203,7 @@ impl TaffyLayouter {
     }
 
     /// Generate the layout tree from the render tree
-    fn generate_tree(&mut self, render_tree: RenderTree, root_id: RenderNodeId) -> Option<LayoutTree> {
+    fn generate_tree(&mut self, render_tree: RenderTree, root_id: RenderNodeId) -> LayoutTree {
         self.tree = TaffyTree::new();
         self.root_id = TaffyNodeId::new(0); // Will be filled in later
 
@@ -209,12 +215,17 @@ impl TaffyLayouter {
             root_dimension: geo::Dimension::ZERO,
         };
 
-        let (layout_element_root_id, taffy_root_id) = self.generate_taffy_element(&mut layout_tree, root_id)?;
+        let Some((layout_element_root_id, taffy_root_id)) =
+            self.generate_taffy_element(&mut layout_tree, root_id)
+        else {
+            log::error!("Failed to generate taffy element for root node {:?}", root_id);
+            return layout_tree;
+        };
 
         layout_tree.root_id = layout_element_root_id;
         self.root_id = taffy_root_id;
 
-        Some(layout_tree)
+        layout_tree
     }
 
     // Process inline elements by adding them to the taffy tree and element_node children vec. It will
@@ -391,14 +402,22 @@ impl TaffyLayouter {
                     log::debug!("Loading (image) resource: {}", src);
 
                     let media_store = get_media_store();
-                    let Ok(media_id) = media_store.read().unwrap().load_media(src.as_str()) else {
+                    let Ok(media_store_guard) = media_store.read() else {
+                        log::warn!("Failed to acquire media store lock for image: {}", src);
+                        return None;
+                    };
+                    let Ok(media_id) = media_store_guard.load_media(src.as_str()) else {
                         // Could not load media
                         log::warn!("Could not load media from path: {}", src);
                         return None;
                     };
+                    drop(media_store_guard);
 
                     let media_store = get_media_store();
-                    let binding = media_store.read().unwrap();
+                    let Ok(binding) = media_store.read() else {
+                        log::warn!("Failed to acquire media store lock for image lookup: {}", src);
+                        return None;
+                    };
                     let media = binding.get(media_id, MediaType::Image);
                     taffy_context = match media.borrow() {
                         Media::Svg(_) => Some(TaffyContext::svg(src.as_str(), media_id, dom_node.node_id)),
@@ -416,9 +435,11 @@ impl TaffyLayouter {
                     let inner_html = layout_tree.render_tree.doc.inner_html(dom_node.node_id);
 
                     let store = get_media_store();
-                    match store
-                        .read()
-                        .unwrap()
+                    let Ok(store_guard) = store.read() else {
+                        log::warn!("Failed to acquire media store lock for SVG");
+                        return None;
+                    };
+                    match store_guard
                         .load_media_from_data(MediaType::Svg, inner_html.into_bytes().as_slice())
                     {
                         Ok(media_id) => {

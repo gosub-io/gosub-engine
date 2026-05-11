@@ -16,17 +16,24 @@ pub(crate) fn do_paint_svg(cr: &Context, _tile: &Tile, rect: &Rectangle, media_i
     let target_dim = rect.rect().dimension();
 
     {
-        let cached = media.svg.rendered.read().unwrap();
+        let Ok(cached) = media.svg.rendered.read() else {
+            log::warn!("Failed to acquire SVG rendered lock for {:?}, skipping", media_id);
+            return;
+        };
         if cached.dimension == target_dim && !cached.data.is_empty() {
-            // Cache hit — use existing render
-            let surface = gtk4::cairo::ImageSurface::create_for_data(
+            let surface = match gtk4::cairo::ImageSurface::create_for_data(
                 cached.data.clone(),
                 gtk4::cairo::Format::ARgb32,
                 cached.dimension.width as i32,
                 cached.dimension.height as i32,
                 cached.dimension.width as i32 * 4,
-            )
-            .unwrap();
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::warn!("Failed to create image surface for cached SVG {:?}: {:?}", media_id, e);
+                    return;
+                }
+            };
             _ = cr.set_source_surface(&surface, 0.0, 0.0);
             _ = cr.paint();
             return;
@@ -42,18 +49,26 @@ pub(crate) fn do_paint_svg(cr: &Context, _tile: &Tile, rect: &Rectangle, media_i
     resvg::render(&media.svg.tree, Transform::default(), &mut pixmap.as_mut());
     let new_data = pixmap.data().to_vec();
 
-    let mut cached = media.svg.rendered.write().unwrap();
+    let Ok(mut cached) = media.svg.rendered.write() else {
+        log::warn!("Failed to acquire SVG rendered write lock for {:?}, skipping", media_id);
+        return;
+    };
     cached.data = new_data;
     cached.dimension = target_dim;
 
-    let surface = gtk4::cairo::ImageSurface::create_for_data(
+    let surface = match gtk4::cairo::ImageSurface::create_for_data(
         cached.data.clone(),
         gtk4::cairo::Format::ARgb32,
         cached.dimension.width as i32,
         cached.dimension.height as i32,
         cached.dimension.width as i32 * 4,
-    )
-    .unwrap();
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("Failed to create image surface for SVG {:?}: {:?}", media_id, e);
+            return;
+        }
+    };
 
     _ = cr.set_source_surface(&surface, 0.0, 0.0);
     _ = cr.paint();

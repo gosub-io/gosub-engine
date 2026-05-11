@@ -45,7 +45,10 @@ impl PipelineDocument for Document {
                 NodeType::Comment(..) => PipelineNodeKind::Comment,
                 NodeType::Element(..) => PipelineNodeKind::Element,
             },
-            None => PipelineNodeKind::Comment,
+            None => {
+                log::warn!("node_kind: node {:?} not found, defaulting to Element", id);
+                PipelineNodeKind::Element
+            }
         }
     }
 

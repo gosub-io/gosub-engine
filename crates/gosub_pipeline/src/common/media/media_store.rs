@@ -71,7 +71,7 @@ impl MediaStore {
     pub fn load_media(&self, src: &str) -> anyhow::Result<MediaId> {
         // Check if the media from src is already loaded into the cache. If so, return that
         let h = hash_from_string(src);
-        let cache = self.cache.read().expect("Failed to lock cache");
+        let cache = self.cache.read().map_err(|e| anyhow::anyhow!("Cache lock poisoned: {e}"))?;
         if let Some(media_id) = cache.get(&h) {
             log::debug!("Loading cached media from path: {}", src);
             return Ok(*media_id);
@@ -81,7 +81,10 @@ impl MediaStore {
         let result = self.load_media_from_source(src);
 
         if let Ok(media_id) = result {
-            let mut cache = self.cache.write().expect("Failed to lock cache");
+            let mut cache = self
+                .cache
+                .write()
+                .map_err(|e| anyhow::anyhow!("Cache write lock poisoned: {e}"))?;
             // Another thread may have inserted while we were loading — don't overwrite
             cache.entry(h).or_insert(media_id);
         }
@@ -91,7 +94,7 @@ impl MediaStore {
 
     pub fn load_media_from_data(&self, media_type: MediaType, data: &[u8]) -> anyhow::Result<MediaId> {
         let h = hash_from_data(data);
-        let cache = self.cache.read().expect("Failed to lock cache");
+        let cache = self.cache.read().map_err(|e| anyhow::anyhow!("Cache lock poisoned: {e}"))?;
         if let Some(media_id) = cache.get(&h) {
             log::debug!("Loading cached media from data");
             return Ok(*media_id);
@@ -110,11 +113,11 @@ impl MediaStore {
                 let media = Media::svg("gosub://data/svg", Svg::new(svg_tree));
                 let media_id = self.allocate_media_id();
 
-                let mut entries = self.entries.write().expect("Failed to lock entries");
+                let mut entries = self.entries.write().map_err(|e| anyhow::anyhow!("Entries lock poisoned: {e}"))?;
                 entries.insert(media_id, Arc::new(media));
                 drop(entries);
 
-                let mut cache = self.cache.write().expect("Failed to lock cache");
+                let mut cache = self.cache.write().map_err(|e| anyhow::anyhow!("Cache write lock poisoned: {e}"))?;
                 cache.insert(h, media_id);
 
                 media_id
@@ -130,11 +133,11 @@ impl MediaStore {
                 let media = Media::image("gosub://data/image", img.to_rgba8());
                 let media_id = self.allocate_media_id();
 
-                let mut entries = self.entries.write().expect("Failed to lock entries");
+                let mut entries = self.entries.write().map_err(|e| anyhow::anyhow!("Entries lock poisoned: {e}"))?;
                 entries.insert(media_id, Arc::new(media));
                 drop(entries);
 
-                let mut cache = self.cache.write().expect("Failed to lock cache");
+                let mut cache = self.cache.write().map_err(|e| anyhow::anyhow!("Cache write lock poisoned: {e}"))?;
                 cache.insert(h, media_id);
 
                 media_id
@@ -175,7 +178,7 @@ impl MediaStore {
 
         let media_id = self.allocate_media_id();
 
-        let mut entries = self.entries.write().expect("Failed to lock entries");
+        let mut entries = self.entries.write().map_err(|e| anyhow::anyhow!("Entries lock poisoned: {e}"))?;
         entries.insert(media_id, Arc::new(media));
 
         Ok(media_id)
@@ -214,7 +217,10 @@ impl MediaStore {
     }
 
     pub fn update_svg(&self, media_id: MediaId, media: Arc<Media>) {
-        let mut entries = self.entries.write().expect("Failed to lock images");
+        let Ok(mut entries) = self.entries.write() else {
+            log::error!("Failed to acquire entries write lock for update_svg");
+            return;
+        };
         entries.insert(media_id, media);
     }
 
@@ -233,10 +239,13 @@ impl MediaStore {
         let entries = self.entries.read().unwrap_or_else(|e| e.into_inner());
 
         match media_type {
-            MediaType::Svg => entries.get(&DEFAULT_SVG_ID).expect("Failed to get default svg").clone(),
+            MediaType::Svg => entries
+                .get(&DEFAULT_SVG_ID)
+                .expect("default SVG must be present — inserted in MediaStore::new()")
+                .clone(),
             MediaType::Image => entries
                 .get(&DEFAULT_IMAGE_ID)
-                .expect("Failed to get default image")
+                .expect("default image must be present — inserted in MediaStore::new()")
                 .clone(),
         }
     }

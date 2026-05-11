@@ -12,20 +12,25 @@ pub fn cairo_compositor(cr: &cairo::Context, layer_ids: Vec<LayerId>) {
 
 pub fn compose_layer(cr: &cairo::Context, layer_id: LayerId) {
     let binding = get_browser_state();
-    let state = binding.read().expect("Failed to get browser state");
+    let Ok(state) = binding.read() else {
+        log::error!("Failed to acquire browser state lock, skipping cairo compose");
+        return;
+    };
 
     let Some(ref tile_list) = state.tile_list else {
         log::error!("No tile list found");
         return;
     };
 
-    let tile_ids = tile_list
-        .read()
-        .expect("Failed to get tile list")
-        .get_intersecting_tiles(layer_id, state.viewport);
+    let Ok(tile_list_guard) = tile_list.read() else {
+        log::error!("Failed to acquire tile list lock");
+        return;
+    };
+
+    let tile_ids = tile_list_guard.get_intersecting_tiles(layer_id, state.viewport);
+
     for tile_id in tile_ids {
-        let binding = tile_list.read().expect("Failed to get tile list");
-        let Some(tile) = binding.get_tile(tile_id) else {
+        let Some(tile) = tile_list_guard.get_tile(tile_id) else {
             log::warn!("Tile not found: {:?}", tile_id);
             continue;
         };
@@ -36,25 +41,37 @@ pub fn compose_layer(cr: &cairo::Context, layer_id: LayerId) {
         };
 
         let binding = get_texture_store();
-        let texture_store = binding.read().expect("Failed to get texture store");
+        let Ok(texture_store) = binding.read() else {
+            log::error!("Failed to acquire texture store lock for tile {:?}", tile_id);
+            continue;
+        };
 
         let Some(texture) = texture_store.get(texture_id) else {
             log::error!("No texture found for tile: {:?}", tile_id);
             continue;
         };
-        drop(texture_store);
 
-        let surface = ImageSurface::create_for_data(
-            texture.data.clone(), // Expensive, but we need to copy the data onto a new surface
+        let surface = match ImageSurface::create_for_data(
+            texture.data.clone(),
             cairo::Format::ARgb32,
             texture.width as i32,
             texture.height as i32,
             texture.width as i32 * 4,
-        )
-        .expect("Failed to create image surface");
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("Failed to create image surface for tile {:?}: {:?}", tile_id, e);
+                continue;
+            }
+        };
 
         cr.rectangle(tile.rect.x, tile.rect.y, tile.rect.width, tile.rect.height);
-        _ = cr.set_source_surface(surface, tile.rect.x, tile.rect.y);
-        _ = cr.fill();
+        if let Err(e) = cr.set_source_surface(surface, tile.rect.x, tile.rect.y) {
+            log::warn!("Failed to set source surface for tile {:?}: {:?}", tile_id, e);
+            continue;
+        }
+        if let Err(e) = cr.fill() {
+            log::warn!("Failed to fill tile {:?}: {:?}", tile_id, e);
+        }
     }
 }
