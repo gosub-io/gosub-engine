@@ -1,4 +1,6 @@
 pub mod common;
+#[cfg(test)]
+mod tests;
 pub mod compositor;
 pub mod layering;
 #[allow(unused)]

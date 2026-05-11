@@ -137,9 +137,13 @@ where
 
     fn compute_styles(&self, id: NodeId) -> StylePropertyList {
         let sheets = self.doc.stylesheets();
-        let Some(prop_map) = C::CssSystem::properties_from_node::<C>(&self.doc, id, sheets) else {
+        let Some(mut prop_map) = C::CssSystem::properties_from_node::<C>(&self.doc, id, sheets) else {
             return StylePropertyList::new();
         };
+        // Properties are lazily computed; trigger computation before reading values.
+        for (_, prop) in prop_map.iter_mut() {
+            prop.compute_value();
+        }
         build_style_property_list::<C::CssSystem>(&prop_map)
     }
 
@@ -169,9 +173,10 @@ where
     fn node_kind(&self, id: NodeId) -> PipelineNodeKind {
         match self.doc.node_type(id) {
             GosubNodeType::TextNode => PipelineNodeKind::Text,
-            GosubNodeType::CommentNode => PipelineNodeKind::Comment,
+            GosubNodeType::CommentNode | GosubNodeType::DocTypeNode => PipelineNodeKind::Comment,
             GosubNodeType::ElementNode => PipelineNodeKind::Element,
-            _ => PipelineNodeKind::Comment,
+            // DocumentNode is the document root — treat as a transparent container
+            GosubNodeType::DocumentNode => PipelineNodeKind::Element,
         }
     }
 

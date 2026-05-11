@@ -3694,6 +3694,8 @@ dependencies = [
  "cow-utils",
  "csscolorparser 0.7.2",
  "file_type",
+ "gosub_css3",
+ "gosub_html5",
  "gosub_interface",
  "gosub_shared",
  "gtk4",
@@ -3713,6 +3715,7 @@ dependencies = [
  "sha2",
  "skia-safe",
  "taffy 0.7.7",
+ "url",
  "vello 0.4.1",
  "winit",
 ]
