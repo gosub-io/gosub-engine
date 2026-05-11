@@ -51,8 +51,8 @@ fn short(id: &impl std::fmt::Display) -> String {
 async fn main() -> Result<(), EngineError> {
     init_tracing();
 
-    // This should not happen
-    panic("this will trigger a panic");
+    // Commented the panic, as this should not happen
+    // panic("this will trigger a panic");
 
     // Configure the engine through the engine config builder. This will set up the main runtime
     // configuration of the engine. It's possible for some values to be changed at runtime, but
