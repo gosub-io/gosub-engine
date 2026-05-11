@@ -175,7 +175,8 @@ impl LayerList {
             .map(|tag| tag.eq_ignore_ascii_case("img"))
             .unwrap_or(false);
 
-        // When we detect an image, we create a new layer for it
+        // When we detect an image, we create a new layer for it.
+        // TODO: derive layer order from the element's CSS z-index / stacking context instead of 1.
         if is_image {
             let image_layer_id = self.new_layer(1);
             if let Some(mut layers) = self.get_layer_mut(image_layer_id) {

@@ -23,6 +23,8 @@ impl Composable for CairoCompositor {
             return;
         };
 
+        // Invariant: visible_layer_list[i] corresponds to LayerId(i) because layers are
+        // allocated sequentially from 0 in the layering engine and the list is sized to layer_count.
         let layers: Vec<LayerId> = state
             .visible_layer_list
             .iter()

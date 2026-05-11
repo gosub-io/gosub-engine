@@ -5,7 +5,7 @@ use crate::tiler::Tile;
 use gtk4::cairo::Context;
 use resvg::usvg::Transform;
 
-pub(crate) fn do_paint_svg(cr: &Context, _tile: &Tile, rect: &Rectangle, media_id: MediaId) {
+pub(crate) fn do_paint_svg(cr: &Context, tile: &Tile, rect: &Rectangle, media_id: MediaId) {
     log::debug!("Painting SVG: {:?}", media_id);
     let Ok(binding) = get_media_store().read() else {
         log::warn!("Failed to acquire media store lock, skipping SVG paint");
@@ -14,6 +14,8 @@ pub(crate) fn do_paint_svg(cr: &Context, _tile: &Tile, rect: &Rectangle, media_i
     let media = binding.get_svg(media_id);
 
     let target_dim = rect.rect().dimension();
+    let dest_x = rect.rect().x() as f64 - tile.rect.x;
+    let dest_y = rect.rect().y() as f64 - tile.rect.y;
 
     {
         let Ok(cached) = media.svg.rendered.read() else {
@@ -34,20 +36,31 @@ pub(crate) fn do_paint_svg(cr: &Context, _tile: &Tile, rect: &Rectangle, media_i
                     return;
                 }
             };
-            _ = cr.set_source_surface(&surface, 0.0, 0.0);
+            _ = cr.set_source_surface(&surface, dest_x, dest_y);
             _ = cr.paint();
             return;
         }
     }
 
-    // Re-render SVG at the required dimension, then update the cache atomically.
+    // Re-render SVG at the required target dimension with correct scaling.
+    let target_w = (target_dim.width as u32).max(1);
+    let target_h = (target_dim.height as u32).max(1);
+
     let pixmap_size = media.svg.tree.size().to_int_size();
-    let Some(mut pixmap) = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()) else {
+    let sx = target_w as f32 / pixmap_size.width() as f32;
+    let sy = target_h as f32 / pixmap_size.height() as f32;
+
+    let Some(mut pixmap) = resvg::tiny_skia::Pixmap::new(target_w, target_h) else {
         log::warn!("SVG has zero or invalid dimensions, skipping render");
         return;
     };
-    resvg::render(&media.svg.tree, Transform::default(), &mut pixmap.as_mut());
-    let new_data = pixmap.data().to_vec();
+    resvg::render(&media.svg.tree, Transform::from_scale(sx, sy), &mut pixmap.as_mut());
+
+    // tiny_skia produces premultiplied RGBA; Cairo ARgb32 on little-endian expects BGRA.
+    let mut new_data = pixmap.data().to_vec();
+    for chunk in new_data.chunks_exact_mut(4) {
+        chunk.swap(0, 2);
+    }
 
     let Ok(mut cached) = media.svg.rendered.write() else {
         log::warn!("Failed to acquire SVG rendered write lock for {:?}, skipping", media_id);
@@ -70,6 +83,6 @@ pub(crate) fn do_paint_svg(cr: &Context, _tile: &Tile, rect: &Rectangle, media_i
         }
     };
 
-    _ = cr.set_source_surface(&surface, 0.0, 0.0);
+    _ = cr.set_source_surface(&surface, dest_x, dest_y);
     _ = cr.paint();
 }
