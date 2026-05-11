@@ -5,7 +5,6 @@ use crate::render::backend::{
 use crate::render::DisplayItem;
 use anyhow::{anyhow, Result};
 use std::any::Any;
-use std::ptr::NonNull;
 
 /// Cairo backend for rendering using gtk4/cairo graphics library.
 #[derive(Default)]
@@ -123,12 +122,12 @@ impl RenderBackend for CairoBackend {
             });
         }
 
-        let ptr = NonNull::new(s.pixels.as_mut_ptr()).ok_or_else(|| anyhow!("CairoSurface has null pixel buffer"))?;
-        Ok(ExternalHandle::CpuPixelsPtr {
+        Ok(ExternalHandle::CpuPixelsOwned {
             width: s.size.width,
             height: s.size.height,
             stride: s.stride as u32,
-            pixel_buf: ptr,
+            pixels: s.pixels.to_vec(),
+            format: PixelFormat::PreMulArgb32,
         })
     }
 }

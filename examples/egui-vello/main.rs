@@ -2,13 +2,11 @@ use crate::tiling::{
     close_leaf, collect_leaves, compute_layout, find_leaf_at, split_leaf_into_cols, split_leaf_into_rows, LayoutHandle,
     LayoutNode, Rect,
 };
-use crate::wgpu_context_provider::EguiWgpuContextProvider;
 use eframe::{egui, CreationContext};
-use egui::load::SizedTexture;
 use egui::StrokeKind;
 use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
-use gosub_engine::render::backend::ExternalHandle;
+use gosub_engine::render::backends::null::NullBackend;
 use gosub_engine::render::{DefaultCompositor, Viewport};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
@@ -21,9 +19,7 @@ use tokio::runtime::{Builder, Runtime};
 use url::Url;
 use uuid::uuid;
 
-mod compositor;
 mod tiling;
-mod wgpu_context_provider;
 
 /// We use a fixed UUID for the main zone in this example. This allows us to easily
 /// reconnect to the same zone if we restart the app and want to keep cookies/localStorage.
@@ -42,35 +38,31 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 });
 
 struct GosubApp {
+    #[allow(dead_code)]
     engine: GosubEngine,
     zone: Zone,
     root: LayoutHandle,
     active_tab: TabId,
     tabs: HashMap<TabId, TabHandle>,
     last_size: (i32, i32),
-    compositor: Arc<RwLock<DefaultCompositor>>,
     current_url_input: String,
     needs_redraw: bool,
     pointer_pos: (f64, f64),
-    backend_initialized: bool,
-    ctx_provider: Arc<EguiWgpuContextProvider>,
     last_panel_size: egui::Vec2,
+    event_rx: tokio::sync::broadcast::Receiver<EngineEvent>,
 }
 
 impl GosubApp {
-    fn new(cc: &CreationContext) -> Self {
+    fn new(_cc: &CreationContext) -> Self {
         // Enter Tokio so any internal tokio::spawn/time/io in engine works
         let _rt_guard = TOKIO_RT.enter();
 
+        let backend = Arc::new(NullBackend::new().expect("NullBackend::new failed"));
         let compositor = Arc::new(RwLock::new(DefaultCompositor::default()));
 
-        let backend = gosub_engine::render::backends::null::NullBackend::new().expect("NullBackend::new failed");
-        let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
+        let mut engine = GosubEngine::new(None, backend, compositor);
         let _engine_join_handle = engine.start().expect("Engine start failed");
-        let _event_rx = engine.subscribe_events();
-
-        let ctx_provider =
-            Arc::new(EguiWgpuContextProvider::from_eframe(cc).expect("Failed to create EguiWgpuContextProvider"));
+        let event_rx = engine.subscribe_events();
 
         // Setup zone
         let zone_cfg = ZoneConfig::builder()
@@ -100,15 +92,18 @@ impl GosubApp {
 
         let tab = TOKIO_RT
             .block_on(async {
-                zone.create_tab(
-                    TabDefaults {
-                        url: None,
-                        title: Some("New Tab".to_string()),
-                        viewport: Some(Viewport::new(0, 0, DEFAULT_WIDTH, DEFAULT_HEIGHT)),
-                    },
-                    None,
-                )
-                .await
+                let tab = zone
+                    .create_tab(
+                        TabDefaults {
+                            url: None,
+                            title: Some("New Tab".to_string()),
+                            viewport: Some(Viewport::new(0, 0, DEFAULT_WIDTH, DEFAULT_HEIGHT)),
+                        },
+                        None,
+                    )
+                    .await?;
+                let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
+                Ok::<TabHandle, gosub_engine::EngineError>(tab)
             })
             .expect("create_tab failed");
 
@@ -125,17 +120,15 @@ impl GosubApp {
             active_tab,
             tabs,
             last_size: (DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
-            compositor,
             current_url_input: String::new(),
             needs_redraw: true,
             pointer_pos: (0.0, 0.0),
-            backend_initialized: false,
-            ctx_provider,
             last_panel_size: egui::Vec2::ZERO,
+            event_rx,
         }
     }
 
-    fn handle_navigation(&mut self) {
+    fn handle_navigation(&mut self, ctx: egui::Context) {
         let composed_url = self.current_url_input.clone();
 
         let url_str = if !composed_url.starts_with("http://") && !composed_url.starts_with("https://") {
@@ -152,6 +145,8 @@ impl GosubApp {
         if let Some(tab) = self.tabs.get(&tab_id).cloned() {
             TOKIO_RT.spawn(async move {
                 let _ = tab.navigate(url.as_str()).await;
+                let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+                ctx.request_repaint();
             });
         }
         self.needs_redraw = true;
@@ -160,14 +155,21 @@ impl GosubApp {
     fn handle_split_col(&mut self) {
         let (w, h) = self.last_size;
         let new_tab = TOKIO_RT
-            .block_on(self.zone.create_tab(
-                TabDefaults {
-                    url: None,
-                    title: Some("New Tab".to_string()),
-                    viewport: Some(Viewport::new(0, 0, (w / 2).max(1) as u32, h as u32)),
-                },
-                None,
-            ))
+            .block_on(async {
+                let tab = self
+                    .zone
+                    .create_tab(
+                        TabDefaults {
+                            url: None,
+                            title: Some("New Tab".to_string()),
+                            viewport: Some(Viewport::new(0, 0, (w / 2).max(1) as u32, h as u32)),
+                        },
+                        None,
+                    )
+                    .await?;
+                let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
+                Ok::<TabHandle, gosub_engine::EngineError>(tab)
+            })
             .expect("create_tab failed");
 
         let new_id = new_tab.tab_id;
@@ -191,14 +193,21 @@ impl GosubApp {
     fn handle_split_row(&mut self) {
         let (w, h) = self.last_size;
         let new_tab = TOKIO_RT
-            .block_on(self.zone.create_tab(
-                TabDefaults {
-                    url: None,
-                    title: Some("New Tab".to_string()),
-                    viewport: Some(Viewport::new(0, 0, w as u32, (h / 2).max(1) as u32)),
-                },
-                None,
-            ))
+            .block_on(async {
+                let tab = self
+                    .zone
+                    .create_tab(
+                        TabDefaults {
+                            url: None,
+                            title: Some("New Tab".to_string()),
+                            viewport: Some(Viewport::new(0, 0, w as u32, (h / 2).max(1) as u32)),
+                        },
+                        None,
+                    )
+                    .await?;
+                let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
+                Ok::<TabHandle, gosub_engine::EngineError>(tab)
+            })
             .expect("create_tab failed");
 
         let new_id = new_tab.tab_id;
@@ -276,24 +285,12 @@ impl GosubApp {
             self.needs_redraw = true;
         }
     }
-
-    fn init_vello_backend(&mut self) {
-        if self.backend_initialized {
-            return;
-        }
-        // TODO: swap the null backend for a real Vello backend once the engine supports
-        // replacing the backend after construction.
-        self.backend_initialized = true;
-        self.needs_redraw = true;
-    }
 }
 
 impl eframe::App for GosubApp {
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
-
-        self.init_vello_backend();
 
         ctx.global_style_mut(|style| {
             style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 16.0;
@@ -316,14 +313,14 @@ impl eframe::App for GosubApp {
         }
 
         // Drain engine events to check for redraws / page loads
-        let mut event_rx = self.engine.subscribe_events();
-        while let Ok(ev) = event_rx.try_recv() {
+        while let Ok(ev) = self.event_rx.try_recv() {
             if let EngineEvent::Navigation {
                 event: NavigationEvent::Finished { .. },
                 ..
             } = ev
             {
                 self.needs_redraw = true;
+                ctx.request_repaint();
             }
         }
 
@@ -341,7 +338,7 @@ impl eframe::App for GosubApp {
                     );
 
                     if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        self.handle_navigation();
+                        self.handle_navigation(ctx.clone());
                     }
                 });
             });
@@ -379,39 +376,41 @@ impl eframe::App for GosubApp {
             for (tab_id, rect) in pairs {
                 let is_active = tab_id == active_tab_id;
 
-                if let Some(handle) = self.compositor.read().unwrap().frame_for(tab_id) {
-                    let rect_ui = egui::Rect::from_min_max(
-                        egui::pos2(rect.x as f32, rect.y as f32),
-                        egui::pos2(rect.w as f32, rect.h as f32),
-                    );
+                let rect_ui = egui::Rect::from_min_max(
+                    egui::pos2(rect.x as f32, rect.y as f32),
+                    egui::pos2((rect.x + rect.w) as f32, (rect.y + rect.h) as f32),
+                );
 
-                    match handle {
-                        ExternalHandle::WgpuTextureId { id, width, height, .. } => {
-                            let (_, view) = self.ctx_provider.get_texture(id).unwrap();
+                let source = self
+                    .tabs
+                    .get(&tab_id)
+                    .and_then(|t| t.sink.source_html.read().ok()?.clone());
 
-                            let mut renderer = frame.wgpu_render_state().unwrap().renderer.write();
-                            let device = &frame.wgpu_render_state().unwrap().device;
+                ui.painter().rect_filled(rect_ui, 0.0, egui::Color32::WHITE);
+                ui.scope_builder(egui::UiBuilder::new().max_rect(rect_ui), |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt(tab_id)
+                        .max_height(rect_ui.height())
+                        .show(ui, |ui| {
+                            if let Some(html) = source {
+                                ui.add(egui::Label::new(egui::RichText::new(html).monospace().size(12.0)).wrap());
+                            } else {
+                                ui.label(
+                                    egui::RichText::new("No page loaded")
+                                        .italics()
+                                        .color(egui::Color32::GRAY),
+                                );
+                            }
+                        });
+                });
 
-                            let tid =
-                                renderer.register_native_texture(device, &view, eframe::wgpu::FilterMode::Nearest);
-
-                            let size_points = egui::Vec2::new((width - 25) as f32, (height - 25) as f32);
-                            ui.add(egui::Image::new(SizedTexture::new(tid, size_points)));
-                        }
-                        _ => {
-                            eprintln!("Unsupported handle type for tab {:?}: {:?}", tab_id, handle);
-                        }
-                    }
-
-                    let col = if is_active {
-                        egui::Color32::YELLOW
-                    } else {
-                        egui::Color32::DARK_GRAY
-                    };
-
-                    ui.painter()
-                        .rect_stroke(rect_ui, 0.0, egui::Stroke::new(1.0, col), StrokeKind::Outside);
-                }
+                let col = if is_active {
+                    egui::Color32::YELLOW
+                } else {
+                    egui::Color32::DARK_GRAY
+                };
+                ui.painter()
+                    .rect_stroke(rect_ui, 0.0, egui::Stroke::new(2.0, col), StrokeKind::Outside);
             }
 
             if self.needs_redraw {

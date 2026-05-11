@@ -1,4 +1,5 @@
 use eframe::wgpu;
+use gosub_engine::render::backends::vello::WgpuContextProvider;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -73,5 +74,27 @@ impl EguiWgpuContextProvider {
     pub fn remove_texture(&self, id: u64) {
         let mut textures_lock = self.textures.write().unwrap();
         textures_lock.remove(&id);
+    }
+}
+
+impl WgpuContextProvider for EguiWgpuContextProvider {
+    fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    fn create_texture(&self, width: u32, height: u32, format: wgpu::TextureFormat) -> u64 {
+        EguiWgpuContextProvider::create_texture(self, width, height, format)
+    }
+
+    fn get_texture(&self, id: u64) -> Option<(wgpu::Texture, wgpu::TextureView)> {
+        EguiWgpuContextProvider::get_texture(self, id)
+    }
+
+    fn remove_texture(&self, id: u64) {
+        EguiWgpuContextProvider::remove_texture(self, id)
     }
 }

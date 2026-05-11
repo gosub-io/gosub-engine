@@ -18,7 +18,11 @@ pub use gosub_taffy::TaffyLayouter;
 
 pub use gosub_vello::VelloBackend;
 
+#[cfg(unix)]
 pub use gosub_cairo::render::window::ActiveWindowData;
+#[cfg(unix)]
 pub use gosub_cairo::render::window::WindowData;
+#[cfg(unix)]
 pub use gosub_cairo::CairoBackend;
+#[cfg(unix)]
 pub use gosub_cairo::Scene;

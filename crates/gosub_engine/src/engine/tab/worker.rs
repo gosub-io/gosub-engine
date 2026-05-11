@@ -282,6 +282,7 @@ impl TabWorker {
     fn handle_internal_command(&mut self, cmd: TabInternalCommand) {
         match cmd {
             TabInternalCommand::SetDocument { doc } => {
+                self.sink.set_source_html(doc.raw_html.clone());
                 self.context.set_document(doc);
                 self.runtime.dirty = true;
             }

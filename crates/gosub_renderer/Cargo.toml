@@ -16,7 +16,6 @@ anyhow = "1.0.102"
 image = "0.25.10"
 url = "2.5.8"
 log = "0.4.29"
-pango = "0.22.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = "0.3.91"
