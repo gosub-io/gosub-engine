@@ -6,8 +6,9 @@ use crate::render::backends::vello::font_manager::FontManager;
 use crate::render::backends::vello::text_renderer::{TextKey, TextRenderer};
 use crate::render::DisplayItem;
 use anyhow::{anyhow, Result};
+use parking_lot::Mutex;
 use std::any::Any;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use vello::kurbo::Affine;
 use vello::peniko::{Color, Fill};
 use vello::wgpu;
@@ -59,7 +60,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
             .get_texture(surface.texture_store_id)
             .expect("invalid texture id in VelloSurface");
 
-        self.renderer.lock().unwrap().render_to_texture(
+        self.renderer.lock().render_to_texture(
             self.context.device(),
             self.context.queue(),
             scene,
@@ -168,9 +169,9 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
 
         // Generate a scene which contains the gpu render commands
         let scene = {
-            let mut tr = self.text_renderer.lock().unwrap();
-            let mut fm = self.font_manager.lock().unwrap();
-            let mut fc = self.font_cache.lock().unwrap();
+            let mut tr = self.text_renderer.lock();
+            let mut fm = self.font_manager.lock();
+            let mut fc = self.font_cache.lock();
             self.convert_browsing_context_to_scene(&mut tr, &mut fm, &mut fc, ctx)?
         };
 
