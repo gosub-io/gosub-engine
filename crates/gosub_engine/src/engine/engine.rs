@@ -94,7 +94,8 @@ impl GosubEngine {
     ///
     /// ```
     /// # use gosub_engine as ge;
-    /// # use std::sync::{Arc, RwLock};
+    /// # use std::sync::Arc;
+    /// # use parking_lot::RwLock;
     /// let backend = ge::render::backends::null::NullBackend::new().unwrap();
     /// let compositor = ge::render::DefaultCompositor::default();
     /// let engine = ge::GosubEngine::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
