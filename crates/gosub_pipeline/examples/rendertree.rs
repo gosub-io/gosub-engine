@@ -14,6 +14,7 @@ use gosub_interface::document::Document as _;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use url::Url;
 
+use cow_utils::CowUtils;
 use gosub_pipeline::common::document::node::NodeType;
 use gosub_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
 use gosub_pipeline::common::document::style::{StyleProperty, StyleValue, Unit};
@@ -160,7 +161,7 @@ fn fmt_value(v: &StyleValue) -> String {
         StyleValue::Unit(n, Unit::Rem) => format!("{n}rem"),
         StyleValue::Number(n) => format!("{n}"),
         StyleValue::Keyword(k) => k.clone(),
-        StyleValue::Display(d) => format!("{d:?}").to_ascii_lowercase(),
+        StyleValue::Display(d) => format!("{d:?}").cow_to_ascii_lowercase().into_owned(),
         StyleValue::Color(c) => format!("{c:?}"),
         _ => format!("{v:?}"),
     }

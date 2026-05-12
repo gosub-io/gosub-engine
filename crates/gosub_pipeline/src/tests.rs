@@ -79,7 +79,7 @@ mod rendertree_from_engine {
         // Walk every render node and confirm none map to an element that has
         // id="hidden" or is a descendant of it.
         let doc_ref = rt.doc.clone();
-        for (render_id, _render_node) in &rt.arena {
+        for render_id in rt.arena.keys() {
             if let Some(node) = doc_ref.get_node_by_id(gosub_shared::node::NodeId::from(*render_id)) {
                 use crate::common::document::node::NodeType;
                 if let NodeType::Element(data) = &node.node_type {
@@ -110,13 +110,14 @@ mod rendertree_from_engine {
         let rt = parse_to_rendertree(html);
         let doc_ref = rt.doc.clone();
 
-        for (render_id, _) in &rt.arena {
+        for render_id in rt.arena.keys() {
             if let Some(node) = doc_ref.get_node_by_id(gosub_shared::node::NodeId::from(*render_id)) {
                 use crate::common::document::node::NodeType;
                 if let NodeType::Element(data) = &node.node_type {
-                    let tag = data.tag_name.to_ascii_lowercase();
+                    use cow_utils::CowUtils;
+                    let tag = data.tag_name.cow_to_ascii_lowercase();
                     assert!(
-                        !matches!(tag.as_str(), "head" | "style" | "script" | "title"),
+                        !matches!(&*tag, "head" | "style" | "script" | "title"),
                         "invisible element <{tag}> must not appear in render tree"
                     );
                 }

@@ -148,12 +148,11 @@ where
     }
 
     fn find_child_by_tag(&self, parent: NodeId, tag: &str) -> Option<NodeId> {
-        for &child in self.doc.children(parent) {
-            if self.doc.tag_name(child).map_or(false, |t| t.eq_ignore_ascii_case(tag)) {
-                return Some(child);
-            }
-        }
-        None
+        self.doc
+            .children(parent)
+            .iter()
+            .find(|&&child| self.doc.tag_name(child).is_some_and(|t| t.eq_ignore_ascii_case(tag)))
+            .copied()
     }
 }
 
@@ -255,7 +254,12 @@ where
             _ => return None,
         };
 
-        Some(Node { node_id: id, parent_id, children, node_type })
+        Some(Node {
+            node_id: id,
+            parent_id,
+            children,
+            node_type,
+        })
     }
 }
 
