@@ -8,7 +8,8 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream;
 use http::Method;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use tokio::io::AsyncRead;
 use tokio::task::JoinHandle;
 use tokio_util::io::StreamReader;
@@ -97,7 +98,7 @@ impl HtmlPipelineImpl {
             let join_handle = tokio::spawn(async move {
                 match submit_to_io(zone_id, sub_req, io_tx_cloned, Some(parent_cancel_cloned)).await {
                     Ok((child_handle, rx)) => {
-                        child_handles.lock().unwrap().push(child_handle);
+                        child_handles.lock().push(child_handle);
 
                         let _ = rx.await;
                     }
@@ -107,7 +108,7 @@ impl HtmlPipelineImpl {
                 }
             });
 
-            child_tasks.lock().unwrap().push(join_handle);
+            child_tasks.lock().push(join_handle);
         };
 
         let was_cancelled = handle.cancel.is_cancelled();
@@ -130,7 +131,7 @@ impl HtmlPipelineImpl {
         // On error or parent cancellation, also await all child tasks to clean up.
         if was_cancelled || res.is_err() {
             let joins: Vec<JoinHandle<()>> = {
-                let mut g = child_tasks.lock().unwrap();
+                let mut g = child_tasks.lock();
                 std::mem::take(&mut *g)
             };
 
@@ -248,7 +249,7 @@ mod tests {
                         reply_tx,
                     } => {
                         // record the child handle so tests can inspect cancellation state later
-                        seen_children_clone.lock().unwrap().push(handle);
+                        seen_children_clone.lock().push(handle);
                         // drop the sender to unblock the pipeline's `rx.await` without crafting a FetchResult
                         drop(reply_tx);
                     }
@@ -287,7 +288,7 @@ mod tests {
         assert_eq!(doc.title.as_deref(), Some("Hello World"));
 
         // Assert: 3 subresources were submitted (stylesheet, script, image)
-        let count = seen_children.lock().unwrap().len();
+        let count = seen_children.lock().len();
         assert_eq!(count, 3, "expected 3 subresource fetches, saw {}", count);
     }
 
@@ -309,7 +310,7 @@ mod tests {
         sleep(Duration::from_millis(10)).await;
 
         // Assert: all recorded children are canceled (pipeline proactively cancels them at end)
-        let children = seen_children.lock().unwrap();
+        let children = seen_children.lock();
         assert!(!children.is_empty(), "expected subresource children to be recorded");
         for h in children.iter() {
             assert!(

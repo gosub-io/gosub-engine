@@ -1,8 +1,8 @@
 extern crate proc_macro;
 
+use parking_lot::RwLock;
 use proc_macro::TokenStream;
 use std::collections::HashMap;
-use std::sync::RwLock;
 
 use crate::function::Function;
 use crate::impl_function::impl_js_functions;
@@ -61,7 +61,7 @@ pub fn web_interop(args: TokenStream, item: TokenStream) -> TokenStream {
     let extend = impl_interop_struct(input.ident.clone(), &fields, js_name);
 
     let name = input.ident.clone().into_token_stream().to_string();
-    STATE.write().unwrap().insert((crate_name(), name), 0);
+    STATE.write().insert((crate_name(), name), 0);
 
     let mut out = input.into_token_stream();
     out.extend(extend);

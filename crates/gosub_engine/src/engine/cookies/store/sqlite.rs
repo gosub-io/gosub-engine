@@ -31,9 +31,10 @@
 //! let zone_id = engine.zone().cookie_store(store).create()?;
 //! ```
 
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::rusqlite::params;
@@ -96,7 +97,7 @@ impl SqliteCookieStore {
         });
 
         {
-            let mut self_ref = store.store_self.write().unwrap();
+            let mut self_ref = store.store_self.write();
             *self_ref = Some(CookieStoreHandle::from(store.clone()));
         }
 
@@ -213,7 +214,7 @@ impl CookieStore for SqliteCookieStore {
     ///   (via `store_self`) so that subsequent mutations persist automatically.
     fn jar_for(&self, zone_id: ZoneId) -> Option<CookieJarHandle> {
         {
-            let jars = self.jars.read().unwrap();
+            let jars = self.jars.read();
             if let Some(jar) = jars.get(&zone_id) {
                 return Some(jar.clone());
             }
@@ -222,13 +223,13 @@ impl CookieStore for SqliteCookieStore {
         let jar = self.load_zone(zone_id);
         let arc_jar: CookieJarHandle = jar.into();
 
-        let store_ref = self.store_self.read().unwrap();
+        let store_ref = self.store_self.read();
         let store = store_ref.as_ref().expect("store_self not initialized").clone();
 
         let persistent = PersistentCookieJar::new(zone_id, arc_jar.clone(), store);
         let handle = CookieJarHandle::new(persistent);
 
-        self.jars.write().unwrap().insert(zone_id, handle.clone());
+        self.jars.write().insert(zone_id, handle.clone());
 
         Some(handle)
     }
@@ -242,7 +243,7 @@ impl CookieStore for SqliteCookieStore {
 
     /// Removes `zone_id` from both the in-memory cache and the database.
     fn remove_zone(&self, zone_id: ZoneId) {
-        self.jars.write().unwrap().remove(&zone_id);
+        self.jars.write().remove(&zone_id);
         self.remove_zone_from_db(zone_id);
     }
 
@@ -251,7 +252,7 @@ impl CookieStore for SqliteCookieStore {
     /// Only jars of type [`PersistentCookieJar`] that wrap a [`DefaultCookieJar`]
     /// are snapshotted here to keep the on-disk format stable.
     fn persist_all(&self) {
-        let jars = self.jars.read().unwrap();
+        let jars = self.jars.read();
 
         for (zone_id, jar_handle) in jars.iter() {
             let jar = jar_handle.read();

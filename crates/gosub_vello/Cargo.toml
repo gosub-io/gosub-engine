@@ -8,6 +8,7 @@ description = "Vello rendering backend for Gosub"
 
 [dependencies]
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
+parking_lot = "0.12"
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
 gosub_engine = { version = "0.1.0", path = "../gosub_engine" }
 gosub_html5 = { version = "0.1.1", registry = "gosub", path = "../gosub_html5", optional = true }

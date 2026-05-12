@@ -1,7 +1,8 @@
 use eframe::wgpu;
 use gosub_engine::render::backends::vello::WgpuContextProvider;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 /// Helper that holds eframe's wgpu device/queue and manages textures for the egui renderer.
 pub struct EguiWgpuContextProvider {
@@ -53,12 +54,12 @@ impl EguiWgpuContextProvider {
 
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut id_lock = self.next_texture_id.write().unwrap();
+        let mut id_lock = self.next_texture_id.write();
         let texture_store_id = *id_lock;
         *id_lock = id_lock.wrapping_add(1).max(1);
         drop(id_lock);
 
-        let mut textures_lock = self.textures.write().unwrap();
+        let mut textures_lock = self.textures.write();
         textures_lock.insert(texture_store_id, (texture, texture_view));
         drop(textures_lock);
 
@@ -66,13 +67,13 @@ impl EguiWgpuContextProvider {
     }
 
     pub fn get_texture(&self, id: u64) -> Option<(wgpu::Texture, wgpu::TextureView)> {
-        let textures_lock = self.textures.read().unwrap();
+        let textures_lock = self.textures.read();
         textures_lock.get(&id).map(|(tex, view)| (tex.clone(), view.clone()))
     }
 
     #[allow(dead_code)]
     pub fn remove_texture(&self, id: u64) {
-        let mut textures_lock = self.textures.write().unwrap();
+        let mut textures_lock = self.textures.write();
         textures_lock.remove(&id);
     }
 }

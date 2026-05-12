@@ -19,10 +19,11 @@ use bytes::Bytes;
 use futures_core::stream::BoxStream;
 use futures_core::Stream;
 use futures_util::{stream, StreamExt, TryStreamExt};
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -111,7 +112,7 @@ impl SharedBody {
     ///   additional pushes are ignored.
     pub fn push(&self, chunk: Bytes) {
         let (subs, mut to_remove) = {
-            let st = self.inner.lock().unwrap();
+            let st = self.inner.lock();
             if st.closed {
                 return;
             }
@@ -139,7 +140,7 @@ impl SharedBody {
 
         // Remove any subscribers that are placed on the remove list
         if !to_remove.is_empty() {
-            let mut st = self.inner.lock().unwrap();
+            let mut st = self.inner.lock();
             for id in &to_remove {
                 st.subs.remove(id);
             }
@@ -155,7 +156,7 @@ impl SharedBody {
     pub fn error(&self, e: NetError) {
         // drain and drop under lock; send error outside the lock
         let senders: Vec<mpsc::Sender<Result<Bytes, NetError>>> = {
-            let mut st = self.inner.lock().unwrap();
+            let mut st = self.inner.lock();
             if st.closed {
                 return;
             }
@@ -175,7 +176,7 @@ impl SharedBody {
     pub fn finish(&self) {
         // closed -> drop all senders so receivers see EOF
         let _dropped: Vec<mpsc::Sender<Result<Bytes, NetError>>> = {
-            let mut st = self.inner.lock().unwrap();
+            let mut st = self.inner.lock();
             if st.closed {
                 return;
             }
@@ -194,7 +195,7 @@ impl SharedBody {
     /// default capacity configured at `SharedBody` creation.
     pub fn subscribe_with_cap(&self, max_queue: usize) -> BoxStream<'static, Result<Bytes, NetError>> {
         let (maybe_rx, id_opt) = {
-            let mut st = self.inner.lock().unwrap();
+            let mut st = self.inner.lock();
             if st.closed {
                 return stream::empty::<Result<Bytes, NetError>>().boxed();
             }
@@ -221,7 +222,7 @@ impl SharedBody {
     /// The capacity is the `max_queue` value that was provided to [`new`](Self::new).
     pub fn subscribe_stream(&self) -> BoxStream<'static, Result<Bytes, NetError>> {
         let cap = {
-            let st = self.inner.lock().unwrap();
+            let st = self.inner.lock();
             st.max_queue
         };
 
@@ -474,9 +475,7 @@ impl Stream for SubStream {
 
 impl Drop for SubStream {
     fn drop(&mut self) {
-        if let Ok(mut st) = self.parent.lock() {
-            st.subs.remove(&self.id);
-        }
+        self.parent.lock().subs.remove(&self.id);
     }
 }
 

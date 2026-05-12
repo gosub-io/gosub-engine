@@ -16,13 +16,13 @@
 //! // Acquire cookies for a request
 //! let jar = zone.cookie_jar(); // -> CookieJarHandle
 //! let cookies_header = {
-//!     let guard = jar.read().unwrap();
+//!     let guard = jar.read();
 //!     guard.get_request_cookies(&url)
 //! };
 //!
 //! // Store cookies from a response
 //! {
-//!     let mut guard = jar.write().unwrap();
+//!     let mut guard = jar.write();
 //!     guard.store_response_cookies(&url, &headers);
 //! }
 //! ```
@@ -49,10 +49,11 @@ use crate::cookies::DefaultCookieJar;
 use crate::engine::cookies::store::CookieStore;
 use crate::engine::cookies::CookieJar;
 use crate::zone::ZoneId;
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::ops::Deref;
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::Arc;
 
 /// A handle to a cookie jar trait.
 ///
@@ -64,10 +65,10 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 /// ```ignore,no_run
 /// let jar: CookieJarHandle = zone.cookie_jar();
 /// {
-///     let cookies = jar.read().unwrap().get_request_cookies(&url);
+///     let cookies = jar.read().get_request_cookies(&url);
 /// }
 /// {
-///     let mut guard = jar.write().unwrap();
+///     let mut guard = jar.write();
 ///     guard.clear();
 /// }
 /// ```
@@ -103,10 +104,10 @@ impl CookieJarHandle {
     }
 
     pub fn read(&self) -> RwLockReadGuard<'_, Box<dyn CookieJar + Send + Sync>> {
-        self.0.read().expect("poisoned CookieJarHandle")
+        self.0.read()
     }
     pub fn write(&self) -> RwLockWriteGuard<'_, Box<dyn CookieJar + Send + Sync>> {
-        self.0.write().expect("poisoned CookieJarHandle")
+        self.0.write()
     }
 }
 

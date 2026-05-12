@@ -17,7 +17,8 @@ use gosub_engine::{
     zone::{ZoneConfig, ZoneServices},
     Action, EngineConfig, EngineError, GosubEngine,
 };
-use std::sync::{Arc, RwLock};
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), EngineError> {

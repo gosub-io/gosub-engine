@@ -1,8 +1,9 @@
 use crate::font_manager::font_info::FontInfo;
 use gosub_interface::font::FontStyle;
 use lazy_static::lazy_static;
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 lazy_static! {
     pub static ref FONT_CACHE: Arc<Mutex<MemoryCache>> = Arc::new(Mutex::new(MemoryCache::new()));

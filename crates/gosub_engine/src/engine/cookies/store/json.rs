@@ -29,11 +29,12 @@
 //! // New zones will receive a PersistentCookieJar minted by this store.
 //! let zone_id = engine.zone().cookie_store(store).create()?;
 //! ```
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use crate::engine::cookies::cookie_jar::DefaultCookieJar;
 use crate::engine::cookies::persistent_cookie_jar::PersistentCookieJar;
@@ -90,7 +91,7 @@ impl JsonCookieStore {
             store_self: RwLock::new(None),
         });
 
-        *store.store_self.write().unwrap() = Some(CookieStoreHandle::from(store.clone()));
+        *store.store_self.write() = Some(CookieStoreHandle::from(store.clone()));
         store
     }
 
@@ -136,7 +137,7 @@ impl CookieStore for JsonCookieStore {
     /// that may intentionally refuse provisioning.
     fn jar_for(&self, zone_id: ZoneId) -> Option<CookieJarHandle> {
         // Fast path: already in memory
-        if let Some(jar) = self.jars.read().unwrap().get(&zone_id) {
+        if let Some(jar) = self.jars.read().get(&zone_id) {
             return Some(jar.clone());
         }
 
@@ -148,7 +149,6 @@ impl CookieStore for JsonCookieStore {
         let store = self
             .store_self
             .read()
-            .unwrap()
             .as_ref()
             .expect("store_self not initialized")
             .clone();
@@ -157,7 +157,7 @@ impl CookieStore for JsonCookieStore {
         let persistent = PersistentCookieJar::new(zone_id, arc_jar.clone(), store);
         let handle = CookieJarHandle::new(persistent);
 
-        self.jars.write().unwrap().insert(zone_id, handle.clone());
+        self.jars.write().insert(zone_id, handle.clone());
         Some(handle)
     }
 
@@ -179,7 +179,7 @@ impl CookieStore for JsonCookieStore {
     /// # Panics
     /// Panics on I/O/serialization errors while updating the file.
     fn remove_zone(&self, zone_id: ZoneId) {
-        self.jars.write().unwrap().remove(&zone_id);
+        self.jars.write().remove(&zone_id);
 
         let mut file = self.load_file();
         file.zones.remove(&zone_id);
@@ -194,7 +194,7 @@ impl CookieStore for JsonCookieStore {
     /// # Panics
     /// Panics on I/O/serialization errors while writing the file.
     fn persist_all(&self) {
-        let jars = self.jars.read().unwrap();
+        let jars = self.jars.read();
 
         let mut file = self.load_file();
         for (zone_id, jar_handle) in jars.iter() {

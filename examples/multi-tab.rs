@@ -13,11 +13,12 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
+use parking_lot::RwLock;
 use rand::prelude::IndexedRandom;
 use rand::rng;
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 

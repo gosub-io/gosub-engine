@@ -2,10 +2,10 @@ use crate::settings::Setting;
 use crate::StorageAdapter;
 use gosub_shared::types::Result;
 use log::warn;
+use parking_lot::Mutex;
 use rusqlite::{named_params, Connection};
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::Mutex;
 
 pub struct SqliteStorageAdapter {
     connection: Mutex<Connection>,
@@ -32,7 +32,7 @@ impl TryFrom<&String> for SqliteStorageAdapter {
 
 impl StorageAdapter for SqliteStorageAdapter {
     fn get(&self, key: &str) -> Option<Setting> {
-        let db_lock = self.connection.lock().unwrap();
+        let db_lock = self.connection.lock();
 
         let query = "SELECT value FROM settings WHERE key = :key";
         let mut statement = db_lock.prepare(query).unwrap();
@@ -50,7 +50,7 @@ impl StorageAdapter for SqliteStorageAdapter {
     }
 
     fn set(&self, key: &str, value: Setting) {
-        let db_lock = self.connection.lock().unwrap();
+        let db_lock = self.connection.lock();
 
         let query = "INSERT OR REPLACE INTO settings (key, value) VALUES (:key, :value)";
         let mut statement = db_lock.prepare(query).unwrap();
@@ -65,7 +65,7 @@ impl StorageAdapter for SqliteStorageAdapter {
     fn all(&self) -> Result<HashMap<String, Setting>> {
         let mut settings = HashMap::new();
 
-        let db_lock = self.connection.lock().unwrap();
+        let db_lock = self.connection.lock();
         let query = "SELECT id,key,value FROM settings";
         let mut statement = db_lock.prepare(query).unwrap();
 

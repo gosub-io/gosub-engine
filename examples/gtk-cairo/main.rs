@@ -17,10 +17,11 @@ use gtk4::{
     glib, Application, ApplicationWindow, Box as GtkBox, Button, DrawingArea, Entry, EventControllerMotion, Orientation,
 };
 use once_cell::sync::Lazy;
+use parking_lot::RwLock;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
 use url::Url;
 use uuid::uuid;
@@ -345,7 +346,7 @@ fn main() {
 
             // Iterate all the tabs and draw their surfaces
             for (tab_id, r) in &pairs {
-                if let Some(handle) = compositor_draw.read().unwrap().frame_for(*tab_id) {
+                if let Some(handle) = compositor_draw.read().frame_for(*tab_id) {
                     match handle {
                         ExternalHandle::CpuPixelsPtr {
                             width,

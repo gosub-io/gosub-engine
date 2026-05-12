@@ -61,7 +61,7 @@
 //! let mut engine_handle = GosubEngine::new(
 //!     None,
 //!     Arc::new(backend),
-//!     Arc::new(std::sync::RwLock::new(compositor)),
+//!     Arc::new(parking_lot::RwLock::new(compositor)),
 //! );
 //!
 //! // 4) Attach storage via ZoneServices and create the zone

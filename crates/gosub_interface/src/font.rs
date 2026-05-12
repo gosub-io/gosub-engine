@@ -1,6 +1,7 @@
+use parking_lot::RwLock;
 use std::fmt::{Debug, Formatter};
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct FontBlob {

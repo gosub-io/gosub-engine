@@ -1,5 +1,6 @@
+use parking_lot::Mutex;
 use std::io::Cursor;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 
 use crate::draw::img_cache::ImageCache;
 use anyhow::anyhow;
@@ -81,9 +82,7 @@ async fn load_img<B: RenderBackend>(
 
         let svg = <B::SVGRenderer as SvgRenderer<B>>::parse_external(svg)?;
 
-        let mut svg_renderer = svg_renderer
-            .lock()
-            .map_err(|_| anyhow!("Could not lock svg renderer"))?;
+        let mut svg_renderer = svg_renderer.lock();
 
         if let Some(size) = size {
             svg_renderer.render_with_size(&svg, size)?

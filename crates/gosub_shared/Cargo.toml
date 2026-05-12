@@ -7,6 +7,7 @@ license = "MIT"
 description = "Gosub shared code"
 
 [dependencies]
+parking_lot = "0.12"
 chardet = "0.2.4"
 thiserror = "2.0.18"
 url = "2.5.8"

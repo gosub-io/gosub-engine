@@ -1,7 +1,8 @@
+use parking_lot::Mutex;
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use vello::kurbo::Affine;
@@ -91,7 +92,7 @@ impl EngineRenderBackend for VelloEngineBackend {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        self.textures.lock().unwrap().insert(id, (texture, view));
+        self.textures.lock().insert(id, (texture, view));
 
         Ok(Box::new(VelloEngineSurface { id, size, frame_id: 0 }))
     }
@@ -137,14 +138,13 @@ impl EngineRenderBackend for VelloEngineBackend {
             }
         }
 
-        let textures = self.textures.lock().unwrap();
+        let textures = self.textures.lock();
         let (_, view) = textures
             .get(&s.id)
             .ok_or_else(|| anyhow!("VelloEngineBackend: invalid surface id {}", s.id))?;
 
         self.renderer
             .lock()
-            .unwrap()
             .render_to_texture(
                 &self.instance_adapter.device,
                 &self.instance_adapter.queue,
@@ -185,6 +185,6 @@ impl EngineRenderBackend for VelloEngineBackend {
 
 impl Drop for VelloEngineBackend {
     fn drop(&mut self) {
-        self.textures.lock().unwrap().clear();
+        self.textures.lock().clear();
     }
 }

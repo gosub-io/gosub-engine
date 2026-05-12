@@ -31,8 +31,9 @@ use crate::util::spawn_named;
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineConfig, EngineError};
 use anyhow::Result;
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
@@ -93,7 +94,8 @@ impl GosubEngine {
     ///
     /// ```
     /// # use gosub_engine as ge;
-    /// # use std::sync::{Arc, RwLock};
+    /// # use std::sync::Arc;
+    /// # use parking_lot::RwLock;
     /// let backend = ge::render::backends::null::NullBackend::new().unwrap();
     /// let compositor = ge::render::DefaultCompositor::default();
     /// let engine = ge::GosubEngine::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
@@ -139,7 +141,7 @@ impl GosubEngine {
         let io_handle = spawn_io_thread(io_cfg, self.context.clone());
         let io_tx = io_handle.subscribe();
         {
-            let mut guard = self.context.io_tx.write().unwrap();
+            let mut guard = self.context.io_tx.write();
             *guard = Some(io_tx);
         }
         self.io_handle = Some(io_handle);

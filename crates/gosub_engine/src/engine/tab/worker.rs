@@ -403,7 +403,7 @@ impl TabWorker {
         });
 
         {
-            let mut guard = self.zone_context.request_reference_map.write().unwrap();
+            let mut guard = self.zone_context.request_reference_map.write();
             guard.insert(RequestReference::Navigation(nav_id), self.tab_id);
         }
 
@@ -618,7 +618,7 @@ impl TabWorker {
         if let Some(ref mut surf) = self.surface {
             render_backend.render(&mut self.context, surf.as_mut())?;
             if let Ok(handle) = render_backend.external_handle(surf.as_mut()) {
-                let mut compositor = self.zone_context.compositor.write().unwrap();
+                let mut compositor = self.zone_context.compositor.write();
                 compositor.submit_frame(self.tab_id, handle);
             }
         }

@@ -13,13 +13,14 @@ use crate::tab::{create_tab_and_spawn, TabDefaults, TabHandle, TabOverrides, Tab
 use crate::util::spawn_named;
 use crate::zone::ZoneConfig;
 use crate::EngineError;
+use parking_lot::RwLock;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// A unique identifier for a [`Zone`] within a [`GosubEngine`](crate::GosubEngine).
@@ -209,7 +210,7 @@ impl Zone {
         let storage_rx = services.storage.subscribe();
         let event_tx = engine_context.event_tx.clone();
         let io_tx = {
-            let guard = engine_context.io_tx.read().unwrap();
+            let guard = engine_context.io_tx.read();
             guard.as_ref().cloned().expect("I/O thread not running")
         };
         let request_reference_map = engine_context.request_reference_map.clone();

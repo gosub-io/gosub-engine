@@ -1,6 +1,7 @@
 use std::fmt::format;
+use parking_lot::Mutex;
 use std::future::Future;
-use std::sync::{Arc, Barrier, Condvar, Mutex};
+use std::sync::{Arc, Barrier, Condvar};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::thread::yield_now;
 use anyhow::anyhow;
@@ -128,13 +129,8 @@ impl WasmWorker {
         let closure = move || {
             let res = f();
 
-            let Ok(mut lock) = res_clone.lock() else {
-                block_clone.store(2, Ordering::Relaxed);
-                return;
-            };
-
+            let mut lock = res_clone.lock();
             *lock = Some(res);
-
 
             block_clone.store(1, Ordering::Relaxed);
         };
@@ -160,9 +156,7 @@ impl WasmWorker {
         }
 
 
-        let Ok(mut lock) = res.lock() else {
-            return Err(anyhow!("Lock error"));
-        };
+        let mut lock = res.lock();
 
         let Some(res) = lock.take() else {
             return Err(anyhow!("Worker did not return"));
@@ -217,15 +211,8 @@ impl WasmWorker {
             wasm_bindgen_futures::spawn_local(async move {
                 let ret = f.await;
 
-                let Ok(mut lock) = ret_clone.lock() else {
-                    block_clone.store(2, Ordering::Relaxed);
-
-
-                    return;
-                };
-
+                let mut lock = ret_clone.lock();
                 *lock = Some(ret);
-
 
                 block_clone.store(1, Ordering::Relaxed);
 
@@ -254,9 +241,7 @@ impl WasmWorker {
             return Err(anyhow!("Lock error"));
         }
 
-        let Ok(mut lock) = ret.lock() else {
-            return Err(anyhow!("Lock error"));
-        };
+        let mut lock = ret.lock();
 
         let Some(ret) = lock.take() else {
             return Err(anyhow!("Worker did not return"));

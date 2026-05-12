@@ -44,7 +44,7 @@ pub fn impl_js_functions(functions: &[Function], name: &Ident, options: &Options
 
 fn get_refs(name: String, num_refs: Option<u8>) -> TokenStream {
     let num_refs = num_refs.unwrap_or_else(|| {
-        let mut state = STATE.write().unwrap();
+        let mut state = STATE.write();
         let num_refs = state
             .get_mut(&(crate_name(), name))
             .expect("Struct does not have the #[web_interop] attribute");

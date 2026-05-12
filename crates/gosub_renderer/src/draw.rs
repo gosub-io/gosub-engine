@@ -24,9 +24,10 @@ use gosub_shared::geo::{Size, SizeU32, FP};
 use gosub_shared::node::NodeId;
 use gosub_shared::types::Result;
 use log::{error, info};
+use parking_lot::Mutex;
 use std::future::Future;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use url::Url;
 
 mod img;

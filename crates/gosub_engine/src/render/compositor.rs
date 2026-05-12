@@ -1,7 +1,7 @@
 use crate::render::backend::{CompositorSink, ExternalHandle};
 use crate::tab::TabId;
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::RwLock;
 
 /// A default compositor implementation that manages frames per tab
 /// and requests redraws when new frames are submitted.
@@ -63,7 +63,7 @@ impl DefaultCompositor {
     /// `Some(&ExternalHandle)` if a frame is stored for this tab,
     /// or `None` if no frame has been submitted yet.
     pub fn frame_for(&self, tab_id: TabId) -> Option<ExternalHandle> {
-        self.frames.read().unwrap().get(&tab_id).cloned()
+        self.frames.read().get(&tab_id).cloned()
     }
 
     /// Retrieves a mutable reference to the [`ExternalHandle`]
@@ -71,7 +71,7 @@ impl DefaultCompositor {
     ///
     /// This can be used to update or replace the handle in place.
     pub fn frame_for_mut(&self, tab_id: TabId, f: impl FnOnce(&mut ExternalHandle)) {
-        if let Some(h) = self.frames.write().unwrap().get_mut(&tab_id) {
+        if let Some(h) = self.frames.write().get_mut(&tab_id) {
             f(h);
         }
     }
@@ -89,7 +89,7 @@ impl CompositorSink for DefaultCompositor {
     /// * `tab_id` - The tab for which the frame is produced.
     /// * `handle` - The external handle containing the frame data.
     fn submit_frame(&mut self, tab_id: TabId, handle: ExternalHandle) {
-        self.frames.write().unwrap().insert(tab_id, handle);
+        self.frames.write().insert(tab_id, handle);
         self.request_redraw();
     }
 }
