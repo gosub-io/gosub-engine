@@ -1,7 +1,6 @@
 use crate::errors::Error;
 use crate::settings::Setting;
 use crate::{Result, StorageAdapter};
-use log::warn;
 use parking_lot::Mutex;
 use rusqlite::{named_params, Connection};
 use std::collections::HashMap;
@@ -21,7 +20,7 @@ impl TryFrom<&String> for SqliteStorageAdapter {
 
         let query = "CREATE TABLE IF NOT EXISTS settings (
             id INTEGER PRIMARY KEY,
-            key TEXT NOT NULL,
+            key TEXT NOT NULL UNIQUE,
             value TEXT NOT NULL
         )";
         conn.execute(query, [])?;
@@ -39,13 +38,7 @@ impl StorageAdapter for SqliteStorageAdapter {
         let mut statement = db_lock.prepare(query)?;
 
         match statement.query_row(named_params! { ":key": key }, |row| row.get::<_, String>(0)) {
-            Ok(val) => match Setting::from_str(&val) {
-                Ok(setting) => Ok(Some(setting)),
-                Err(err) => {
-                    warn!("problem reading from sqlite: {err}");
-                    Ok(None)
-                }
-            },
+            Ok(val) => Setting::from_str(&val).map(Some),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(err) => Err(Error::Sqlite(err)),
         }

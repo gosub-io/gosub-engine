@@ -92,17 +92,21 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::List => {
             for key in config_store().find("*") {
-                if let Some(value) = config_store().get(&key)? {
+                let value = config_store().get(&key)?
+                    .or_else(|| config_store().get_info(&key).map(|i| i.default));
+                if let Some(value) = value {
                     println!("{key:40}: {value}");
                 }
             }
         }
         Commands::Set { key, value } => {
-            config_store().set(&key, Setting::from_str(&value).expect("incorrect value"))?;
+            config_store().set(&key, Setting::from_str(&value)?)?;
         }
         Commands::Search { key } => {
             for key in config_store().find(&key) {
-                if let Some(value) = config_store().get(&key)? {
+                let value = config_store().get(&key)?
+                    .or_else(|| config_store().get_info(&key).map(|i| i.default));
+                if let Some(value) = value {
                     println!("{key:40}: {value}");
                 }
             }

@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Write};
 
 /// JSON file-backed storage adapter. All settings are held in memory and written to a JSON
 /// file on the filesystem. Note: `set` currently only updates the in-memory cache; call
@@ -88,10 +88,8 @@ impl JsonStorageAdapter {
 
     #[allow(dead_code)]
     fn write_file(&mut self) -> Result<()> {
-        let mut file = File::open(&self.path)?;
+        let mut file = File::options().write(true).truncate(true).open(&self.path)?;
         let json = serde_json::to_string_pretty(&*self.elements.lock())?;
-        file.set_len(0)?;
-        file.seek(std::io::SeekFrom::Start(0))?;
         file.write_all(json.as_bytes())?;
         Ok(())
     }
