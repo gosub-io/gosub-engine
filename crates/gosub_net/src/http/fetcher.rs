@@ -11,18 +11,14 @@ pub struct Fetcher {
 }
 
 impl Fetcher {
-    #[must_use]
-    pub fn new(base: Url) -> Self {
+    pub fn new(base: Url) -> Result<Self> {
         #[cfg(not(target_arch = "wasm32"))]
-        let client = reqwest::Client::builder()
-            .use_rustls_tls()
-            .build()
-            .expect("failed to build HTTP client");
+        let client = reqwest::Client::builder().use_rustls_tls().build()?;
 
         #[cfg(target_arch = "wasm32")]
         let client = reqwest::Client::new();
 
-        Self { base_url: base, client }
+        Ok(Self { base_url: base, client })
     }
 
     #[must_use]

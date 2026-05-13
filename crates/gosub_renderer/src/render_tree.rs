@@ -15,7 +15,7 @@ pub async fn load_html_rendertree<C: HasRenderTree + HasHtmlParser + HasDocument
     url: Url,
     source: Option<&str>,
 ) -> gosub_shared::types::Result<(C::RenderTree, C::Document, Fetcher)> {
-    let fetcher = Fetcher::new(url.clone());
+    let fetcher = Fetcher::new(url.clone())?;
 
     let (rt, handle) = match source {
         Some(source) => load_html_rendertree_source::<C>(url, source)?,
