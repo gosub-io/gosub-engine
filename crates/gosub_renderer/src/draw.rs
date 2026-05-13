@@ -587,15 +587,15 @@ pub fn print_tree<B: RenderBackend, L: Layouter>(
         let layout = &tree.get_final_layout(node_id);
         let display = tree.get_debug_label(node_id);
         let num_children = tree.child_count(node_id);
-        let gosub_id = tree.get_node_context(node_id).unwrap();
-        let width_style = tree.style(node_id).unwrap().size;
+        let gosub_id = tree.get_node_context(node_id).expect("node context must exist");
+        let width_style = tree.style(node_id).expect("node style must exist").size;
 
         let fork_string = if has_sibling {
             "├── "
         } else {
             "└── "
         };
-        let node = gosub_tree.get_node(*gosub_id).unwrap();
+        let node = gosub_tree.get_node(*gosub_id).expect("gosub node must exist");
         let mut node_render = String::new();
 
         match &node.data {
