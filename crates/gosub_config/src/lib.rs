@@ -1,10 +1,12 @@
-mod errors;
+pub mod errors;
 pub mod settings;
 pub mod storage;
 
+pub use errors::Error;
+pub(crate) type Result<T> = std::result::Result<T, Error>;
+
 use crate::settings::{Setting, SettingInfo};
 use crate::storage::MemoryStorageAdapter;
-use gosub_shared::types::Result;
 use lazy_static::lazy_static;
 use log::warn;
 use parking_lot::RwLock;
@@ -23,13 +25,13 @@ const SETTINGS_JSON: &str = include_str!("./settings.json");
 /// Note that we need to implement Send so we can send the storage adapter
 /// to other threads.
 pub trait StorageAdapter: Send + Sync {
-    /// Retrieves a setting from the storage
-    fn get(&self, key: &str) -> Option<Setting>;
+    /// Retrieves a setting from the storage. Returns `Ok(None)` when the key does not exist.
+    fn get(&self, key: &str) -> Result<Option<Setting>>;
 
     /// Stores a given setting to the storage. Note that "self" is self and not "mut self". We need to be able
     /// to storage settings in a non-mutable way. That is mostly possible it seems with a mutex lock that we
     /// can get mutable.
-    fn set(&self, key: &str, value: Setting);
+    fn set(&self, key: &str, value: Setting) -> Result<()>;
 
     /// Retrieves all the settings in the storage in one go. This is used for preloading the settings
     /// into the `ConfigStore` and is more performant normally than calling `get_setting` manually for each
@@ -65,32 +67,37 @@ pub fn config_store_write() -> parking_lot::RwLockWriteGuard<'static, ConfigStor
 macro_rules! config {
     (string $key:expr) => {
         match config_store().get($key) {
-            Some(setting) => setting.to_string(),
-            None => String::new(),
+            Ok(Some(setting)) => setting.to_string(),
+            Ok(None) => String::new(),
+            Err(err) => { log::warn!("config error: {err}"); String::new() }
         }
     };
     (bool $key:expr) => {
         match config_store().get($key) {
-            Some(setting) => setting.to_bool(),
-            None => false,
+            Ok(Some(setting)) => setting.to_bool(),
+            Ok(None) => false,
+            Err(err) => { log::warn!("config error: {err}"); false }
         }
     };
     (uint $key:expr) => {
         match config_store().get($key) {
-            Some(setting) => setting.to_uint(),
-            None => 0,
+            Ok(Some(setting)) => setting.to_uint(),
+            Ok(None) => 0,
+            Err(err) => { log::warn!("config error: {err}"); 0 }
         }
     };
     (sint $key:expr) => {
         match config_store().get($key) {
-            Some(setting) => setting.to_sint(),
-            None => 0,
+            Ok(Some(setting)) => setting.to_sint(),
+            Ok(None) => 0,
+            Err(err) => { log::warn!("config error: {err}"); 0 }
         }
     };
     (map $key:expr) => {
         match config_store().get($key) {
-            Some(setting) => setting.to_map(),
-            None => Vec::new(),
+            Ok(Some(setting)) => setting.to_map(),
+            Ok(None) => Vec::new(),
+            Err(err) => { log::warn!("config error: {err}"); Vec::new() }
         }
     };
 }
@@ -98,21 +105,31 @@ macro_rules! config {
 #[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! config_set {
-    (string $key:expr, $val:expr) => {
-        config_store().set($key, Setting::String($val))
-    };
-    (bool $key:expr, $val:expr) => {
-        config_store().set($key, Setting::Bool($val))
-    };
-    (uint $key:expr, $val:expr) => {
-        config_store().set($key, Setting::UInt($val))
-    };
-    (sint $key:expr, $val:expr) => {
-        config_store().set($key, Setting::SInt($val))
-    };
-    (map $key:expr, $val:expr) => {
-        config_store().set($key, Setting::Map($val))
-    };
+    (string $key:expr, $val:expr) => {{
+        if let Err(err) = config_store().set($key, Setting::String($val)) {
+            log::warn!("config error: {err}");
+        }
+    }};
+    (bool $key:expr, $val:expr) => {{
+        if let Err(err) = config_store().set($key, Setting::Bool($val)) {
+            log::warn!("config error: {err}");
+        }
+    }};
+    (uint $key:expr, $val:expr) => {{
+        if let Err(err) = config_store().set($key, Setting::UInt($val)) {
+            log::warn!("config error: {err}");
+        }
+    }};
+    (sint $key:expr, $val:expr) => {{
+        if let Err(err) = config_store().set($key, Setting::SInt($val)) {
+            log::warn!("config error: {err}");
+        }
+    }};
+    (map $key:expr, $val:expr) => {{
+        if let Err(err) = config_store().set($key, Setting::Map($val)) {
+            log::warn!("config error: {err}");
+        }
+    }};
 }
 
 /// `JsonEntry` is used for parsing the settings.json file
@@ -199,61 +216,58 @@ impl ConfigStore {
 
     /// Returns the setting with the given key. If the setting is not found in the current
     /// storage, it will load the key from the storage. If the key is still not found, it will
-    /// return the default value for the given key. Note that if the key is not found and no
-    /// default value is specified, this function will panic.
-    pub fn get(&self, key: &str) -> Option<Setting> {
+    /// return the default value for the given key. Returns `Ok(None)` when the key is unknown.
+    pub fn get(&self, key: &str) -> Result<Option<Setting>> {
         if let Some(setting) = self.settings.lock().borrow().get(key) {
-            return Some(setting.clone());
+            return Ok(Some(setting.clone()));
         }
 
         // Setting not found, try and load it from the storage adapter
-        if let Some(setting) = self.storage.get(key) {
+        if let Some(setting) = self.storage.get(key)? {
             self.settings
                 .lock()
                 .borrow_mut()
                 .insert(key.to_string(), setting.clone());
-            return Some(setting.clone());
+            return Ok(Some(setting.clone()));
         }
 
         // Return the default value for the setting when nothing is found
         if let Some(info) = self.settings_info.get(key) {
-            return Some(info.default.clone());
+            return Ok(Some(info.default.clone()));
         }
 
-        // At this point we haven't found the key in the store, we haven't found it in storage, and we
-        // don't have a default value. This is a programming error, so we panic.
-        panic!("config: Setting {key} is not known");
+        Ok(None)
     }
 
     /// Sets the given setting to the given value. Will persist the setting to the
     /// storage. Note that the setting MUST have a settings-info entry, otherwise
     /// this function will not store the setting.
-    pub fn set(&self, key: &str, value: Setting) {
+    pub fn set(&self, key: &str, value: Setting) -> Result<()> {
         let info = if let Some(info) = self.settings_info.get(key) {
             info
         } else {
             warn!("config: Setting {key} is not known");
-            return;
+            return Err(Error::Config(format!("Setting {key} is not known")));
         };
 
         if mem::discriminant(&info.default) != mem::discriminant(&value) {
             warn!("config: Setting {key} is of different type than setting expects");
-            return;
+            return Err(Error::Config(format!("Setting {key} is of different type than expected")));
         }
 
         self.settings.lock().borrow_mut().insert(key.to_owned(), value.clone());
-
-        self.storage.set(key, value);
+        self.storage.set(key, value)?;
+        Ok(())
     }
 
     /// Populates the settings in the storage from the settings.json file
     fn populate_default_settings(&mut self) -> Result<()> {
-        let json_data: Value = serde_json::from_str(SETTINGS_JSON).expect("Failed to parse settings.json");
+        let json_data: Value = serde_json::from_str(SETTINGS_JSON)?;
 
         if let Value::Object(data) = json_data {
             for (section_prefix, section_entries) in &data {
                 let section_entries: Vec<JsonEntry> =
-                    serde_json::from_value(section_entries.clone()).expect("Failed to parse settings.json");
+                    serde_json::from_value(section_entries.clone())?;
 
                 for entry in section_entries {
                     let key = format!("{}.{}", section_prefix, entry.key);
@@ -288,11 +302,11 @@ mod test {
     fn test_config_store() {
         config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
 
-        let setting = config_store().get("dns.local.enabled").unwrap();
+        let setting = config_store().get("dns.local.enabled").unwrap().unwrap();
         assert_eq!(setting, Setting::Bool(true));
 
-        config_store_write().set("dns.local.enabled", Setting::Bool(false));
-        let setting = config_store().get("dns.local.enabled").unwrap();
+        config_store_write().set("dns.local.enabled", Setting::Bool(false)).unwrap();
+        let setting = config_store().get("dns.local.enabled").unwrap().unwrap();
         assert_eq!(setting, Setting::Bool(false));
     }
 
@@ -304,7 +318,8 @@ mod test {
             assert_eq!(captured_logs.len(), 0);
         });
 
-        config_store_write().set("dns.local.enabled", Setting::String("wont accept strings".into()));
+        let result = config_store_write().set("dns.local.enabled", Setting::String("wont accept strings".into()));
+        assert!(result.is_err());
 
         testing_logger::validate(|captured_logs| {
             assert_eq!(captured_logs.len(), 1);
@@ -322,8 +337,13 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
-    fn macro_usage_with_panic() {
+    fn unknown_key_returns_none() {
+        let result = config_store().get("this.key.doesnt.exist");
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn unknown_key_in_macro_returns_default() {
         config_set!(string "this.key.doesnt.exist", "yesitdoes".into());
         let s = config!(string "this.key.doesnt.exist");
         assert_eq!(s, "");

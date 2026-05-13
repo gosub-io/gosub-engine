@@ -83,7 +83,7 @@ fn main() -> anyhow::Result<()> {
             }
 
             let info = config_store().get_info(&key).unwrap();
-            let value = config_store().get(&key).unwrap();
+            let value = config_store().get(&key)?.unwrap_or(info.default.clone());
 
             println!("Key            : {key}");
             println!("Current Value  : {value}");
@@ -92,17 +92,19 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::List => {
             for key in config_store().find("*") {
-                let value = config_store().get(&key).unwrap();
-                println!("{key:40}: {value}");
+                if let Some(value) = config_store().get(&key)? {
+                    println!("{key:40}: {value}");
+                }
             }
         }
         Commands::Set { key, value } => {
-            config_store().set(&key, Setting::from_str(&value).expect("incorrect value"));
+            config_store().set(&key, Setting::from_str(&value).expect("incorrect value"))?;
         }
         Commands::Search { key } => {
             for key in config_store().find(&key) {
-                let value = config_store().get(&key).unwrap();
-                println!("{key:40}: {value}");
+                if let Some(value) = config_store().get(&key)? {
+                    println!("{key:40}: {value}");
+                }
             }
         }
     }

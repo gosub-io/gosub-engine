@@ -160,7 +160,9 @@ impl FromStr for Setting {
 
     /// Converts a string to a setting or None when the string is invalid
     fn from_str(key: &str) -> Result<Setting, crate::errors::Error> {
-        let (key_type, key_value) = key.split_once(':').expect("");
+        let (key_type, key_value) = key
+            .split_once(':')
+            .ok_or_else(|| Error::Config(format!("invalid setting format, missing ':' in {key:?}")))?;
 
         let setting = match key_type {
             "b" => Setting::Bool(

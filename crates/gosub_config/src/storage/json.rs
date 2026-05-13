@@ -1,6 +1,5 @@
 use crate::settings::Setting;
-use crate::StorageAdapter;
-use gosub_shared::types::Result;
+use crate::{Result, StorageAdapter};
 use log::warn;
 use parking_lot::Mutex;
 use serde_json::Value;
@@ -15,72 +14,60 @@ pub struct JsonStorageAdapter {
 }
 
 impl TryFrom<&String> for JsonStorageAdapter {
-    type Error = anyhow::Error;
+    type Error = crate::errors::Error;
 
     fn try_from(path: &String) -> Result<Self> {
-        let _ = if let Ok(metadata) = fs::metadata(path) {
-            assert!(metadata.is_file(), "json file is not a regular file");
-
-            File::options()
-                .read(true)
-                .write(true)
-                .open(path)
-                .expect("failed to open json file")
+        if let Ok(metadata) = fs::metadata(path) {
+            if !metadata.is_file() {
+                return Err(crate::errors::Error::Config(format!("{path} is not a regular file")));
+            }
+            File::options().read(true).write(true).open(path)?;
         } else {
-            let json = "{}";
-
-            let mut file = File::create(path).expect("cannot create json file");
-            file.write_all(json.as_bytes())?;
-
-            file
-        };
+            let mut file = File::create(path)?;
+            file.write_all(b"{}")?;
+        }
 
         let mut adapter = JsonStorageAdapter {
             path: path.to_string(),
             elements: Mutex::new(HashMap::new()),
         };
 
-        adapter.read_file();
+        adapter.read_file()?;
 
         Ok(adapter)
     }
 }
 
 impl StorageAdapter for JsonStorageAdapter {
-    fn get(&self, key: &str) -> Option<Setting> {
+    fn get(&self, key: &str) -> Result<Option<Setting>> {
         let lock = self.elements.lock();
-        lock.get(key).cloned()
+        Ok(lock.get(key).cloned())
     }
 
-    fn set(&self, key: &str, value: Setting) {
+    fn set(&self, key: &str, value: Setting) -> Result<()> {
         let mut lock = self.elements.lock();
         lock.insert(key.to_owned(), value);
-
-        // self.write_file()
+        Ok(())
     }
 
     fn all(&self) -> Result<HashMap<String, Setting>> {
         let lock = self.elements.lock();
-
         Ok(lock.clone())
     }
 }
 
 impl JsonStorageAdapter {
-    /// Read whole json file and stores the data into self.elements
-    fn read_file(&mut self) {
-        // @TODO: We should have some kind of OS file lock here
-        let mut file = File::open(&self.path).expect("failed to open json file");
+    fn read_file(&mut self) -> Result<()> {
+        let mut file = File::open(&self.path)?;
 
         let mut buf = String::new();
-        _ = file.read_to_string(&mut buf);
+        file.read_to_string(&mut buf)?;
 
-        let parsed_json: Value = serde_json::from_str(&buf).expect("Failed to parse json");
+        let parsed_json: Value = serde_json::from_str(&buf)?;
 
         if let Value::Object(settings) = parsed_json {
-            self.elements = Mutex::new(HashMap::new());
-
             let mut lock = self.elements.lock();
+            lock.clear();
             for (key, value) in &settings {
                 match serde_json::from_value(value.clone()) {
                     Ok(setting) => {
@@ -92,20 +79,17 @@ impl JsonStorageAdapter {
                 }
             }
         }
+
+        Ok(())
     }
 
-    /// Write the self.elements hashmap back to the file by truncating the file and writing the
-    /// data again.
     #[allow(dead_code)]
-    fn write_file(&mut self) {
-        // @TODO: We need some kind of OS lock file here. We should protect against concurrent threads but also
-        // against concurrent processes.
-        let mut file = File::open(&self.path).expect("failed to open json file");
-
-        let json = serde_json::to_string_pretty(&*self.elements.lock()).expect("failed to serialize");
-
-        file.set_len(0).expect("failed to truncate file");
-        file.seek(std::io::SeekFrom::Start(0)).expect("failed to seek");
-        file.write_all(json.as_bytes()).expect("failed to write file");
+    fn write_file(&mut self) -> Result<()> {
+        let mut file = File::open(&self.path)?;
+        let json = serde_json::to_string_pretty(&*self.elements.lock())?;
+        file.set_len(0)?;
+        file.seek(std::io::SeekFrom::Start(0))?;
+        file.write_all(json.as_bytes())?;
+        Ok(())
     }
 }
