@@ -188,7 +188,9 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         let x = transform.tx() + point.x;
         let y = transform.ty() + point.y;
 
-        let Some(root) = self.tree.get_root() else { return; };
+        let Some(root) = self.tree.get_root() else {
+            return;
+        };
         let root_size = root.layout.content();
         let size = self.size.unwrap_or(SizeU32::ZERO);
 

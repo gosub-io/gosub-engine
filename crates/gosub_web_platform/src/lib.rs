@@ -54,9 +54,7 @@ pub enum LocalEventLoopMessage<E: FutureExecutor> {
 impl<C: HasWebComponents> WebEventLoop<C> {
     /// Create a new `WebEventLoop` on a new thead, returning the handle to the event loop
     pub fn new_on_thread(handles: Handles<C>) -> Result<WebEventLoopHandle> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 
         let handle = rt.handle().clone();
 
