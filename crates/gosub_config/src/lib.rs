@@ -69,35 +69,50 @@ macro_rules! config {
         match config_store().get($key) {
             Ok(Some(setting)) => setting.to_string(),
             Ok(None) => String::new(),
-            Err(err) => { log::warn!("config error: {err}"); String::new() }
+            Err(err) => {
+                log::warn!("config error: {err}");
+                String::new()
+            }
         }
     };
     (bool $key:expr) => {
         match config_store().get($key) {
             Ok(Some(setting)) => setting.to_bool(),
             Ok(None) => false,
-            Err(err) => { log::warn!("config error: {err}"); false }
+            Err(err) => {
+                log::warn!("config error: {err}");
+                false
+            }
         }
     };
     (uint $key:expr) => {
         match config_store().get($key) {
             Ok(Some(setting)) => setting.to_uint(),
             Ok(None) => 0,
-            Err(err) => { log::warn!("config error: {err}"); 0 }
+            Err(err) => {
+                log::warn!("config error: {err}");
+                0
+            }
         }
     };
     (sint $key:expr) => {
         match config_store().get($key) {
             Ok(Some(setting)) => setting.to_sint(),
             Ok(None) => 0,
-            Err(err) => { log::warn!("config error: {err}"); 0 }
+            Err(err) => {
+                log::warn!("config error: {err}");
+                0
+            }
         }
     };
     (map $key:expr) => {
         match config_store().get($key) {
             Ok(Some(setting)) => setting.to_map(),
             Ok(None) => Vec::new(),
-            Err(err) => { log::warn!("config error: {err}"); Vec::new() }
+            Err(err) => {
+                log::warn!("config error: {err}");
+                Vec::new()
+            }
         }
     };
 }
@@ -252,7 +267,9 @@ impl ConfigStore {
 
         if mem::discriminant(&info.default) != mem::discriminant(&value) {
             warn!("config: Setting {key} is of different type than setting expects");
-            return Err(Error::Config(format!("Setting {key} is of different type than expected")));
+            return Err(Error::Config(format!(
+                "Setting {key} is of different type than expected"
+            )));
         }
 
         self.settings.lock().borrow_mut().insert(key.to_owned(), value.clone());
@@ -266,8 +283,7 @@ impl ConfigStore {
 
         if let Value::Object(data) = json_data {
             for (section_prefix, section_entries) in &data {
-                let section_entries: Vec<JsonEntry> =
-                    serde_json::from_value(section_entries.clone())?;
+                let section_entries: Vec<JsonEntry> = serde_json::from_value(section_entries.clone())?;
 
                 for entry in section_entries {
                     let key = format!("{}.{}", section_prefix, entry.key);
@@ -305,7 +321,9 @@ mod test {
         let setting = config_store().get("dns.local.enabled").unwrap().unwrap();
         assert_eq!(setting, Setting::Bool(true));
 
-        config_store_write().set("dns.local.enabled", Setting::Bool(false)).unwrap();
+        config_store_write()
+            .set("dns.local.enabled", Setting::Bool(false))
+            .unwrap();
         let setting = config_store().get("dns.local.enabled").unwrap().unwrap();
         assert_eq!(setting, Setting::Bool(false));
     }
