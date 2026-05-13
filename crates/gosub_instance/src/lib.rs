@@ -1,3 +1,9 @@
+#![forbid(unsafe_code)]
+#![deny(clippy::todo)]
+#![deny(clippy::unimplemented)]
+#![deny(clippy::dbg_macro)]
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::panic))]
+
 use gosub_interface::chrome::ChromeHandle;
 use gosub_interface::config::{HasTreeDrawer, ModuleConfiguration};
 use gosub_interface::draw::TreeDrawer;
@@ -88,7 +94,7 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
         let (tx, rx) = tokio::sync::mpsc::channel(128);
 
         std::thread::spawn(move || {
-            let rt = Builder::new_current_thread().enable_all().build().unwrap();
+            let rt = Builder::new_current_thread().enable_all().build().expect("Failed to build tokio runtime");
 
             let mut instance = match rt.block_on(Self::with_chan(url, layouter, rx, id, handles)) {
                 Ok(instance) => instance,
