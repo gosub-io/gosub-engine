@@ -4,49 +4,53 @@ SHELL=/usr/bin/env bash -O globstar
 
 all: help
 
-test: test_unit test_clippy test_fmt test_commands ## Runs tests
+test: test-unit test-clippy test-fmt test-smoke ## Run all checks (unit + clippy + fmt + smoke)
 
 bench: ## Benchmark the project
 	cargo bench
 
-build: ## Build the project
+build: ## Build all crates
 	source test-utils.sh ;\
-	section "Cargo build" ;\
-	cargo build --all
+	run_section "Cargo build" cargo build --all
 
-fix-format:  ## Fix formatting and clippy errors
+fix: ## Auto-fix formatting and clippy warnings
 	cargo fmt --all
 	cargo clippy --all --fix --allow-dirty --allow-staged
 
-check-format: test_clippy test_fmt ## Check the project for clippy and formatting errors
+doc: ## Build crate documentation
+	cargo doc --no-deps --all
 
-test_unit:
+clean: ## Remove build artifacts
+	cargo clean
+
+test-unit: ## Run unit and doc tests
 	source test-utils.sh ;\
-	section "Cargo nextest" ;\
-	if cargo nextest --version >/dev/null 2>&1; then \
-		cargo nextest run --all --no-fail-fast; \
-		cargo test --doc --all; \
-	else \
-		echo "cargo-nextest not found, falling back to cargo test (install with: cargo install cargo-nextest)" ;\
-		cargo test --all --no-fail-fast --all-targets; \
-	fi
+	run_section "Unit tests" bash -c '\
+		if cargo nextest --version >/dev/null 2>&1; then \
+			cargo nextest run --all --no-fail-fast && cargo test --doc --all; \
+		else \
+			echo "cargo-nextest not found, falling back (install: cargo install cargo-nextest)" ;\
+			cargo test --all --no-fail-fast --all-targets; \
+		fi \
+	'
 
-test_clippy:
+test-clippy: ## Check for clippy warnings
 	source test-utils.sh ;\
-	section "Cargo clippy" ;\
-	cargo clippy -- -D warnings
+	run_section "Cargo clippy" cargo clippy --locked --all --all-targets -- -D warnings
 
-test_fmt:
+test-fmt: ## Check formatting
 	source test-utils.sh ;\
-	section "Cargo fmt" ;\
-	cargo fmt --all -- --check
+	run_section "Cargo fmt" cargo fmt --all -- --check
 
-test_commands:
-	cargo run --bin html5-parser-test >/dev/null
-	cargo run --bin parser-test >/dev/null
-	cargo run --bin config-store list >/dev/null
-	cargo run --bin gosub-parser file://tests/data/tree_iterator/stackoverflow.html >/dev/null
-	cargo run --example html5-parser >/dev/null
+test-smoke: ## CLI smoke tests
+	source test-utils.sh ;\
+	run_section "CLI smoke tests" bash -c '\
+		cargo run --bin html5-parser-test >/dev/null && \
+		cargo run --bin parser-test >/dev/null && \
+		cargo run --bin config-store list >/dev/null && \
+		cargo run --bin gosub-parser file://tests/data/tree_iterator/stackoverflow.html >/dev/null && \
+		cargo run --example html5-parser >/dev/null \
+	'
 
 help: ## Display available commands
 	echo "Available make commands:"

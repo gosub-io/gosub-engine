@@ -8,5 +8,7 @@ pub mod painter;
 pub mod rasterizer;
 #[allow(unused)]
 pub mod rendertree_builder;
+#[cfg(test)]
+mod tests;
 #[allow(unused)]
 pub mod tiler;

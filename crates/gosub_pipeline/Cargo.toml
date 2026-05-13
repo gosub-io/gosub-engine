@@ -45,6 +45,11 @@ winit = { version = "0.30.12", optional = true }
 pollster = { version = "0.4.0", optional = true }
 skia-safe = { version = "0.87.0", features = ["textlayout"], optional = true }
 
+[dev-dependencies]
+gosub_html5 = { path = "../gosub_html5", registry = "gosub" }
+gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
+url = "2"
+
 [features]
 default = []
 text_pango = ["dep:pangocairo", "dep:gtk4"]
