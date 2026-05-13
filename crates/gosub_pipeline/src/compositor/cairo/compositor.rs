@@ -12,20 +12,14 @@ pub fn cairo_compositor(cr: &cairo::Context, layer_ids: Vec<LayerId>) {
 
 pub fn compose_layer(cr: &cairo::Context, layer_id: LayerId) {
     let binding = get_browser_state();
-    let Ok(state) = binding.read() else {
-        log::error!("Failed to acquire browser state lock, skipping cairo compose");
-        return;
-    };
+    let state = binding.read();
 
     let Some(ref tile_list) = state.tile_list else {
         log::error!("No tile list found");
         return;
     };
 
-    let Ok(tile_list_guard) = tile_list.read() else {
-        log::error!("Failed to acquire tile list lock");
-        return;
-    };
+    let tile_list_guard = tile_list.read();
 
     let tile_ids = tile_list_guard.get_intersecting_tiles(layer_id, state.viewport);
 
@@ -41,10 +35,7 @@ pub fn compose_layer(cr: &cairo::Context, layer_id: LayerId) {
         };
 
         let binding = get_texture_store();
-        let Ok(texture_store) = binding.read() else {
-            log::error!("Failed to acquire texture store lock for tile {:?}", tile_id);
-            continue;
-        };
+        let texture_store = binding.read();
 
         let Some(texture) = texture_store.get(texture_id) else {
             log::error!("No texture found for tile: {:?}", tile_id);

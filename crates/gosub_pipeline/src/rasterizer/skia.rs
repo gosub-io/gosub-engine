@@ -83,10 +83,7 @@ impl Rasterable for SkiaRasterizer {
         let pixels = bytes.to_vec();
 
         let binding = get_texture_store();
-        let Ok(mut texture_store) = binding.write() else {
-            log::error!("Failed to acquire texture store lock, dropping tile result");
-            return None;
-        };
+        let mut texture_store = binding.write();
         let texture_id = texture_store.add(width as usize, height as usize, pixels);
 
         // _ = texture_store.save_to_disk(texture_id);

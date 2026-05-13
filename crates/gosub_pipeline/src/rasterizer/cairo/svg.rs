@@ -7,10 +7,7 @@ use resvg::usvg::Transform;
 
 pub(crate) fn do_paint_svg(cr: &Context, tile: &Tile, rect: &Rectangle, media_id: MediaId) {
     log::debug!("Painting SVG: {:?}", media_id);
-    let Ok(binding) = get_media_store().read() else {
-        log::warn!("Failed to acquire media store lock, skipping SVG paint");
-        return;
-    };
+    let binding = get_media_store().read();
     let media = binding.get_svg(media_id);
 
     let target_dim = rect.rect().dimension();
@@ -18,10 +15,7 @@ pub(crate) fn do_paint_svg(cr: &Context, tile: &Tile, rect: &Rectangle, media_id
     let dest_y = rect.rect().y as f64 - tile.rect.y;
 
     {
-        let Ok(cached) = media.svg.rendered.read() else {
-            log::warn!("Failed to acquire SVG rendered lock for {:?}, skipping", media_id);
-            return;
-        };
+        let cached = media.svg.rendered.read();
         if cached.dimension == target_dim && !cached.data.is_empty() {
             let surface = match gtk4::cairo::ImageSurface::create_for_data(
                 cached.data.clone(),
@@ -64,10 +58,7 @@ pub(crate) fn do_paint_svg(cr: &Context, tile: &Tile, rect: &Rectangle, media_id
         chunk.swap(0, 2);
     }
 
-    let Ok(mut cached) = media.svg.rendered.write() else {
-        log::warn!("Failed to acquire SVG rendered write lock for {:?}, skipping", media_id);
-        return;
-    };
+    let mut cached = media.svg.rendered.write();
     cached.data = new_data;
     cached.dimension = target_dim;
 
