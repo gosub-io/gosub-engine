@@ -7,6 +7,8 @@ use rusqlite::{named_params, Connection};
 use std::collections::HashMap;
 use std::str::FromStr;
 
+/// SQLite-backed storage adapter. Each `get` and `set` call hits the database directly,
+/// so settings are persisted immediately without a separate flush step.
 pub struct SqliteStorageAdapter {
     connection: Mutex<Connection>,
 }

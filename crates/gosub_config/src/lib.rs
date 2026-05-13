@@ -55,13 +55,13 @@ pub fn config_store_write() -> parking_lot::RwLockWriteGuard<'static, ConfigStor
     CONFIG_STORE.write()
 }
 
-/// These macro's can be used to simplify the calls to the config store. You can simply do:
+/// Reads a setting from the config store, returning a type-appropriate default when the key is
+/// unknown or a storage error occurs.
 ///
-/// let enabled = config!(bool "`dns.local.enabled").unwrap()`;
-/// `config_set!(bool` "dns.local.enabled", false);
-///
-/// Note that when you cannot find the key, it will return a default value. This is not always
-/// what you want, but you can test for existence of the key with `config_store().has("key`")
+/// ```ignore
+/// let enabled = config!(bool "dns.local.enabled");
+/// let max     = config!(uint "dns.cache.max_entries");
+/// ```
 #[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! config {

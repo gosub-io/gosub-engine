@@ -8,6 +8,9 @@ use std::fs;
 use std::fs::File;
 use std::io::{Read, Seek, Write};
 
+/// JSON file-backed storage adapter. All settings are held in memory and written to a JSON
+/// file on the filesystem. Note: `set` currently only updates the in-memory cache; call
+/// `write_file` explicitly to persist changes to disk.
 pub struct JsonStorageAdapter {
     path: String,
     elements: Mutex<HashMap<String, Setting>>,

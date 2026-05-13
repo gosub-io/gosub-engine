@@ -3,6 +3,8 @@ use crate::{Result, StorageAdapter};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 
+/// In-memory storage adapter. Settings are lost when the process exits.
+/// Useful for testing and for the default state before a persistent adapter is attached.
 #[derive(Default)]
 pub struct MemoryStorageAdapter {
     settings: Mutex<HashMap<String, Setting>>,
