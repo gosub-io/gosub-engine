@@ -1,7 +1,8 @@
 use crate::layouter::{LayoutElementId, LayoutTree};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::ops::AddAssign;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// ID for layers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -94,8 +95,8 @@ impl LayerList {
     /// Find the element at the given coordinates. It will return the given element if it is found or None otherwise
     pub fn find_element_at(&self, x: f64, y: f64) -> Option<LayoutElementId> {
         // This assumes that the layers are ordered from top to bottom
-        for layer_id in self.layer_ids.read().expect("Failed to lock layer IDs").iter().rev() {
-            let binding = self.layers.read().expect("Failed to lock layers");
+        for layer_id in self.layer_ids.read().iter().rev() {
+            let binding = self.layers.read();
             let Some(layer) = binding.get(layer_id) else {
                 continue;
             };
@@ -125,18 +126,15 @@ impl LayerList {
     pub fn new_layer(&self, order: isize) -> LayerId {
         let layer = Layer::new(self.next_layer_id(), order);
         let layer_id = layer.layer_id;
-        self.layer_ids.write().expect("Failed to lock layer IDs").push(layer_id);
-        self.layers
-            .write()
-            .expect("Failed to lock layers")
-            .insert(layer_id, layer);
+        self.layer_ids.write().push(layer_id);
+        self.layers.write().insert(layer_id, layer);
 
         layer_id
     }
 
     #[allow(unused)]
-    fn get_layer(&self, layer_id: LayerId) -> Option<std::sync::RwLockReadGuard<'_, HashMap<LayerId, Layer>>> {
-        let layers = self.layers.read().expect("Failed to lock layers");
+    fn get_layer(&self, layer_id: LayerId) -> Option<parking_lot::RwLockReadGuard<'_, HashMap<LayerId, Layer>>> {
+        let layers = self.layers.read();
         if layers.contains_key(&layer_id) {
             Some(layers)
         } else {
@@ -144,8 +142,8 @@ impl LayerList {
         }
     }
 
-    fn get_layer_mut(&self, layer_id: LayerId) -> Option<std::sync::RwLockWriteGuard<'_, HashMap<LayerId, Layer>>> {
-        let layers = self.layers.write().expect("Failed to lock layers");
+    fn get_layer_mut(&self, layer_id: LayerId) -> Option<parking_lot::RwLockWriteGuard<'_, HashMap<LayerId, Layer>>> {
+        let layers = self.layers.write();
         if layers.contains_key(&layer_id) {
             Some(layers)
         } else {
@@ -154,7 +152,7 @@ impl LayerList {
     }
 
     fn generate_layers(&mut self) {
-        self.layers.write().expect("Failed to lock layers").clear();
+        self.layers.write().clear();
 
         let root_id = self.layout_tree.root_id;
         let default_layer_id = self.new_layer(0);
@@ -200,7 +198,7 @@ impl LayerList {
     }
 
     fn next_layer_id(&self) -> LayerId {
-        let mut nid = self.next_layer_id.write().expect("Failed to lock next layer ID");
+        let mut nid = self.next_layer_id.write();
         let id = *nid;
         *nid += 1;
         id

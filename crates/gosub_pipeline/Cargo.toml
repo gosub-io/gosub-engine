@@ -35,6 +35,7 @@ file_type = { version = "0.8.1", features = ["httpd"] }
 
 anyhow = "1.0.102"
 cow-utils = "0.1"
+parking_lot = "0.12"
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
 gosub_interface = { version = "0.1.2", path = "../gosub_interface", registry = "gosub" }
 

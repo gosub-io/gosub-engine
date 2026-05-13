@@ -1,7 +1,8 @@
 use crate::common::texture::{Texture, TextureId};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::io::Cursor;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
 pub static TEXTURE_STORE: OnceLock<RwLock<TextureStore>> = OnceLock::new();
 
@@ -52,7 +53,7 @@ impl TextureStore {
     }
 
     fn next_id(&self) -> TextureId {
-        let mut nid = self.next_id.write().expect("Failed to lock next texture ID");
+        let mut nid = self.next_id.write();
         let id = *nid;
         *nid += 1;
         id
