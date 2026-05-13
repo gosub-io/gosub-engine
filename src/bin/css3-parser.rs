@@ -51,7 +51,11 @@ fn main() -> Result<()> {
     let url: String = matches.get_one::<String>("url").expect("url").to_string();
     let display_tokenizer = matches.get_flag("tokenizer");
 
-    let parsed_url = url::Url::parse(&url)?;
+    let parsed_url = match url::Url::parse(&url) {
+        Ok(u) => u,
+        Err(_) => url::Url::from_file_path(std::path::Path::new(&url))
+            .map_err(|_| anyhow!("Invalid URL or file path: {url}"))?,
+    };
     let response = gosub_net::http::blocking::get(&parsed_url)?;
     if !response.is_ok() {
         bail!("Could not get url. Status code {}", response.status);

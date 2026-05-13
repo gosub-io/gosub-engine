@@ -1,12 +1,26 @@
 use crate::http::response::Response;
+use cookie::Cookie;
 use cow_utils::CowUtils;
 use gosub_shared::types::Result;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::time::Duration;
 use url::Url;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_BODY_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
+
+static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+
+fn get_client() -> &'static reqwest::blocking::Client {
+    HTTP_CLIENT.get_or_init(|| {
+        reqwest::blocking::Client::builder()
+            .timeout(DEFAULT_TIMEOUT)
+            .use_rustls_tls()
+            .build()
+            .expect("Failed to build HTTP client")
+    })
+}
 
 /// Performs a blocking HTTP GET, handling both `file://` and `http(s)://` URLs.
 /// Headers in the returned [`Response`] are stored with lowercase keys.
@@ -15,16 +29,15 @@ pub fn get(url: &Url) -> Result<Response> {
         let path = url
             .to_file_path()
             .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", url))?;
+        let metadata = std::fs::metadata(&path)?;
+        if metadata.len() > MAX_BODY_SIZE {
+            anyhow::bail!("File size exceeds maximum size of {} bytes", MAX_BODY_SIZE);
+        }
         let body = std::fs::read(&path)?;
         return Ok(Response::from(body));
     }
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(DEFAULT_TIMEOUT)
-        .use_rustls_tls()
-        .build()?;
-
-    let resp = client.get(url.as_str()).send()?;
+    let resp = get_client().get(url.as_str()).send()?;
     let status = resp.status().as_u16();
     let status_text = resp.status().canonical_reason().unwrap_or("").to_string();
     let version = match resp.version() {
@@ -35,6 +48,15 @@ pub fn get(url: &Url) -> Result<Response> {
         _ => "HTTP/1.1",
     }
     .to_string();
+
+    // Reject early if Content-Length declares an oversized body.
+    if let Some(cl) = resp.headers().get("content-length") {
+        if let Ok(size) = cl.to_str().unwrap_or("").parse::<u64>() {
+            if size > MAX_BODY_SIZE {
+                anyhow::bail!("Response body exceeds maximum size of {} bytes", MAX_BODY_SIZE);
+            }
+        }
+    }
 
     let headers: HashMap<String, String> = resp
         .headers()
@@ -52,9 +74,9 @@ pub fn get(url: &Url) -> Result<Response> {
         .iter()
         .filter_map(|v| {
             let s = v.to_str().ok()?;
-            let kv = s.split(';').next()?;
-            let (name, value) = kv.split_once('=')?;
-            Some((name.trim().to_string(), value.trim().to_string()))
+            Cookie::parse(s.to_owned())
+                .ok()
+                .map(|c| (c.name().to_owned(), c.value().to_owned()))
         })
         .collect();
 

@@ -3664,6 +3664,7 @@ name = "gosub_net"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "cookie",
  "cow-utils",
  "gosub_engine",
  "gosub_shared",
