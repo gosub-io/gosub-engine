@@ -14,11 +14,11 @@ use gosub_pipeline::rasterizer::vello::VelloRasterizer;
 use gosub_pipeline::rasterizer::Rasterable;
 use gosub_pipeline::rendertree_builder::RenderTree;
 use gosub_pipeline::tiler::{TileList, TileState};
+use parking_lot::RwLock;
 use std::cell::RefCell;
 use std::fmt::Formatter;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::time::Instant;
 use vello::peniko::color;
 use vello::util::{DeviceHandle, RenderContext, RenderSurface};
@@ -64,7 +64,7 @@ fn main() {
 
 fn reflow() {
     let binding = get_browser_state();
-    let state = binding.read().unwrap();
+    let state = binding.read();
 
     println!("reflowing to dimension: {:?}", state.viewport);
 
@@ -85,10 +85,10 @@ fn reflow() {
 
     drop(state);
 
-    let layer_count = tile_list.layer_list.layer_ids.read().unwrap().len();
+    let layer_count = tile_list.layer_list.layer_ids.read().len();
 
     let binding = get_browser_state();
-    let mut state = binding.write().unwrap();
+    let mut state = binding.write();
     state.visible_layer_list.resize(layer_count, true);
     state.tile_list = Some(RwLock::new(tile_list));
 }
@@ -163,7 +163,7 @@ impl ApplicationHandler for App<'_> {
                     .resize_surface(env.surface.as_mut().unwrap(), width, height);
 
                 let binding = get_browser_state();
-                let mut state = binding.write().unwrap();
+                let mut state = binding.write();
                 state.viewport = Rect::new(0.0, 0.0, width as f64, height as f64);
                 drop(state);
 
@@ -179,7 +179,7 @@ impl ApplicationHandler for App<'_> {
                 let DeviceHandle { device, queue, .. } = &env.render_ctx.devices[dev_id];
 
                 let binding = get_browser_state();
-                let state = binding.read().unwrap();
+                let state = binding.read();
                 let vis_layers = state.visible_layer_list.clone();
                 drop(state);
 
@@ -198,7 +198,7 @@ impl ApplicationHandler for App<'_> {
                     .expect("Failed to get current texture");
 
                 let binding = get_browser_state();
-                let state = binding.read().unwrap();
+                let state = binding.read();
 
                 let render_params = RenderParams {
                     base_color: color::palette::css::DARK_MAGENTA,
@@ -242,7 +242,7 @@ impl ApplicationHandler for App<'_> {
 
                 if physical_key >= Code(KeyCode::Digit0) && physical_key <= Code(KeyCode::Digit9) {
                     let binding = get_browser_state();
-                    let mut state = binding.write().unwrap();
+                    let mut state = binding.write();
 
                     let layer_id = match physical_key {
                         Code(KeyCode::Digit1) => 0,
@@ -265,7 +265,7 @@ impl ApplicationHandler for App<'_> {
 
                 if logical_key == "w" {
                     let binding = get_browser_state();
-                    let mut state = binding.write().unwrap();
+                    let mut state = binding.write();
 
                     match state.wireframed {
                         WireframeState::None => state.wireframed = WireframeState::Only,
@@ -278,25 +278,25 @@ impl ApplicationHandler for App<'_> {
                         return;
                     };
 
-                    tile_list.write().expect("Failed to get tile list").invalidate_all();
+                    tile_list.write().invalidate_all();
                     window.request_redraw();
                 }
 
                 if logical_key == "d" {
                     let binding = get_browser_state();
-                    let mut state = binding.write().unwrap();
+                    let mut state = binding.write();
 
                     state.debug_hover = !state.debug_hover;
 
                     if let Some(ref tile_list) = state.tile_list {
-                        tile_list.write().expect("Failed to get tile list").invalidate_all();
+                        tile_list.write().invalidate_all();
                     }
                     window.request_redraw();
                 }
 
                 if logical_key == "t" {
                     let binding = get_browser_state();
-                    let mut state = binding.write().unwrap();
+                    let mut state = binding.write();
 
                     state.show_tilegrid = !state.show_tilegrid;
                     window.request_redraw();
@@ -354,22 +354,19 @@ fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> 
 
 fn do_paint(layer_id: LayerId) {
     let binding = get_browser_state();
-    let state = binding.read().unwrap();
+    let state = binding.read();
 
     let Some(ref tile_list) = state.tile_list else {
         log::error!("No tile list found");
         return;
     };
 
-    let painter = Painter::new(tile_list.read().unwrap().layer_list.clone());
+    let painter = Painter::new(tile_list.read().layer_list.clone());
 
-    let tile_ids = tile_list
-        .read()
-        .unwrap()
-        .get_intersecting_tiles(layer_id, state.viewport);
+    let tile_ids = tile_list.read().get_intersecting_tiles(layer_id, state.viewport);
     for tile_id in tile_ids {
         // get tile
-        let mut binding = tile_list.write().expect("Failed to get tile list");
+        let mut binding = tile_list.write();
         let Some(tile) = binding.get_tile_mut(tile_id) else {
             log::warn!("Tile not found: {:?}", tile_id);
             continue;
@@ -389,20 +386,17 @@ fn do_paint(layer_id: LayerId) {
 
 fn do_rasterize(device: &wgpu::Device, queue: &wgpu::Queue, renderer: Rc<RefCell<Renderer>>, layer_id: LayerId) {
     let binding = get_browser_state();
-    let state = binding.read().unwrap();
+    let state = binding.read();
 
     let Some(ref tile_list) = state.tile_list else {
         log::error!("No tile list found");
         return;
     };
 
-    let tile_ids = tile_list
-        .read()
-        .unwrap()
-        .get_intersecting_tiles(layer_id, state.viewport);
+    let tile_ids = tile_list.read().get_intersecting_tiles(layer_id, state.viewport);
     for tile_id in tile_ids {
         // get tile
-        let mut binding = tile_list.write().expect("Failed to get tile list");
+        let mut binding = tile_list.write();
         let Some(tile) = binding.get_tile(tile_id) else {
             log::warn!("Tile not found: {:?}", tile_id);
             continue;

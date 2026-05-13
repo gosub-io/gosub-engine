@@ -8,12 +8,13 @@ use crate::layering::layer::{LayerId, LayerList};
 use crate::layouter::{LayoutElementId, LayoutElementNode};
 use crate::painter::commands::color::Color;
 use crate::painter::commands::PaintCommand;
+use parking_lot::RwLock;
 use rstar::primitives::GeomWithData;
 use rstar::AABB;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::AddAssign;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /*
 
@@ -281,10 +282,10 @@ impl TileList {
             );
         }
 
-        let layer_list = self.layer_list.layers.read().unwrap();
+        let layer_list = self.layer_list.layers.read();
 
         // iterate each layer
-        for layer_id in self.layer_list.layer_ids.read().unwrap().iter() {
+        for layer_id in self.layer_list.layer_ids.read().iter() {
             // Each layer gets a list of tiles (rows * cols). They are stored in the arena.
             let mut tile_ids = Vec::with_capacity(rows * cols);
 
@@ -395,7 +396,7 @@ impl TileList {
     }
 
     pub fn next_node_id(&self) -> TileId {
-        let mut nid = self.next_node_id.write().expect("Failed to lock next node ID");
+        let mut nid = self.next_node_id.write();
         let id = *nid;
         *nid += 1;
         id

@@ -74,7 +74,7 @@ impl Rasterable for CairoRasterizer {
         };
 
         let binding = get_texture_store();
-        let mut texture_store = binding.write().expect("Failed to get texture store");
+        let mut texture_store = binding.write();
         let texture_id = texture_store.add(w, h, data.to_vec());
 
         Some(texture_id)

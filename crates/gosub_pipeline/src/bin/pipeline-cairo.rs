@@ -19,7 +19,8 @@ use gtk4::prelude::{
     AdjustmentExt, ApplicationExt, ApplicationExtManual, DrawingAreaExt, DrawingAreaExtManual, GtkWindowExt, WidgetExt,
 };
 use gtk4::{glib, Adjustment, Application, ApplicationWindow, DrawingArea, EventControllerMotion, ScrolledWindow};
-use std::sync::{Arc, RwLock};
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 const TILE_DIMENSION: f64 = 256.0;
 
@@ -64,7 +65,7 @@ fn main() {
     // Render the layout-tree into a GTK window
     let app = Application::builder().application_id("io.gosub.renderer").build();
 
-    let layer_count = tile_list.layer_list.layer_ids.read().unwrap().len();
+    let layer_count = tile_list.layer_list.layer_ids.read().len();
     let browser_state = BrowserState {
         visible_layer_list: vec![true; layer_count],
         wireframed: WireframeState::None,
@@ -109,13 +110,12 @@ fn build_ui(app: &Application) {
         .build();
 
     let binding = get_browser_state().clone();
-    let state = binding.read().unwrap();
+    let state = binding.read();
     let dim = state
         .tile_list
         .as_ref()
         .unwrap()
         .read()
-        .unwrap()
         .layer_list
         .layout_tree
         .root_dimension;
@@ -125,7 +125,7 @@ fn build_ui(app: &Application) {
     area.set_content_height(dim.height as i32);
     area.set_draw_func(move |_area, cr, _width, _height| {
         let binding = get_browser_state();
-        let state = binding.read().unwrap();
+        let state = binding.read();
         let vis_layers = state.visible_layer_list.clone();
         drop(state);
 
@@ -143,13 +143,12 @@ fn build_ui(app: &Application) {
     let area_clone = area.clone();
     motion_controller.connect_motion(move |_, x, y| {
         let binding = get_browser_state();
-        let state = binding.read().expect("Failed to get browser state");
+        let state = binding.read();
         let el_id = state
             .tile_list
             .as_ref()
             .unwrap()
             .read()
-            .unwrap()
             .layer_list
             .find_element_at(x, y);
         let che = state.current_hovered_element;
@@ -162,7 +161,6 @@ fn build_ui(app: &Application) {
                     .as_ref()
                     .unwrap()
                     .read()
-                    .unwrap()
                     .get_tiles_for_element(current_id)
                     .iter()
                     .for_each(|tile_id| {
@@ -173,7 +171,6 @@ fn build_ui(app: &Application) {
                     .as_ref()
                     .unwrap()
                     .read()
-                    .unwrap()
                     .get_tiles_for_element(new_id)
                     .iter()
                     .for_each(|tile_id| {
@@ -186,7 +183,6 @@ fn build_ui(app: &Application) {
                     .as_ref()
                     .unwrap()
                     .read()
-                    .unwrap()
                     .get_tiles_for_element(new_id)
                     .iter()
                     .for_each(|tile_id| {
@@ -199,7 +195,6 @@ fn build_ui(app: &Application) {
                     .as_ref()
                     .unwrap()
                     .read()
-                    .unwrap()
                     .get_tiles_for_element(current_id)
                     .iter()
                     .for_each(|tile_id| {
@@ -210,10 +205,10 @@ fn build_ui(app: &Application) {
         }
         drop(state);
 
-        let mut state = binding.write().expect("Failed to get browser state");
+        let mut state = binding.write();
         if state.current_hovered_element != el_id {
             if let Some(id) = el_id {
-                let binding = state.tile_list.as_ref().unwrap().read().unwrap();
+                let binding = state.tile_list.as_ref().unwrap().read();
                 let layout_element = binding.layer_list.layout_tree.get_node_by_id(id).unwrap();
                 println!("Hovered element id:");
                 println!("   Layout ID : {:?}", el_id);
@@ -222,13 +217,7 @@ fn build_ui(app: &Application) {
             }
 
             for tile_id in &tile_ids {
-                state
-                    .tile_list
-                    .as_ref()
-                    .unwrap()
-                    .write()
-                    .unwrap()
-                    .invalidate_tile(*tile_id);
+                state.tile_list.as_ref().unwrap().write().invalidate_tile(*tile_id);
             }
 
             state.current_hovered_element = el_id;
@@ -249,7 +238,7 @@ fn build_ui(app: &Application) {
     let controller = gtk4::EventControllerKey::new();
     controller.connect_key_pressed(move |_controller, keyval, _keycode, _state| {
         let binding = get_browser_state();
-        let mut state = binding.write().expect("Failed to get browser state");
+        let mut state = binding.write();
 
         match keyval {
             key if key == gtk4::gdk::Key::_1 => {
@@ -318,24 +307,12 @@ fn build_ui(app: &Application) {
                     WireframeState::Only => state.wireframed = WireframeState::Both,
                     WireframeState::Both => state.wireframed = WireframeState::None,
                 }
-                state
-                    .tile_list
-                    .as_ref()
-                    .unwrap()
-                    .write()
-                    .expect("Failed to get tile list")
-                    .invalidate_all();
+                state.tile_list.as_ref().unwrap().write().invalidate_all();
                 area.queue_draw();
             }
             key if key == gtk4::gdk::Key::d => {
                 state.debug_hover = !state.debug_hover;
-                state
-                    .tile_list
-                    .as_ref()
-                    .unwrap()
-                    .write()
-                    .expect("Failed to get tile list")
-                    .invalidate_all();
+                state.tile_list.as_ref().unwrap().write().invalidate_all();
                 area.queue_draw();
             }
             key if key == gtk4::gdk::Key::t => {
@@ -355,24 +332,18 @@ fn build_ui(app: &Application) {
 
 fn do_paint(layer_id: LayerId) {
     let binding = get_browser_state();
-    let state = binding.read().unwrap();
+    let state = binding.read();
 
-    let painter = Painter::new(state.tile_list.as_ref().unwrap().read().unwrap().layer_list.clone());
+    let painter = Painter::new(state.tile_list.as_ref().unwrap().read().layer_list.clone());
 
     let tile_ids = state
         .tile_list
         .as_ref()
         .unwrap()
         .read()
-        .unwrap()
         .get_intersecting_tiles(layer_id, state.viewport);
     for tile_id in tile_ids {
-        let mut binding = state
-            .tile_list
-            .as_ref()
-            .unwrap()
-            .write()
-            .expect("Failed to get tile list");
+        let mut binding = state.tile_list.as_ref().unwrap().write();
         let Some(tile) = binding.get_tile_mut(tile_id) else {
             log::warn!("Tile not found: {:?}", tile_id);
             continue;
@@ -390,22 +361,16 @@ fn do_paint(layer_id: LayerId) {
 
 fn do_rasterize(layer_id: LayerId) {
     let binding = get_browser_state();
-    let state = binding.read().unwrap();
+    let state = binding.read();
 
     let tile_ids = state
         .tile_list
         .as_ref()
         .unwrap()
         .read()
-        .unwrap()
         .get_intersecting_tiles(layer_id, state.viewport);
     for tile_id in tile_ids {
-        let mut binding = state
-            .tile_list
-            .as_ref()
-            .unwrap()
-            .write()
-            .expect("Failed to get tile list");
+        let mut binding = state.tile_list.as_ref().unwrap().write();
         let Some(tile) = binding.get_tile(tile_id) else {
             log::warn!("Tile not found: {:?}", tile_id);
             continue;
@@ -477,16 +442,10 @@ fn on_viewport_changed(area: &DrawingArea, hadj: &Adjustment, vadj: &Adjustment)
     let height = vadj.page_size();
 
     let binding = get_browser_state();
-    let mut state = binding.write().expect("Failed to get browser state");
+    let mut state = binding.write();
 
     if width != state.viewport.width || height != state.viewport.height {
-        state
-            .tile_list
-            .as_ref()
-            .unwrap()
-            .write()
-            .expect("Failed to get tile list")
-            .invalidate_all();
+        state.tile_list.as_ref().unwrap().write().invalidate_all();
     }
 
     state.viewport = Rect::new(x, y, width, height);
