@@ -12,9 +12,13 @@ anyhow = "1.0.102"
 url = "2.5.8"
 cow-utils = "0.1"
 cookie = "0.18.1"
+uuid = { version = "1", features = ["v4"] }
+bytes = "1"
+http = "1"
+log = "0.4"
+tracing = "0.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-gosub_engine = { version = "0.1.0", path = "../gosub_engine" }
 tokio = { version = "1.52.3", features = ["rt"] }
 reqwest = { version = "0.13.3", features = ["rustls", "stream", "blocking"] }
 

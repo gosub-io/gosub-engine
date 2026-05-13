@@ -8,6 +8,7 @@ name = "gosub_engine"
 crate-type = ["rlib"]
 
 [dependencies]
+gosub_net = { version = "0.1.1", path = "../gosub_net" }
 uuid = { version = "1.17.0", features = ["v4", "serde"] }
 reqwest = { version = "0.13.3", features = ["json", "gzip", "brotli", "deflate", "cookies", "rustls", "stream"] }
 tokio = { version = "1.52", features = [
