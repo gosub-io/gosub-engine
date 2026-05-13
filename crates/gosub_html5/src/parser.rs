@@ -4086,36 +4086,31 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     #[cfg(not(target_arch = "wasm32"))]
     fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<<C::CssSystem as CssSystem>::Stylesheet> {
         let css = if url.scheme() == "http" || url.scheme() == "https" {
-            // Fetch the html from the url
-            let response = reqwest::blocking::get(url.as_str());
-            if let Err(err) = response {
-                warn!("Could not load external stylesheet from {}. Error: {}", url, err);
-                return None;
-            }
-            let response = response.unwrap();
+            let response = match gosub_net::http::blocking::get(&url) {
+                Ok(r) => r,
+                Err(err) => {
+                    warn!("Could not load external stylesheet from {}. Error: {}", url, err);
+                    return None;
+                }
+            };
 
-            if response.status().as_u16() != 200 {
+            if response.status != 200 {
                 warn!(
-                    "Could not load external stylesheet from {}. Status code {} ",
-                    url,
-                    response.status()
+                    "Could not load external stylesheet from {}. Status code {}",
+                    url, response.status
                 );
                 return None;
             }
-            let content_type = response.headers().get("Content-Type");
-            match content_type {
-                Some(content_type) => {
-                    let content_type = content_type.to_str().unwrap_or("");
-                    if !content_type.starts_with("text/css") {
-                        warn!("External stylesheet has no text/css content type: {content_type} ");
-                    }
+
+            match response.headers.get("content-type") {
+                Some(ct) if !ct.starts_with("text/css") => {
+                    warn!("External stylesheet has no text/css content type: {ct}");
                 }
-                None => {
-                    warn!("External stylesheet has no content type: {url} ");
-                }
+                None => warn!("External stylesheet has no content type: {url}"),
+                _ => {}
             }
 
-            match response.text() {
+            match String::from_utf8(response.body) {
                 Ok(css) => css,
                 Err(err) => {
                     warn!("Could not load external stylesheet from {url}. Error: {err}");

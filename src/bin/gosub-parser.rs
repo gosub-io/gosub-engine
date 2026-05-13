@@ -8,7 +8,6 @@ use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_shared::timing::Scale;
 use gosub_shared::timing_display;
 use gosub_shared::types::Result;
-use std::fs;
 use std::process::exit;
 use std::str::FromStr;
 use url::Url;
@@ -52,19 +51,11 @@ fn main() -> Result<()> {
 
     println!("Parsing url: {url:?}");
 
-    let html = if url.scheme() == "http" || url.scheme() == "https" {
-        // Fetch the html from the url
-        let response = reqwest::blocking::get(url.as_str())?;
-        if response.status().as_u16() != 200 {
-            bail!("Could not get url. Status code {}", response.status());
-        }
-        response.text()?
-    } else if url.scheme() == "file" {
-        // Get html from the file
-        fs::read_to_string(url.to_string().trim_start_matches("file://"))?
-    } else {
-        fatal("Invalid url scheme");
-    };
+    let response = gosub_net::http::blocking::get(&url)?;
+    if !response.is_ok() {
+        bail!("Could not get url. Status code {}", response.status);
+    }
+    let html = String::from_utf8_lossy(&response.body).into_owned();
 
     let mut stream = ByteStream::from_str(&html, Encoding::UTF8);
 

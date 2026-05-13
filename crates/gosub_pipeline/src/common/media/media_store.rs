@@ -3,12 +3,11 @@ use crate::common::media::Svg;
 use crate::common::media::{Media, MediaId, MediaImage, MediaSvg, MediaType};
 use bytes::Bytes;
 use file_type::FileType;
-use reqwest::header::HeaderValue;
 use resvg::usvg;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
-use std::time::Duration;
+use url::Url;
 
 const DEFAULT_SVG_ID: MediaId = MediaId::new(0);
 const DEFAULT_IMAGE_ID: MediaId = MediaId::new(1);
@@ -274,32 +273,19 @@ impl MediaStore {
     /// Fetch resource from the web (or local file system, depending on the src) and returns the media type and raw
     /// bytes. This is blocking.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(MediaType, bytes::Bytes)> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()?;
-        let response = client
-            .get(src)
-            .send()
-            .map_err(|e| anyhow::anyhow!("Failed to fetch resource: {e}"))?;
+        let url = Url::parse(src)?;
+        let response = gosub_net::http::blocking::get(&url)?;
 
-        if !response.status().is_success() {
-            anyhow::bail!("HTTP {} fetching resource", response.status());
+        if !response.is_ok() {
+            anyhow::bail!("HTTP {} fetching resource", response.status);
         }
 
         // Detect through content type
-        let detected_content_type = detect_content_type(
-            response
-                .headers()
-                .get("content-type")
-                .unwrap_or(&HeaderValue::from_static(""))
-                .to_str()
-                .unwrap_or(""),
-        );
+        let detected_content_type =
+            detect_content_type(response.headers.get("content-type").map(String::as_str).unwrap_or(""));
 
         // Detect through content bytes
-        let raw_bytes = response
-            .bytes()
-            .map_err(|e| anyhow::anyhow!("Failed to read response body: {e}"))?;
+        let raw_bytes = bytes::Bytes::from(response.body);
         let detected_file_type = detect_file_type(&raw_bytes);
 
         if detected_content_type.is_none() && detected_file_type.is_none() {
