@@ -4104,7 +4104,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
             match response.headers.get("content-type") {
                 Some(ct) if !ct.starts_with("text/css") => {
-                    warn!("External stylesheet has no text/css content type: {ct}");
+                    warn!("External stylesheet has unexpected content type: {ct}");
                 }
                 None => warn!("External stylesheet has no content type: {url}"),
                 _ => {}
