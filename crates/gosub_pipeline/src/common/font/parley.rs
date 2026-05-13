@@ -7,9 +7,7 @@ static FONT_CTX: OnceLock<Mutex<parley::FontContext>> = OnceLock::new();
 static LAYOUT_CTX: OnceLock<Mutex<parley::LayoutContext>> = OnceLock::new();
 
 pub fn get_font_context() -> parking_lot::MutexGuard<'static, parley::FontContext> {
-    FONT_CTX
-        .get_or_init(|| Mutex::new(parley::FontContext::new()))
-        .lock()
+    FONT_CTX.get_or_init(|| Mutex::new(parley::FontContext::new())).lock()
 }
 
 fn get_layout_context() -> parking_lot::MutexGuard<'static, parley::LayoutContext> {
