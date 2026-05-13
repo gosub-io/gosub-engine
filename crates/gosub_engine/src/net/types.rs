@@ -1,63 +1,15 @@
 pub use gosub_net::net::types::{
-    BodyStream, FetchKeyData, FetchResultMeta, Initiator, NetError, Priority, ResourceKind,
+    BodyStream, FetchHandle, FetchKeyData, FetchRequest, FetchResultMeta, Initiator, NetError,
+    Priority, ResourceKind,
 };
-use crate::engine::types::{PeekBuf, RequestId};
+
+use crate::engine::types::PeekBuf;
 use crate::html::DummyDocument;
-use crate::net::req_ref_tracker::RequestReference;
 use crate::net::shared_body::SharedBody;
 use bytes::Bytes;
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
-
-// We don't know these types yet
-pub(crate) type DocumentId = u64;
-pub(crate) type PrefetchId = u64;
-pub(crate) type TaskId = u64;
-
-#[derive(Clone)]
-pub struct FetchHandle {
-    /// Unique ID of this request (for logging and tracking)
-    pub req_id: RequestId,
-    /// Key data identifying the resource to fetch
-    pub key: FetchKeyData,
-    /// Cancellation token
-    pub cancel: CancellationToken,
-}
-
-impl Debug for FetchHandle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FetchHandle")
-            .field("req_id", &self.req_id)
-            .field("key", &self.key)
-            .field("cancel", &self.cancel)
-            .finish()
-    }
-}
-
-/// A fetch request defines what needs to be fetched, how and where to send the result to
-#[derive(Debug, Clone)]
-pub struct FetchRequest {
-    /// Reference to what initiated this request (navigation, document, prefetch, background task)
-    pub reference: RequestReference,
-    /// Unique ID of this request (for logging and tracking)
-    pub req_id: RequestId,
-    /// Key data identifying the resource to fetch
-    pub key_data: FetchKeyData,
-    /// Priority of this request
-    pub priority: Priority,
-    /// Who initiated this request
-    pub initiator: Initiator,
-    /// What kind of resource is being fetched
-    pub kind: ResourceKind,
-    // whether to stream or buffer
-    pub streaming: bool,
-    /// Auto decode the request (if for instance, gzipped), or pass directly through to the caller
-    pub auto_decode: bool,
-    /// Maximum amount of (buffered) bytes we can fetch
-    pub max_bytes: Option<usize>,
-}
 
 /// FetchResult defines the resource response. Either a stream or buffered response are possible
 #[derive(Clone)]

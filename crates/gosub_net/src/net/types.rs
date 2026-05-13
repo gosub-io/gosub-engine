@@ -1,4 +1,6 @@
+use crate::net::request_ref::RequestReference;
 use crate::net::utils::{normalize_url, short_hash, BytesAsyncReader};
+use crate::types::RequestId;
 use bytes::Bytes;
 use http::{header, HeaderMap, Method};
 use std::fmt::{Debug, Display};
@@ -6,6 +8,7 @@ use std::hash::Hash;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, ReadBuf};
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 /// Priority of the scheduled request. Documents usually have high priority, while images have low.
@@ -240,6 +243,49 @@ impl AsyncRead for BodyStream {
     ) -> std::task::Poll<std::io::Result<()>> {
         self.inner.as_mut().poll_read(cx, buf)
     }
+}
+
+#[derive(Clone)]
+pub struct FetchHandle {
+    /// Unique ID of this request (for logging and tracking)
+    pub req_id: RequestId,
+    /// Key data identifying the resource to fetch
+    pub key: FetchKeyData,
+    /// Cancellation token
+    pub cancel: CancellationToken,
+}
+
+impl Debug for FetchHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FetchHandle")
+            .field("req_id", &self.req_id)
+            .field("key", &self.key)
+            .field("cancel", &self.cancel)
+            .finish()
+    }
+}
+
+/// A fetch request defines what needs to be fetched, how and where to send the result to
+#[derive(Debug, Clone)]
+pub struct FetchRequest {
+    /// Reference to what initiated this request (navigation, document, prefetch, background task)
+    pub reference: RequestReference,
+    /// Unique ID of this request (for logging and tracking)
+    pub req_id: RequestId,
+    /// Key data identifying the resource to fetch
+    pub key_data: FetchKeyData,
+    /// Priority of this request
+    pub priority: Priority,
+    /// Who initiated this request
+    pub initiator: Initiator,
+    /// What kind of resource is being fetched
+    pub kind: ResourceKind,
+    // whether to stream or buffer
+    pub streaming: bool,
+    /// Auto decode the request (if for instance, gzipped), or pass directly through to the caller
+    pub auto_decode: bool,
+    /// Maximum amount of (buffered) bytes we can fetch
+    pub max_bytes: Option<usize>,
 }
 
 #[cfg(test)]

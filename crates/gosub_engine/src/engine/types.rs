@@ -1,8 +1,6 @@
 use crate::events::{EngineEvent, IoCommand, TabCommand};
-use std::fmt::Display;
-use uuid::Uuid;
 
-pub use gosub_net::types::{PeekBuf, RequestId};
+pub use gosub_net::types::{NavigationId, PeekBuf, RequestId};
 
 // Defined channels for communication
 pub type EventChannel = tokio::sync::broadcast::Sender<EngineEvent>;
@@ -33,18 +31,3 @@ pub enum Action {
     ViewSource,
 }
 
-/// Navigation ID is the same for each complete load, including iframes, resources redirect etc
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct NavigationId(pub Uuid);
-
-impl NavigationId {
-    pub(crate) fn new() -> Self {
-        Self(Uuid::new_v4())
-    }
-}
-
-impl Display for NavigationId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}

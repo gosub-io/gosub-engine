@@ -71,6 +71,35 @@ impl DecisionToken {
     }
 }
 
+/// Navigation ID is the same for each complete load, including iframes, resources redirect etc
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct NavigationId(pub Uuid);
+
+impl NavigationId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for NavigationId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Display for NavigationId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Opaque ID for a document sub-resource load group
+pub type DocumentId = u64;
+/// Opaque ID for a background prefetch task
+pub type PrefetchId = u64;
+/// Opaque ID for a miscellaneous background task
+pub type TaskId = u64;
+
 /// One logical request chain (stable across redirects)
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct RequestId(pub Uuid);
