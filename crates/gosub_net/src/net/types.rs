@@ -1,6 +1,7 @@
 use crate::net::request_ref::RequestReference;
+use crate::net::shared_body::SharedBody;
 use crate::net::utils::{normalize_url, short_hash, BytesAsyncReader};
-use crate::types::RequestId;
+use crate::types::{PeekBuf, RequestId};
 use bytes::Bytes;
 use http::{header, HeaderMap, Method};
 use std::fmt::{Debug, Display};
@@ -286,6 +287,50 @@ pub struct FetchRequest {
     pub auto_decode: bool,
     /// Maximum amount of (buffered) bytes we can fetch
     pub max_bytes: Option<usize>,
+}
+
+/// FetchResult defines the resource response. Either a stream or buffered response are possible
+#[derive(Clone)]
+pub enum FetchResult {
+    /// Streamed response body
+    Stream {
+        meta: FetchResultMeta,
+        peek_buf: PeekBuf,
+        shared: Arc<SharedBody>,
+    },
+    /// Buffered response body
+    Buffered { meta: FetchResultMeta, body: Bytes },
+    /// Network error occurred
+    Error(NetError),
+}
+
+impl FetchResult {
+    pub fn is_error(&self) -> bool {
+        matches!(self, FetchResult::Error(_))
+    }
+
+    /// Return the metadata if available
+    pub fn meta(&self) -> Option<&FetchResultMeta> {
+        match self {
+            FetchResult::Stream { meta, .. } => Some(meta),
+            FetchResult::Buffered { meta, .. } => Some(meta),
+            FetchResult::Error(_) => None,
+        }
+    }
+}
+
+impl Debug for FetchResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FetchResult::Stream { meta, .. } => f.debug_struct("FetchResult::Stream").field("meta", meta).finish(),
+            FetchResult::Buffered { meta, body } => f
+                .debug_struct("FetchResult::Buffered")
+                .field("meta", meta)
+                .field("body_len", &body.len())
+                .finish(),
+            FetchResult::Error(e) => f.debug_tuple("FetchResult::Error").field(e).finish(),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,58 +1,11 @@
 pub use gosub_net::net::types::{
-    BodyStream, FetchHandle, FetchKeyData, FetchRequest, FetchResultMeta, Initiator, NetError,
-    Priority, ResourceKind,
+    BodyStream, FetchHandle, FetchKeyData, FetchRequest, FetchResult, FetchResultMeta, Initiator,
+    NetError, Priority, ResourceKind,
 };
 
-use crate::engine::types::PeekBuf;
 use crate::html::DummyDocument;
-use crate::net::shared_body::SharedBody;
-use bytes::Bytes;
-use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::Arc;
-
-/// FetchResult defines the resource response. Either a stream or buffered response are possible
-#[derive(Clone)]
-pub enum FetchResult {
-    /// Streamed response body
-    Stream {
-        meta: FetchResultMeta,
-        peek_buf: PeekBuf,
-        shared: Arc<SharedBody>,
-    },
-    /// Buffered response body
-    Buffered { meta: FetchResultMeta, body: Bytes },
-    /// Network error occurred
-    Error(NetError),
-}
-
-impl FetchResult {
-    pub fn is_error(&self) -> bool {
-        matches!(self, FetchResult::Error(_))
-    }
-
-    pub fn meta(&self) -> Option<&FetchResultMeta> {
-        match self {
-            FetchResult::Stream { meta, .. } => Some(meta),
-            FetchResult::Buffered { meta, .. } => Some(meta),
-            FetchResult::Error(_) => None,
-        }
-    }
-}
-
-impl Debug for FetchResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FetchResult::Stream { meta, .. } => f.debug_struct("FetchResult::Stream").field("meta", meta).finish(),
-            FetchResult::Buffered { meta, body } => f
-                .debug_struct("FetchResult::Buffered")
-                .field("meta", meta)
-                .field("body_len", &body.len())
-                .finish(),
-            FetchResult::Error(e) => f.debug_tuple("FetchResult::Error").field(e).finish(),
-        }
-    }
-}
 
 /// The outcome of a main-frame navigation.
 #[derive(Debug)]
@@ -86,7 +39,9 @@ pub enum ObsoleteNavigationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::types::PeekBuf;
     use crate::net::shared_body::SharedBody;
+    use bytes::Bytes;
     use http::HeaderMap;
     use tokio::io::AsyncReadExt;
     use url::Url;

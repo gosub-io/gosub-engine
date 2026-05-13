@@ -18,10 +18,14 @@ http = "1"
 log = "0.4"
 tracing = "0.1"
 thiserror = "1"
+futures-core = "0.3"
+futures-util = "0.3"
+parking_lot = "0.12"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.52.3", features = ["rt", "io-util", "sync"] }
+tokio = { version = "1.52.3", features = ["rt", "io-util", "sync", "time"] }
 tokio-util = { version = "0.7.16", features = ["io"] }
+tokio-stream = { version = "0.1.17", features = ["sync"] }
 reqwest = { version = "0.13.3", features = ["rustls", "stream", "blocking"] }
 
 
