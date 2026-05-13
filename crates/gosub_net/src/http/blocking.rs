@@ -80,8 +80,10 @@ pub fn get(url: &Url) -> Result<Response> {
         })
         .collect();
 
-    let bytes = resp.bytes()?;
-    if bytes.len() as u64 > MAX_BODY_SIZE {
+    let mut reader = resp.take(MAX_BODY_SIZE + 1);
+    let mut body = Vec::new();
+    reader.read_to_end(&mut body)?;
+    if body.len() as u64 > MAX_BODY_SIZE {
         anyhow::bail!("Response body exceeds maximum size of {} bytes", MAX_BODY_SIZE);
     }
     let body = bytes.to_vec();
