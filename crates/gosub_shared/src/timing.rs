@@ -155,14 +155,15 @@ impl TimingTable {
 
             if show_details {
                 for timer_id in timers {
-                    let timer = self.timers.get(timer_id).unwrap();
-                    if timer.has_finished() {
-                        println!(
-                            "                     | {:>8} | {:>10} | {}",
-                            1,
-                            self.scale(timer.duration_us, scale.clone()),
-                            timer.context.clone().unwrap_or_default()
-                        );
+                    if let Some(timer) = self.timers.get(timer_id) {
+                        if timer.has_finished() {
+                            println!(
+                                "                     | {:>8} | {:>10} | {}",
+                                1,
+                                self.scale(timer.duration_us, scale.clone()),
+                                timer.context.clone().unwrap_or_default()
+                            );
+                        }
                     }
                 }
             }
@@ -274,8 +275,9 @@ impl Timer {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn end(&mut self) {
-        self.end = Some(Instant::now());
-        self.duration_us = self.end.expect("").duration_since(self.start).as_micros() as u64;
+        let now = Instant::now();
+        self.duration_us = now.duration_since(self.start).as_micros() as u64;
+        self.end = Some(now);
     }
 
     #[cfg(target_arch = "wasm32")]

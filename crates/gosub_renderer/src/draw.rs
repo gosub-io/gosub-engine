@@ -211,7 +211,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
     }
 
     fn from_source(url: Url, source_html: &str, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
-        let fetcher = Fetcher::new(url.clone());
+        let fetcher = Fetcher::new(url.clone())?;
         let (rt, handle) = load_html_rendertree_source::<C>(url, source_html)?;
 
         Ok((Self::new(rt, layouter, Arc::new(fetcher), debug), handle))
