@@ -3,6 +3,7 @@ use cookie::Cookie;
 use cow_utils::CowUtils;
 use gosub_shared::types::Result;
 use std::collections::HashMap;
+use std::io::Read;
 use std::sync::OnceLock;
 use std::time::Duration;
 use url::Url;
@@ -26,14 +27,20 @@ fn get_client() -> &'static reqwest::blocking::Client {
 /// Headers in the returned [`Response`] are stored with lowercase keys.
 pub fn get(url: &Url) -> Result<Response> {
     if url.scheme() == "file" {
-        let path = url
-            .to_file_path()
-            .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", url))?;
-        let metadata = std::fs::metadata(&path)?;
-        if metadata.len() > MAX_BODY_SIZE {
+        // to_file_path() handles well-formed file:///absolute/path URLs.
+        // For relative-style file://relative/path URLs the host holds the first
+        // path segment, so we fall back to concatenating host + path.
+        let path = url.to_file_path().unwrap_or_else(|_| {
+            let host = url.host_str().unwrap_or("");
+            std::path::PathBuf::from(format!("{}{}", host, url.path()))
+        });
+        let mut body = Vec::new();
+        std::fs::File::open(&path)?
+            .take(MAX_BODY_SIZE + 1)
+            .read_to_end(&mut body)?;
+        if body.len() as u64 > MAX_BODY_SIZE {
             anyhow::bail!("File size exceeds maximum size of {} bytes", MAX_BODY_SIZE);
         }
-        let body = std::fs::read(&path)?;
         return Ok(Response::from(body));
     }
 
@@ -80,13 +87,11 @@ pub fn get(url: &Url) -> Result<Response> {
         })
         .collect();
 
-    let mut reader = resp.take(MAX_BODY_SIZE + 1);
     let mut body = Vec::new();
-    reader.read_to_end(&mut body)?;
+    resp.take(MAX_BODY_SIZE + 1).read_to_end(&mut body)?;
     if body.len() as u64 > MAX_BODY_SIZE {
         anyhow::bail!("Response body exceeds maximum size of {} bytes", MAX_BODY_SIZE);
     }
-    let body = bytes.to_vec();
 
     Ok(Response {
         status,
