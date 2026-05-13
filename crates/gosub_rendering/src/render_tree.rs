@@ -213,8 +213,8 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
 
     /// Returns the root node of the render tree
     #[must_use]
-    pub fn get_root(&self) -> &RenderTreeNode<C> {
-        self.nodes.get(&self.root).expect("root node")
+    pub fn get_root(&self) -> Option<&RenderTreeNode<C>> {
+        self.nodes.get(&self.root)
     }
 
     /// Returns the children of the given node
@@ -258,11 +258,10 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
     fn get_child_node_ids(&self, node_id: NodeId) -> Vec<NodeId> {
         let mut result = vec![node_id];
 
-        let node = self.nodes.get(&node_id);
-        if node.is_none() {
+        let Some(node) = self.nodes.get(&node_id) else {
             return result;
-        }
-        node.expect("node").children.iter().for_each(|child| {
+        };
+        node.children.iter().for_each(|child| {
             let mut childs = self.get_child_node_ids(*child);
             result.append(&mut childs);
         });

@@ -89,8 +89,8 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
             let mut scene = <C::RenderBackend as RenderBackend>::Scene::new();
 
             // Apply new maximums to the scene transform
-            if let Some(scene_transform) = self.scene_transform.as_mut() {
-                let root_size = self.tree.get_root().layout.content();
+            if let (Some(scene_transform), Some(root)) = (self.scene_transform.as_mut(), self.tree.get_root()) {
+                let root_size = root.layout.content();
                 // Calculate max_x and max_y, ensuring they are not negative cause if the root size is smaller than the size, max_x/max_y should be 0
                 let max_x = (root_size.width - size.width as f32).max(0.0);
                 let max_y = (root_size.height - size.height as f32).max(0.0);
@@ -188,7 +188,8 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         let x = transform.tx() + point.x;
         let y = transform.ty() + point.y;
 
-        let root_size = self.tree.get_root().layout.content();
+        let Some(root) = self.tree.get_root() else { return; };
+        let root_size = root.layout.content();
         let size = self.size.unwrap_or(SizeU32::ZERO);
 
         let max_x = root_size.width - size.width as f32;
@@ -587,15 +588,16 @@ pub fn print_tree<B: RenderBackend, L: Layouter>(
         let layout = &tree.get_final_layout(node_id);
         let display = tree.get_debug_label(node_id);
         let num_children = tree.child_count(node_id);
-        let gosub_id = tree.get_node_context(node_id).expect("node context must exist");
-        let width_style = tree.style(node_id).expect("node style must exist").size;
+        let Some(gosub_id) = tree.get_node_context(node_id) else { return; };
+        let Some(style) = tree.style(node_id) else { return; };
+        let width_style = style.size;
 
         let fork_string = if has_sibling {
             "├── "
         } else {
             "└── "
         };
-        let node = gosub_tree.get_node(*gosub_id).expect("gosub node must exist");
+        let Some(node) = gosub_tree.get_node(*gosub_id) else { return; };
         let mut node_render = String::new();
 
         match &node.data {
