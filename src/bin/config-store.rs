@@ -83,7 +83,7 @@ fn main() -> anyhow::Result<()> {
             }
 
             let info = config_store().get_info(&key).unwrap();
-            let value = config_store().get(&key).unwrap();
+            let value = config_store().get(&key)?.unwrap_or(info.default.clone());
 
             println!("Key            : {key}");
             println!("Current Value  : {value}");
@@ -92,17 +92,25 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::List => {
             for key in config_store().find("*") {
-                let value = config_store().get(&key).unwrap();
-                println!("{key:40}: {value}");
+                let value = config_store()
+                    .get(&key)?
+                    .or_else(|| config_store().get_info(&key).map(|i| i.default));
+                if let Some(value) = value {
+                    println!("{key:40}: {value}");
+                }
             }
         }
         Commands::Set { key, value } => {
-            config_store().set(&key, Setting::from_str(&value).expect("incorrect value"));
+            config_store().set(&key, Setting::from_str(&value)?)?;
         }
         Commands::Search { key } => {
             for key in config_store().find(&key) {
-                let value = config_store().get(&key).unwrap();
-                println!("{key:40}: {value}");
+                let value = config_store()
+                    .get(&key)?
+                    .or_else(|| config_store().get_info(&key).map(|i| i.default));
+                if let Some(value) = value {
+                    println!("{key:40}: {value}");
+                }
             }
         }
     }

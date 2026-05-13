@@ -1,9 +1,10 @@
 use crate::settings::Setting;
-use crate::StorageAdapter;
-use gosub_shared::types::Result;
+use crate::{Result, StorageAdapter};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 
+/// In-memory storage adapter. Settings are lost when the process exits.
+/// Useful for testing and for the default state before a persistent adapter is attached.
 #[derive(Default)]
 pub struct MemoryStorageAdapter {
     settings: Mutex<HashMap<String, Setting>>,
@@ -19,15 +20,15 @@ impl MemoryStorageAdapter {
 }
 
 impl StorageAdapter for MemoryStorageAdapter {
-    fn get(&self, key: &str) -> Option<Setting> {
+    fn get(&self, key: &str) -> Result<Option<Setting>> {
         let lock = self.settings.lock();
-        let v = lock.get(key);
-        v.cloned()
+        Ok(lock.get(key).cloned())
     }
 
-    fn set(&self, key: &str, value: Setting) {
+    fn set(&self, key: &str, value: Setting) -> Result<()> {
         let mut lock = self.settings.lock();
         lock.insert(key.to_owned(), value);
+        Ok(())
     }
 
     fn all(&self) -> Result<HashMap<String, Setting>> {

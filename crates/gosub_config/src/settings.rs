@@ -158,9 +158,13 @@ impl FromStr for Setting {
     //   s:hello world
     //   m:foo,bar,baz
 
-    /// Converts a string to a setting or None when the string is invalid
+    /// Parses a prefixed string into a `Setting`. The format is `<type>:<value>`,
+    /// e.g. `b:true`, `i:-1`, `u:42`, `s:hello`, `m:foo,bar`. Returns an error
+    /// when the prefix is missing or the value cannot be parsed.
     fn from_str(key: &str) -> Result<Setting, crate::errors::Error> {
-        let (key_type, key_value) = key.split_once(':').expect("");
+        let (key_type, key_value) = key
+            .split_once(':')
+            .ok_or_else(|| Error::Config(format!("invalid setting format, missing ':' in {key:?}")))?;
 
         let setting = match key_type {
             "b" => Setting::Bool(
