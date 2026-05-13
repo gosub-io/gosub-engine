@@ -15,14 +15,18 @@ pub async fn load_html_rendertree<C: HasRenderTree + HasHtmlParser + HasDocument
     url: Url,
     source: Option<&str>,
 ) -> gosub_shared::types::Result<(C::RenderTree, C::Document, Fetcher)> {
-    let fetcher = Fetcher::new(url.clone())?;
-
-    let (rt, handle) = match source {
-        Some(source) => load_html_rendertree_source::<C>(url, source)?,
-        None => load_html_rendertree_fetcher::<C>(url, &fetcher).await?,
-    };
-
-    Ok((rt, handle, fetcher))
+    match source {
+        Some(source) => {
+            let (rt, handle) = load_html_rendertree_source::<C>(url.clone(), source)?;
+            let fetcher = Fetcher::new(url)?;
+            Ok((rt, handle, fetcher))
+        }
+        None => {
+            let fetcher = Fetcher::new(url.clone())?;
+            let (rt, handle) = load_html_rendertree_fetcher::<C>(url, &fetcher).await?;
+            Ok((rt, handle, fetcher))
+        }
+    }
 }
 
 // Generate a render tree from the given source HTML. THe URL is needed to resolve relative URLs
