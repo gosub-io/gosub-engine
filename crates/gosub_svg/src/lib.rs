@@ -1,9 +1,3 @@
-#![forbid(unsafe_code)]
-#![deny(clippy::todo)]
-#![deny(clippy::unimplemented)]
-#![deny(clippy::dbg_macro)]
-#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
-
 use ::resvg::usvg;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::Document;

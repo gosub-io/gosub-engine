@@ -1,9 +1,3 @@
-#![forbid(unsafe_code)]
-#![deny(clippy::todo)]
-#![deny(clippy::unimplemented)]
-#![deny(clippy::dbg_macro)]
-#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
-
 pub mod chrome;
 pub mod config;
 pub mod css3;

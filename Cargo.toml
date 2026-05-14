@@ -18,6 +18,17 @@ exclude = [
     "crates/gosub_storage",
 ]
 
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
 [[example]]
 name = "html5-parser"
 
