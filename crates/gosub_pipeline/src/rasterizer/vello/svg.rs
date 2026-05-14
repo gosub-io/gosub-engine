@@ -10,17 +10,14 @@ pub(crate) fn do_paint_svg(scene: &mut vello::Scene, media_id: MediaId, rect: &R
 
     // Acquire the media store only long enough to clone the Arc — rasterization happens outside the lock.
     let media = {
-        let Ok(binding) = get_media_store().read() else {
-            log::warn!("Failed to acquire media store lock, skipping SVG paint");
-            return;
-        };
+        let binding = get_media_store().read();
         binding.get_svg(media_id)
     };
 
     let target_dim = rect.rect().dimension();
 
     {
-        let cached = media.svg.rendered.read().unwrap_or_else(|e| e.into_inner());
+        let cached = media.svg.rendered.read();
         if cached.dimension == target_dim && !cached.data.is_empty() {
             let data = Blob::from(cached.data.clone());
             let vello_img = vello::peniko::Image::new(
@@ -56,7 +53,7 @@ pub(crate) fn do_paint_svg(scene: &mut vello::Scene, media_id: MediaId, rect: &R
     );
     let new_data = pixmap.data().to_vec();
 
-    let mut cached = media.svg.rendered.write().unwrap_or_else(|e| e.into_inner());
+    let mut cached = media.svg.rendered.write();
     cached.data = new_data;
     cached.dimension = target_dim;
 

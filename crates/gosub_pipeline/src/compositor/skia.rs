@@ -6,7 +6,7 @@ mod compositor;
 
 pub fn compose(canvas: &skia_safe::Canvas) {
     let binding = get_browser_state();
-    let state = binding.read().expect("Failed to get browser state");
+    let state = binding.read();
 
     let layers: Vec<LayerId> = state
         .visible_layer_list
