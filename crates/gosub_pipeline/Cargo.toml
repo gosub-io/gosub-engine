@@ -27,7 +27,8 @@ serde_json = "1.0.138"
 csscolorparser = "0.7.0"
 regex = "1.11.1"
 rstar = "0.12.2"
-reqwest = { version = "0.12.22", features = ["blocking"] }
+gosub_net = { version = "0.1.1", path = "../gosub_net", registry = "gosub" }
+url = "2.5.8"
 resvg = "0.47.0"
 bytes = "1.10.1"
 file_type = { version = "0.8.1", features = ["httpd"] }

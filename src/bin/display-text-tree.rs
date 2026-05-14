@@ -35,12 +35,13 @@ fn main() -> Result<()> {
         .unwrap();
 
     // Fetch the html from the url
-    let response = reqwest::blocking::get(&url)?;
-    if response.status().as_u16() != 200 {
-        println!("could not get url. Status code {}", response.status());
+    let parsed_url = url::Url::parse(&url)?;
+    let response = gosub_net::http::blocking::get(&parsed_url)?;
+    if !response.is_ok() {
+        println!("could not get url. Status code {}", response.status);
         exit(1);
     }
-    let html = response.text()?;
+    let html = String::from_utf8_lossy(&response.body).into_owned();
 
     let mut stream = ByteStream::from_str(&html, Encoding::UTF8);
 
