@@ -13,10 +13,12 @@ use gosub_interface::layout::{Layout as TLayout, LayoutCache, LayoutNode, Layout
 use gosub_shared::geo::{Point, Rect, Size, SizeU32};
 use gosub_shared::types::Result;
 
+use crate::calc::CalcExpr;
 use crate::compute::inline::compute_inline_layout;
 use crate::style::get_style_from_node;
 use crate::text::TextLayout;
 
+pub mod calc;
 mod compute;
 pub mod style;
 mod text;
@@ -110,6 +112,12 @@ pub struct Cache {
     taffy: TaffyCache,
     style: Style,
     display: Display,
+    /// Boxed `calc()` expressions referenced by `style` via raw pointers (see [`calc`]).
+    /// Kept alive here so those pointers remain valid for the lifetime of the cache.
+    /// The `Box` indirection is required: `Vec<CalcExpr>` would move elements on reallocation
+    /// and invalidate the raw pointers we handed to Taffy.
+    #[allow(clippy::vec_box)]
+    calc_storage: Vec<Box<CalcExpr>>,
 }
 
 unsafe impl Send for Cache {}
@@ -240,11 +248,14 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutDocument<'_, C> {
             return;
         };
 
-        let (style, display) = get_style_from_node(node);
+        let (style, display, calc_storage) = get_style_from_node(node);
 
         if let Some(cache) = self.0.get_cache_mut(node_id) {
             cache.style = style;
             cache.display = display;
+            // Replace any previous calc expressions atomically with the new style so the raw
+            // pointers in `cache.style` always refer to boxes we still own.
+            cache.calc_storage = calc_storage;
         }
     }
 
@@ -333,6 +344,10 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocum
 
     fn get_core_container_style(&self, node_id: TaffyId) -> Self::CoreContainerStyle<'_> {
         self.get_taffy_style_no_update(<C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into()))
+    }
+
+    fn resolve_calc_value(&self, val: *const (), basis: f32) -> f32 {
+        crate::calc::resolve(val, basis)
     }
 
     fn set_unrounded_layout(&mut self, node_id: TaffyId, layout: &TaffyLayout) {

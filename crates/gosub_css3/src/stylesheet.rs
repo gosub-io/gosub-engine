@@ -496,7 +496,14 @@ impl CssValue {
                 Ok(CssValue::String(value))
             }
             crate::node::NodeType::Operator(_) => Ok(CssValue::None),
-            crate::node::NodeType::Calc { .. } => Ok(CssValue::Function("calc".to_string(), vec![])),
+            crate::node::NodeType::Calc { expr } => {
+                // Preserve the raw body of calc(...) so the layout engine can evaluate it later.
+                let body = match *expr.node_type {
+                    crate::node::NodeType::Raw { value } => value,
+                    _ => String::new(),
+                };
+                Ok(CssValue::Function("calc".to_string(), vec![CssValue::String(body)]))
+            }
             crate::node::NodeType::Url { url } => {
                 Ok(CssValue::Function("url".to_string(), vec![CssValue::String(url)]))
             }

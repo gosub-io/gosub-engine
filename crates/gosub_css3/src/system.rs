@@ -1,5 +1,4 @@
 use crate::functions::attr::resolve_attr;
-use crate::functions::calc::resolve_calc;
 use crate::functions::var::resolve_var;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::shorthands::FixList;
@@ -234,7 +233,6 @@ pub fn resolve_functions<C: HasDocument>(value: &CssValue, doc: &C::Document, id
         match val {
             CssValue::Function(func, values) => {
                 let resolved = match func.as_str() {
-                    "calc" => resolve_calc(values),
                     "attr" => resolve_attr::<C>(values, doc, id),
                     "var" => resolve_var::<C>(values, doc, id),
                     _ => vec![val.clone()],
