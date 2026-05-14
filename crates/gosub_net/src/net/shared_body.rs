@@ -194,7 +194,7 @@ impl SharedBody {
     /// See also [`subscribe_stream`](Self::subscribe_stream) for using the
     /// default capacity configured at `SharedBody` creation.
     pub fn subscribe_with_cap(&self, max_queue: usize) -> BoxStream<'static, Result<Bytes, NetError>> {
-        let (maybe_rx, id_opt) = {
+        let (rx, id) = {
             let mut st = self.inner.lock();
             if st.closed {
                 return stream::empty::<Result<Bytes, NetError>>().boxed();
@@ -203,11 +203,8 @@ impl SharedBody {
             let (tx, rx) = mpsc::channel(max_queue);
             let id = st.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             st.subs.insert(id, tx);
-            (Some(rx), Some(id))
+            (rx, id)
         };
-
-        let rx = maybe_rx.unwrap();
-        let id = id_opt.unwrap();
 
         SubStream {
             id,

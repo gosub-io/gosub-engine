@@ -11,16 +11,18 @@ use url::Url;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_BODY_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
 
-static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+static HTTP_CLIENT: OnceLock<Option<reqwest::blocking::Client>> = OnceLock::new();
 
-fn get_client() -> &'static reqwest::blocking::Client {
-    HTTP_CLIENT.get_or_init(|| {
-        reqwest::blocking::Client::builder()
-            .timeout(DEFAULT_TIMEOUT)
-            .use_rustls_tls()
-            .build()
-            .expect("Failed to build HTTP client")
-    })
+fn get_client() -> Option<&'static reqwest::blocking::Client> {
+    HTTP_CLIENT
+        .get_or_init(|| {
+            reqwest::blocking::Client::builder()
+                .timeout(DEFAULT_TIMEOUT)
+                .use_rustls_tls()
+                .build()
+                .ok()
+        })
+        .as_ref()
 }
 
 /// Performs a blocking HTTP GET, handling both `file://` and `http(s)://` URLs.
@@ -44,7 +46,8 @@ pub fn get(url: &Url) -> Result<Response> {
         return Ok(Response::from(body));
     }
 
-    let resp = get_client().get(url.as_str()).send()?;
+    let client = get_client().ok_or_else(|| anyhow::anyhow!("Failed to build HTTP client"))?;
+    let resp = client.get(url.as_str()).send()?;
     let status = resp.status().as_u16();
     let status_text = resp.status().canonical_reason().unwrap_or("").to_string();
     let version = match resp.version() {

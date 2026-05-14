@@ -131,8 +131,14 @@ impl FetchKeyData {
 
         let range = h.get(header::RANGE).and_then(|v| v.to_str().ok()).unwrap_or("");
         let accept = h.get(header::ACCEPT).and_then(|v| v.to_str().ok()).unwrap_or("");
-        let accept_enc = h.get(header::ACCEPT_ENCODING).and_then(|v| v.to_str().ok()).unwrap_or("");
-        let accept_lang = h.get(header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()).unwrap_or("");
+        let accept_enc = h
+            .get(header::ACCEPT_ENCODING)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        let accept_lang = h
+            .get(header::ACCEPT_LANGUAGE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
 
         let auth_hash = h
             .get(header::AUTHORIZATION)
@@ -336,6 +342,7 @@ impl Debug for FetchResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cow_utils::CowUtils;
     use tokio::io::AsyncReadExt;
 
     #[tokio::test(flavor = "current_thread")]
@@ -398,7 +405,7 @@ mod tests {
     fn neterror_helpers_work() {
         let io = NetError::Timeout("oops".into()).to_io();
         assert_eq!(io.kind(), std::io::ErrorKind::Other);
-        assert!(io.to_string().to_lowercase().contains("timeout"));
+        assert!(io.to_string().cow_to_ascii_lowercase().contains("timeout"));
 
         let ne = NetError::from_anyhow(anyhow::anyhow!("boom"));
         assert!(matches!(ne, NetError::Read(_)));

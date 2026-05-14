@@ -30,4 +30,3 @@ pub enum Action {
     /// Stream will be shown as source (for HTML documents)
     ViewSource,
 }
-

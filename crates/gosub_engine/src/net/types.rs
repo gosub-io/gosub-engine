@@ -1,6 +1,6 @@
 pub use gosub_net::net::types::{
-    BodyStream, FetchHandle, FetchKeyData, FetchRequest, FetchResult, FetchResultMeta, Initiator,
-    NetError, Priority, ResourceKind,
+    BodyStream, FetchHandle, FetchKeyData, FetchRequest, FetchResult, FetchResultMeta, Initiator, NetError, Priority,
+    ResourceKind,
 };
 
 use crate::html::DummyDocument;

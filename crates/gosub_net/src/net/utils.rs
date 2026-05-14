@@ -229,7 +229,12 @@ mod tests {
 
         let body = Bytes::from_static(b"BODY");
         let meta = dummy_meta();
-        waiter.finish(FetchResult::Buffered { meta: meta.clone(), body: body.clone() }).await;
+        waiter
+            .finish(FetchResult::Buffered {
+                meta: meta.clone(),
+                body: body.clone(),
+            })
+            .await;
 
         let r1 = rx1.await.unwrap();
         let r2 = rx2.await.unwrap();
@@ -271,11 +276,19 @@ mod tests {
         let meta = dummy_meta();
         let peek_buf = PeekBuf::from_slice(b"PEEK-");
 
-        waiter.finish(FetchResult::Stream { meta: meta.clone(), peek_buf: peek_buf.clone(), shared: shared.clone() }).await;
+        waiter
+            .finish(FetchResult::Stream {
+                meta: meta.clone(),
+                peek_buf: peek_buf.clone(),
+                shared: shared.clone(),
+            })
+            .await;
 
         let r_stream = rx_stream.await.unwrap();
         match r_stream {
-            FetchResult::Stream { meta: m, peek_buf: p, .. } => {
+            FetchResult::Stream {
+                meta: m, peek_buf: p, ..
+            } => {
                 assert_eq!(m.status, 200);
                 assert_eq!(&p[..], b"PEEK-");
             }
@@ -300,7 +313,9 @@ mod tests {
         waiter.register(tx1, false).await;
         waiter.register(tx2, true).await;
 
-        waiter.finish(FetchResult::Error(NetError::Cancelled("boom".into()))).await;
+        waiter
+            .finish(FetchResult::Error(NetError::Cancelled("boom".into())))
+            .await;
 
         let r1 = rx1.await.unwrap();
         let r2 = rx2.await.unwrap();
