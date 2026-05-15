@@ -1,7 +1,7 @@
 use crate::http::response::Response;
 use bytes::Bytes;
-use cow_utils::CowUtils;
 use cookie::Cookie;
+use cow_utils::CowUtils;
 use gosub_shared::types::Result;
 use std::collections::HashMap;
 use url::Url;
@@ -138,6 +138,13 @@ fn do_sync_fetch(url: Url) -> Result<Response> {
             anyhow::bail!("Response body exceeds maximum size of {} bytes", MAX_BODY);
         }
 
-        Ok(Response { status, status_text, version, headers, cookies, body })
+        Ok(Response {
+            status,
+            status_text,
+            version,
+            headers,
+            cookies,
+            body,
+        })
     })
 }
