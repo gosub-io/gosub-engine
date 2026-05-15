@@ -8,7 +8,7 @@ use gosub_interface::config::HasDrawComponents;
 use gosub_interface::eventloop::EventLoopHandle;
 use gosub_interface::render_backend::{Image as _, ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32};
 use gosub_interface::svg::SvgRenderer;
-use gosub_net::net::simple::simple_get;
+use gosub_net::net::simple::sync_get;
 use gosub_shared::types::Result;
 use image::DynamicImage;
 use url::{ParseError, Url};
@@ -35,11 +35,11 @@ pub fn request_img<C: HasDrawComponents>(
             let base_url = base_url.clone();
             let el = el.clone();
 
-            gosub_shared::async_executor::spawn(async move {
+            std::thread::spawn(move || {
                 let resolved = resolve_url(&base_url, &url);
                 match resolved {
                     Ok(resolved_url) => {
-                        if let Ok(img) = load_img::<C::RenderBackend>(&resolved_url, svg_renderer, size).await {
+                        if let Ok(img) = load_img::<C::RenderBackend>(&resolved_url, svg_renderer, size) {
                             el.add_img_cache(resolved_url, img, size);
                         } else {
                             el.add_img_cache(
@@ -78,12 +78,12 @@ fn resolve_url(base: &Url, url: &str) -> Result<Url> {
     }
 }
 
-async fn load_img<B: RenderBackend>(
+fn load_img<B: RenderBackend>(
     url: &Url,
     svg_renderer: Arc<Mutex<B::SVGRenderer>>,
     size: Option<SizeU32>,
 ) -> Result<ImageBuffer<B>> {
-    let img = simple_get(url).await?;
+    let img = sync_get(url)?;
     if img.is_empty() {
         return Err(anyhow!("Empty response for {url}"));
     }

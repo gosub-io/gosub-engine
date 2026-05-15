@@ -4086,7 +4086,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     #[cfg(not(target_arch = "wasm32"))]
     fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<<C::CssSystem as CssSystem>::Stylesheet> {
         let css = if url.scheme() == "http" || url.scheme() == "https" {
-            let response = match gosub_net::http::blocking::get(&url) {
+            let response = match gosub_net::net::simple::sync_fetch(&url) {
                 Ok(r) => r,
                 Err(err) => {
                     warn!("Could not load external stylesheet from {}. Error: {}", url, err);
