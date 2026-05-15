@@ -18,6 +18,8 @@ gosub_engine = { version = "0.1.0", path = "../gosub_engine" }
 tokio = { version = "1.52.3", features = ["rt"] }
 reqwest = { version = "0.13.3", features = ["rustls", "stream", "blocking"] }
 
-
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 reqwest = { version = "0.13.3", default-features = false }
+
+[lints]
+workspace = true

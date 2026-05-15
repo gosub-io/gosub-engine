@@ -4,9 +4,10 @@ use crate::common::geo::{Coordinate, Dimension};
 use crate::common::media::MediaId;
 use crate::layouter::box_model::BoxModel;
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::ops::AddAssign;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 mod box_model;
 #[cfg(any(feature = "backend_cairo", feature = "backend_vello"))]
@@ -149,7 +150,7 @@ impl LayoutTree {
     }
 
     pub fn next_node_id(&self) -> LayoutElementId {
-        let mut nid = self.next_node_id.write().expect("Failed to lock next node ID");
+        let mut nid = self.next_node_id.write();
         let id = *nid;
         *nid += 1;
         id

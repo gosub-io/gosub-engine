@@ -16,3 +16,6 @@ anyhow = "1.0.102"
 
 [features]
 resvg = ["dep:resvg"]
+
+[lints]
+workspace = true

@@ -3693,6 +3693,7 @@ dependencies = [
  "image",
  "log",
  "pangocairo",
+ "parking_lot",
  "parley 0.3.0",
  "pollster",
  "rand 0.9.4",

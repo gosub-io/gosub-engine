@@ -1,7 +1,8 @@
 use crate::common::document::node::{AttrMap, Node, NodeId, NodeType};
 use crate::common::document::style::StylePropertyList;
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// Main DOM document structure
 #[derive(Clone)]
@@ -113,7 +114,7 @@ impl Document {
     }
 
     pub fn next_node_id(&self) -> NodeId {
-        let mut nid = self.next_node_id.write().expect("Failed to lock next node ID");
+        let mut nid = self.next_node_id.write();
         let id = *nid;
         *nid = NodeId::from(usize::from(*nid) + 1);
         id

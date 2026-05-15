@@ -40,7 +40,7 @@ impl Painter {
         let dom_node_id = layout_element.dom_node_id;
 
         let binding = get_browser_state();
-        let state = binding.read().unwrap();
+        let state = binding.read();
 
         // Paint boxmodel for the hovered element if needed
         if state.debug_hover
@@ -142,7 +142,7 @@ impl Painter {
             }
             ElementContext::Svg(svg_ctx) => {
                 // let binding = get_svg_store();
-                // let svg_store = binding.read().expect("Failed to get svg store");
+                // let svg_store = binding.read();
                 // let svg = svg_store.get(svg_ctx.svg_id).unwrap();
 
                 let brush = Brush::solid(Color::from_rgb8(130, 130, 130));

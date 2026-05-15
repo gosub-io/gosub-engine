@@ -18,10 +18,7 @@ impl Composable for CairoCompositor {
 
     fn compose(config: Self::Config) {
         let binding = get_browser_state();
-        let Ok(state) = binding.read() else {
-            log::error!("Failed to acquire browser state lock, skipping cairo compose");
-            return;
-        };
+        let state = binding.read();
 
         // Invariant: visible_layer_list[i] corresponds to LayerId(i) because layers are
         // allocated sequentially from 0 in the layering engine and the list is sized to layer_count.

@@ -6,6 +6,7 @@ use crate::timers::WebTimers;
 use gosub_interface::config::HasWebComponents;
 use gosub_interface::input::InputEvent;
 use gosub_interface::instance::Handles;
+use gosub_shared::types::Result;
 use std::thread;
 use tokio::runtime::{Handle, Runtime};
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -46,11 +47,8 @@ pub enum LocalEventLoopMessage<E: FutureExecutor> {
 
 impl<C: HasWebComponents> WebEventLoop<C> {
     /// Create a new `WebEventLoop` on a new thead, returning the handle to the event loop
-    pub fn new_on_thread(handles: Handles<C>) -> WebEventLoopHandle {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+    pub fn new_on_thread(handles: Handles<C>) -> Result<WebEventLoopHandle> {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 
         let handle = rt.handle().clone();
 
@@ -71,7 +69,7 @@ impl<C: HasWebComponents> WebEventLoop<C> {
             el.run(rt, TokioExecutor);
         });
 
-        WebEventLoopHandle { rt: handle, tx }
+        Ok(WebEventLoopHandle { rt: handle, tx })
     }
 }
 

@@ -3,10 +3,11 @@ use crate::common::media::Svg;
 use crate::common::media::{Media, MediaId, MediaImage, MediaSvg, MediaType};
 use bytes::Bytes;
 use file_type::FileType;
+use parking_lot::RwLock;
 use resvg::usvg;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 use url::Url;
 
 const DEFAULT_SVG_ID: MediaId = MediaId::new(0);
@@ -48,7 +49,7 @@ impl MediaStore {
         // Add "default svg" to the store.
         let default_svg_tree =
             usvg::Tree::from_data(DEFAULT_SVG_DATA, &usvg::Options::default()).expect("Failed to load default svg");
-        let mut entries = store.entries.write().expect("Failed to lock images");
+        let mut entries = store.entries.write();
         let media = Media::svg("gosub://default/svg", Svg::new(default_svg_tree));
         entries.insert(DEFAULT_SVG_ID, Arc::new(media));
         drop(entries);
@@ -57,7 +58,7 @@ impl MediaStore {
         let default_image = image::load_from_memory(DEFAULT_IMAGE_DATA)
             .expect("Failed to load default image")
             .to_rgba8();
-        let mut entries = store.entries.write().expect("Failed to lock images");
+        let mut entries = store.entries.write();
         let media = Media::image("gosub://default/image", default_image);
         entries.insert(DEFAULT_IMAGE_ID, Arc::new(media));
         drop(entries);
@@ -70,10 +71,7 @@ impl MediaStore {
     pub fn load_media(&self, src: &str) -> anyhow::Result<MediaId> {
         // Check if the media from src is already loaded into the cache. If so, return that
         let h = hash_from_string(src);
-        let cache = self
-            .cache
-            .read()
-            .map_err(|e| anyhow::anyhow!("Cache lock poisoned: {e}"))?;
+        let cache = self.cache.read();
         if let Some(media_id) = cache.get(&h) {
             log::debug!("Loading cached media from path: {}", src);
             return Ok(*media_id);
@@ -83,10 +81,7 @@ impl MediaStore {
         let result = self.load_media_from_source(src);
 
         if let Ok(media_id) = result {
-            let mut cache = self
-                .cache
-                .write()
-                .map_err(|e| anyhow::anyhow!("Cache write lock poisoned: {e}"))?;
+            let mut cache = self.cache.write();
             // Another thread may have inserted while we were loading — don't overwrite
             cache.entry(h).or_insert(media_id);
         }
@@ -96,10 +91,7 @@ impl MediaStore {
 
     pub fn load_media_from_data(&self, media_type: MediaType, data: &[u8]) -> anyhow::Result<MediaId> {
         let h = hash_from_data(data);
-        let cache = self
-            .cache
-            .read()
-            .map_err(|e| anyhow::anyhow!("Cache lock poisoned: {e}"))?;
+        let cache = self.cache.read();
         if let Some(media_id) = cache.get(&h) {
             log::debug!("Loading cached media from data");
             return Ok(*media_id);
@@ -118,17 +110,11 @@ impl MediaStore {
                 let media = Media::svg("gosub://data/svg", Svg::new(svg_tree));
                 let media_id = self.allocate_media_id();
 
-                let mut entries = self
-                    .entries
-                    .write()
-                    .map_err(|e| anyhow::anyhow!("Entries lock poisoned: {e}"))?;
+                let mut entries = self.entries.write();
                 entries.insert(media_id, Arc::new(media));
                 drop(entries);
 
-                let mut cache = self
-                    .cache
-                    .write()
-                    .map_err(|e| anyhow::anyhow!("Cache write lock poisoned: {e}"))?;
+                let mut cache = self.cache.write();
                 cache.insert(h, media_id);
 
                 media_id
@@ -144,17 +130,11 @@ impl MediaStore {
                 let media = Media::image("gosub://data/image", img.to_rgba8());
                 let media_id = self.allocate_media_id();
 
-                let mut entries = self
-                    .entries
-                    .write()
-                    .map_err(|e| anyhow::anyhow!("Entries lock poisoned: {e}"))?;
+                let mut entries = self.entries.write();
                 entries.insert(media_id, Arc::new(media));
                 drop(entries);
 
-                let mut cache = self
-                    .cache
-                    .write()
-                    .map_err(|e| anyhow::anyhow!("Cache write lock poisoned: {e}"))?;
+                let mut cache = self.cache.write();
                 cache.insert(h, media_id);
 
                 media_id
@@ -195,10 +175,7 @@ impl MediaStore {
 
         let media_id = self.allocate_media_id();
 
-        let mut entries = self
-            .entries
-            .write()
-            .map_err(|e| anyhow::anyhow!("Entries lock poisoned: {e}"))?;
+        let mut entries = self.entries.write();
         entries.insert(media_id, Arc::new(media));
 
         Ok(media_id)
@@ -237,16 +214,13 @@ impl MediaStore {
     }
 
     pub fn update_svg(&self, media_id: MediaId, media: Arc<Media>) {
-        let Ok(mut entries) = self.entries.write() else {
-            log::error!("Failed to acquire entries write lock for update_svg");
-            return;
-        };
+        let mut entries = self.entries.write();
         entries.insert(media_id, media);
     }
 
     /// Returns a media resource. If the media does not exist, it will return the default media resource as specified by the media_type
     pub fn get(&self, media_id: MediaId, media_type: MediaType) -> Arc<Media> {
-        let entries = self.entries.read().unwrap_or_else(|e| e.into_inner());
+        let entries = self.entries.read();
 
         match entries.get(&media_id) {
             Some(media) => media.clone(),
@@ -256,7 +230,7 @@ impl MediaStore {
 
     /// Returns the default media resource for the given media type
     fn default_media(&self, media_type: MediaType) -> Arc<Media> {
-        let entries = self.entries.read().unwrap_or_else(|e| e.into_inner());
+        let entries = self.entries.read();
 
         match media_type {
             MediaType::Svg => entries

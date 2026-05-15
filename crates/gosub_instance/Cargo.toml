@@ -11,3 +11,6 @@ gosub_net = { path = "../gosub_net" }
 tokio = { version = "1.52.3", features = ["sync", "rt"] }
 url = "2.5.8"
 log = "0.4.29"
+
+[lints]
+workspace = true

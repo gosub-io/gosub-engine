@@ -1,6 +1,7 @@
 use crate::common::geo::Dimension;
+use parking_lot::RwLock;
 use resvg::usvg;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// Cached render of an SVG at a specific dimension.
 pub struct RenderedSvg {
