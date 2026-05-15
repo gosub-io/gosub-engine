@@ -14,3 +14,6 @@ url = "2.5.8"
 smallvec = "1.15.1"
 raw-window-handle = "0.6.2"
 image = "0.25.10"
+
+[lints]
+workspace = true

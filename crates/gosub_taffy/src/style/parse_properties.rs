@@ -4,7 +4,7 @@ use taffy::{Overflow, Point, TextAlign};
 
 use crate::style::parse::{
     parse_align_c, parse_align_i, parse_dimension, parse_grid_auto, parse_grid_placement, parse_len, parse_len_auto,
-    parse_tracking_sizing_function,
+    parse_tracking_sizing_function, CalcStorage,
 };
 use gosub_interface::config::HasLayouter;
 use gosub_interface::css3::CssProperty;
@@ -79,33 +79,42 @@ pub fn parse_position<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Position
     }
 }
 
-pub fn parse_inset<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<LengthPercentageAuto> {
+pub fn parse_inset<C: HasLayouter>(
+    node: &mut impl LayoutNode<C>,
+    calc_storage: &mut CalcStorage,
+) -> Rect<LengthPercentageAuto> {
     Rect {
-        top: parse_len_auto(node, "top"),
-        right: parse_len_auto(node, "right"),
-        bottom: parse_len_auto(node, "bottom"),
-        left: parse_len_auto(node, "left"),
+        top: parse_len_auto(node, "top", calc_storage),
+        right: parse_len_auto(node, "right", calc_storage),
+        bottom: parse_len_auto(node, "bottom", calc_storage),
+        left: parse_len_auto(node, "left", calc_storage),
     }
 }
 
-pub fn parse_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dimension> {
+pub fn parse_size<C: HasLayouter>(node: &mut impl LayoutNode<C>, calc_storage: &mut CalcStorage) -> Size<Dimension> {
     Size {
-        width: parse_dimension(node, "width"),
-        height: parse_dimension(node, "height"),
+        width: parse_dimension(node, "width", calc_storage),
+        height: parse_dimension(node, "height", calc_storage),
     }
 }
 
-pub fn parse_min_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dimension> {
+pub fn parse_min_size<C: HasLayouter>(
+    node: &mut impl LayoutNode<C>,
+    calc_storage: &mut CalcStorage,
+) -> Size<Dimension> {
     Size {
-        width: parse_dimension(node, "min-width"),
-        height: parse_dimension(node, "min-height"),
+        width: parse_dimension(node, "min-width", calc_storage),
+        height: parse_dimension(node, "min-height", calc_storage),
     }
 }
 
-pub fn parse_max_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dimension> {
+pub fn parse_max_size<C: HasLayouter>(
+    node: &mut impl LayoutNode<C>,
+    calc_storage: &mut CalcStorage,
+) -> Size<Dimension> {
     Size {
-        width: parse_dimension(node, "max-width"),
-        height: parse_dimension(node, "max-height"),
+        width: parse_dimension(node, "max-width", calc_storage),
+        height: parse_dimension(node, "max-height", calc_storage),
     }
 }
 
@@ -144,30 +153,39 @@ pub fn parse_aspect_ratio<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Opti
     None
 }
 
-pub fn parse_margin<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<LengthPercentageAuto> {
+pub fn parse_margin<C: HasLayouter>(
+    node: &mut impl LayoutNode<C>,
+    calc_storage: &mut CalcStorage,
+) -> Rect<LengthPercentageAuto> {
     Rect {
-        top: parse_len_auto(node, "margin-top"),
-        right: parse_len_auto(node, "margin-right"),
-        bottom: parse_len_auto(node, "margin-bottom"),
-        left: parse_len_auto(node, "margin-left"),
+        top: parse_len_auto(node, "margin-top", calc_storage),
+        right: parse_len_auto(node, "margin-right", calc_storage),
+        bottom: parse_len_auto(node, "margin-bottom", calc_storage),
+        left: parse_len_auto(node, "margin-left", calc_storage),
     }
 }
 
-pub fn parse_padding<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<LengthPercentage> {
+pub fn parse_padding<C: HasLayouter>(
+    node: &mut impl LayoutNode<C>,
+    calc_storage: &mut CalcStorage,
+) -> Rect<LengthPercentage> {
     Rect {
-        top: parse_len(node, "padding-top"),
-        right: parse_len(node, "padding-right"),
-        bottom: parse_len(node, "padding-bottom"),
-        left: parse_len(node, "padding-left"),
+        top: parse_len(node, "padding-top", calc_storage),
+        right: parse_len(node, "padding-right", calc_storage),
+        bottom: parse_len(node, "padding-bottom", calc_storage),
+        left: parse_len(node, "padding-left", calc_storage),
     }
 }
 
-pub fn parse_border<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<LengthPercentage> {
+pub fn parse_border<C: HasLayouter>(
+    node: &mut impl LayoutNode<C>,
+    calc_storage: &mut CalcStorage,
+) -> Rect<LengthPercentage> {
     Rect {
-        top: parse_len(node, "border-top-width"),
-        right: parse_len(node, "border-right-width"),
-        bottom: parse_len(node, "border-bottom-width"),
-        left: parse_len(node, "border-left-width"),
+        top: parse_len(node, "border-top-width", calc_storage),
+        right: parse_len(node, "border-right-width", calc_storage),
+        bottom: parse_len(node, "border-bottom-width", calc_storage),
+        left: parse_len(node, "border-left-width", calc_storage),
     }
 }
 
@@ -208,10 +226,13 @@ pub fn parse_justify_content<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> O
     parse_align_c(node, "justify-content")
 }
 
-pub fn parse_gap<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<LengthPercentage> {
+pub fn parse_gap<C: HasLayouter>(
+    node: &mut impl LayoutNode<C>,
+    calc_storage: &mut CalcStorage,
+) -> Size<LengthPercentage> {
     Size {
-        width: parse_len(node, "column-gap"),
-        height: parse_len(node, "row-gap"),
+        width: parse_len(node, "column-gap", calc_storage),
+        height: parse_len(node, "row-gap", calc_storage),
     }
 }
 
@@ -250,8 +271,8 @@ pub fn parse_flex_wrap<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> FlexWra
     }
 }
 
-pub fn parse_flex_basis<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Dimension {
-    parse_dimension(node, "flex-basis")
+pub fn parse_flex_basis<C: HasLayouter>(node: &mut impl LayoutNode<C>, calc_storage: &mut CalcStorage) -> Dimension {
+    parse_dimension(node, "flex-basis", calc_storage)
 }
 
 pub fn parse_flex_grow<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> f32 {

@@ -1,22 +1,19 @@
 use crate::common::font::FontAlignment;
+use parking_lot::Mutex;
 use parley::{AlignmentOptions, Layout};
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 static FONT_CTX: OnceLock<Mutex<parley::FontContext>> = OnceLock::new();
 static LAYOUT_CTX: OnceLock<Mutex<parley::LayoutContext>> = OnceLock::new();
 
-pub fn get_font_context() -> std::sync::MutexGuard<'static, parley::FontContext> {
-    FONT_CTX
-        .get_or_init(|| Mutex::new(parley::FontContext::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+pub fn get_font_context() -> parking_lot::MutexGuard<'static, parley::FontContext> {
+    FONT_CTX.get_or_init(|| Mutex::new(parley::FontContext::new())).lock()
 }
 
-fn get_layout_context() -> std::sync::MutexGuard<'static, parley::LayoutContext> {
+fn get_layout_context() -> parking_lot::MutexGuard<'static, parley::LayoutContext> {
     LAYOUT_CTX
         .get_or_init(|| Mutex::new(parley::LayoutContext::new()))
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn get_parley_layout(

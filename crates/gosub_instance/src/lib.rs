@@ -63,7 +63,7 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
 
         let (itx, irx) = tokio::sync::mpsc::channel(128);
 
-        let web = WebEventLoop::new_on_thread(handles.clone());
+        let web = WebEventLoop::new_on_thread(handles.clone())?;
 
         Ok(EngineInstance {
             title: "Gosub".to_string(),
@@ -88,7 +88,13 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
         let (tx, rx) = tokio::sync::mpsc::channel(128);
 
         std::thread::spawn(move || {
-            let rt = Builder::new_current_thread().enable_all().build().unwrap();
+            let rt = match Builder::new_current_thread().enable_all().build() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    log::error!("Failed to build tokio runtime: {e}");
+                    return;
+                }
+            };
 
             let mut instance = match rt.block_on(Self::with_chan(url, layouter, rx, id, handles)) {
                 Ok(instance) => instance,

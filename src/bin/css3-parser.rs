@@ -7,7 +7,6 @@ use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssError;
 use simple_logger::SimpleLogger;
-use std::fs;
 use std::time::Instant;
 
 fn main() -> Result<()> {
@@ -52,19 +51,21 @@ fn main() -> Result<()> {
     let url: String = matches.get_one::<String>("url").expect("url").to_string();
     let display_tokenizer = matches.get_flag("tokenizer");
 
-    let css = if url.starts_with("http://") || url.starts_with("https://") {
-        // Fetch the html from the url
-        let response = reqwest::blocking::get(&url)?;
-        if response.status().as_u16() != 200 {
-            bail!("Could not get url. Status code {}", response.status());
-        }
-        response.text()?
-    } else if url.starts_with("file://") {
-        let path = url.trim_start_matches("file://");
-        fs::read_to_string(path)?
-    } else {
-        bail!("Unsupported url scheme: {}", url);
+    let parsed_url = match url::Url::parse(&url) {
+        Ok(u) => u,
+        Err(_) => url::Url::from_file_path(std::path::Path::new(&url))
+            .map_err(|_| anyhow!("Invalid URL or file path: {url}"))?,
     };
+    let response = gosub_net::http::blocking::get(&parsed_url)?;
+    if !response.is_ok() {
+        bail!("Could not get url. Status code {}", response.status);
+    }
+    if let Some(ct) = response.headers.get("content-type") {
+        if !ct.contains("css") && !ct.contains("text/plain") {
+            bail!("URL does not appear to be a CSS resource (content-type: {ct})");
+        }
+    }
+    let css = String::from_utf8_lossy(&response.body).into_owned();
 
     if debug {
         SimpleLogger::new().init().unwrap();

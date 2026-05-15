@@ -27,13 +27,15 @@ serde_json = "1.0.138"
 csscolorparser = "0.7.0"
 regex = "1.11.1"
 rstar = "0.12.2"
-reqwest = { version = "0.13.3", features = ["blocking"] }
+gosub_net = { version = "0.1.1", path = "../gosub_net", registry = "gosub" }
+url = "2.5.8"
 resvg = "0.47.0"
 bytes = "1.10.1"
 file_type = { version = "0.8.1", features = ["httpd"] }
 
 anyhow = "1.0.102"
 cow-utils = "0.1"
+parking_lot = "0.12"
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
 gosub_interface = { version = "0.1.2", path = "../gosub_interface", registry = "gosub" }
 

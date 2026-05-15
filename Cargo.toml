@@ -18,6 +18,17 @@ exclude = [
     "crates/gosub_storage",
 ]
 
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
 [[example]]
 name = "html5-parser"
 
@@ -127,7 +138,6 @@ getrandom = "0.4.2"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gosub_v8 = { version = "0.1.1", path = "./crates/gosub_v8", features = [], registry = "gosub" }
 gosub_webexecutor = { version = "0.1.1", path = "./crates/gosub_webexecutor", features = [], registry = "gosub" }
-reqwest = { version = "0.13.3", features = ["blocking", "rustls"] }
 futures = "0.3.32"
 
 [target.'cfg(unix)'.dependencies]

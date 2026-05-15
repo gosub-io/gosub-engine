@@ -1,4 +1,9 @@
-pub mod http;
+#![forbid(unsafe_code)]
+#![deny(clippy::todo)]
+#![deny(clippy::unimplemented)]
+#![deny(clippy::dbg_macro)]
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use gosub_engine::net;
+pub mod http;
+pub mod net;
+pub mod types;

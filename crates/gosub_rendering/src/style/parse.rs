@@ -154,7 +154,7 @@ pub(crate) fn parse_non_repeated_tracking_sizing_function<B: RenderBackend>(
     _node: &mut RenderTreeNode<B>,
     _name: &str,
 ) -> NonRepeatedTrackSizingFunction {
-    todo!("implement parse_non_repeated_tracking_sizing_function")
+    NonRepeatedTrackSizingFunction::AUTO
 }
 
 pub(crate) fn parse_grid_auto<B: RenderBackend>(

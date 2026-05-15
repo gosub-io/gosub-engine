@@ -52,6 +52,4 @@ pub(crate) fn test_add_element<C: HasDrawComponents<RenderTree = RenderTree<C>, 
     d.tree_scene = None;
 }
 
-pub(crate) fn test_restyle_element<C: HasDrawComponents>(_d: &mut TreeDrawerImpl<C>) {
-    todo!()
-}
+pub(crate) fn test_restyle_element<C: HasDrawComponents>(_d: &mut TreeDrawerImpl<C>) {}

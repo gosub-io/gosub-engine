@@ -4,17 +4,54 @@ use taffy::{
 };
 
 use gosub_interface::config::HasLayouter;
-use gosub_interface::css3::CssProperty;
+use gosub_interface::css3::{CssProperty, CssSystem, CssValue};
 use gosub_interface::layout::LayoutNode;
+
+use crate::calc::{self, CalcExpr};
+
+/// Storage for parsed `calc()` expressions tied to a single Taffy `Style`.
+///
+/// Taffy encodes a calc value as a raw pointer; we keep the underlying boxes alive here so those
+/// pointers stay valid for the duration of layout. Heap addresses of the boxed `CalcExpr`s don't
+/// move when the vec reallocates — only the `Box` slots themselves do. (`Vec<CalcExpr>` would
+/// move elements on reallocation and invalidate the raw pointers we handed to Taffy.)
+#[allow(clippy::vec_box)]
+pub type CalcStorage = Vec<Box<CalcExpr>>;
+
+/// Box up a parsed calc expression and return a stable, 8-byte-aligned pointer to it.
+fn store_calc(storage: &mut CalcStorage, expr: CalcExpr) -> *const () {
+    let boxed = Box::new(expr);
+    let ptr = (&*boxed) as *const CalcExpr as *const ();
+    storage.push(boxed);
+    ptr
+}
+
+/// If `property` is a `calc(...)` function, parse its body.
+fn take_calc<C: HasLayouter>(property: &<C::CssSystem as CssSystem>::Property) -> Option<CalcExpr> {
+    let (name, args) = property.as_function()?;
+    if !name.eq_ignore_ascii_case("calc") {
+        return None;
+    }
+    let body = args.first().and_then(CssValue::as_string)?;
+    calc::parse(body)
+}
 
 // Parse functions that will parse a CSS property and converts it into a Taffy type so it can be used
 // in the taffy layout engine. This step is needed since our CSS properties are not directly compatible
 // with the Taffy layout engine.
 
-pub fn parse_len<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> LengthPercentage {
+pub fn parse_len<C: HasLayouter>(
+    node: &mut impl LayoutNode<C>,
+    name: &str,
+    calc_storage: &mut CalcStorage,
+) -> LengthPercentage {
     let Some(property) = node.get_property(name) else {
         return LengthPercentage::length(0.0);
     };
+
+    if let Some(expr) = take_calc::<C>(property) {
+        return LengthPercentage::calc(store_calc(calc_storage, expr));
+    }
 
     if let Some(percent) = property.as_percentage() {
         return LengthPercentage::percent(percent / 100.0);
@@ -23,7 +60,11 @@ pub fn parse_len<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> L
     LengthPercentage::length(property.unit_to_px())
 }
 
-pub fn parse_len_auto<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> LengthPercentageAuto {
+pub fn parse_len_auto<C: HasLayouter>(
+    node: &mut impl LayoutNode<C>,
+    name: &str,
+    calc_storage: &mut CalcStorage,
+) -> LengthPercentageAuto {
     let Some(property) = node.get_property(name) else {
         return LengthPercentageAuto::length(0.0);
     };
@@ -34,6 +75,10 @@ pub fn parse_len_auto<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str)
         }
     }
 
+    if let Some(expr) = take_calc::<C>(property) {
+        return LengthPercentageAuto::calc(store_calc(calc_storage, expr));
+    }
+
     if let Some(percent) = property.as_percentage() {
         return LengthPercentageAuto::percent(percent / 100.0);
     }
@@ -41,7 +86,11 @@ pub fn parse_len_auto<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str)
     LengthPercentageAuto::length(property.unit_to_px())
 }
 
-pub fn parse_dimension<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> Dimension {
+pub fn parse_dimension<C: HasLayouter>(
+    node: &mut impl LayoutNode<C>,
+    name: &str,
+    calc_storage: &mut CalcStorage,
+) -> Dimension {
     let Some(property) = node.get_property(name) else {
         return Dimension::auto();
     };
@@ -50,6 +99,10 @@ pub fn parse_dimension<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str
         if str == "auto" {
             return Dimension::auto();
         }
+    }
+
+    if let Some(expr) = take_calc::<C>(property) {
+        return Dimension::calc(store_calc(calc_storage, expr));
     }
 
     if let Some(percent) = property.as_percentage() {

@@ -16,23 +16,7 @@
 use crate::Action;
 use tokio::sync::oneshot;
 
-/// Correlation handle for a pending decision.
-#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
-pub struct DecisionToken(uuid::Uuid);
-
-impl Default for DecisionToken {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl DecisionToken {
-    /// Create a new unique token.
-    #[inline]
-    pub fn new() -> Self {
-        Self(uuid::Uuid::new_v4())
-    }
-}
+pub use gosub_net::types::DecisionToken;
 
 /// Rendezvous hub mapping `DecisionToken` to `oneshot::Sender<Action>`.
 pub struct DecisionHub {

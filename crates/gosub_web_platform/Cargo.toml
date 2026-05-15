@@ -13,3 +13,6 @@ slotmap = "1.1.1"
 tokio = { version = "1.52.3", features = ["sync", "rt", "macros"] }
 pin-project = "1.1.11"
 log = "0.4.29"
+
+[lints]
+workspace = true

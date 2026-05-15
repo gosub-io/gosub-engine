@@ -98,10 +98,7 @@ impl Rasterable for VelloRasterizer<'_> {
         );
 
         let binding = get_texture_store();
-        let Ok(mut texture_store) = binding.write() else {
-            log::error!("Failed to acquire texture store lock, dropping tile result");
-            return None;
-        };
+        let mut texture_store = binding.write();
         let texture_id = texture_store.add(tile_size.width as usize, tile_size.height as usize, texture_data);
 
         Some(texture_id)

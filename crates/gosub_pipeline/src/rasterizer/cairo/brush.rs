@@ -19,10 +19,7 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect) {
             }
 
             let binding = get_media_store();
-            let Ok(media_store) = binding.read() else {
-                log::warn!("Failed to acquire media store lock, skipping image brush");
-                return;
-            };
+            let media_store = binding.read();
             let media = media_store.get_image(*media_id);
             let img = &media.image;
 

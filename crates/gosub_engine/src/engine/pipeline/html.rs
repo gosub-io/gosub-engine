@@ -199,11 +199,14 @@ mod tests {
     "#;
 
     fn test_meta(base: &str) -> FetchResultMeta {
-        let final_url = Url::parse(base).expect("valid url");
-        // If your FetchResultMeta isn't Default, replace with the proper constructor.
         FetchResultMeta {
-            final_url,
-            ..Default::default()
+            final_url: Url::parse(base).expect("valid url"),
+            status: 200,
+            status_text: "OK".into(),
+            headers: http::HeaderMap::new(),
+            content_length: None,
+            content_type: None,
+            has_body: true,
         }
     }
 

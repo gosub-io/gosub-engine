@@ -12,9 +12,10 @@ use crate::layouter::{
     LayoutElementNode, LayoutTree,
 };
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
+use parking_lot::RwLock;
 use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use taffy::prelude::*;
 use taffy::NodeId as TaffyNodeId;
 
@@ -400,10 +401,7 @@ impl TaffyLayouter {
                     log::debug!("Loading (image) resource: {}", src);
 
                     let media_store = get_media_store();
-                    let Ok(media_store_guard) = media_store.read() else {
-                        log::warn!("Failed to acquire media store lock for image: {}", src);
-                        return None;
-                    };
+                    let media_store_guard = media_store.read();
                     let Ok(media_id) = media_store_guard.load_media(src.as_str()) else {
                         // Could not load media
                         log::warn!("Could not load media from path: {}", src);
@@ -412,10 +410,7 @@ impl TaffyLayouter {
                     drop(media_store_guard);
 
                     let media_store = get_media_store();
-                    let Ok(binding) = media_store.read() else {
-                        log::warn!("Failed to acquire media store lock for image lookup: {}", src);
-                        return None;
-                    };
+                    let binding = media_store.read();
                     let media = binding.get(media_id, MediaType::Image);
                     taffy_context = match media.borrow() {
                         Media::Svg(_) => Some(TaffyContext::svg(src.as_str(), media_id, dom_node.node_id)),
@@ -433,10 +428,7 @@ impl TaffyLayouter {
                     let inner_html = layout_tree.render_tree.doc.inner_html(dom_node.node_id);
 
                     let store = get_media_store();
-                    let Ok(store_guard) = store.read() else {
-                        log::warn!("Failed to acquire media store lock for SVG");
-                        return None;
-                    };
+                    let store_guard = store.read();
                     match store_guard.load_media_from_data(MediaType::Svg, inner_html.into_bytes().as_slice()) {
                         Ok(media_id) => {
                             taffy_context = Some(TaffyContext::svg("gosub://internal", media_id, dom_node.node_id));

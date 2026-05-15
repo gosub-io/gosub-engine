@@ -28,8 +28,7 @@ impl SvgRenderer<VelloBackend> for VelloSVG {
 
     fn render(&mut self, _doc: &SVGDocument) -> Result<ImageBuffer<VelloBackend>> {
         // vello_svg::render_tree(scene.inner(), &doc.tree); //TODO: too old versions that vello_svg uses
-
-        todo!();
+        Err(anyhow::anyhow!("SVG rendering not yet implemented for Vello backend").into())
     }
 
     fn render_with_size(
@@ -37,6 +36,6 @@ impl SvgRenderer<VelloBackend> for VelloSVG {
         _doc: &Self::SvgDocument,
         _size: Size<u32>,
     ) -> gosub_shared::types::Result<ImageBuffer<VelloBackend>> {
-        todo!()
+        Err(anyhow::anyhow!("SVG rendering not yet implemented for Vello backend").into())
     }
 }

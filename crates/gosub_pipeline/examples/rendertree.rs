@@ -80,14 +80,10 @@ fn main() {
     }
 }
 
-fn fetch_html(url: &str) -> Result<String, reqwest::Error> {
-    reqwest::blocking::Client::builder()
-        .user_agent("GosubBrowser/0.1 rendertree-example")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()?
-        .get(url)
-        .send()?
-        .text()
+fn fetch_html(url: &str) -> anyhow::Result<String> {
+    let parsed = url::Url::parse(url)?;
+    let response = gosub_net::http::blocking::get(&parsed)?;
+    Ok(String::from_utf8_lossy(&response.body).into_owned())
 }
 
 fn print_subtree(rt: &RenderTree, id: RenderNodeId, depth: usize) {
