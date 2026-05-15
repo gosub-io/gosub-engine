@@ -16,9 +16,7 @@ use gosub_net::net::fetcher_context::FetcherContext;
 use gosub_net::net::null_emitter::NullEmitter;
 use gosub_net::net::observer::NetObserver;
 use gosub_net::net::request_ref::RequestReference;
-use gosub_net::net::types::{
-    FetchHandle, FetchKeyData, FetchRequest, FetchResult, Initiator, Priority, ResourceKind,
-};
+use gosub_net::net::types::{FetchHandle, FetchKeyData, FetchRequest, FetchResult, Initiator, Priority, ResourceKind};
 use gosub_net::types::RequestId;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
@@ -53,12 +51,14 @@ impl FetcherContext for StandaloneContext {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
-    let raw = std::env::args().nth(1).unwrap_or_else(|| "https://example.org".to_string());
+    let raw = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "https://example.org".to_string());
     let url = Url::parse(&raw)?;
 
     // Build the fetcher with default config and our no-op context.
     let config = FetcherConfig::default();
-    let fetcher = Arc::new(Fetcher::new(config, Arc::new(StandaloneContext)));
+    let fetcher = Arc::new(Fetcher::new(config, Arc::new(StandaloneContext))?);
 
     // The fetcher's run() loop needs a shutdown signal.
     let (shutdown_tx, shutdown_rx) = watch::channel(false);

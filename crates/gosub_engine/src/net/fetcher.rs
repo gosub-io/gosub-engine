@@ -1,11 +1,11 @@
 // Re-export the net-layer Fetcher and supporting types
-pub use gosub_net::net::fetcher::{FetchInflightMap, FetcherConfig, Fetcher};
+pub use gosub_net::net::fetcher::{FetchInflightMap, Fetcher, FetcherConfig};
 pub use gosub_net::net::fetcher_context::FetcherContext;
 
+use crate::engine::types::EventChannel;
 use crate::net::emitter::engine_event_emitter::EngineEventEmitter;
 use crate::net::emitter::null_emitter::NullEmitter;
 use crate::net::req_ref_tracker::{RequestRefTracker, RequestReferenceMap};
-use crate::engine::types::EventChannel;
 use gosub_net::net::observer::NetObserver;
 use gosub_net::net::request_ref::RequestReference;
 use gosub_net::net::types::{Initiator, ResourceKind};
@@ -51,6 +51,7 @@ impl FetcherContext for EngineNetContext {
     }
 
     fn on_ref_done(&self, reference: RequestReference) {
-        self.request_ref_tracker.dec_and_maybe_cleanup(&reference, &self.request_reference_map);
+        self.request_ref_tracker
+            .dec_and_maybe_cleanup(&reference, &self.request_reference_map);
     }
 }

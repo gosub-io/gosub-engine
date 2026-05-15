@@ -55,7 +55,7 @@
 //! }
 //!
 //! let (shutdown_tx, shutdown_rx) = watch::channel(false);
-//! let fetcher = Arc::new(Fetcher::new(FetcherConfig::default(), Arc::new(MyContext)));
+//! let fetcher = Arc::new(Fetcher::new(FetcherConfig::default(), Arc::new(MyContext))?);
 //!
 //! // Spawn the scheduler loop — it runs until shutdown_rx becomes true.
 //! let f = fetcher.clone();
@@ -146,7 +146,6 @@
 
 pub mod decision_hub;
 pub mod events;
-pub mod simple;
 pub mod fetch;
 pub mod fetcher;
 pub mod fetcher_context;
@@ -156,5 +155,6 @@ pub mod observer;
 pub mod pump;
 pub mod request_ref;
 pub mod shared_body;
+pub mod simple;
 pub mod types;
 pub mod utils;

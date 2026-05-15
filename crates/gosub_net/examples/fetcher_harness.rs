@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! A self-contained test harness for the Fetcher.
 //!
 //! Spins up a local mock HTTP server and runs five scenarios:
@@ -5,7 +6,7 @@
 //!   1. Concurrent   — 10 different URLs in parallel, all must complete
 //!   2. Coalescing   — same URL submitted 5× concurrently; server hit count must be 1
 //!   3. Priority     — High/Normal/Low/Idle requests with a single global slot;
-//!                     completion order must respect priority weights
+//!      completion order must respect priority weights
 //!   4. Cancellation — cancel a slow request before it completes
 //!   5. Errors       — 404, 500, connection-refused all surface as FetchResult::Error
 //!
@@ -18,9 +19,7 @@ use gosub_net::net::fetcher_context::FetcherContext;
 use gosub_net::net::null_emitter::NullEmitter;
 use gosub_net::net::observer::NetObserver;
 use gosub_net::net::request_ref::RequestReference;
-use gosub_net::net::types::{
-    FetchHandle, FetchKeyData, FetchRequest, FetchResult, Initiator, Priority, ResourceKind,
-};
+use gosub_net::net::types::{FetchHandle, FetchKeyData, FetchRequest, FetchResult, Initiator, Priority, ResourceKind};
 use gosub_net::types::RequestId;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -130,10 +129,7 @@ impl MockServer {
     }
 
     fn hit_count(&self, path: &str) -> usize {
-        self.hits
-            .get(path)
-            .map(|e| e.load(Ordering::Relaxed))
-            .unwrap_or(0)
+        self.hits.get(path).map(|e| e.load(Ordering::Relaxed)).unwrap_or(0)
     }
 }
 
@@ -141,18 +137,13 @@ impl MockServer {
 
 fn make_fetcher(config: FetcherConfig) -> (Arc<Fetcher>, watch::Sender<bool>) {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let fetcher = Arc::new(Fetcher::new(config, Arc::new(NullContext)));
+    let fetcher = Arc::new(Fetcher::new(config, Arc::new(NullContext)).expect("reqwest client build failed"));
     let f = fetcher.clone();
     tokio::spawn(async move { f.run(shutdown_rx).await });
     (fetcher, shutdown_tx)
 }
 
-async fn fetch(
-    fetcher: &Fetcher,
-    url: Url,
-    priority: Priority,
-    cancel: Option<CancellationToken>,
-) -> FetchResult {
+async fn fetch(fetcher: &Fetcher, url: Url, priority: Priority, cancel: Option<CancellationToken>) -> FetchResult {
     let key = FetchKeyData::new(url);
     let req_id = RequestId::new();
     let req = FetchRequest {
@@ -173,9 +164,10 @@ async fn fetch(
     };
     let (tx, rx) = oneshot::channel();
     fetcher.submit(req, handle, tx).await;
-    rx.await.unwrap_or(FetchResult::Error(
-        gosub_net::net::types::NetError::Cancelled("channel closed".into()),
-    ))
+    rx.await
+        .unwrap_or(FetchResult::Error(gosub_net::net::types::NetError::Cancelled(
+            "channel closed".into(),
+        )))
 }
 
 fn body_of(result: &FetchResult) -> Option<String> {
@@ -196,10 +188,20 @@ async fn scenario_concurrent(server: &MockServer) {
 
     let (fetcher, shutdown_tx) = make_fetcher(FetcherConfig::default());
 
-    let paths: Vec<&str> = (1..=10).map(|i| match i {
-        1 => "/a", 2 => "/b", 3 => "/c", 4 => "/d", 5 => "/e",
-        6 => "/f", 7 => "/g", 8 => "/h", 9 => "/i", _ => "/j",
-    }).collect();
+    let paths: Vec<&str> = (1..=10)
+        .map(|i| match i {
+            1 => "/a",
+            2 => "/b",
+            3 => "/c",
+            4 => "/d",
+            5 => "/e",
+            6 => "/f",
+            7 => "/g",
+            8 => "/h",
+            9 => "/i",
+            _ => "/j",
+        })
+        .collect();
 
     let start = Instant::now();
     let mut handles = Vec::new();
@@ -207,9 +209,9 @@ async fn scenario_concurrent(server: &MockServer) {
     for &path in &paths {
         let f = fetcher.clone();
         let url = server.url(path);
-        handles.push(tokio::spawn(async move {
-            fetch(&f, url, Priority::Normal, None).await
-        }));
+        handles.push(tokio::spawn(
+            async move { fetch(&f, url, Priority::Normal, None).await },
+        ));
     }
 
     let results: Vec<_> = futures_util::future::join_all(handles).await;
@@ -245,9 +247,7 @@ async fn scenario_coalescing(server: &MockServer) {
     for _ in 0..5 {
         let f = fetcher.clone();
         let u = url.clone();
-        handles.push(tokio::spawn(async move {
-            fetch(&f, u, Priority::Normal, None).await
-        }));
+        handles.push(tokio::spawn(async move { fetch(&f, u, Priority::Normal, None).await }));
     }
 
     let results: Vec<_> = futures_util::future::join_all(handles).await;
@@ -256,10 +256,7 @@ async fn scenario_coalescing(server: &MockServer) {
 
     println!("  5 requests submitted, server hit {} time(s)", server_hits);
 
-    let all_same_body = results
-        .iter()
-        .map(|r| body_of(r.as_ref().unwrap()))
-        .collect::<Vec<_>>();
+    let all_same_body = results.iter().map(|r| body_of(r.as_ref().unwrap())).collect::<Vec<_>>();
 
     let all_ok = all_same_body.iter().all(|b| b.as_deref() == Some("coalesced"));
     println!("  All 5 received same body: {all_ok}");
@@ -268,7 +265,10 @@ async fn scenario_coalescing(server: &MockServer) {
     // request races to the inflight map; a very fast machine might coalesce
     // all 5 into 1, a slower one might let 2 slip through before the map entry
     // is visible). Assert at least halved.
-    assert!(server_hits <= 3, "expected coalescing to reduce server hits, got {server_hits}");
+    assert!(
+        server_hits <= 3,
+        "expected coalescing to reduce server hits, got {server_hits}"
+    );
     assert!(all_ok, "all subscribers should receive the response");
     println!("  PASS");
 
@@ -286,8 +286,7 @@ async fn scenario_priority(server: &MockServer) {
     };
     let (fetcher, shutdown_tx) = make_fetcher(config);
 
-    let completion_order: Arc<std::sync::Mutex<Vec<&'static str>>> =
-        Arc::new(std::sync::Mutex::new(Vec::new()));
+    let completion_order: Arc<std::sync::Mutex<Vec<&'static str>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
 
     // Submit in reverse priority order so the scheduler's weighting is exercised.
     let priorities = [
@@ -332,9 +331,7 @@ async fn scenario_cancellation(server: &MockServer) {
     let cancel_clone = cancel.clone();
 
     let f = fetcher.clone();
-    let handle = tokio::spawn(async move {
-        fetch(&f, url, Priority::Normal, Some(cancel_clone)).await
-    });
+    let handle = tokio::spawn(async move { fetch(&f, url, Priority::Normal, Some(cancel_clone)).await });
 
     // Cancel almost immediately.
     tokio::time::sleep(Duration::from_millis(20)).await;
@@ -380,27 +377,146 @@ async fn scenario_errors(server: &MockServer) {
 async fn main() {
     let paths: Vec<(&'static str, PathConfig)> = vec![
         // Scenario 1 — 10 distinct paths
-        ("/a", PathConfig { status: 200, body: "a", delay: Duration::ZERO }),
-        ("/b", PathConfig { status: 200, body: "b", delay: Duration::ZERO }),
-        ("/c", PathConfig { status: 200, body: "c", delay: Duration::ZERO }),
-        ("/d", PathConfig { status: 200, body: "d", delay: Duration::ZERO }),
-        ("/e", PathConfig { status: 200, body: "e", delay: Duration::ZERO }),
-        ("/f", PathConfig { status: 200, body: "f", delay: Duration::ZERO }),
-        ("/g", PathConfig { status: 200, body: "g", delay: Duration::ZERO }),
-        ("/h", PathConfig { status: 200, body: "h", delay: Duration::ZERO }),
-        ("/i", PathConfig { status: 200, body: "i", delay: Duration::ZERO }),
-        ("/j", PathConfig { status: 200, body: "j", delay: Duration::ZERO }),
+        (
+            "/a",
+            PathConfig {
+                status: 200,
+                body: "a",
+                delay: Duration::ZERO,
+            },
+        ),
+        (
+            "/b",
+            PathConfig {
+                status: 200,
+                body: "b",
+                delay: Duration::ZERO,
+            },
+        ),
+        (
+            "/c",
+            PathConfig {
+                status: 200,
+                body: "c",
+                delay: Duration::ZERO,
+            },
+        ),
+        (
+            "/d",
+            PathConfig {
+                status: 200,
+                body: "d",
+                delay: Duration::ZERO,
+            },
+        ),
+        (
+            "/e",
+            PathConfig {
+                status: 200,
+                body: "e",
+                delay: Duration::ZERO,
+            },
+        ),
+        (
+            "/f",
+            PathConfig {
+                status: 200,
+                body: "f",
+                delay: Duration::ZERO,
+            },
+        ),
+        (
+            "/g",
+            PathConfig {
+                status: 200,
+                body: "g",
+                delay: Duration::ZERO,
+            },
+        ),
+        (
+            "/h",
+            PathConfig {
+                status: 200,
+                body: "h",
+                delay: Duration::ZERO,
+            },
+        ),
+        (
+            "/i",
+            PathConfig {
+                status: 200,
+                body: "i",
+                delay: Duration::ZERO,
+            },
+        ),
+        (
+            "/j",
+            PathConfig {
+                status: 200,
+                body: "j",
+                delay: Duration::ZERO,
+            },
+        ),
         // Scenario 2 — coalescing target (small delay to help submissions arrive together)
-        ("/coalesce", PathConfig { status: 200, body: "coalesced", delay: Duration::from_millis(50) }),
+        (
+            "/coalesce",
+            PathConfig {
+                status: 200,
+                body: "coalesced",
+                delay: Duration::from_millis(50),
+            },
+        ),
         // Scenario 3 — priority paths
-        ("/prio-high",   PathConfig { status: 200, body: "high",   delay: Duration::from_millis(10) }),
-        ("/prio-normal", PathConfig { status: 200, body: "normal", delay: Duration::from_millis(10) }),
-        ("/prio-low",    PathConfig { status: 200, body: "low",    delay: Duration::from_millis(10) }),
-        ("/prio-idle",   PathConfig { status: 200, body: "idle",   delay: Duration::from_millis(10) }),
+        (
+            "/prio-high",
+            PathConfig {
+                status: 200,
+                body: "high",
+                delay: Duration::from_millis(10),
+            },
+        ),
+        (
+            "/prio-normal",
+            PathConfig {
+                status: 200,
+                body: "normal",
+                delay: Duration::from_millis(10),
+            },
+        ),
+        (
+            "/prio-low",
+            PathConfig {
+                status: 200,
+                body: "low",
+                delay: Duration::from_millis(10),
+            },
+        ),
+        (
+            "/prio-idle",
+            PathConfig {
+                status: 200,
+                body: "idle",
+                delay: Duration::from_millis(10),
+            },
+        ),
         // Scenario 4 — slow path for cancellation
-        ("/slow", PathConfig { status: 200, body: "slow", delay: Duration::from_secs(30) }),
+        (
+            "/slow",
+            PathConfig {
+                status: 200,
+                body: "slow",
+                delay: Duration::from_secs(30),
+            },
+        ),
         // Scenario 5 — error path (404)
-        ("/missing", PathConfig { status: 404, body: "not found", delay: Duration::ZERO }),
+        (
+            "/missing",
+            PathConfig {
+                status: 404,
+                body: "not found",
+                delay: Duration::ZERO,
+            },
+        ),
     ];
 
     let server = MockServer::start(paths).await;

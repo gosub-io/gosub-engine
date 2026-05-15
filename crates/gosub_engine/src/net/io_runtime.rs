@@ -107,7 +107,7 @@ impl IoRouter {
             request_reference_map: self.engine_ctx.request_reference_map.clone(),
             request_ref_tracker: Arc::new(RequestRefTracker::new()),
         });
-        let f = Arc::new(Fetcher::new(self.cfg.clone(), engine_ctx));
+        let f = Arc::new(Fetcher::new(self.cfg.clone(), engine_ctx).expect("reqwest client build failed"));
 
         let f_run = f.clone();
         let title = format!("I/O Fetcher Zone {}", zone_id);

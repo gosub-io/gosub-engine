@@ -179,17 +179,16 @@ pub struct Fetcher {
 }
 
 impl Fetcher {
-    pub fn new(config: FetcherConfig, ctx: Arc<dyn FetcherContext>) -> Self {
+    pub fn new(config: FetcherConfig, ctx: Arc<dyn FetcherContext>) -> anyhow::Result<Self> {
         let client = reqwest::Client::builder()
             .connection_verbose(true)
             .http2_adaptive_window(true)
             .connect_timeout(config.connect_timeout)
             .timeout(config.req_timeout)
             .use_rustls_tls()
-            .build()
-            .expect("reqwest client build failed");
+            .build()?;
 
-        Self {
+        Ok(Self {
             client,
             cfg: config.clone(),
             global_slots: Arc::new(Semaphore::new(config.global_slots)),
@@ -202,7 +201,7 @@ impl Fetcher {
             wake: Notify::new(),
             decision_hub: Arc::new(DecisionHub::new()),
             ctx,
-        }
+        })
     }
 
     fn origin_key(url: &Url) -> String {
@@ -343,7 +342,9 @@ impl Fetcher {
                 continue;
             }
 
-            let observer = self.ctx.observer_for(req.reference, req.req_id, req.kind, req.initiator);
+            let observer = self
+                .ctx
+                .observer_for(req.reference, req.req_id, req.kind, req.initiator);
 
             let client = self.client.clone();
             let global = self.global_slots.clone();

@@ -276,6 +276,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         self.debugger_scene = None;
     }
 
+    #[allow(clippy::manual_async_fn)]
     fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = Result<C::Document>> + 'static {
         let url = self.base_url.clone();
 
@@ -296,6 +297,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         }
     }
 
+    #[allow(clippy::manual_async_fn)]
     fn navigate(
         &mut self,
         url: Url,

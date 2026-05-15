@@ -9,7 +9,9 @@ use url::Url;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
-    let raw = std::env::args().nth(1).unwrap_or_else(|| "https://example.org".to_string());
+    let raw = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "https://example.org".to_string());
     let url = Url::parse(&raw)?;
 
     println!("Fetching {url} ...");
