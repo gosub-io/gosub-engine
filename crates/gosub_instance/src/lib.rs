@@ -6,13 +6,11 @@ use gosub_interface::input::InputEvent;
 use gosub_interface::instance::{Handles, InstanceId};
 use gosub_interface::layout::LayoutTree;
 use gosub_interface::render_backend::{ImageBuffer, NodeDesc};
-use gosub_net::http::fetcher::Fetcher;
 use gosub_shared::geo::SizeU32;
 use gosub_shared::types::Result;
 use gosub_web_platform::{WebEventLoop, WebEventLoopHandle, WebEventLoopMessage};
 use log::warn;
 use std::sync::mpsc::Sender as SyncSender;
-use std::sync::Arc;
 use tokio::runtime::{Builder, Handle, Runtime};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task;
@@ -30,8 +28,6 @@ pub struct EngineInstance<C: ModuleConfiguration> {
     el: El<C>,
     id: InstanceId,
     handles: Handles<C>,
-    #[allow(unused)]
-    fetcher: Arc<Fetcher>,
     size: SizeU32,
 }
 
@@ -58,8 +54,7 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
         id: InstanceId,
         handles: Handles<C>,
     ) -> Result<Self> {
-        let fetcher = Arc::new(Fetcher::new(url.clone())?);
-        let (data, _handle) = C::TreeDrawer::with_fetcher(url.clone(), fetcher.clone(), layouter, false).await?;
+        let (data, _handle) = C::TreeDrawer::from_url(url.clone(), layouter, false).await?;
 
         let (itx, irx) = tokio::sync::mpsc::channel(128);
 
@@ -75,7 +70,6 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
             irx,
             id,
             handles,
-            fetcher,
             size: SizeU32::new(0, 0),
         })
     }

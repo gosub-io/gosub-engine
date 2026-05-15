@@ -1,5 +1,6 @@
 pub mod decision_hub;
 pub mod events;
+pub mod simple;
 pub mod fetch;
 pub mod fetcher;
 pub mod fetcher_context;

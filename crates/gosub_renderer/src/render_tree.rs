@@ -2,35 +2,23 @@ use anyhow::bail;
 use gosub_interface::config::{HasDocument, HasHtmlParser, HasRenderTree};
 use gosub_interface::css3::CssSystem;
 use gosub_interface::document::{Document, DocumentType};
-
 use gosub_interface::html5::Html5Parser;
-use gosub_net::http::fetcher::Fetcher;
+use gosub_net::net::simple::simple_get;
 use gosub_rendering::render_tree::generate_render_tree;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use std::fs;
 use url::Url;
 
-/// Generates a render tree from the given URL... if the source is given, the URL is not loaded, but the source HTML is used instead
 pub async fn load_html_rendertree<C: HasRenderTree + HasHtmlParser + HasDocument>(
     url: Url,
     source: Option<&str>,
-) -> gosub_shared::types::Result<(C::RenderTree, C::Document, Fetcher)> {
+) -> gosub_shared::types::Result<(C::RenderTree, C::Document)> {
     match source {
-        Some(source) => {
-            let (rt, handle) = load_html_rendertree_source::<C>(url.clone(), source)?;
-            let fetcher = Fetcher::new(url)?;
-            Ok((rt, handle, fetcher))
-        }
-        None => {
-            let fetcher = Fetcher::new(url.clone())?;
-            let (rt, handle) = load_html_rendertree_fetcher::<C>(url, &fetcher).await?;
-            Ok((rt, handle, fetcher))
-        }
+        Some(source) => load_html_rendertree_source::<C>(url, source),
+        None => load_html_rendertree_url::<C>(url).await,
     }
 }
 
-// Generate a render tree from the given source HTML. THe URL is needed to resolve relative URLs
-// and also to set the base URL for the document.
 pub fn load_html_rendertree_source<C: HasRenderTree + HasHtmlParser + HasDocument>(
     url: Url,
     source_html: &str,
@@ -49,19 +37,12 @@ pub fn load_html_rendertree_source<C: HasRenderTree + HasHtmlParser + HasDocumen
     Ok((generate_render_tree::<C>(&doc)?, doc))
 }
 
-/// Generates a render tree from the given URL. The complete HTML source is fetched from the URL async.
-pub async fn load_html_rendertree_fetcher<C: HasRenderTree + HasHtmlParser + HasDocument>(
+pub async fn load_html_rendertree_url<C: HasRenderTree + HasHtmlParser + HasDocument>(
     url: Url,
-    fetcher: &Fetcher,
 ) -> gosub_shared::types::Result<(C::RenderTree, C::Document)> {
     let html = if url.scheme() == "http" || url.scheme() == "https" {
-        // Fetch the html from the url
-        let response = fetcher.get(url.as_ref()).await?;
-        if response.status != 200 {
-            bail!(format!("Could not get url. Status code {}", response.status));
-        }
-
-        String::from_utf8(response.body.clone())?
+        let body = simple_get(&url).await?;
+        String::from_utf8(body.to_vec())?
     } else if url.scheme() == "file" {
         fs::read_to_string(url.as_str().trim_start_matches("file://"))?
     } else {
