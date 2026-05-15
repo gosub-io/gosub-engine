@@ -19,14 +19,28 @@ use url::Url;
 
 const SHARED_MAX_CAPACITY: usize = 32;
 
+/// Configuration for the priority-scheduled [`Fetcher`].
+///
+/// All timeouts apply per individual request, not to the fetcher as a whole.
+/// The default values are conservative browser-like settings suitable for
+/// general-purpose use; tune them for your environment.
 #[derive(Clone)]
 pub struct FetcherConfig {
+    /// Maximum number of concurrent HTTP connections across all origins.
     pub global_slots: usize,
+    /// Maximum concurrent connections **per origin** for HTTP/1.x.
+    /// HTTP/1 pipelines poorly, so browsers cap this at 6.
     pub h1_per_origin: usize,
+    /// Maximum concurrent streams **per origin** for HTTP/2 (multiplexed).
     pub h2_per_origin: usize,
+    /// Timeout for the TCP + TLS handshake.  Applies before any bytes are sent.
     pub connect_timeout: Duration,
+    /// Timeout from sending the first request byte until the response headers arrive.
     pub req_timeout: Duration,
+    /// Maximum silence between consecutive body chunks before the read is aborted.
     pub read_idle_timeout: Duration,
+    /// Wall-clock deadline for receiving the entire response body after headers.
+    /// `None` disables the deadline (useful for very large downloads).
     pub total_body_timeout: Option<Duration>,
 }
 
@@ -195,6 +209,10 @@ impl Fetcher {
         url.origin().ascii_serialization()
     }
 
+    // Weighted round-robin dequeue across the four priority lanes.
+    // The 15-slot cycle gives approximate weights: High=8, Normal=4, Low=2, Idle=1.
+    // When the preferred lane is empty the next non-empty lane is tried in
+    // descending priority order, so no request starves as long as slots remain.
     fn pick_lane<'a>(
         &'a self,
         high: &'a mut VecDeque<QueueItem>,
