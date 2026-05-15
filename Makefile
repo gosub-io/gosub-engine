@@ -4,7 +4,7 @@ SHELL=/usr/bin/env bash -O globstar
 
 all: help
 
-test: test-unit test-clippy test-fmt test-smoke ## Run all checks (unit + clippy + fmt + smoke)
+test: test-unit test-clippy test-fmt test-smoke test-check ## Run all checks (unit + clippy + fmt + smoke + check)
 
 bench: ## Benchmark the project
 	cargo bench
@@ -41,6 +41,10 @@ test-clippy: ## Check for clippy warnings
 test-fmt: ## Check formatting
 	source test-utils.sh ;\
 	run_section "Cargo fmt" cargo fmt --all -- --check
+
+test-check: ## Check all features compile against locked dependencies
+	source test-utils.sh ;\
+	run_section "Cargo check" cargo check --locked --all --all-features
 
 test-smoke: ## CLI smoke tests
 	source test-utils.sh ;\
