@@ -55,6 +55,23 @@ impl Deref for PeekBuf {
     }
 }
 
+/// What the engine should do with a response once the UA has decided
+#[derive(Debug, Clone, PartialEq)]
+pub enum Action {
+    /// Engine will render the stream
+    Render,
+    /// Stream will be downloaded to the specified path
+    Download { dest: std::path::PathBuf },
+    /// Stream will be opened in an external application
+    OpenExternal,
+    /// Stream will be cancelled
+    Cancel,
+    /// Stream will be rendered and mirrored to the specified path
+    RenderAndMirror { dest: std::path::PathBuf },
+    /// Stream will be shown as source (for HTML documents)
+    ViewSource,
+}
+
 /// Correlation handle for a pending decision (stable across the decision lifecycle)
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 pub struct DecisionToken(pub Uuid);

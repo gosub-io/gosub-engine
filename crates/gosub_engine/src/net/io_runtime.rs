@@ -1,7 +1,8 @@
 use crate::engine::types::IoChannel;
 use crate::engine::EngineContext;
 use crate::events::IoCommand;
-use crate::net::fetcher::{Fetcher, FetcherConfig};
+use crate::net::fetcher::{EngineNetContext, Fetcher, FetcherConfig};
+use crate::net::req_ref_tracker::RequestRefTracker;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
 use crate::util::spawn_named;
 use crate::zone::ZoneId;
@@ -101,11 +102,12 @@ impl IoRouter {
 
         let (zone_shutdown_tx, zone_shutdown_rx) = watch::channel(false);
 
-        let f = Arc::new(Fetcher::new(
-            self.cfg.clone(),
-            self.engine_ctx.event_tx.clone(),
-            self.engine_ctx.request_reference_map.clone(),
-        ));
+        let engine_ctx = Arc::new(EngineNetContext {
+            event_tx: self.engine_ctx.event_tx.clone(),
+            request_reference_map: self.engine_ctx.request_reference_map.clone(),
+            request_ref_tracker: Arc::new(RequestRefTracker::new()),
+        });
+        let f = Arc::new(Fetcher::new(self.cfg.clone(), engine_ctx));
 
         let f_run = f.clone();
         let title = format!("I/O Fetcher Zone {}", zone_id);
