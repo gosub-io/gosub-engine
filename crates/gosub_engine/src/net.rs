@@ -105,7 +105,6 @@ mod emitter;
 pub mod events;
 mod fetch;
 mod fetcher;
-mod fs_utils;
 mod io_runtime;
 mod pump;
 pub mod req_ref_tracker;
