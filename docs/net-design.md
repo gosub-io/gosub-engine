@@ -61,9 +61,9 @@ The `io_runtime.rs` file contains the code for the I/O thread. It spawns a new t
 handle can be used to send tasks to the I/O thread. It contains a channel (`io_handle.subscribe()`) that can be passed
 around different components to send tasks to the I/O thread.
 
-The I/O Thread works by spawning a `Fetcher` in the `I/O Fetcher Scheduler`. This is the request scheduler that will 
-be responsible for scheduling requests. You submit a `FetchRequest` to the I/O thread, which will submit it to the 
-fetcher. That's basically it.
+The I/O Thread works by using an `IoRouter` to route requests to per-zone `Fetcher` instances, spawning them on
+first use. You submit a `FetchRequest` via `IoCommand::Fetch` to the I/O thread, which routes it to the appropriate
+zone's fetcher. That's basically it.
 
 The actual work will be done in the fetcher itself, leaving the I/O thread loop pretty simple.
 
@@ -101,9 +101,9 @@ There is some small thing we need to consider when coalescing requests. Some con
 streaming, others as buffered. Streaming requests will return a stream of data, while buffered requests will return the 
 entire response body as a single buffer.
 
-Each unique non-coalseced request will be represented by a `Inflight`. This struct will contain the request, the list 
-of listeners, and the state of the job. This system will also take care of streamable vs buffered requests, and can 
-serve both types of requests from the same inflight job.
+Each unique non-coalseced request will be represented by a `FetchInflightEntry`. This struct will contain the request,
+the list of listeners, and the state of the job. This system will also take care of streamable vs buffered requests,
+and can serve both types of requests from the same inflight job.
 
 If the request wasn't coalescable, we can fetch the actual request. This is done by spawning a new task `Fetcher`. The 
 first thing it does is to check if we have too many requests to a single origin. There can be 100 independent requests 
@@ -131,17 +131,17 @@ all the listeners of the request, and the inflight job will be removed. That wil
 
 ## Inflights and waiters
 
-Before we go into more detail of the buffered and streaming fetchers, let's take a look at the `Inflight` struct. This 
-struct is responsible for keeping track of the state of a request. It contains the request, the list of listeners, and 
-wether or not streaming is being used. The most important part is the set of listeners, also called `Waiter`s. It 
-allows you to register channels that will receive the `FetchResult`from the `perform_buffered` and `perform_streaming` 
-functions.
+Before we go into more detail of the buffered and streaming fetchers, let's take a look at the `FetchInflightEntry`
+struct. This struct is responsible for keeping track of the state of a request. It contains the request, the list of
+listeners, and wether or not streaming is being used. The most important part is the set of listeners, also called
+`Waiter`s. It allows you to register channels that will receive the `FetchResult` from the `perform_buffered` and
+`perform_streaming` functions.
 
 Most of the work is done in the `Waiter.finish` function. Here is where we try to duplicate the result to all the 
 listeners. 
 
-`FetchResult::buffered` will be send buffered to all the listeners as-is.
-`FetchResult::streaming` is a bit more tricky. We will create cloned stream results for all the listeners that 
+`FetchResult::Buffered` will be sent to all the listeners as-is.
+`FetchResult::Stream` is a bit more tricky. We will create cloned stream results for all the listeners that 
 requested a streaming response. Then, we will fetch the stream ourselves into a buffer, and send the buffer to all the 
 buffered listeners. This way, we can serve both streaming and buffered requests from the same inflight job.
 
@@ -171,12 +171,12 @@ from the original
     //                      ^  new body stream "rereads" the excess buffer and starts here
 ```
 
-This means that now the FetchResult::Streaming contains the the 'peek_buf' and the reader that reads DIRECTLY behind
+This means that now the FetchResult::Stream contains the 'peek_buf' and the reader that reads DIRECTLY behind
 the peek_buf. (resulting in a small bit over 'rereading' the excess buffer).
 
 ### perform_streaming
-This function will first call the `fetch_response_top` function to get the top of the response and turns the 
-result into a `FetchResult::Stream`.
+This function calls `fetch_response_top` to get the top of the response and turns the result into a
+`FetchResult::Stream`.
 
 ### perform_buffered
 This will simply call the `fetch_response_complete` function, and turns the result into a `FetchResult::Buffered`.
@@ -198,6 +198,6 @@ it also takes care of idle timeouts, and total timeouts, cancellation and max si
 
 ## Sharedbody
 Sometimes, we don't return directly a stream, but a `SharedBody`. This works the same way as a normal stream, but it 
-can be read by multiple consumers. You can `subscribe` to a stream and get a new stream that reads the same data as the 
-original stream. This is useful when you have multiple consumers that want to read the same stream, but you don't want 
-to read the stream multiple times from the network.
+can be read by multiple consumers. You can call `subscribe_stream()` (or `subscribe_with_cap()` for a bounded variant)
+to get a new stream that reads the same data as the original stream. This is useful when you have multiple consumers
+that want to read the same stream, but you don't want to read the stream multiple times from the network.
