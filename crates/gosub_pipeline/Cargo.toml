@@ -19,7 +19,7 @@ taffy = "0.7.5"
 log = "0.4.29"
 colog = "1.3.0"
 image = "0.25.10"
-rand = "0.9.0"
+rand = "0.10.1"
 sha2 = "0.10.8"
 hex = "0.4.3"
 serde = { version = "1.0.217", features = ["derive"] }

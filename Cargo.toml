@@ -113,7 +113,7 @@ eframe = { version = "0.34", features = ["wgpu"] }
 egui = "0.31"
 indicatif = "0.18"
 parking_lot = "0.12"
-rand = "0.9"
+rand = "0.10.1"
 cow-utils = "0.1"
 http = "1"
 tracing = "0.1"
