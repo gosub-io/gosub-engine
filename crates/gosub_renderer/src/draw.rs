@@ -2,7 +2,7 @@ use crate::debug::scale::px_scale;
 use crate::draw::img::request_img;
 use crate::draw::img_cache::ImageCache;
 use crate::draw::testing::{test_add_element, test_restyle_element};
-use crate::render_tree::{load_html_rendertree, load_html_rendertree_fetcher, load_html_rendertree_source};
+use crate::render_tree::{load_html_rendertree, load_html_rendertree_source, load_html_rendertree_url};
 use anyhow::anyhow;
 use gosub_interface::config::{HasDocument, HasDrawComponents, HasHtmlParser};
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssValue};
@@ -17,7 +17,6 @@ use gosub_interface::render_backend::{
 use gosub_interface::render_tree;
 use gosub_interface::render_tree::RenderTreeNode as _;
 use gosub_interface::svg::SvgRenderer;
-use gosub_net::http::fetcher::Fetcher;
 use gosub_rendering::position::PositionTree;
 use gosub_rendering::render_tree::RenderTree;
 use gosub_shared::geo::{Size, SizeU32, FP};
@@ -43,7 +42,7 @@ type Point = gosub_shared::types::Point<FP>;
 #[derive(Debug)]
 pub struct TreeDrawerImpl<C: HasDrawComponents> {
     pub(crate) tree: C::RenderTree,
-    pub(crate) fetcher: Arc<Fetcher>,
+    pub(crate) base_url: Url,
     pub(crate) layouter: C::Layouter,
     pub(crate) size: Option<SizeU32>,
     pub(crate) position: PositionTree<C>,
@@ -58,10 +57,10 @@ pub struct TreeDrawerImpl<C: HasDrawComponents> {
 }
 
 impl<C: HasDrawComponents> TreeDrawerImpl<C> {
-    pub fn new(tree: C::RenderTree, layouter: C::Layouter, fetcher: Arc<Fetcher>, debug: bool) -> Self {
+    pub fn new(tree: C::RenderTree, layouter: C::Layouter, base_url: Url, debug: bool) -> Self {
         Self {
             tree,
-            fetcher,
+            base_url,
             layouter,
             size: None,
             position: PositionTree::default(),
@@ -208,27 +207,13 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
     }
 
     async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
-        let (rt, handle, fetcher) = load_html_rendertree::<C>(url.clone(), None).await?;
-
-        Ok((Self::new(rt, layouter, Arc::new(fetcher), debug), handle))
+        let (rt, handle) = load_html_rendertree::<C>(url.clone(), None).await?;
+        Ok((Self::new(rt, layouter, url, debug), handle))
     }
 
     fn from_source(url: Url, source_html: &str, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
-        let fetcher = Fetcher::new(url.clone())?;
-        let (rt, handle) = load_html_rendertree_source::<C>(url, source_html)?;
-
-        Ok((Self::new(rt, layouter, Arc::new(fetcher), debug), handle))
-    }
-
-    async fn with_fetcher(
-        url: Url,
-        fetcher: Arc<Fetcher>,
-        layouter: C::Layouter,
-        debug: bool,
-    ) -> Result<(Self, C::Document)> {
-        let (rt, handle) = load_html_rendertree_fetcher::<C>(url.clone(), &fetcher).await?;
-
-        Ok((Self::new(rt, layouter, fetcher, debug), handle))
+        let (rt, handle) = load_html_rendertree_source::<C>(url.clone(), source_html)?;
+        Ok((Self::new(rt, layouter, url, debug), handle))
     }
 
     fn clear_buffers(&mut self) {
@@ -291,13 +276,14 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         self.debugger_scene = None;
     }
 
+    #[allow(clippy::manual_async_fn)]
     fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = Result<C::Document>> + 'static {
-        let fetcher = self.fetcher.clone();
+        let url = self.base_url.clone();
 
         async move {
             info!("Reloading tab");
 
-            let (rt, handle) = match load_html_rendertree_fetcher::<C>(fetcher.base().clone(), &fetcher).await {
+            let (rt, handle) = match load_html_rendertree_url::<C>(url).await {
                 Ok(rt) => rt,
                 Err(e) => {
                     error!("Failed to reload tab: {e}");
@@ -311,17 +297,16 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         }
     }
 
+    #[allow(clippy::manual_async_fn)]
     fn navigate(
         &mut self,
         url: Url,
         el: impl EventLoopHandle<C>,
     ) -> impl Future<Output = Result<C::Document>> + 'static {
-        let fetcher = self.fetcher.clone();
-
         async move {
             info!("Navigating to {url}");
 
-            let (rt, handle) = match load_html_rendertree_fetcher::<C>(url.clone(), &fetcher).await {
+            let (rt, handle) = match load_html_rendertree_url::<C>(url.clone()).await {
                 Ok(rt) => rt,
                 Err(e) => {
                     error!("Failed to navigate to {url}: {e}");
@@ -400,7 +385,7 @@ impl<
             self.scene,
             pos,
             self.svg.clone(),
-            self.drawer.fetcher.clone(),
+            &self.drawer.base_url,
             &mut self.drawer.img_cache,
             self.el,
         );
@@ -416,7 +401,7 @@ impl<
                 let size = node.layout().size_or().map(|x| x.u32());
 
                 let img = request_img::<C>(
-                    self.drawer.fetcher.clone(),
+                    &self.drawer.base_url,
                     self.svg.clone(),
                     url,
                     size,
@@ -647,7 +632,7 @@ fn render_bg<C: HasDrawComponents>(
     scene: &mut <C::RenderBackend as RenderBackend>::Scene,
     pos: &Point,
     svg: Arc<Mutex<<C::RenderBackend as RenderBackend>::SVGRenderer>>,
-    fetcher: Arc<Fetcher>,
+    base_url: &Url,
     img_cache: &mut ImageCache<C::RenderBackend>,
     el: &impl EventLoopHandle<C>,
 ) -> ((FP, FP, FP, FP), Option<SizeU32>) {
@@ -730,7 +715,7 @@ fn render_bg<C: HasDrawComponents>(
                 if let Some(url) = args.first().and_then(|url| url.as_string()) {
                     let size = node.layout().size_or().map(|x| x.u32());
 
-                    let img = match request_img::<C>(fetcher.clone(), svg.clone(), url, size, img_cache, el) {
+                    let img = match request_img::<C>(base_url, svg.clone(), url, size, img_cache, el) {
                         Ok(img) => img,
                         Err(e) => {
                             eprintln!("Error loading image: {e:?}");

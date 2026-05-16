@@ -23,10 +23,10 @@ Looking at the code structure, here's a schematic diagram of how the net module 
 │  └─────────────────────────────────────────────────────────────────────┘ │
 │                                   │                                      │
 │                            ┌──────▼──────┐                               │
-│                            │ IoCommand   │                               │
-│                            │ - Fetch     │                               │
-│                            │ - Decision  │                               │
-│                            │ - Shutdown  │                               │
+│                            │ IoCommand      │                            │
+│                            │ - Fetch        │                            │
+│                            │ - Decision     │                            │
+│                            │ - ShutdownZone │                            │
 │                            └──────┬──────┘                               │
 │                                   │                                      │
 │  ┌─────────────────────────────────▼──────────────────────────────────┐  │
@@ -46,7 +46,7 @@ Looking at the code structure, here's a schematic diagram of how the net module 
 │    ZoneEntry         │            │    ZoneEntry         │
 │  - fetcher: Fetcher  │            │  - fetcher: Fetcher  │
 │  - shutdown_tx       │            │  - shutdown_tx       │
-│  - join_handle       │            │  - join_handle       │
+│  - join              │            │  - join              │
 └────────┬─────────────┘            └────────┬─────────────┘
          │                                   │
 ┌────────▼─────────────┐            ┌────────▼─────────────┐
@@ -59,7 +59,7 @@ Looking at the code structure, here's a schematic diagram of how the net module 
 │  - q_idle            │            │  - q_idle            │
 │                      │            │                      │
 │ Slot Management:     │            │ Slot Management:     │
-│  - global_slots      │◄──────────►│  - global_slots      │
+│  - global_slots      │            │  - global_slots      │
 │  - per_origin        │            │  - per_origin        │
 │                      │            │                      │
 │ Request Coalescing:  │            │ Request Coalescing:  │
@@ -94,6 +94,8 @@ Looking at the code structure, here's a schematic diagram of how the net module 
 6. **Execution**: HTTP requests are made via `reqwest::Client`
 7. **Response Handling**: Results are returned as either buffered or streaming
 
-**Isolation**: Each zone gets its own `Fetcher` instance, providing complete isolation between browser contexts while sharing the same global concurrency limits.
+**Isolation**: Each zone gets its own `Fetcher` instance, providing complete isolation between browser contexts.
+Each `Fetcher` maintains its own `global_slots` semaphore and per-origin semaphores — concurrency limits are
+enforced independently per zone, not shared across zones.
 
 ```

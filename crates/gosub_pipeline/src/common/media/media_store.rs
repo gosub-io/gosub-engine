@@ -248,7 +248,7 @@ impl MediaStore {
     /// bytes. This is blocking.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(MediaType, bytes::Bytes)> {
         let url = Url::parse(src)?;
-        let response = gosub_net::http::blocking::get(&url)?;
+        let response = gosub_net::net::simple::sync_fetch(&url)?;
 
         if !response.is_ok() {
             anyhow::bail!("HTTP {} fetching resource", response.status);

@@ -56,7 +56,7 @@ fn main() -> Result<()> {
         Err(_) => url::Url::from_file_path(std::path::Path::new(&url))
             .map_err(|_| anyhow!("Invalid URL or file path: {url}"))?,
     };
-    let response = gosub_net::http::blocking::get(&parsed_url)?;
+    let response = gosub_net::net::simple::sync_fetch(&parsed_url)?;
     if !response.is_ok() {
         bail!("Could not get url. Status code {}", response.status);
     }

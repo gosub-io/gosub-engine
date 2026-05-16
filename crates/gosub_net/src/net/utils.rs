@@ -7,7 +7,16 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, ReadBuf};
 use tokio::sync::{oneshot, Mutex};
+use tokio::task::JoinHandle;
 use url::Url;
+
+pub fn spawn_named<F, T>(_name: &str, fut: F) -> JoinHandle<T>
+where
+    F: std::future::Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::spawn(fut)
+}
 
 /// Normalizes a URL by removing its fragment and returning it as a string.
 pub fn normalize_url(u: &Url) -> String {
