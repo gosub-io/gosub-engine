@@ -43,7 +43,7 @@ fn main() {
         .expect("font not found");
 
     let mut font_context = parley::FontContext::new();
-    let font_stack = parley::FontStack::Single(parley::style::FontFamily::Named(Cow::Owned(font_info.family.clone())));
+    let font_stack = parley::style::FontFamily::Source(Cow::Owned(font_info.family.clone()));
 
     let mut layout_cx = LayoutContext::new();
     let mut scale_cx = ScaleContext::new();
@@ -69,6 +69,7 @@ fn main() {
 
     builder.push_inline_box(InlineBox {
         id: 0,
+        kind: parley::InlineBoxKind::InFlow,
         index: 0,
         width: 50.0,
         height: 50.0,
@@ -76,6 +77,7 @@ fn main() {
 
     builder.push_inline_box(InlineBox {
         id: 1,
+        kind: parley::InlineBoxKind::InFlow,
         index: 50,
         width: 50.0,
         height: 30.0,
@@ -85,7 +87,6 @@ fn main() {
 
     layout.break_all_lines(max_advance);
     layout.align(
-        max_advance,
         Alignment::Start,
         AlignmentOptions {
             align_when_overflowing: true,

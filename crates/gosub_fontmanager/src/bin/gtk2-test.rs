@@ -284,7 +284,7 @@ fn create_layout(
     // Fetch parley from the font manager. Notice that we ask parley for a context and font stack based on the font-family we
     // requested through our font_info.
 
-    let font_stack = parley::FontStack::Single(parley::style::FontFamily::Named(Cow::Borrowed(font_info.family())));
+    let font_stack = parley::style::FontFamily::Source(Cow::Borrowed(font_info.family()));
 
     let mut builder = layout_cx.ranged_builder(&mut fctx.parley_context, text, display_scale, true);
     builder.push_default(brush_style);
@@ -300,6 +300,7 @@ fn create_layout(
     // Add some inline boxes. They can represent inline images for instance.
     builder.push_inline_box(InlineBox {
         id: 0,
+        kind: parley::InlineBoxKind::InFlow,
         index: 5,
         width: 100.0,
         height: 100.0,
@@ -307,6 +308,7 @@ fn create_layout(
 
     builder.push_inline_box(InlineBox {
         id: 1,
+        kind: parley::InlineBoxKind::InFlow,
         index: 50,
         width: 100.0,
         height: 30.0,
@@ -317,7 +319,6 @@ fn create_layout(
     // We can now break the lines and align them.
     layout.break_all_lines(max_advance);
     layout.align(
-        max_advance,
         Alignment::Start,
         AlignmentOptions {
             align_when_overflowing: true,

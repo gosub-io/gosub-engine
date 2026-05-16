@@ -23,8 +23,10 @@ static FONT_CX: LazyLock<Mutex<FontContext>> = LazyLock::new(|| {
 
     let fonts = ctx.collection.register_fonts(ROBOTO_FONT.to_vec().into(), None);
 
-    ctx.collection
-        .append_fallbacks(FallbackKey::new(Script::from("Latn"), None), fonts.iter().map(|f| f.0));
+    ctx.collection.append_fallbacks(
+        FallbackKey::new(Script::from_str_unchecked("Latn"), None),
+        fonts.iter().map(|f| f.0),
+    );
 
     Mutex::new(ctx)
 });
@@ -224,6 +226,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
 
             inline_boxes.push(parley::InlineBox {
                 id: child_node_id.into(),
+                kind: parley::InlineBoxKind::InFlow,
                 index: str_buf.len(),
                 height: size.height,
                 width: size.width,
@@ -254,8 +257,8 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
     if let Some(default) = text_node_data.first() {
         let info: &<<C as HasFontManager>::FontManager as FontManager>::FontInfo = default.font_info();
 
-        builder.push_default(parley::StyleProperty::FontStack(parley::FontStack::Single(
-            parley::FontFamily::Named(info.family().into()),
+        builder.push_default(parley::StyleProperty::FontFamily(parley::FontFamily::Source(
+            info.family().into(),
         )));
         builder.push_default(parley::StyleProperty::FontSize(default.font_size));
         if let Some(line_height) = default.line_height {
@@ -275,7 +278,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
             FontStyle::Italic => parley::FontStyle::Italic,
             FontStyle::Oblique => parley::FontStyle::Oblique(None),
         }));
-        builder.push_default(parley::StyleProperty::FontVariations(parley::FontSettings::List(
+        builder.push_default(parley::StyleProperty::FontVariations(parley::FontVariations::List(
             default.var_axes.as_slice().into(),
         )));
 
@@ -311,7 +314,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
             let info: &<<C as HasFontManager>::FontManager as FontManager>::FontInfo = text_node.font_info();
 
             builder.push(
-                parley::StyleProperty::FontStack(parley::FontStack::Source(info.family().into())),
+                parley::StyleProperty::FontFamily(parley::FontFamily::Source(info.family().into())),
                 from..text_node.to,
             );
             builder.push(parley::StyleProperty::FontSize(text_node.font_size), from..text_node.to);
@@ -340,7 +343,9 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                 from..text_node.to,
             );
             builder.push(
-                parley::StyleProperty::FontVariations(parley::FontSettings::List(text_node.var_axes.as_slice().into())),
+                parley::StyleProperty::FontVariations(parley::FontVariations::List(
+                    text_node.var_axes.as_slice().into(),
+                )),
                 from..text_node.to,
             );
 
@@ -404,7 +409,6 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
     layout.break_all_lines(max_width);
 
     layout.align(
-        None,
         align,
         AlignmentOptions {
             align_when_overflowing: true,
@@ -758,7 +762,7 @@ fn parse_font_axes<C: HasLayouter>(n: &mut impl LayoutNode<C>) -> Vec<parley::Fo
             continue;
         };
 
-        let tag = u32::from_be_bytes(tag_bytes);
+        let tag = parley::setting::Tag::from_bytes(tag_bytes);
 
         vars.push(parley::FontVariation { tag, value });
     }

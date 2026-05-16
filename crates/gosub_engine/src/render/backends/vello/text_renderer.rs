@@ -235,8 +235,8 @@ impl TextRenderer {
                 .layout_cx
                 .ranged_builder(&mut self.font_cx, key.text.as_ref(), 1.0, true);
             builder.push_default(parley::style::StyleProperty::FontSize(key.font_size as f32));
-            builder.push_default(parley::style::StyleProperty::FontStack(
-                parley::style::FontStack::Single(parley::style::FontFamily::Named(resolved_name.into())),
+            builder.push_default(parley::style::StyleProperty::FontFamily(
+                parley::style::FontFamily::Source(resolved_name.into()),
             ));
             let mut layout = builder.build(key.text.as_ref());
 
