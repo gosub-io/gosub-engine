@@ -1,91 +1,16 @@
 [
   {
-    "name": "-webkit-align-content",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
+    "name": "--*",
+    "syntax": "<declaration-value>",
+    "computed": [
+      "asSpecifiedWithVarsSubstituted"
+    ],
+    "initial": "seeProse",
+    "inherited": true
   },
   {
-    "name": "-webkit-align-items",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-align-self",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-animation",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-animation-delay",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-animation-direction",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-animation-duration",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-animation-fill-mode",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-animation-iteration-count",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-animation-name",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-animation-play-state",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-animation-timing-function",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-appearance",
-    "syntax": "",
+    "name": "-moz-appearance",
+    "syntax": "none | button | button-arrow-down | button-arrow-next | button-arrow-previous | button-arrow-up | button-bevel | button-focus | caret | checkbox | checkbox-container | checkbox-label | checkmenuitem | dualbutton | groupbox | listbox | listitem | menuarrow | menubar | menucheckbox | menuimage | menuitem | menuitemtext | menulist | menulist-button | menulist-text | menulist-textfield | menupopup | menuradio | menuseparator | meterbar | meterchunk | progressbar | progressbar-vertical | progresschunk | progresschunk-vertical | radio | radio-container | radio-label | radiomenuitem | range | range-thumb | resizer | resizerpanel | scale-horizontal | scalethumbend | scalethumb-horizontal | scalethumbstart | scalethumbtick | scalethumb-vertical | scale-vertical | scrollbarbutton-down | scrollbarbutton-left | scrollbarbutton-right | scrollbarbutton-up | scrollbarthumb-horizontal | scrollbarthumb-vertical | scrollbartrack-horizontal | scrollbartrack-vertical | searchfield | separator | sheet | spinner | spinner-downbutton | spinner-textfield | spinner-upbutton | splitter | statusbar | statusbarpanel | tab | tabpanel | tabpanels | tab-scroll-arrow-back | tab-scroll-arrow-forward | textfield | textfield-multiline | toolbar | toolbarbutton | toolbarbutton-dropdown | toolbargripper | toolbox | tooltip | treeheader | treeheadercell | treeheadersortarrow | treeitem | treeline | treetwisty | treetwistyopen | treeview | -moz-mac-unified-toolbar | -moz-win-borderless-glass | -moz-win-browsertabbar-toolbox | -moz-win-communicationstext | -moz-win-communications-toolbox | -moz-win-exclude-glass | -moz-win-glass | -moz-win-mediatext | -moz-win-media-toolbox | -moz-window-button-box | -moz-window-button-box-maximized | -moz-window-button-close | -moz-window-button-maximize | -moz-window-button-minimize | -moz-window-button-restore | -moz-window-frame-bottom | -moz-window-frame-left | -moz-window-frame-right | -moz-window-titlebar | -moz-window-titlebar-maximized",
     "computed": [
       "asSpecified"
     ],
@@ -93,183 +18,856 @@
     "inherited": false
   },
   {
-    "name": "-webkit-backface-visibility",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-binding",
+    "syntax": "<url> | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
-    "name": "-webkit-background-clip",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-border-bottom-colors",
+    "syntax": "<color>+ | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
-    "name": "-webkit-background-origin",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-border-left-colors",
+    "syntax": "<color>+ | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
-    "name": "-webkit-background-size",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-border-right-colors",
+    "syntax": "<color>+ | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
-    "name": "-webkit-border-bottom-left-radius",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-border-top-colors",
+    "syntax": "<color>+ | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
-    "name": "-webkit-border-bottom-right-radius",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-context-properties",
+    "syntax": "none | [ fill | fill-opacity | stroke | stroke-opacity ]#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "-moz-float-edge",
+    "syntax": "border-box | content-box | margin-box | padding-box",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "content-box",
     "inherited": false
   },
   {
-    "name": "-webkit-border-radius",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-force-broken-image-icon",
+    "syntax": "0 | 1",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
     "inherited": false
   },
   {
-    "name": "-webkit-border-top-left-radius",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-orient",
+    "syntax": "inline | block | horizontal | vertical",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "inline",
     "inherited": false
   },
   {
-    "name": "-webkit-border-top-right-radius",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-outline-radius",
+    "syntax": "<outline-radius>{1,4} [ / <outline-radius>{1,4} ]?",
+    "computed": [
+      "-moz-outline-radius-topleft",
+      "-moz-outline-radius-topright",
+      "-moz-outline-radius-bottomright",
+      "-moz-outline-radius-bottomleft"
+    ],
+    "initial": [
+      "-moz-outline-radius-topleft",
+      "-moz-outline-radius-topright",
+      "-moz-outline-radius-bottomright",
+      "-moz-outline-radius-bottomleft"
+    ],
     "inherited": false
   },
   {
-    "name": "-webkit-box-align",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-outline-radius-bottomleft",
+    "syntax": "<outline-radius>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
     "inherited": false
   },
   {
-    "name": "-webkit-box-flex",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-outline-radius-bottomright",
+    "syntax": "<outline-radius>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
     "inherited": false
   },
   {
-    "name": "-webkit-box-ordinal-group",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-outline-radius-topleft",
+    "syntax": "<outline-radius>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
     "inherited": false
   },
   {
-    "name": "-webkit-box-orient",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-outline-radius-topright",
+    "syntax": "<outline-radius>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
     "inherited": false
   },
   {
-    "name": "-webkit-box-pack",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-stack-sizing",
+    "syntax": "ignore | stretch-to-fit",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "stretch-to-fit",
+    "inherited": true
+  },
+  {
+    "name": "-moz-text-blink",
+    "syntax": "none | blink",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
-    "name": "-webkit-box-shadow",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-user-focus",
+    "syntax": "ignore | normal | select-after | select-before | select-menu | select-same | select-all | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
-    "name": "-webkit-box-sizing",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-user-input",
+    "syntax": "auto | none | enabled | disabled",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "-moz-user-modify",
+    "syntax": "read-only | read-write | write-only",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "read-only",
+    "inherited": true
+  },
+  {
+    "name": "-moz-window-dragging",
+    "syntax": "drag | no-drag",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "drag",
     "inherited": false
   },
   {
-    "name": "-webkit-filter",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-moz-window-shadow",
+    "syntax": "default | menu | tooltip | sheet | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "default",
     "inherited": false
   },
   {
-    "name": "-webkit-flex",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-ms-accelerator",
+    "syntax": "false | true",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "false",
     "inherited": false
   },
   {
-    "name": "-webkit-flex-basis",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-ms-block-progression",
+    "syntax": "tb | rl | bt | lr",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "tb",
     "inherited": false
   },
   {
-    "name": "-webkit-flex-direction",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-ms-content-zoom-chaining",
+    "syntax": "none | chained",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
-    "name": "-webkit-flex-flow",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-ms-content-zoom-limit",
+    "syntax": "<'-ms-content-zoom-limit-min'> <'-ms-content-zoom-limit-max'>",
+    "computed": [
+      "-ms-content-zoom-limit-max",
+      "-ms-content-zoom-limit-min"
+    ],
+    "initial": [
+      "-ms-content-zoom-limit-max",
+      "-ms-content-zoom-limit-min"
+    ],
     "inherited": false
   },
   {
-    "name": "-webkit-flex-grow",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-ms-content-zoom-limit-max",
+    "syntax": "<percentage>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "400%",
     "inherited": false
   },
   {
-    "name": "-webkit-flex-shrink",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-ms-content-zoom-limit-min",
+    "syntax": "<percentage>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "100%",
     "inherited": false
   },
   {
-    "name": "-webkit-flex-wrap",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-ms-content-zoom-snap",
+    "syntax": "<'-ms-content-zoom-snap-type'> || <'-ms-content-zoom-snap-points'>",
+    "computed": [
+      "-ms-content-zoom-snap-type",
+      "-ms-content-zoom-snap-points"
+    ],
+    "initial": [
+      "-ms-content-zoom-snap-type",
+      "-ms-content-zoom-snap-points"
+    ],
     "inherited": false
   },
   {
-    "name": "-webkit-justify-content",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-ms-content-zoom-snap-points",
+    "syntax": "snapInterval( <percentage>, <percentage> ) | snapList( <percentage># )",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "snapInterval(0%, 100%)",
+    "inherited": false
+  },
+  {
+    "name": "-ms-content-zoom-snap-type",
+    "syntax": "none | proximity | mandatory",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-ms-content-zooming",
+    "syntax": "none | zoom",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "zoomForTheTopLevelNoneForTheRest",
+    "inherited": false
+  },
+  {
+    "name": "-ms-filter",
+    "syntax": "<string>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "\"\"",
+    "inherited": false
+  },
+  {
+    "name": "-ms-flow-from",
+    "syntax": "[ none | <custom-ident> ]#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-ms-flow-into",
+    "syntax": "[ none | <custom-ident> ]#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-ms-grid-columns",
+    "syntax": "none | <track-list> | <auto-track-list>",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-ms-grid-rows",
+    "syntax": "none | <track-list> | <auto-track-list>",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-ms-high-contrast-adjust",
+    "syntax": "auto | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "-ms-hyphenate-limit-chars",
+    "syntax": "auto | <integer>{1,3}",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "-ms-hyphenate-limit-lines",
+    "syntax": "no-limit | <integer>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "no-limit",
+    "inherited": true
+  },
+  {
+    "name": "-ms-hyphenate-limit-zone",
+    "syntax": "<percentage> | <length>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
+    "inherited": true
+  },
+  {
+    "name": "-ms-ime-align",
+    "syntax": "auto | after",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "-ms-overflow-style",
+    "syntax": "auto | none | scrollbar | -ms-autohiding-scrollbar",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "-ms-scroll-chaining",
+    "syntax": "chained | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "chained",
+    "inherited": false
+  },
+  {
+    "name": "-ms-scroll-limit",
+    "syntax": "<'-ms-scroll-limit-x-min'> <'-ms-scroll-limit-y-min'> <'-ms-scroll-limit-x-max'> <'-ms-scroll-limit-y-max'>",
+    "computed": [
+      "-ms-scroll-limit-x-min",
+      "-ms-scroll-limit-y-min",
+      "-ms-scroll-limit-x-max",
+      "-ms-scroll-limit-y-max"
+    ],
+    "initial": [
+      "-ms-scroll-limit-x-min",
+      "-ms-scroll-limit-y-min",
+      "-ms-scroll-limit-x-max",
+      "-ms-scroll-limit-y-max"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "-ms-scroll-limit-x-max",
+    "syntax": "auto | <length>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "-ms-scroll-limit-x-min",
+    "syntax": "<length>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "-ms-scroll-limit-y-max",
+    "syntax": "auto | <length>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "-ms-scroll-limit-y-min",
+    "syntax": "<length>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "-ms-scroll-rails",
+    "syntax": "none | railed",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "railed",
+    "inherited": false
+  },
+  {
+    "name": "-ms-scroll-snap-points-x",
+    "syntax": "snapInterval( <length-percentage>, <length-percentage> ) | snapList( <length-percentage># )",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "snapInterval(0px, 100%)",
+    "inherited": false
+  },
+  {
+    "name": "-ms-scroll-snap-points-y",
+    "syntax": "snapInterval( <length-percentage>, <length-percentage> ) | snapList( <length-percentage># )",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "snapInterval(0px, 100%)",
+    "inherited": false
+  },
+  {
+    "name": "-ms-scroll-snap-type",
+    "syntax": "none | proximity | mandatory",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-ms-scroll-snap-x",
+    "syntax": "<'-ms-scroll-snap-type'> <'-ms-scroll-snap-points-x'>",
+    "computed": [
+      "-ms-scroll-snap-type",
+      "-ms-scroll-snap-points-x"
+    ],
+    "initial": [
+      "-ms-scroll-snap-type",
+      "-ms-scroll-snap-points-x"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "-ms-scroll-snap-y",
+    "syntax": "<'-ms-scroll-snap-type'> <'-ms-scroll-snap-points-y'>",
+    "computed": [
+      "-ms-scroll-snap-type",
+      "-ms-scroll-snap-points-y"
+    ],
+    "initial": [
+      "-ms-scroll-snap-type",
+      "-ms-scroll-snap-points-y"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "-ms-scroll-translation",
+    "syntax": "none | vertical-to-horizontal",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "-ms-scrollbar-3dlight-color",
+    "syntax": "<color>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "dependsOnUserAgent",
+    "inherited": true
+  },
+  {
+    "name": "-ms-scrollbar-arrow-color",
+    "syntax": "<color>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "ButtonText",
+    "inherited": true
+  },
+  {
+    "name": "-ms-scrollbar-base-color",
+    "syntax": "<color>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "dependsOnUserAgent",
+    "inherited": true
+  },
+  {
+    "name": "-ms-scrollbar-darkshadow-color",
+    "syntax": "<color>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "ThreeDDarkShadow",
+    "inherited": true
+  },
+  {
+    "name": "-ms-scrollbar-face-color",
+    "syntax": "<color>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "ThreeDFace",
+    "inherited": true
+  },
+  {
+    "name": "-ms-scrollbar-highlight-color",
+    "syntax": "<color>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "ThreeDHighlight",
+    "inherited": true
+  },
+  {
+    "name": "-ms-scrollbar-shadow-color",
+    "syntax": "<color>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "ThreeDDarkShadow",
+    "inherited": true
+  },
+  {
+    "name": "-ms-scrollbar-track-color",
+    "syntax": "<color>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "Scrollbar",
+    "inherited": true
+  },
+  {
+    "name": "-ms-text-autospace",
+    "syntax": "none | ideograph-alpha | ideograph-numeric | ideograph-parenthesis | ideograph-space",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-ms-touch-select",
+    "syntax": "grippers | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "grippers",
+    "inherited": true
+  },
+  {
+    "name": "-ms-user-select",
+    "syntax": "none | element | text",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "text",
+    "inherited": false
+  },
+  {
+    "name": "-ms-wrap-flow",
+    "syntax": "auto | both | start | end | maximum | clear",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "-ms-wrap-margin",
+    "syntax": "<length>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "-ms-wrap-through",
+    "syntax": "wrap | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "wrap",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-appearance",
+    "syntax": "none | button | button-bevel | caret | checkbox | default-button | inner-spin-button | listbox | listitem | media-controls-background | media-controls-fullscreen-background | media-current-time-display | media-enter-fullscreen-button | media-exit-fullscreen-button | media-fullscreen-button | media-mute-button | media-overlay-play-button | media-play-button | media-seek-back-button | media-seek-forward-button | media-slider | media-sliderthumb | media-time-remaining-display | media-toggle-closed-captions-button | media-volume-slider | media-volume-slider-container | media-volume-sliderthumb | menulist | menulist-button | menulist-text | menulist-textfield | meter | progress-bar | progress-bar-value | push-button | radio | searchfield | searchfield-cancel-button | searchfield-decoration | searchfield-results-button | searchfield-results-decoration | slider-horizontal | slider-vertical | sliderthumb-horizontal | sliderthumb-vertical | square-button | textarea | textfield | -apple-pay-button",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "noneButOverriddenInUserAgentCSS",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-after",
+    "syntax": "<'border-top'>",
+    "computed": [
+      "border-block-end-width",
+      "border-block-end-style",
+      "border-block-end-color"
+    ],
+    "initial": [
+      "border-block-end-width",
+      "border-block-end-style",
+      "border-block-end-color"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-after-color",
+    "syntax": "<'border-top-color'>",
+    "computed": [
+      "computedColor"
+    ],
+    "initial": "currentcolor",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-after-style",
+    "syntax": "<'border-top-style'>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-after-width",
+    "syntax": "<'border-top-width'>",
+    "computed": [
+      "absoluteLength"
+    ],
+    "initial": "medium",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-before",
+    "syntax": "<'border-top'>",
+    "computed": [
+      "border-block-start-width",
+      "border-block-start-style",
+      "border-block-start-color"
+    ],
+    "initial": [
+      "border-block-start-width",
+      "border-block-start-style",
+      "border-block-start-color"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-before-color",
+    "syntax": "<'border-top-color'>",
+    "computed": [
+      "computedColor"
+    ],
+    "initial": "currentcolor",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-before-style",
+    "syntax": "<'border-top-style'>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-before-width",
+    "syntax": "<'border-top-width'>",
+    "computed": [
+      "absoluteLength"
+    ],
+    "initial": "medium",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-end",
+    "syntax": "<'border-top'>",
+    "computed": [
+      "border-inline-end-width",
+      "border-inline-end-style",
+      "border-inline-end-color"
+    ],
+    "initial": [
+      "border-inline-end-width",
+      "border-inline-end-style",
+      "border-inline-end-color"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-end-color",
+    "syntax": "<'border-top-color'>",
+    "computed": [
+      "computedColor"
+    ],
+    "initial": "currentcolor",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-end-style",
+    "syntax": "<'border-top-style'>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-end-width",
+    "syntax": "<'border-top-width'>",
+    "computed": [
+      "absoluteLength"
+    ],
+    "initial": "medium",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-start",
+    "syntax": "<'border-top'>",
+    "computed": [
+      "border-inline-start-width",
+      "border-inline-start-style",
+      "border-inline-start-color"
+    ],
+    "initial": [
+      "border-inline-start-width",
+      "border-inline-start-style",
+      "border-inline-start-color"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-start-color",
+    "syntax": "<'border-top-color'>",
+    "computed": [
+      "computedColor"
+    ],
+    "initial": "currentcolor",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-start-style",
+    "syntax": "<'border-top-style'>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-start-width",
+    "syntax": "<'border-top-width'>",
+    "computed": [
+      "absoluteLength"
+    ],
+    "initial": "medium",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-box-reflect",
+    "syntax": "[ above | below | right | left ]? <length>? <image>?",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-line-clamp",
+    "syntax": "none | <integer>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
     "name": "-webkit-mask",
-    "syntax": "",
+    "syntax": "[ <mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || [ <visual-box> | border | padding | content | text ] || [ <visual-box> | border | padding | content ] ]#",
     "computed": [
       "-webkit-mask-image",
       "-webkit-mask-repeat",
@@ -289,50 +887,17 @@
     "inherited": false
   },
   {
-    "name": "-webkit-mask-box-image",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask-box-image-outset",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask-box-image-repeat",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask-box-image-slice",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask-box-image-source",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask-box-image-width",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "-webkit-mask-attachment",
+    "syntax": "<attachment>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "scroll",
     "inherited": false
   },
   {
     "name": "-webkit-mask-clip",
-    "syntax": "",
+    "syntax": "[ <coord-box> | no-clip | border | padding | content | text ]#",
     "computed": [
       "asSpecified"
     ],
@@ -341,7 +906,7 @@
   },
   {
     "name": "-webkit-mask-composite",
-    "syntax": "",
+    "syntax": "<composite-style>#",
     "computed": [
       "asSpecified"
     ],
@@ -350,7 +915,7 @@
   },
   {
     "name": "-webkit-mask-image",
-    "syntax": "",
+    "syntax": "<mask-reference>#",
     "computed": [
       "absoluteURIOrNone"
     ],
@@ -359,7 +924,7 @@
   },
   {
     "name": "-webkit-mask-origin",
-    "syntax": "",
+    "syntax": "[ <coord-box> | border | padding | content ]#",
     "computed": [
       "asSpecified"
     ],
@@ -368,7 +933,7 @@
   },
   {
     "name": "-webkit-mask-position",
-    "syntax": "",
+    "syntax": "<position>#",
     "computed": [
       "absoluteLengthOrPercentage"
     ],
@@ -376,8 +941,26 @@
     "inherited": false
   },
   {
+    "name": "-webkit-mask-position-x",
+    "syntax": "[ <length-percentage> | left | center | right ]#",
+    "computed": [
+      "absoluteLengthOrPercentage"
+    ],
+    "initial": "0%",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-mask-position-y",
+    "syntax": "[ <length-percentage> | top | center | bottom ]#",
+    "computed": [
+      "absoluteLengthOrPercentage"
+    ],
+    "initial": "0%",
+    "inherited": false
+  },
+  {
     "name": "-webkit-mask-repeat",
-    "syntax": "",
+    "syntax": "<repeat-style>#",
     "computed": [
       "asSpecified"
     ],
@@ -385,8 +968,26 @@
     "inherited": false
   },
   {
+    "name": "-webkit-mask-repeat-x",
+    "syntax": "repeat | no-repeat | space | round",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "repeat",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-mask-repeat-y",
+    "syntax": "repeat | no-repeat | space | round",
+    "computed": [
+      "absoluteLengthOrPercentage"
+    ],
+    "initial": "repeat",
+    "inherited": false
+  },
+  {
     "name": "-webkit-mask-size",
-    "syntax": "",
+    "syntax": "<bg-size>#",
     "computed": [
       "asSpecified"
     ],
@@ -394,25 +995,22 @@
     "inherited": false
   },
   {
-    "name": "-webkit-order",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
+    "name": "-webkit-overflow-scrolling",
+    "syntax": "auto | touch",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
   },
   {
-    "name": "-webkit-perspective",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-perspective-origin",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
+    "name": "-webkit-tap-highlight-color",
+    "syntax": "<color>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "black",
+    "inherited": true
   },
   {
     "name": "-webkit-text-fill-color",
@@ -424,15 +1022,8 @@
     "inherited": true
   },
   {
-    "name": "-webkit-text-size-adjust",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
     "name": "-webkit-text-stroke",
-    "syntax": "<line-width> || <color>",
+    "syntax": "<length> || <color>",
     "computed": [
       "-webkit-text-stroke-width",
       "-webkit-text-stroke-color"
@@ -454,7 +1045,7 @@
   },
   {
     "name": "-webkit-text-stroke-width",
-    "syntax": "<line-width>",
+    "syntax": "<length>",
     "computed": [
       "absoluteLength"
     ],
@@ -462,64 +1053,26 @@
     "inherited": true
   },
   {
-    "name": "-webkit-transform",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
+    "name": "-webkit-touch-callout",
+    "syntax": "default | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "default",
+    "inherited": true
   },
   {
-    "name": "-webkit-transform-origin",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-transform-style",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-transition",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-transition-delay",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-transition-duration",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-transition-property",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-transition-timing-function",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
+    "name": "-webkit-user-modify",
+    "syntax": "read-only | read-write | read-write-plaintext-only",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "read-only",
+    "inherited": true
   },
   {
     "name": "-webkit-user-select",
-    "syntax": "",
+    "syntax": "auto | text | none | all",
     "computed": [
       "asSpecified"
     ],
@@ -563,8 +1116,17 @@
     "inherited": false
   },
   {
+    "name": "align-tracks",
+    "syntax": "[ normal | <baseline-position> | <content-distribution> | <overflow-position>? <content-position> ]#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
     "name": "alignment-baseline",
-    "syntax": "baseline | text-bottom | alphabetic | ideographic | middle | central | mathematical | text-top",
+    "syntax": "baseline | alphabetic | ideographic | middle | central | mathematical | text-before-edge | text-after-edge",
     "computed": [
       "theSpecifiedKeyword"
     ],
@@ -626,6 +1188,15 @@
     "inherited": false
   },
   {
+    "name": "animation-composition",
+    "syntax": "<single-animation-composition>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "replace",
+    "inherited": false
+  },
+  {
     "name": "animation-delay",
     "syntax": "<time>#",
     "computed": [
@@ -645,7 +1216,7 @@
   },
   {
     "name": "animation-duration",
-    "syntax": "<time [0s,∞]>#",
+    "syntax": "[ auto | <time [0s,∞]> ]#",
     "computed": [
       "asSpecified"
     ],
@@ -720,6 +1291,15 @@
     "inherited": false
   },
   {
+    "name": "animation-timeline",
+    "syntax": "<single-animation-timeline>#",
+    "computed": [
+      "listEachItemIdentifierOrNoneAuto"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
     "name": "animation-timing-function",
     "syntax": "<easing-function>#",
     "computed": [
@@ -729,12 +1309,48 @@
     "inherited": false
   },
   {
-    "name": "appearance",
-    "syntax": "none | auto | base | <compat-auto> | <compat-special> | base",
+    "name": "animation-trigger",
+    "syntax": "[ none | [ <dashed-ident> <animation-action>+ ]+ ]#",
     "computed": [
       "asSpecified"
     ],
     "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "appearance",
+    "syntax": "none | auto | <compat-auto> | <compat-special>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "aspect-ratio",
+    "syntax": "auto || <ratio>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "backdrop-filter",
+    "syntax": "none | <filter-value-list>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "backface-visibility",
+    "syntax": "visible | hidden",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "visible",
     "inherited": false
   },
   {
@@ -773,7 +1389,7 @@
   },
   {
     "name": "background-blend-mode",
-    "syntax": "<mix-blend-mode>#",
+    "syntax": "<blend-mode>#",
     "computed": [
       "asSpecified"
     ],
@@ -782,7 +1398,7 @@
   },
   {
     "name": "background-clip",
-    "syntax": "<visual-box>#",
+    "syntax": "<bg-clip>#",
     "computed": [
       "asSpecified"
     ],
@@ -827,6 +1443,24 @@
     "inherited": false
   },
   {
+    "name": "background-position-x",
+    "syntax": "[ center | [ [ left | right | x-start | x-end ]? <length-percentage>? ]! ]#",
+    "computed": [
+      "listEachItemConsistingOfAbsoluteLengthPercentageAndOrigin"
+    ],
+    "initial": "0%",
+    "inherited": false
+  },
+  {
+    "name": "background-position-y",
+    "syntax": "[ center | [ [ top | bottom | y-start | y-end ]? <length-percentage>? ]! ]#",
+    "computed": [
+      "listEachItemConsistingOfAbsoluteLengthPercentageAndOrigin"
+    ],
+    "initial": "0%",
+    "inherited": false
+  },
+  {
     "name": "background-repeat",
     "syntax": "<repeat-style>#",
     "computed": [
@@ -846,7 +1480,7 @@
   },
   {
     "name": "baseline-shift",
-    "syntax": "<length-percentage> | sub | super | top | center | bottom",
+    "syntax": "<length-percentage> | sub | super | baseline",
     "computed": [
       "theSpecifiedKeywordOrAComputedLengthPercentageValue"
     ],
@@ -856,7 +1490,9 @@
   {
     "name": "baseline-source",
     "syntax": "auto | first | last",
-    "computed": [],
+    "computed": [
+      "asSpecified"
+    ],
     "initial": "auto",
     "inherited": false
   },
@@ -867,62 +1503,6 @@
       "sameAsWidthAndHeight"
     ],
     "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "block-step",
-    "syntax": "<'block-step-size'> || <'block-step-insert'> || <'block-step-align'> || <'block-step-round'>",
-    "computed": [],
-    "initial": "see individual properties",
-    "inherited": false
-  },
-  {
-    "name": "block-step-align",
-    "syntax": "auto | center | start | end",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "block-step-insert",
-    "syntax": "margin-box | padding-box | content-box",
-    "computed": [],
-    "initial": "margin-box",
-    "inherited": false
-  },
-  {
-    "name": "block-step-round",
-    "syntax": "up | down | nearest",
-    "computed": [],
-    "initial": "up",
-    "inherited": false
-  },
-  {
-    "name": "block-step-size",
-    "syntax": "none | <length [0,∞]>",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "bookmark-label",
-    "syntax": "<content-list>",
-    "computed": [],
-    "initial": "content(text)",
-    "inherited": false
-  },
-  {
-    "name": "bookmark-level",
-    "syntax": "none | <integer [1,∞]>",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "bookmark-state",
-    "syntax": "open | closed",
-    "computed": [],
-    "initial": "open",
     "inherited": false
   },
   {
@@ -942,7 +1522,7 @@
   },
   {
     "name": "border-block",
-    "syntax": "<'border-block-start'>",
+    "syntax": "<'border-top'>",
     "computed": [
       "border-block-width",
       "border-block-style",
@@ -959,29 +1539,33 @@
     "name": "border-block-color",
     "syntax": "<'border-top-color'>{1,2}",
     "computed": [
-      "computedColor"
+      "border-block-start-color",
+      "border-block-end-color"
     ],
-    "initial": "currentcolor",
+    "initial": [
+      "border-block-start-color",
+      "border-block-end-color"
+    ],
     "inherited": false
   },
   {
     "name": "border-block-end",
-    "syntax": "<line-width> || <line-style> || <color>",
+    "syntax": "<'border-top'>",
     "computed": [
-      "border-top-width",
-      "border-top-style",
-      "border-top-color"
+      "border-block-end-width",
+      "border-block-end-style",
+      "border-block-end-color"
     ],
     "initial": [
-      "border-top-width",
-      "border-top-style",
-      "border-top-color"
+      "border-block-end-width",
+      "border-block-end-style",
+      "border-block-end-color"
     ],
     "inherited": false
   },
   {
     "name": "border-block-end-color",
-    "syntax": "<color> | <image-1D>",
+    "syntax": "<'border-top-color'>",
     "computed": [
       "computedColor"
     ],
@@ -989,15 +1573,8 @@
     "inherited": false
   },
   {
-    "name": "border-block-end-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2} [ / <length-percentage [0,∞]>{1,2} ]?",
-    "computed": [],
-    "initial": "0",
-    "inherited": false
-  },
-  {
     "name": "border-block-end-style",
-    "syntax": "<line-style>",
+    "syntax": "<'border-top-style'>",
     "computed": [
       "asSpecified"
     ],
@@ -1006,7 +1583,7 @@
   },
   {
     "name": "border-block-end-width",
-    "syntax": "<line-width>",
+    "syntax": "<'border-top-width'>",
     "computed": [
       "absoluteLengthZeroIfBorderStyleNoneOrHidden"
     ],
@@ -1015,22 +1592,22 @@
   },
   {
     "name": "border-block-start",
-    "syntax": "<line-width> || <line-style> || <color>",
+    "syntax": "<'border-top'>",
     "computed": [
-      "border-width",
-      "border-style",
+      "border-block-start-width",
+      "border-block-start-style",
       "border-block-start-color"
     ],
     "initial": [
-      "border-width",
-      "border-style",
-      "color"
+      "border-block-start-width",
+      "border-block-start-style",
+      "border-block-start-color"
     ],
     "inherited": false
   },
   {
     "name": "border-block-start-color",
-    "syntax": "<color> | <image-1D>",
+    "syntax": "<'border-top-color'>",
     "computed": [
       "computedColor"
     ],
@@ -1038,15 +1615,8 @@
     "inherited": false
   },
   {
-    "name": "border-block-start-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2} [ / <length-percentage [0,∞]>{1,2} ]?",
-    "computed": [],
-    "initial": "0",
-    "inherited": false
-  },
-  {
     "name": "border-block-start-style",
-    "syntax": "<line-style>",
+    "syntax": "<'border-top-style'>",
     "computed": [
       "asSpecified"
     ],
@@ -1055,7 +1625,7 @@
   },
   {
     "name": "border-block-start-width",
-    "syntax": "<line-width>",
+    "syntax": "<'border-top-width'>",
     "computed": [
       "absoluteLengthZeroIfBorderStyleNoneOrHidden"
     ],
@@ -1066,18 +1636,26 @@
     "name": "border-block-style",
     "syntax": "<'border-top-style'>{1,2}",
     "computed": [
-      "asSpecified"
+      "border-block-start-style",
+      "border-block-end-style"
     ],
-    "initial": "none",
+    "initial": [
+      "border-block-start-style",
+      "border-block-end-style"
+    ],
     "inherited": false
   },
   {
     "name": "border-block-width",
     "syntax": "<'border-top-width'>{1,2}",
     "computed": [
-      "absoluteLengthZeroIfBorderStyleNoneOrHidden"
+      "border-block-start-width",
+      "border-block-end-width"
     ],
-    "initial": "medium",
+    "initial": [
+      "border-block-start-width",
+      "border-block-end-width"
+    ],
     "inherited": false
   },
   {
@@ -1097,7 +1675,7 @@
   },
   {
     "name": "border-bottom-color",
-    "syntax": "<color> | <image-1D>",
+    "syntax": "<'border-top-color'>",
     "computed": [
       "computedColor"
     ],
@@ -1110,13 +1688,6 @@
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "border-bottom-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2} [ / <length-percentage [0,∞]>{1,2} ]?",
-    "computed": [],
     "initial": "0",
     "inherited": false
   },
@@ -1148,48 +1719,6 @@
     "inherited": false
   },
   {
-    "name": "border-boundary",
-    "syntax": "none | parent | display",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "border-clip",
-    "syntax": "normal | [ <length-percentage [0,∞]> | <flex> ]+",
-    "computed": [],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "border-clip-bottom",
-    "syntax": "normal | [ <length-percentage [0,∞]> | <flex> ]+",
-    "computed": [],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "border-clip-left",
-    "syntax": "normal | [ <length-percentage [0,∞]> | <flex> ]+",
-    "computed": [],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "border-clip-right",
-    "syntax": "normal | [ <length-percentage [0,∞]> | <flex> ]+",
-    "computed": [],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "border-clip-top",
-    "syntax": "normal | [ <length-percentage [0,∞]> | <flex> ]+",
-    "computed": [],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
     "name": "border-collapse",
     "syntax": "separate | collapse",
     "computed": [
@@ -1200,12 +1729,12 @@
   },
   {
     "name": "border-color",
-    "syntax": "[ <color> | <image-1D> ]{1,4}",
+    "syntax": "<color>{1,4}",
     "computed": [
-      "border-bottom-color",
-      "border-left-color",
+      "border-top-color",
       "border-right-color",
-      "border-top-color"
+      "border-bottom-color",
+      "border-left-color"
     ],
     "initial": [
       "border-top-color",
@@ -1217,7 +1746,7 @@
   },
   {
     "name": "border-end-end-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2}",
+    "syntax": "<'border-top-left-radius'>",
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
@@ -1226,7 +1755,7 @@
   },
   {
     "name": "border-end-start-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2}",
+    "syntax": "<'border-top-left-radius'>",
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
@@ -1237,11 +1766,11 @@
     "name": "border-image",
     "syntax": "<'border-image-source'> || <'border-image-slice'> [ / <'border-image-width'> | / <'border-image-width'>? / <'border-image-outset'> ]? || <'border-image-repeat'>",
     "computed": [
-      "border-image-outset",
-      "border-image-repeat",
-      "border-image-slice",
       "border-image-source",
-      "border-image-width"
+      "border-image-slice",
+      "border-image-width",
+      "border-image-outset",
+      "border-image-repeat"
     ],
     "initial": [
       "border-image-source",
@@ -1272,7 +1801,7 @@
   },
   {
     "name": "border-image-slice",
-    "syntax": "[<number [0,∞]> | <percentage [0,∞]>]{1,4} && fill?",
+    "syntax": "[ <number [0,∞]> | <percentage [0,∞]> ]{1,4} && fill?",
     "computed": [
       "oneToFourPercentagesOrAbsoluteLengthsPlusFill"
     ],
@@ -1299,7 +1828,7 @@
   },
   {
     "name": "border-inline",
-    "syntax": "<'border-block-start'>",
+    "syntax": "<'border-top'>",
     "computed": [
       "border-inline-width",
       "border-inline-style",
@@ -1316,29 +1845,33 @@
     "name": "border-inline-color",
     "syntax": "<'border-top-color'>{1,2}",
     "computed": [
-      "computedColor"
+      "border-inline-start-color",
+      "border-inline-end-color"
     ],
-    "initial": "currentcolor",
+    "initial": [
+      "border-inline-start-color",
+      "border-inline-end-color"
+    ],
     "inherited": false
   },
   {
     "name": "border-inline-end",
-    "syntax": "<line-width> || <line-style> || <color>",
+    "syntax": "<'border-top'>",
     "computed": [
-      "border-width",
-      "border-style",
+      "border-inline-end-width",
+      "border-inline-end-style",
       "border-inline-end-color"
     ],
     "initial": [
-      "border-width",
-      "border-style",
-      "color"
+      "border-inline-end-width",
+      "border-inline-end-style",
+      "border-inline-end-color"
     ],
     "inherited": false
   },
   {
     "name": "border-inline-end-color",
-    "syntax": "<color> | <image-1D>",
+    "syntax": "<'border-top-color'>",
     "computed": [
       "computedColor"
     ],
@@ -1346,15 +1879,8 @@
     "inherited": false
   },
   {
-    "name": "border-inline-end-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2} [ / <length-percentage [0,∞]>{1,2} ]?",
-    "computed": [],
-    "initial": "0",
-    "inherited": false
-  },
-  {
     "name": "border-inline-end-style",
-    "syntax": "<line-style>",
+    "syntax": "<'border-top-style'>",
     "computed": [
       "asSpecified"
     ],
@@ -1363,7 +1889,7 @@
   },
   {
     "name": "border-inline-end-width",
-    "syntax": "<line-width>",
+    "syntax": "<'border-top-width'>",
     "computed": [
       "absoluteLengthZeroIfBorderStyleNoneOrHidden"
     ],
@@ -1372,22 +1898,22 @@
   },
   {
     "name": "border-inline-start",
-    "syntax": "<line-width> || <line-style> || <color>",
+    "syntax": "<'border-top'>",
     "computed": [
-      "border-width",
-      "border-style",
+      "border-inline-start-width",
+      "border-inline-start-style",
       "border-inline-start-color"
     ],
     "initial": [
-      "border-width",
-      "border-style",
-      "color"
+      "border-inline-start-width",
+      "border-inline-start-style",
+      "border-inline-start-color"
     ],
     "inherited": false
   },
   {
     "name": "border-inline-start-color",
-    "syntax": "<color> | <image-1D>",
+    "syntax": "<'border-top-color'>",
     "computed": [
       "computedColor"
     ],
@@ -1395,15 +1921,8 @@
     "inherited": false
   },
   {
-    "name": "border-inline-start-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2} [ / <length-percentage [0,∞]>{1,2} ]?",
-    "computed": [],
-    "initial": "0",
-    "inherited": false
-  },
-  {
     "name": "border-inline-start-style",
-    "syntax": "<line-style>",
+    "syntax": "<'border-top-style'>",
     "computed": [
       "asSpecified"
     ],
@@ -1412,7 +1931,7 @@
   },
   {
     "name": "border-inline-start-width",
-    "syntax": "<line-width>",
+    "syntax": "<'border-top-width'>",
     "computed": [
       "absoluteLengthZeroIfBorderStyleNoneOrHidden"
     ],
@@ -1423,18 +1942,26 @@
     "name": "border-inline-style",
     "syntax": "<'border-top-style'>{1,2}",
     "computed": [
-      "asSpecified"
+      "border-inline-start-style",
+      "border-inline-end-style"
     ],
-    "initial": "none",
+    "initial": [
+      "border-inline-start-style",
+      "border-inline-end-style"
+    ],
     "inherited": false
   },
   {
     "name": "border-inline-width",
     "syntax": "<'border-top-width'>{1,2}",
     "computed": [
-      "absoluteLengthZeroIfBorderStyleNoneOrHidden"
+      "border-inline-start-width",
+      "border-inline-end-width"
     ],
-    "initial": "medium",
+    "initial": [
+      "border-inline-start-width",
+      "border-inline-end-width"
+    ],
     "inherited": false
   },
   {
@@ -1454,18 +1981,11 @@
   },
   {
     "name": "border-left-color",
-    "syntax": "<color> | <image-1D>",
+    "syntax": "<color>",
     "computed": [
       "computedColor"
     ],
     "initial": "currentcolor",
-    "inherited": false
-  },
-  {
-    "name": "border-left-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2} [ / <length-percentage [0,∞]>{1,2} ]?",
-    "computed": [],
-    "initial": "0",
     "inherited": false
   },
   {
@@ -1487,20 +2007,13 @@
     "inherited": false
   },
   {
-    "name": "border-limit",
-    "syntax": "all | [ sides | corners ] <length-percentage [0,∞]>? | [ top | right | bottom | left ] <length-percentage [0,∞]>",
-    "computed": [],
-    "initial": "all",
-    "inherited": false
-  },
-  {
     "name": "border-radius",
     "syntax": "<length-percentage [0,∞]>{1,4} [ / <length-percentage [0,∞]>{1,4} ]?",
     "computed": [
-      "border-bottom-left-radius",
-      "border-bottom-right-radius",
       "border-top-left-radius",
-      "border-top-right-radius"
+      "border-top-right-radius",
+      "border-bottom-right-radius",
+      "border-bottom-left-radius"
     ],
     "initial": [
       "border-top-left-radius",
@@ -1527,18 +2040,11 @@
   },
   {
     "name": "border-right-color",
-    "syntax": "<color> | <image-1D>",
+    "syntax": "<color>",
     "computed": [
       "computedColor"
     ],
     "initial": "currentcolor",
-    "inherited": false
-  },
-  {
-    "name": "border-right-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2} [ / <length-percentage [0,∞]>{1,2} ]?",
-    "computed": [],
-    "initial": "0",
     "inherited": false
   },
   {
@@ -1562,7 +2068,9 @@
   {
     "name": "border-shape",
     "syntax": "none | [ <basic-shape> <geometry-box>?]{1,2}",
-    "computed": [],
+    "computed": [
+      "asSpecified"
+    ],
     "initial": "none",
     "inherited": false
   },
@@ -1577,7 +2085,7 @@
   },
   {
     "name": "border-start-end-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2}",
+    "syntax": "<'border-top-left-radius'>",
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
@@ -1586,7 +2094,7 @@
   },
   {
     "name": "border-start-start-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2}",
+    "syntax": "<'border-top-left-radius'>",
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
@@ -1597,10 +2105,10 @@
     "name": "border-style",
     "syntax": "<line-style>{1,4}",
     "computed": [
-      "border-bottom-style",
-      "border-left-style",
+      "border-top-style",
       "border-right-style",
-      "border-top-style"
+      "border-bottom-style",
+      "border-left-style"
     ],
     "initial": [
       "border-top-style",
@@ -1627,7 +2135,7 @@
   },
   {
     "name": "border-top-color",
-    "syntax": "<color> | <image-1D>",
+    "syntax": "<color>",
     "computed": [
       "computedColor"
     ],
@@ -1640,13 +2148,6 @@
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "border-top-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2} [ / <length-percentage [0,∞]>{1,2} ]?",
-    "computed": [],
     "initial": "0",
     "inherited": false
   },
@@ -1681,10 +2182,10 @@
     "name": "border-width",
     "syntax": "<line-width>{1,4}",
     "computed": [
-      "border-bottom-width",
-      "border-left-width",
+      "border-top-width",
       "border-right-width",
-      "border-top-width"
+      "border-bottom-width",
+      "border-left-width"
     ],
     "initial": [
       "border-top-width",
@@ -1704,6 +2205,15 @@
     "inherited": false
   },
   {
+    "name": "box-align",
+    "syntax": "start | center | end | baseline | stretch",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "stretch",
+    "inherited": false
+  },
+  {
     "name": "box-decoration-break",
     "syntax": "slice | clone",
     "computed": [
@@ -1713,47 +2223,75 @@
     "inherited": false
   },
   {
+    "name": "box-direction",
+    "syntax": "normal | reverse | inherit",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "box-flex",
+    "syntax": "<number>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "box-flex-group",
+    "syntax": "<integer>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "1",
+    "inherited": false
+  },
+  {
+    "name": "box-lines",
+    "syntax": "single | multiple",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "single",
+    "inherited": false
+  },
+  {
+    "name": "box-ordinal-group",
+    "syntax": "<integer>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "1",
+    "inherited": false
+  },
+  {
+    "name": "box-orient",
+    "syntax": "horizontal | vertical | inline-axis | block-axis | inherit",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "inline-axis",
+    "inherited": false
+  },
+  {
+    "name": "box-pack",
+    "syntax": "start | center | end | justify",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "start",
+    "inherited": false
+  },
+  {
     "name": "box-shadow",
-    "syntax": "<spread-shadow>#",
+    "syntax": "none | <shadow>#",
     "computed": [
       "absoluteLengthsSpecifiedColorAsSpecified"
     ],
     "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "box-shadow-blur",
-    "syntax": "<length [0,∞]>#",
-    "computed": [],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "box-shadow-color",
-    "syntax": "<color>#",
-    "computed": [],
-    "initial": "currentcolor",
-    "inherited": false
-  },
-  {
-    "name": "box-shadow-offset",
-    "syntax": "[ none | <length>{2} ]#",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "box-shadow-position",
-    "syntax": "[ outset | inset ]#",
-    "computed": [],
-    "initial": "outset",
-    "inherited": false
-  },
-  {
-    "name": "box-shadow-spread",
-    "syntax": "<length>#",
-    "computed": [],
-    "initial": "0",
     "inherited": false
   },
   {
@@ -1764,13 +2302,6 @@
     ],
     "initial": "content-box",
     "inherited": false
-  },
-  {
-    "name": "box-snap",
-    "syntax": "none | block-start | block-end | center | baseline | last-baseline",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
   },
   {
     "name": "break-after",
@@ -1813,10 +2344,12 @@
     "syntax": "<'caret-color'> || <'caret-animation'> || <'caret-shape'>",
     "computed": [
       "caret-color",
+      "caret-animation",
       "caret-shape"
     ],
     "initial": [
       "caret-color",
+      "caret-animation",
       "caret-shape"
     ],
     "inherited": true
@@ -1824,7 +2357,9 @@
   {
     "name": "caret-animation",
     "syntax": "auto | manual",
-    "computed": [],
+    "computed": [
+      "asSpecified"
+    ],
     "initial": "auto",
     "inherited": true
   },
@@ -1848,7 +2383,7 @@
   },
   {
     "name": "clear",
-    "syntax": "inline-start | inline-end | block-start | block-end | left | right | top | bottom | both-inline | both-block | both | none",
+    "syntax": "none | left | right | both | inline-start | inline-end",
     "computed": [
       "asSpecified"
     ],
@@ -1857,7 +2392,7 @@
   },
   {
     "name": "clip",
-    "syntax": "<rect()> | auto",
+    "syntax": "<shape> | auto",
     "computed": [
       "autoOrRectangle"
     ],
@@ -1892,20 +2427,6 @@
     "inherited": true
   },
   {
-    "name": "color-adjust",
-    "syntax": "<'print-color-adjust'>",
-    "computed": [],
-    "initial": "see individual properties",
-    "inherited": false
-  },
-  {
-    "name": "color-interpolation",
-    "syntax": "auto | sRGB | linearRGB",
-    "computed": [],
-    "initial": "sRGB",
-    "inherited": true
-  },
-  {
     "name": "color-interpolation-filters",
     "syntax": "auto | sRGB | linearRGB",
     "computed": [
@@ -1925,7 +2446,7 @@
   },
   {
     "name": "column-count",
-    "syntax": "auto | <integer [1,∞]>",
+    "syntax": "<integer> | auto",
     "computed": [
       "asSpecified"
     ],
@@ -1934,7 +2455,7 @@
   },
   {
     "name": "column-fill",
-    "syntax": "auto | balance | balance-all",
+    "syntax": "auto | balance",
     "computed": [
       "asSpecified"
     ],
@@ -1943,7 +2464,7 @@
   },
   {
     "name": "column-gap",
-    "syntax": "normal | <length-percentage [0,∞]>",
+    "syntax": "normal | <length-percentage>",
     "computed": [
       "asSpecifiedWithLengthsAbsoluteAndNormalComputingToZeroExceptMultiColumn"
     ],
@@ -1953,17 +2474,19 @@
   {
     "name": "column-height",
     "syntax": "auto | <length [0,∞]>",
-    "computed": [],
+    "computed": [
+      "autoOrAbsoluteLength"
+    ],
     "initial": "auto",
     "inherited": false
   },
   {
     "name": "column-rule",
-    "syntax": "<gap-rule-list> | <gap-auto-rule-list>",
+    "syntax": "<'column-rule-width'> || <'column-rule-style'> || <'column-rule-color'>",
     "computed": [
-      "column-rule-color",
+      "column-rule-width",
       "column-rule-style",
-      "column-rule-width"
+      "column-rule-color"
     ],
     "initial": [
       "column-rule-width",
@@ -1973,15 +2496,8 @@
     "inherited": false
   },
   {
-    "name": "column-rule-break",
-    "syntax": "none | spanning-item | intersection",
-    "computed": [],
-    "initial": "spanning-item",
-    "inherited": false
-  },
-  {
     "name": "column-rule-color",
-    "syntax": "<line-color-list> | <auto-line-color-list>",
+    "syntax": "<color>",
     "computed": [
       "computedColor"
     ],
@@ -1989,15 +2505,8 @@
     "inherited": false
   },
   {
-    "name": "column-rule-outset",
-    "syntax": "<length-percentage>",
-    "computed": [],
-    "initial": "50%",
-    "inherited": false
-  },
-  {
     "name": "column-rule-style",
-    "syntax": "<line-style-list> | <auto-line-style-list>",
+    "syntax": "<line-style>",
     "computed": [
       "asSpecified"
     ],
@@ -2006,7 +2515,7 @@
   },
   {
     "name": "column-rule-width",
-    "syntax": "<line-width-list> | <auto-line-width-list>",
+    "syntax": "<line-width>",
     "computed": [
       "absoluteLength0IfColumnRuleStyleNoneOrHidden"
     ],
@@ -2015,7 +2524,7 @@
   },
   {
     "name": "column-span",
-    "syntax": "none | <integer [1,∞]> | all | auto",
+    "syntax": "none | all",
     "computed": [
       "asSpecified"
     ],
@@ -2024,9 +2533,9 @@
   },
   {
     "name": "column-width",
-    "syntax": "auto | <length [0,∞]> | min-content | max-content | fit-content(<length-percentage>)",
+    "syntax": "auto | <length [0,∞]>",
     "computed": [
-      "absoluteLengthZeroOrLarger"
+      "autoOrAbsoluteLength"
     ],
     "initial": "auto",
     "inherited": false
@@ -2034,26 +2543,30 @@
   {
     "name": "column-wrap",
     "syntax": "auto | nowrap | wrap",
-    "computed": [],
+    "computed": [
+      "asSpecified"
+    ],
     "initial": "auto",
     "inherited": false
   },
   {
     "name": "columns",
-    "syntax": "<'column-width'> || <'column-count'> [ / <'column-height'> ]?",
+    "syntax": "[ <'column-width'> || <'column-count'> ] [ / <'column-height'> ]?",
     "computed": [
       "column-width",
-      "column-count"
+      "column-count",
+      "column-height"
     ],
     "initial": [
       "column-width",
-      "column-count"
+      "column-count",
+      "column-height"
     ],
     "inherited": false
   },
   {
     "name": "contain",
-    "syntax": "none | strict | content | [ [size | inline-size] || layout || style || paint ]",
+    "syntax": "none | strict | content | [ [ size || inline-size ] || layout || style || paint ]",
     "computed": [
       "asSpecified"
     ],
@@ -2061,8 +2574,88 @@
     "inherited": false
   },
   {
+    "name": "contain-intrinsic-block-size",
+    "syntax": "auto? [ none | <length> ]",
+    "computed": [
+      "asSpecifiedWithLengthValuesComputed"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "contain-intrinsic-height",
+    "syntax": "auto? [ none | <length> ]",
+    "computed": [
+      "asSpecifiedWithLengthValuesComputed"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "contain-intrinsic-inline-size",
+    "syntax": "auto? [ none | <length> ]",
+    "computed": [
+      "asSpecifiedWithLengthValuesComputed"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "contain-intrinsic-size",
+    "syntax": "[ auto? [ none | <length> ] ]{1,2}",
+    "computed": [
+      "contain-intrinsic-width",
+      "contain-intrinsic-height"
+    ],
+    "initial": [
+      "contain-intrinsic-width",
+      "contain-intrinsic-height"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "contain-intrinsic-width",
+    "syntax": "auto? [ none | <length> ]",
+    "computed": [
+      "asSpecifiedWithLengthValuesComputed"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "container",
+    "syntax": "<'container-name'> [ / <'container-type'> ]?",
+    "computed": [
+      "container-name",
+      "container-type"
+    ],
+    "initial": [
+      "container-name",
+      "container-type"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "container-name",
+    "syntax": "none | <custom-ident>+",
+    "computed": [
+      "noneOrOrderedListOfIdentifiers"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "container-type",
+    "syntax": "normal | [ [ size | inline-size ] || scroll-state ]",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
     "name": "content",
-    "syntax": "normal | none | [ <content-replacement> | <content-list> ] [/ [ <string> | <counter> | <attr()> ]+ ]? | <element()>",
+    "syntax": "normal | none | [ <content-replacement> | <content-list> ] [ / [ <string> | <counter> | <attr()> ]+ ]?",
     "computed": [
       "normalOnElementsForPseudosNoneAbsoluteURIStringOrAsSpecified"
     ],
@@ -2080,121 +2673,195 @@
   },
   {
     "name": "corner-block-end-shape",
-    "syntax": "<corner-shape-value>",
-    "computed": [],
-    "initial": "round",
+    "syntax": "<corner-shape-value>{1,2}",
+    "computed": [
+      "corner-end-start-shape",
+      "corner-end-end-shape"
+    ],
+    "initial": [
+      "corner-end-start-shape",
+      "corner-end-end-shape"
+    ],
     "inherited": false
   },
   {
     "name": "corner-block-start-shape",
-    "syntax": "<corner-shape-value>",
-    "computed": [],
-    "initial": "round",
+    "syntax": "<corner-shape-value>{1,2}",
+    "computed": [
+      "corner-start-start-shape",
+      "corner-start-end-shape"
+    ],
+    "initial": [
+      "corner-start-start-shape",
+      "corner-start-end-shape"
+    ],
     "inherited": false
   },
   {
     "name": "corner-bottom-left-shape",
     "syntax": "<corner-shape-value>",
-    "computed": [],
+    "computed": [
+      "correspondingSuperellipse"
+    ],
     "initial": "round",
     "inherited": false
   },
   {
     "name": "corner-bottom-right-shape",
     "syntax": "<corner-shape-value>",
-    "computed": [],
+    "computed": [
+      "correspondingSuperellipse"
+    ],
     "initial": "round",
     "inherited": false
   },
   {
     "name": "corner-bottom-shape",
-    "syntax": "<corner-shape-value>",
-    "computed": [],
-    "initial": "round",
+    "syntax": "<corner-shape-value>{1,2}",
+    "computed": [
+      "corner-bottom-left-shape",
+      "corner-bottom-right-shape"
+    ],
+    "initial": [
+      "corner-bottom-left-shape",
+      "corner-bottom-right-shape"
+    ],
     "inherited": false
   },
   {
     "name": "corner-end-end-shape",
     "syntax": "<corner-shape-value>",
-    "computed": [],
+    "computed": [
+      "correspondingSuperellipse"
+    ],
     "initial": "round",
     "inherited": false
   },
   {
     "name": "corner-end-start-shape",
     "syntax": "<corner-shape-value>",
-    "computed": [],
+    "computed": [
+      "correspondingSuperellipse"
+    ],
     "initial": "round",
     "inherited": false
   },
   {
     "name": "corner-inline-end-shape",
-    "syntax": "<corner-shape-value>",
-    "computed": [],
-    "initial": "round",
+    "syntax": "<corner-shape-value>{1,2}",
+    "computed": [
+      "corner-start-end-shape",
+      "corner-end-end-shape"
+    ],
+    "initial": [
+      "corner-start-end-shape",
+      "corner-end-end-shape"
+    ],
     "inherited": false
   },
   {
     "name": "corner-inline-start-shape",
-    "syntax": "<corner-shape-value>",
-    "computed": [],
-    "initial": "round",
+    "syntax": "<corner-shape-value>{1,2}",
+    "computed": [
+      "corner-start-start-shape",
+      "corner-start-end-shape"
+    ],
+    "initial": [
+      "corner-start-start-shape",
+      "corner-start-end-shape"
+    ],
     "inherited": false
   },
   {
     "name": "corner-left-shape",
-    "syntax": "<corner-shape-value>",
-    "computed": [],
-    "initial": "round",
+    "syntax": "<corner-shape-value>{1,2}",
+    "computed": [
+      "corner-top-left-shape",
+      "corner-bottom-left-shape"
+    ],
+    "initial": [
+      "corner-top-left-shape",
+      "corner-bottom-left-shape"
+    ],
     "inherited": false
   },
   {
     "name": "corner-right-shape",
-    "syntax": "<corner-shape-value>",
-    "computed": [],
-    "initial": "round",
+    "syntax": "<corner-shape-value>{1,2}",
+    "computed": [
+      "corner-top-right-shape",
+      "corner-bottom-right-shape"
+    ],
+    "initial": [
+      "corner-top-right-shape",
+      "corner-bottom-right-shape"
+    ],
     "inherited": false
   },
   {
     "name": "corner-shape",
     "syntax": "<corner-shape-value>{1,4}",
-    "computed": [],
-    "initial": "round",
+    "computed": [
+      "corner-top-left-shape",
+      "corner-top-right-shape",
+      "corner-bottom-left-shape",
+      "corner-bottom-right-shape"
+    ],
+    "initial": [
+      "corner-top-left-shape",
+      "corner-top-right-shape",
+      "corner-bottom-left-shape",
+      "corner-bottom-right-shape"
+    ],
     "inherited": false
   },
   {
     "name": "corner-start-end-shape",
     "syntax": "<corner-shape-value>",
-    "computed": [],
+    "computed": [
+      "correspondingSuperellipse"
+    ],
     "initial": "round",
     "inherited": false
   },
   {
     "name": "corner-start-start-shape",
     "syntax": "<corner-shape-value>",
-    "computed": [],
+    "computed": [
+      "correspondingSuperellipse"
+    ],
     "initial": "round",
     "inherited": false
   },
   {
     "name": "corner-top-left-shape",
     "syntax": "<corner-shape-value>",
-    "computed": [],
+    "computed": [
+      "correspondingSuperellipse"
+    ],
     "initial": "round",
     "inherited": false
   },
   {
     "name": "corner-top-right-shape",
     "syntax": "<corner-shape-value>",
-    "computed": [],
+    "computed": [
+      "correspondingSuperellipse"
+    ],
     "initial": "round",
     "inherited": false
   },
   {
     "name": "corner-top-shape",
-    "syntax": "<corner-shape-value>",
-    "computed": [],
-    "initial": "round",
+    "syntax": "<corner-shape-value>{1,2}",
+    "computed": [
+      "corner-top-left-shape",
+      "corner-top-right-shape"
+    ],
+    "initial": [
+      "corner-top-left-shape",
+      "corner-top-right-shape"
+    ],
     "inherited": false
   },
   {
@@ -2225,29 +2892,8 @@
     "inherited": false
   },
   {
-    "name": "cue",
-    "syntax": "<'cue-before'> <'cue-after'>?",
-    "computed": [],
-    "initial": "see individual properties",
-    "inherited": false
-  },
-  {
-    "name": "cue-after",
-    "syntax": "<uri> <decibel>? | none",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "cue-before",
-    "syntax": "<uri> <decibel>? | none",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
     "name": "cursor",
-    "syntax": "[ [ <url> | <url-set> ] [<x> <y>]? ]#? [ auto | default | none | context-menu | help | pointer | progress | wait | cell | crosshair | text | vertical-text | alias | copy | move | no-drop | not-allowed | grab | grabbing | e-resize | n-resize | ne-resize | nw-resize | s-resize | se-resize | sw-resize | w-resize | ew-resize | ns-resize | nesw-resize | nwse-resize | col-resize | row-resize | all-scroll | zoom-in | zoom-out ]",
+    "syntax": "[ [ <url> [ <x> <y> ]? , ]* <cursor-predefined> ]",
     "computed": [
       "asSpecifiedURLsAbsolute"
     ],
@@ -2256,7 +2902,7 @@
   },
   {
     "name": "cx",
-    "syntax": "<length-percentage>",
+    "syntax": "<length> | <percentage>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -2265,7 +2911,7 @@
   },
   {
     "name": "cy",
-    "syntax": "<length-percentage>",
+    "syntax": "<length> | <percentage>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -2274,7 +2920,7 @@
   },
   {
     "name": "d",
-    "syntax": "none | <string>",
+    "syntax": "none | path(<string>)",
     "computed": [
       "asSpecified"
     ],
@@ -2292,7 +2938,7 @@
   },
   {
     "name": "display",
-    "syntax": "[ <display-outside> || <display-inside> ] | <display-listitem> | <display-internal> | <display-box> | <display-legacy> | <display-outside> || [ <display-inside> | math ]",
+    "syntax": "[ <display-outside> || <display-inside> ] | <display-listitem> | <display-internal> | <display-box> | <display-legacy>",
     "computed": [
       "asSpecifiedExceptPositionedFloatingAndRootElementsKeywordMaybeDifferent"
     ],
@@ -2310,8 +2956,10 @@
   },
   {
     "name": "dynamic-range-limit",
-    "syntax": "standard | no-limit | constrained-high | <dynamic-range-limit-mix()>",
-    "computed": [],
+    "syntax": "standard | no-limit | constrained | <dynamic-range-limit-mix()>",
+    "computed": [
+      "computedValueForDynamicRangeLimit"
+    ],
     "initial": "no-limit",
     "inherited": true
   },
@@ -2326,7 +2974,7 @@
   },
   {
     "name": "field-sizing",
-    "syntax": "fixed | content",
+    "syntax": "content | fixed",
     "computed": [
       "asSpecified"
     ],
@@ -2343,27 +2991,6 @@
     "inherited": true
   },
   {
-    "name": "fill-break",
-    "syntax": "bounding-box | slice | clone",
-    "computed": [],
-    "initial": "bounding-box",
-    "inherited": false
-  },
-  {
-    "name": "fill-color",
-    "syntax": "<color>",
-    "computed": [],
-    "initial": "currentcolor",
-    "inherited": true
-  },
-  {
-    "name": "fill-image",
-    "syntax": "<paint>#",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
     "name": "fill-opacity",
     "syntax": "<'opacity'>",
     "computed": [
@@ -2373,40 +3000,12 @@
     "inherited": true
   },
   {
-    "name": "fill-origin",
-    "syntax": "match-parent | fill-box | stroke-box | content-box | padding-box | border-box",
-    "computed": [],
-    "initial": "match-parent",
-    "inherited": false
-  },
-  {
-    "name": "fill-position",
-    "syntax": "<position>#",
-    "computed": [],
-    "initial": "0% 0%",
-    "inherited": true
-  },
-  {
-    "name": "fill-repeat",
-    "syntax": "<repeat-style>#",
-    "computed": [],
-    "initial": "repeat",
-    "inherited": true
-  },
-  {
     "name": "fill-rule",
     "syntax": "nonzero | evenodd",
     "computed": [
       "asSpecified"
     ],
     "initial": "nonzero",
-    "inherited": true
-  },
-  {
-    "name": "fill-size",
-    "syntax": "<bg-size>#",
-    "computed": [],
-    "initial": "auto",
     "inherited": true
   },
   {
@@ -2466,7 +3065,7 @@
   },
   {
     "name": "flex-grow",
-    "syntax": "<number [0,∞]>",
+    "syntax": "<number>",
     "computed": [
       "asSpecified"
     ],
@@ -2475,7 +3074,7 @@
   },
   {
     "name": "flex-shrink",
-    "syntax": "<number [0,∞]>",
+    "syntax": "<number>",
     "computed": [
       "asSpecified"
     ],
@@ -2493,32 +3092,11 @@
   },
   {
     "name": "float",
-    "syntax": "block-start | block-end | inline-start | inline-end | snap-block | <snap-block()> | snap-inline | <snap-inline()> | left | right | top | bottom | none | footnote",
+    "syntax": "left | right | none | inline-start | inline-end",
     "computed": [
       "asSpecified"
     ],
     "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "float-defer",
-    "syntax": "<integer> | last | none",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "float-offset",
-    "syntax": "<length-percentage>",
-    "computed": [],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "float-reference",
-    "syntax": "inline | column | region | page",
-    "computed": [],
-    "initial": "inline",
     "inherited": false
   },
   {
@@ -2537,20 +3115,6 @@
       "specifiedValueClipped0To1"
     ],
     "initial": "black",
-    "inherited": false
-  },
-  {
-    "name": "flow-from",
-    "syntax": "<ident> | none",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "flow-into",
-    "syntax": "none | <ident> [element | content]?",
-    "computed": [],
-    "initial": "none",
     "inherited": false
   },
   {
@@ -2641,7 +3205,7 @@
   },
   {
     "name": "font-size-adjust",
-    "syntax": "none | <number [0,∞]>",
+    "syntax": "none | [ ex-height | cap-height | ch-width | ic-width | ic-height ]? [ from-font | <number> ]",
     "computed": [
       "asSpecified"
     ],
@@ -2649,17 +3213,26 @@
     "inherited": true
   },
   {
+    "name": "font-smooth",
+    "syntax": "auto | never | always | <absolute-size> | <length>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
     "name": "font-stretch",
-    "syntax": "",
+    "syntax": "<font-stretch-absolute>",
     "computed": [
       "asSpecified"
     ],
     "initial": "normal",
-    "inherited": false
+    "inherited": true
   },
   {
     "name": "font-style",
-    "syntax": "normal | italic | oblique <angle [-90deg,90deg]>?",
+    "syntax": "normal | italic | oblique <angle>?",
     "computed": [
       "asSpecified"
     ],
@@ -2695,7 +3268,7 @@
   },
   {
     "name": "font-synthesis-style",
-    "syntax": "auto | none | oblique-only",
+    "syntax": "auto | none",
     "computed": [
       "asSpecified"
     ],
@@ -2713,7 +3286,7 @@
   },
   {
     "name": "font-variant",
-    "syntax": "normal | none | [ [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> ] || [ small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps ] || [ stylistic(<feature-value-name>) || historical-forms || styleset(<feature-value-name>#) || character-variant(<feature-value-name>#) || swash(<feature-value-name>) || ornaments(<feature-value-name>) || annotation(<feature-value-name>) ] || [ <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> || ordinal || slashed-zero ] || [ <east-asian-variant-values> || <east-asian-width-values> || ruby ] || [ sub | super ] || [ text | emoji | unicode ] ]",
+    "syntax": "normal | none | [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> || stylistic( <feature-value-name> ) || historical-forms || styleset( <feature-value-name># ) || character-variant( <feature-value-name># ) || swash( <feature-value-name> ) || ornaments( <feature-value-name> ) || annotation( <feature-value-name> ) || [ small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps ] || <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> || ordinal || slashed-zero || <east-asian-variant-values> || <east-asian-width-values> || ruby ]",
     "computed": [
       "asSpecified"
     ],
@@ -2722,7 +3295,7 @@
   },
   {
     "name": "font-variant-alternates",
-    "syntax": "normal | [ stylistic(<feature-value-name>) || historical-forms || styleset(<feature-value-name>#) || character-variant(<feature-value-name>#) || swash(<feature-value-name>) || ornaments(<feature-value-name>) || annotation(<feature-value-name>) ]",
+    "syntax": "normal | [ stylistic( <feature-value-name> ) || historical-forms || styleset( <feature-value-name># ) || character-variant( <feature-value-name># ) || swash( <feature-value-name> ) || ornaments( <feature-value-name> ) || annotation( <feature-value-name> ) ]",
     "computed": [
       "asSpecified"
     ],
@@ -2785,7 +3358,7 @@
   },
   {
     "name": "font-variation-settings",
-    "syntax": "normal | [ <opentype-tag> <number>]#",
+    "syntax": "normal | [ <string> <number> ]#",
     "computed": [
       "asSpecified"
     ],
@@ -2804,23 +3377,11 @@
   {
     "name": "font-width",
     "syntax": "normal | <percentage [0,∞]> | ultra-condensed | extra-condensed | condensed | semi-condensed | semi-expanded | expanded | extra-expanded | ultra-expanded",
-    "computed": [],
+    "computed": [
+      "percentage"
+    ],
     "initial": "normal",
     "inherited": true
-  },
-  {
-    "name": "footnote-display",
-    "syntax": "block | inline | compact",
-    "computed": [],
-    "initial": "block",
-    "inherited": false
-  },
-  {
-    "name": "footnote-policy",
-    "syntax": "auto | line | block",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
   },
   {
     "name": "forced-color-adjust",
@@ -2842,13 +3403,6 @@
       "row-gap",
       "column-gap"
     ],
-    "inherited": false
-  },
-  {
-    "name": "glyph-orientation-vertical",
-    "syntax": "auto | 0deg | 90deg | 0 | 90",
-    "computed": [],
-    "initial": "n/a",
     "inherited": false
   },
   {
@@ -2948,7 +3502,7 @@
   },
   {
     "name": "grid-column-gap",
-    "syntax": "",
+    "syntax": "<length-percentage>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -2966,7 +3520,7 @@
   },
   {
     "name": "grid-gap",
-    "syntax": "",
+    "syntax": "<'grid-row-gap'> <'grid-column-gap'>?",
     "computed": [
       "grid-row-gap",
       "grid-column-gap"
@@ -3001,7 +3555,7 @@
   },
   {
     "name": "grid-row-gap",
-    "syntax": "",
+    "syntax": "<length-percentage>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -3070,12 +3624,30 @@
   },
   {
     "name": "height",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAutoOrAbsoluteLength"
     ],
     "initial": "auto",
     "inherited": false
+  },
+  {
+    "name": "hyphenate-character",
+    "syntax": "auto | <string>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "hyphenate-limit-chars",
+    "syntax": "[ auto | <integer> ]{1,3}",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
   },
   {
     "name": "hyphens",
@@ -3088,7 +3660,7 @@
   },
   {
     "name": "image-orientation",
-    "syntax": "from-image | none | [ <angle> || flip ]",
+    "syntax": "from-image | <angle> | [ <angle>? flip ]",
     "computed": [
       "angleRoundedToNextQuarter"
     ],
@@ -3097,7 +3669,7 @@
   },
   {
     "name": "image-rendering",
-    "syntax": "auto | smooth | high-quality | pixelated | crisp-edges",
+    "syntax": "auto | crisp-edges | pixelated | smooth",
     "computed": [
       "asSpecified"
     ],
@@ -3105,8 +3677,26 @@
     "inherited": true
   },
   {
+    "name": "image-resolution",
+    "syntax": "[ from-image || <resolution> ] && snap?",
+    "computed": [
+      "asSpecifiedWithExceptionOfResolution"
+    ],
+    "initial": "1dppx",
+    "inherited": true
+  },
+  {
+    "name": "ime-mode",
+    "syntax": "auto | normal | active | inactive | disabled",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
     "name": "initial-letter",
-    "syntax": "normal | <number [1,∞]> <integer [1,∞]> | <number [1,∞]> && [ drop | raise ]?",
+    "syntax": "normal | [ <number> <integer>? ]",
     "computed": [
       "asSpecified"
     ],
@@ -3115,19 +3705,12 @@
   },
   {
     "name": "initial-letter-align",
-    "syntax": "[ border-box? [ alphabetic | ideographic | hanging | leading ]? ]!",
+    "syntax": "[ auto | alphabetic | hanging | ideographic ]",
     "computed": [
       "asSpecified"
     ],
     "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "initial-letter-wrap",
-    "syntax": "none | first | all | grid | <length-percentage>",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
+    "inherited": false
   },
   {
     "name": "inline-size",
@@ -3135,20 +3718,6 @@
     "computed": [
       "sameAsWidthAndHeight"
     ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "inline-sizing",
-    "syntax": "normal | stretch",
-    "computed": [],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "input-security",
-    "syntax": "auto | none",
-    "computed": [],
     "initial": "auto",
     "inherited": false
   },
@@ -3184,7 +3753,7 @@
   },
   {
     "name": "inset-block-end",
-    "syntax": "auto | <length-percentage>",
+    "syntax": "<'top'>",
     "computed": [
       "sameAsBoxOffsets"
     ],
@@ -3193,7 +3762,7 @@
   },
   {
     "name": "inset-block-start",
-    "syntax": "auto | <length-percentage>",
+    "syntax": "<'top'>",
     "computed": [
       "sameAsBoxOffsets"
     ],
@@ -3215,7 +3784,7 @@
   },
   {
     "name": "inset-inline-end",
-    "syntax": "auto | <length-percentage>",
+    "syntax": "<'top'>",
     "computed": [
       "sameAsBoxOffsets"
     ],
@@ -3224,7 +3793,7 @@
   },
   {
     "name": "inset-inline-start",
-    "syntax": "auto | <length-percentage>",
+    "syntax": "<'top'>",
     "computed": [
       "sameAsBoxOffsets"
     ],
@@ -3234,13 +3803,55 @@
   {
     "name": "interactivity",
     "syntax": "auto | inert",
-    "computed": [],
+    "computed": [
+      "asSpecified"
+    ],
     "initial": "auto",
     "inherited": true
   },
   {
+    "name": "interest-delay",
+    "syntax": "<'interest-delay-start'>{1,2}",
+    "computed": [
+      "interest-delay-start",
+      "interest-delay-end"
+    ],
+    "initial": [
+      "interest-delay-start",
+      "interest-delay-end"
+    ],
+    "inherited": true
+  },
+  {
+    "name": "interest-delay-end",
+    "syntax": "normal | <time>",
+    "computed": [
+      "normalOrComputedTime"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "interest-delay-start",
+    "syntax": "normal | <time>",
+    "computed": [
+      "normalOrComputedTime"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "interpolate-size",
+    "syntax": "numeric-only | allow-keywords",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "numeric-only",
+    "inherited": true
+  },
+  {
     "name": "isolation",
-    "syntax": "<isolation-mode>",
+    "syntax": "auto | isolate",
     "computed": [
       "asSpecified"
     ],
@@ -3272,6 +3883,15 @@
       "asSpecified"
     ],
     "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "justify-tracks",
+    "syntax": "[ normal | <content-distribution> | <overflow-position>? [ <content-position> | left | right ] ]#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
     "inherited": false
   },
   {
@@ -3311,22 +3931,17 @@
     "inherited": true
   },
   {
-    "name": "line-fit-edge",
-    "syntax": "leading | <text-edge>",
-    "computed": [],
-    "initial": "leading",
-    "inherited": true
-  },
-  {
-    "name": "line-grid",
-    "syntax": "match-parent | create",
-    "computed": [],
-    "initial": "match-parent",
+    "name": "line-clamp",
+    "syntax": "none | <integer>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
     "name": "line-height",
-    "syntax": "normal | <number [0,∞]> | <length-percentage [0,∞]>",
+    "syntax": "normal | <number> | <length> | <percentage>",
     "computed": [
       "absoluteLengthOrAsSpecified"
     ],
@@ -3335,7 +3950,7 @@
   },
   {
     "name": "line-height-step",
-    "syntax": "<length [0,∞]>",
+    "syntax": "<length>",
     "computed": [
       "absoluteLength"
     ],
@@ -3343,22 +3958,8 @@
     "inherited": true
   },
   {
-    "name": "line-snap",
-    "syntax": "none | baseline | contain",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "link-parameters",
-    "syntax": "none | <link-param>+",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
     "name": "list-style",
-    "syntax": "<'list-style-position'> || <'list-style-image'> || <'list-style-type'>",
+    "syntax": "<'list-style-type'> || <'list-style-position'> || <'list-style-image'>",
     "computed": [
       "list-style-image",
       "list-style-position",
@@ -3369,7 +3970,7 @@
       "list-style-position",
       "list-style-image"
     ],
-    "inherited": false
+    "inherited": true
   },
   {
     "name": "list-style-image",
@@ -3456,13 +4057,6 @@
     "inherited": false
   },
   {
-    "name": "margin-break",
-    "syntax": "auto | keep | discard",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
     "name": "margin-inline",
     "syntax": "<'margin-top'>{1,2}",
     "computed": [
@@ -3522,7 +4116,7 @@
   },
   {
     "name": "margin-trim",
-    "syntax": "none | [ block || inline ] | [ block-start || inline-start || block-end || inline-end ]",
+    "syntax": "none | in-flow | all",
     "computed": [
       "asSpecified"
     ],
@@ -3531,7 +4125,7 @@
   },
   {
     "name": "marker",
-    "syntax": "none | <marker-ref>",
+    "syntax": "none | <url>",
     "computed": [
       "asSpecified"
     ],
@@ -3544,7 +4138,7 @@
   },
   {
     "name": "marker-end",
-    "syntax": "none | <marker-ref>",
+    "syntax": "none | <url>",
     "computed": [
       "asSpecifiedURLsAbsolute"
     ],
@@ -3553,7 +4147,7 @@
   },
   {
     "name": "marker-mid",
-    "syntax": "none | <marker-ref>",
+    "syntax": "none | <url>",
     "computed": [
       "asSpecifiedURLsAbsolute"
     ],
@@ -3561,15 +4155,8 @@
     "inherited": true
   },
   {
-    "name": "marker-side",
-    "syntax": "match-self | match-parent",
-    "computed": [],
-    "initial": "match-self",
-    "inherited": true
-  },
-  {
     "name": "marker-start",
-    "syntax": "none | <marker-ref>",
+    "syntax": "none | <url>",
     "computed": [
       "asSpecifiedURLsAbsolute"
     ],
@@ -3651,7 +4238,7 @@
   },
   {
     "name": "mask-border-slice",
-    "syntax": "[ <number> | <percentage> ]{1,4} fill?",
+    "syntax": "<number-percentage>{1,4} fill?",
     "computed": [
       "asSpecified"
     ],
@@ -3758,6 +4345,15 @@
     "inherited": false
   },
   {
+    "name": "masonry-auto-flow",
+    "syntax": "[ pack | next ] || [ definite-first | ordered ]",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "pack",
+    "inherited": false
+  },
+  {
     "name": "math-depth",
     "syntax": "auto-add | add(<integer>) | <integer>",
     "computed": [
@@ -3795,7 +4391,7 @@
   },
   {
     "name": "max-height",
-    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAsSpecifiedAbsoluteLengthOrNone"
     ],
@@ -3812,8 +4408,17 @@
     "inherited": false
   },
   {
+    "name": "max-lines",
+    "syntax": "none | <integer>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
     "name": "max-width",
-    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAsSpecifiedAbsoluteLengthOrNone"
     ],
@@ -3831,7 +4436,7 @@
   },
   {
     "name": "min-height",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -3849,7 +4454,7 @@
   },
   {
     "name": "min-width",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -3863,34 +4468,6 @@
       "asSpecified"
     ],
     "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "nav-down",
-    "syntax": "auto | <id> [ current | root | <target-name> ]?",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "nav-left",
-    "syntax": "auto | <id> [ current | root | <target-name> ]?",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "nav-right",
-    "syntax": "auto | <id> [ current | root | <target-name> ]?",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "nav-up",
-    "syntax": "auto | <id> [ current | root | <target-name> ]?",
-    "computed": [],
-    "initial": "auto",
     "inherited": false
   },
   {
@@ -3909,6 +4486,15 @@
       "asSpecified"
     ],
     "initial": "50% 50%",
+    "inherited": true
+  },
+  {
+    "name": "object-view-box",
+    "syntax": "none | <basic-shape-rect>",
+    "computed": [
+      "specifiedKeywordOrComputedFunction"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
@@ -3995,7 +4581,7 @@
   },
   {
     "name": "orphans",
-    "syntax": "<integer [1,∞]>",
+    "syntax": "<integer>",
     "computed": [
       "asSpecified"
     ],
@@ -4019,7 +4605,7 @@
   },
   {
     "name": "outline-color",
-    "syntax": "auto | <color> | <image-1D>",
+    "syntax": "auto | <color>",
     "computed": [
       "autoForTranslucentColorRGBAOtherwiseRGB"
     ],
@@ -4055,7 +4641,7 @@
   },
   {
     "name": "overflow",
-    "syntax": "<'overflow-block'>{1,2}",
+    "syntax": "[ visible | hidden | clip | scroll | auto ]{1,2}",
     "computed": [
       "overflow-x",
       "overflow-y"
@@ -4079,6 +4665,15 @@
       "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent"
     ],
     "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "overflow-clip-box",
+    "syntax": "padding-box | content-box",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "padding-box",
     "inherited": false
   },
   {
@@ -4124,6 +4719,15 @@
       "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent"
     ],
     "initial": "visible",
+    "inherited": false
+  },
+  {
+    "name": "overlay",
+    "syntax": "none | auto",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
@@ -4298,7 +4902,7 @@
   },
   {
     "name": "page-break-after",
-    "syntax": "auto | always | avoid | left | right | inherit",
+    "syntax": "auto | always | avoid | left | right | recto | verso",
     "computed": [
       "asSpecified"
     ],
@@ -4307,7 +4911,7 @@
   },
   {
     "name": "page-break-before",
-    "syntax": "auto | always | avoid | left | right | inherit",
+    "syntax": "auto | always | avoid | left | right | recto | verso",
     "computed": [
       "asSpecified"
     ],
@@ -4316,7 +4920,7 @@
   },
   {
     "name": "page-break-inside",
-    "syntax": "avoid | auto | inherit",
+    "syntax": "auto | avoid",
     "computed": [
       "asSpecified"
     ],
@@ -4333,24 +4937,21 @@
     "inherited": true
   },
   {
-    "name": "pause",
-    "syntax": "<'pause-before'> <'pause-after'>?",
-    "computed": [],
-    "initial": "see individual properties",
-    "inherited": false
-  },
-  {
-    "name": "pause-after",
-    "syntax": "<time [0s,∞]> | none | x-weak | weak | medium | strong | x-strong",
-    "computed": [],
+    "name": "perspective",
+    "syntax": "none | <length>",
+    "computed": [
+      "absoluteLengthOrNone"
+    ],
     "initial": "none",
     "inherited": false
   },
   {
-    "name": "pause-before",
-    "syntax": "<time [0s,∞]> | none | x-weak | weak | medium | strong | x-strong",
-    "computed": [],
-    "initial": "none",
+    "name": "perspective-origin",
+    "syntax": "<position>",
+    "computed": [
+      "forLengthAbsoluteValueOtherwisePercentage"
+    ],
+    "initial": "50% 50%",
     "inherited": false
   },
   {
@@ -4394,7 +4995,7 @@
   },
   {
     "name": "pointer-events",
-    "syntax": "auto | bounding-box | visiblePainted | visibleFill | visibleStroke | visible | painted | fill | stroke | all | none",
+    "syntax": "auto | none | visiblePainted | visibleFill | visibleStroke | visible | painted | fill | stroke | all | inherit",
     "computed": [
       "asSpecified"
     ],
@@ -4403,7 +5004,7 @@
   },
   {
     "name": "position",
-    "syntax": "static | relative | absolute | sticky | fixed | <running()>",
+    "syntax": "static | relative | absolute | sticky | fixed",
     "computed": [
       "asSpecified"
     ],
@@ -4412,11 +5013,11 @@
   },
   {
     "name": "position-anchor",
-    "syntax": "auto | <anchor-name>",
+    "syntax": "normal | auto | none | <anchor-name> | match-parent",
     "computed": [
       "asSpecified"
     ],
-    "initial": "auto",
+    "initial": "normal",
     "inherited": false
   },
   {
@@ -4479,7 +5080,7 @@
   },
   {
     "name": "quotes",
-    "syntax": "auto | none | match-parent | [ <string> <string> ]+",
+    "syntax": "none | auto | [ <string> <string> ]+",
     "computed": [
       "asSpecified"
     ],
@@ -4488,7 +5089,7 @@
   },
   {
     "name": "r",
-    "syntax": "<length-percentage>",
+    "syntax": "<length> | <percentage>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -4498,22 +5099,19 @@
   {
     "name": "reading-flow",
     "syntax": "normal | source-order | flex-visual | flex-flow | grid-rows | grid-columns | grid-order",
-    "computed": [],
+    "computed": [
+      "asSpecified"
+    ],
     "initial": "normal",
     "inherited": false
   },
   {
     "name": "reading-order",
     "syntax": "<integer>",
-    "computed": [],
+    "computed": [
+      "specifiedInteger"
+    ],
     "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "region-fragment",
-    "syntax": "auto | break",
-    "computed": [],
-    "initial": "auto",
     "inherited": false
   },
   {
@@ -4522,27 +5120,6 @@
     "computed": [
       "asSpecified"
     ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "rest",
-    "syntax": "<'rest-before'> <'rest-after'>?",
-    "computed": [],
-    "initial": "see individual properties",
-    "inherited": false
-  },
-  {
-    "name": "rest-after",
-    "syntax": "<time [0s,∞]> | none | x-weak | weak | medium | strong | x-strong",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "rest-before",
-    "syntax": "<time [0s,∞]> | none | x-weak | weak | medium | strong | x-strong",
-    "computed": [],
     "initial": "none",
     "inherited": false
   },
@@ -4556,54 +5133,21 @@
     "inherited": false
   },
   {
-    "name": "row-gap",
-    "syntax": "normal | <length-percentage [0,∞]>",
+    "name": "rotate",
+    "syntax": "none | <angle> | [ x | y | z | <number>{3} ] && <angle>",
     "computed": [
-      "asSpecifiedWithLengthsAbsoluteAndNormalComputingToZeroExceptMultiColumn"
+      "asSpecified"
     ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "row-rule",
-    "syntax": "<gap-rule-list> | <gap-auto-rule-list>",
-    "computed": [],
-    "initial": "see individual properties",
-    "inherited": false
-  },
-  {
-    "name": "row-rule-break",
-    "syntax": "none | spanning-item | intersection",
-    "computed": [],
-    "initial": "spanning-item",
-    "inherited": false
-  },
-  {
-    "name": "row-rule-color",
-    "syntax": "<line-color-list> | <auto-line-color-list>",
-    "computed": [],
-    "initial": "currentcolor",
-    "inherited": false
-  },
-  {
-    "name": "row-rule-outset",
-    "syntax": "<length-percentage>",
-    "computed": [],
-    "initial": "50%",
-    "inherited": false
-  },
-  {
-    "name": "row-rule-style",
-    "syntax": "<line-style-list> | <auto-line-style-list>",
-    "computed": [],
     "initial": "none",
     "inherited": false
   },
   {
-    "name": "row-rule-width",
-    "syntax": "<line-width-list> | <auto-line-width-list>",
-    "computed": [],
-    "initial": "medium",
+    "name": "row-gap",
+    "syntax": "normal | <length-percentage>",
+    "computed": [
+      "asSpecifiedWithLengthsAbsoluteAndNormalComputingToZeroExceptMultiColumn"
+    ],
+    "initial": "normal",
     "inherited": false
   },
   {
@@ -4617,7 +5161,7 @@
   },
   {
     "name": "ruby-merge",
-    "syntax": "separate | merge | auto",
+    "syntax": "separate | collapse | auto",
     "computed": [
       "asSpecified"
     ],
@@ -4627,7 +5171,9 @@
   {
     "name": "ruby-overhang",
     "syntax": "auto | none",
-    "computed": [],
+    "computed": [
+      "theSpecifiedKeyword"
+    ],
     "initial": "auto",
     "inherited": true
   },
@@ -4641,61 +5187,12 @@
     "inherited": true
   },
   {
-    "name": "rule",
-    "syntax": "<'column-rule'>",
-    "computed": [],
-    "initial": "see individual properties",
-    "inherited": false
-  },
-  {
-    "name": "rule-break",
-    "syntax": "<'column-rule-break'>",
-    "computed": [],
-    "initial": "see individual properties",
-    "inherited": false
-  },
-  {
-    "name": "rule-color",
-    "syntax": "<'column-rule-color'>",
-    "computed": [],
-    "initial": "see individual properties",
-    "inherited": false
-  },
-  {
-    "name": "rule-outset",
-    "syntax": "<'column-rule-outset'>",
-    "computed": [],
-    "initial": "see individual properties",
-    "inherited": false
-  },
-  {
-    "name": "rule-paint-order",
-    "syntax": "row-over-column | column-over-row",
-    "computed": [],
-    "initial": "row-over-column",
-    "inherited": false
-  },
-  {
-    "name": "rule-style",
-    "syntax": "<'column-rule-style'>",
-    "computed": [],
-    "initial": "see individual properties",
-    "inherited": false
-  },
-  {
-    "name": "rule-width",
-    "syntax": "<'column-rule-width'>",
-    "computed": [],
-    "initial": "see individual properties",
-    "inherited": false
-  },
-  {
     "name": "rx",
     "syntax": "<length-percentage> | auto",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
-    "initial": "0",
+    "initial": "auto",
     "inherited": false
   },
   {
@@ -4704,7 +5201,16 @@
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
-    "initial": "0",
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "scale",
+    "syntax": "none | [ <number> | <percentage> ]{1,3}",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
@@ -4714,6 +5220,15 @@
       "asSpecified"
     ],
     "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "scroll-initial-target",
+    "syntax": "none | nearest",
+    "computed": [
+      "theSpecifiedKeyword"
+    ],
+    "initial": "none",
     "inherited": false
   },
   {
@@ -4832,8 +5347,17 @@
     "inherited": false
   },
   {
+    "name": "scroll-marker-group",
+    "syntax": "none | before | after",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
     "name": "scroll-padding",
-    "syntax": "[ auto | <length-percentage [0,∞]> ]{1,4}",
+    "syntax": "[ auto | <length-percentage> ]{1,4}",
     "computed": [
       "scroll-padding-bottom",
       "scroll-padding-left",
@@ -4850,7 +5374,7 @@
   },
   {
     "name": "scroll-padding-block",
-    "syntax": "[ auto | <length-percentage [0,∞]> ]{1,2}",
+    "syntax": "[ auto | <length-percentage> ]{1,2}",
     "computed": [
       "scroll-padding-block-start",
       "scroll-padding-block-end"
@@ -4863,7 +5387,7 @@
   },
   {
     "name": "scroll-padding-block-end",
-    "syntax": "auto | <length-percentage [0,∞]>",
+    "syntax": "auto | <length-percentage>",
     "computed": [
       "asSpecified"
     ],
@@ -4872,7 +5396,7 @@
   },
   {
     "name": "scroll-padding-block-start",
-    "syntax": "auto | <length-percentage [0,∞]>",
+    "syntax": "auto | <length-percentage>",
     "computed": [
       "asSpecified"
     ],
@@ -4881,7 +5405,7 @@
   },
   {
     "name": "scroll-padding-bottom",
-    "syntax": "auto | <length-percentage [0,∞]>",
+    "syntax": "auto | <length-percentage>",
     "computed": [
       "asSpecified"
     ],
@@ -4890,7 +5414,7 @@
   },
   {
     "name": "scroll-padding-inline",
-    "syntax": "[ auto | <length-percentage [0,∞]> ]{1,2}",
+    "syntax": "[ auto | <length-percentage> ]{1,2}",
     "computed": [
       "scroll-padding-inline-start",
       "scroll-padding-inline-end"
@@ -4903,7 +5427,7 @@
   },
   {
     "name": "scroll-padding-inline-end",
-    "syntax": "auto | <length-percentage [0,∞]>",
+    "syntax": "auto | <length-percentage>",
     "computed": [
       "asSpecified"
     ],
@@ -4912,7 +5436,7 @@
   },
   {
     "name": "scroll-padding-inline-start",
-    "syntax": "auto | <length-percentage [0,∞]>",
+    "syntax": "auto | <length-percentage>",
     "computed": [
       "asSpecified"
     ],
@@ -4921,7 +5445,7 @@
   },
   {
     "name": "scroll-padding-left",
-    "syntax": "auto | <length-percentage [0,∞]>",
+    "syntax": "auto | <length-percentage>",
     "computed": [
       "asSpecified"
     ],
@@ -4930,7 +5454,7 @@
   },
   {
     "name": "scroll-padding-right",
-    "syntax": "auto | <length-percentage [0,∞]>",
+    "syntax": "auto | <length-percentage>",
     "computed": [
       "asSpecified"
     ],
@@ -4939,7 +5463,7 @@
   },
   {
     "name": "scroll-padding-top",
-    "syntax": "auto | <length-percentage [0,∞]>",
+    "syntax": "auto | <length-percentage>",
     "computed": [
       "asSpecified"
     ],
@@ -4956,6 +5480,42 @@
     "inherited": false
   },
   {
+    "name": "scroll-snap-coordinate",
+    "syntax": "none | <position>#",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "scroll-snap-destination",
+    "syntax": "<position>",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "0px 0px",
+    "inherited": false
+  },
+  {
+    "name": "scroll-snap-points-x",
+    "syntax": "none | repeat( <length-percentage> )",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "scroll-snap-points-y",
+    "syntax": "none | repeat( <length-percentage> )",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
     "name": "scroll-snap-stop",
     "syntax": "normal | always",
     "computed": [
@@ -4967,6 +5527,33 @@
   {
     "name": "scroll-snap-type",
     "syntax": "none | [ x | y | block | inline | both ] [ mandatory | proximity ]?",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "scroll-snap-type-x",
+    "syntax": "none | mandatory | proximity",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "scroll-snap-type-y",
+    "syntax": "none | mandatory | proximity",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "scroll-target-group",
+    "syntax": "none | auto",
     "computed": [
       "asSpecified"
     ],
@@ -5042,7 +5629,7 @@
   },
   {
     "name": "shape-margin",
-    "syntax": "<length-percentage [0,∞]>",
+    "syntax": "<length-percentage>",
     "computed": [
       "asSpecifiedRelativeToAbsoluteLengths"
     ],
@@ -5051,7 +5638,7 @@
   },
   {
     "name": "shape-outside",
-    "syntax": "none | [ <basic-shape> || <shape-box> ] | <image>",
+    "syntax": "none | [ <shape-box> || <basic-shape> ] | <image>",
     "computed": [
       "asDefinedForBasicShapeWithAbsoluteURIOtherwiseAsSpecified"
     ],
@@ -5068,48 +5655,6 @@
     "inherited": true
   },
   {
-    "name": "shape-subtract",
-    "syntax": "none | [ <basic-shape>| <uri> ]+",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "slider-orientation",
-    "syntax": "auto | left-to-right | right-to-left | top-to-bottom | bottom-to-top",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "spatial-navigation-action",
-    "syntax": "auto | focus | scroll",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "spatial-navigation-contain",
-    "syntax": "auto | contain",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "spatial-navigation-function",
-    "syntax": "normal | grid",
-    "computed": [],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "speak",
-    "syntax": "auto | never | always",
-    "computed": [],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
     "name": "speak-as",
     "syntax": "normal | spell-out || digits || [ literal-punctuation | no-punctuation ]",
     "computed": [
@@ -5120,7 +5665,7 @@
   },
   {
     "name": "stop-color",
-    "syntax": "",
+    "syntax": "<'color'>",
     "computed": [
       "asSpecified"
     ],
@@ -5129,18 +5674,11 @@
   },
   {
     "name": "stop-opacity",
-    "syntax": "",
+    "syntax": "<'opacity'>",
     "computed": [
       "asSpecified"
     ],
     "initial": "black",
-    "inherited": false
-  },
-  {
-    "name": "string-set",
-    "syntax": "none | [ <custom-ident> <string>+ ]#",
-    "computed": [],
-    "initial": "none",
     "inherited": false
   },
   {
@@ -5161,67 +5699,20 @@
     "inherited": true
   },
   {
-    "name": "stroke-align",
-    "syntax": "center | inset | outset",
-    "computed": [],
-    "initial": "center",
-    "inherited": true
-  },
-  {
-    "name": "stroke-alignment",
-    "syntax": "center | inner | outer",
-    "computed": [],
-    "initial": "center",
-    "inherited": true
-  },
-  {
-    "name": "stroke-break",
-    "syntax": "bounding-box | slice | clone",
-    "computed": [],
-    "initial": "bounding-box",
-    "inherited": false
-  },
-  {
     "name": "stroke-color",
-    "syntax": "<color>#",
-    "computed": [],
+    "syntax": "<color>",
+    "computed": [
+      "computedColor"
+    ],
     "initial": "transparent",
     "inherited": true
   },
   {
-    "name": "stroke-dash-corner",
-    "syntax": "none | <length>",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "stroke-dash-justify",
-    "syntax": "none | [ stretch | compress ] || [ dashes || gaps ]",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "stroke-dashadjust",
-    "syntax": "none | [stretch | compress] [dashes | gaps]?",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
     "name": "stroke-dasharray",
-    "syntax": "none | [<length-percentage> | <number>]+#",
+    "syntax": "none | <dasharray>",
     "computed": [
       "listEachItemConsistingOfAbsoluteLengthPercentageOrKeyword"
     ],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "stroke-dashcorner",
-    "syntax": "none | <length>",
-    "computed": [],
     "initial": "none",
     "inherited": true
   },
@@ -5235,13 +5726,6 @@
     "inherited": true
   },
   {
-    "name": "stroke-image",
-    "syntax": "<paint>#",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
     "name": "stroke-linecap",
     "syntax": "butt | round | square",
     "computed": [
@@ -5252,7 +5736,7 @@
   },
   {
     "name": "stroke-linejoin",
-    "syntax": "[ crop | arcs | miter ] || [ bevel | round | fallback ]",
+    "syntax": "miter | miter-clip | round | bevel | arcs",
     "computed": [
       "asSpecified"
     ],
@@ -5278,36 +5762,8 @@
     "inherited": true
   },
   {
-    "name": "stroke-origin",
-    "syntax": "match-parent | fill-box | stroke-box | content-box | padding-box | border-box",
-    "computed": [],
-    "initial": "match-parent",
-    "inherited": false
-  },
-  {
-    "name": "stroke-position",
-    "syntax": "<position>#",
-    "computed": [],
-    "initial": "0% 0%",
-    "inherited": true
-  },
-  {
-    "name": "stroke-repeat",
-    "syntax": "<repeat-style>#",
-    "computed": [],
-    "initial": "repeat",
-    "inherited": true
-  },
-  {
-    "name": "stroke-size",
-    "syntax": "<bg-size>#",
-    "computed": [],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
     "name": "stroke-width",
-    "syntax": "[<length-percentage> | <number>]#",
+    "syntax": "<length-percentage> | <number>",
     "computed": [
       "absoluteLengthOrPercentageNumbersConverted"
     ],
@@ -5316,7 +5772,7 @@
   },
   {
     "name": "tab-size",
-    "syntax": "<number [0,∞]> | <length [0,∞]>",
+    "syntax": "<integer> | <length>",
     "computed": [
       "specifiedIntegerOrAbsoluteLength"
     ],
@@ -5334,7 +5790,7 @@
   },
   {
     "name": "text-align",
-    "syntax": "start | end | left | right | center | justify | match-parent | justify-all",
+    "syntax": "start | end | left | right | center | justify | match-parent",
     "computed": [
       "asSpecifiedExceptMatchParent"
     ],
@@ -5342,15 +5798,8 @@
     "inherited": true
   },
   {
-    "name": "text-align-all",
-    "syntax": "start | end | left | right | center | justify | match-parent",
-    "computed": [],
-    "initial": "start",
-    "inherited": true
-  },
-  {
     "name": "text-align-last",
-    "syntax": "auto | start | end | left | right | center | justify | match-parent",
+    "syntax": "auto | start | end | left | right | center | justify",
     "computed": [
       "asSpecified"
     ],
@@ -5364,6 +5813,15 @@
       "asSpecified"
     ],
     "initial": "start",
+    "inherited": true
+  },
+  {
+    "name": "text-autospace",
+    "syntax": "normal | <autospace> | auto",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
     "inherited": true
   },
   {
@@ -5382,7 +5840,7 @@
       "theSpecifiedKeyword"
     ],
     "initial": "auto",
-    "inherited": true
+    "inherited": false
   },
   {
     "name": "text-box-trim",
@@ -5395,7 +5853,7 @@
   },
   {
     "name": "text-combine-upright",
-    "syntax": "none | all | [ digits <integer [2,4]>? ]",
+    "syntax": "none | all | [ digits <integer>? ]",
     "computed": [
       "keywordPlusIntegerIfDigits"
     ],
@@ -5404,7 +5862,7 @@
   },
   {
     "name": "text-decoration",
-    "syntax": "<'text-decoration-line'> || <'text-decoration-style'> || <'text-decoration-color'>",
+    "syntax": "<'text-decoration-line'> || <'text-decoration-style'> || <'text-decoration-color'> || <'text-decoration-thickness'>",
     "computed": [
       "text-decoration-line",
       "text-decoration-style",
@@ -5428,13 +5886,40 @@
     "inherited": false
   },
   {
+    "name": "text-decoration-inset",
+    "syntax": "<length>{1,2} | auto",
+    "computed": [
+      "absoluteLengthOrKeyword"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
     "name": "text-decoration-line",
-    "syntax": "none | [ underline || overline || line-through || blink ]",
+    "syntax": "none | [ underline || overline || line-through || blink ] | spelling-error | grammar-error",
     "computed": [
       "asSpecified"
     ],
     "initial": "none",
     "inherited": false
+  },
+  {
+    "name": "text-decoration-skip",
+    "syntax": "none | [ objects || [ spaces | [ leading-spaces || trailing-spaces ] ] || edges || box-decoration ]",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "objects",
+    "inherited": true
+  },
+  {
+    "name": "text-decoration-skip-ink",
+    "syntax": "auto | all | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
   },
   {
     "name": "text-decoration-style",
@@ -5443,6 +5928,15 @@
       "asSpecified"
     ],
     "initial": "solid",
+    "inherited": false
+  },
+  {
+    "name": "text-decoration-thickness",
+    "syntax": "auto | from-font | <length> | <percentage>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
     "inherited": false
   },
   {
@@ -5456,7 +5950,7 @@
       "text-emphasis-style",
       "text-emphasis-color"
     ],
-    "inherited": false
+    "inherited": true
   },
   {
     "name": "text-emphasis-color",
@@ -5469,7 +5963,7 @@
   },
   {
     "name": "text-emphasis-position",
-    "syntax": "[ over | under ] && [ right | left ]?",
+    "syntax": "auto | [ over | under ] && [ right | left ]?",
     "computed": [
       "asSpecified"
     ],
@@ -5487,7 +5981,7 @@
   },
   {
     "name": "text-indent",
-    "syntax": "[ <length-percentage> ] && hanging? && each-line?",
+    "syntax": "<length-percentage> && hanging? && each-line?",
     "computed": [
       "percentageOrAbsoluteLengthPlusKeywords"
     ],
@@ -5496,7 +5990,7 @@
   },
   {
     "name": "text-justify",
-    "syntax": "auto | none | inter-word | inter-character",
+    "syntax": "auto | inter-character | inter-word | none",
     "computed": [
       "asSpecified"
     ],
@@ -5514,7 +6008,7 @@
   },
   {
     "name": "text-overflow",
-    "syntax": "clip | ellipsis",
+    "syntax": "[ clip | ellipsis | <string> ]{1,2}",
     "computed": [
       "asSpecified"
     ],
@@ -5532,7 +6026,7 @@
   },
   {
     "name": "text-shadow",
-    "syntax": "none | [ <color>? && <length>{2,3} ]#",
+    "syntax": "none | <shadow-t>#",
     "computed": [
       "colorPlusThreeAbsoluteLengths"
     ],
@@ -5541,7 +6035,7 @@
   },
   {
     "name": "text-size-adjust",
-    "syntax": "auto | none | <percentage [0,∞]>",
+    "syntax": "none | auto | <percentage>",
     "computed": [
       "asSpecified"
     ],
@@ -5549,8 +6043,17 @@
     "inherited": true
   },
   {
+    "name": "text-spacing-trim",
+    "syntax": "space-all | normal | space-first | trim-start",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
     "name": "text-transform",
-    "syntax": "none | [capitalize | uppercase | lowercase ] || full-width || full-size-kana",
+    "syntax": "none | [ capitalize | uppercase | lowercase ] || full-width || full-size-kana | math-auto",
     "computed": [
       "asSpecified"
     ],
@@ -5558,8 +6061,45 @@
     "inherited": true
   },
   {
+    "name": "text-underline-offset",
+    "syntax": "auto | <length> | <percentage>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
     "name": "text-underline-position",
-    "syntax": "auto | [ under || [ left | right ] ]",
+    "syntax": "auto | from-font | [ under || [ left | right ] ]",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "text-wrap",
+    "syntax": "<'text-wrap-mode'> || <'text-wrap-style'>",
+    "computed": [
+      "text-wrap-mode",
+      "text-wrap-style"
+    ],
+    "initial": "wrap",
+    "inherited": true
+  },
+  {
+    "name": "text-wrap-mode",
+    "syntax": "wrap | nowrap",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "wrap",
+    "inherited": true
+  },
+  {
+    "name": "text-wrap-style",
+    "syntax": "auto | balance | stable | pretty",
     "computed": [
       "asSpecified"
     ],
@@ -5568,11 +6108,108 @@
   },
   {
     "name": "timeline-scope",
-    "syntax": "none | all | <dashed-ident>#",
+    "syntax": "none | <dashed-ident>#",
     "computed": [
       "noneOrOrderedListOfIdentifiers"
     ],
     "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "timeline-trigger",
+    "syntax": "none | [ <'timeline-trigger-name'> <'timeline-trigger-source'> <'timeline-trigger-activation-range'> [ '/' <'timeline-trigger-active-range'> ]? ]#",
+    "computed": [
+      "timeline-trigger-name",
+      "timeline-trigger-source",
+      "timeline-trigger-activation-range",
+      "timeline-trigger-active-range"
+    ],
+    "initial": [
+      "timeline-trigger-name",
+      "timeline-trigger-source",
+      "timeline-trigger-activation-range",
+      "timeline-trigger-active-range"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "timeline-trigger-activation-range",
+    "syntax": "[ <'timeline-trigger-activation-range-start'> <'timeline-trigger-activation-range-end'>? ]#",
+    "computed": [
+      "timeline-trigger-activation-range-start",
+      "timeline-trigger-activation-range-end"
+    ],
+    "initial": [
+      "timeline-trigger-activation-range-start",
+      "timeline-trigger-activation-range-end"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "timeline-trigger-activation-range-end",
+    "syntax": "[ normal | <length-percentage> | <timeline-range-name> <length-percentage>? ]#",
+    "computed": [
+      "listEachItemConsistingOfNormalLengthPercentageOrNameLengthPercentage"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "timeline-trigger-activation-range-start",
+    "syntax": "[ normal | <length-percentage> | <timeline-range-name> <length-percentage>? ]#",
+    "computed": [
+      "listEachItemConsistingOfNormalLengthPercentageOrNameLengthPercentage"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "timeline-trigger-active-range",
+    "syntax": "[ <'timeline-trigger-active-range-start'> <'timeline-trigger-active-range-end'>? ]#",
+    "computed": [
+      "timeline-trigger-active-range-start",
+      "timeline-trigger-active-range-end"
+    ],
+    "initial": [
+      "timeline-trigger-active-range-start",
+      "timeline-trigger-active-range-end"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "timeline-trigger-active-range-end",
+    "syntax": "[ auto | normal | <length-percentage> | <timeline-range-name> <length-percentage>? ]#",
+    "computed": [
+      "listEachItemConsistingOfNormalLengthPercentageOrNameLengthPercentage"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "timeline-trigger-active-range-start",
+    "syntax": "[ auto | normal | <length-percentage> | <timeline-range-name> <length-percentage>? ]#",
+    "computed": [
+      "listEachItemConsistingOfNormalLengthPercentageOrNameLengthPercentage"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "timeline-trigger-name",
+    "syntax": "none | <dashed-ident>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "timeline-trigger-source",
+    "syntax": "<single-animation-timeline>#",
+    "computed": [
+      "listOfNoneAutoIdentScrollOrView"
+    ],
+    "initial": "auto",
     "inherited": false
   },
   {
@@ -5613,11 +6250,20 @@
   },
   {
     "name": "transform-origin",
-    "syntax": "[ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] <length>? | [ [ center | left | right ] && [ center | top | bottom ] ] <length>?",
+    "syntax": "[ <length-percentage> | left | center | right | top | bottom ] | [ [ <length-percentage> | left | center | right ] && [ <length-percentage> | top | center | bottom ] ] <length>?",
     "computed": [
       "forLengthAbsoluteValueOtherwisePercentage"
     ],
     "initial": "50% 50% 0",
+    "inherited": false
+  },
+  {
+    "name": "transform-style",
+    "syntax": "flat | preserve-3d",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "flat",
     "inherited": false
   },
   {
@@ -5640,6 +6286,15 @@
     "inherited": false
   },
   {
+    "name": "transition-behavior",
+    "syntax": "<transition-behavior-value>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
     "name": "transition-delay",
     "syntax": "<time>#",
     "computed": [
@@ -5650,7 +6305,7 @@
   },
   {
     "name": "transition-duration",
-    "syntax": "<time [0s,∞]>#",
+    "syntax": "<time>#",
     "computed": [
       "asSpecified"
     ],
@@ -5676,6 +6331,24 @@
     "inherited": false
   },
   {
+    "name": "translate",
+    "syntax": "none | <length-percentage> [ <length-percentage> <length>? ]?",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "trigger-scope",
+    "syntax": "none | all | <dashed-ident>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
     "name": "unicode-bidi",
     "syntax": "normal | embed | isolate | bidi-override | isolate-override | plaintext",
     "computed": [
@@ -5686,7 +6359,7 @@
   },
   {
     "name": "user-select",
-    "syntax": "auto | text | none | contain | all",
+    "syntax": "auto | text | none | all",
     "computed": [
       "asSpecified"
     ],
@@ -5704,9 +6377,9 @@
   },
   {
     "name": "vertical-align",
-    "syntax": "[ first | last] || <'alignment-baseline'> || <'baseline-shift'>",
+    "syntax": "baseline | sub | super | text-top | text-bottom | middle | top | bottom | <percentage> | <length>",
     "computed": [
-      "absoluteLengthOrKeyword"
+      "asLonghands"
     ],
     "initial": "baseline",
     "inherited": false
@@ -5752,8 +6425,17 @@
     "inherited": false
   },
   {
+    "name": "view-transition-class",
+    "syntax": "none | <custom-ident>+",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
     "name": "view-transition-name",
-    "syntax": "none | <custom-ident>",
+    "syntax": "none | <custom-ident> | match-element",
     "computed": [
       "asSpecified"
     ],
@@ -5770,64 +6452,8 @@
     "inherited": true
   },
   {
-    "name": "voice-balance",
-    "syntax": "<number> | left | center | right | leftwards | rightwards",
-    "computed": [],
-    "initial": "center",
-    "inherited": true
-  },
-  {
-    "name": "voice-duration",
-    "syntax": "auto | <time [0s,∞]>",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "voice-family",
-    "syntax": "[[<family-name> | <generic-voice>],]* [<family-name> | <generic-voice>] | preserve",
-    "computed": [],
-    "initial": "implementation-dependent",
-    "inherited": true
-  },
-  {
-    "name": "voice-pitch",
-    "syntax": "<frequency [0Hz,∞]> && absolute | [[x-low | low | medium | high | x-high] || [<frequency> | <semitones> | <percentage>]]",
-    "computed": [],
-    "initial": "medium",
-    "inherited": true
-  },
-  {
-    "name": "voice-range",
-    "syntax": "<frequency [0Hz,∞]> && absolute | [[x-low | low | medium | high | x-high] || [<frequency> | <semitones> | <percentage>]]",
-    "computed": [],
-    "initial": "medium",
-    "inherited": true
-  },
-  {
-    "name": "voice-rate",
-    "syntax": "[normal | x-slow | slow | medium | fast | x-fast] || <percentage [0,∞]>",
-    "computed": [],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "voice-stress",
-    "syntax": "normal | strong | moderate | none | reduced",
-    "computed": [],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "voice-volume",
-    "syntax": "silent | [[x-soft | soft | medium | loud | x-loud] || <decibel>]",
-    "computed": [],
-    "initial": "medium",
-    "inherited": true
-  },
-  {
     "name": "white-space",
-    "syntax": "normal | pre | nowrap | pre-wrap | break-spaces | pre-line",
+    "syntax": "normal | pre | pre-wrap | pre-line | <'white-space-collapse'> || <'text-wrap-mode'>",
     "computed": [
       "asSpecified"
     ],
@@ -5835,8 +6461,17 @@
     "inherited": true
   },
   {
+    "name": "white-space-collapse",
+    "syntax": "collapse | preserve | preserve-breaks | preserve-spaces | break-spaces",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "collapse",
+    "inherited": true
+  },
+  {
     "name": "widows",
-    "syntax": "<integer [1,∞]>",
+    "syntax": "<integer>",
     "computed": [
       "asSpecified"
     ],
@@ -5845,7 +6480,7 @@
   },
   {
     "name": "width",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAutoOrAbsoluteLength"
     ],
@@ -5863,7 +6498,7 @@
   },
   {
     "name": "word-break",
-    "syntax": "normal | keep-all | break-all | break-word",
+    "syntax": "normal | break-all | keep-all | break-word | auto-phrase",
     "computed": [
       "asSpecified"
     ],
@@ -5881,26 +6516,12 @@
   },
   {
     "name": "word-wrap",
-    "syntax": "normal | break-word | anywhere",
+    "syntax": "normal | break-word",
     "computed": [
       "asSpecified"
     ],
     "initial": "normal",
     "inherited": true
-  },
-  {
-    "name": "wrap-flow",
-    "syntax": "auto | both | start | end | minimum | maximum | clear",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "wrap-through",
-    "syntax": "wrap | none",
-    "computed": [],
-    "initial": "wrap",
-    "inherited": false
   },
   {
     "name": "writing-mode",
@@ -5913,7 +6534,7 @@
   },
   {
     "name": "x",
-    "syntax": "<length-percentage>",
+    "syntax": "<length> | <percentage>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -5922,7 +6543,7 @@
   },
   {
     "name": "y",
-    "syntax": "<length-percentage>",
+    "syntax": "<length> | <percentage>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -5931,7 +6552,7 @@
   },
   {
     "name": "z-index",
-    "syntax": "auto | <integer> | inherit",
+    "syntax": "auto | <integer>",
     "computed": [
       "asSpecified"
     ],
@@ -5940,7 +6561,7 @@
   },
   {
     "name": "zoom",
-    "syntax": "<number [0,∞]> || <percentage [0,∞]>",
+    "syntax": "normal | reset | <number [0,∞]> || <percentage [0,∞]>",
     "computed": [
       "asSpecifiedButWithPercentageConvertedToTheEquivalentNumber"
     ],

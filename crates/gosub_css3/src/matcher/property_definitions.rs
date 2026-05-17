@@ -12,7 +12,7 @@ use crate::stylesheet::CssValue;
 
 /// List of elements that are built-in data types in the CSS specification. These will be handled
 /// by the syntax matcher as built-in types.
-const BUILTIN_DATA_TYPES: [&str; 43] = [
+const BUILTIN_DATA_TYPES: [&str; 49] = [
     "absolute-size",
     "age",
     "angle",
@@ -56,6 +56,12 @@ const BUILTIN_DATA_TYPES: [&str; 43] = [
     "element()", //TODO: this is not a builtin!
     "dynamic-range-limit-mix()",
     "palette-mix()",
+    "declaration-value",
+    "number-token",
+    "autospace",
+    "dimension",
+    "resolution",
+    "url",
 ];
 
 /// A CSS property definition including its type and initial value and optional expanded values if it's a shorthand property
@@ -454,7 +460,11 @@ fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) 
 
     let entries = json.as_array().unwrap();
     for entry in entries {
-        match CssSyntax::new(entry.get("syntax").unwrap().as_str().unwrap()).compile() {
+        let syntax_str = entry.get("syntax").unwrap().as_str().unwrap();
+        if syntax_str.is_empty() {
+            continue;
+        }
+        match CssSyntax::new(syntax_str).compile() {
             Ok(ast) => {
                 let mut name = entry.get("name").unwrap().to_string();
                 let mut ty = SyntaxType::None;
@@ -605,7 +615,7 @@ mod tests {
             .with_level(log::LevelFilter::Warn)
             .init()
             .unwrap();
-        assert_eq!(CSS_DEFINITIONS.len(), 656);
+        assert_eq!(CSS_DEFINITIONS.len(), 664);
     }
 
     #[test]
