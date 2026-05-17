@@ -197,13 +197,16 @@ impl BrowsingContext {
 /// The function is a no-op when the `pipeline` Cargo feature is not enabled.
 #[cfg(feature = "pipeline")]
 fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut RenderList) {
+    use gosub_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
     use gosub_pipeline::common::document::style::{StyleProperty, StyleValue};
-    use gosub_pipeline::common::geo::Dimension as PipelineDimension;
+    use gosub_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
     use gosub_pipeline::layering::layer::LayerList;
     use gosub_pipeline::layouter::taffy::TaffyLayouter;
     use gosub_pipeline::layouter::{CanLayout, ElementContext};
+    use gosub_pipeline::painter::Painter;
     use gosub_pipeline::rendertree_builder::RenderTree;
+    use gosub_pipeline::tiler::{TileList, TileState};
 
     rl.items.push(DisplayItem::Clear {
         color: Color::new(1.0, 1.0, 1.0, 1.0),
@@ -223,16 +226,49 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
     let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
     let layer_list = LayerList::new(layout_tree);
 
-    let root_id = layer_list.layout_tree.root_id;
+    // Stage 4: tiling
+    let mut tile_list = TileList::new(layer_list, PipelineDimension::new(256.0, 256.0));
+    tile_list.generate();
+
+    // Stage 5: painting — populate paint_commands on each dirty tile element
+    let vp_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, viewport.height as f64);
+    let layer_ids = tile_list.layer_list.layer_ids.read().clone();
+    let paint_state = BrowserState {
+        visible_layer_list: vec![true; layer_ids.len()],
+        wireframed: WireframeState::None,
+        debug_hover: false,
+        current_hovered_element: None,
+        show_tilegrid: false,
+        viewport: vp_rect,
+        tile_list: None,
+        dpi_scale_factor: 1.0,
+    };
+    let painter = Painter::new(tile_list.layer_list.clone());
+    for &layer_id in &layer_ids {
+        let tile_ids = tile_list.get_intersecting_tiles(layer_id, vp_rect);
+        for tile_id in tile_ids {
+            if let Some(tile) = tile_list.get_tile_mut(tile_id) {
+                if tile.state == TileState::Dirty {
+                    for tiled_element in &mut tile.elements {
+                        tiled_element.paint_commands = painter.paint(tiled_element, &paint_state);
+                    }
+                }
+            }
+        }
+    }
+
+    // Shortcut: walk layout tree and emit DisplayItems directly (stages 6-7 replace this later)
+    let root_id = tile_list.layer_list.layout_tree.root_id;
     let mut stack = vec![root_id];
     while let Some(id) = stack.pop() {
-        let Some(el) = layer_list.layout_tree.get_node_by_id(id) else {
+        let Some(el) = tile_list.layer_list.layout_tree.get_node_by_id(id) else {
             continue;
         };
 
         match &el.context {
             ElementContext::None => {
-                let bg = layer_list
+                let bg = tile_list
+                    .layer_list
                     .layout_tree
                     .render_tree
                     .doc
