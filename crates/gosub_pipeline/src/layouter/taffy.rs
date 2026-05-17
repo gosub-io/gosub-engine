@@ -258,12 +258,12 @@ impl TaffyLayouter {
             flex_wrap: FlexWrap::Wrap,
             align_self: Some(AlignSelf::FlexStart),
             gap: Size {
-                width: LengthPercentage::Length(0.0),
-                height: LengthPercentage::Length(0.0),
+                width: LengthPercentage::length(0.0),
+                height: LengthPercentage::length(0.0),
             },
             size: Size {
-                width: Dimension::Auto,
-                height: Dimension::Auto,
+                width: Dimension::auto(),
+                height: Dimension::auto(),
             },
             ..Default::default()
         }) else {

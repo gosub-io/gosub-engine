@@ -15,7 +15,7 @@ required-features = ["backend_vello", "text_parley"]
 
 
 [dependencies]
-taffy = "0.7.5"
+taffy = { version = "0.9", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size", "calc"] }
 log = "0.4.29"
 colog = "1.3.0"
 image = "0.25.10"

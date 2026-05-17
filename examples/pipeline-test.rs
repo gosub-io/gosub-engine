@@ -90,7 +90,7 @@ async fn run_server(listener: TcpListener, stop: CancellationToken) {
 // ── Decision handler ─────────────────────────────────────────────────────────
 
 async fn decide(tab: TabHandle, nav_id: NavigationId, _meta: FetchResultMeta, token: DecisionToken) {
-    let action = Action::Render; // render everything for testing purposes
+    let action = Action::Render;
 
     let _ = tab
         .cmd_tx
