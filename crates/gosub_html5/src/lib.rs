@@ -16,6 +16,12 @@ pub mod tokenizer;
 pub mod writer;
 
 /// Parses the given HTML string and returns a handle to the resulting DOM tree.
+///
+/// TODO: make the parser incremental / push-driven so callers can feed chunks as they
+/// arrive from the network instead of requiring the full document upfront. This would
+/// allow the engine to start building the DOM and dispatching sub-resource fetches
+/// (images, stylesheets) before the HTML response has finished downloading.
+/// See: gosub_engine async fetch/parse pipeline plan (async-resource-pipeline branch).
 #[must_use]
 pub fn html_compile<C: HasDocument>(html: &str) -> C::Document {
     let mut stream = ByteStream::from_str(html, Encoding::UTF8);

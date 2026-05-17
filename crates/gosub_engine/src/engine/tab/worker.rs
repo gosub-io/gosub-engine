@@ -282,8 +282,7 @@ impl TabWorker {
     fn handle_internal_command(&mut self, cmd: TabInternalCommand) {
         match cmd {
             TabInternalCommand::SetDocument { doc } => {
-                self.sink.set_source_html(doc.raw_html.clone());
-                self.context.set_document(doc);
+                self.context.set_document(Arc::clone(&doc));
                 self.runtime.dirty = true;
             }
         }
@@ -523,10 +522,13 @@ impl TabWorker {
                         .await
                         .ok();
 
+                    use gosub_interface::document::Document as _;
+                    let final_url = doc.url().unwrap_or_else(|| Url::parse("about:blank").unwrap());
+                    let title = crate::html::document_title(&doc);
                     let _ = tx_done.send(NavigationResult::Ok {
                         nav_id,
-                        final_url: doc.final_url.clone(),
-                        title: doc.title.clone(),
+                        final_url,
+                        title,
                     });
                 }
                 Ok(RoutedOutcome::ViewerRendered(_doc)) => {

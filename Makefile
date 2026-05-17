@@ -4,7 +4,7 @@ SHELL=/usr/bin/env bash -O globstar
 
 all: help
 
-test: test-unit test-clippy test-fmt test-smoke test-check ## Run all checks (unit + clippy + fmt + smoke + check)
+test: test-fmt test-clippy test-smoke test-unit test-check ## Run all checks (fmt + clippy + smoke + unit + check)
 
 bench: ## Benchmark the project
 	cargo bench
@@ -53,7 +53,8 @@ test-smoke: ## CLI smoke tests
 		cargo run --bin parser-test >/dev/null && \
 		cargo run --bin config-store list >/dev/null && \
 		cargo run --bin gosub-parser file://tests/data/tree_iterator/stackoverflow.html >/dev/null && \
-		cargo run --example html5-parser >/dev/null \
+		cargo run --example html5-parser >/dev/null && \
+		cargo run --example pipeline-test \
 	'
 
 help: ## Display available commands
