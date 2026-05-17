@@ -5,6 +5,7 @@ use vello::kurbo::Affine;
 use vello::peniko::Blob;
 use vello::Scene;
 
+#[allow(dead_code)]
 pub fn do_paint_text(scene: &mut Scene, cmd: &Text, tile_size: Dimension, affine: Affine) -> Result<(), anyhow::Error> {
     let paragraph = get_skia_paragraph(cmd.text.as_str(), &cmd.font_info, cmd.rect.width, None, 1.00);
 

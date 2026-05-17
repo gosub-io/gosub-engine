@@ -1,8 +1,15 @@
 use std::io;
 
+use crate::html::{EngineDocument, HtmlEngineConfig};
 use crate::net::types::{Priority, ResourceKind};
 use crate::net::RequestDestination;
 use cow_utils::CowUtils;
+use gosub_css3::system::Css3System;
+use gosub_html5::document::builder::DocumentBuilderImpl;
+use gosub_html5::parser::Html5Parser;
+use gosub_interface::css3::CssSystem as _;
+use gosub_interface::document::Document as _;
+use gosub_shared::byte_stream::{ByteStream, Encoding};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -84,37 +91,36 @@ impl Default for DummyHtml5Config {
     }
 }
 
-/// Main entry point: read stream, synthesize a doc, and report discovered sub resources.
+/// Main entry point: buffer the HTML stream, parse it into a real DOM document,
+/// and report discovered sub-resources.
 ///
-/// - `base_url`: used to resolve relative URLs.
-/// - `reader`: the response body stream (already after UA has chosen Render).
+/// - `base_url`: used to resolve relative URLs and as the document URL.
+/// - `reader`: the response body stream (after the UA has chosen Render).
 /// - `cancel`: cancellation token (tab/nav cancellation).
-/// - `on_discover`: callback invoked for each resource we find (enqueue fetch from here).
+/// - `cfg`: buffer limit config.
+/// - `on_discover`: callback invoked for each sub-resource hint found.
 pub async fn parse_main_document_stream<R, F>(
     base_url: Url,
     mut reader: R,
     cancel: CancellationToken,
     cfg: DummyHtml5Config,
     mut on_discover: F,
-) -> Result<DummyDocument, DocumentError>
+) -> Result<EngineDocument, DocumentError>
 where
     R: AsyncRead + Unpin + Send + 'static,
     F: FnMut(ResourceHint) + Send,
 {
-    // Read the stream into a bounded buffer; bail if cancelled.
+    // Buffer the full stream (up to cfg.max_bytes); bail on cancellation.
     let mut buf = Vec::with_capacity(32 * 1024);
     let mut tmp = [0u8; 16 * 1024];
 
     loop {
-        // Check cancellation before each read.
         if cancel.is_cancelled() {
             return Err(DocumentError::Cancelled);
         }
 
-        // Read a chunk
         let n = reader.read(&mut tmp).await?;
         if n == 0 {
-            // Eof encountered
             break;
         }
 
@@ -137,22 +143,22 @@ where
         }
     }
 
-    // Best-effort UTF-8 for discovery and title extraction.
     let html = String::from_utf8_lossy(&buf).into_owned();
 
-    // Discover resources (css/js/img) and fire callbacks.
+    // Fire sub-resource callbacks using the fast regex-based scanner so that
+    // image/CSS/script fetches are submitted before the full parse completes.
     for hint in discover_resources(&html, &base_url) {
         on_discover(hint);
     }
 
-    // Synthesize a document (optionally extract <title>…</title>).
-    let title = discover_title(&html);
+    // Parse into a real DOM document with the correct URL, then attach the UA stylesheet.
+    let mut stream = ByteStream::from_str(&html, Encoding::UTF8);
+    let mut doc = DocumentBuilderImpl::new_document::<HtmlEngineConfig>(Some(base_url));
+    let _ = Html5Parser::<HtmlEngineConfig>::parse_document(&mut stream, &mut doc, None);
+    let ua = Css3System::load_default_useragent_stylesheet();
+    doc.add_stylesheet(ua);
 
-    Ok(DummyDocument {
-        final_url: base_url,
-        title,
-        raw_html: html,
-    })
+    Ok(doc)
 }
 
 // ======== Forgiving resource discovery (regex-based) ========
@@ -299,7 +305,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let mut hints = Vec::new();
 
-        let doc = parse_main_document_stream(
+        parse_main_document_stream(
             base.clone(),
             reader_from_str(html),
             cancel,
@@ -308,9 +314,6 @@ mod tests {
         )
         .await
         .unwrap();
-
-        assert_eq!(doc.title.as_deref(), Some("Hello World"));
-        assert!(doc.raw_html.contains("Hello World"));
 
         // Ensure we discovered 3 resources with resolved URLs
         assert_eq!(hints.len(), 3);
@@ -351,17 +354,10 @@ mod tests {
         let big = "A".repeat(150_000); // 150 KiB
         let cfg = DummyHtml5Config { max_bytes: 64 * 1024 }; // 64 KiB
 
-        let doc = parse_main_document_stream(
-            base,
-            reader_from_str(&big),
-            CancellationToken::new(),
-            cfg.clone(),
-            |_h| {},
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(doc.raw_html.len(), cfg.max_bytes);
+        // Just verify truncated input still produces a valid document (no panic).
+        parse_main_document_stream(base, reader_from_str(&big), CancellationToken::new(), cfg, |_h| {})
+            .await
+            .unwrap();
     }
 
     #[test]

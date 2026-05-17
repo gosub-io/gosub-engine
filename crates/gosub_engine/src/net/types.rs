@@ -3,7 +3,7 @@ pub use gosub_net::net::types::{
     ResourceKind,
 };
 
-use crate::html::DummyDocument;
+use crate::html::EngineDocument;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -12,7 +12,7 @@ use std::sync::Arc;
 pub enum ObsoleteNavigationResult {
     Document {
         meta: FetchResultMeta,
-        doc: DummyDocument,
+        doc: Arc<EngineDocument>,
     },
     DownloadStarted {
         meta: FetchResultMeta,

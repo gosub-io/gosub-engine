@@ -53,7 +53,7 @@ gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
 url = "2"
 
 [features]
-default = []
+default = ["text_parley"]
 text_pango = ["dep:pangocairo", "dep:gtk4"]
 text_parley = ["dep:parley"]
 text_skia = ["dep:skia-safe"]

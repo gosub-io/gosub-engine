@@ -35,7 +35,7 @@
 //!   navigation cancellations or network errors.
 
 use crate::engine::storage::{StorageArea, StorageHandles};
-use crate::html::DummyDocument;
+use crate::html::EngineDocument;
 use crate::render::{Color, DisplayItem, RenderList, Viewport};
 use std::sync::Arc;
 use url::Url;
@@ -57,8 +57,8 @@ pub struct BrowsingContext {
     // dirty: DirtyFlags,
     /// Current URL being processed
     current_url: Option<Url>,
-    /// "DOM" Document
-    document: Option<Arc<DummyDocument>>,
+    /// Parsed DOM document
+    document: Option<Arc<EngineDocument>>,
     /// True when the tab has failed loading (mostly net issues)
     failed: bool,
 
@@ -113,9 +113,9 @@ impl BrowsingContext {
         self.storage.as_ref().map(|s| s.session.clone())
     }
 
-    /// Sets the raw HTML for the given tab
-    pub fn set_document(&mut self, doc: Arc<DummyDocument>) {
-        self.document = Some(doc.clone());
+    /// Sets the parsed DOM document for the given tab.
+    pub fn set_document(&mut self, doc: Arc<EngineDocument>) {
+        self.document = Some(doc);
         self.dom_dirty = true; // Mark the DOM as dirty, so it will be rendered
         self.style_dirty = true;
         self.layout_dirty = true;
@@ -153,28 +153,11 @@ impl BrowsingContext {
 
         let mut rl = RenderList::default();
 
-        // Example scene: clear + show raw HTML as text
         rl.items.push(DisplayItem::Clear {
             color: Color::new(0.6, 0.6, 0.6, 1.0),
         });
 
-        // Text color: black
-        let c = Color::new(0.0, 0.0, 0.0, 1.0);
-        let font_size = 16.0;
-        let mut y = 0.0;
-        if let Some(doc) = self.document.as_ref() {
-            for line in doc.raw_html.lines() {
-                rl.items.push(DisplayItem::TextRun {
-                    x: 0.0,
-                    y,
-                    text: line.to_string(),
-                    size: font_size,
-                    color: c,
-                    max_width: Some(self.viewport.width as f32),
-                });
-                y += font_size;
-            }
-        }
+        // TODO(#946): drive render list from pipeline (RenderTree → layout → DisplayItems)
 
         self.render_list = rl;
         self.render_dirty = false;
