@@ -81,6 +81,24 @@ impl RenderBackend for CairoBackend {
                         cr.move_to(*x as f64, *y as f64);
                         _ = cr.show_text(text);
                     }
+                    DisplayItem::Blit { x, y, w, h, data } => {
+                        let stride = (*w * 4) as i32;
+                        if let Ok(img_surface) = cairo::ImageSurface::create_for_data(
+                            data.clone(),
+                            cairo::Format::ARgb32,
+                            *w as i32,
+                            *h as i32,
+                            stride,
+                        ) {
+                            let pattern = cairo::SurfacePattern::create(&img_surface);
+                            let mut matrix = cairo::Matrix::identity();
+                            matrix.translate(-(*x as f64) + offset_x, -(*y as f64) + offset_y);
+                            pattern.set_matrix(matrix);
+                            cr.set_source(&pattern).unwrap_or(());
+                            cr.rectangle(*x as f64, *y as f64, *w as f64, *h as f64);
+                            _ = cr.fill();
+                        }
+                    }
                 }
             }
 

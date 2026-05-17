@@ -135,6 +135,9 @@ impl EngineRenderBackend for VelloEngineBackend {
                     // Will be addressed when the pipeline provides richer paint commands.
                     log::warn!("VelloEngineBackend: TextRun not yet implemented in new backend path");
                 }
+                DisplayItem::Blit { .. } => {
+                    // Vello engine backend doesn't handle pipeline blit tiles yet.
+                }
             }
         }
 

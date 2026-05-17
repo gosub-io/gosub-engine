@@ -127,6 +127,7 @@ impl Color {
 /// - [`DisplayItem::Clear`] — clear the entire surface to a color.
 /// - [`DisplayItem::Rect`] — draw a solid rectangle.
 /// - [`DisplayItem::TextRun`] — draw a run of text at a position.
+/// - [`DisplayItem::Blit`] — blit a rasterized tile (raw ARgb32 pixels).
 #[derive(Clone, Debug)]
 pub enum DisplayItem {
     /// Clear the entire surface with the given color.
@@ -163,6 +164,21 @@ pub enum DisplayItem {
         color: Color,
         /// Optional maximum width for text wrapping (in pixels).
         max_width: Option<f32>,
+    },
+
+    /// Blit a rasterized tile at `(x, y)`. Pixels are premultiplied ARgb32;
+    /// stride = `w * 4` bytes. Produced by the pipeline rasterizer.
+    Blit {
+        /// Top-left x position in page coordinates.
+        x: f32,
+        /// Top-left y position in page coordinates.
+        y: f32,
+        /// Tile width in pixels.
+        w: u32,
+        /// Tile height in pixels.
+        h: u32,
+        /// Raw ARgb32 pixel data (length = `h * w * 4`).
+        data: Vec<u8>,
     },
 }
 

@@ -199,11 +199,10 @@ impl BrowsingContext {
 fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut RenderList) {
     use gosub_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
-    use gosub_pipeline::common::document::style::{StyleProperty, StyleValue};
     use gosub_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
     use gosub_pipeline::layering::layer::LayerList;
     use gosub_pipeline::layouter::taffy::TaffyLayouter;
-    use gosub_pipeline::layouter::{CanLayout, ElementContext};
+    use gosub_pipeline::layouter::CanLayout;
     use gosub_pipeline::painter::Painter;
     use gosub_pipeline::rendertree_builder::RenderTree;
     use gosub_pipeline::tiler::{TileList, TileState};
@@ -259,7 +258,7 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
 
     // Stage 6: rasterize — convert paint_commands into pixel textures
     #[cfg(feature = "backend_cairo")]
-    let _texture_store = {
+    let texture_store = {
         use gosub_pipeline::common::media::MediaStore;
         use gosub_pipeline::common::texture_store::TextureStore;
         use gosub_pipeline::rasterizer::cairo::CairoRasterizer;
@@ -289,58 +288,80 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
         texture_store
     };
 
-    // Shortcut: walk layout tree and emit DisplayItems directly (stages 6-7 replace this later)
-    let root_id = tile_list.layer_list.layout_tree.root_id;
-    let mut stack = vec![root_id];
-    while let Some(id) = stack.pop() {
-        let Some(el) = tile_list.layer_list.layout_tree.get_node_by_id(id) else {
-            continue;
-        };
+    // Stage 7: compositing — emit one Blit item per clean tile for the Cairo backend
+    #[cfg(feature = "backend_cairo")]
+    for tile in tile_list.arena.values() {
+        if let (Some(texture_id), true) = (tile.texture_id, tile.state == TileState::Clean) {
+            if let Some(tex) = texture_store.get(texture_id) {
+                rl.items.push(DisplayItem::Blit {
+                    x: tile.rect.x as f32,
+                    y: tile.rect.y as f32,
+                    w: tex.width as u32,
+                    h: tex.height as u32,
+                    data: tex.data.clone(),
+                });
+            }
+        }
+    }
 
-        match &el.context {
-            ElementContext::None => {
-                let bg = tile_list
-                    .layer_list
-                    .layout_tree
-                    .render_tree
-                    .doc
-                    .get_style(el.dom_node_id, StyleProperty::BackgroundColor);
-                if let Some(StyleValue::Color(c)) = bg {
-                    let bb = &el.box_model.border_box;
-                    if bb.width > 0.0 && bb.height > 0.0 {
-                        rl.items.push(DisplayItem::Rect {
+    // Shortcut: walk layout tree for non-cairo backends (replaced by Blit path above for cairo)
+    #[cfg(not(feature = "backend_cairo"))]
+    {
+        use gosub_pipeline::common::document::style::{StyleProperty, StyleValue};
+        use gosub_pipeline::layouter::ElementContext;
+
+        let root_id = tile_list.layer_list.layout_tree.root_id;
+        let mut stack = vec![root_id];
+        while let Some(id) = stack.pop() {
+            let Some(el) = tile_list.layer_list.layout_tree.get_node_by_id(id) else {
+                continue;
+            };
+
+            match &el.context {
+                ElementContext::None => {
+                    let bg = tile_list
+                        .layer_list
+                        .layout_tree
+                        .render_tree
+                        .doc
+                        .get_style(el.dom_node_id, StyleProperty::BackgroundColor);
+                    if let Some(StyleValue::Color(c)) = bg {
+                        let bb = &el.box_model.border_box;
+                        if bb.width > 0.0 && bb.height > 0.0 {
+                            rl.items.push(DisplayItem::Rect {
+                                x: bb.x as f32,
+                                y: bb.y as f32,
+                                w: bb.width as f32,
+                                h: bb.height as f32,
+                                color: pipeline_color_to_engine(&c),
+                            });
+                        }
+                    }
+                }
+                ElementContext::Text(ctx) => {
+                    if !ctx.text.trim().is_empty() {
+                        let bb = &el.box_model.content_box;
+                        rl.items.push(DisplayItem::TextRun {
                             x: bb.x as f32,
-                            y: bb.y as f32,
-                            w: bb.width as f32,
-                            h: bb.height as f32,
-                            color: pipeline_color_to_engine(&c),
+                            y: (bb.y + ctx.text_offset.y) as f32,
+                            text: ctx.text.clone(),
+                            size: ctx.font_info.size as f32,
+                            color: Color::new(0.0, 0.0, 0.0, 1.0),
+                            max_width: if bb.width > 0.0 { Some(bb.width as f32) } else { None },
                         });
                     }
                 }
+                ElementContext::Image(_) | ElementContext::Svg(_) => {}
             }
-            ElementContext::Text(ctx) => {
-                if !ctx.text.trim().is_empty() {
-                    let bb = &el.box_model.content_box;
-                    rl.items.push(DisplayItem::TextRun {
-                        x: bb.x as f32,
-                        y: (bb.y + ctx.text_offset.y) as f32,
-                        text: ctx.text.clone(),
-                        size: ctx.font_info.size as f32,
-                        color: Color::new(0.0, 0.0, 0.0, 1.0),
-                        max_width: if bb.width > 0.0 { Some(bb.width as f32) } else { None },
-                    });
-                }
-            }
-            ElementContext::Image(_) | ElementContext::Svg(_) => {}
-        }
 
-        for &child_id in el.children.iter().rev() {
-            stack.push(child_id);
+            for &child_id in el.children.iter().rev() {
+                stack.push(child_id);
+            }
         }
     }
 }
 
-#[cfg(feature = "pipeline")]
+#[cfg(all(feature = "pipeline", not(feature = "backend_cairo")))]
 fn pipeline_color_to_engine(c: &gosub_pipeline::common::document::style::Color) -> Color {
     use gosub_pipeline::common::document::style::Color as SC;
     match c {

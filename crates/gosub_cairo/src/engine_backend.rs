@@ -116,6 +116,9 @@ impl EngineRenderBackend for CairoBackend {
                         cr.move_to(*x as f64, *y as f64);
                         let _ = cr.show_text(text);
                     }
+                    DisplayItem::Blit { .. } => {
+                        // Old cairo backend doesn't handle pipeline blit tiles.
+                    }
                 }
             }
 
