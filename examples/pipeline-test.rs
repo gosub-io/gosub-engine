@@ -89,19 +89,8 @@ async fn run_server(listener: TcpListener, stop: CancellationToken) {
 
 // ── Decision handler ─────────────────────────────────────────────────────────
 
-async fn decide(tab: TabHandle, nav_id: NavigationId, meta: FetchResultMeta, token: DecisionToken) {
-    let ct = meta
-        .headers
-        .get(http::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-
-    let action = if ct.starts_with("text/html") || ct.starts_with("text/") {
-        Action::Render
-    } else {
-        Action::Render // render everything for testing purposes
-    };
+async fn decide(tab: TabHandle, nav_id: NavigationId, _meta: FetchResultMeta, token: DecisionToken) {
+    let action = Action::Render; // render everything for testing purposes
 
     let _ = tab
         .cmd_tx
