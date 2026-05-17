@@ -8,6 +8,7 @@ use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType as GosubNodeType;
 use gosub_shared::node::NodeId;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineNodeKind {
@@ -124,20 +125,20 @@ pub struct GosubDocumentAdapter<C>
 where
     C: HasDocument,
 {
-    pub doc: C::Document,
+    pub doc: Arc<C::Document>,
 }
 
 impl<C> GosubDocumentAdapter<C>
 where
     C: HasDocument,
 {
-    pub fn new(doc: C::Document) -> Self {
+    pub fn new(doc: Arc<C::Document>) -> Self {
         Self { doc }
     }
 
     fn compute_styles(&self, id: NodeId) -> StylePropertyList {
         let sheets = self.doc.stylesheets();
-        let Some(mut prop_map) = C::CssSystem::properties_from_node::<C>(&self.doc, id, sheets) else {
+        let Some(mut prop_map) = C::CssSystem::properties_from_node::<C>(&*self.doc, id, sheets) else {
             return StylePropertyList::new();
         };
         // Properties are lazily computed; trigger computation before reading values.

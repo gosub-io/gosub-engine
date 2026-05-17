@@ -10,9 +10,7 @@ use std::ops::AddAssign;
 use std::sync::Arc;
 
 mod box_model;
-#[cfg(any(feature = "backend_cairo", feature = "backend_vello"))]
 mod css_taffy_converter;
-#[cfg(any(feature = "backend_cairo", feature = "backend_vello"))]
 pub mod taffy;
 pub mod text;
 

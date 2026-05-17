@@ -39,6 +39,9 @@ use crate::html::EngineDocument;
 use crate::render::{Color, DisplayItem, RenderList, Viewport};
 use std::sync::Arc;
 use url::Url;
+
+#[cfg(feature = "pipeline")]
+use crate::html::HtmlEngineConfig;
 // #[derive(Debug, thiserror::Error)]
 // pub enum LoadError {
 //     #[error("navigation cancelled")]
@@ -145,7 +148,6 @@ impl BrowsingContext {
     }
 
     /// Build/refresh the device-agnostic scene if needed.
-    /// For now, this renders raw_html as text lines; later, it consumes DOM/layout.
     pub fn rebuild_render_list_if_needed(&mut self) {
         if !self.render_dirty {
             return;
@@ -153,11 +155,15 @@ impl BrowsingContext {
 
         let mut rl = RenderList::default();
 
+        #[cfg(feature = "pipeline")]
+        if let Some(doc) = &self.document {
+            pipeline_render(doc.clone(), &self.viewport, &mut rl);
+        }
+
+        #[cfg(not(feature = "pipeline"))]
         rl.items.push(DisplayItem::Clear {
             color: Color::new(0.6, 0.6, 0.6, 1.0),
         });
-
-        // TODO(#946): drive render list from pipeline (RenderTree → layout → DisplayItems)
 
         self.render_list = rl;
         self.render_dirty = false;
@@ -182,5 +188,101 @@ impl BrowsingContext {
     /// Returns the current loaded the tab (or None when nothing has loaded yet)
     pub fn current_url(&self) -> Option<&Url> {
         self.current_url.as_ref()
+    }
+}
+
+/// Runs the full gosub_pipeline (rendertree → layout) and fills `rl` with
+/// backend-agnostic [`DisplayItem`]s derived from the computed layout.
+///
+/// The function is a no-op when the `pipeline` Cargo feature is not enabled.
+#[cfg(feature = "pipeline")]
+fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut RenderList) {
+    use gosub_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
+    use gosub_pipeline::common::document::style::{StyleProperty, StyleValue};
+    use gosub_pipeline::common::geo::Dimension as PipelineDimension;
+    use gosub_pipeline::layouter::taffy::TaffyLayouter;
+    use gosub_pipeline::layouter::{CanLayout, ElementContext};
+    use gosub_pipeline::rendertree_builder::RenderTree;
+
+    rl.items.push(DisplayItem::Clear {
+        color: Color::new(1.0, 1.0, 1.0, 1.0),
+    });
+
+    let adapter = GosubDocumentAdapter::<HtmlEngineConfig>::new(doc);
+    let mut render_tree = RenderTree::new(Arc::new(adapter));
+    render_tree.parse();
+
+    let vp_dim = if viewport.width > 0 && viewport.height > 0 {
+        Some(PipelineDimension::new(viewport.width as f64, viewport.height as f64))
+    } else {
+        None
+    };
+
+    let mut layouter = TaffyLayouter::new();
+    let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
+
+    let root_id = layout_tree.root_id;
+    let mut stack = vec![root_id];
+    while let Some(id) = stack.pop() {
+        let Some(el) = layout_tree.get_node_by_id(id) else {
+            continue;
+        };
+
+        match &el.context {
+            ElementContext::None => {
+                let bg = layout_tree
+                    .render_tree
+                    .doc
+                    .get_style(el.dom_node_id, StyleProperty::BackgroundColor);
+                if let Some(StyleValue::Color(c)) = bg {
+                    let bb = &el.box_model.border_box;
+                    if bb.width > 0.0 && bb.height > 0.0 {
+                        rl.items.push(DisplayItem::Rect {
+                            x: bb.x as f32,
+                            y: bb.y as f32,
+                            w: bb.width as f32,
+                            h: bb.height as f32,
+                            color: pipeline_color_to_engine(&c),
+                        });
+                    }
+                }
+            }
+            ElementContext::Text(ctx) => {
+                if !ctx.text.trim().is_empty() {
+                    let bb = &el.box_model.content_box;
+                    rl.items.push(DisplayItem::TextRun {
+                        x: bb.x as f32,
+                        y: (bb.y + ctx.text_offset.y) as f32,
+                        text: ctx.text.clone(),
+                        size: ctx.font_info.size as f32,
+                        color: Color::new(0.0, 0.0, 0.0, 1.0),
+                        max_width: if bb.width > 0.0 { Some(bb.width as f32) } else { None },
+                    });
+                }
+            }
+            ElementContext::Image(_) | ElementContext::Svg(_) => {}
+        }
+
+        for &child_id in el.children.iter().rev() {
+            stack.push(child_id);
+        }
+    }
+}
+
+#[cfg(feature = "pipeline")]
+fn pipeline_color_to_engine(c: &gosub_pipeline::common::document::style::Color) -> Color {
+    use gosub_pipeline::common::document::style::Color as SC;
+    match c {
+        SC::Rgb(r, g, b) => Color::from_u8(*r, *g, *b, 255),
+        SC::Rgba(r, g, b, a) => Color::from_u8(*r, *g, *b, (*a * 255.0) as u8),
+        SC::Named(name) => match name.as_str() {
+            "white" => Color::new(1.0, 1.0, 1.0, 1.0),
+            "black" => Color::new(0.0, 0.0, 0.0, 1.0),
+            "red" => Color::new(1.0, 0.0, 0.0, 1.0),
+            "green" => Color::new(0.0, 0.5, 0.0, 1.0),
+            "blue" => Color::new(0.0, 0.0, 1.0, 1.0),
+            "transparent" => Color::new(0.0, 0.0, 0.0, 0.0),
+            _ => Color::new(0.0, 0.0, 0.0, 0.0),
+        },
     }
 }

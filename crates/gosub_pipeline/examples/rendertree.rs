@@ -64,7 +64,7 @@ fn main() {
     eprintln!("  {} stylesheet(s) loaded", doc.stylesheets().len());
 
     eprintln!("Building render tree…");
-    let adapter = GosubDocumentAdapter::<Config>::new(doc);
+    let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
     let mut rt = RenderTree::new(Arc::new(adapter));
     rt.parse();
 
