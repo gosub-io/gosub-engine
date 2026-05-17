@@ -257,6 +257,38 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
         }
     }
 
+    // Stage 6: rasterize — convert paint_commands into pixel textures
+    #[cfg(feature = "backend_cairo")]
+    let _texture_store = {
+        use gosub_pipeline::common::media::MediaStore;
+        use gosub_pipeline::common::texture_store::TextureStore;
+        use gosub_pipeline::rasterizer::cairo::CairoRasterizer;
+        use gosub_pipeline::rasterizer::Rasterable;
+
+        let media_store = MediaStore::new();
+        let mut texture_store = TextureStore::new();
+        let rasterizer = CairoRasterizer::new();
+        for &layer_id in &layer_ids {
+            let tile_ids = tile_list.get_intersecting_tiles(layer_id, vp_rect);
+            for tile_id in tile_ids {
+                if let Some(tile) = tile_list.get_tile_mut(tile_id) {
+                    if tile.state == TileState::Dirty {
+                        match rasterizer.rasterize(tile, &mut texture_store, &media_store) {
+                            Some(texture_id) => {
+                                tile.texture_id = Some(texture_id);
+                                tile.state = TileState::Clean;
+                            }
+                            None => {
+                                tile.state = TileState::Empty;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        texture_store
+    };
+
     // Shortcut: walk layout tree and emit DisplayItems directly (stages 6-7 replace this later)
     let root_id = tile_list.layer_list.layout_tree.root_id;
     let mut stack = vec![root_id];
