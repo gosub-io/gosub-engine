@@ -200,6 +200,7 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
     use gosub_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
     use gosub_pipeline::common::document::style::{StyleProperty, StyleValue};
     use gosub_pipeline::common::geo::Dimension as PipelineDimension;
+    use gosub_pipeline::layering::layer::LayerList;
     use gosub_pipeline::layouter::taffy::TaffyLayouter;
     use gosub_pipeline::layouter::{CanLayout, ElementContext};
     use gosub_pipeline::rendertree_builder::RenderTree;
@@ -220,17 +221,19 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
 
     let mut layouter = TaffyLayouter::new();
     let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
+    let layer_list = LayerList::new(layout_tree);
 
-    let root_id = layout_tree.root_id;
+    let root_id = layer_list.layout_tree.root_id;
     let mut stack = vec![root_id];
     while let Some(id) = stack.pop() {
-        let Some(el) = layout_tree.get_node_by_id(id) else {
+        let Some(el) = layer_list.layout_tree.get_node_by_id(id) else {
             continue;
         };
 
         match &el.context {
             ElementContext::None => {
-                let bg = layout_tree
+                let bg = layer_list
+                    .layout_tree
                     .render_tree
                     .doc
                     .get_style(el.dom_node_id, StyleProperty::BackgroundColor);
