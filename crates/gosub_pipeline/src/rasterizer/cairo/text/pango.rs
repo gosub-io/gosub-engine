@@ -1,4 +1,5 @@
 use crate::common::font::pango::{find_available_font, to_pango_weight};
+use crate::common::media::MediaStore;
 use crate::painter::commands::text::Text;
 use crate::rasterizer::cairo::brush::set_brush;
 use crate::tiler::Tile;
@@ -45,7 +46,8 @@ fn create_text_layout(cmd: &Text) -> Result<ImageSurface, Error> {
     layout.set_wrap(WrapMode::Word);
     layout.set_spacing(0);
 
-    set_brush(&cr, &cmd.brush, cmd.rect);
+    let media_store = MediaStore::new();
+    set_brush(&cr, &cmd.brush, cmd.rect, &media_store);
     cr.move_to(0.0, 0.0);
     pangocairo::functions::show_layout(&cr, &layout);
 

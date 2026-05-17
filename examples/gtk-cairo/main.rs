@@ -50,10 +50,7 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 });
 
 fn main() {
-    // // Initialize logging
-    // let mut builder = env_logger::Builder::new();
-    // builder.filter_level(log::LevelFilter::Trace).target(env_logger::Target::Stderr).init();
-    // log::set_max_level(log::LevelFilter::Trace);
+    simple_logger::init_with_env().unwrap_or_default();
 
     let initial_url: Option<String> = std::env::args().nth(1);
 

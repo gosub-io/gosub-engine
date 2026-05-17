@@ -83,13 +83,18 @@ impl RenderBackend for CairoBackend {
                     }
                     DisplayItem::Blit { x, y, w, h, data } => {
                         let stride = (*w * 4) as i32;
-                        if let Ok(img_surface) = cairo::ImageSurface::create_for_data(
-                            data.clone(),
-                            cairo::Format::ARgb32,
-                            *w as i32,
-                            *h as i32,
-                            stride,
-                        ) {
+                        // SAFETY: `data` is borrowed from the cached RenderList for the
+                        // duration of this closure; Cairo reads (never writes) source data.
+                        let img_surface = unsafe {
+                            cairo::ImageSurface::create_for_data_unsafe(
+                                data.as_ptr() as *mut u8,
+                                cairo::Format::ARgb32,
+                                *w as i32,
+                                *h as i32,
+                                stride,
+                            )
+                        };
+                        if let Ok(img_surface) = img_surface {
                             let pattern = cairo::SurfacePattern::create(&img_surface);
                             let mut matrix = cairo::Matrix::identity();
                             matrix.translate(-(*x as f64) + offset_x, -(*y as f64) + offset_y);

@@ -123,14 +123,8 @@ fn build_ui(
 
     let dim = {
         let state = browser_state.read();
-        state
-            .tile_list
-            .as_ref()
-            .unwrap()
-            .read()
-            .layer_list
-            .layout_tree
-            .root_dimension
+        let d = state.tile_list.as_ref().unwrap().read().layer_list.layout_tree.root_dimension;
+        d
     };
 
     let area = DrawingArea::new();
@@ -166,13 +160,8 @@ fn build_ui(
         motion_controller.connect_motion(move |_, x, y| {
             let el_id = {
                 let state = bs.read();
-                state
-                    .tile_list
-                    .as_ref()
-                    .unwrap()
-                    .read()
-                    .layer_list
-                    .find_element_at(x, y)
+                let id = state.tile_list.as_ref().unwrap().read().layer_list.find_element_at(x, y);
+                id
             };
             let che = bs.read().current_hovered_element;
 
