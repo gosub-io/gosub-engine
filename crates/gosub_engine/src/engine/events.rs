@@ -15,7 +15,7 @@
 use crate::config::LogLevel;
 use crate::cookies::Cookie;
 use crate::engine::types::{Action, NavigationId, RequestId};
-use crate::html::DummyDocument;
+use crate::html::EngineDocument;
 use crate::net::req_ref_tracker::RequestReference;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, Priority, ResourceKind};
 use crate::net::DecisionToken;
@@ -205,7 +205,7 @@ pub enum TabCommand {
 #[derive(Debug)]
 pub enum TabInternalCommand {
     // Sets a document
-    SetDocument { doc: Arc<DummyDocument> },
+    SetDocument { doc: Arc<EngineDocument> },
 }
 
 #[derive(Debug)]

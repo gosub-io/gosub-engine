@@ -4,7 +4,7 @@ use crate::engine::pipeline::js::DummyJsDocument;
 use crate::engine::pipeline::Hooks;
 use crate::engine::types::PeekBuf;
 use crate::engine::UaPolicy;
-use crate::html::DummyDocument;
+use crate::html::EngineDocument;
 use crate::net::decision::types::BlockReason;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
 use crate::net::{decide_handling, stream_to_bytes, HandlingDecision, RenderTarget, RequestDestination, SharedBody};
@@ -16,7 +16,7 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub enum RoutedOutcome {
     /// The main document has been parsed and is ready.
-    MainDocument(Arc<DummyDocument>),
+    MainDocument(Arc<EngineDocument>),
     /// The resource has been rendered in a viewer (text, image, pdf, etc.).
     ViewerRendered(Bytes),
     /// A download has been started (path to file).

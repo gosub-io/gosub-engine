@@ -1,5 +1,5 @@
 use crate::engine::types::{IoChannel, PeekBuf, RequestId};
-use crate::html::{parse_main_document_stream, DummyDocument, ResourceHint};
+use crate::html::{parse_main_document_stream, EngineDocument, ResourceHint};
 use crate::net::types::{FetchHandle, FetchKeyData, FetchRequest, FetchResultMeta, Initiator};
 use crate::net::{submit_to_io, SharedBody};
 use crate::zone::ZoneId;
@@ -23,7 +23,7 @@ pub trait HtmlPipeline {
         meta: FetchResultMeta,
         peek_buf: PeekBuf,
         body: Arc<SharedBody>,
-    ) -> anyhow::Result<DummyDocument>;
+    ) -> anyhow::Result<EngineDocument>;
 
     async fn parse_bytes(
         &mut self,
@@ -31,7 +31,7 @@ pub trait HtmlPipeline {
         handle: FetchHandle,
         meta: FetchResultMeta,
         body: &[u8],
-    ) -> anyhow::Result<DummyDocument>;
+    ) -> anyhow::Result<EngineDocument>;
 }
 
 pub struct HtmlPipelineImpl {
@@ -50,7 +50,7 @@ impl HtmlPipelineImpl {
         handle: FetchHandle,
         meta: FetchResultMeta,
         reader: R,
-    ) -> anyhow::Result<DummyDocument>
+    ) -> anyhow::Result<EngineDocument>
     where
         R: AsyncRead + Unpin + Send + 'static,
     {
@@ -153,7 +153,7 @@ impl HtmlPipeline for HtmlPipelineImpl {
         meta: FetchResultMeta,
         peek_buf: PeekBuf,
         shared: Arc<SharedBody>,
-    ) -> anyhow::Result<DummyDocument> {
+    ) -> anyhow::Result<EngineDocument> {
         let reader = SharedBody::combined_reader(peek_buf, shared);
         self.parse_with_reader(request, handle, meta, reader).await
     }
@@ -164,7 +164,7 @@ impl HtmlPipeline for HtmlPipelineImpl {
         handle: FetchHandle,
         meta: FetchResultMeta,
         body: &[u8],
-    ) -> anyhow::Result<DummyDocument> {
+    ) -> anyhow::Result<EngineDocument> {
         // parsing bytes is just creating a stream of those bytes and passing it to the stream reader
         let stream = stream::iter(vec![Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(body))]);
         let reader = StreamReader::new(stream);
@@ -287,8 +287,8 @@ mod tests {
         // Allow spawned tasks to submit to IO and be recorded
         sleep(Duration::from_millis(10)).await;
 
-        // Assert: title extracted
-        assert_eq!(doc.title.as_deref(), Some("Hello World"));
+        // Assert: title extracted from DOM
+        assert_eq!(crate::html::document_title(&doc).as_deref(), Some("Hello World"));
 
         // Assert: 3 subresources were submitted (stylesheet, script, image)
         let count = seen_children.lock().len();

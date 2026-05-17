@@ -11,8 +11,8 @@ pub(crate) fn do_paint_svg(cr: &Context, tile: &Tile, rect: &Rectangle, media_id
     let media = binding.get_svg(media_id);
 
     let target_dim = rect.rect().dimension();
-    let dest_x = rect.rect().x as f64 - tile.rect.x;
-    let dest_y = rect.rect().y as f64 - tile.rect.y;
+    let dest_x = rect.rect().x - tile.rect.x;
+    let dest_y = rect.rect().y - tile.rect.y;
 
     {
         let cached = media.svg.rendered.read();

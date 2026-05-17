@@ -9,6 +9,11 @@ crate-type = ["rlib"]
 
 [dependencies]
 gosub_net = { version = "0.1.1", path = "../gosub_net" }
+gosub_shared = { version = "0.1.1", path = "../gosub_shared" }
+gosub_html5 = { version = "0.1.1", path = "../gosub_html5" }
+gosub_css3 = { version = "0.1.2", path = "../gosub_css3" }
+gosub_interface = { version = "0.1.2", path = "../gosub_interface" }
+gosub_pipeline = { version = "0.1.0", path = "../gosub_pipeline", optional = true }
 uuid = { version = "1.17.0", features = ["v4", "serde"] }
 reqwest = { version = "0.13.3", features = ["json", "gzip", "brotli", "deflate", "cookies", "rustls", "stream"] }
 tokio = { version = "1.52", features = [
@@ -94,8 +99,8 @@ ui_eframe = ["dep:eframe", "dep:egui"]
 winit = ["dep:winit", "dep:wgpu"]
 gtk4 = ["dep:gtk4", "dep:cairo-rs"]
 sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
-backend_cairo = ["dep:gtk4", "dep:cairo-rs"]
-backend_vello = ["dep:vello", "dep:wgpu"]
+backend_cairo = ["dep:gtk4", "dep:cairo-rs", "dep:gosub_pipeline", "gosub_pipeline?/backend_cairo"]
+backend_vello = ["dep:vello", "dep:wgpu", "dep:gosub_pipeline", "gosub_pipeline?/backend_vello"]
 backend_skia = ["dep:skia-safe"]
 parley_layout = []
 
