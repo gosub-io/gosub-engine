@@ -168,7 +168,6 @@ impl CanLayout for TaffyLayouter {
             layout_tree.root_dimension = geo::Dimension::new(w as f64, h as f64);
         }
 
-        self.tree.print_tree(self.root_id);
         layout_tree
     }
 }

@@ -163,7 +163,9 @@ where
     C::Document: Send + Sync,
 {
     fn root(&self) -> Option<NodeId> {
-        Some(self.doc.root())
+        // gosub's document root is a synthetic DocumentNode with no layout meaning.
+        // Start from the <html> element so the render tree has a real element as its root.
+        self.html_node_id().or_else(|| Some(self.doc.root()))
     }
 
     fn children(&self, id: NodeId) -> Vec<NodeId> {
@@ -348,7 +350,7 @@ fn build_style_property_list<S: CssSystem>(prop_map: &S::PropertyMap) -> StylePr
     ];
     for (css_name, prop) in color_props {
         if let Some(p) = prop_map.get(css_name) {
-            if let Some((r, g, b, a)) = p.as_color() {
+            if let Some((r, g, b, a)) = p.parse_color() {
                 list.set_property(
                     prop.clone(),
                     StyleValue::Color(Color::Rgba(r as u8, g as u8, b as u8, a / 255.0)),
