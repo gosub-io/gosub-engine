@@ -3246,6 +3246,7 @@ dependencies = [
  "slotmap",
  "test-case",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-log",
  "tracing-subscriber",
