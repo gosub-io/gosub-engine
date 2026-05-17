@@ -33,6 +33,7 @@ pub enum NavigationResult {
         nav_id: NavigationId,
         final_url: Url,
         title: Option<String>,
+        doc: Arc<crate::html::EngineDocument>,
     },
     Err {
         nav_id: NavigationId,
@@ -119,7 +120,8 @@ pub struct TabWorker {
     /// Current active navigation (if any)
     active_nav: Option<ActiveNav>,
 
-    // Send channel for internal commands
+    // Send channel for internal commands (reserved for future worker-internal use)
+    #[allow(dead_code)]
     internal_tx: mpsc::Sender<TabInternalCommand>,
     // Receive channel for internal commands
     internal_rx: mpsc::Receiver<TabInternalCommand>,
@@ -186,7 +188,19 @@ impl TabWorker {
             zone_id: self.zone_id,
         });
 
+        // Store the nav-result receiver OUTSIDE the select! loop so it survives across
+        // iterations even when another arm fires first.  oneshot::Receiver is Unpin, so
+        // `&mut pending_nav_rx.as_mut().unwrap()` is a stable borrow we can reuse.
+        let mut pending_nav_rx: Option<oneshot::Receiver<NavigationResult>> = None;
+
         loop {
+            // Sync pending_nav_rx with self.load so a freshly-set load is picked up.
+            if pending_nav_rx.is_none() {
+                if let Some(load) = self.load.take() {
+                    pending_nav_rx = Some(load.rx);
+                }
+            }
+
             select! {
                 // Handle tick for redraws
                 _ = self.runtime.interval.tick(), if self.runtime.drawing_enabled => {
@@ -196,12 +210,15 @@ impl TabWorker {
                     }
                 }
 
-                // In-flight load completion
+                // In-flight load completion — uses a persistent receiver so it is not
+                // dropped when another arm fires in the same select! invocation.
                 result = async {
-                    // Wait until the self.runtime.load.rx channel (if any) resolves
-                    let load = self.load.take().expect("select! branch is guarded by is_some()");
-                    load.rx.await
-                }, if self.load.is_some() => {
+                    match pending_nav_rx.as_mut() {
+                        Some(rx) => rx.await,
+                        None => std::future::pending().await,
+                    }
+                }, if pending_nav_rx.is_some() => {
+                    pending_nav_rx = None;
                     match result {
                         Ok(res) => self.on_nav_result(res),
                         Err(e) => {
@@ -239,7 +256,9 @@ impl TabWorker {
                 nav_id,
                 final_url,
                 title,
+                doc,
             } => {
+                self.context.set_document(Arc::clone(&doc));
                 self.current_url = Some(final_url.clone());
                 if let Some(t) = title {
                     self.title = t;
@@ -279,14 +298,7 @@ impl TabWorker {
         }
     }
 
-    fn handle_internal_command(&mut self, cmd: TabInternalCommand) {
-        match cmd {
-            TabInternalCommand::SetDocument { doc } => {
-                self.context.set_document(Arc::clone(&doc));
-                self.runtime.dirty = true;
-            }
-        }
-    }
+    fn handle_internal_command(&mut self, _cmd: TabInternalCommand) {}
 
     fn handle_tab_command(&mut self, cmd: TabCommand) -> ControlFlow {
         match cmd {
@@ -443,7 +455,6 @@ impl TabWorker {
         let zone_id = self.zone_id;
         let io_tx = self.zone_context.io_tx.clone();
         let event_tx = self.zone_context.event_tx.clone();
-        let internal_tx = self.internal_tx.clone();
 
         let span = tracing::info_span!(
             "tab_nav",
@@ -516,12 +527,6 @@ impl TabWorker {
 
             match outcome {
                 Ok(RoutedOutcome::MainDocument(doc)) => {
-                    // Update our document in the tab
-                    internal_tx
-                        .send(TabInternalCommand::SetDocument { doc: doc.clone() })
-                        .await
-                        .ok();
-
                     use gosub_interface::document::Document as _;
                     let final_url = doc.url().unwrap_or_else(|| Url::parse("about:blank").unwrap());
                     let title = crate::html::document_title(&doc);
@@ -529,6 +534,7 @@ impl TabWorker {
                         nav_id,
                         final_url,
                         title,
+                        doc,
                     });
                 }
                 Ok(RoutedOutcome::ViewerRendered(_doc)) => {
@@ -613,6 +619,8 @@ impl TabWorker {
 
         // Ensure we have a surface of the right size to draw on
         self.ensure_surface(render_backend.clone(), self.desired_viewport.as_size())?;
+        // Propagate the current viewport so the pipeline lays out at the right dimensions.
+        self.context.set_viewport(self.desired_viewport);
         // Rebuild the render list if anything has changed
         self.context.rebuild_render_list_if_needed();
 

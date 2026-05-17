@@ -55,6 +55,8 @@ fn main() {
     // builder.filter_level(log::LevelFilter::Trace).target(env_logger::Target::Stderr).init();
     // log::set_max_level(log::LevelFilter::Trace);
 
+    let initial_url: Option<String> = std::env::args().nth(1);
+
     let app = Application::builder().application_id("io.gosub.engine").build();
 
     app.connect_activate(move |app| {
@@ -122,6 +124,18 @@ fn main() {
         }
         .expect("create_tab failed");
         let tab_id = tab.tab_id;
+
+        if let Some(url_str) = &initial_url {
+            let mut url_s = url_str.clone();
+            if !url_s.starts_with("http://") && !url_s.starts_with("https://") {
+                url_s = format!("https://{url_s}");
+            }
+            if let Ok(url) = Url::parse(&url_s) {
+                TOKIO_RT.block_on(tab.send(TabCommand::Navigate { url: url.to_string() })).ok();
+                TOKIO_RT.block_on(tab.send(TabCommand::ResumeDrawing { fps: 30 })).ok();
+            }
+        }
+
         tabs.borrow_mut().insert(tab_id, tab);
         log::trace!("Created initial tab {:?}", tab_id);
 
@@ -633,7 +647,9 @@ fn main() {
         });
     });
 
-    app.run();
+    // Pass only the program name to GTK so it doesn't treat our URL arg as a file.
+    let argv0: Vec<String> = std::env::args().take(1).collect();
+    app.run_with_args(&argv0);
 }
 
 fn handle_event(evt: EngineEvent) -> bool {
