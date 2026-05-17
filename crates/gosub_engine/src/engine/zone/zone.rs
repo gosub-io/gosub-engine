@@ -15,7 +15,7 @@ use crate::zone::ZoneConfig;
 use crate::EngineError;
 use parking_lot::RwLock;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
