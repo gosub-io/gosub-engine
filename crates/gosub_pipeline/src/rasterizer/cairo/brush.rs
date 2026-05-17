@@ -1,5 +1,5 @@
 use crate::common::geo::Rect;
-use crate::common::get_media_store;
+use crate::common::media::MediaStore;
 use crate::painter::commands::brush::Brush;
 use gtk4::cairo::Context;
 use gtk4::gdk_pixbuf::{Colorspace, Pixbuf};
@@ -7,7 +7,7 @@ use gtk4::glib::Bytes;
 use gtk4::prelude::GdkCairoContextExt;
 
 // Sets the given brush to the context. In case of an image brush, rect defines the scale size of the image.
-pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect) {
+pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaStore) {
     match brush {
         Brush::Solid(color) => {
             cr.set_source_rgba(color.r() as f64, color.g() as f64, color.b() as f64, color.a() as f64);
@@ -18,8 +18,6 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect) {
                 return;
             }
 
-            let binding = get_media_store();
-            let media_store = binding.read();
             let media = media_store.get_image(*media_id);
             let img = &media.image;
 

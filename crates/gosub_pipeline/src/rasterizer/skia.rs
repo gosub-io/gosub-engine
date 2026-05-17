@@ -1,5 +1,6 @@
-use crate::common::get_texture_store;
+use crate::common::media::MediaStore;
 use crate::common::texture::TextureId;
+use crate::common::texture_store::TextureStore;
 use crate::layering::layer::LayerId;
 use crate::painter::commands::PaintCommand;
 use crate::rasterizer::Rasterable;
@@ -22,7 +23,7 @@ impl SkiaRasterizer {
 }
 
 impl Rasterable for SkiaRasterizer {
-    fn rasterize(&self, tile: &Tile) -> Option<TextureId> {
+    fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, _media_store: &MediaStore) -> Option<TextureId> {
         let width = tile.rect.width as u32;
         let height = tile.rect.height as u32;
 
@@ -82,8 +83,6 @@ impl Rasterable for SkiaRasterizer {
         };
         let pixels = bytes.to_vec();
 
-        let binding = get_texture_store();
-        let mut texture_store = binding.write();
         let texture_id = texture_store.add(width as usize, height as usize, pixels);
 
         // _ = texture_store.save_to_disk(texture_id);

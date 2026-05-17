@@ -1,18 +1,15 @@
-use crate::common::browser_state::get_browser_state;
-use crate::common::get_texture_store;
+use crate::common::browser_state::BrowserState;
+use crate::common::texture_store::TextureStore;
 use crate::layering::layer::LayerId;
 use skia_safe::{AlphaType, ColorType, Data, ISize, ImageInfo};
 
-pub fn skia_compositor(canvas: &skia_safe::Canvas, layer_ids: Vec<LayerId>) {
+pub fn skia_compositor(canvas: &skia_safe::Canvas, layer_ids: Vec<LayerId>, state: &BrowserState, texture_store: &TextureStore) {
     for layer_id in layer_ids {
-        compose_layer(canvas, layer_id);
+        compose_layer(canvas, layer_id, state, texture_store);
     }
 }
 
-pub fn compose_layer(canvas: &skia_safe::Canvas, layer_id: LayerId) {
-    let binding = get_browser_state();
-    let state = binding.read();
-
+pub fn compose_layer(canvas: &skia_safe::Canvas, layer_id: LayerId, state: &BrowserState, texture_store: &TextureStore) {
     let Some(ref tile_list) = state.tile_list else {
         log::error!("No tile list found");
         return;
@@ -33,9 +30,6 @@ pub fn compose_layer(canvas: &skia_safe::Canvas, layer_id: LayerId) {
             log::error!("No texture found for tile: {:?}", tile_id);
             continue;
         };
-
-        let binding = get_texture_store();
-        let texture_store = binding.read();
 
         let Some(texture) = texture_store.get(texture_id) else {
             log::error!("No texture found for tile: {:?}", tile_id);

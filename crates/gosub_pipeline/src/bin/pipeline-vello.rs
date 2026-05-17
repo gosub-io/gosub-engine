@@ -2,8 +2,11 @@
 compile_error!("This binary can only be used with the feature 'backend_vello' enabled");
 
 use gosub_pipeline::common;
-use gosub_pipeline::common::browser_state::{get_browser_state, init_browser_state, BrowserState, WireframeState};
+use gosub_pipeline::common::browser_state::{BrowserState, WireframeState};
+use gosub_pipeline::common::document::pipeline_doc::PipelineDocument;
 use gosub_pipeline::common::geo::{Dimension, Rect};
+use gosub_pipeline::common::media::MediaStore;
+use gosub_pipeline::common::texture_store::TextureStore;
 use gosub_pipeline::compositor::vello::{VelloCompositor, VelloCompositorConfig};
 use gosub_pipeline::compositor::Composable;
 use gosub_pipeline::layering::layer::{LayerId, LayerList};
@@ -36,7 +39,6 @@ const TILE_DIMENSION: f64 = 256.0;
 fn main() {
     // --------------------------------------------------------------------
     // Generate a DOM tree
-    // let doc = common::document::parser::document_from_json("https://codemusings.nl", "cm.json");
     let doc = common::document::parser::document_from_json("https://brettgfitzgerald.com", "brett.json");
 
     let window_dimension = Dimension::new(800.0, 600.0);
@@ -49,46 +51,49 @@ fn main() {
         current_hovered_element: None,
         show_tilegrid: true,
         viewport: Rect::new(0.0, 0.0, viewport_dimension.width, viewport_dimension.height),
-        document: Arc::new(doc),
         tile_list: None,
         dpi_scale_factor: 1.0,
     };
-    init_browser_state(browser_state);
+
+    let browser_state = Arc::new(RwLock::new(browser_state));
+    let texture_store = Arc::new(RwLock::new(TextureStore::new()));
+    let media_store = Arc::new(RwLock::new(MediaStore::new()));
+    let doc: Arc<dyn PipelineDocument> = Arc::new(doc);
 
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = App::new("Pipeline Vello", window_dimension);
+    let mut app = App::new("Pipeline Vello", window_dimension, doc, browser_state, texture_store, media_store);
     let _ = event_loop.run_app(&mut app);
 }
 
-fn reflow() {
-    let binding = get_browser_state();
-    let state = binding.read();
+fn reflow(
+    doc: &Arc<dyn PipelineDocument>,
+    browser_state: &Arc<RwLock<BrowserState>>,
+) {
+    let (viewport, dpi_scale_factor) = {
+        let state = browser_state.read();
+        (state.viewport, state.dpi_scale_factor)
+    };
 
-    println!("reflowing to dimension: {:?}", state.viewport);
+    println!("reflowing to dimension: {:?}", viewport);
 
-    let mut render_tree = RenderTree::new(state.document.clone());
+    let mut render_tree = RenderTree::new(doc.clone());
     render_tree.parse();
 
     let mut layouter = TaffyLayouter::new();
     let layout_tree = layouter.layout(
         render_tree,
-        Some(Dimension::new(state.viewport.width, state.viewport.height)),
-        state.dpi_scale_factor,
+        Some(Dimension::new(viewport.width, viewport.height)),
+        dpi_scale_factor,
     );
 
     let layer_list = LayerList::new(layout_tree);
-
     let mut tile_list = TileList::new(layer_list, Dimension::new(TILE_DIMENSION, TILE_DIMENSION));
     tile_list.generate();
 
-    drop(state);
-
     let layer_count = tile_list.layer_list.layer_ids.read().len();
-
-    let binding = get_browser_state();
-    let mut state = binding.write();
+    let mut state = browser_state.write();
     state.visible_layer_list.resize(layer_count, true);
     state.tile_list = Some(RwLock::new(tile_list));
 }
@@ -115,10 +120,21 @@ struct App<'s> {
     fps: f32,
     window_size: Dimension,
     window_title: String,
+    doc: Arc<dyn PipelineDocument>,
+    browser_state: Arc<RwLock<BrowserState>>,
+    texture_store: Arc<RwLock<TextureStore>>,
+    media_store: Arc<RwLock<MediaStore>>,
 }
 
 impl App<'_> {
-    fn new(window_title: &str, window_size: Dimension) -> Self {
+    fn new(
+        window_title: &str,
+        window_size: Dimension,
+        doc: Arc<dyn PipelineDocument>,
+        browser_state: Arc<RwLock<BrowserState>>,
+        texture_store: Arc<RwLock<TextureStore>>,
+        media_store: Arc<RwLock<MediaStore>>,
+    ) -> Self {
         App {
             env: None,
             frame: 0,
@@ -126,6 +142,10 @@ impl App<'_> {
             fps: 0.0,
             window_size,
             window_title: window_title.to_string(),
+            doc,
+            browser_state,
+            texture_store,
+            media_store,
         }
     }
 }
@@ -144,7 +164,7 @@ impl ApplicationHandler for App<'_> {
             self.window_size,
         ));
 
-        reflow();
+        reflow(&self.doc, &self.browser_state);
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -162,12 +182,9 @@ impl ApplicationHandler for App<'_> {
                 env.render_ctx
                     .resize_surface(env.surface.as_mut().unwrap(), width, height);
 
-                let binding = get_browser_state();
-                let mut state = binding.write();
-                state.viewport = Rect::new(0.0, 0.0, width as f64, height as f64);
-                drop(state);
+                self.browser_state.write().viewport = Rect::new(0.0, 0.0, width as f64, height as f64);
 
-                reflow();
+                reflow(&self.doc, &self.browser_state);
             }
             WindowEvent::RedrawRequested => {
                 self.frame += 1;
@@ -178,17 +195,14 @@ impl ApplicationHandler for App<'_> {
                 let dev_id = surface.dev_id;
                 let DeviceHandle { device, queue, .. } = &env.render_ctx.devices[dev_id];
 
-                let binding = get_browser_state();
-                let state = binding.read();
-                let vis_layers = state.visible_layer_list.clone();
-                drop(state);
+                let vis_layers = self.browser_state.read().visible_layer_list.clone();
 
                 let renderer = &mut env.renderer.as_mut().unwrap();
 
                 for (i, &visible) in vis_layers.iter().enumerate() {
                     if visible {
-                        do_paint(LayerId::new(i as u64));
-                        do_rasterize(device, queue, renderer.clone(), LayerId::new(i as u64));
+                        do_paint(LayerId::new(i as u64), &self.browser_state);
+                        do_rasterize(device, queue, renderer.clone(), LayerId::new(i as u64), &self.browser_state, &self.texture_store, &self.media_store);
                     }
                 }
 
@@ -197,19 +211,17 @@ impl ApplicationHandler for App<'_> {
                     .get_current_texture()
                     .expect("Failed to get current texture");
 
-                let binding = get_browser_state();
-                let state = binding.read();
-
                 let render_params = RenderParams {
                     base_color: color::palette::css::DARK_MAGENTA,
-                    width: state.viewport.width as u32,
-                    height: state.viewport.height as u32,
-                    // width: self.window_size.width as u32,
-                    // height: self.window_size.height as u32,
+                    width: self.browser_state.read().viewport.width as u32,
+                    height: self.browser_state.read().viewport.height as u32,
                     antialiasing_method: AaConfig::Msaa16,
                 };
 
-                let scene = VelloCompositor::compose(VelloCompositorConfig {});
+                let scene = VelloCompositor::compose(VelloCompositorConfig {
+                    browser_state: self.browser_state.clone(),
+                    texture_store: self.texture_store.clone(),
+                });
 
                 let binding = env.renderer.clone().unwrap();
                 let mut renderer = binding.borrow_mut();
@@ -241,8 +253,7 @@ impl ApplicationHandler for App<'_> {
                 }
 
                 if physical_key >= Code(KeyCode::Digit0) && physical_key <= Code(KeyCode::Digit9) {
-                    let binding = get_browser_state();
-                    let mut state = binding.write();
+                    let mut state = self.browser_state.write();
 
                     let layer_id = match physical_key {
                         Code(KeyCode::Digit1) => 0,
@@ -264,8 +275,7 @@ impl ApplicationHandler for App<'_> {
                 }
 
                 if logical_key == "w" {
-                    let binding = get_browser_state();
-                    let mut state = binding.write();
+                    let mut state = self.browser_state.write();
 
                     match state.wireframed {
                         WireframeState::None => state.wireframed = WireframeState::Only,
@@ -273,18 +283,14 @@ impl ApplicationHandler for App<'_> {
                         WireframeState::Both => state.wireframed = WireframeState::None,
                     }
 
-                    let Some(ref tile_list) = state.tile_list else {
-                        log::error!("No tile list found");
-                        return;
-                    };
-
-                    tile_list.write().invalidate_all();
+                    if let Some(ref tile_list) = state.tile_list {
+                        tile_list.write().invalidate_all();
+                    }
                     window.request_redraw();
                 }
 
                 if logical_key == "d" {
-                    let binding = get_browser_state();
-                    let mut state = binding.write();
+                    let mut state = self.browser_state.write();
 
                     state.debug_hover = !state.debug_hover;
 
@@ -295,10 +301,9 @@ impl ApplicationHandler for App<'_> {
                 }
 
                 if logical_key == "t" {
-                    let binding = get_browser_state();
-                    let mut state = binding.write();
-
+                    let mut state = self.browser_state.write();
                     state.show_tilegrid = !state.show_tilegrid;
+                    drop(state);
                     window.request_redraw();
                 }
             }
@@ -352,9 +357,8 @@ fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> 
     env
 }
 
-fn do_paint(layer_id: LayerId) {
-    let binding = get_browser_state();
-    let state = binding.read();
+fn do_paint(layer_id: LayerId, browser_state: &Arc<RwLock<BrowserState>>) {
+    let state = browser_state.read();
 
     let Some(ref tile_list) = state.tile_list else {
         log::error!("No tile list found");
@@ -365,28 +369,34 @@ fn do_paint(layer_id: LayerId) {
 
     let tile_ids = tile_list.read().get_intersecting_tiles(layer_id, state.viewport);
     for tile_id in tile_ids {
-        // get tile
         let mut binding = tile_list.write();
         let Some(tile) = binding.get_tile_mut(tile_id) else {
             log::warn!("Tile not found: {:?}", tile_id);
             continue;
         };
 
-        // if not dirty, no need to render and continue
         if tile.state == TileState::Clean || tile.state == TileState::Empty {
             continue;
         }
 
-        // Paint all the elements in each tile
         for tiled_layout_element in &mut tile.elements {
-            tiled_layout_element.paint_commands = painter.paint(tiled_layout_element);
+            tiled_layout_element.paint_commands = painter.paint(tiled_layout_element, &state);
         }
     }
 }
 
-fn do_rasterize(device: &wgpu::Device, queue: &wgpu::Queue, renderer: Rc<RefCell<Renderer>>, layer_id: LayerId) {
-    let binding = get_browser_state();
-    let state = binding.read();
+fn do_rasterize(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    renderer: Rc<RefCell<Renderer>>,
+    layer_id: LayerId,
+    browser_state: &Arc<RwLock<BrowserState>>,
+    texture_store: &Arc<RwLock<TextureStore>>,
+    media_store: &Arc<RwLock<MediaStore>>,
+) {
+    let state = browser_state.read();
+    let mut ts = texture_store.write();
+    let ms = media_store.read();
 
     let Some(ref tile_list) = state.tile_list else {
         log::error!("No tile list found");
@@ -395,14 +405,12 @@ fn do_rasterize(device: &wgpu::Device, queue: &wgpu::Queue, renderer: Rc<RefCell
 
     let tile_ids = tile_list.read().get_intersecting_tiles(layer_id, state.viewport);
     for tile_id in tile_ids {
-        // get tile
         let mut binding = tile_list.write();
         let Some(tile) = binding.get_tile(tile_id) else {
             log::warn!("Tile not found: {:?}", tile_id);
             continue;
         };
 
-        // if not dirty, no need to render and continue
         if tile.state == TileState::Clean || tile.state == TileState::Empty {
             continue;
         }
@@ -412,9 +420,8 @@ fn do_rasterize(device: &wgpu::Device, queue: &wgpu::Queue, renderer: Rc<RefCell
             continue;
         };
 
-        // Rasterize the tile into a texture
         let rasterizer = VelloRasterizer::new(device, queue, &renderer);
-        match rasterizer.rasterize(tile) {
+        match rasterizer.rasterize(tile, &mut ts, &ms) {
             Some(texture_id) => {
                 tile.texture_id = Some(texture_id);
                 tile.state = TileState::Clean;

@@ -1,5 +1,6 @@
-use crate::common::get_texture_store;
+use crate::common::media::MediaStore;
 use crate::common::texture::TextureId;
+use crate::common::texture_store::TextureStore;
 use crate::painter::commands::PaintCommand;
 use crate::rasterizer::Rasterable;
 use crate::tiler::Tile;
@@ -20,7 +21,7 @@ impl CairoRasterizer {
 }
 
 impl Rasterable for CairoRasterizer {
-    fn rasterize(&self, tile: &Tile) -> Option<TextureId> {
+    fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId> {
         let mut surface =
             cairo::ImageSurface::create(cairo::Format::ARgb32, tile.rect.width as i32, tile.rect.height as i32)
                 .expect("Failed to create image surface");
@@ -32,10 +33,10 @@ impl Rasterable for CairoRasterizer {
                 for command in &element.paint_commands {
                     match command {
                         PaintCommand::Svg(command) => {
-                            svg::do_paint_svg(&cr.clone(), tile, &command.rect, command.media_id);
+                            svg::do_paint_svg(&cr.clone(), tile, &command.rect, command.media_id, media_store);
                         }
                         PaintCommand::Rectangle(command) => {
-                            rectangle::do_paint_rectangle(&cr.clone(), tile, command);
+                            rectangle::do_paint_rectangle(&cr.clone(), tile, command, media_store);
                         }
                         PaintCommand::Text(command) => {
                             #[cfg(feature = "text_pango")]
@@ -73,8 +74,6 @@ impl Rasterable for CairoRasterizer {
             return None;
         };
 
-        let binding = get_texture_store();
-        let mut texture_store = binding.write();
         let texture_id = texture_store.add(w, h, data.to_vec());
 
         Some(texture_id)

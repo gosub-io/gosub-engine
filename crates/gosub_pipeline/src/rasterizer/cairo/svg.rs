@@ -1,14 +1,12 @@
-use crate::common::get_media_store;
-use crate::common::media::MediaId;
+use crate::common::media::{MediaId, MediaStore};
 use crate::painter::commands::rectangle::Rectangle;
 use crate::tiler::Tile;
 use gtk4::cairo::Context;
 use resvg::usvg::Transform;
 
-pub(crate) fn do_paint_svg(cr: &Context, tile: &Tile, rect: &Rectangle, media_id: MediaId) {
+pub(crate) fn do_paint_svg(cr: &Context, tile: &Tile, rect: &Rectangle, media_id: MediaId, media_store: &MediaStore) {
     log::debug!("Painting SVG: {:?}", media_id);
-    let binding = get_media_store().read();
-    let media = binding.get_svg(media_id);
+    let media = media_store.get_svg(media_id);
 
     let target_dim = rect.rect().dimension();
     let dest_x = rect.rect().x - tile.rect.x;

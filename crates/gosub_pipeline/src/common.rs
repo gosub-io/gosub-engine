@@ -4,9 +4,9 @@ pub mod font;
 pub mod geo;
 pub mod media;
 pub mod texture;
+pub mod texture_store;
 
 mod hash;
-mod texture_store;
 
-pub use media::get_media_store;
-pub use texture_store::get_texture_store;
+pub use media::MediaStore;
+pub use texture_store::TextureStore;
