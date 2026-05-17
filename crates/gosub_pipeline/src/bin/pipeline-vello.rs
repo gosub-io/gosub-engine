@@ -63,14 +63,18 @@ fn main() {
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = App::new("Pipeline Vello", window_dimension, doc, browser_state, texture_store, media_store);
+    let mut app = App::new(
+        "Pipeline Vello",
+        window_dimension,
+        doc,
+        browser_state,
+        texture_store,
+        media_store,
+    );
     let _ = event_loop.run_app(&mut app);
 }
 
-fn reflow(
-    doc: &Arc<dyn PipelineDocument>,
-    browser_state: &Arc<RwLock<BrowserState>>,
-) {
+fn reflow(doc: &Arc<dyn PipelineDocument>, browser_state: &Arc<RwLock<BrowserState>>) {
     let (viewport, dpi_scale_factor) = {
         let state = browser_state.read();
         (state.viewport, state.dpi_scale_factor)
@@ -202,7 +206,15 @@ impl ApplicationHandler for App<'_> {
                 for (i, &visible) in vis_layers.iter().enumerate() {
                     if visible {
                         do_paint(LayerId::new(i as u64), &self.browser_state);
-                        do_rasterize(device, queue, renderer.clone(), LayerId::new(i as u64), &self.browser_state, &self.texture_store, &self.media_store);
+                        do_rasterize(
+                            device,
+                            queue,
+                            renderer.clone(),
+                            LayerId::new(i as u64),
+                            &self.browser_state,
+                            &self.texture_store,
+                            &self.media_store,
+                        );
                     }
                 }
 

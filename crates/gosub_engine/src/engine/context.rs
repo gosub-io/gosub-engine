@@ -208,7 +208,11 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
     use gosub_pipeline::tiler::{TileList, TileState};
     use std::time::Instant;
 
-    log::info!("[pipeline] starting render (viewport {}x{})", viewport.width, viewport.height);
+    log::info!(
+        "[pipeline] starting render (viewport {}x{})",
+        viewport.width,
+        viewport.height
+    );
     let t_total = Instant::now();
 
     rl.items.push(DisplayItem::Clear {
@@ -220,9 +224,11 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
     let adapter = GosubDocumentAdapter::<HtmlEngineConfig>::new(doc);
     let mut render_tree = RenderTree::new(Arc::new(adapter));
     render_tree.parse();
-    log::info!("[pipeline] stage 1 render-tree:  {:>6.1}ms  ({} nodes)",
+    log::info!(
+        "[pipeline] stage 1 render-tree:  {:>6.1}ms  ({} nodes)",
         t.elapsed().as_secs_f64() * 1000.0,
-        render_tree.arena.len());
+        render_tree.arena.len()
+    );
 
     let vp_dim = if viewport.width > 0 && viewport.height > 0 {
         Some(PipelineDimension::new(viewport.width as f64, viewport.height as f64))
@@ -234,22 +240,33 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
     let t = Instant::now();
     let mut layouter = TaffyLayouter::new();
     let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
-    log::info!("[pipeline] stage 2 layout:        {:>6.1}ms  (root {}x{:.0})",
+    log::info!(
+        "[pipeline] stage 2 layout:        {:>6.1}ms  (root {}x{:.0})",
         t.elapsed().as_secs_f64() * 1000.0,
-        layout_tree.root_dimension.width, layout_tree.root_dimension.height);
+        layout_tree.root_dimension.width,
+        layout_tree.root_dimension.height
+    );
 
     // Stage 3: layering
     let t = Instant::now();
     let layer_list = LayerList::new(layout_tree);
     let layer_count = layer_list.layer_ids.read().len();
-    log::info!("[pipeline] stage 3 layering:      {:>6.1}ms  ({} layers)", t.elapsed().as_secs_f64() * 1000.0, layer_count);
+    log::info!(
+        "[pipeline] stage 3 layering:      {:>6.1}ms  ({} layers)",
+        t.elapsed().as_secs_f64() * 1000.0,
+        layer_count
+    );
 
     // Stage 4: tiling
     let t = Instant::now();
     let mut tile_list = TileList::new(layer_list, PipelineDimension::new(256.0, 256.0));
     tile_list.generate();
     let total_tiles = tile_list.arena.len();
-    log::info!("[pipeline] stage 4 tiling:        {:>6.1}ms  ({} tiles total)", t.elapsed().as_secs_f64() * 1000.0, total_tiles);
+    log::info!(
+        "[pipeline] stage 4 tiling:        {:>6.1}ms  ({} tiles total)",
+        t.elapsed().as_secs_f64() * 1000.0,
+        total_tiles
+    );
 
     // Stage 5: painting
     let t = Instant::now();
@@ -279,16 +296,26 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
                         cmd_count += cmds.len();
                         tiled_element.paint_commands = cmds;
                     }
-                    log::debug!("[pipeline]   paint tile {:?} @ ({:.0},{:.0}) — {} elements, {} commands",
-                        tile_id, tile.rect.x, tile.rect.y, tile.elements.len(), cmd_count);
+                    log::debug!(
+                        "[pipeline]   paint tile {:?} @ ({:.0},{:.0}) — {} elements, {} commands",
+                        tile_id,
+                        tile.rect.x,
+                        tile.rect.y,
+                        tile.elements.len(),
+                        cmd_count
+                    );
                     painted_tiles += 1;
                     painted_commands += cmd_count;
                 }
             }
         }
     }
-    log::info!("[pipeline] stage 5 painting:      {:>6.1}ms  ({} tiles painted, {} commands total)",
-        t.elapsed().as_secs_f64() * 1000.0, painted_tiles, painted_commands);
+    log::info!(
+        "[pipeline] stage 5 painting:      {:>6.1}ms  ({} tiles painted, {} commands total)",
+        t.elapsed().as_secs_f64() * 1000.0,
+        painted_tiles,
+        painted_commands
+    );
 
     // Stage 6: rasterize
     #[cfg(feature = "backend_cairo")]
@@ -311,15 +338,24 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
                     if tile.state == TileState::Dirty {
                         match rasterizer.rasterize(tile, &mut texture_store, &media_store) {
                             Some(texture_id) => {
-                                log::debug!("[pipeline]   rasterized tile {:?} @ ({:.0},{:.0}) → texture {:?}",
-                                    tile_id, tile.rect.x, tile.rect.y, texture_id);
+                                log::debug!(
+                                    "[pipeline]   rasterized tile {:?} @ ({:.0},{:.0}) → texture {:?}",
+                                    tile_id,
+                                    tile.rect.x,
+                                    tile.rect.y,
+                                    texture_id
+                                );
                                 tile.texture_id = Some(texture_id);
                                 tile.state = TileState::Clean;
                                 rasterized += 1;
                             }
                             None => {
-                                log::debug!("[pipeline]   rasterized tile {:?} @ ({:.0},{:.0}) → empty",
-                                    tile_id, tile.rect.x, tile.rect.y);
+                                log::debug!(
+                                    "[pipeline]   rasterized tile {:?} @ ({:.0},{:.0}) → empty",
+                                    tile_id,
+                                    tile.rect.x,
+                                    tile.rect.y
+                                );
                                 tile.state = TileState::Empty;
                                 empty += 1;
                             }
@@ -328,8 +364,12 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
                 }
             }
         }
-        log::info!("[pipeline] stage 6 rasterize:     {:>6.1}ms  ({} clean, {} empty)",
-            t.elapsed().as_secs_f64() * 1000.0, rasterized, empty);
+        log::info!(
+            "[pipeline] stage 6 rasterize:     {:>6.1}ms  ({} clean, {} empty)",
+            t.elapsed().as_secs_f64() * 1000.0,
+            rasterized,
+            empty
+        );
         texture_store
     };
 
@@ -341,8 +381,13 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
         for tile in tile_list.arena.values() {
             if let (Some(texture_id), true) = (tile.texture_id, tile.state == TileState::Clean) {
                 if let Some(tex) = texture_store.get(texture_id) {
-                    log::debug!("[pipeline]   blit tile @ ({:.0},{:.0}) {}×{} px",
-                        tile.rect.x, tile.rect.y, tex.width, tex.height);
+                    log::debug!(
+                        "[pipeline]   blit tile @ ({:.0},{:.0}) {}×{} px",
+                        tile.rect.x,
+                        tile.rect.y,
+                        tex.width,
+                        tex.height
+                    );
                     rl.items.push(DisplayItem::Blit {
                         x: tile.rect.x as f32,
                         y: tile.rect.y as f32,
@@ -354,8 +399,11 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
                 }
             }
         }
-        log::info!("[pipeline] stage 7 composite:     {:>6.1}ms  ({} blit items emitted)",
-            t.elapsed().as_secs_f64() * 1000.0, blits);
+        log::info!(
+            "[pipeline] stage 7 composite:     {:>6.1}ms  ({} blit items emitted)",
+            t.elapsed().as_secs_f64() * 1000.0,
+            blits
+        );
     }
 
     log::info!("[pipeline] total: {:.1}ms", t_total.elapsed().as_secs_f64() * 1000.0);

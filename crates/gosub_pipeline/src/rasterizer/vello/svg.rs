@@ -4,7 +4,13 @@ use resvg::usvg::Transform;
 use vello::kurbo::Affine;
 use vello::peniko::{Blob, ImageFormat};
 
-pub(crate) fn do_paint_svg(scene: &mut vello::Scene, media_id: MediaId, rect: &Rectangle, affine: Affine, media_store: &MediaStore) {
+pub(crate) fn do_paint_svg(
+    scene: &mut vello::Scene,
+    media_id: MediaId,
+    rect: &Rectangle,
+    affine: Affine,
+    media_store: &MediaStore,
+) {
     log::debug!("Painting SVG: {:?}", media_id);
 
     let media = media_store.get_svg(media_id);

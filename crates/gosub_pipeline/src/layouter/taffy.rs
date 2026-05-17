@@ -1,10 +1,10 @@
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
 use crate::common::document::style::{FontWeight, StyleProperty, StyleValue, TextAlign, Unit};
 use crate::common::font::{FontAlignment, FontInfo};
+use crate::common::geo;
 use crate::common::geo::Coordinate;
-use crate::common::media::{Media, MediaId, MediaType};
 use crate::common::media::MediaStore;
-use crate::common::{geo};
+use crate::common::media::{Media, MediaId, MediaType};
 use crate::layouter::box_model::Edges;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
 use crate::layouter::text::get_text_layout;
@@ -425,7 +425,10 @@ impl TaffyLayouter {
                 if data.tag_name.eq_ignore_ascii_case("svg") {
                     let inner_html = layout_tree.render_tree.doc.inner_html(dom_node.node_id);
 
-                    match self.media_store.load_media_from_data(MediaType::Svg, inner_html.into_bytes().as_slice()) {
+                    match self
+                        .media_store
+                        .load_media_from_data(MediaType::Svg, inner_html.into_bytes().as_slice())
+                    {
                         Ok(media_id) => {
                             taffy_context = Some(TaffyContext::svg("gosub://internal", media_id, dom_node.node_id));
                         }

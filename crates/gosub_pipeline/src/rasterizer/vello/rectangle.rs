@@ -36,7 +36,13 @@ pub(crate) fn do_paint_rectangle(scene: &mut vello::Scene, rect: &Rectangle, aff
     }
 }
 
-fn draw_single_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine, dashes: Vec<f64>, media_store: &MediaStore) {
+fn draw_single_border(
+    scene: &mut vello::Scene,
+    rect: &Rectangle,
+    affine: Affine,
+    dashes: Vec<f64>,
+    media_store: &MediaStore,
+) {
     let binding = rect.border().brushes();
     let Some(brush) = binding.first() else {
         return;

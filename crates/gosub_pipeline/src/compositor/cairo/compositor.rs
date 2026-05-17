@@ -4,7 +4,12 @@ use crate::layering::layer::LayerId;
 use gtk4::cairo;
 use gtk4::cairo::ImageSurface;
 
-pub fn cairo_compositor(cr: &cairo::Context, layer_ids: Vec<LayerId>, state: &BrowserState, texture_store: &TextureStore) {
+pub fn cairo_compositor(
+    cr: &cairo::Context,
+    layer_ids: Vec<LayerId>,
+    state: &BrowserState,
+    texture_store: &TextureStore,
+) {
     for layer_id in layer_ids {
         compose_layer(cr, layer_id, state, texture_store);
     }

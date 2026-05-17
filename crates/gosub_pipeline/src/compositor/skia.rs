@@ -7,7 +7,11 @@ use std::sync::Arc;
 
 mod compositor;
 
-pub fn compose(canvas: &skia_safe::Canvas, browser_state: &Arc<RwLock<BrowserState>>, texture_store: &Arc<RwLock<TextureStore>>) {
+pub fn compose(
+    canvas: &skia_safe::Canvas,
+    browser_state: &Arc<RwLock<BrowserState>>,
+    texture_store: &Arc<RwLock<TextureStore>>,
+) {
     let state = browser_state.read();
 
     let layers: Vec<LayerId> = state

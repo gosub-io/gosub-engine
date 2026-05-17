@@ -123,7 +123,14 @@ fn build_ui(
 
     let dim = {
         let state = browser_state.read();
-        let d = state.tile_list.as_ref().unwrap().read().layer_list.layout_tree.root_dimension;
+        let d = state
+            .tile_list
+            .as_ref()
+            .unwrap()
+            .read()
+            .layer_list
+            .layout_tree
+            .root_dimension;
         d
     };
 
@@ -160,7 +167,13 @@ fn build_ui(
         motion_controller.connect_motion(move |_, x, y| {
             let el_id = {
                 let state = bs.read();
-                let id = state.tile_list.as_ref().unwrap().read().layer_list.find_element_at(x, y);
+                let id = state
+                    .tile_list
+                    .as_ref()
+                    .unwrap()
+                    .read()
+                    .layer_list
+                    .find_element_at(x, y);
                 id
             };
             let che = bs.read().current_hovered_element;
@@ -170,14 +183,50 @@ fn build_ui(
                 let state = bs.read();
                 match (che, el_id) {
                     (Some(current_id), Some(new_id)) if current_id != new_id => {
-                        state.tile_list.as_ref().unwrap().read().get_tiles_for_element(current_id).iter().for_each(|tid| { tile_ids.push(*tid); });
-                        state.tile_list.as_ref().unwrap().read().get_tiles_for_element(new_id).iter().for_each(|tid| { tile_ids.push(*tid); });
+                        state
+                            .tile_list
+                            .as_ref()
+                            .unwrap()
+                            .read()
+                            .get_tiles_for_element(current_id)
+                            .iter()
+                            .for_each(|tid| {
+                                tile_ids.push(*tid);
+                            });
+                        state
+                            .tile_list
+                            .as_ref()
+                            .unwrap()
+                            .read()
+                            .get_tiles_for_element(new_id)
+                            .iter()
+                            .for_each(|tid| {
+                                tile_ids.push(*tid);
+                            });
                     }
                     (None, Some(new_id)) => {
-                        state.tile_list.as_ref().unwrap().read().get_tiles_for_element(new_id).iter().for_each(|tid| { tile_ids.push(*tid); });
+                        state
+                            .tile_list
+                            .as_ref()
+                            .unwrap()
+                            .read()
+                            .get_tiles_for_element(new_id)
+                            .iter()
+                            .for_each(|tid| {
+                                tile_ids.push(*tid);
+                            });
                     }
                     (Some(current_id), None) => {
-                        state.tile_list.as_ref().unwrap().read().get_tiles_for_element(current_id).iter().for_each(|tid| { tile_ids.push(*tid); });
+                        state
+                            .tile_list
+                            .as_ref()
+                            .unwrap()
+                            .read()
+                            .get_tiles_for_element(current_id)
+                            .iter()
+                            .for_each(|tid| {
+                                tile_ids.push(*tid);
+                            });
                     }
                     _ => {}
                 }
@@ -220,16 +269,66 @@ fn build_ui(
             let mut state = bs.write();
 
             match keyval {
-                key if key == gtk4::gdk::Key::_1 => { if let Some(v) = state.visible_layer_list.get_mut(0) { *v = !*v; area.queue_draw(); } }
-                key if key == gtk4::gdk::Key::_2 => { if let Some(v) = state.visible_layer_list.get_mut(1) { *v = !*v; area.queue_draw(); } }
-                key if key == gtk4::gdk::Key::_3 => { if let Some(v) = state.visible_layer_list.get_mut(2) { *v = !*v; area.queue_draw(); } }
-                key if key == gtk4::gdk::Key::_4 => { if let Some(v) = state.visible_layer_list.get_mut(3) { *v = !*v; area.queue_draw(); } }
-                key if key == gtk4::gdk::Key::_5 => { if let Some(v) = state.visible_layer_list.get_mut(4) { *v = !*v; area.queue_draw(); } }
-                key if key == gtk4::gdk::Key::_6 => { if let Some(v) = state.visible_layer_list.get_mut(5) { *v = !*v; area.queue_draw(); } }
-                key if key == gtk4::gdk::Key::_7 => { if let Some(v) = state.visible_layer_list.get_mut(6) { *v = !*v; area.queue_draw(); } }
-                key if key == gtk4::gdk::Key::_8 => { if let Some(v) = state.visible_layer_list.get_mut(7) { *v = !*v; area.queue_draw(); } }
-                key if key == gtk4::gdk::Key::_9 => { if let Some(v) = state.visible_layer_list.get_mut(8) { *v = !*v; area.queue_draw(); } }
-                key if key == gtk4::gdk::Key::_0 => { if let Some(v) = state.visible_layer_list.get_mut(9) { *v = !*v; area.queue_draw(); } }
+                key if key == gtk4::gdk::Key::_1 => {
+                    if let Some(v) = state.visible_layer_list.get_mut(0) {
+                        *v = !*v;
+                        area.queue_draw();
+                    }
+                }
+                key if key == gtk4::gdk::Key::_2 => {
+                    if let Some(v) = state.visible_layer_list.get_mut(1) {
+                        *v = !*v;
+                        area.queue_draw();
+                    }
+                }
+                key if key == gtk4::gdk::Key::_3 => {
+                    if let Some(v) = state.visible_layer_list.get_mut(2) {
+                        *v = !*v;
+                        area.queue_draw();
+                    }
+                }
+                key if key == gtk4::gdk::Key::_4 => {
+                    if let Some(v) = state.visible_layer_list.get_mut(3) {
+                        *v = !*v;
+                        area.queue_draw();
+                    }
+                }
+                key if key == gtk4::gdk::Key::_5 => {
+                    if let Some(v) = state.visible_layer_list.get_mut(4) {
+                        *v = !*v;
+                        area.queue_draw();
+                    }
+                }
+                key if key == gtk4::gdk::Key::_6 => {
+                    if let Some(v) = state.visible_layer_list.get_mut(5) {
+                        *v = !*v;
+                        area.queue_draw();
+                    }
+                }
+                key if key == gtk4::gdk::Key::_7 => {
+                    if let Some(v) = state.visible_layer_list.get_mut(6) {
+                        *v = !*v;
+                        area.queue_draw();
+                    }
+                }
+                key if key == gtk4::gdk::Key::_8 => {
+                    if let Some(v) = state.visible_layer_list.get_mut(7) {
+                        *v = !*v;
+                        area.queue_draw();
+                    }
+                }
+                key if key == gtk4::gdk::Key::_9 => {
+                    if let Some(v) = state.visible_layer_list.get_mut(8) {
+                        *v = !*v;
+                        area.queue_draw();
+                    }
+                }
+                key if key == gtk4::gdk::Key::_0 => {
+                    if let Some(v) = state.visible_layer_list.get_mut(9) {
+                        *v = !*v;
+                        area.queue_draw();
+                    }
+                }
                 key if key == gtk4::gdk::Key::w => {
                     match state.wireframed {
                         WireframeState::None => state.wireframed = WireframeState::Only,
@@ -365,7 +464,12 @@ fn connect_viewport_signals(scroll: &ScrolledWindow, area: &DrawingArea, browser
     }
 }
 
-fn on_viewport_changed(area: &DrawingArea, hadj: &Adjustment, vadj: &Adjustment, browser_state: &Arc<RwLock<BrowserState>>) {
+fn on_viewport_changed(
+    area: &DrawingArea,
+    hadj: &Adjustment,
+    vadj: &Adjustment,
+    browser_state: &Arc<RwLock<BrowserState>>,
+) {
     let x = hadj.value();
     let y = vadj.value();
     let width = hadj.page_size();

@@ -128,7 +128,9 @@ fn main() {
                 url_s = format!("https://{url_s}");
             }
             if let Ok(url) = Url::parse(&url_s) {
-                TOKIO_RT.block_on(tab.send(TabCommand::Navigate { url: url.to_string() })).ok();
+                TOKIO_RT
+                    .block_on(tab.send(TabCommand::Navigate { url: url.to_string() }))
+                    .ok();
                 TOKIO_RT.block_on(tab.send(TabCommand::ResumeDrawing { fps: 30 })).ok();
             }
         }

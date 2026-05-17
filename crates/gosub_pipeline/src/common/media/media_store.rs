@@ -27,6 +27,12 @@ pub struct MediaStore {
     next_id: AtomicU64,
 }
 
+impl Default for MediaStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MediaStore {
     fn allocate_media_id(&self) -> MediaId {
         MediaId::new(self.next_id.fetch_add(1, Ordering::Relaxed))

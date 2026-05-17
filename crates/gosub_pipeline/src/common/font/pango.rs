@@ -19,7 +19,7 @@ pub fn find_available_font(families: &str, ctx: &pango::Context) -> String {
         // system-ui is a special keyword resolved via the desktop environment
         if font_name.eq_ignore_ascii_case("system-ui") {
             let system_font = get_system_ui_font();
-            if available_fonts.contains(&system_font.to_ascii_lowercase()) {
+            if available_fonts.contains(&system_font.cow_to_ascii_lowercase().into_owned()) {
                 return system_font;
             }
             continue;

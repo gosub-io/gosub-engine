@@ -57,12 +57,14 @@ impl Rasterable for VelloRasterizer<'_> {
                     PaintCommand::Rectangle(command) => {
                         rectangle::do_paint_rectangle(&mut scene, command, affine, media_store);
                     }
-                    PaintCommand::Text(command) => match do_paint_text(&mut scene, command, tile_size, affine, media_store) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            log::warn!("Failed to paint text: {:?}", e);
+                    PaintCommand::Text(command) => {
+                        match do_paint_text(&mut scene, command, tile_size, affine, media_store) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                log::warn!("Failed to paint text: {:?}", e);
+                            }
                         }
-                    },
+                    }
                 }
             }
         }

@@ -42,7 +42,14 @@ pub fn do_paint_text(
     Ok(())
 }
 
-fn render_glyph_run(scene: &mut Scene, glyph_run: GlyphRun<[u8; 4]>, brush: &Brush, rect: &Rect, affine: Affine, media_store: &MediaStore) {
+fn render_glyph_run(
+    scene: &mut Scene,
+    glyph_run: GlyphRun<[u8; 4]>,
+    brush: &Brush,
+    rect: &Rect,
+    affine: Affine,
+    media_store: &MediaStore,
+) {
     let vello_brush = set_brush(brush, *rect, media_store);
 
     // @TODO: we need font decorations like underline, strike through, maybe sub sup?
