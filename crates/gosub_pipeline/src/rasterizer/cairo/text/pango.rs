@@ -8,8 +8,8 @@ use gtk4::pango::SCALE;
 use pangocairo::functions::{context_set_resolution, create_layout};
 use pangocairo::pango::{FontDescription, WrapMode};
 
-pub(crate) fn do_paint_text(cr: &Context, tile: &Tile, cmd: &Text) -> Result<(), Error> {
-    let surface = create_text_layout(cmd)?;
+pub(crate) fn do_paint_text(cr: &Context, tile: &Tile, cmd: &Text, media_store: &MediaStore) -> Result<(), Error> {
+    let surface = create_text_layout(cmd, media_store)?;
 
     cr.save()?;
 
@@ -25,7 +25,7 @@ pub(crate) fn do_paint_text(cr: &Context, tile: &Tile, cmd: &Text) -> Result<(),
     Ok(())
 }
 
-fn create_text_layout(cmd: &Text) -> Result<ImageSurface, Error> {
+fn create_text_layout(cmd: &Text, media_store: &MediaStore) -> Result<ImageSurface, Error> {
     let width = (cmd.rect.width.ceil() as i32).max(1);
     let height = (cmd.rect.height.ceil() as i32).max(1);
     let surface = ImageSurface::create(Format::ARgb32, width, height)?;
@@ -46,8 +46,7 @@ fn create_text_layout(cmd: &Text) -> Result<ImageSurface, Error> {
     layout.set_wrap(WrapMode::Word);
     layout.set_spacing(0);
 
-    let media_store = MediaStore::new();
-    set_brush(&cr, &cmd.brush, cmd.rect, &media_store);
+    set_brush(&cr, &cmd.brush, cmd.rect, media_store);
     cr.move_to(0.0, 0.0);
     pangocairo::functions::show_layout(&cr, &layout);
 

@@ -83,8 +83,18 @@ impl RenderBackend for CairoBackend {
                     }
                     DisplayItem::Blit { x, y, w, h, data } => {
                         let stride = (*w * 4) as i32;
+                        let expected_len = (*h as usize) * (stride as usize);
+                        if data.len() < expected_len {
+                            log::warn!(
+                                "CairoBackend: Blit data too short ({} < {}); skipping tile",
+                                data.len(),
+                                expected_len
+                            );
+                            continue;
+                        }
                         // SAFETY: `data` is borrowed from the cached RenderList for the
                         // duration of this closure; Cairo reads (never writes) source data.
+                        // Length was validated above.
                         let img_surface = unsafe {
                             cairo::ImageSurface::create_for_data_unsafe(
                                 data.as_ptr() as *mut u8,

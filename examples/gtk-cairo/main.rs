@@ -128,10 +128,12 @@ fn main() {
                 url_s = format!("https://{url_s}");
             }
             if let Ok(url) = Url::parse(&url_s) {
-                TOKIO_RT
-                    .block_on(tab.send(TabCommand::Navigate { url: url.to_string() }))
-                    .ok();
-                TOKIO_RT.block_on(tab.send(TabCommand::ResumeDrawing { fps: 30 })).ok();
+                if let Err(e) = TOKIO_RT.block_on(tab.send(TabCommand::Navigate { url: url.to_string() })) {
+                    log::error!("Failed to send Navigate command: {e}");
+                }
+                if let Err(e) = TOKIO_RT.block_on(tab.send(TabCommand::ResumeDrawing { fps: 30 })) {
+                    log::error!("Failed to send ResumeDrawing command: {e}");
+                }
             }
         }
 

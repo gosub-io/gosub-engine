@@ -143,16 +143,18 @@ where
         }
     }
 
-    let html = String::from_utf8_lossy(&buf).into_owned();
+    // Use lossy UTF-8 only for the fast resource-discovery regex scan.
+    let html_lossy = String::from_utf8_lossy(&buf);
 
     // Fire sub-resource callbacks using the fast regex-based scanner so that
     // image/CSS/script fetches are submitted before the full parse completes.
-    for hint in discover_resources(&html, &base_url) {
+    for hint in discover_resources(&html_lossy, &base_url) {
         on_discover(hint);
     }
 
-    // Parse into a real DOM document with the correct URL, then attach the UA stylesheet.
-    let mut stream = ByteStream::from_str(&html, Encoding::UTF8);
+    // Feed raw bytes so the parser can run BOM detection and charset sniffing.
+    let mut stream = ByteStream::new(Encoding::Unknown, None);
+    stream.read_from_bytes(&buf)?;
     let mut doc = DocumentBuilderImpl::new_document::<HtmlEngineConfig>(Some(base_url));
     let _ = Html5Parser::<HtmlEngineConfig>::parse_document(&mut stream, &mut doc, None);
     let ua = Css3System::load_default_useragent_stylesheet();

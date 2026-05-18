@@ -161,9 +161,11 @@ impl BrowsingContext {
         }
 
         #[cfg(not(feature = "pipeline"))]
-        rl.items.push(DisplayItem::Clear {
-            color: Color::new(0.6, 0.6, 0.6, 1.0),
-        });
+        if self.document.is_none() {
+            rl.items.push(DisplayItem::Clear {
+                color: Color::new(0.6, 0.6, 0.6, 1.0),
+            });
+        }
 
         self.render_list = rl;
         self.render_dirty = false;

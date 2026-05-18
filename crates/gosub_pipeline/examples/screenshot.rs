@@ -151,10 +151,13 @@ fn main() {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn fill_rect(img: &mut RgbaImage, x: f32, y: f32, w: f32, h: f32, color: [u8; 4]) {
-    let x0 = (x as u32).min(img.width());
-    let y0 = (y as u32).min(img.height());
-    let x1 = ((x + w) as u32).min(img.width());
-    let y1 = ((y + h) as u32).min(img.height());
+    let x0 = (x.max(0.0) as u32).min(img.width());
+    let y0 = (y.max(0.0) as u32).min(img.height());
+    let x1 = ((x + w).max(0.0) as u32).min(img.width());
+    let y1 = ((y + h).max(0.0) as u32).min(img.height());
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
     for py in y0..y1 {
         for px in x0..x1 {
             let [r, g, b, a] = color;

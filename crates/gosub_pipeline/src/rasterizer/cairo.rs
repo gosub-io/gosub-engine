@@ -40,14 +40,14 @@ impl Rasterable for CairoRasterizer {
                         }
                         PaintCommand::Text(command) => {
                             #[cfg(feature = "text_pango")]
-                            match text::pango::do_paint_text(&cr.clone(), tile, command) {
+                            match text::pango::do_paint_text(&cr.clone(), tile, command, media_store) {
                                 Ok(_) => {}
                                 Err(e) => {
                                     log::warn!("Failed to paint text: {:?}", e);
                                 }
                             }
                             #[cfg(all(not(feature = "text_pango"), feature = "text_parley"))]
-                            match text::parley::do_paint_text(&cr.clone(), tile, command) {
+                            match text::parley::do_paint_text(&cr.clone(), tile, command, media_store) {
                                 Ok(_) => {}
                                 Err(e) => {
                                     log::warn!("Failed to paint text: {:?}", e);

@@ -215,7 +215,7 @@ where
     }
 
     fn body_node_id(&self) -> Option<NodeId> {
-        let html = self.html_node_id()?;
+        let html = self.html_node_id().or_else(|| Some(self.doc.root()))?;
         self.find_child_by_tag(html, "body")
     }
 

@@ -116,8 +116,37 @@ impl EngineRenderBackend for CairoBackend {
                         cr.move_to(*x as f64, *y as f64);
                         let _ = cr.show_text(text);
                     }
-                    DisplayItem::Blit { .. } => {
-                        // Old cairo backend doesn't handle pipeline blit tiles.
+                    DisplayItem::Blit { x, y, w, h, data } => {
+                        let stride = (*w * 4) as i32;
+                        let expected_len = (*h as usize) * (stride as usize);
+                        if data.len() < expected_len {
+                            log::warn!(
+                                "CairoBackend: Blit data too short ({} < {}); skipping tile",
+                                data.len(),
+                                expected_len
+                            );
+                        } else {
+                            // SAFETY: `data` is borrowed from the cached RenderList for the
+                            // duration of this closure; Cairo reads (never writes) source data.
+                            let img_surface = unsafe {
+                                cairo::ImageSurface::create_for_data_unsafe(
+                                    data.as_ptr() as *mut u8,
+                                    cairo::Format::ARgb32,
+                                    *w as i32,
+                                    *h as i32,
+                                    stride,
+                                )
+                            };
+                            if let Ok(img_surface) = img_surface {
+                                let pattern = cairo::SurfacePattern::create(&img_surface);
+                                let mut matrix = cairo::Matrix::identity();
+                                matrix.translate(-(*x as f64) + offset_x, -(*y as f64) + offset_y);
+                                pattern.set_matrix(matrix);
+                                let _ = cr.set_source(&pattern);
+                                cr.rectangle(*x as f64, *y as f64, *w as f64, *h as f64);
+                                let _ = cr.fill();
+                            }
+                        }
                     }
                 }
             }

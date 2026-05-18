@@ -51,7 +51,9 @@ struct ActiveNav {
 struct NavJoin {
     // nav_id: NavigationId,
     cancel: CancellationToken,
-    rx: oneshot::Receiver<NavigationResult>,
+    // Wrapped in Option so the receiver can be extracted into `pending_nav_rx`
+    // without dropping the cancel token from self.load.
+    rx: Option<oneshot::Receiver<NavigationResult>>,
 }
 
 pub struct TabWorker {
@@ -195,9 +197,13 @@ impl TabWorker {
 
         loop {
             // Sync pending_nav_rx with self.load so a freshly-set load is picked up.
+            // Only take the receiver; leave self.load so the cancel token remains
+            // reachable for CancelNavigation commands.
             if pending_nav_rx.is_none() {
-                if let Some(load) = self.load.take() {
-                    pending_nav_rx = Some(load.rx);
+                if let Some(load) = self.load.as_mut() {
+                    if let Some(rx) = load.rx.take() {
+                        pending_nav_rx = Some(rx);
+                    }
                 }
             }
 
@@ -609,7 +615,7 @@ impl TabWorker {
 
         self.load = Some(NavJoin {
             cancel: parent_cancel.clone(),
-            rx: rx_done,
+            rx: Some(rx_done),
         });
     }
 

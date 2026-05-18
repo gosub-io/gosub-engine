@@ -137,7 +137,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                     text_renderer.draw(font_manager, font_cache, &mut scene, &key, x, y, (*color).into());
                 }
                 DisplayItem::Blit { .. } => {
-                    // Vello compositor not yet wired; blit tiles ignored on this backend.
+                    log::warn!("VelloBackend: DisplayItem::Blit not yet implemented; tile will be skipped");
                 }
             }
         }

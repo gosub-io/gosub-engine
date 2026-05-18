@@ -2,6 +2,8 @@
 
 SHELL=/usr/bin/env bash -O globstar
 
+.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke help
+
 all: help
 
 test: test-fmt test-clippy test-smoke test-unit test-check ## Run all checks (fmt + clippy + smoke + unit + check)
