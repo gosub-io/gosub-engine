@@ -152,8 +152,16 @@ where
         on_discover(hint);
     }
 
-    // Feed raw bytes so the parser can run BOM detection and charset sniffing.
-    let mut stream = ByteStream::new(Encoding::Unknown, None);
+    // Detect encoding from the raw bytes (BOM check + chardetng), then build a
+    // properly-decoded stream.  We cannot call set_encoding() on an Unknown-
+    // encoded stream because tell_bytes() returns buffer.len() when chars is
+    // empty, which would advance the position to EOF.
+    let encoding = {
+        let mut tmp = ByteStream::new(Encoding::Unknown, None);
+        tmp.read_from_bytes(&buf)?;
+        tmp.detect_encoding()
+    };
+    let mut stream = ByteStream::new(encoding, None);
     stream.read_from_bytes(&buf)?;
     let mut doc = DocumentBuilderImpl::new_document::<HtmlEngineConfig>(Some(base_url));
     let _ = Html5Parser::<HtmlEngineConfig>::parse_document(&mut stream, &mut doc, None);
