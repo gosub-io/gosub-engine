@@ -766,10 +766,10 @@ mod tests {
         assert_eq!(
             prop.get_props_from_shorthand(),
             vec![
+                "border-top-color",
+                "border-right-color",
                 "border-bottom-color",
                 "border-left-color",
-                "border-right-color",
-                "border-top-color",
             ]
         );
 
