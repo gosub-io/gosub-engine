@@ -7,7 +7,7 @@ use parking_lot::RwLock;
 use resvg::usvg;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use url::Url;
 
 const DEFAULT_SVG_ID: MediaId = MediaId::new(0);
@@ -17,13 +17,6 @@ const FIRST_FREE_IMAGE_ID: u64 = 100;
 const DEFAULT_SVG_DATA: &[u8] = include_bytes!("../../../resources/not-found.svg");
 const DEFAULT_IMAGE_DATA: &[u8] = include_bytes!("../../../resources/default-image.png");
 
-/// Media store is global
-pub static MEDIA_STORE: OnceLock<RwLock<MediaStore>> = OnceLock::new();
-
-pub fn get_media_store() -> &'static RwLock<MediaStore> {
-    MEDIA_STORE.get_or_init(|| RwLock::new(MediaStore::new()))
-}
-
 /// Media store keeps all the loaded media in memory so it can be referenced by its MediaID
 pub struct MediaStore {
     /// List of all media
@@ -32,6 +25,12 @@ pub struct MediaStore {
     pub cache: RwLock<HashMap<Sha256Hash, MediaId>>,
     /// Next media ID (atomic to prevent allocation races)
     next_id: AtomicU64,
+}
+
+impl Default for MediaStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MediaStore {

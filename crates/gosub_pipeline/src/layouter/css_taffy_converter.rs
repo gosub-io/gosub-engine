@@ -5,8 +5,8 @@ use crate::common::document::style::{
 use taffy::prelude::{FromLength, TaffyAuto};
 use taffy::{
     AlignContent, AlignItems, AlignSelf, BoxSizing, Dimension, Display, FlexDirection, FlexWrap, GridAutoFlow,
-    GridPlacement, LengthPercentage, LengthPercentageAuto, Line, NonRepeatedTrackSizingFunction, Overflow, Point,
-    Position, Rect, Size, Style, TextAlign, TrackSizingFunction,
+    GridPlacement, GridTemplateComponent, LengthPercentage, LengthPercentageAuto, Line, Overflow, Point, Position,
+    Rect, Size, Style, TextAlign, TrackSizingFunction,
 };
 
 /// This struct convert CSS stylesheets into taffy style structure.
@@ -169,11 +169,11 @@ impl CssTaffyConverter {
 
         match val {
             StyleValue::Unit(val, unit) => match unit {
-                CssUnit::Percent => Dimension::Percent(*val / 100.0),
+                CssUnit::Percent => Dimension::percent(*val / 100.0),
                 _ => Dimension::from_length(*val),
             },
             StyleValue::Number(val) => Dimension::from_length(*val),
-            StyleValue::Keyword(val) if val == "auto" => Dimension::Auto,
+            StyleValue::Keyword(val) if val == "auto" => Dimension::auto(),
             _ => default,
         }
     }
@@ -243,12 +243,12 @@ impl CssTaffyConverter {
 
         match val {
             StyleValue::Unit(value, unit) => match unit {
-                CssUnit::Px => LengthPercentageAuto::Length(*value),
-                CssUnit::Percent => LengthPercentageAuto::Percent(*value / 100.0),
+                CssUnit::Px => LengthPercentageAuto::length(*value),
+                CssUnit::Percent => LengthPercentageAuto::percent(*value / 100.0),
                 _ => default,
             },
-            StyleValue::Number(value) => LengthPercentageAuto::Length(*value),
-            StyleValue::Keyword(val) if val == "auto" => LengthPercentageAuto::Auto,
+            StyleValue::Number(value) => LengthPercentageAuto::length(*value),
+            StyleValue::Keyword(val) if val == "auto" => LengthPercentageAuto::auto(),
             _ => default,
         }
     }
@@ -260,11 +260,11 @@ impl CssTaffyConverter {
 
         match val {
             StyleValue::Unit(value, unit) => match unit {
-                CssUnit::Px => LengthPercentage::Length(*value),
-                CssUnit::Percent => LengthPercentage::Percent(*value / 100.0),
+                CssUnit::Px => LengthPercentage::length(*value),
+                CssUnit::Percent => LengthPercentage::percent(*value / 100.0),
                 _ => default,
             },
-            StyleValue::Number(value) => LengthPercentage::Length(*value),
+            StyleValue::Number(value) => LengthPercentage::length(*value),
             _ => default,
         }
     }
@@ -277,7 +277,7 @@ impl CssTaffyConverter {
         match val {
             StyleValue::Unit(value, unit) => match unit {
                 CssUnit::Px => Dimension::from_length(*value),
-                CssUnit::Percent => Dimension::Percent(*value / 100.0),
+                CssUnit::Percent => Dimension::percent(*value / 100.0),
                 _ => default,
             },
             StyleValue::Number(value) => Dimension::from_length(*value),
@@ -423,15 +423,18 @@ impl CssTaffyConverter {
         }
     }
 
-    fn get_grid_template(&self, prop: StyleProperty, default: Vec<TrackSizingFunction>) -> Vec<TrackSizingFunction> {
+    fn get_grid_template(
+        &self,
+        prop: StyleProperty,
+        default: Vec<GridTemplateComponent<String>>,
+    ) -> Vec<GridTemplateComponent<String>> {
         let Some(val) = self.data.get_property(prop) else {
             return default;
         };
 
         match val {
             StyleValue::Keyword(ref val) => match val.as_str() {
-                "none" => Vec::new(),
-                "auto" => Vec::new(),
+                "none" | "auto" => Vec::new(),
                 _ => default,
             },
             _ => default,
@@ -473,11 +476,7 @@ impl CssTaffyConverter {
         }
     }
 
-    fn get_grid_auto(
-        &self,
-        prop: StyleProperty,
-        default: Vec<NonRepeatedTrackSizingFunction>,
-    ) -> Vec<NonRepeatedTrackSizingFunction> {
+    fn get_grid_auto(&self, prop: StyleProperty, default: Vec<TrackSizingFunction>) -> Vec<TrackSizingFunction> {
         let Some(val) = self.data.get_property(prop) else {
             return default;
         };

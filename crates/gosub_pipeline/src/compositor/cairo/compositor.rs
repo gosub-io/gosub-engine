@@ -1,19 +1,21 @@
-use crate::common::browser_state::get_browser_state;
-use crate::common::get_texture_store;
+use crate::common::browser_state::BrowserState;
+use crate::common::texture_store::TextureStore;
 use crate::layering::layer::LayerId;
 use gtk4::cairo;
 use gtk4::cairo::ImageSurface;
 
-pub fn cairo_compositor(cr: &cairo::Context, layer_ids: Vec<LayerId>) {
+pub fn cairo_compositor(
+    cr: &cairo::Context,
+    layer_ids: Vec<LayerId>,
+    state: &BrowserState,
+    texture_store: &TextureStore,
+) {
     for layer_id in layer_ids {
-        compose_layer(cr, layer_id);
+        compose_layer(cr, layer_id, state, texture_store);
     }
 }
 
-pub fn compose_layer(cr: &cairo::Context, layer_id: LayerId) {
-    let binding = get_browser_state();
-    let state = binding.read();
-
+pub fn compose_layer(cr: &cairo::Context, layer_id: LayerId, state: &BrowserState, texture_store: &TextureStore) {
     let Some(ref tile_list) = state.tile_list else {
         log::error!("No tile list found");
         return;
@@ -33,9 +35,6 @@ pub fn compose_layer(cr: &cairo::Context, layer_id: LayerId) {
             log::error!("No texture found for tile: {:?}", tile_id);
             continue;
         };
-
-        let binding = get_texture_store();
-        let texture_store = binding.read();
 
         let Some(texture) = texture_store.get(texture_id) else {
             log::error!("No texture found for tile: {:?}", tile_id);

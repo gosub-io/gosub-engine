@@ -14,4 +14,4 @@ pub use media::MediaType;
 pub use image::Image;
 pub use svg::Svg;
 
-pub use media_store::get_media_store;
+pub use media_store::MediaStore;

@@ -1,3 +1,4 @@
+use crate::common::media::MediaStore;
 use crate::painter::commands::border::BorderStyle;
 use crate::painter::commands::rectangle::Rectangle;
 use crate::rasterizer::vello::brush::set_brush;
@@ -5,11 +6,11 @@ use vello::kurbo;
 use vello::kurbo::{Affine, PathEl, Point, Rect, RoundedRect, Shape};
 use vello::peniko::Fill;
 
-pub(crate) fn do_paint_rectangle(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine) {
+pub(crate) fn do_paint_rectangle(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine, media_store: &MediaStore) {
     // Draw background (if any background brush is defined)
     if let Some(brush) = rect.background() {
         let vello_rect = setup_rectangle_path(rect);
-        let vello_brush = set_brush(brush, rect.rect());
+        let vello_brush = set_brush(brush, rect.rect(), media_store);
 
         scene.fill(Fill::NonZero, affine, &vello_brush, None, &vello_rect);
     }
@@ -17,16 +18,16 @@ pub(crate) fn do_paint_rectangle(scene: &mut vello::Scene, rect: &Rectangle, aff
     // Create border
     match rect.border().style() {
         BorderStyle::None => {}
-        BorderStyle::Solid => draw_single_border(scene, rect, affine, vec![]),
-        BorderStyle::Dashed => draw_single_border(scene, rect, affine, vec![50.0, 10.0, 10.0, 10.0]),
-        BorderStyle::Dotted => draw_single_border(scene, rect, affine, vec![10.0, 10.0]),
-        BorderStyle::Double => draw_double_border(scene, rect, affine),
+        BorderStyle::Solid => draw_single_border(scene, rect, affine, vec![], media_store),
+        BorderStyle::Dashed => draw_single_border(scene, rect, affine, vec![50.0, 10.0, 10.0, 10.0], media_store),
+        BorderStyle::Dotted => draw_single_border(scene, rect, affine, vec![10.0, 10.0], media_store),
+        BorderStyle::Double => draw_double_border(scene, rect, affine, media_store),
         BorderStyle::Groove | BorderStyle::Ridge | BorderStyle::Inset | BorderStyle::Outset => {
             log::warn!(
                 "Border style {:?} not yet implemented, falling back to solid",
                 rect.border().style()
             );
-            draw_single_border(scene, rect, affine, vec![])
+            draw_single_border(scene, rect, affine, vec![], media_store)
         }
         BorderStyle::Hidden => {
             // Don't display anything. But the border still takes up space. This is already
@@ -35,25 +36,31 @@ pub(crate) fn do_paint_rectangle(scene: &mut vello::Scene, rect: &Rectangle, aff
     }
 }
 
-fn draw_single_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine, dashes: Vec<f64>) {
+fn draw_single_border(
+    scene: &mut vello::Scene,
+    rect: &Rectangle,
+    affine: Affine,
+    dashes: Vec<f64>,
+    media_store: &MediaStore,
+) {
     let binding = rect.border().brushes();
     let Some(brush) = binding.first() else {
         return;
     };
     let vello_shape = setup_rectangle_path(rect);
-    let vello_brush = set_brush(brush, rect.rect());
+    let vello_brush = set_brush(brush, rect.rect(), media_store);
     let vello_stroke = kurbo::Stroke::new(rect.border().width() as f64).with_dashes(0.0, dashes);
 
     scene.stroke(&vello_stroke, affine, &vello_brush, None, &vello_shape);
 }
 
-fn draw_double_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine) {
+fn draw_double_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine, media_store: &MediaStore) {
     let binding = rect.border().brushes();
     let Some(brush) = binding.first() else {
         return;
     };
     let vello_shape = setup_rectangle_path(rect);
-    let vello_brush = set_brush(brush, rect.rect());
+    let vello_brush = set_brush(brush, rect.rect(), media_store);
 
     if rect.border().width() < 3.0 {
         // When the width is less than 3.0, we just draw a single line as there is no room for

@@ -136,6 +136,9 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
 
                     text_renderer.draw(font_manager, font_cache, &mut scene, &key, x, y, (*color).into());
                 }
+                DisplayItem::Blit { .. } => {
+                    log::warn!("VelloBackend: DisplayItem::Blit not yet implemented; tile will be skipped");
+                }
             }
         }
 

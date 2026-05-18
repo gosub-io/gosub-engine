@@ -1,10 +1,11 @@
+use crate::common::media::MediaStore;
 use crate::painter::commands::border::BorderStyle;
 use crate::painter::commands::rectangle::Rectangle;
 use crate::rasterizer::cairo::brush::set_brush;
 use crate::tiler::Tile;
 use gtk4::cairo::Context;
 
-pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangle) {
+pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangle, media_store: &MediaStore) {
     // Save the context state. This allows us to do clipping and translation without worrying about
     // the state of the context.
     _ = cr.save();
@@ -17,7 +18,7 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
     // Create initial rect
     if let Some(brush) = rectangle.background() {
         setup_rectangle_path(cr, rectangle);
-        set_brush(cr, brush, rectangle.rect());
+        set_brush(cr, brush, rectangle.rect(), media_store);
         _ = cr.fill();
     }
 
@@ -25,7 +26,7 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
     setup_rectangle_path(cr, rectangle);
 
     cr.set_line_width(rectangle.border().width() as f64);
-    set_brush(cr, &rectangle.border().brush(), rectangle.rect());
+    set_brush(cr, &rectangle.border().brush(), rectangle.rect(), media_store);
     match rectangle.border().style() {
         BorderStyle::None => {
             // No border to draw. Note that the border does not take up any space. This is already

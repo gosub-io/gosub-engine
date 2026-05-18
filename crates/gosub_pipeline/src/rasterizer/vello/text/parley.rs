@@ -1,5 +1,6 @@
 use crate::common::font::parley::get_parley_layout;
 use crate::common::geo::{Dimension, Rect};
+use crate::common::media::MediaStore;
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::text::Text;
 use crate::rasterizer::vello::brush::set_brush;
@@ -13,6 +14,7 @@ pub fn do_paint_text(
     cmd: &Text,
     _tile_size: Dimension,
     affine: Affine,
+    media_store: &MediaStore,
 ) -> Result<(), anyhow::Error> {
     let layout = get_parley_layout(
         cmd.text.as_str(),
@@ -28,7 +30,7 @@ pub fn do_paint_text(
         for item in line.items() {
             match item {
                 PositionedLayoutItem::GlyphRun(glyph_run) => {
-                    render_glyph_run(scene, glyph_run, &cmd.brush, &cmd.rect, affine);
+                    render_glyph_run(scene, glyph_run, &cmd.brush, &cmd.rect, affine, media_store);
                 }
                 PositionedLayoutItem::InlineBox(_inline_box) => {
                     continue;
@@ -40,8 +42,15 @@ pub fn do_paint_text(
     Ok(())
 }
 
-fn render_glyph_run(scene: &mut Scene, glyph_run: GlyphRun<[u8; 4]>, brush: &Brush, rect: &Rect, affine: Affine) {
-    let vello_brush = set_brush(brush, *rect);
+fn render_glyph_run(
+    scene: &mut Scene,
+    glyph_run: GlyphRun<[u8; 4]>,
+    brush: &Brush,
+    rect: &Rect,
+    affine: Affine,
+    media_store: &MediaStore,
+) {
+    let vello_brush = set_brush(brush, *rect, media_store);
 
     // @TODO: we need font decorations like underline, strike through, maybe sub sup?
 

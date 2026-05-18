@@ -4206,10 +4206,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     }
                 };
                 if let Some(stylesheet) = self.load_external_stylesheet(CssOrigin::Author, css_url) {
-                    println!("success: loaded external stylesheet");
                     self.document.add_stylesheet(stylesheet);
                 } else {
-                    println!("failed loading stylesheet");
+                    self.parse_error("failed to load external stylesheet");
                 }
             }
             _ => {

@@ -1,10 +1,8 @@
 pub mod commands;
 
-use crate::common::browser_state::{get_browser_state, BrowserState, WireframeState};
+use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
 use crate::common::document::style::{BorderStyle as CssBorderStyle, Color as StyleColor, StyleProperty, StyleValue};
-use crate::common::get_media_store;
-use crate::common::media::{Media, MediaType};
 use crate::layering::layer::LayerList;
 use crate::layouter::{ElementContext, LayoutElementNode};
 use crate::painter::commands::border::{Border, BorderStyle};
@@ -31,16 +29,13 @@ impl Painter {
     }
 
     // Generate paint commands for the given tile
-    pub fn paint(&self, element: &TiledLayoutElement) -> Vec<PaintCommand> {
+    pub fn paint(&self, element: &TiledLayoutElement, state: &BrowserState) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
 
         let Some(layout_element) = self.layer_list.layout_tree.get_node_by_id(element.id) else {
             return Vec::new();
         };
         let dom_node_id = layout_element.dom_node_id;
-
-        let binding = get_browser_state();
-        let state = binding.read();
 
         // Paint boxmodel for the hovered element if needed
         if state.debug_hover

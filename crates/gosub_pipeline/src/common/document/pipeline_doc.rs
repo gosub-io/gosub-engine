@@ -8,6 +8,7 @@ use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType as GosubNodeType;
 use gosub_shared::node::NodeId;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineNodeKind {
@@ -124,20 +125,20 @@ pub struct GosubDocumentAdapter<C>
 where
     C: HasDocument,
 {
-    pub doc: C::Document,
+    pub doc: Arc<C::Document>,
 }
 
 impl<C> GosubDocumentAdapter<C>
 where
     C: HasDocument,
 {
-    pub fn new(doc: C::Document) -> Self {
+    pub fn new(doc: Arc<C::Document>) -> Self {
         Self { doc }
     }
 
     fn compute_styles(&self, id: NodeId) -> StylePropertyList {
         let sheets = self.doc.stylesheets();
-        let Some(mut prop_map) = C::CssSystem::properties_from_node::<C>(&self.doc, id, sheets) else {
+        let Some(mut prop_map) = C::CssSystem::properties_from_node::<C>(&*self.doc, id, sheets) else {
             return StylePropertyList::new();
         };
         // Properties are lazily computed; trigger computation before reading values.
@@ -162,7 +163,9 @@ where
     C::Document: Send + Sync,
 {
     fn root(&self) -> Option<NodeId> {
-        Some(self.doc.root())
+        // gosub's document root is a synthetic DocumentNode with no layout meaning.
+        // Start from the <html> element so the render tree has a real element as its root.
+        self.html_node_id().or_else(|| Some(self.doc.root()))
     }
 
     fn children(&self, id: NodeId) -> Vec<NodeId> {
@@ -212,7 +215,7 @@ where
     }
 
     fn body_node_id(&self) -> Option<NodeId> {
-        let html = self.html_node_id()?;
+        let html = self.html_node_id().or_else(|| Some(self.doc.root()))?;
         self.find_child_by_tag(html, "body")
     }
 
@@ -347,7 +350,7 @@ fn build_style_property_list<S: CssSystem>(prop_map: &S::PropertyMap) -> StylePr
     ];
     for (css_name, prop) in color_props {
         if let Some(p) = prop_map.get(css_name) {
-            if let Some((r, g, b, a)) = p.as_color() {
+            if let Some((r, g, b, a)) = p.parse_color() {
                 list.set_property(
                     prop.clone(),
                     StyleValue::Color(Color::Rgba(r as u8, g as u8, b as u8, a / 255.0)),

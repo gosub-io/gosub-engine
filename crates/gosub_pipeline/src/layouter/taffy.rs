@@ -1,9 +1,10 @@
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
 use crate::common::document::style::{FontWeight, StyleProperty, StyleValue, TextAlign, Unit};
 use crate::common::font::{FontAlignment, FontInfo};
+use crate::common::geo;
 use crate::common::geo::Coordinate;
+use crate::common::media::MediaStore;
 use crate::common::media::{Media, MediaId, MediaType};
-use crate::common::{geo, get_media_store};
 use crate::layouter::box_model::Edges;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
 use crate::layouter::text::get_text_layout;
@@ -30,6 +31,8 @@ pub struct TaffyLayouter {
     root_id: TaffyNodeId,
     /// Mapping of layout element id to taffy node id
     layout_taffy_mapping: HashMap<LayoutElementId, TaffyNodeId>,
+    /// Media store for loading images/SVGs during layout
+    media_store: MediaStore,
 }
 
 /// Context structures to pass to taffy measure functions so we can calculate the size of the text or images.
@@ -81,6 +84,7 @@ impl TaffyLayouter {
             tree: TaffyTree::new(),
             root_id: TaffyNodeId::new(0),
             layout_taffy_mapping: HashMap::new(),
+            media_store: MediaStore::new(),
         }
     }
 
@@ -168,7 +172,6 @@ impl CanLayout for TaffyLayouter {
             layout_tree.root_dimension = geo::Dimension::new(w as f64, h as f64);
         }
 
-        self.tree.print_tree(self.root_id);
         layout_tree
     }
 }
@@ -258,12 +261,12 @@ impl TaffyLayouter {
             flex_wrap: FlexWrap::Wrap,
             align_self: Some(AlignSelf::FlexStart),
             gap: Size {
-                width: LengthPercentage::Length(0.0),
-                height: LengthPercentage::Length(0.0),
+                width: LengthPercentage::length(0.0),
+                height: LengthPercentage::length(0.0),
             },
             size: Size {
-                width: Dimension::Auto,
-                height: Dimension::Auto,
+                width: Dimension::auto(),
+                height: Dimension::auto(),
             },
             ..Default::default()
         }) else {
@@ -400,18 +403,13 @@ impl TaffyLayouter {
 
                     log::debug!("Loading (image) resource: {}", src);
 
-                    let media_store = get_media_store();
-                    let media_store_guard = media_store.read();
-                    let Ok(media_id) = media_store_guard.load_media(src.as_str()) else {
+                    let Ok(media_id) = self.media_store.load_media(src.as_str()) else {
                         // Could not load media
                         log::warn!("Could not load media from path: {}", src);
                         return None;
                     };
-                    drop(media_store_guard);
 
-                    let media_store = get_media_store();
-                    let binding = media_store.read();
-                    let media = binding.get(media_id, MediaType::Image);
+                    let media = self.media_store.get(media_id, MediaType::Image);
                     taffy_context = match media.borrow() {
                         Media::Svg(_) => Some(TaffyContext::svg(src.as_str(), media_id, dom_node.node_id)),
                         Media::Image(media_image) => {
@@ -427,9 +425,10 @@ impl TaffyLayouter {
                 if data.tag_name.eq_ignore_ascii_case("svg") {
                     let inner_html = layout_tree.render_tree.doc.inner_html(dom_node.node_id);
 
-                    let store = get_media_store();
-                    let store_guard = store.read();
-                    match store_guard.load_media_from_data(MediaType::Svg, inner_html.into_bytes().as_slice()) {
+                    match self
+                        .media_store
+                        .load_media_from_data(MediaType::Svg, inner_html.into_bytes().as_slice())
+                    {
                         Ok(media_id) => {
                             taffy_context = Some(TaffyContext::svg("gosub://internal", media_id, dom_node.node_id));
                         }

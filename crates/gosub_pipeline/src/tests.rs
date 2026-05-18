@@ -35,7 +35,7 @@ mod rendertree_from_engine {
         let ua = Css3System::load_default_useragent_stylesheet();
         doc.add_stylesheet(ua);
 
-        let adapter = GosubDocumentAdapter::<Config>::new(doc);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
         let mut rt = RenderTree::new(Arc::new(adapter));
         rt.parse();
         rt
@@ -149,7 +149,7 @@ mod rendertree_from_engine {
         let ua = Css3System::load_default_useragent_stylesheet();
         doc.add_stylesheet(ua);
 
-        let adapter = GosubDocumentAdapter::<Config>::new(doc);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
 
         // Walk the gosub document to find the <div id="box"> node.
         let root = adapter.doc.root();
@@ -180,7 +180,7 @@ mod rendertree_from_engine {
 
         let html = "<html><body><p>Hi</p></body></html>";
         let doc = html_compile::<Config>(html);
-        let adapter = GosubDocumentAdapter::<Config>::new(doc);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
 
         let html_id = adapter.html_node_id();
         let body_id = adapter.body_node_id();

@@ -1,23 +1,20 @@
-use crate::common::browser_state::get_browser_state;
-use crate::common::get_texture_store;
+use crate::common::browser_state::BrowserState;
+use crate::common::texture_store::TextureStore;
 use crate::layering::layer::LayerId;
 use vello::kurbo::Affine;
 use vello::peniko::{Blob, Image, ImageFormat};
 
-pub fn vello_compositor(layer_ids: Vec<LayerId>) -> vello::Scene {
+pub fn vello_compositor(layer_ids: Vec<LayerId>, state: &BrowserState, texture_store: &TextureStore) -> vello::Scene {
     let mut scene = vello::Scene::new();
 
     for layer_id in layer_ids {
-        compose_layer(&mut scene, layer_id);
+        compose_layer(&mut scene, layer_id, state, texture_store);
     }
 
     scene
 }
 
-pub fn compose_layer(scene: &mut vello::Scene, layer_id: LayerId) {
-    let binding = get_browser_state();
-    let state = binding.read();
-
+pub fn compose_layer(scene: &mut vello::Scene, layer_id: LayerId, state: &BrowserState, texture_store: &TextureStore) {
     let Some(ref tile_list) = state.tile_list else {
         log::error!("No tile list found");
         return;
@@ -46,14 +43,10 @@ pub fn compose_layer(scene: &mut vello::Scene, layer_id: LayerId) {
             continue;
         };
 
-        let binding = get_texture_store();
-        let texture_store = binding.read();
-
         let Some(texture) = texture_store.get(texture_id) else {
             log::error!("No texture found for tile: {:?}", tile_id);
             continue;
         };
-        drop(texture_store);
 
         let surface = Image::new(
             Blob::from(texture.data.clone()), // Don't clone :(

@@ -1,18 +1,19 @@
-use crate::common::get_media_store;
-use crate::common::media::MediaId;
+use crate::common::media::{MediaId, MediaStore};
 use crate::painter::commands::rectangle::Rectangle;
 use resvg::usvg::Transform;
 use vello::kurbo::Affine;
 use vello::peniko::{Blob, ImageFormat};
 
-pub(crate) fn do_paint_svg(scene: &mut vello::Scene, media_id: MediaId, rect: &Rectangle, affine: Affine) {
+pub(crate) fn do_paint_svg(
+    scene: &mut vello::Scene,
+    media_id: MediaId,
+    rect: &Rectangle,
+    affine: Affine,
+    media_store: &MediaStore,
+) {
     log::debug!("Painting SVG: {:?}", media_id);
 
-    // Acquire the media store only long enough to clone the Arc — rasterization happens outside the lock.
-    let media = {
-        let binding = get_media_store().read();
-        binding.get_svg(media_id)
-    };
+    let media = media_store.get_svg(media_id);
 
     let target_dim = rect.rect().dimension();
 

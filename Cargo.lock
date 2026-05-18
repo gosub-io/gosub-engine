@@ -3537,7 +3537,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "skia-safe",
- "taffy 0.7.7",
+ "taffy",
  "url",
  "vello 0.4.1",
  "winit",
@@ -3626,7 +3626,7 @@ dependencies = [
  "parking_lot",
  "parley 0.9.0",
  "regex",
- "taffy 0.9.2",
+ "taffy",
 ]
 
 [[package]]
@@ -3786,12 +3786,6 @@ dependencies = [
  "pkg-config",
  "system-deps",
 ]
-
-[[package]]
-name = "grid"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36119f3a540b086b4e436bb2b588cf98a68863470e0e880f4d0842f112a3183a"
 
 [[package]]
 name = "grid"
@@ -7780,24 +7774,12 @@ dependencies = [
 
 [[package]]
 name = "taffy"
-version = "0.7.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab4f4d046dd956a47a7e1a2947083d7ac3e6aa3cfaaead36173ceaa5ab11878c"
-dependencies = [
- "arrayvec",
- "grid 0.15.0",
- "serde",
- "slotmap",
-]
-
-[[package]]
-name = "taffy"
 version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41ba83ebaf2954d31d05d67340fd46cebe99da2b7133b0dd68d70c65473a437b"
 dependencies = [
  "arrayvec",
- "grid 1.0.1",
+ "grid",
  "serde",
  "slotmap",
 ]

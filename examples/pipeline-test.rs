@@ -67,7 +67,16 @@ async fn serve(mut stream: TcpStream) {
         "/style.css" => ("text/css; charset=utf-8", b"body { color: #333; }"),
         "/app.js" => ("application/javascript; charset=utf-8", b"// pipeline test"),
         "/pixel.gif" => ("image/gif", PIXEL_GIF),
-        _ => ("text/plain", b"not found"),
+        _ => {
+            let not_found = b"not found";
+            let header = format!(
+                "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                not_found.len()
+            );
+            let _ = stream.write_all(header.as_bytes()).await;
+            let _ = stream.write_all(not_found).await;
+            return;
+        }
     };
 
     let header = format!(
@@ -90,7 +99,7 @@ async fn run_server(listener: TcpListener, stop: CancellationToken) {
 // ── Decision handler ─────────────────────────────────────────────────────────
 
 async fn decide(tab: TabHandle, nav_id: NavigationId, _meta: FetchResultMeta, token: DecisionToken) {
-    let action = Action::Render; // render everything for testing purposes
+    let action = Action::Render;
 
     let _ = tab
         .cmd_tx

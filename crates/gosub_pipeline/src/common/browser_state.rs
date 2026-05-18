@@ -1,10 +1,8 @@
-use crate::common::document::document::Document;
 use crate::common::geo::Rect;
 use crate::layouter::LayoutElementId;
 use crate::tiler::TileList;
 use parking_lot::RwLock;
 use std::fmt::Debug;
-use std::sync::{Arc, OnceLock};
 
 #[derive(Debug)]
 pub enum WireframeState {
@@ -13,8 +11,7 @@ pub enum WireframeState {
     Both,
 }
 
-/// Things that can change in the browser is stored in this structure. It keeps the current rendering pipeline (in the form of a layer_list),
-/// and some things that we can control, or is controlled by the user (like current_hovered_element).
+/// Per-tab render settings passed through the pipeline instead of living in a global.
 pub struct BrowserState {
     /// List of layers that will be visible are set to true
     pub visible_layer_list: Vec<bool>,
@@ -28,8 +25,6 @@ pub struct BrowserState {
     pub current_hovered_element: Option<LayoutElementId>,
     /// Current viewport offset + size
     pub viewport: Rect,
-    /// Main document that is currently being rendered
-    pub document: Arc<Document>,
     /// LayerList that is currently being rendered
     pub tile_list: Option<RwLock<TileList>>,
     /// Scale factor for DPI
@@ -48,16 +43,4 @@ impl Debug for BrowserState {
             .field("dpi_scale_factor", &self.dpi_scale_factor)
             .finish()
     }
-}
-
-static BROWSER_STATE: OnceLock<Arc<RwLock<BrowserState>>> = OnceLock::new();
-
-pub fn init_browser_state(state: BrowserState) {
-    BROWSER_STATE
-        .set(Arc::new(RwLock::new(state)))
-        .expect("Failed to set browser state");
-}
-
-pub fn get_browser_state() -> Arc<RwLock<BrowserState>> {
-    BROWSER_STATE.get().expect("Failed to get browser state").clone()
 }

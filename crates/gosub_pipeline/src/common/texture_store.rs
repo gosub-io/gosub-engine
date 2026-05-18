@@ -2,18 +2,19 @@ use crate::common::texture::{Texture, TextureId};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::io::Cursor;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
-pub static TEXTURE_STORE: OnceLock<RwLock<TextureStore>> = OnceLock::new();
-
-pub fn get_texture_store() -> &'static RwLock<TextureStore> {
-    TEXTURE_STORE.get_or_init(|| RwLock::new(TextureStore::new()))
-}
-
-/// Texture store stores all the textures. It can remove textures if needed (LRU / memory constraints for instance).
+/// Texture store for a single rasterizer instance. Create one per render context; do not share
+/// globally between tabs.
 pub struct TextureStore {
     textures: HashMap<TextureId, Arc<Texture>>,
     next_id: RwLock<TextureId>,
+}
+
+impl Default for TextureStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TextureStore {

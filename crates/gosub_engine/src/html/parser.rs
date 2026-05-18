@@ -143,16 +143,26 @@ where
         }
     }
 
-    let html = String::from_utf8_lossy(&buf).into_owned();
+    // Use lossy UTF-8 only for the fast resource-discovery regex scan.
+    let html_lossy = String::from_utf8_lossy(&buf);
 
     // Fire sub-resource callbacks using the fast regex-based scanner so that
     // image/CSS/script fetches are submitted before the full parse completes.
-    for hint in discover_resources(&html, &base_url) {
+    for hint in discover_resources(&html_lossy, &base_url) {
         on_discover(hint);
     }
 
-    // Parse into a real DOM document with the correct URL, then attach the UA stylesheet.
-    let mut stream = ByteStream::from_str(&html, Encoding::UTF8);
+    // Detect encoding from the raw bytes (BOM check + chardetng), then build a
+    // properly-decoded stream.  We cannot call set_encoding() on an Unknown-
+    // encoded stream because tell_bytes() returns buffer.len() when chars is
+    // empty, which would advance the position to EOF.
+    let encoding = {
+        let mut tmp = ByteStream::new(Encoding::Unknown, None);
+        tmp.read_from_bytes(&buf)?;
+        tmp.detect_encoding()
+    };
+    let mut stream = ByteStream::new(encoding, None);
+    stream.read_from_bytes(&buf)?;
     let mut doc = DocumentBuilderImpl::new_document::<HtmlEngineConfig>(Some(base_url));
     let _ = Html5Parser::<HtmlEngineConfig>::parse_document(&mut stream, &mut doc, None);
     let ua = Css3System::load_default_useragent_stylesheet();

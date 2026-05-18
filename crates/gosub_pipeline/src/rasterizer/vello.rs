@@ -1,6 +1,7 @@
 use crate::common::geo::Dimension;
-use crate::common::get_texture_store;
+use crate::common::media::MediaStore;
 use crate::common::texture::TextureId;
+use crate::common::texture_store::TextureStore;
 use crate::painter::commands::PaintCommand;
 use crate::rasterizer::vello::text::do_paint_text;
 use crate::rasterizer::Rasterable;
@@ -33,7 +34,7 @@ impl<'a> VelloRasterizer<'a> {
 }
 
 impl Rasterable for VelloRasterizer<'_> {
-    fn rasterize(&self, tile: &Tile) -> Option<TextureId> {
+    fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId> {
         let mut scene = Scene::new();
 
         let tile_size = Dimension::new(tile.rect.width, tile.rect.height);
@@ -51,17 +52,19 @@ impl Rasterable for VelloRasterizer<'_> {
             for command in &element.paint_commands {
                 match command {
                     PaintCommand::Svg(command) => {
-                        svg::do_paint_svg(&mut scene, command.media_id, &command.rect, affine);
+                        svg::do_paint_svg(&mut scene, command.media_id, &command.rect, affine, media_store);
                     }
                     PaintCommand::Rectangle(command) => {
-                        rectangle::do_paint_rectangle(&mut scene, command, affine);
+                        rectangle::do_paint_rectangle(&mut scene, command, affine, media_store);
                     }
-                    PaintCommand::Text(command) => match do_paint_text(&mut scene, command, tile_size, affine) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            log::warn!("Failed to paint text: {:?}", e);
+                    PaintCommand::Text(command) => {
+                        match do_paint_text(&mut scene, command, tile_size, affine, media_store) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                log::warn!("Failed to paint text: {:?}", e);
+                            }
                         }
-                    },
+                    }
                 }
             }
         }
@@ -97,8 +100,6 @@ impl Rasterable for VelloRasterizer<'_> {
             tile.id,
         );
 
-        let binding = get_texture_store();
-        let mut texture_store = binding.write();
         let texture_id = texture_store.add(tile_size.width as usize, tile_size.height as usize, texture_data);
 
         Some(texture_id)

@@ -39,6 +39,9 @@ use crate::html::EngineDocument;
 use crate::render::{Color, DisplayItem, RenderList, Viewport};
 use std::sync::Arc;
 use url::Url;
+
+#[cfg(feature = "pipeline")]
+use crate::html::HtmlEngineConfig;
 // #[derive(Debug, thiserror::Error)]
 // pub enum LoadError {
 //     #[error("navigation cancelled")]
@@ -145,7 +148,6 @@ impl BrowsingContext {
     }
 
     /// Build/refresh the device-agnostic scene if needed.
-    /// For now, this renders raw_html as text lines; later, it consumes DOM/layout.
     pub fn rebuild_render_list_if_needed(&mut self) {
         if !self.render_dirty {
             return;
@@ -153,11 +155,17 @@ impl BrowsingContext {
 
         let mut rl = RenderList::default();
 
-        rl.items.push(DisplayItem::Clear {
-            color: Color::new(0.6, 0.6, 0.6, 1.0),
-        });
+        #[cfg(feature = "pipeline")]
+        if let Some(doc) = &self.document {
+            pipeline_render(doc.clone(), &self.viewport, &mut rl);
+        }
 
-        // TODO(#946): drive render list from pipeline (RenderTree → layout → DisplayItems)
+        #[cfg(not(feature = "pipeline"))]
+        if self.document.is_none() {
+            rl.items.push(DisplayItem::Clear {
+                color: Color::new(0.6, 0.6, 0.6, 1.0),
+            });
+        }
 
         self.render_list = rl;
         self.render_dirty = false;
@@ -183,4 +191,222 @@ impl BrowsingContext {
     pub fn current_url(&self) -> Option<&Url> {
         self.current_url.as_ref()
     }
+}
+
+/// Runs the full gosub_pipeline (rendertree → layout) and fills `rl` with
+/// backend-agnostic [`DisplayItem`]s derived from the computed layout.
+///
+/// The function is a no-op when the `pipeline` Cargo feature is not enabled.
+#[cfg(feature = "pipeline")]
+fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut RenderList) {
+    use gosub_pipeline::common::browser_state::{BrowserState, WireframeState};
+    use gosub_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
+    use gosub_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
+    use gosub_pipeline::layering::layer::LayerList;
+    use gosub_pipeline::layouter::taffy::TaffyLayouter;
+    use gosub_pipeline::layouter::CanLayout;
+    use gosub_pipeline::painter::Painter;
+    use gosub_pipeline::rendertree_builder::RenderTree;
+    use gosub_pipeline::tiler::{TileList, TileState};
+    use std::time::Instant;
+
+    log::info!(
+        "[pipeline] starting render (viewport {}x{})",
+        viewport.width,
+        viewport.height
+    );
+    let t_total = Instant::now();
+
+    rl.items.push(DisplayItem::Clear {
+        color: Color::new(1.0, 1.0, 1.0, 1.0),
+    });
+
+    // Stage 1: render tree
+    let t = Instant::now();
+    let adapter = GosubDocumentAdapter::<HtmlEngineConfig>::new(doc);
+    let mut render_tree = RenderTree::new(Arc::new(adapter));
+    render_tree.parse();
+    log::info!(
+        "[pipeline] stage 1 render-tree:  {:>6.1}ms  ({} nodes)",
+        t.elapsed().as_secs_f64() * 1000.0,
+        render_tree.arena.len()
+    );
+
+    let vp_dim = if viewport.width > 0 && viewport.height > 0 {
+        Some(PipelineDimension::new(viewport.width as f64, viewport.height as f64))
+    } else {
+        None
+    };
+
+    // Stage 2: layout
+    let t = Instant::now();
+    let mut layouter = TaffyLayouter::new();
+    let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
+    log::info!(
+        "[pipeline] stage 2 layout:        {:>6.1}ms  (root {}x{:.0})",
+        t.elapsed().as_secs_f64() * 1000.0,
+        layout_tree.root_dimension.width,
+        layout_tree.root_dimension.height
+    );
+
+    // Stage 3: layering
+    let t = Instant::now();
+    let layer_list = LayerList::new(layout_tree);
+    let layer_count = layer_list.layer_ids.read().len();
+    log::info!(
+        "[pipeline] stage 3 layering:      {:>6.1}ms  ({} layers)",
+        t.elapsed().as_secs_f64() * 1000.0,
+        layer_count
+    );
+
+    // Stage 4: tiling
+    let t = Instant::now();
+    let mut tile_list = TileList::new(layer_list, PipelineDimension::new(256.0, 256.0));
+    tile_list.generate();
+    let total_tiles = tile_list.arena.len();
+    log::info!(
+        "[pipeline] stage 4 tiling:        {:>6.1}ms  ({} tiles total)",
+        t.elapsed().as_secs_f64() * 1000.0,
+        total_tiles
+    );
+
+    // Stage 5: painting
+    let t = Instant::now();
+    let vp_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, viewport.height as f64);
+    let layer_ids = tile_list.layer_list.layer_ids.read().clone();
+    let paint_state = BrowserState {
+        visible_layer_list: vec![true; layer_ids.len()],
+        wireframed: WireframeState::None,
+        debug_hover: false,
+        current_hovered_element: None,
+        show_tilegrid: false,
+        viewport: vp_rect,
+        tile_list: None,
+        dpi_scale_factor: 1.0,
+    };
+    let painter = Painter::new(tile_list.layer_list.clone());
+    let mut painted_tiles = 0usize;
+    let mut painted_commands = 0usize;
+    for &layer_id in &layer_ids {
+        let tile_ids = tile_list.get_intersecting_tiles(layer_id, vp_rect);
+        for tile_id in tile_ids {
+            if let Some(tile) = tile_list.get_tile_mut(tile_id) {
+                if tile.state == TileState::Dirty {
+                    let mut cmd_count = 0usize;
+                    for tiled_element in &mut tile.elements {
+                        let cmds = painter.paint(tiled_element, &paint_state);
+                        cmd_count += cmds.len();
+                        tiled_element.paint_commands = cmds;
+                    }
+                    log::debug!(
+                        "[pipeline]   paint tile {:?} @ ({:.0},{:.0}) — {} elements, {} commands",
+                        tile_id,
+                        tile.rect.x,
+                        tile.rect.y,
+                        tile.elements.len(),
+                        cmd_count
+                    );
+                    painted_tiles += 1;
+                    painted_commands += cmd_count;
+                }
+            }
+        }
+    }
+    log::info!(
+        "[pipeline] stage 5 painting:      {:>6.1}ms  ({} tiles painted, {} commands total)",
+        t.elapsed().as_secs_f64() * 1000.0,
+        painted_tiles,
+        painted_commands
+    );
+
+    // Stage 6: rasterize
+    #[cfg(feature = "backend_cairo")]
+    let texture_store = {
+        use gosub_pipeline::common::media::MediaStore;
+        use gosub_pipeline::common::texture_store::TextureStore;
+        use gosub_pipeline::rasterizer::cairo::CairoRasterizer;
+        use gosub_pipeline::rasterizer::Rasterable;
+
+        let t = Instant::now();
+        let media_store = MediaStore::new();
+        let mut texture_store = TextureStore::new();
+        let rasterizer = CairoRasterizer::new();
+        let mut rasterized = 0usize;
+        let mut empty = 0usize;
+        for &layer_id in &layer_ids {
+            let tile_ids = tile_list.get_intersecting_tiles(layer_id, vp_rect);
+            for tile_id in tile_ids {
+                if let Some(tile) = tile_list.get_tile_mut(tile_id) {
+                    if tile.state == TileState::Dirty {
+                        match rasterizer.rasterize(tile, &mut texture_store, &media_store) {
+                            Some(texture_id) => {
+                                log::debug!(
+                                    "[pipeline]   rasterized tile {:?} @ ({:.0},{:.0}) → texture {:?}",
+                                    tile_id,
+                                    tile.rect.x,
+                                    tile.rect.y,
+                                    texture_id
+                                );
+                                tile.texture_id = Some(texture_id);
+                                tile.state = TileState::Clean;
+                                rasterized += 1;
+                            }
+                            None => {
+                                log::debug!(
+                                    "[pipeline]   rasterized tile {:?} @ ({:.0},{:.0}) → empty",
+                                    tile_id,
+                                    tile.rect.x,
+                                    tile.rect.y
+                                );
+                                tile.state = TileState::Empty;
+                                empty += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        log::info!(
+            "[pipeline] stage 6 rasterize:     {:>6.1}ms  ({} clean, {} empty)",
+            t.elapsed().as_secs_f64() * 1000.0,
+            rasterized,
+            empty
+        );
+        texture_store
+    };
+
+    // Stage 7: compositing
+    #[cfg(feature = "backend_cairo")]
+    {
+        let t = Instant::now();
+        let mut blits = 0usize;
+        for tile in tile_list.arena.values() {
+            if let (Some(texture_id), true) = (tile.texture_id, tile.state == TileState::Clean) {
+                if let Some(tex) = texture_store.get(texture_id) {
+                    log::debug!(
+                        "[pipeline]   blit tile @ ({:.0},{:.0}) {}×{} px",
+                        tile.rect.x,
+                        tile.rect.y,
+                        tex.width,
+                        tex.height
+                    );
+                    rl.items.push(DisplayItem::Blit {
+                        x: tile.rect.x as f32,
+                        y: tile.rect.y as f32,
+                        w: tex.width as u32,
+                        h: tex.height as u32,
+                        data: tex.data.clone(),
+                    });
+                    blits += 1;
+                }
+            }
+        }
+        log::info!(
+            "[pipeline] stage 7 composite:     {:>6.1}ms  ({} blit items emitted)",
+            t.elapsed().as_secs_f64() * 1000.0,
+            blits
+        );
+    }
+
+    log::info!("[pipeline] total: {:.1}ms", t_total.elapsed().as_secs_f64() * 1000.0);
 }
