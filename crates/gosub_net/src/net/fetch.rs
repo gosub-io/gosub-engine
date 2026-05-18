@@ -5,6 +5,7 @@ use crate::types::PeekBuf;
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use futures_util::{stream, StreamExt, TryStreamExt};
+use gosub_shared::timing_guard;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -44,6 +45,7 @@ pub async fn fetch_response_top(
     observer: Arc<dyn NetObserver + Send + Sync>,
 ) -> Result<ResponseTop, NetError> {
     // Emit we are starting
+    let _timer = timing_guard!("net.fetch", url.as_str());
     let started = Instant::now();
     observer.on_event(NetEvent::Started { url: url.clone() });
 
@@ -282,6 +284,7 @@ pub async fn fetch_response_complete(
     // Total time of read allowed (if any)
     total_body_timeout: Option<Duration>,
 ) -> Result<(FetchResultMeta, Vec<u8>), NetError> {
+    let _timer = timing_guard!("net.fetch_complete", url.as_str());
     let started = Instant::now();
 
     let ResponseTop {

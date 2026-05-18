@@ -11,7 +11,7 @@ pub fn do_paint_text(scene: &mut Scene, cmd: &Text, tile_size: Dimension, affine
 
     let mut surface = skia_safe::surfaces::raster_n32_premul((tile_size.width as i32, tile_size.height as i32))
         .ok_or_else(|| anyhow::anyhow!("Failed to create Skia surface for text rendering"))?;
-    let mut canvas = surface.canvas();
+    let canvas = surface.canvas();
 
     canvas.clip_rect(
         skia_safe::Rect::new(0.0, 0.0, tile_size.width as f32, tile_size.height as f32),
@@ -34,7 +34,7 @@ pub fn do_paint_text(scene: &mut Scene, cmd: &Text, tile_size: Dimension, affine
     );
     canvas.clear(skia_safe::Color::TRANSPARENT);
     canvas.concat(&matrix);
-    paragraph.paint(&mut canvas, (cmd.rect.x as f32, cmd.rect.y as f32));
+    paragraph.paint(canvas, (cmd.rect.x as f32, cmd.rect.y as f32));
 
     let Some(peek) = canvas.peek_pixels() else {
         return Err(anyhow::anyhow!("Failed to peek pixels from Skia canvas"));

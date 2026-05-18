@@ -75,6 +75,8 @@ fn main() {
         let backend = gosub_engine::render::backends::cairo::CairoBackend::new();
         let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
         let _engine_join_handle = engine.start().expect("engine start failed");
+        #[cfg(feature = "metrics")]
+        gosub_engine::metrics::start(9090);
         // Subscribe to engine events
         let event_rx = engine.subscribe_events();
 
