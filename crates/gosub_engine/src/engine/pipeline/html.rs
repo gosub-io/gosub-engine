@@ -7,6 +7,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream;
+use gosub_shared::timing_guard;
 use http::Method;
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -113,6 +114,7 @@ impl HtmlPipelineImpl {
 
         let was_cancelled = handle.cancel.is_cancelled();
 
+        let _doc_timer = timing_guard!("html.document", meta.final_url.as_str());
         let res = parse_main_document_stream(
             meta.final_url, // This is the base URL
             reader,
