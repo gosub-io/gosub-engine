@@ -129,6 +129,8 @@ console-subscriber = "0.5"
 # Enables extended debugging information during parsing.
 debug_parser = []
 debug_parser_verbose = []
+# Enables the HTTP metrics server (http://127.0.0.1:9090/metrics) in examples.
+metrics = ["gosub_engine/metrics"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3.91"

@@ -61,13 +61,13 @@ impl Rasterable for SkiaRasterizer {
             for command in &element.paint_commands {
                 match command {
                     PaintCommand::Rectangle(command) => {
-                        rectangle::do_paint_rectangle(canvas, &tile, &command);
+                        rectangle::do_paint_rectangle(canvas, tile, command);
                     }
                     PaintCommand::Text(command) => {
-                        let _ = text::do_paint_text(canvas, &tile, &command, self.dpi_scale_factor);
+                        let _ = text::do_paint_text(canvas, tile, command, self.dpi_scale_factor);
                     }
                     PaintCommand::Svg(command) => {
-                        svg::do_paint_svg(canvas, &tile, command.media_id, &command.rect);
+                        svg::do_paint_svg(canvas, tile, command.media_id, &command.rect);
                     }
                 }
             }

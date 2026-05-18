@@ -104,6 +104,7 @@ backend_cairo = ["dep:gtk4", "dep:cairo-rs", "pipeline", "gosub_pipeline/backend
 backend_vello = ["dep:vello", "dep:wgpu", "pipeline", "gosub_pipeline/backend_vello"]
 backend_skia = ["dep:skia-safe"]
 parley_layout = []
+metrics = []
 
 wayland = ["gdk4-wayland"]
 x11 = ["gdk4-x11"]

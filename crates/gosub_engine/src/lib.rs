@@ -112,6 +112,9 @@ pub mod util;
 
 pub mod html;
 
+#[cfg(feature = "metrics")]
+pub mod metrics;
+
 pub use engine::{BrowsingContext, EngineError, GosubEngine};
 
 pub use engine::types::Action;
