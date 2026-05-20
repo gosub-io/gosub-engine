@@ -336,8 +336,8 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
     let texture_store = {
         use gosub_pipeline::common::media::MediaStore;
         use gosub_pipeline::common::texture_store::TextureStore;
-        use gosub_pipeline::rasterizer::cairo::CairoRasterizer;
         use gosub_pipeline::rasterizer::Rasterable;
+        use gosub_renderer_cairo::CairoRasterizer;
 
         let t = Instant::now();
         let ts6 = timing_start!("pipeline.rasterize");

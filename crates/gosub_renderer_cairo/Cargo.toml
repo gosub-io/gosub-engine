@@ -1,0 +1,32 @@
+[package]
+name = "gosub_renderer_cairo"
+version = "0.1.0"
+edition = "2021"
+description = "Cairo rasterizer and compositor backend for the Gosub render pipeline"
+license = "MIT"
+
+[[bin]]
+name = "pipeline-cairo"
+path = "src/bin/pipeline-cairo.rs"
+required-features = ["text_pango"]
+
+[dependencies]
+gosub_pipeline = { version = "0.1.0", path = "../gosub_pipeline" }
+gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
+resvg = "0.47.0"
+log = "0.4.29"
+anyhow = "1.0"
+cow-utils = "0.1"
+parking_lot = "0.12"
+
+gtk4 = { version = "0.11.1" }
+pangocairo = { version = "0.22", optional = true }
+
+[features]
+default = ["text_pango"]
+text_pango = ["dep:pangocairo"]
+text_parley = []
+text_skia = []
+
+[lints]
+workspace = true

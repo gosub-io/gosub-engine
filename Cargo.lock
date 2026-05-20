@@ -3351,6 +3351,7 @@ dependencies = [
  "gosub_interface",
  "gosub_net",
  "gosub_pipeline",
+ "gosub_renderer_cairo",
  "gosub_shared",
  "gtk4",
  "hashbrown 0.17.1",
@@ -3523,14 +3524,10 @@ dependencies = [
  "gosub_interface",
  "gosub_net",
  "gosub_shared",
- "gtk4",
  "hex",
  "image",
  "log",
- "pangocairo",
  "parking_lot",
- "parley 0.3.0",
- "pollster",
  "rand 0.10.1",
  "regex",
  "resvg",
@@ -3538,11 +3535,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "skia-safe",
  "taffy",
  "url",
- "vello 0.4.1",
- "winit",
 ]
 
 [[package]]
@@ -3561,6 +3555,50 @@ dependencies = [
  "url",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "gosub_renderer_cairo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cow-utils",
+ "gosub_pipeline",
+ "gosub_shared",
+ "gtk4",
+ "log",
+ "pangocairo",
+ "parking_lot",
+ "resvg",
+]
+
+[[package]]
+name = "gosub_renderer_skia"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_pipeline",
+ "gosub_shared",
+ "log",
+ "parking_lot",
+ "skia-safe",
+]
+
+[[package]]
+name = "gosub_renderer_vello"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_pipeline",
+ "gosub_shared",
+ "log",
+ "parking_lot",
+ "parley 0.3.0",
+ "pollster",
+ "resvg",
+ "skia-safe",
+ "vello 0.4.1",
+ "winit",
 ]
 
 [[package]]
