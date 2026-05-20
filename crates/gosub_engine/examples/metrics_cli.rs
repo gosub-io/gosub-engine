@@ -13,34 +13,32 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-
     let mut host = "127.0.0.1".to_string();
     let mut port: u16 = 9090;
     let mut reset = false;
     let mut json_output = false;
     let mut watch_interval: Option<u64> = None;
 
-    let mut i = 1;
-    while i < args.len() {
-        match args[i].as_str() {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
             "--host" => {
-                i += 1;
-                host = args.get(i).cloned().unwrap_or(host);
+                if let Some(v) = args.next() {
+                    host = v;
+                }
             }
             "--port" => {
-                i += 1;
-                port = args.get(i).and_then(|p| p.parse().ok()).unwrap_or(port);
+                if let Some(v) = args.next() {
+                    port = v.parse().unwrap_or(port);
+                }
             }
             "--reset" => reset = true,
             "--json" => json_output = true,
             "--watch" => {
-                i += 1;
-                watch_interval = args.get(i).and_then(|s| s.parse().ok()).or(Some(1));
+                watch_interval = args.next().and_then(|s| s.parse().ok()).or(Some(1));
             }
             _ => {}
         }
-        i += 1;
     }
 
     let base = format!("http://{host}:{port}");
