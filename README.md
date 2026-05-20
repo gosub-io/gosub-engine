@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="resources/images/hero.gif" alt="Gosub — an embeddable, async browser engine in Rust. Parses HTML5/CSS3, lays out with Taffy, renders to Cairo, Vello, or your own backend. 21 crates, one engine.">
+</p>
+
 # Gosub Browser Engine
 
 An embeddable, async browser engine written in Rust.
