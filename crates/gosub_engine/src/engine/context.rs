@@ -386,6 +386,24 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
             rasterized,
             empty
         );
+
+        // DEBUG: dump first tile to /tmp/tile0.png to verify rasterizer output
+        use gosub_pipeline::common::texture::TextureId;
+        if let Some(tex) = texture_store.get(TextureId::new(0)) {
+            log::info!("[pipeline] DEBUG tile0: {}×{} {} bytes, pixel[0]={:02x}{:02x}{:02x}{:02x}",
+                tex.width, tex.height, tex.data.len(),
+                tex.data.get(0).copied().unwrap_or(0),
+                tex.data.get(1).copied().unwrap_or(0),
+                tex.data.get(2).copied().unwrap_or(0),
+                tex.data.get(3).copied().unwrap_or(0),
+            );
+            if let Err(e) = texture_store.save_to_disk(TextureId::new(0)) {
+                log::warn!("[pipeline] DEBUG save_to_disk failed: {}", e);
+            } else {
+                log::info!("[pipeline] DEBUG saved tile0 to texture-0.png");
+            }
+        }
+
         texture_store
     };
 
