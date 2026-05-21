@@ -53,8 +53,23 @@ pub struct Stats {
     p99: u64,
 }
 
+/// Aggregated timing statistics for a single namespace, suitable for external consumption.
+#[derive(Debug, Clone)]
+pub struct NamespaceStats {
+    pub namespace: String,
+    pub count: u64,
+    pub total_us: u64,
+    pub min_us: u64,
+    pub max_us: u64,
+    pub avg_us: u64,
+    pub p50_us: u64,
+    pub p75_us: u64,
+    pub p95_us: u64,
+    pub p99_us: u64,
+}
+
 fn percentage_to_index(count: u64, percentage: f64) -> usize {
-    (count as f64 * percentage) as usize
+    ((count as f64 * percentage) as usize).min(count.saturating_sub(1) as usize)
 }
 
 impl TimingTable {
@@ -95,14 +110,14 @@ impl TimingTable {
 
         durations.sort_unstable();
         let count = durations.len() as u64;
-        let total = durations.iter().sum();
+        let total: u64 = durations.iter().sum();
         let min = *durations.first().unwrap_or(&0);
         let max = *durations.last().unwrap_or(&0);
-        let avg = total / count;
-        let p50 = durations[percentage_to_index(count, 0.50)];
-        let p75 = durations[percentage_to_index(count, 0.75)];
-        let p95 = durations[percentage_to_index(count, 0.95)];
-        let p99 = durations[percentage_to_index(count, 0.99)];
+        let avg = total.checked_div(count).unwrap_or(0);
+        let p50 = durations.get(percentage_to_index(count, 0.50)).copied().unwrap_or(0);
+        let p75 = durations.get(percentage_to_index(count, 0.75)).copied().unwrap_or(0);
+        let p95 = durations.get(percentage_to_index(count, 0.95)).copied().unwrap_or(0);
+        let p99 = durations.get(percentage_to_index(count, 0.99)).copied().unwrap_or(0);
 
         Stats {
             count,
@@ -115,6 +130,35 @@ impl TimingTable {
             p95,
             p99,
         }
+    }
+
+    /// Returns aggregated stats for every registered namespace.
+    #[must_use]
+    pub fn namespace_stats(&self) -> Vec<NamespaceStats> {
+        self.namespaces
+            .iter()
+            .map(|(ns, timer_ids)| {
+                let s = self.get_stats(timer_ids);
+                NamespaceStats {
+                    namespace: ns.clone(),
+                    count: s.count,
+                    total_us: s.total,
+                    min_us: s.min,
+                    max_us: s.max,
+                    avg_us: s.avg,
+                    p50_us: s.p50,
+                    p75_us: s.p75,
+                    p95_us: s.p95,
+                    p99_us: s.p99,
+                }
+            })
+            .collect()
+    }
+
+    /// Clears all recorded timings.
+    pub fn clear(&mut self) {
+        self.timers.clear();
+        self.namespaces.clear();
     }
 
     fn scale(&self, value: u64, scale: Scale) -> String {
@@ -184,6 +228,42 @@ lazy_static! {
     pub static ref TIMING_TABLE: Mutex<TimingTable> = Mutex::new(TimingTable::default());
 }
 
+/// Returns a snapshot of all namespace statistics from the global timing table.
+pub fn snapshot_stats() -> Vec<NamespaceStats> {
+    TIMING_TABLE.lock().namespace_stats()
+}
+
+/// Clears all recorded timings from the global timing table.
+pub fn reset_stats() {
+    TIMING_TABLE.lock().clear();
+}
+
+/// RAII timer guard — stops the timer when dropped, regardless of how the
+/// enclosing scope exits (normal return, early return, `?`, panic).
+///
+/// Obtain one via [`timing_guard!`] or [`TimerGuard::start`].
+pub struct TimerGuard {
+    id: TimerId,
+}
+
+impl TimerGuard {
+    pub fn start(namespace: &str, context: &str) -> Self {
+        let id = TIMING_TABLE.lock().start_timer(namespace, Some(context.to_string()));
+        Self { id }
+    }
+
+    pub fn start_anon(namespace: &str) -> Self {
+        let id = TIMING_TABLE.lock().start_timer(namespace, None);
+        Self { id }
+    }
+}
+
+impl Drop for TimerGuard {
+    fn drop(&mut self) {
+        TIMING_TABLE.lock().stop_timer(self.id);
+    }
+}
+
 #[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! timing_start {
@@ -204,6 +284,26 @@ macro_rules! timing_stop {
     ($timer_id:expr) => {{
         $crate::timing::TIMING_TABLE.lock().stop_timer($timer_id);
     }};
+}
+
+/// Start a scoped timer that stops automatically when the returned guard drops.
+///
+/// Use this instead of `timing_start!/timing_stop!` whenever the measured
+/// block has multiple exit paths (early returns, `?`, etc.).
+///
+/// ```rust,ignore
+/// let _t = timing_guard!("net.fetch", url.as_str());
+/// // timer stops when `_t` goes out of scope, on any path
+/// ```
+#[allow(clippy::crate_in_macro_def)]
+#[macro_export]
+macro_rules! timing_guard {
+    ($namespace:expr, $context:expr) => {
+        $crate::timing::TimerGuard::start($namespace, $context)
+    };
+    ($namespace:expr) => {
+        $crate::timing::TimerGuard::start_anon($namespace)
+    };
 }
 
 #[allow(clippy::crate_in_macro_def)]
