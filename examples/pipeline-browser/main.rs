@@ -21,7 +21,6 @@ use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
 use tokio::sync::mpsc;
@@ -42,7 +41,9 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 fn main() {
     simple_logger::init_with_env().unwrap_or_default();
 
-    let initial_url: Option<String> = std::env::args().nth(1);
+    let initial_url: String = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "https://stop-ai-slop.com".to_string());
 
     let app = Application::builder()
         .application_id("io.gosub.pipeline-browser")
@@ -50,6 +51,10 @@ fn main() {
 
     app.connect_activate(move |app| {
         let _rt_guard = TOKIO_RT.enter();
+
+        // Cache GSettings-derived values while still on the GTK main thread so the
+        // background rasterizer threads never need to touch GTK globals.
+        gosub_engine::init_gtk_resources();
 
         // Channel from engine → GTK: request a redraw
         let (tx_redraw, mut rx_redraw) = mpsc::unbounded_channel::<()>();
@@ -106,19 +111,6 @@ fn main() {
 
         let tab_id: TabId = tab.tab_id;
 
-        if let Some(url_str) = &initial_url {
-            let mut s = url_str.clone();
-            if !s.starts_with("http://") && !s.starts_with("https://") {
-                s = format!("https://{s}");
-            }
-            if let Ok(url) = Url::parse(&s) {
-                TOKIO_RT.block_on(async {
-                    let _ = tab.send(TabCommand::Navigate { url: url.to_string() }).await;
-                    let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
-                });
-            }
-        }
-
         // Wrap the tab in Rc<RefCell<>> so closures can share it
         let tab = Rc::new(RefCell::new(tab));
 
@@ -146,88 +138,68 @@ fn main() {
 
         // --- Draw callback ---
         let compositor_draw = compositor.clone();
-        static DRAW_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
         drawing_area.set_draw_func(move |_area, cr, w, h| {
-            let log_this = DRAW_LOG_COUNT.fetch_add(1, Ordering::Relaxed) < 5;
             match compositor_draw.read().frame_for(tab_id) {
-                None => {
-                    if log_this { log::info!("[draw] frame_for={:?} → no frame yet (placeholder)", tab_id); }
-                    draw_placeholder(cr, w, h);
-                }
+                None => draw_placeholder(cr, w, h),
                 Some(handle) => match handle {
-                    ExternalHandle::CpuPixelsPtr {
-                        width,
-                        height,
-                        stride,
-                        pixel_buf,
-                    } => {
-                        if log_this {
-                            log::info!("[draw] CpuPixelsPtr {}×{} stride={} area={}×{}", width, height, stride, w, h);
-                            // SAFETY: pixel_buf is valid (same unsafe block below verifies this).
-                            let p = unsafe { std::slice::from_raw_parts(pixel_buf.as_ptr(), 4.min((height as usize) * (stride as usize))) };
-                            if p.len() >= 4 {
-                                log::info!("[draw]   pixel[0] = {:02x} {:02x} {:02x} {:02x} (BGRA)", p[0], p[1], p[2], p[3]);
+                    ExternalHandle::CpuPixelsPtr { width, height, stride, pixel_buf } => {
+                        let owned = unsafe {
+                            std::slice::from_raw_parts(pixel_buf.as_ptr(), (height as usize) * (stride as usize))
+                        }.to_vec();
+                        match gtk4::cairo::ImageSurface::create_for_data(
+                            owned, gtk4::cairo::Format::ARgb32,
+                            width as i32, height as i32, stride as i32,
+                        ) {
+                            Ok(surface) => {
+                                surface.flush();
+                                scale_to_fit(cr, width as f64, height as f64, w, h);
+                                cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
+                                cr.paint().unwrap_or_default();
                             }
+                            Err(e) => { log::warn!("[draw] surface failed: {:?}", e); draw_placeholder(cr, w, h); }
                         }
-                        // SAFETY: pixel_buf is valid for the duration of this draw call.
-                        let surface = unsafe {
-                            gtk4::cairo::ImageSurface::create_for_data_unsafe(
-                                pixel_buf.as_ptr(),
-                                gtk4::cairo::Format::ARgb32,
-                                width as i32,
-                                height as i32,
-                                stride as i32,
-                            )
-                            .expect("cairo surface (ptr)")
-                        };
-                        surface.flush();
-                        scale_to_fit(cr, width as f64, height as f64, w, h);
-                        cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
-                        cr.paint().unwrap_or_default();
                     }
-                    ExternalHandle::CpuPixelsOwned {
-                        width,
-                        height,
-                        stride,
-                        mut pixels,
-                        ..
-                    } => {
-                        if log_this {
-                            log::info!("[draw] CpuPixelsOwned {}×{} stride={} area={}×{}", width, height, stride, w, h);
-                            if pixels.len() >= 4 {
-                                log::info!("[draw]   pixel[0,0]   = {:02x} {:02x} {:02x} {:02x} (BGRA)", pixels[0], pixels[1], pixels[2], pixels[3]);
+                    ExternalHandle::CpuPixelsOwned { width, height, stride, pixels, .. } => {
+                        match gtk4::cairo::ImageSurface::create_for_data(
+                            pixels, gtk4::cairo::Format::ARgb32,
+                            width as i32, height as i32, stride as i32,
+                        ) {
+                            Ok(surface) => {
+                                surface.flush();
+                                scale_to_fit(cr, width as f64, height as f64, w, h);
+                                cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
+                                cr.paint().unwrap_or_default();
                             }
-                            // Sample a few pixels across the content area
-                            for (px, py) in [(200u32, 100u32), (550, 50), (550, 100), (400, 150)] {
-                                let off = (py as usize * stride as usize) + (px as usize * 4);
-                                if pixels.len() > off + 3 {
-                                    log::info!("[draw]   pixel[{},{}] = {:02x} {:02x} {:02x} {:02x} (BGRA)", px, py, pixels[off], pixels[off+1], pixels[off+2], pixels[off+3]);
-                                }
-                            }
+                            Err(e) => { log::warn!("[draw] surface failed: {:?}", e); draw_placeholder(cr, w, h); }
                         }
-                        // SAFETY: pixels is owned and valid for the duration of this draw call.
-                        let surface = unsafe {
-                            gtk4::cairo::ImageSurface::create_for_data_unsafe(
-                                pixels.as_mut_ptr(),
-                                gtk4::cairo::Format::ARgb32,
-                                width as i32,
-                                height as i32,
-                                stride as i32,
-                            )
-                            .expect("cairo surface (owned)")
-                        };
-                        surface.flush();
-                        scale_to_fit(cr, width as f64, height as f64, w, h);
-                        cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
-                        cr.paint().unwrap_or_default();
                     }
-                    other => {
-                        if log_this { log::info!("[draw] unexpected handle variant: {:?}", other); }
-                        draw_placeholder(cr, w, h);
-                    }
+                    _ => draw_placeholder(cr, w, h),
                 },
             }
         });
+
+        // Scroll → forward to engine
+        let scroll_ctl = gtk4::EventControllerScroll::new(
+            gtk4::EventControllerScrollFlags::BOTH_AXES,
+        );
+        scroll_ctl.connect_scroll({
+            let tab = tab.clone();
+            let da = drawing_area.clone();
+            move |_ctl, dx, dy| {
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseScroll {
+                            delta_x: dx as f32 * 50.0,
+                            delta_y: dy as f32 * 50.0,
+                        })
+                        .await;
+                });
+                da.queue_draw();
+                glib::Propagation::Stop
+            }
+        });
+        drawing_area.add_controller(scroll_ctl);
 
         // Resize → notify the engine tab
         drawing_area.connect_resize({
@@ -311,6 +283,25 @@ fn main() {
             .build();
 
         window.present();
+
+        // Navigate after the window is shown so the viewport is already set.
+        {
+            let tab_init = tab.clone();
+            let url_str = initial_url.clone();
+            glib::idle_add_local_once(move || {
+                let mut s = url_str.clone();
+                if !s.starts_with("http://") && !s.starts_with("https://") {
+                    s = format!("https://{s}");
+                }
+                if let Ok(url) = Url::parse(&s) {
+                    let tab = tab_init.borrow().clone();
+                    TOKIO_RT.spawn(async move {
+                        let _ = tab.send(TabCommand::Navigate { url: url.to_string() }).await;
+                        let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+                    });
+                }
+            });
+        }
     });
 
     // Pass only argv[0] to GTK so the URL argument isn't treated as a filename.

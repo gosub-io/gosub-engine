@@ -151,3 +151,11 @@ pub mod config {
         CookiePartitioning, GpuOptions, LogLevel, ProxyConfig, RedirectPolicy, SandboxMode, TlsConfig,
     };
 }
+
+/// Initialize backend-specific GTK/GLib resources that must be resolved on the main thread
+/// before any background rendering begins. Call once inside `connect_activate`, after GTK
+/// is initialised, before any tabs start loading.
+pub fn init_gtk_resources() {
+    #[cfg(feature = "backend_cairo")]
+    gosub_renderer_cairo::font::pango::init_system_ui_font();
+}
