@@ -2,7 +2,7 @@ pub mod commands;
 
 use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
-use crate::common::document::style::{BorderStyle as CssBorderStyle, Color as StyleColor, StyleProperty, StyleValue};
+use crate::common::document::style::{BorderStyle as CssBorderStyle, StyleProperty, Value};
 use crate::layering::layer::LayerList;
 use crate::layouter::{ElementContext, LayoutElementNode};
 use crate::painter::commands::border::{Border, BorderStyle};
@@ -61,15 +61,15 @@ impl Painter {
         commands
     }
 
-    fn get_brush(&self, node_id: NodeId, css_prop: StyleProperty, default: Brush) -> Brush {
+    fn get_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         match doc.get_style(node_id, css_prop) {
-            Some(StyleValue::Color(css_color)) => Brush::solid(convert_css_color(&css_color)),
+            Value::Color(r, g, b, a) => Brush::solid(Color::from_rgba8(r, g, b, a)),
             _ => default,
         }
     }
 
-    fn get_parent_brush(&self, node_id: NodeId, css_prop: StyleProperty, default: Brush) -> Brush {
+    fn get_parent_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         match doc.parent(node_id) {
             Some(parent_id) => self.get_brush(parent_id, css_prop, default),
@@ -122,24 +122,13 @@ impl Painter {
 
         match &layout_element.context {
             ElementContext::Text(ctx) => {
-                let brush = self.get_parent_brush(dom_node_id, StyleProperty::Color, Brush::solid(Color::BLACK));
+                let brush = self.get_parent_brush(dom_node_id, &StyleProperty::Color, Brush::solid(Color::BLACK));
 
-                // let r = layout_element.box_model.content_box().shift(ctx.text_offset);
                 let r = layout_element.box_model.content_box;
-                // let brush = Brush::solid(Color::from_rgb8(130, 130, 130));
                 let t = Text::new(r, &ctx.text, &ctx.font_info, brush);
                 commands.push(PaintCommand::text(t));
-
-                // let border = Border::new(1.0, BorderStyle::Solid, Brush::Solid(Color::RED));
-                // let r = Rectangle::new(layout_element.box_model.border_box()).with_border(border);
-                // let r = Rectangle::new(layout_element.box_model.border_box()); // .with_border(border);
-                // commands.push(PaintCommand::rectangle(r));
             }
             ElementContext::Svg(svg_ctx) => {
-                // let binding = get_svg_store();
-                // let svg_store = binding.read();
-                // let svg = svg_store.get(svg_ctx.svg_id).unwrap();
-
                 let brush = Brush::solid(Color::from_rgb8(130, 130, 130));
                 let r = Rectangle::new(layout_element.box_model.border_box).with_background(brush);
                 commands.push(PaintCommand::svg(svg_ctx.media_id, r));
@@ -150,23 +139,19 @@ impl Painter {
                 commands.push(PaintCommand::rectangle(r));
             }
             ElementContext::None => {
-                // Paint a normal element. This function will most likely be much more complex as it is now, because we need to
-                // deal with other elements line input fields, buttons, etc. But for now, we just paint a rectangle with (rounded) borders and
-                // brush.
-
                 let doc = &self.layer_list.layout_tree.render_tree.doc;
                 let brush = self.get_brush(
                     dom_node_id,
-                    StyleProperty::BackgroundColor,
+                    &StyleProperty::BackgroundColor,
                     Brush::solid(Color::TRANSPARENT),
                 );
                 let mut r = Rectangle::new(layout_element.box_model.border_box).with_background(brush);
 
                 // Get border
-                let border_top_width = doc.get_style_f32(dom_node_id, StyleProperty::BorderTopWidth);
-                let border_right_width = doc.get_style_f32(dom_node_id, StyleProperty::BorderRightWidth);
-                let border_bottom_width = doc.get_style_f32(dom_node_id, StyleProperty::BorderBottomWidth);
-                let border_left_width = doc.get_style_f32(dom_node_id, StyleProperty::BorderLeftWidth);
+                let border_top_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopWidth);
+                let border_right_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderRightWidth);
+                let border_bottom_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomWidth);
+                let border_left_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderLeftWidth);
 
                 if border_top_width != 0.0
                     || border_right_width != 0.0
@@ -174,19 +159,19 @@ impl Painter {
                     || border_left_width != 0.0
                 {
                     let border_top_color =
-                        self.get_brush(dom_node_id, StyleProperty::BorderTopColor, Brush::solid(Color::BLACK));
+                        self.get_brush(dom_node_id, &StyleProperty::BorderTopColor, Brush::solid(Color::BLACK));
                     let border_right_color =
-                        self.get_brush(dom_node_id, StyleProperty::BorderRightColor, Brush::solid(Color::BLACK));
+                        self.get_brush(dom_node_id, &StyleProperty::BorderRightColor, Brush::solid(Color::BLACK));
                     let border_bottom_color = self.get_brush(
                         dom_node_id,
-                        StyleProperty::BorderBottomColor,
+                        &StyleProperty::BorderBottomColor,
                         Brush::solid(Color::BLACK),
                     );
                     let border_left_color =
-                        self.get_brush(dom_node_id, StyleProperty::BorderLeftColor, Brush::solid(Color::BLACK));
+                        self.get_brush(dom_node_id, &StyleProperty::BorderLeftColor, Brush::solid(Color::BLACK));
 
-                    let border_style = match doc.get_style(dom_node_id, StyleProperty::BorderTopStyle) {
-                        Some(StyleValue::BorderStyle(s)) => css_border_style_to_paint(&s),
+                    let border_style = match doc.get_style(dom_node_id, &StyleProperty::BorderTopStyle) {
+                        Value::BorderStyle(s) => css_border_style_to_paint(&s),
                         _ => BorderStyle::Solid,
                     };
                     let border = Border::new(
@@ -203,15 +188,15 @@ impl Painter {
                 }
 
                 // Get radius
-                let radius_bottom_left = doc.get_style_f32(dom_node_id, StyleProperty::BorderBottomLeftRadius);
-                let radius_bottom_right = doc.get_style_f32(dom_node_id, StyleProperty::BorderBottomRightRadius);
-                let radius_top_left = doc.get_style_f32(dom_node_id, StyleProperty::BorderTopLeftRadius);
-                let radius_top_right = doc.get_style_f32(dom_node_id, StyleProperty::BorderTopRightRadius);
+                let radius_bottom_left = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomLeftRadius);
+                let radius_bottom_right = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomRightRadius);
+                let radius_top_left = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopLeftRadius);
+                let radius_top_right = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopRightRadius);
 
-                if (radius_bottom_left != 0.0
+                if radius_bottom_left != 0.0
                     || radius_bottom_right != 0.0
                     || radius_top_left != 0.0
-                    || radius_top_right != 0.0)
+                    || radius_top_right != 0.0
                 {
                     r = r.with_radius_tlrb(
                         Radius::new(radius_top_left as f64),
@@ -241,15 +226,5 @@ fn css_border_style_to_paint(s: &CssBorderStyle) -> BorderStyle {
         CssBorderStyle::Outset => BorderStyle::Outset,
         CssBorderStyle::Hidden => BorderStyle::Hidden,
         CssBorderStyle::None => BorderStyle::None,
-    }
-}
-
-/// Converts a css style color to a paint command color
-fn convert_css_color(css_color: &StyleColor) -> Color {
-    log::debug!("Converting css color: {:?}", css_color);
-    match css_color {
-        StyleColor::Named(name) => Color::from_css(name.as_str()),
-        StyleColor::Rgb(r, g, b) => Color::from_rgb8(*r, *g, *b),
-        StyleColor::Rgba(r, g, b, a) => Color::from_rgba8(*r, *g, *b, (*a * 255.0) as u8),
     }
 }

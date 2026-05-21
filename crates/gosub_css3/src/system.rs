@@ -58,47 +58,67 @@ impl CssSystem for Css3System {
 
                     // Selector matched, so we add all declared values to the map
                     for declaration in rule.declarations() {
-                        // Step 1: find the property in our CSS definition list
-                        let Some(definition) = definitions.find_property(&declaration.property) else {
-                            // If not found, we skip this declaration
-                            warn!("Definition is not found for property {:?}", declaration.property);
-                            continue;
-                        };
-
                         let value = resolve_functions::<C>(&declaration.value, doc, id);
 
-                        let match_value = if let CssValue::List(value) = &value {
-                            &**value
-                        } else {
-                            slice::from_ref(&value)
-                        };
+                        // If the property has a definition, validate and expand shorthands.
+                        // If not (e.g. margin-top, padding-bottom — longhand properties not yet
+                        // in the definition list), insert the value directly without validation.
+                        match definitions.find_property(&declaration.property) {
+                            Some(definition) => {
+                                let match_value = if let CssValue::List(value) = &value {
+                                    &**value
+                                } else {
+                                    slice::from_ref(&value)
+                                };
 
-                        // Check if the declaration matches the definition and return the "expanded" order
-                        let res = definition.matches_and_shorthands(match_value, &mut fix_list);
-                        if !res {
-                            warn!("Declaration does not match definition: {declaration:?}");
-                            continue;
-                        }
+                                if !definition.matches_and_shorthands(match_value, &mut fix_list) {
+                                    warn!("Declaration does not match definition: {declaration:?}");
+                                    continue;
+                                }
 
-                        let value = if let CssValue::List(mut value) = value {
-                            if value.len() == 1 {
-                                value.pop().expect("unreachable")
-                            } else {
-                                CssValue::List(value)
+                                let value = if let CssValue::List(mut value) = value {
+                                    if value.len() == 1 {
+                                        value.pop().expect("unreachable")
+                                    } else {
+                                        CssValue::List(value)
+                                    }
+                                } else {
+                                    value
+                                };
+
+                                add_property_to_map(
+                                    &mut css_map_entry,
+                                    sheet,
+                                    specificity,
+                                    &CssDeclaration {
+                                        property: declaration.property.clone(),
+                                        value,
+                                        important: declaration.important,
+                                    },
+                                );
                             }
-                        } else {
-                            value
-                        };
-
-                        // create property for the given values
-                        let property_name = declaration.property.clone();
-                        let decl = CssDeclaration {
-                            property: property_name.to_string(),
-                            value,
-                            important: declaration.important,
-                        };
-
-                        add_property_to_map(&mut css_map_entry, sheet, specificity, &decl);
+                            None => {
+                                // No definition: pass the value through as-is so that properties
+                                // like margin-top, padding-left, font-size etc. (which are valid
+                                // CSS but happen not to have their own PropertyDefinition entry)
+                                // still reach the style consumer.
+                                let value = if let CssValue::List(mut v) = value {
+                                    if v.len() == 1 { v.pop().expect("unreachable") } else { CssValue::List(v) }
+                                } else {
+                                    value
+                                };
+                                add_property_to_map(
+                                    &mut css_map_entry,
+                                    sheet,
+                                    specificity,
+                                    &CssDeclaration {
+                                        property: declaration.property.clone(),
+                                        value,
+                                        important: declaration.important,
+                                    },
+                                );
+                            }
+                        }
                     }
                 }
             }

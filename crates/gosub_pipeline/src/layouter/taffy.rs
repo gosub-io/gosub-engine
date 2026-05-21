@@ -1,5 +1,5 @@
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
-use crate::common::document::style::{FontWeight, StyleProperty, StyleValue, TextAlign, Unit};
+use crate::common::document::style::{FontWeight, StyleProperty, TextAlign, Unit, Value, lookup};
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
 use crate::common::geo::Coordinate;
@@ -140,7 +140,15 @@ impl CanLayout for TaffyLayouter {
                             get_text_layout(text_ctx.text.as_str(), &text_ctx.font_info, max_width, dpi_scale_factor);
                         match text_layout {
                             Ok(text_layout) => Size {
-                                width: text_layout.width as f32, // Note that we cast width down to 32bits.. we might need to take care of overflows
+                                // When taffy gives us a definite container width, report that as our
+                                // width (not parley's measured line width). This ensures pango wraps
+                                // at the same width parley used, producing the same line count and
+                                // height. Without this, pango would receive a narrower rect and create
+                                // more lines, causing the bottom to be clipped.
+                                width: match v_as.width {
+                                    AvailableSpace::Definite(w) => w,
+                                    _ => text_layout.width as f32,
+                                },
                                 height: text_layout.height as f32,
                             },
                             Err(_) => Size::ZERO,
@@ -346,6 +354,14 @@ impl TaffyLayouter {
 
             // Don't add inline elements to the taffy tree yet. We need to group them first and possibly wrap inside a block
             if child_node.is_inline_element() || child_node.is_text() {
+                // Whitespace-only text nodes between elements (e.g. "\n  ") don't contribute to
+                // layout. Excluding them prevents spurious anonymous flex containers that would
+                // shrink real inline elements like <a> to their intrinsic width.
+                if let NodeType::Text(text) = &child_node.node_type {
+                    if text.trim().is_empty() {
+                        continue;
+                    }
+                }
                 log::debug!("Pushing element as inline: {:?}", child_node.node_id);
                 current_inline_group.push((child_layout_element_id, child_taffy_id));
                 continue;
@@ -438,66 +454,51 @@ impl TaffyLayouter {
                     }
                 }
             }
-            NodeType::Text(text, node_style) => {
+            NodeType::Text(text) => {
                 let parent_node = match dom_node.parent_id {
                     Some(parent_id) => layout_tree.render_tree.doc.get_node_by_id(parent_id),
                     None => None,
                 };
                 parent_node.as_ref()?;
 
+                let doc = &layout_tree.render_tree.doc;
+
                 // Default font
                 let mut font_size = DEFAULT_FONT_SIZE;
                 let mut font_family = DEFAULT_FONT_FAMILY.to_string();
 
-                if let Some(StyleValue::Unit(value, unit)) = node_style.get_property(StyleProperty::FontSize) {
-                    match unit {
-                        Unit::Px => font_size = *value as f64,
-                        _ => {
-                            log::warn!("Unsupported font-size unit, using default");
-                        }
-                    }
+                match doc.get_style(dom_node.node_id, &StyleProperty::FontSize) {
+                    Value::Unit(value, Unit::Px) => font_size = value as f64,
+                    _ => {}
                 }
 
-                if let Some(StyleValue::Keyword(value)) = node_style.get_property(StyleProperty::FontFamily) {
-                    font_family = value.clone()
+                if let Value::Keyword(id) = doc.get_style(dom_node.node_id, &StyleProperty::FontFamily) {
+                    font_family = lookup(id);
                 }
 
-                let font_weight = match node_style.get_property(StyleProperty::FontWeight) {
-                    Some(StyleValue::FontWeight(weight)) => match weight {
+                let font_weight = match doc.get_style(dom_node.node_id, &StyleProperty::FontWeight) {
+                    Value::FontWeight(weight) => match weight {
                         FontWeight::Normal => 400.0,
                         FontWeight::Bold => 700.0,
-                        FontWeight::Number(value) => *value as f64,
+                        FontWeight::Number(value) => value as f64,
                         FontWeight::Bolder => 700.0,
                         FontWeight::Lighter => 300.0,
                     },
                     _ => 400.0,
                 };
 
-                let alignment = match node_style.get_property(StyleProperty::TextAlign) {
-                    Some(StyleValue::TextAlign(value)) => match value {
+                let alignment = match doc.get_style(dom_node.node_id, &StyleProperty::TextAlign) {
+                    Value::TextAlign(value) => match value {
                         TextAlign::Center => FontAlignment::Center,
-                        TextAlign::Right => FontAlignment::End,
-                        TextAlign::Left => FontAlignment::Start,
-                        TextAlign::Justify => FontAlignment::Justify,
-                        TextAlign::Start => FontAlignment::Start,
                         TextAlign::End => FontAlignment::End,
-                        TextAlign::MatchParent
-                        | TextAlign::Initial
-                        | TextAlign::Inherit
-                        | TextAlign::Revert
-                        | TextAlign::Unset => FontAlignment::Start,
+                        TextAlign::Justify => FontAlignment::Justify,
+                        _ => FontAlignment::Start,
                     },
                     _ => FontAlignment::Start,
                 };
 
-                let line_height = match node_style.get_property(StyleProperty::LineHeight) {
-                    Some(StyleValue::Unit(value, unit)) => match unit {
-                        Unit::Px => *value as f64,
-                        _ => {
-                            log::warn!("Unsupported line-height unit, using font-size as fallback");
-                            font_size
-                        }
-                    },
+                let line_height = match doc.get_style(dom_node.node_id, &StyleProperty::LineHeight) {
+                    Value::Unit(value, Unit::Px) => value as f64,
                     _ => font_size,
                 };
 
@@ -526,6 +527,13 @@ impl TaffyLayouter {
                     dom_node.node_id,
                     text_offset,
                 ));
+
+                // Text nodes must fill their flex container (e.g. text inside an <a> which is
+                // display:flex in our layout). Without this, taffy only allocates the intrinsic
+                // max-content width, and pango may wrap because its metrics differ slightly from
+                // parley's. flex-grow is ignored by block layout, so this is a no-op for block
+                // parents.
+                taffy_style.flex_grow = 1.0;
             }
             NodeType::Comment(_) => {
                 // No need to layout for comment nodes. In fact, they should have been removed already

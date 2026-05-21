@@ -37,10 +37,10 @@ body:-webkit-full-page-media {
 }
 p {
     display: block;
-    margin-block-start: 1__qem;
-    margin-block-end: 1__qem;
-    margin-inline-start: 0;
-    margin-inline-end: 0;
+    margin-top: 1em;
+    margin-bottom: 1em;
+    margin-left: 0;
+    margin-right: 0;
 }
 div {
     display: block
@@ -61,20 +61,20 @@ address {
 }
 blockquote {
     display: block;
-    margin-block-start: 1__qem;
-    margin-block-end: 1em;
-    margin-inline-start: 40px;
-    margin-inline-end: 40px;
+    margin-top: 1em;
+    margin-bottom: 1em;
+    margin-left: 40px;
+    margin-right: 40px;
 }
 figcaption {
     display: block
 }
 figure {
     display: block;
-    margin-block-start: 1em;
-    margin-block-end: 1em;
-    margin-inline-start: 40px;
-    margin-inline-end: 40px;
+    margin-top: 1em;
+    margin-bottom: 1em;
+    margin-left: 40px;
+    margin-right: 40px;
 }
 q {
     display: inline
@@ -94,10 +94,10 @@ hr {
     display: block;
     overflow: hidden;
     unicode-bidi: isolate;
-    margin-block-start: 0.5em;
-    margin-block-end: 0.5em;
-    margin-inline-start: auto;
-    margin-inline-end: auto;
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+    margin-left: auto;
+    margin-right: auto;
     border-style: inset;
     border-width: 1px
 }
@@ -146,79 +146,79 @@ iframe, embed, object, fencedframe {
 h1 {
     display: block;
     font-size: 2em;
-    margin-block-start: 0.67__qem;
-    margin-block-end: 0.67em;
-    margin-inline-start: 0;
-    margin-inline-end: 0;
+    margin-top: 0.67em;
+    margin-bottom: 0.67em;
+    margin-left: 0;
+    margin-right: 0;
     font-weight: bold
 }
 :-webkit-any(article,aside,nav,section) h1 {
     font-size: 1.5em;
-    margin-block-start: 0.83__qem;
-    margin-block-end: 0.83em;
+    margin-top: 0.83em;
+    margin-bottom: 0.83em;
 }
 :-webkit-any(article,aside,nav,section) :-webkit-any(article,aside,nav,section) h1 {
     font-size: 1.17em;
-    margin-block-start: 1__qem;
-    margin-block-end: 1em;
+    margin-top: 1em;
+    margin-bottom: 1em;
 }
 :-webkit-any(article,aside,nav,section) :-webkit-any(article,aside,nav,section) :-webkit-any(article,aside,nav,section) h1 {
     font-size: 1.00em;
-    margin-block-start: 1.33__qem;
-    margin-block-end: 1.33em;
+    margin-top: 1.33em;
+    margin-bottom: 1.33em;
 }
 :-webkit-any(article,aside,nav,section) :-webkit-any(article,aside,nav,section) :-webkit-any(article,aside,nav,section) :-webkit-any(article,aside,nav,section) h1 {
     font-size: .83em;
-    margin-block-start: 1.67__qem;
-    margin-block-end: 1.67em;
+    margin-top: 1.67em;
+    margin-bottom: 1.67em;
 }
 :-webkit-any(article,aside,nav,section) :-webkit-any(article,aside,nav,section) :-webkit-any(article,aside,nav,section) :-webkit-any(article,aside,nav,section) :-webkit-any(article,aside,nav,section) h1 {
     font-size: .67em;
-    margin-block-start: 2.33__qem;
-    margin-block-end: 2.33em;
+    margin-top: 2.33em;
+    margin-bottom: 2.33em;
 }
 h2 {
     display: block;
     font-size: 1.5em;
-    margin-block-start: 0.83__qem;
-    margin-block-end: 0.83em;
-    margin-inline-start: 0;
-    margin-inline-end: 0;
+    margin-top: 0.83em;
+    margin-bottom: 0.83em;
+    margin-left: 0;
+    margin-right: 0;
     font-weight: bold
 }
 h3 {
     display: block;
     font-size: 1.17em;
-    margin-block-start: 1__qem;
-    margin-block-end: 1em;
-    margin-inline-start: 0;
-    margin-inline-end: 0;
+    margin-top: 1em;
+    margin-bottom: 1em;
+    margin-left: 0;
+    margin-right: 0;
     font-weight: bold
 }
 h4 {
     display: block;
-    margin-block-start: 1.33__qem;
-    margin-block-end: 1.33em;
-    margin-inline-start: 0;
-    margin-inline-end: 0;
+    margin-top: 1.33em;
+    margin-bottom: 1.33em;
+    margin-left: 0;
+    margin-right: 0;
     font-weight: bold
 }
 h5 {
     display: block;
     font-size: .83em;
-    margin-block-start: 1.67__qem;
-    margin-block-end: 1.67em;
-    margin-inline-start: 0;
-    margin-inline-end: 0;
+    margin-top: 1.67em;
+    margin-bottom: 1.67em;
+    margin-left: 0;
+    margin-right: 0;
     font-weight: bold
 }
 h6 {
     display: block;
     font-size: .67em;
-    margin-block-start: 2.33__qem;
-    margin-block-end: 2.33em;
-    margin-inline-start: 0;
-    margin-inline-end: 0;
+    margin-top: 2.33em;
+    margin-bottom: 2.33em;
+    margin-left: 0;
+    margin-right: 0;
     font-weight: bold
 }
 /* tables */
@@ -282,20 +282,20 @@ caption {
 ul, menu, dir {
     display: block;
     list-style-type: disc;
-    margin-block-start: 1__qem;
-    margin-block-end: 1em;
-    margin-inline-start: 0;
-    margin-inline-end: 0;
-    padding-inline-start: 40px
+    margin-top: 1em;
+    margin-bottom: 1em;
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 40px
 }
 ol {
     display: block;
     list-style-type: decimal;
-    margin-block-start: 1__qem;
-    margin-block-end: 1em;
-    margin-inline-start: 0;
-    margin-inline-end: 0;
-    padding-inline-start: 40px
+    margin-top: 1em;
+    margin-bottom: 1em;
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 40px
 }
 li {
     display: list-item;
@@ -309,26 +309,26 @@ ol ol ul, ol ul ul, ul ol ul, ul ul ul {
 }
 dd {
     display: block;
-    margin-inline-start: 40px
+    margin-left: 40px
 }
 dl {
     display: block;
-    margin-block-start: 1__qem;
-    margin-block-end: 1em;
-    margin-inline-start: 0;
-    margin-inline-end: 0;
+    margin-top: 1em;
+    margin-bottom: 1em;
+    margin-left: 0;
+    margin-right: 0;
 }
 dt {
     display: block
 }
 ol ul, ul ol, ul ul, ol ol {
-    margin-block-start: 0;
-    margin-block-end: 0
+    margin-top: 0;
+    margin-bottom: 0
 }
 /* form elements */
 form {
     display: block;
-    margin-top: 0__qem;
+    margin-top: 0em;
 }
 :-webkit-any(table, thead, tbody, tfoot, tr) > form:-internal-is-html {
     display: none !important;
@@ -338,18 +338,18 @@ label {
 }
 legend {
     display: block;
-    padding-inline-start: 2px;
-    padding-inline-end: 2px;
+    padding-left: 2px;
+    padding-right: 2px;
     border: none
 }
 fieldset {
     display: block;
-    margin-inline-start: 2px;
-    margin-inline-end: 2px;
-    padding-block-start: 0.35em;
-    padding-inline-start: 0.75em;
-    padding-inline-end: 0.75em;
-    padding-block-end: 0.625em;
+    margin-left: 2px;
+    margin-right: 2px;
+    padding-top: 0.35em;
+    padding-left: 0.75em;
+    padding-right: 0.75em;
+    padding-bottom: 0.625em;
     border: 2px groove #C0C0C0;
     min-inline-size: min-content;
 }
@@ -357,7 +357,7 @@ button {
     appearance: auto;
 }
 input, textarea, select, button {
-    margin: 0__qem;
+    margin: 0em;
     font: -webkit-small-control;
     text-rendering: auto; /* FIXME: Remove when tabs work with optimizeLegibility. */
     color: FieldText;
@@ -411,7 +411,7 @@ input::-webkit-clear-button {
     cursor: default;
     flex: none;
     -webkit-user-modify: read-only !important;
-    margin-inline-start: 2px;
+    margin-left: 2px;
     opacity: 0;
     pointer-events: none;
 }
@@ -425,7 +425,7 @@ input[type="search" i]::-webkit-search-cancel-button {
     cursor: default;
     flex: none;
     -webkit-user-modify: read-only !important;
-    margin-inline-start: 1px;
+    margin-left: 1px;
     margin-right: 3px;
     opacity: 0;
     pointer-events: none;
@@ -595,7 +595,7 @@ input[type="file" i]::-webkit-file-upload-button {
     -webkit-user-modify: read-only !important;
     white-space: nowrap;
     margin: 0;
-    margin-inline-end: 4px; /* See FileUploadControlIntrinsicInlineSize() */
+    margin-right: 4px; /* See FileUploadControlIntrinsicInlineSize() */
     font-size: inherit;
 }
 input[type="button" i],
@@ -757,8 +757,8 @@ input[type="color" i][list] {
     block-size: 27px
 }
 input[type="color" i][list]::-webkit-color-swatch-wrapper {
-    padding-inline-start: 8px;
-    padding-inline-end: 24px;
+    padding-left: 8px;
+    padding-right: 24px;
 }
 input[type="color" i][list]::-webkit-color-swatch {
     border-color: #000000;
@@ -844,7 +844,7 @@ select:not(:-internal-list-box) {
    |extraPaddingForOptionInsideOptgroup| in list_picker.js, which is the
    padding for select optgroup option. */
 select:-internal-list-box optgroup option {
-    padding-inline-start: 20px;
+    padding-left: 20px;
 }
 select:-internal-list-box option,
 select:-internal-list-box optgroup {
@@ -876,8 +876,8 @@ select:-internal-list-box option:checked:disabled:hover {
 }
 select:-internal-list-box hr {
     border-style: none;
-    margin-block-start: 0.5em;
-    margin-block-end: 0;
+    margin-top: 0.5em;
+    margin-bottom: 0;
 }
 select:-internal-list-box:focus-visible option:-internal-multi-select-focus {
     outline: auto 1px -webkit-focus-ring-color;
@@ -1007,7 +1007,7 @@ pre, xmp, plaintext, listing {
     display: block;
     font-family: monospace;
     white-space: pre;
-    margin: 1__qem 0
+    margin: 1em 0
 }
 mark {
     background-color: Mark;
@@ -1090,9 +1090,9 @@ input[type="time" i]::-webkit-calendar-picker-indicator {
     background-size: contain;
     opacity: 1;
     outline: none;
-    margin-inline-start: 8px;
-    padding-inline-start: 3px;
-    padding-inline-end: 3px;
+    margin-left: 8px;
+    padding-left: 3px;
+    padding-right: 3px;
     padding-block: 3px;
     block-size: 1.05em;
     inline-size: 1.05em;
