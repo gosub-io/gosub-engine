@@ -18,7 +18,7 @@ log = { version = "0.4.29", features = [] }
 nom = "8.0.0"
 nom_locate = "5.0.0"
 regex = "1"
-serde_json = { version = "1.0.149", features = ["preserve_order"] }
+serde_json = { version = "1.0.150", features = ["preserve_order"] }
 serde = { version = "1.0.228", features = ["derive"] }
 cow-utils = "0.1.3"
 
