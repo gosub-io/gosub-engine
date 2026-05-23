@@ -4971,9 +4971,9 @@ checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
 name = "mimetype-detector"
-version = "0.2.8"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9517d26e0367166063d0fc7ef5a7e48dd09f59e9a65b7f477bebdea57694b1d"
+checksum = "6e1f27ef9c26d45a19fa866394b872bb2f65aff75696b56c7e46ad0eca1f4867"
 
 [[package]]
 name = "minicov"
