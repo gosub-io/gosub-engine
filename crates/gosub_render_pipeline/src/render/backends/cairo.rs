@@ -10,6 +10,7 @@ use std::any::Any;
 /// Set once from `area.scale_factor()` before any rendering begins.
 pub static DEVICE_PIXEL_RATIO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
+/// Cairo backend for rendering using gtk4/cairo graphics library.
 #[derive(Default)]
 pub struct CairoBackend;
 
