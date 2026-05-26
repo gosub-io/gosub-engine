@@ -63,7 +63,7 @@ impl Rectangle {
         }
     }
 
-    pub(crate) fn is_rounded(&self) -> bool {
+    pub fn is_rounded(&self) -> bool {
         self.radius_top.x > 0.0
             || self.radius_top.y > 0.0
             || self.radius_right.x > 0.0
