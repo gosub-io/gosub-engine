@@ -3242,6 +3242,8 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "rand 0.10.1",
+ "reqwest",
+ "serde_json",
  "simple_logger",
  "slotmap",
  "test-case",
