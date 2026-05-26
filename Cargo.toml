@@ -68,6 +68,10 @@ name = "egui-vello"
 path = "examples/egui-vello/main.rs"
 
 [[example]]
+name = "pipeline-screenshot"
+path = "examples/pipeline-screenshot/main.rs"
+
+[[example]]
 name = "metrics-cli"
 path = "examples/metrics_cli.rs"
 
