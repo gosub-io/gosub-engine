@@ -1,6 +1,6 @@
 pub mod compositor;
-pub mod rasterizer;
 pub(crate) mod font;
+pub mod rasterizer;
 
-pub use compositor::{SkiaCompositor, skia_compose};
+pub use compositor::{skia_compose, SkiaCompositor};
 pub use rasterizer::SkiaRasterizer;

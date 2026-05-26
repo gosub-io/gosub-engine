@@ -390,9 +390,12 @@ fn pipeline_render(doc: Arc<EngineDocument>, viewport: &Viewport, rl: &mut Rende
         // DEBUG: dump first tile to /tmp/tile0.png to verify rasterizer output
         use gosub_pipeline::common::texture::TextureId;
         if let Some(tex) = texture_store.get(TextureId::new(0)) {
-            log::info!("[pipeline] DEBUG tile0: {}×{} {} bytes, pixel[0]={:02x}{:02x}{:02x}{:02x}",
-                tex.width, tex.height, tex.data.len(),
-                tex.data.get(0).copied().unwrap_or(0),
+            log::info!(
+                "[pipeline] DEBUG tile0: {}×{} {} bytes, pixel[0]={:02x}{:02x}{:02x}{:02x}",
+                tex.width,
+                tex.height,
+                tex.data.len(),
+                tex.data.first().copied().unwrap_or(0),
                 tex.data.get(1).copied().unwrap_or(0),
                 tex.data.get(2).copied().unwrap_or(0),
                 tex.data.get(3).copied().unwrap_or(0),

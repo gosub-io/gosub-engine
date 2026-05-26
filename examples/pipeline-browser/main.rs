@@ -71,10 +71,7 @@ fn main() {
         let _join = engine.start().expect("engine start");
         let event_rx = engine.subscribe_events();
 
-        let zone_cfg = ZoneConfig::builder()
-            .do_not_track(true)
-            .build()
-            .expect("ZoneConfig");
+        let zone_cfg = ZoneConfig::builder().do_not_track(true).build().expect("ZoneConfig");
 
         let cookie_store: gosub_engine::cookies::CookieStoreHandle =
             SqliteCookieStore::new(".pipeline-browser-cookies.db".into()).into();
@@ -138,50 +135,70 @@ fn main() {
 
         // --- Draw callback ---
         let compositor_draw = compositor.clone();
-        drawing_area.set_draw_func(move |_area, cr, w, h| {
-            match compositor_draw.read().frame_for(tab_id) {
-                None => draw_placeholder(cr, w, h),
-                Some(handle) => match handle {
-                    ExternalHandle::CpuPixelsPtr { width, height, stride, pixel_buf } => {
-                        let owned = unsafe {
-                            std::slice::from_raw_parts(pixel_buf.as_ptr(), (height as usize) * (stride as usize))
-                        }.to_vec();
-                        match gtk4::cairo::ImageSurface::create_for_data(
-                            owned, gtk4::cairo::Format::ARgb32,
-                            width as i32, height as i32, stride as i32,
-                        ) {
-                            Ok(surface) => {
-                                surface.flush();
-                                scale_to_fit(cr, width as f64, height as f64, w, h);
-                                cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
-                                cr.paint().unwrap_or_default();
-                            }
-                            Err(e) => { log::warn!("[draw] surface failed: {:?}", e); draw_placeholder(cr, w, h); }
+        drawing_area.set_draw_func(move |_area, cr, w, h| match compositor_draw.read().frame_for(tab_id) {
+            None => draw_placeholder(cr, w, h),
+            Some(handle) => match handle {
+                ExternalHandle::CpuPixelsPtr {
+                    width,
+                    height,
+                    stride,
+                    pixel_buf,
+                } => {
+                    let owned = unsafe {
+                        std::slice::from_raw_parts(pixel_buf.as_ptr(), (height as usize) * (stride as usize))
+                    }
+                    .to_vec();
+                    match gtk4::cairo::ImageSurface::create_for_data(
+                        owned,
+                        gtk4::cairo::Format::ARgb32,
+                        width as i32,
+                        height as i32,
+                        stride as i32,
+                    ) {
+                        Ok(surface) => {
+                            surface.flush();
+                            scale_to_fit(cr, width as f64, height as f64, w, h);
+                            cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
+                            cr.paint().unwrap_or_default();
+                        }
+                        Err(e) => {
+                            log::warn!("[draw] surface failed: {:?}", e);
+                            draw_placeholder(cr, w, h);
                         }
                     }
-                    ExternalHandle::CpuPixelsOwned { width, height, stride, pixels, .. } => {
-                        match gtk4::cairo::ImageSurface::create_for_data(
-                            pixels, gtk4::cairo::Format::ARgb32,
-                            width as i32, height as i32, stride as i32,
-                        ) {
-                            Ok(surface) => {
-                                surface.flush();
-                                scale_to_fit(cr, width as f64, height as f64, w, h);
-                                cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
-                                cr.paint().unwrap_or_default();
-                            }
-                            Err(e) => { log::warn!("[draw] surface failed: {:?}", e); draw_placeholder(cr, w, h); }
+                }
+                ExternalHandle::CpuPixelsOwned {
+                    width,
+                    height,
+                    stride,
+                    pixels,
+                    ..
+                } => {
+                    match gtk4::cairo::ImageSurface::create_for_data(
+                        pixels,
+                        gtk4::cairo::Format::ARgb32,
+                        width as i32,
+                        height as i32,
+                        stride as i32,
+                    ) {
+                        Ok(surface) => {
+                            surface.flush();
+                            scale_to_fit(cr, width as f64, height as f64, w, h);
+                            cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
+                            cr.paint().unwrap_or_default();
+                        }
+                        Err(e) => {
+                            log::warn!("[draw] surface failed: {:?}", e);
+                            draw_placeholder(cr, w, h);
                         }
                     }
-                    _ => draw_placeholder(cr, w, h),
-                },
-            }
+                }
+                _ => draw_placeholder(cr, w, h),
+            },
         });
 
         // Scroll → forward to engine
-        let scroll_ctl = gtk4::EventControllerScroll::new(
-            gtk4::EventControllerScrollFlags::BOTH_AXES,
-        );
+        let scroll_ctl = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::BOTH_AXES);
         scroll_ctl.connect_scroll({
             let tab = tab.clone();
             let da = drawing_area.clone();

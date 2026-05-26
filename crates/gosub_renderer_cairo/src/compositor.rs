@@ -1,4 +1,4 @@
-use crate::compositor::compositor::cairo_compositor;
+use crate::compositor::inner::cairo_compositor;
 use gosub_pipeline::common::browser_state::BrowserState;
 use gosub_pipeline::common::TextureStore;
 use gosub_pipeline::compositor::Composable;
@@ -13,7 +13,7 @@ pub struct CairoCompositorConfig {
     pub texture_store: Arc<RwLock<TextureStore>>,
 }
 
-mod compositor;
+mod inner;
 
 pub struct CairoCompositor {}
 

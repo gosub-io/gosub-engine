@@ -22,12 +22,18 @@ impl CairoRasterizer {
 
 impl Rasterable for CairoRasterizer {
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId> {
-        let mut surface =
+        let Ok(mut surface) =
             cairo::ImageSurface::create(cairo::Format::ARgb32, tile.rect.width as i32, tile.rect.height as i32)
-                .expect("Failed to create image surface");
+        else {
+            log::error!("Failed to create Cairo image surface");
+            return None;
+        };
 
         {
-            let cr = cairo::Context::new(&surface).expect("Failed to create cairo context");
+            let Ok(cr) = cairo::Context::new(&surface) else {
+                log::error!("Failed to create Cairo context");
+                return None;
+            };
 
             for element in &tile.elements {
                 for command in &element.paint_commands {

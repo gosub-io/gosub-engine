@@ -10,6 +10,7 @@ thread_local! {
     };
 }
 
+#[allow(dead_code)]
 pub fn get_skia_paragraph(
     text: &str,
     font_info: &FontInfo,
@@ -40,7 +41,7 @@ pub fn get_skia_paragraph(
     ts.set_foreground_paint(&paint);
     ts.set_font_size(font_size_px as f32);
     ts.set_height(line_height_px as f32);
-    ts.set_font_families(&[font_info.family.clone()]);
+    ts.set_font_families(std::slice::from_ref(&font_info.family));
     ts.set_font_style(FontStyle::new(
         font_info.weight.into(),
         font_info.width.into(),

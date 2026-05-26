@@ -41,8 +41,7 @@ impl Rasterable for SkiaRasterizer {
         let canvas = surface.canvas();
 
         if tile.layer_id == LayerId::new(0) {
-            if tile.bgcolor.is_some() {
-                let bgcolor = tile.bgcolor.expect("bgcolor checked above");
+            if let Some(bgcolor) = tile.bgcolor {
                 canvas.clear(skia_safe::Color4f::new(bgcolor.0, bgcolor.1, bgcolor.2, bgcolor.3));
             } else {
                 canvas.clear(skia_safe::Color4f::new(1.0, 1.0, 1.0, 1.0));

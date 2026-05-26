@@ -52,7 +52,13 @@ fn get_system_ui_font_from_gsettings() -> Option<String> {
     if schema.has_key("font-name") {
         let settings = Settings::new("org.gnome.desktop.interface");
         let font_name: String = settings.string("font-name").into();
-        return Some(font_name.split_whitespace().next().unwrap_or(DEFAULT_FONT_FAMILY).to_string());
+        return Some(
+            font_name
+                .split_whitespace()
+                .next()
+                .unwrap_or(DEFAULT_FONT_FAMILY)
+                .to_string(),
+        );
     }
 
     None
