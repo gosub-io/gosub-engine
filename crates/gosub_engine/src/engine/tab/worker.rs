@@ -378,8 +378,18 @@ impl TabWorker {
                 }
                 ControlFlow::Continue
             }
-            TabCommand::MouseMove { .. }
-            | TabCommand::MouseDown { .. }
+            TabCommand::MouseMove { x, y } => {
+                #[cfg(feature = "pipeline")]
+                if self.context.update_hover(x as f64, y as f64) {
+                    self.runtime.dirty = true;
+                }
+                #[cfg(not(feature = "pipeline"))]
+                {
+                    self.runtime.dirty = true;
+                }
+                ControlFlow::Continue
+            }
+            TabCommand::MouseDown { .. }
             | TabCommand::MouseUp { .. }
             | TabCommand::KeyDown { .. }
             | TabCommand::KeyUp { .. }

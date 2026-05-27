@@ -112,10 +112,7 @@ fn match_selector_part<C: HasDocument>(
                 MatcherType::SubstringMatch => got_attr_value.contains(wanted_attr_value),
             }
         }
-        CssSelectorPart::PseudoClass(_name) => {
-            // @Todo: implement pseudo classes
-            false
-        }
+        CssSelectorPart::PseudoClass(name) => name == "hover" && doc.is_hovered(current_id),
         CssSelectorPart::PseudoElement(_name) => {
             // @Todo: implement pseudo elements
             false
