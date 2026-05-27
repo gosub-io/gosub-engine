@@ -141,4 +141,8 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
 
     fn write(&self) -> String;
     fn write_from_node(&self, id: NodeId) -> String;
+
+    fn is_hovered(&self, _id: NodeId) -> bool {
+        false
+    }
 }

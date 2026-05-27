@@ -44,6 +44,10 @@ use url::Url;
 use crate::html::HtmlEngineConfig;
 #[cfg(feature = "pipeline")]
 use crate::render::backend::{CachedTile, ExternalHandle};
+#[cfg(feature = "pipeline")]
+use gosub_pipeline::layering::layer::LayerList;
+#[cfg(feature = "pipeline")]
+use gosub_shared::node::NodeId;
 // #[derive(Debug, thiserror::Error)]
 // pub enum LoadError {
 //     #[error("navigation cancelled")]
@@ -69,6 +73,8 @@ struct PipelineCache {
     page_height: f64,
     /// Pre-built CachedTile list (Arc-shared pixel data) for zero-copy scroll handles.
     cached_tiles: Arc<Vec<CachedTile>>,
+    /// Layer list retained for hit-testing (hover).
+    layer_list: Arc<LayerList>,
 }
 
 /// BrowsingContext dedicated to a specific tab
@@ -116,6 +122,9 @@ pub struct BrowsingContext {
     /// Cached rasterized tiles for the full page. Valid until render_dirty is set.
     #[cfg(feature = "pipeline")]
     pipeline_cache: Option<PipelineCache>,
+    /// The DOM node currently under the pointer (for :hover matching).
+    #[cfg(feature = "pipeline")]
+    hover_leaf: Option<NodeId>,
 }
 
 impl BrowsingContext {
@@ -138,6 +147,8 @@ impl BrowsingContext {
             scroll_dirty: false,
             #[cfg(feature = "pipeline")]
             pipeline_cache: None,
+            #[cfg(feature = "pipeline")]
+            hover_leaf: None,
         }
     }
 
@@ -162,6 +173,7 @@ impl BrowsingContext {
         #[cfg(feature = "pipeline")]
         {
             self.pipeline_cache = None;
+            self.hover_leaf = None;
         }
     }
 
@@ -311,6 +323,34 @@ impl BrowsingContext {
         return 0.0;
     }
 
+    /// Hit-test at viewport coordinates `(vp_x, vp_y)` and update hover state.
+    /// Returns `true` when the hovered element changed (caller should trigger a re-render).
+    #[cfg(feature = "pipeline")]
+    pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> bool {
+        let page_x = vp_x + self.scroll_x;
+        let page_y = vp_y + self.scroll_y;
+
+        let new_leaf = self.pipeline_cache.as_ref().and_then(|cache| {
+            let lei = cache.layer_list.find_element_at(page_x, page_y)?;
+            let el = cache.layer_list.layout_tree.get_node_by_id(lei)?;
+            Some(el.dom_node_id)
+        });
+
+        if new_leaf == self.hover_leaf {
+            return false;
+        }
+
+        self.hover_leaf = new_leaf;
+
+        if let Some(doc) = &self.document {
+            doc.set_hovered_nodes(new_leaf);
+        }
+
+        self.render_dirty = true;
+        self.style_dirty = true;
+        true
+    }
+
     /// Returns the render list
     #[inline]
     pub fn render_list(&self) -> &RenderList {
@@ -404,6 +444,7 @@ fn pipeline_build_cache(doc: Arc<EngineDocument>, viewport: &Viewport) -> Pipeli
     let t = Instant::now();
     let ts4 = timing_start!("pipeline.tiling");
     let mut tile_list = TileList::new(layer_list, PipelineDimension::new(256.0, 256.0));
+    let saved_layer_list = Arc::clone(&tile_list.layer_list);
     tile_list.generate();
     let total_tiles = tile_list.arena.len();
     timing_stop!(ts4);
@@ -545,6 +586,7 @@ fn pipeline_build_cache(doc: Arc<EngineDocument>, viewport: &Viewport) -> Pipeli
         tiles: baked_tiles,
         page_height,
         cached_tiles,
+        layer_list: saved_layer_list,
     }
 }
 

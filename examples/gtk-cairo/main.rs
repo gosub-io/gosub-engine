@@ -557,8 +557,28 @@ fn main() {
         let motion = EventControllerMotion::new();
         {
             let last_pointer_m = last_pointer.clone();
+            let root_motion = root.clone();
+            let last_size_motion = last_size.clone();
+            let tabs_motion = tabs.clone();
             motion.connect_motion(move |_m, x, y| {
                 *last_pointer_m.borrow_mut() = (x, y);
+
+                let (w, h) = *last_size_motion.borrow();
+                let mut pairs = Vec::new();
+                compute_layout(&root_motion.borrow(), Rect { x: 0, y: 0, w, h }, &mut pairs);
+                for (tab_id, r) in pairs {
+                    if x >= r.x as f64 && x < (r.x + r.w) as f64 && y >= r.y as f64 && y < (r.y + r.h) as f64 {
+                        if let Some(tab) = tabs_motion.borrow().get(&tab_id) {
+                            let tab = tab.clone();
+                            let rel_x = (x - r.x as f64) as f32;
+                            let rel_y = (y - r.y as f64) as f32;
+                            TOKIO_RT.spawn(async move {
+                                let _ = tab.send(TabCommand::MouseMove { x: rel_x, y: rel_y }).await;
+                            });
+                        }
+                        break;
+                    }
+                }
             });
         }
         drawing_area.add_controller(motion);
