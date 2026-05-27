@@ -1318,6 +1318,11 @@ html::grammar-error {
 a {
     color: #0000EEFF;
     text-decoration-line: underline;
+    cursor: pointer;
+}
+
+a:hover {
+    color: #0000CCFF;
 }
 
 

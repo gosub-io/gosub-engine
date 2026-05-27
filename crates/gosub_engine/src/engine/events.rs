@@ -449,6 +449,11 @@ pub enum EngineEvent {
 
     // ****************************************
     // ** Tab state
+    /// Hovered link URL changed (None = no link under cursor)
+    HoverUrl {
+        tab_id: TabId,
+        url: Option<String>,
+    },
     /// Title of the tab has changed
     TitleChanged {
         tab_id: TabId,

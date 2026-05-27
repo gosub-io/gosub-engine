@@ -47,6 +47,7 @@ use crate::render::backend::{CachedTile, ExternalHandle};
 #[cfg(feature = "pipeline")]
 use gosub_pipeline::layering::layer::LayerList;
 #[cfg(feature = "pipeline")]
+use gosub_interface::document::Document as _;
 use gosub_shared::node::NodeId;
 // #[derive(Debug, thiserror::Error)]
 // pub enum LoadError {
@@ -125,6 +126,9 @@ pub struct BrowsingContext {
     /// The DOM node currently under the pointer (for :hover matching).
     #[cfg(feature = "pipeline")]
     hover_leaf: Option<NodeId>,
+    /// The href of the link currently under the pointer, if any.
+    #[cfg(feature = "pipeline")]
+    pub hover_link_url: Option<String>,
 }
 
 impl BrowsingContext {
@@ -149,6 +153,8 @@ impl BrowsingContext {
             pipeline_cache: None,
             #[cfg(feature = "pipeline")]
             hover_leaf: None,
+            #[cfg(feature = "pipeline")]
+            hover_link_url: None,
         }
     }
 
@@ -324,9 +330,10 @@ impl BrowsingContext {
     }
 
     /// Hit-test at viewport coordinates `(vp_x, vp_y)` and update hover state.
-    /// Returns `true` when the hovered element changed (caller should trigger a re-render).
+    /// Returns `(dirty, link_url)`: dirty=true when the hovered element changed,
+    /// link_url=Some(href) when the cursor is over a link (None otherwise).
     #[cfg(feature = "pipeline")]
-    pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> bool {
+    pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> (bool, Option<String>) {
         let page_x = vp_x + self.scroll_x;
         let page_y = vp_y + self.scroll_y;
 
@@ -336,8 +343,24 @@ impl BrowsingContext {
             Some(el.dom_node_id)
         });
 
+        // Walk the ancestor chain to find the nearest <a href>.
+        let link_url = new_leaf.and_then(|leaf| {
+            let doc = self.document.as_ref()?;
+            let mut id = leaf;
+            loop {
+                if doc.tag_name(id).as_deref() == Some("a") {
+                    if let Some(href) = doc.attribute(id, "href") {
+                        return Some(href.to_string());
+                    }
+                }
+                id = doc.parent(id)?;
+            }
+        });
+
+        self.hover_link_url = link_url.clone();
+
         if new_leaf == self.hover_leaf {
-            return false;
+            return (false, link_url);
         }
 
         self.hover_leaf = new_leaf;
@@ -348,7 +371,7 @@ impl BrowsingContext {
 
         self.render_dirty = true;
         self.style_dirty = true;
-        true
+        (true, link_url)
     }
 
     /// Returns the render list
