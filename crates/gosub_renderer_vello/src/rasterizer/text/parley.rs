@@ -16,15 +16,7 @@ pub fn do_paint_text(
     affine: Affine,
     media_store: &MediaStore,
 ) -> Result<(), anyhow::Error> {
-    let layout = get_parley_layout(
-        cmd.text.as_str(),
-        cmd.font_info.family.as_str(),
-        cmd.font_info.size,
-        cmd.font_info.line_height,
-        cmd.font_info.weight,
-        cmd.rect.width,
-        cmd.font_info.alignment.clone(),
-    );
+    let layout = get_parley_layout(cmd.text.as_str(), &cmd.font_info, cmd.rect.width);
 
     for line in layout.lines() {
         for item in line.items() {

@@ -45,6 +45,8 @@ pub struct ElementContextText {
     pub text: String,
     /// Additional offset for the text. This can happen when we have a lineheight and the text needs to be centered in the block
     pub text_offset: Coordinate,
+    /// When true (white-space: nowrap), the text is measured at unlimited width and must not wrap.
+    pub no_wrap: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -82,12 +84,19 @@ pub enum ElementContext {
 }
 
 impl ElementContext {
-    pub(crate) fn text(text: &str, font_info: FontInfo, node_id: DomNodeId, text_offset: Coordinate) -> ElementContext {
+    pub(crate) fn text(
+        text: &str,
+        font_info: FontInfo,
+        node_id: DomNodeId,
+        text_offset: Coordinate,
+        no_wrap: bool,
+    ) -> ElementContext {
         Self::Text(ElementContextText {
             text: text.to_string(),
             font_info,
             node_id,
             text_offset,
+            no_wrap,
         })
     }
 

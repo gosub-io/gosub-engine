@@ -20,7 +20,7 @@ use gosub_net::net::types::{FetchHandle, FetchKeyData, FetchRequest, FetchResult
 use gosub_net::types::RequestId;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -60,13 +60,12 @@ async fn main() -> anyhow::Result<()> {
     let config = FetcherConfig::default();
     let fetcher = Arc::new(Fetcher::new(config, Arc::new(StandaloneContext))?);
 
-    // The fetcher's run() loop needs a shutdown signal.
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let shutdown = CancellationToken::new();
 
-    // Spawn the scheduler loop.
     let fetcher_task = fetcher.clone();
+    let cancel = shutdown.clone();
     tokio::spawn(async move {
-        fetcher_task.run(shutdown_rx).await;
+        fetcher_task.run(cancel).await;
     });
 
     // Build the request.
@@ -119,8 +118,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Shut down the scheduler cleanly.
-    let _ = shutdown_tx.send(true);
+    shutdown.cancel();
 
     Ok(())
 }

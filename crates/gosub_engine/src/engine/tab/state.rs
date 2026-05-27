@@ -16,6 +16,8 @@ pub(crate) struct TabRuntime {
     pub dirty: bool,
     // When the last tick draw was done
     pub last_tick_draw: std::time::Instant,
+    /// Scene epoch of the last submitted frame; skip re-render when it matches the context's epoch.
+    pub committed_scene_epoch: u64,
 }
 
 impl Default for TabRuntime {
@@ -28,6 +30,7 @@ impl Default for TabRuntime {
             interval: tokio::time::interval(Duration::from_secs_f64(1.0 / fps as f64)),
             dirty: false,
             last_tick_draw: std::time::Instant::now(),
+            committed_scene_epoch: u64::MAX,
         }
     }
 }

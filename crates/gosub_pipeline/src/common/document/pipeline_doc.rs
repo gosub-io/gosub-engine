@@ -1,9 +1,9 @@
 use crate::common::document::document::Document;
 use crate::common::document::node::{AttrMap, ElementData, Node, NodeType};
 use crate::common::document::style::{
-    intern, BorderStyle, Display, FontWeight, NodeStyle, StyleProperty, TextAlign, TextWrap, Unit,
-    Value,
+    intern, BorderStyle, Display, FontWeight, NodeStyle, StyleProperty, TextAlign, TextWrap, Unit, Value,
 };
+use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem};
 use gosub_interface::document::Document as _;
@@ -45,16 +45,40 @@ pub trait PipelineDocument: Send + Sync {
     ///  2. parent's computed value if the property is inherited,
     ///  3. the CSS-spec initial value otherwise.
     fn get_style(&self, id: NodeId, prop: &StyleProperty) -> Value {
-        if let Some(v) = self.get_own_style(id, prop) {
-            return v;
-        }
-        let meta = prop.meta();
-        if meta.inherited {
-            if let Some(parent) = self.parent(id) {
-                return self.get_style(parent, prop);
+        let raw = if let Some(v) = self.get_own_style(id, prop) {
+            v
+        } else {
+            let meta = prop.meta();
+            if meta.inherited {
+                if let Some(parent) = self.parent(id) {
+                    return self.get_style(parent, prop);
+                }
+            }
+            meta.initial_value()
+        };
+
+        // Resolve em/rem for font-size. CSS spec: for font-size, em is relative to the
+        // *parent's* computed font-size; rem is relative to the root element's (16px default).
+        if matches!(prop, StyleProperty::FontSize) {
+            match &raw {
+                Value::Unit(v, Unit::Em) => {
+                    let parent_px = match self.parent(id) {
+                        Some(parent) => match self.get_style(parent, &StyleProperty::FontSize) {
+                            Value::Unit(px, Unit::Px) => px,
+                            _ => 16.0,
+                        },
+                        None => 16.0,
+                    };
+                    return Value::Unit(v * parent_px, Unit::Px);
+                }
+                Value::Unit(v, Unit::Rem) => {
+                    return Value::Unit(v * 16.0, Unit::Px);
+                }
+                _ => {}
             }
         }
-        meta.initial_value()
+
+        raw
     }
 
     fn get_style_f32(&self, id: NodeId, prop: &StyleProperty) -> f32 {
@@ -103,7 +127,10 @@ impl PipelineDocument for Document {
             .get(&id)
             .map(|node| match &node.node_type {
                 NodeType::Element(data) => {
-                    matches!(data.get_style(&StyleProperty::Display), Some(Value::Display(Display::None)))
+                    matches!(
+                        data.get_style(&StyleProperty::Display),
+                        Some(Value::Display(Display::None))
+                    )
                 }
                 _ => false,
             })
@@ -151,7 +178,7 @@ where
 {
     pub doc: Arc<C::Document>,
     /// Per-node own-style cache. Populated lazily; valid for one pipeline run.
-    style_cache: Mutex<HashMap<NodeId, Arc<NodeStyle>>>,
+    style_cache: Mutex<HashMap<NodeId, NodeStyle>>,
 }
 
 impl<C> GosubDocumentAdapter<C>
@@ -159,14 +186,17 @@ where
     C: HasDocument,
 {
     pub fn new(doc: Arc<C::Document>) -> Self {
-        Self { doc, style_cache: Mutex::new(HashMap::new()) }
+        Self {
+            doc,
+            style_cache: Mutex::new(HashMap::new()),
+        }
     }
 
-    fn cached_styles(&self, id: NodeId) -> Arc<NodeStyle> {
+    fn cached_styles(&self, id: NodeId) -> NodeStyle {
         if let Some(cached) = self.style_cache.lock().get(&id) {
             return cached.clone();
         }
-        let style = Arc::new(self.compute_styles(id));
+        let style = self.compute_styles(id);
         self.style_cache.lock().insert(id, style.clone());
         style
     }
@@ -179,7 +209,19 @@ where
         for (_, prop) in prop_map.iter_mut() {
             prop.compute_value();
         }
-        build_node_style::<C::CssSystem>(&prop_map)
+        let mut style = build_node_style::<C::CssSystem>(&prop_map);
+
+        // Inline `style` attribute has highest specificity — overlay it last.
+        if let Some(attrs) = self.doc.attributes(id) {
+            if let Some(style_attr) = attrs.get("style") {
+                let inline = crate::common::document::parser::parse_inline_style_attr(style_attr);
+                for (prop, val) in inline.iter() {
+                    style.set(prop, val.clone());
+                }
+            }
+        }
+
+        style
     }
 
     fn find_child_by_tag(&self, parent: NodeId, tag: &str) -> Option<NodeId> {
@@ -218,7 +260,10 @@ where
     }
 
     fn is_display_none(&self, id: NodeId) -> bool {
-        matches!(self.get_own_style(id, &StyleProperty::Display), Some(Value::Display(Display::None)))
+        matches!(
+            self.get_own_style(id, &StyleProperty::Display),
+            Some(Value::Display(Display::None))
+        )
     }
 
     fn parent(&self, id: NodeId) -> Option<NodeId> {
@@ -269,14 +314,19 @@ where
                         attr_map.set(k, v);
                     }
                 }
-                let styles = (*self.cached_styles(id)).clone();
+                let styles = self.cached_styles(id);
                 let element_data = ElementData::new(tag_name, Some(attr_map), false, Some(styles));
                 NodeType::Element(element_data)
             }
             _ => return None,
         };
 
-        Some(Node { node_id: id, parent_id, children, node_type })
+        Some(Node {
+            node_id: id,
+            parent_id,
+            children,
+            node_type,
+        })
     }
 }
 
@@ -331,7 +381,6 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
         ("max-width", StyleProperty::MaxWidth),
         ("max-height", StyleProperty::MaxHeight),
         ("gap", StyleProperty::Gap),
-        ("line-height", StyleProperty::LineHeight),
         ("border-top-left-radius", StyleProperty::BorderTopLeftRadius),
         ("border-top-right-radius", StyleProperty::BorderTopRightRadius),
         ("border-bottom-left-radius", StyleProperty::BorderBottomLeftRadius),
@@ -346,6 +395,8 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
         if let Some(p) = prop_map.get(css_name) {
             if let Some((val, unit_str)) = p.as_unit() {
                 style.set(prop.clone(), Value::Unit(val, str_to_unit(unit_str)));
+            } else if let Some(pct) = p.as_percentage() {
+                style.set(prop.clone(), Value::Unit(pct, Unit::Percent));
             } else if let Some(val) = p.as_number() {
                 style.set(prop.clone(), Value::Unit(val, Unit::Px));
             } else if let Some(s) = p.as_string() {
@@ -354,10 +405,22 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
         }
     }
 
+    // --- line-height: unitless number is a font-size multiplier, not pixels ---
+    if let Some(p) = prop_map.get("line-height") {
+        if let Some((val, unit_str)) = p.as_unit() {
+            style.set(StyleProperty::LineHeight, Value::Unit(val, str_to_unit(unit_str)));
+        } else if let Some(val) = p.as_number() {
+            style.set(StyleProperty::LineHeight, Value::Number(val));
+        } else if let Some(s) = p.as_string() {
+            style.set(StyleProperty::LineHeight, Value::Keyword(intern(s)));
+        }
+    }
+
     // --- Color properties ---
     let color_props: &[(&str, StyleProperty)] = &[
         ("color", StyleProperty::Color),
         ("background-color", StyleProperty::BackgroundColor),
+        ("background", StyleProperty::BackgroundColor),
         ("border-top-color", StyleProperty::BorderTopColor),
         ("border-right-color", StyleProperty::BorderRightColor),
         ("border-bottom-color", StyleProperty::BorderBottomColor),
@@ -365,8 +428,20 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
     ];
     for (css_name, prop) in color_props {
         if let Some(p) = prop_map.get(css_name) {
+            // CSS system color keywords (e.g. "Mark", "Field") aren't standard named colors —
+            // RgbColor::from falls back to black for unknown strings. Map them to sensible
+            // sRGB approximations before attempting normal color parsing.
+            if let Some(s) = p.as_string() {
+                if let Some((r, g, b, a)) = css_system_color(s) {
+                    style.set(prop.clone(), Value::Color(r, g, b, a));
+                    continue;
+                }
+            }
             if let Some((r, g, b, a)) = p.parse_color() {
-                style.set(prop.clone(), Value::Color(r as u8, g as u8, b as u8, (a / 255.0 * 255.0) as u8));
+                style.set(
+                    prop.clone(),
+                    Value::Color(r as u8, g as u8, b as u8, (a / 255.0 * 255.0) as u8),
+                );
             }
         }
     }
@@ -380,6 +455,9 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
                 "inline-block" => Display::InlineBlock,
                 "none" => Display::None,
                 "flex" => Display::Flex,
+                "inline-flex" => Display::InlineFlex,
+                "grid" => Display::Grid,
+                "inline-grid" => Display::InlineGrid,
                 "table" => Display::Table,
                 "table-caption" => Display::TableCaption,
                 "table-cell" => Display::TableCell,
@@ -390,6 +468,13 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
                 _ => Display::Block,
             };
             style.set(StyleProperty::Display, Value::Display(display));
+        }
+    }
+
+    // --- FontStyle ---
+    if let Some(p) = prop_map.get("font-style") {
+        if let Some(s) = p.as_string() {
+            style.set(StyleProperty::FontStyle, Value::Keyword(intern(s)));
         }
     }
 
@@ -502,6 +587,8 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
         ("grid-template-columns", StyleProperty::GridTemplateColumns),
         ("grid-auto-rows", StyleProperty::GridAutoRows),
         ("grid-auto-columns", StyleProperty::GridAutoColumns),
+        ("white-space", StyleProperty::WhiteSpace),
+        ("text-decoration-line", StyleProperty::TextDecorationLine),
     ];
     for (css_name, prop) in kw_props {
         if let Some(p) = prop_map.get(css_name) {
@@ -511,5 +598,54 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
         }
     }
 
+    // --- text-decoration shorthand → text-decoration-line ---
+    // `text-decoration` can contain a space-separated list of values (e.g. "underline line-through").
+    // We extract the relevant decoration keywords and store them as a single consolidated keyword.
+    if let Some(p) = prop_map.get("text-decoration") {
+        let raw = format!("{p}");
+        let has_underline = raw.contains("underline");
+        let has_line_through = raw.contains("line-through");
+        let kw = if has_underline && has_line_through {
+            "underline line-through"
+        } else if has_underline {
+            "underline"
+        } else if has_line_through {
+            "line-through"
+        } else {
+            "none"
+        };
+        if kw != "none" {
+            style.set(StyleProperty::TextDecorationLine, Value::Keyword(intern(kw)));
+        }
+    }
+
     style
+}
+
+/// Maps CSS system color keywords to (r, g, b, a) sRGB values so they render as something
+/// sensible rather than defaulting to black. RgbColor::from returns black for any unrecognised
+/// string, so we intercept known system color names before the normal parse path.
+fn css_system_color(name: &str) -> Option<(u8, u8, u8, u8)> {
+    match name.cow_to_ascii_lowercase().as_ref() {
+        // Highlight / mark
+        "mark" => Some((255, 255, 0, 255)),
+        "marktext" => Some((0, 0, 0, 255)),
+        // Form fields
+        "field" | "canvas" => Some((255, 255, 255, 255)),
+        "fieldtext" | "canvastext" | "buttontext" | "graytext" => Some((0, 0, 0, 255)),
+        "buttonface" | "threedface" => Some((240, 240, 240, 255)),
+        "buttonborder" | "threedlightshadow" | "threedhighlight" => Some((160, 160, 160, 255)),
+        // Selection / highlights
+        "highlight" | "selecteditem" | "activecaption" => Some((0, 120, 215, 255)),
+        "highlighttext" | "selecteditemtext" | "captiontext" => Some((255, 255, 255, 255)),
+        // Links
+        "linktext" | "activetext" => Some((0, 0, 238, 255)),
+        "visitedtext" => Some((85, 26, 139, 255)),
+        // Misc
+        "accentcolor" => Some((0, 120, 215, 255)),
+        "accentcolortext" => Some((255, 255, 255, 255)),
+        "window" | "appworkspace" | "scrollbar" | "background" | "menu" => Some((240, 240, 240, 255)),
+        "windowtext" | "menutext" | "infotext" | "inactivecaptiontext" => Some((0, 0, 0, 255)),
+        _ => None,
+    }
 }

@@ -18,7 +18,9 @@ impl Default for AttrMap {
 
 impl AttrMap {
     pub fn new() -> AttrMap {
-        AttrMap { attributes: HashMap::new() }
+        AttrMap {
+            attributes: HashMap::new(),
+        }
     }
 
     pub fn get(&self, key: &str) -> Option<&String> {
@@ -93,7 +95,12 @@ impl ElementData {
     }
 
     pub fn is_inline_element(&self) -> bool {
-        matches!(self.get_style(&StyleProperty::Display), Some(Value::Display(Display::Inline)))
+        matches!(
+            self.get_style(&StyleProperty::Display),
+            None | Some(Value::Display(Display::Inline))
+                | Some(Value::Display(Display::InlineFlex))
+                | Some(Value::Display(Display::InlineGrid))
+        )
     }
 
     pub fn is_inline_block_element(&self) -> bool {
@@ -124,7 +131,10 @@ impl Node {
     pub fn is_block_element(&self) -> bool {
         match &self.node_type {
             NodeType::Element(data) => {
-                matches!(data.get_style(&StyleProperty::Display), Some(Value::Display(Display::Block)))
+                matches!(
+                    data.get_style(&StyleProperty::Display),
+                    Some(Value::Display(Display::Block))
+                )
             }
             _ => false,
         }
@@ -142,9 +152,12 @@ impl Node {
 
     pub fn is_inline_element(&self) -> bool {
         match &self.node_type {
-            NodeType::Element(data) => {
-                matches!(data.get_style(&StyleProperty::Display), Some(Value::Display(Display::Inline)))
-            }
+            NodeType::Element(data) => match data.get_style(&StyleProperty::Display) {
+                // The CSS initial value for display is inline; treat unset as inline.
+                None => true,
+                Some(Value::Display(Display::Inline)) => true,
+                _ => false,
+            },
             _ => false,
         }
     }

@@ -66,15 +66,15 @@ fn get_system_ui_font_from_gsettings() -> Option<String> {
 
 pub fn to_pango_weight(weight: usize) -> Weight {
     match weight {
-        0..=149 => Weight::Thin,
-        150..=249 => Weight::Ultralight,
-        250..=349 => Weight::Light,
-        350..=449 => Weight::Semilight,
-        450..=549 => Weight::Normal,
-        550..=649 => Weight::Medium,
-        650..=749 => Weight::Semibold,
-        750..=849 => Weight::Bold,
-        850..=949 => Weight::Ultrabold,
-        _ => Weight::Heavy,
+        0..=149 => Weight::Thin,         // 100
+        150..=249 => Weight::Ultralight, // 200
+        250..=324 => Weight::Light,      // 300
+        325..=374 => Weight::Semilight,  // 350
+        375..=449 => Weight::Normal,     // 400 — CSS "normal" weight lands here
+        450..=549 => Weight::Medium,     // 500
+        550..=649 => Weight::Semibold,   // 600
+        650..=749 => Weight::Bold,       // 700
+        750..=849 => Weight::Ultrabold,  // 800
+        _ => Weight::Heavy,              // 900
     }
 }

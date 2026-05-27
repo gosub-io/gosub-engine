@@ -192,4 +192,3 @@ fn fill_rect(img: &mut RgbaImage, x: f32, y: f32, w: f32, h: f32, color: [u8; 4]
         }
     }
 }
-

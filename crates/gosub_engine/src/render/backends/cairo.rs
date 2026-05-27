@@ -6,6 +6,9 @@ use crate::render::DisplayItem;
 use anyhow::{anyhow, Result};
 use std::any::Any;
 
+#[cfg(feature = "backend_cairo")]
+pub use gosub_renderer_cairo::DEVICE_PIXEL_RATIO;
+
 /// Cairo backend for rendering using gtk4/cairo graphics library.
 #[derive(Default)]
 pub struct CairoBackend;
@@ -25,7 +28,12 @@ impl RenderBackend for CairoBackend {
 
     /// Will create a new Cairo surface with the given size and present mode.
     fn create_surface(&self, size: SurfaceSize, present: PresentMode) -> Result<Box<dyn ErasedSurface + Send>> {
-        Ok(Box::new(CairoSurface::new(size, present)?))
+        let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
+        let physical = SurfaceSize {
+            width: size.width * dpr,
+            height: size.height * dpr,
+        };
+        Ok(Box::new(CairoSurface::new(physical, present)?))
     }
 
     /// Renders a surface by getting the DisplayItems from the browsing context and rendering them
@@ -39,8 +47,10 @@ impl RenderBackend for CairoBackend {
 
         // Viewport offset. We must take this into account when rendering items.
         let vp = ctx.viewport();
-        let offset_x = vp.x as f64;
-        let offset_y = vp.y as f64;
+        let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed) as f64;
+        // All CSS-pixel coordinates are multiplied by DPR to get physical pixel positions.
+        let offset_x = vp.x as f64 * dpr;
+        let offset_y = vp.y as f64 * dpr;
         let size = s.size();
 
         // Get the cairo context (CR) from the surface.
@@ -106,11 +116,16 @@ impl RenderBackend for CairoBackend {
                         };
                         if let Ok(img_surface) = img_surface {
                             let pattern = cairo::SurfacePattern::create(&img_surface);
+                            pattern.set_filter(cairo::Filter::Fast);
+                            // x, y are CSS pixels; multiply by DPR to get physical position.
+                            let phys_x = *x as f64 * dpr;
+                            let phys_y = *y as f64 * dpr;
                             let mut matrix = cairo::Matrix::identity();
-                            matrix.translate(-(*x as f64) + offset_x, -(*y as f64) + offset_y);
+                            matrix.translate(-phys_x + offset_x, -phys_y + offset_y);
                             pattern.set_matrix(matrix);
                             cr.set_source(&pattern).unwrap_or(());
-                            cr.rectangle(*x as f64, *y as f64, *w as f64, *h as f64);
+                            // w, h are already in physical pixels (tile surface dimensions).
+                            cr.rectangle(phys_x, phys_y, *w as f64, *h as f64);
                             _ = cr.fill();
                         }
                     }

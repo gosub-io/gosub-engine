@@ -1,11 +1,11 @@
-use crate::compositor::inner::skia_compositor;
+use crate::compositor::compositor::skia_compositor;
 use gosub_pipeline::common::browser_state::BrowserState;
 use gosub_pipeline::common::TextureStore;
 use gosub_pipeline::layering::layer::LayerId;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
-mod inner;
+mod compositor;
 
 pub struct SkiaCompositor {}
 

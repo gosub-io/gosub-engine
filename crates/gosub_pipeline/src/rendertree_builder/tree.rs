@@ -168,6 +168,10 @@ impl RenderTree {
             Some(render_node_id) => self.root_id = Some(render_node_id),
             None => panic!("Failed to build rendertree"),
         }
+
+        if let Ok(path) = std::env::var("GOSUB_DUMP_CSS") {
+            self.dump_css_to_json(&path);
+        }
     }
 
     fn is_visible(&self, id: NodeId) -> bool {

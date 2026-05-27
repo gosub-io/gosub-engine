@@ -4,5 +4,5 @@ use skia_safe::Canvas;
 
 #[allow(dead_code)]
 pub fn do_paint(_canvas: &Canvas, _tile: &Tile, _cmd: &PaintCommand) {
-    log::warn!("Skia paint rasterization is not yet implemented");
+    unimplemented!("Skia paint rasterization is not yet implemented")
 }

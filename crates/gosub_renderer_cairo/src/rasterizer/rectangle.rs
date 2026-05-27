@@ -28,11 +28,14 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
             _ = cr.stroke();
         }
         BorderStyle::Dashed => {
-            cr.set_dash(&[50.0, 10.0, 10.0, 10.0], 0.0);
+            let w = rectangle.border().width() as f64;
+            let dash = (w * 3.0).max(3.0);
+            cr.set_dash(&[dash, dash], 0.0);
             _ = cr.stroke();
         }
         BorderStyle::Dotted => {
-            cr.set_dash(&[10.0, 10.0], 0.0);
+            let w = rectangle.border().width() as f64;
+            cr.set_dash(&[w, w], 0.0);
             _ = cr.stroke();
         }
         BorderStyle::Double => {

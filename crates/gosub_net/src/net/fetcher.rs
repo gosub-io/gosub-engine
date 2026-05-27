@@ -181,7 +181,7 @@ pub struct Fetcher {
 impl Fetcher {
     pub fn new(config: FetcherConfig, ctx: Arc<dyn FetcherContext>) -> anyhow::Result<Self> {
         let client = reqwest::Client::builder()
-            .connection_verbose(true)
+            .connection_verbose(false)
             .http2_adaptive_window(true)
             .connect_timeout(config.connect_timeout)
             .timeout(config.req_timeout)
@@ -262,11 +262,11 @@ impl Fetcher {
         self.wake.notify_one();
     }
 
-    pub async fn run(&self, mut shutdown_tx: tokio::sync::watch::Receiver<bool>) {
+    pub async fn run(&self, shutdown: CancellationToken) {
         let mut lane_counter: u8 = 0;
 
         loop {
-            if *shutdown_tx.borrow() {
+            if shutdown.is_cancelled() {
                 break;
             }
 
@@ -286,7 +286,7 @@ impl Fetcher {
             else {
                 tokio::select! {
                     _ = self.wake.notified() => {},
-                    _ = shutdown_tx.changed() => {},
+                    _ = shutdown.cancelled() => {},
                 }
                 continue;
             };
@@ -353,7 +353,7 @@ impl Fetcher {
             let inflight = self.inflight_map.clone();
             let key_for_remove = key_str.clone();
             let inflight_entry2 = inflight_entry.clone();
-            let mut shutdown_child = shutdown_tx.clone();
+            let shutdown_child = shutdown.clone();
             let req_for_task = req.clone();
             let cancel_parent = inflight_entry2.parent_cancel.clone();
             let ctx_clone = self.ctx.clone();
@@ -366,12 +366,13 @@ impl Fetcher {
                     .or_insert_with(|| Arc::new(Semaphore::new(per_origin_limit_for(&cfg, &req.key_data.url))))
                     .clone();
 
-                let g = tokio::select! { p = global.acquire_owned() => Some(p), _ = shutdown_child.changed() => None };
+                let g =
+                    tokio::select! { p = global.acquire_owned() => Some(p), _ = shutdown_child.cancelled() => None };
                 if g.is_none() {
                     return;
                 }
 
-                let h = tokio::select! { p = slots.acquire_owned() => Some(p), _ = shutdown_child.changed() => None };
+                let h = tokio::select! { p = slots.acquire_owned() => Some(p), _ = shutdown_child.cancelled() => None };
                 if h.is_none() {
                     return;
                 }

@@ -8,7 +8,7 @@ use crate::util::spawn_named;
 use crate::zone::ZoneId;
 use dashmap::DashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
@@ -17,9 +17,9 @@ use tracing::instrument;
 pub struct IoHandle {
     /// Channel to submit I/O requests
     tx_submit: IoChannel,
-    // Send "true" when we want to shut down the IO thread (all zones)
-    shutdown_tx: watch::Sender<bool>,
-    // Join handle for shutdown sync
+    /// Cancelled to signal global IO thread shutdown
+    shutdown_token: CancellationToken,
+    /// Join handle for shutdown sync
     join_handle: JoinHandle<()>,
 }
 
@@ -37,14 +37,11 @@ impl IoHandle {
     #[instrument(name = "io.shutdown", level = "debug", skip(self))]
     pub async fn shutdown(self) {
         log::trace!("signal: global shutdown -> I/O thread");
-        // Signal global shutdown to the IO thread
-        let _ = self.shutdown_tx.send(true);
+        self.shutdown_token.cancel();
 
         log::trace!("signal: closing submit channel");
-        // Drop the submit channel so the IO loop sees EOF on rx_submit
         drop(self.tx_submit.clone());
 
-        // Wait for the IO thread to exit
         log::trace!("await: I/O thread join");
         match self.join_handle.await {
             Ok(()) => {
@@ -70,7 +67,7 @@ impl IoHandle {
 
 pub struct ZoneEntry {
     fetcher: Arc<Fetcher>,
-    shutdown_tx: watch::Sender<bool>,
+    shutdown: CancellationToken,
     join: JoinHandle<()>,
 }
 
@@ -100,7 +97,7 @@ impl IoRouter {
             return f.fetcher.clone();
         }
 
-        let (zone_shutdown_tx, zone_shutdown_rx) = watch::channel(false);
+        let zone_shutdown = CancellationToken::new();
 
         let engine_ctx = Arc::new(EngineNetContext {
             event_tx: self.engine_ctx.event_tx.clone(),
@@ -110,16 +107,17 @@ impl IoRouter {
         let f = Arc::new(Fetcher::new(self.cfg.clone(), engine_ctx).expect("reqwest client build failed"));
 
         let f_run = f.clone();
+        let cancel = zone_shutdown.clone();
         let title = format!("I/O Fetcher Zone {}", zone_id);
         let join_handle = spawn_named(&title, async move {
-            f_run.run(zone_shutdown_rx).await;
+            f_run.run(cancel).await;
         });
 
         self.zones.insert(
             zone_id,
             ZoneEntry {
                 fetcher: f.clone(),
-                shutdown_tx: zone_shutdown_tx.clone(),
+                shutdown: zone_shutdown,
                 join: join_handle,
             },
         );
@@ -138,7 +136,7 @@ impl IoRouter {
         if let Some((_, entry)) = self.zones.remove(&zone_id) {
             // Shutdown the fetcher
             log::trace!("signal: shutdown to zone fetcher");
-            let _ = entry.shutdown_tx.send(true);
+            entry.shutdown.cancel();
             // Wait for it to finish
             log::trace!("await: zone fetcher join");
             let _ = entry.join.await;
@@ -157,7 +155,7 @@ impl IoRouter {
         let keys: Vec<_> = self.zones.iter().map(|kv| *kv.key()).collect();
         for zone_id in keys {
             if let Some((_, entry)) = self.zones.remove(&zone_id) {
-                let _ = entry.shutdown_tx.send(true);
+                entry.shutdown.cancel();
                 tasks.push(entry.join);
             }
         }
@@ -205,20 +203,26 @@ pub async fn submit_to_io(
 /// isn't the biggest bottleneck.
 pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> IoHandle {
     let (tx_submit, mut rx_submit) = mpsc::unbounded_channel::<IoCommand>();
-    let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+    let shutdown_token = CancellationToken::new();
+    let cancel = shutdown_token.clone();
 
     let join_handle = spawn_named("I/O Thread", async move {
         let router = IoRouter::new(cfg, engine_ctx);
 
         loop {
             tokio::select! {
+                biased;
+                _ = cancel.cancelled() => {
+                    log::trace!("I/O thread received global shutdown signal");
+                    break;
+                }
                 maybe_req = rx_submit.recv() => {
                     match maybe_req {
-                        Some(IoCommand::Fetch { zone_id, req, handle, reply_tx } ) => {
+                        Some(IoCommand::Fetch { zone_id, req, handle, reply_tx }) => {
                             let fetcher = router.get_or_spawn_zone_fetcher(zone_id);
                             fetcher.submit(req, handle, reply_tx).await;
                         }
-                        Some(IoCommand::Decision { zone_id, token,action }) => {
+                        Some(IoCommand::Decision { zone_id, token, action }) => {
                             let fetcher = router.get_or_spawn_zone_fetcher(zone_id);
                             fetcher.fulfill(token, action).await;
                         }
@@ -226,31 +230,19 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                             let _ = router.shutdown_zone(zone_id).await;
                             let _ = reply_tx.send(());
                         }
-                        None => {
-                            // All producers have dropped. Signal shutdown
-                            break
-                            }
+                        None => break,
                     }
-                }
-                _ = shutdown_rx.changed() => {
-                    if *shutdown_rx.borrow() {
-                        log::trace!("I/O thread received global shutdown signal");
-                        break;
-                    }
-                    // log::error!("I/O thread spurious wakeup on shutdown signal");
-                    // break;
                 }
             }
         }
 
-        // global shutdown: stop all zones cleanly
         log::trace!("I/O thread shutting down all zone fetchers");
         router.shutdown_all().await;
     });
 
     IoHandle {
         tx_submit,
-        shutdown_tx,
+        shutdown_token,
         join_handle,
     }
 }
