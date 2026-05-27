@@ -3366,7 +3366,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "parley 0.9.0",
- "png 0.17.16",
+ "png 0.18.1",
  "pollster",
  "r2d2",
  "r2d2_sqlite",
