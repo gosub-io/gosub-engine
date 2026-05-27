@@ -36,13 +36,14 @@
 
 use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::EngineDocument;
-use crate::render::backend::{CachedTile, ExternalHandle};
 use crate::render::{Color, DisplayItem, RenderList, Viewport};
 use std::sync::Arc;
 use url::Url;
 
 #[cfg(feature = "pipeline")]
 use crate::html::HtmlEngineConfig;
+#[cfg(feature = "pipeline")]
+use crate::render::backend::{CachedTile, ExternalHandle};
 // #[derive(Debug, thiserror::Error)]
 // pub enum LoadError {
 //     #[error("navigation cancelled")]

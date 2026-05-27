@@ -32,11 +32,16 @@ impl Rasterable for CairoRasterizer {
         let tile_w = tile.rect.width as i32 * dpr;
         let tile_h = tile.rect.height as i32 * dpr;
 
-        let mut surface =
-            cairo::ImageSurface::create(cairo::Format::ARgb32, tile_w, tile_h).expect("Failed to create image surface");
+        let Ok(mut surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, tile_w, tile_h) else {
+            log::error!("Failed to create Cairo image surface for tile rasterization");
+            return None;
+        };
 
         {
-            let cr = cairo::Context::new(&surface).expect("Failed to create cairo context");
+            let Ok(cr) = cairo::Context::new(&surface) else {
+                log::error!("Failed to create Cairo context for tile rasterization");
+                return None;
+            };
             // Scale the context so all CSS-pixel coordinates map to physical pixels.
             cr.scale(dpr as f64, dpr as f64);
 

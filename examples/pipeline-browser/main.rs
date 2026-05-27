@@ -161,27 +161,25 @@ fn main() {
             let local_scroll = local_scroll.clone();
             glib::spawn_future_local(async move {
                 while let Some(()) = rx_redraw.recv().await {
-                    if let Some(handle) = compositor_rx.read().frame_for(tab_id) {
-                        if let ExternalHandle::TileCache {
+                    if let Some(ExternalHandle::TileCache {
+                        tiles,
+                        dpr,
+                        viewport_width,
+                        viewport_height,
+                        page_height,
+                        scroll_x,
+                        scroll_y,
+                    }) = compositor_rx.read().frame_for(tab_id)
+                    {
+                        *local_tiles.borrow_mut() = Some(TileDrawState {
                             tiles,
                             dpr,
                             viewport_width,
                             viewport_height,
                             page_height,
-                            scroll_x,
-                            scroll_y,
-                        } = handle
-                        {
-                            *local_tiles.borrow_mut() = Some(TileDrawState {
-                                tiles,
-                                dpr,
-                                viewport_width,
-                                viewport_height,
-                                page_height,
-                            });
-                            // Sync scroll — the engine may have clamped it.
-                            local_scroll.set((scroll_x, scroll_y));
-                        }
+                        });
+                        // Sync scroll — the engine may have clamped it.
+                        local_scroll.set((scroll_x, scroll_y));
                     }
                     da.queue_draw();
                 }
