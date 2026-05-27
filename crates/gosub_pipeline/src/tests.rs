@@ -143,7 +143,7 @@ mod rendertree_from_engine {
         "#;
 
         use crate::common::document::pipeline_doc::PipelineDocument;
-        use crate::common::document::style::{StyleProperty, StyleValue, Unit};
+        use crate::common::document::style::{StyleProperty, Unit, Value};
 
         let mut doc = html_compile::<Config>(html);
         let ua = Css3System::load_default_useragent_stylesheet();
@@ -157,15 +157,15 @@ mod rendertree_from_engine {
         assert!(box_node_id.is_some(), "should find #box element");
 
         let id = box_node_id.unwrap();
-        let width = adapter.get_style(id, StyleProperty::Width);
-        let height = adapter.get_style(id, StyleProperty::Height);
+        let width = adapter.get_style(id, &StyleProperty::Width);
+        let height = adapter.get_style(id, &StyleProperty::Height);
 
         assert!(
-            matches!(width, Some(StyleValue::Unit(w, Unit::Px)) if (w - 200.0).abs() < 0.5),
+            matches!(width, Value::Unit(w, Unit::Px) if (w - 200.0).abs() < 0.5),
             "expected width:200px, got {width:?}"
         );
         assert!(
-            matches!(height, Some(StyleValue::Unit(h, Unit::Px)) if (h - 100.0).abs() < 0.5),
+            matches!(height, Value::Unit(h, Unit::Px) if (h - 100.0).abs() < 0.5),
             "expected height:100px, got {height:?}"
         );
     }

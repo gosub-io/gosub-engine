@@ -17,7 +17,7 @@ use url::Url;
 use cow_utils::CowUtils;
 use gosub_pipeline::common::document::node::NodeType;
 use gosub_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
-use gosub_pipeline::common::document::style::{StyleProperty, StyleValue, Unit};
+use gosub_pipeline::common::document::style::{StyleProperty, Unit, Value, lookup};
 use gosub_pipeline::rendertree_builder::{RenderNodeId, RenderTree};
 
 // ---- Engine config wiring gosub_html5 + gosub_css3 ----
@@ -107,7 +107,7 @@ fn node_label(rt: &RenderTree, id: RenderNodeId, depth: usize) -> Option<String>
     let content = match &node.node_type {
         NodeType::Comment(_) => return None,
 
-        NodeType::Text(text, _) => {
+        NodeType::Text(text) => {
             let t = text.trim();
             if t.is_empty() {
                 return None;
@@ -128,7 +128,7 @@ fn node_label(rt: &RenderTree, id: RenderNodeId, depth: usize) -> Option<String>
                 ("color", StyleProperty::Color),
                 ("bg", StyleProperty::BackgroundColor),
             ] {
-                if let Some(v) = data.styles.get_property(prop) {
+                if let Some(v) = data.styles.get_own(&prop) {
                     parts.push(format!("{}={}", label, fmt_value(v)));
                 }
             }
@@ -149,16 +149,16 @@ fn node_label(rt: &RenderTree, id: RenderNodeId, depth: usize) -> Option<String>
     Some(content)
 }
 
-fn fmt_value(v: &StyleValue) -> String {
+fn fmt_value(v: &Value) -> String {
     match v {
-        StyleValue::Unit(n, Unit::Px) => format!("{n}px"),
-        StyleValue::Unit(n, Unit::Percent) => format!("{n}%"),
-        StyleValue::Unit(n, Unit::Em) => format!("{n}em"),
-        StyleValue::Unit(n, Unit::Rem) => format!("{n}rem"),
-        StyleValue::Number(n) => format!("{n}"),
-        StyleValue::Keyword(k) => k.clone(),
-        StyleValue::Display(d) => format!("{d:?}").cow_to_ascii_lowercase().into_owned(),
-        StyleValue::Color(c) => format!("{c:?}"),
+        Value::Unit(n, Unit::Px) => format!("{n}px"),
+        Value::Unit(n, Unit::Percent) => format!("{n}%"),
+        Value::Unit(n, Unit::Em) => format!("{n}em"),
+        Value::Unit(n, Unit::Rem) => format!("{n}rem"),
+        Value::Number(n) => format!("{n}"),
+        Value::Keyword(id) => lookup(*id),
+        Value::Display(d) => format!("{d:?}").cow_to_ascii_lowercase().into_owned(),
+        Value::Color(r, g, b, a) => format!("rgba({r},{g},{b},{a})"),
         _ => format!("{v:?}"),
     }
 }

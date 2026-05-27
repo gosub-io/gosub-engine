@@ -1,5 +1,5 @@
 use crate::common::document::node::{AttrMap, Node, NodeId, NodeType};
-use crate::common::document::style::StylePropertyList;
+use crate::common::document::style::NodeStyle;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,7 +27,6 @@ impl Document {
         }
     }
 
-    /// Returns the inner HTML generated from the document
     pub fn inner_html(&self, node_id: NodeId) -> String {
         let Some(node) = self.get_node_by_id(node_id) else {
             return String::new();
@@ -35,27 +34,22 @@ impl Document {
         match &node.node_type {
             NodeType::Element(data) => {
                 let mut result = String::new();
-
                 result.push_str(&format!("<{} ", data.tag_name));
                 result.push_str(&data.attributes.to_string());
-
                 if data.is_self_closing() {
                     result.push_str("/>");
                 } else {
                     result.push('>');
                 }
-
                 for child_id in &node.children {
                     result.push_str(&self.inner_html(*child_id));
                 }
-
                 if !data.is_self_closing() {
                     result.push_str(&format!("</{}>", data.tag_name));
                 }
-
                 result
             }
-            NodeType::Text(text, _) => text.clone(),
+            NodeType::Text(text) => text.clone(),
             NodeType::Comment(comment) => comment.clone(),
         }
     }
@@ -66,13 +60,13 @@ impl Document {
         tag_name: &str,
         attributes: Option<AttrMap>,
         self_closing: bool,
-        style: Option<StylePropertyList>,
+        style: Option<NodeStyle>,
     ) -> NodeId {
-        let node = Node::new_element(self, parent_id, tag_name.to_string(), attributes, self_closing, style);
+        let node =
+            Node::new_element(self, parent_id, tag_name.to_string(), attributes, self_closing, style);
         let node_id = node.node_id;
         self.arena.insert(node_id, node);
 
-        // We will be needing the html and body tags later on for background color purposes. Save them so we can do quick lookups.
         if tag_name == "html" && self.html_node_id.is_none() {
             self.html_node_id = Some(node_id);
         } else if tag_name == "body" && self.body_node_id.is_none() {
@@ -89,8 +83,9 @@ impl Document {
         node_id
     }
 
-    pub fn new_text(&mut self, parent_id: Option<NodeId>, text: &str, style: Option<StylePropertyList>) -> NodeId {
-        let node = Node::new_text(self, parent_id, text.to_string(), style);
+    /// Text nodes carry no own style — they inherit everything via the parent chain in get_style().
+    pub fn new_text(&mut self, parent_id: Option<NodeId>, text: &str) -> NodeId {
+        let node = Node::new_text(self, parent_id, text.to_string());
         let node_id = node.node_id;
         self.arena.insert(node_id, node);
         node_id
@@ -123,8 +118,8 @@ impl Document {
 
 #[allow(unused)]
 pub enum NodeVisit {
-    Enter, // Callback enters the node
-    Exit,  // Callback exits the node
+    Enter,
+    Exit,
 }
 
 impl Document {
@@ -145,9 +140,7 @@ impl Document {
     where
         F: FnMut(NodeId, usize, NodeVisit),
     {
-        let Some(node) = self.get_node_by_id(node_id) else {
-            return;
-        };
+        let Some(node) = self.get_node_by_id(node_id) else { return };
         cb(node_id, level, NodeVisit::Enter);
         let children = node.children.clone();
         for child_id in &children {
@@ -158,22 +151,16 @@ impl Document {
 
     #[allow(unused)]
     pub fn print_tree(&self, writer: &mut dyn std::fmt::Write) -> Result<(), std::fmt::Error> {
-        if self.root_id.is_none() {
-            return Ok(());
-        }
-
-        self.walk_depth_first(self.root_id.unwrap(), &mut |node_id, level, visit_mode| {
-            let Some(node) = self.get_node_by_id(node_id) else {
-                return;
-            };
-
+        let Some(root) = self.root_id else { return Ok(()) };
+        self.walk_depth_first(root, &mut |node_id, level, visit_mode| {
+            let Some(node) = self.get_node_by_id(node_id) else { return };
             let indent = " ".repeat(level * 4);
             match visit_mode {
                 NodeVisit::Enter => match &node.node_type {
                     NodeType::Comment(comment) => {
                         let _ = writeln!(writer, "{}({}) <!-- {} -->", indent, node.node_id, comment);
                     }
-                    NodeType::Text(text, _) => {
+                    NodeType::Text(text) => {
                         let _ = writeln!(writer, "{}({}) '{}'", indent, node.node_id, text);
                     }
                     NodeType::Element(element) => {
@@ -201,7 +188,6 @@ impl Document {
                 }
             }
         });
-
         Ok(())
     }
 }

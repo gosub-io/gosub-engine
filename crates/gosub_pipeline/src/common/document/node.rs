@@ -1,5 +1,5 @@
 use crate::common::document::document::Document;
-use crate::common::document::style::{Display, StyleProperty, StylePropertyList, StyleValue};
+use crate::common::document::style::{Display, NodeStyle, StyleProperty, Value};
 use std::collections::HashMap;
 
 pub use gosub_shared::node::NodeId;
@@ -18,9 +18,7 @@ impl Default for AttrMap {
 
 impl AttrMap {
     pub fn new() -> AttrMap {
-        AttrMap {
-            attributes: HashMap::new(),
-        }
+        AttrMap { attributes: HashMap::new() }
     }
 
     pub fn get(&self, key: &str) -> Option<&String> {
@@ -52,15 +50,12 @@ impl std::fmt::Display for AttrMap {
 /// Data for a html element (tag name, attributes, styles etc)
 #[derive(Clone, Debug)]
 pub struct ElementData {
-    /// Element name (ie: P, DIV, IMG etc)
     pub tag_name: String,
-    /// Element attributes (src, href, class etc)
     pub attributes: AttrMap,
-    /// Is this element self-closing (ie: <img />)
     #[allow(unused)]
     pub self_closing: bool,
-    /// Element styles (color, font-size etc)
-    pub styles: StylePropertyList,
+    /// Own CSS properties for this element (only explicitly-set values; no inheritance).
+    pub styles: NodeStyle,
 }
 
 impl ElementData {
@@ -68,7 +63,7 @@ impl ElementData {
         tag_name: String,
         attributes: Option<AttrMap>,
         is_self_closing: bool,
-        styles: Option<StylePropertyList>,
+        styles: Option<NodeStyle>,
     ) -> ElementData {
         ElementData {
             tag_name,
@@ -78,8 +73,8 @@ impl ElementData {
         }
     }
 
-    pub fn get_style(&self, key: StyleProperty) -> Option<&StyleValue> {
-        self.styles.properties.get(&key)
+    pub fn get_style(&self, key: &StyleProperty) -> Option<&Value> {
+        self.styles.get_own(key)
     }
 
     #[allow(unused)]
@@ -98,27 +93,22 @@ impl ElementData {
     }
 
     pub fn is_inline_element(&self) -> bool {
-        match self.get_style(StyleProperty::Display) {
-            Some(StyleValue::Display(display)) => *display == Display::Inline,
-            _ => false,
-        }
+        matches!(self.get_style(&StyleProperty::Display), Some(Value::Display(Display::Inline)))
     }
 
     pub fn is_inline_block_element(&self) -> bool {
-        match self.get_style(StyleProperty::Display) {
-            Some(StyleValue::Display(display)) => *display == Display::InlineBlock,
-            _ => false,
-        }
+        matches!(
+            self.get_style(&StyleProperty::Display),
+            Some(Value::Display(Display::InlineBlock))
+        )
     }
 }
 
 #[derive(Clone, Debug)]
 pub enum NodeType {
-    // Comment node (<!-- comment -->)
     Comment(String),
-    // Text node (ie: Some text). Does not contain any children
-    Text(String, StylePropertyList),
-    // Element node (ie: <div></div>)
+    /// Text node — no own style; all properties inherited via the document parent chain.
+    Text(String),
     Element(ElementData),
 }
 
@@ -131,48 +121,43 @@ pub struct Node {
 }
 
 impl Node {
-    /// Returns true if the node is a block element
     pub fn is_block_element(&self) -> bool {
         match &self.node_type {
-            NodeType::Element(data) => match data.get_style(StyleProperty::Display) {
-                Some(StyleValue::Display(display)) => *display == Display::Block,
-                _ => false,
-            },
+            NodeType::Element(data) => {
+                matches!(data.get_style(&StyleProperty::Display), Some(Value::Display(Display::Block)))
+            }
             _ => false,
         }
     }
 
     pub fn is_inline_block_element(&self) -> bool {
         match &self.node_type {
-            NodeType::Element(data) => match data.get_style(StyleProperty::Display) {
-                Some(StyleValue::Display(display)) => *display == Display::InlineBlock,
-                _ => false,
-            },
+            NodeType::Element(data) => matches!(
+                data.get_style(&StyleProperty::Display),
+                Some(Value::Display(Display::InlineBlock))
+            ),
             _ => false,
         }
     }
 
-    /// Returns true if the node is an element node and is inline
     pub fn is_inline_element(&self) -> bool {
         match &self.node_type {
-            NodeType::Element(data) => match data.get_style(StyleProperty::Display) {
-                Some(StyleValue::Display(display)) => *display == Display::Inline,
-                _ => false,
-            },
+            NodeType::Element(data) => {
+                matches!(data.get_style(&StyleProperty::Display), Some(Value::Display(Display::Inline)))
+            }
             _ => false,
         }
     }
 
-    /// Returns true when the node is a text node
     pub fn is_text(&self) -> bool {
-        matches!(&self.node_type, NodeType::Text(_, _))
+        matches!(&self.node_type, NodeType::Text(_))
     }
 
-    pub fn get_style_f32(&self, prop: StyleProperty) -> f32 {
+    pub fn get_style_f32(&self, prop: &StyleProperty) -> f32 {
         match &self.node_type {
             NodeType::Element(data) => match data.get_style(prop) {
-                Some(StyleValue::Unit(px, _)) => *px,
-                Some(StyleValue::Number(px)) => *px,
+                Some(Value::Unit(px, _)) => *px,
+                Some(Value::Number(px)) => *px,
                 _ => 0.0,
             },
             _ => 0.0,
@@ -181,13 +166,12 @@ impl Node {
 }
 
 impl Node {
-    /// Text nodes also have styles. Normally this is taken from the parent element that the text resides in.
-    pub fn new_text(doc: &Document, parent_id: Option<NodeId>, text: String, style: Option<StylePropertyList>) -> Node {
+    pub fn new_text(doc: &Document, parent_id: Option<NodeId>, text: String) -> Node {
         Node {
             node_id: doc.next_node_id(),
             parent_id,
             children: vec![],
-            node_type: NodeType::Text(text, style.unwrap_or_default()),
+            node_type: NodeType::Text(text),
         }
     }
 
@@ -206,7 +190,7 @@ impl Node {
         tag_name: String,
         attributes: Option<AttrMap>,
         self_closing: bool,
-        style: Option<StylePropertyList>,
+        style: Option<NodeStyle>,
     ) -> Node {
         Node {
             node_id: doc.next_node_id(),

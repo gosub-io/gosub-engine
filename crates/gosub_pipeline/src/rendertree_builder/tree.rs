@@ -1,4 +1,5 @@
 use crate::common::document::node::Node;
+use crate::common::document::node::NodeType;
 use crate::common::document::pipeline_doc::{PipelineDocument, PipelineNodeKind};
 use gosub_shared::node::NodeId;
 use std::collections::HashMap;
@@ -96,6 +97,55 @@ impl RenderTree {
 }
 
 const INVISIBLE_ELEMENTS: [&str; 6] = ["head", "style", "script", "meta", "link", "title"];
+
+impl RenderTree {
+    /// Dumps the computed CSS properties of every element node in the render tree to a JSON file.
+    /// Output format is an array of objects, one per element, sorted by node_id:
+    /// `[{"node_id": 5, "tag": "p", "id": "", "class": "foo", "styles": {"color": "red", ...}}, ...]`
+    pub fn dump_css_to_json(&self, path: &str) {
+        let mut entries: Vec<serde_json::Value> = Vec::new();
+
+        let mut render_ids: Vec<RenderNodeId> = self.arena.keys().copied().collect();
+        render_ids.sort_by_key(|id| id.0);
+
+        for render_id in render_ids {
+            let dom_node_id = NodeId::from(render_id);
+            let Some(node) = self.doc.get_node_by_id(dom_node_id) else {
+                continue;
+            };
+            let NodeType::Element(ref element) = node.node_type else {
+                continue;
+            };
+
+            let id_attr = element.attributes.get("id").cloned().unwrap_or_default();
+            let class_attr = element.attributes.get("class").cloned().unwrap_or_default();
+            let style_pairs = element.styles.to_string_map();
+            let styles: serde_json::Map<String, serde_json::Value> = style_pairs
+                .into_iter()
+                .map(|(k, v)| (k, serde_json::Value::String(v)))
+                .collect();
+
+            entries.push(serde_json::json!({
+                "node_id": usize::from(dom_node_id),
+                "tag": element.tag_name,
+                "id": id_attr,
+                "class": class_attr,
+                "styles": styles,
+            }));
+        }
+
+        match serde_json::to_string_pretty(&entries) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(path, json) {
+                    log::error!("Failed to write CSS dump to {path}: {e}");
+                } else {
+                    log::info!("CSS dump written to {path} ({} elements)", entries.len());
+                }
+            }
+            Err(e) => log::error!("Failed to serialize CSS dump: {e}"),
+        }
+    }
+}
 
 impl RenderTree {
     pub fn new(doc: Arc<dyn PipelineDocument>) -> Self {

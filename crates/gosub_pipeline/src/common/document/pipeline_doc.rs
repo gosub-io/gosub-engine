@@ -1,7 +1,8 @@
 use crate::common::document::document::Document;
 use crate::common::document::node::{AttrMap, ElementData, Node, NodeType};
 use crate::common::document::style::{
-    BorderStyle, Color, Display, FontWeight, StyleProperty, StylePropertyList, StyleValue, TextAlign, TextWrap, Unit,
+    intern, BorderStyle, Display, FontWeight, NodeStyle, StyleProperty, TextAlign, TextWrap, Unit,
+    Value,
 };
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem};
@@ -19,6 +20,8 @@ pub enum PipelineNodeKind {
     Element,
 }
 
+// ── PipelineDocument trait ────────────────────────────────────────────────────
+
 pub trait PipelineDocument: Send + Sync {
     fn root(&self) -> Option<NodeId>;
     fn children(&self, id: NodeId) -> Vec<NodeId>;
@@ -26,8 +29,6 @@ pub trait PipelineDocument: Send + Sync {
     fn tag_name(&self, id: NodeId) -> Option<String>;
     fn is_display_none(&self, id: NodeId) -> bool;
     fn parent(&self, id: NodeId) -> Option<NodeId>;
-    fn get_style(&self, id: NodeId, prop: StyleProperty) -> Option<StyleValue>;
-    fn get_style_f32(&self, id: NodeId, prop: StyleProperty) -> f32;
     fn html_node_id(&self) -> Option<NodeId>;
     fn body_node_id(&self) -> Option<NodeId>;
     fn base_url(&self) -> String;
@@ -35,9 +36,38 @@ pub trait PipelineDocument: Send + Sync {
     fn get_node_by_id(&self, _id: NodeId) -> Option<Node> {
         None
     }
+
+    /// Returns the own (explicitly-set) value for `prop` on node `id`, without recursing.
+    fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value>;
+
+    /// Returns the computed value for `prop` on node `id`:
+    ///  1. own value if set,
+    ///  2. parent's computed value if the property is inherited,
+    ///  3. the CSS-spec initial value otherwise.
+    fn get_style(&self, id: NodeId, prop: &StyleProperty) -> Value {
+        if let Some(v) = self.get_own_style(id, prop) {
+            return v;
+        }
+        let meta = prop.meta();
+        if meta.inherited {
+            if let Some(parent) = self.parent(id) {
+                return self.get_style(parent, prop);
+            }
+        }
+        meta.initial_value()
+    }
+
+    fn get_style_f32(&self, id: NodeId, prop: &StyleProperty) -> f32 {
+        match self.get_style(id, prop) {
+            Value::Unit(v, _) => v,
+            Value::Number(v) => v,
+            _ => 0.0,
+        }
+    }
 }
 
-// impl for poc's own Document (field-based, self-contained)
+// ── impl for the simple JSON-based Document ───────────────────────────────────
+
 impl PipelineDocument for Document {
     fn root(&self) -> Option<NodeId> {
         self.root_id
@@ -72,10 +102,9 @@ impl PipelineDocument for Document {
         self.arena
             .get(&id)
             .map(|node| match &node.node_type {
-                NodeType::Element(data) => matches!(
-                    data.get_style(StyleProperty::Display),
-                    Some(StyleValue::Display(d)) if *d == Display::None
-                ),
+                NodeType::Element(data) => {
+                    matches!(data.get_style(&StyleProperty::Display), Some(Value::Display(Display::None)))
+                }
                 _ => false,
             })
             .unwrap_or(false)
@@ -85,19 +114,11 @@ impl PipelineDocument for Document {
         self.arena.get(&id).and_then(|n| n.parent_id)
     }
 
-    fn get_style(&self, id: NodeId, prop: StyleProperty) -> Option<StyleValue> {
+    fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value> {
         self.arena.get(&id).and_then(|node| match &node.node_type {
             NodeType::Element(data) => data.get_style(prop).cloned(),
             _ => None,
         })
-    }
-
-    fn get_style_f32(&self, id: NodeId, prop: StyleProperty) -> f32 {
-        match self.get_style(id, prop) {
-            Some(StyleValue::Unit(px, _)) => px,
-            Some(StyleValue::Number(px)) => px,
-            _ => 0.0,
-        }
     }
 
     fn html_node_id(&self) -> Option<NodeId> {
@@ -121,16 +142,16 @@ impl PipelineDocument for Document {
     }
 }
 
-/// Adapter that wraps any `gosub_interface::document::Document<C>` and exposes it
-/// as a `PipelineDocument`.
+// ── GosubDocumentAdapter ──────────────────────────────────────────────────────
+
+/// Adapts any `gosub_interface::document::Document<C>` into a `PipelineDocument`.
 pub struct GosubDocumentAdapter<C>
 where
     C: HasDocument,
 {
     pub doc: Arc<C::Document>,
-    /// Per-node style cache. Populated lazily; valid for the lifetime of one pipeline run.
-    /// The adapter is recreated each render, so stale entries are never an issue.
-    style_cache: Mutex<HashMap<NodeId, Arc<StylePropertyList>>>,
+    /// Per-node own-style cache. Populated lazily; valid for one pipeline run.
+    style_cache: Mutex<HashMap<NodeId, Arc<NodeStyle>>>,
 }
 
 impl<C> GosubDocumentAdapter<C>
@@ -138,32 +159,27 @@ where
     C: HasDocument,
 {
     pub fn new(doc: Arc<C::Document>) -> Self {
-        Self {
-            doc,
-            style_cache: Mutex::new(HashMap::new()),
-        }
+        Self { doc, style_cache: Mutex::new(HashMap::new()) }
     }
 
-    /// Returns the full computed style list for `id`, fetching from cache when possible.
-    fn cached_styles(&self, id: NodeId) -> Arc<StylePropertyList> {
+    fn cached_styles(&self, id: NodeId) -> Arc<NodeStyle> {
         if let Some(cached) = self.style_cache.lock().get(&id) {
             return cached.clone();
         }
-        let list = Arc::new(self.compute_styles(id));
-        self.style_cache.lock().insert(id, list.clone());
-        list
+        let style = Arc::new(self.compute_styles(id));
+        self.style_cache.lock().insert(id, style.clone());
+        style
     }
 
-    fn compute_styles(&self, id: NodeId) -> StylePropertyList {
+    fn compute_styles(&self, id: NodeId) -> NodeStyle {
         let sheets = self.doc.stylesheets();
         let Some(mut prop_map) = C::CssSystem::properties_from_node::<C>(&*self.doc, id, sheets) else {
-            return StylePropertyList::new();
+            return NodeStyle::new();
         };
-        // Properties are lazily computed; trigger computation before reading values.
         for (_, prop) in prop_map.iter_mut() {
             prop.compute_value();
         }
-        build_style_property_list::<C::CssSystem>(&prop_map)
+        build_node_style::<C::CssSystem>(&prop_map)
     }
 
     fn find_child_by_tag(&self, parent: NodeId, tag: &str) -> Option<NodeId> {
@@ -181,8 +197,6 @@ where
     C::Document: Send + Sync,
 {
     fn root(&self) -> Option<NodeId> {
-        // gosub's document root is a synthetic DocumentNode with no layout meaning.
-        // Start from the <html> element so the render tree has a real element as its root.
         self.html_node_id().or_else(|| Some(self.doc.root()))
     }
 
@@ -195,7 +209,6 @@ where
             GosubNodeType::TextNode => PipelineNodeKind::Text,
             GosubNodeType::CommentNode | GosubNodeType::DocTypeNode => PipelineNodeKind::Comment,
             GosubNodeType::ElementNode => PipelineNodeKind::Element,
-            // DocumentNode is the document root — treat as a transparent container
             GosubNodeType::DocumentNode => PipelineNodeKind::Element,
         }
     }
@@ -205,26 +218,15 @@ where
     }
 
     fn is_display_none(&self, id: NodeId) -> bool {
-        matches!(
-            self.get_style(id, StyleProperty::Display),
-            Some(StyleValue::Display(Display::None))
-        )
+        matches!(self.get_own_style(id, &StyleProperty::Display), Some(Value::Display(Display::None)))
     }
 
     fn parent(&self, id: NodeId) -> Option<NodeId> {
         self.doc.parent(id)
     }
 
-    fn get_style(&self, id: NodeId, prop: StyleProperty) -> Option<StyleValue> {
-        self.cached_styles(id).properties.get(&prop).cloned()
-    }
-
-    fn get_style_f32(&self, id: NodeId, prop: StyleProperty) -> f32 {
-        match self.get_style(id, prop) {
-            Some(StyleValue::Unit(px, _)) => px,
-            Some(StyleValue::Number(px)) => px,
-            _ => 0.0,
-        }
+    fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value> {
+        self.cached_styles(id).get_own(prop).cloned()
     }
 
     fn html_node_id(&self) -> Option<NodeId> {
@@ -252,11 +254,8 @@ where
         let node_type = match self.doc.node_type(id) {
             GosubNodeType::TextNode => {
                 let text = self.doc.text_value(id).unwrap_or("").to_string();
-                // Text nodes inherit styles from their parent element
-                let style = parent_id
-                    .map(|pid| (*self.cached_styles(pid)).clone())
-                    .unwrap_or_default();
-                NodeType::Text(text, style)
+                // Text nodes carry no own style; inheritance handled by get_style() chain.
+                NodeType::Text(text)
             }
             GosubNodeType::CommentNode => {
                 let comment = self.doc.comment_value(id).unwrap_or("").to_string();
@@ -277,14 +276,11 @@ where
             _ => return None,
         };
 
-        Some(Node {
-            node_id: id,
-            parent_id,
-            children,
-            node_type,
-        })
+        Some(Node { node_id: id, parent_id, children, node_type })
     }
 }
+
+// ── build_node_style — converts CssPropertyMap into NodeStyle ─────────────────
 
 fn str_to_unit(s: &str) -> Unit {
     match s {
@@ -310,9 +306,8 @@ fn str_to_border_style(s: &str) -> BorderStyle {
     }
 }
 
-/// Converts a `CssPropertyMap` into our internal `StylePropertyList`.
-fn build_style_property_list<S: CssSystem>(prop_map: &S::PropertyMap) -> StylePropertyList {
-    let mut list = StylePropertyList::new();
+fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
+    let mut style = NodeStyle::new();
 
     // --- Unit-based properties ---
     let unit_props: &[(&str, StyleProperty)] = &[
@@ -350,11 +345,11 @@ fn build_style_property_list<S: CssSystem>(prop_map: &S::PropertyMap) -> StylePr
     for (css_name, prop) in unit_props {
         if let Some(p) = prop_map.get(css_name) {
             if let Some((val, unit_str)) = p.as_unit() {
-                list.set_property(prop.clone(), StyleValue::Unit(val, str_to_unit(unit_str)));
+                style.set(prop.clone(), Value::Unit(val, str_to_unit(unit_str)));
             } else if let Some(val) = p.as_number() {
-                list.set_property(prop.clone(), StyleValue::Unit(val, Unit::Px));
+                style.set(prop.clone(), Value::Unit(val, Unit::Px));
             } else if let Some(s) = p.as_string() {
-                list.set_property(prop.clone(), StyleValue::Keyword(s.to_string()));
+                style.set(prop.clone(), Value::Keyword(intern(s)));
             }
         }
     }
@@ -371,10 +366,7 @@ fn build_style_property_list<S: CssSystem>(prop_map: &S::PropertyMap) -> StylePr
     for (css_name, prop) in color_props {
         if let Some(p) = prop_map.get(css_name) {
             if let Some((r, g, b, a)) = p.parse_color() {
-                list.set_property(
-                    prop.clone(),
-                    StyleValue::Color(Color::Rgba(r as u8, g as u8, b as u8, a / 255.0)),
-                );
+                style.set(prop.clone(), Value::Color(r as u8, g as u8, b as u8, (a / 255.0 * 255.0) as u8));
             }
         }
     }
@@ -397,7 +389,7 @@ fn build_style_property_list<S: CssSystem>(prop_map: &S::PropertyMap) -> StylePr
                 "table-row-group" => Display::TableRowGroup,
                 _ => Display::Block,
             };
-            list.set_property(StyleProperty::Display, StyleValue::Display(display));
+            style.set(StyleProperty::Display, Value::Display(display));
         }
     }
 
@@ -415,7 +407,7 @@ fn build_style_property_list<S: CssSystem>(prop_map: &S::PropertyMap) -> StylePr
         } else {
             FontWeight::Normal
         };
-        list.set_property(StyleProperty::FontWeight, StyleValue::FontWeight(fw));
+        style.set(StyleProperty::FontWeight, Value::FontWeight(fw));
     }
 
     // --- TextAlign ---
@@ -435,7 +427,7 @@ fn build_style_property_list<S: CssSystem>(prop_map: &S::PropertyMap) -> StylePr
                 "unset" => TextAlign::Unset,
                 _ => TextAlign::Left,
             };
-            list.set_property(StyleProperty::TextAlign, StyleValue::TextAlign(ta));
+            style.set(StyleProperty::TextAlign, Value::TextAlign(ta));
         }
     }
 
@@ -454,7 +446,7 @@ fn build_style_property_list<S: CssSystem>(prop_map: &S::PropertyMap) -> StylePr
                 "unset" => TextWrap::Unset,
                 _ => TextWrap::Wrap,
             };
-            list.set_property(StyleProperty::TextWrap, StyleValue::TextWrap(tw));
+            style.set(StyleProperty::TextWrap, Value::TextWrap(tw));
         }
     }
 
@@ -468,7 +460,7 @@ fn build_style_property_list<S: CssSystem>(prop_map: &S::PropertyMap) -> StylePr
     for (css_name, prop) in border_style_props {
         if let Some(p) = prop_map.get(css_name) {
             if let Some(s) = p.as_string() {
-                list.set_property(prop.clone(), StyleValue::BorderStyle(str_to_border_style(s)));
+                style.set(prop.clone(), Value::BorderStyle(str_to_border_style(s)));
             }
         }
     }
@@ -483,7 +475,7 @@ fn build_style_property_list<S: CssSystem>(prop_map: &S::PropertyMap) -> StylePr
     for (css_name, prop) in num_props {
         if let Some(p) = prop_map.get(css_name) {
             if let Some(n) = p.as_number() {
-                list.set_property(prop.clone(), StyleValue::Number(n));
+                style.set(prop.clone(), Value::Number(n));
             }
         }
     }
@@ -514,10 +506,10 @@ fn build_style_property_list<S: CssSystem>(prop_map: &S::PropertyMap) -> StylePr
     for (css_name, prop) in kw_props {
         if let Some(p) = prop_map.get(css_name) {
             if let Some(s) = p.as_string() {
-                list.set_property(prop.clone(), StyleValue::Keyword(s.to_string()));
+                style.set(prop.clone(), Value::Keyword(intern(s)));
             }
         }
     }
 
-    list
+    style
 }

@@ -1,7 +1,6 @@
 use crate::common::document::node::NodeId;
 use crate::common::document::pipeline_doc::PipelineDocument;
-use crate::common::document::style::StyleProperty::BackgroundColor;
-use crate::common::document::style::{Color as StyleColor, StyleProperty, StyleValue};
+use crate::common::document::style::{StyleProperty, Value};
 use crate::common::geo::{Coordinate, Dimension, Rect};
 use crate::common::texture::TextureId;
 use crate::layering::layer::{LayerId, LayerList};
@@ -405,34 +404,15 @@ impl TileList {
 
 fn get_background_color_from_node(node_id: Option<NodeId>, doc: &dyn PipelineDocument) -> Option<(f32, f32, f32, f32)> {
     let node_id = node_id?;
-
-    doc.get_style(node_id, BackgroundColor).and_then(|value| {
-        if let StyleValue::Color(color) = value {
-            return convert_color(&color);
-        }
-        None
-    })
-}
-
-fn convert_color(color: &StyleColor) -> Option<(f32, f32, f32, f32)> {
-    let c = match color {
-        StyleColor::Rgb(r, g, b) => Some((*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0, 1.0)),
-        StyleColor::Rgba(r, g, b, a) => Some((*r as f32 / 255.0, *g as f32 / 255.0, *b as f32 / 255.0, *a)),
-        StyleColor::Named(name) => {
-            let c = Color::from_css(name.as_str());
-            Some((c.r(), c.g(), c.b(), c.a()))
-        }
-    };
-
-    // Check if the color is transparent. If so, we return None
-    match c {
-        Some((r, g, b, a)) => {
-            if a > 0.0 {
-                Some((r, g, b, a))
+    match doc.get_style(node_id, &StyleProperty::BackgroundColor) {
+        Value::Color(r, g, b, a) => {
+            let af = a as f32 / 255.0;
+            if af > 0.0 {
+                Some((r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, af))
             } else {
                 None
             }
         }
-        None => None,
+        _ => None,
     }
 }

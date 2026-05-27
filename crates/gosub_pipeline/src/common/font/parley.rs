@@ -49,7 +49,7 @@ pub fn get_parley_layout(
     };
 
     let mut layout: Layout<[u8; 4]> = builder.build(text);
-    layout.break_all_lines(Some(max_advance * 1.01));
+    layout.break_all_lines(Some(max_advance));
     layout.align(Some(max_advance), align, AlignmentOptions::default());
 
     layout

@@ -20,7 +20,7 @@ use image::{ImageBuffer, Rgba, RgbaImage};
 use url::Url;
 
 use gosub_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
-use gosub_pipeline::common::document::style::{Color as StyleColor, StyleProperty, StyleValue};
+use gosub_pipeline::common::document::style::{StyleProperty, Value};
 use gosub_pipeline::common::geo::Dimension;
 use gosub_pipeline::layouter::taffy::TaffyLayouter;
 use gosub_pipeline::layouter::{CanLayout, ElementContext};
@@ -103,9 +103,9 @@ fn main() {
                 let bg = layout_tree
                     .render_tree
                     .doc
-                    .get_style(el.dom_node_id, StyleProperty::BackgroundColor);
-                if let Some(StyleValue::Color(c)) = bg {
-                    let rgba = style_color_to_rgba(&c);
+                    .get_style(el.dom_node_id, &StyleProperty::BackgroundColor);
+                if let Value::Color(r, g, b, a) = bg {
+                    let rgba = [r, g, b, a];
                     if rgba[3] > 0 {
                         let bb = &el.box_model.border_box;
                         fill_rect(
@@ -193,21 +193,3 @@ fn fill_rect(img: &mut RgbaImage, x: f32, y: f32, w: f32, h: f32, color: [u8; 4]
     }
 }
 
-fn style_color_to_rgba(c: &StyleColor) -> [u8; 4] {
-    match c {
-        StyleColor::Rgb(r, g, b) => [*r, *g, *b, 255],
-        StyleColor::Rgba(r, g, b, a) => [*r, *g, *b, (*a * 255.0) as u8],
-        StyleColor::Named(name) => match name.as_str() {
-            "white" => [255, 255, 255, 255],
-            "black" => [0, 0, 0, 255],
-            "red" => [255, 0, 0, 255],
-            "green" => [0, 128, 0, 255],
-            "blue" => [0, 0, 255, 255],
-            "navy" => [0, 0, 128, 255],
-            "silver" => [192, 192, 192, 255],
-            "gray" | "grey" => [128, 128, 128, 255],
-            "transparent" => [0, 0, 0, 0],
-            _ => [0, 0, 0, 0],
-        },
-    }
-}
