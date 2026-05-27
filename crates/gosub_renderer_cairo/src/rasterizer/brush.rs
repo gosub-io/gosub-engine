@@ -38,8 +38,7 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
             let scale_x = rect.width / img.width() as f64;
             let scale_y = rect.height / img.height() as f64;
 
-            let Some(scaled_pixbuf) =
-                Pixbuf::new(Colorspace::Rgb, true, 8, rect.width as i32, rect.height as i32)
+            let Some(scaled_pixbuf) = Pixbuf::new(Colorspace::Rgb, true, 8, rect.width as i32, rect.height as i32)
             else {
                 log::warn!(
                     "Failed to create scaled pixbuf for dimensions {}x{}",

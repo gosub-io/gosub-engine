@@ -1,4 +1,4 @@
-use crate::compositor::compositor::vello_compositor;
+use crate::compositor::inner::vello_compositor;
 use gosub_pipeline::common::browser_state::BrowserState;
 use gosub_pipeline::common::TextureStore;
 use gosub_pipeline::compositor::Composable;
@@ -11,7 +11,7 @@ pub struct VelloCompositorConfig {
     pub texture_store: Arc<RwLock<TextureStore>>,
 }
 
-mod compositor;
+mod inner;
 
 pub struct VelloCompositor {}
 

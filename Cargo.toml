@@ -60,6 +60,10 @@ name = "gtk-cairo"
 path = "examples/gtk-cairo/main.rs"
 
 [[example]]
+name = "pipeline-browser"
+path = "examples/pipeline-browser/main.rs"
+
+[[example]]
 name = "egui-vello"
 path = "examples/egui-vello/main.rs"
 
