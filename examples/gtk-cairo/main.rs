@@ -4,8 +4,8 @@ use crate::tiling::{
 };
 use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, ResourceEvent, TabCommand};
-use gosub_engine::render::backend::ExternalHandle;
-use gosub_engine::render::{DefaultCompositor, Viewport};
+use gosub_render_pipeline::render::backend::ExternalHandle;
+use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
@@ -72,7 +72,7 @@ fn main() {
         })));
 
         // Start the Gosub engine with the cairo backend
-        let backend = gosub_engine::render::backends::cairo::CairoBackend::new();
+        let backend = gosub_render_pipeline::render::backends::cairo::CairoBackend::new();
         let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
         let _engine_join_handle = engine.start().expect("engine start failed");
         #[cfg(feature = "metrics")]

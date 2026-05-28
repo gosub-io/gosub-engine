@@ -44,7 +44,7 @@
 //! ```rust,no_run
 //! use std::sync::Arc;
 //! use gosub_engine::GosubEngine;
-//! use gosub_engine::render::backends::null::NullBackend;
+//! use gosub_render_pipeline::render::backends::null::NullBackend;
 //! use gosub_engine::zone::{ZoneConfig, ZoneServices};
 //! use gosub_engine::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
 //!
@@ -57,7 +57,7 @@
 //!
 //! // 2) Engine + backend
 //! let backend = NullBackend::new()?;
-//! let compositor = gosub_engine::render::DefaultCompositor::default();
+//! let compositor = gosub_render_pipeline::render::DefaultCompositor::default();
 //! let mut engine_handle = GosubEngine::new(
 //!     None,
 //!     Arc::new(backend),

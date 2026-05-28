@@ -1,7 +1,7 @@
 use crate::rasterizer::brush::set_brush;
-use gosub_pipeline::common::media::MediaStore;
-use gosub_pipeline::painter::commands::border::BorderStyle;
-use gosub_pipeline::painter::commands::rectangle::Rectangle;
+use gosub_render_pipeline::common::media::MediaStore;
+use gosub_render_pipeline::painter::commands::border::BorderStyle;
+use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
 use vello::kurbo;
 use vello::kurbo::{Affine, PathEl, Point, Rect, RoundedRect, Shape};
 use vello::peniko::Fill;

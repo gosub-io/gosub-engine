@@ -1,7 +1,7 @@
 /// Fetch a URL, parse it through gosub's HTML5+CSS3 pipeline, build a
 /// RenderTree, and print it to stdout.
 ///
-/// Usage: cargo run --example rendertree -p gosub_pipeline -- <url>
+/// Usage: cargo run --example rendertree -p gosub_render_pipeline -- <url>
 use std::sync::Arc;
 
 use gosub_css3::system::Css3System;
@@ -15,10 +15,10 @@ use gosub_shared::byte_stream::{ByteStream, Encoding};
 use url::Url;
 
 use cow_utils::CowUtils;
-use gosub_pipeline::common::document::node::NodeType;
-use gosub_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
-use gosub_pipeline::common::document::style::{lookup, StyleProperty, Unit, Value};
-use gosub_pipeline::rendertree_builder::{RenderNodeId, RenderTree};
+use gosub_render_pipeline::common::document::node::NodeType;
+use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
+use gosub_render_pipeline::common::document::style::{StyleProperty, Unit, Value, lookup};
+use gosub_render_pipeline::rendertree_builder::{RenderNodeId, RenderTree};
 
 // ---- Engine config wiring gosub_html5 + gosub_css3 ----
 

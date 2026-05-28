@@ -1,4 +1,4 @@
-use gosub_pipeline::common::font::{FontAlignment, FontInfo};
+use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
 use skia_safe::textlayout::{Paragraph, ParagraphBuilder, ParagraphStyle, TextStyle};
 use skia_safe::{FontStyle, Paint};
 

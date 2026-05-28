@@ -1,5 +1,6 @@
 pub mod common;
 pub mod compositor;
+pub mod render;
 pub mod layering;
 #[allow(unused)]
 pub mod layouter;

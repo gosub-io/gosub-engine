@@ -1,6 +1,6 @@
-use gosub_pipeline::common::browser_state::BrowserState;
-use gosub_pipeline::common::TextureStore;
-use gosub_pipeline::layering::layer::LayerId;
+use gosub_render_pipeline::common::browser_state::BrowserState;
+use gosub_render_pipeline::common::TextureStore;
+use gosub_render_pipeline::layering::layer::LayerId;
 use vello::kurbo::Affine;
 use vello::peniko::{Blob, Image, ImageFormat};
 

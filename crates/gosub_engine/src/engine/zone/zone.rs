@@ -6,7 +6,7 @@ use crate::engine::storage::{StorageService, Subscription};
 use crate::engine::tab::TabId;
 use crate::engine::types::{EventChannel, IoChannel};
 use crate::net::req_ref_tracker::RequestReferenceMap;
-use crate::render::backend::{CompositorSink, RenderBackend};
+use gosub_render_pipeline::render::backend::{CompositorSink, RenderBackend};
 use crate::storage::types::PartitionPolicy;
 use crate::tab::services::resolve_tab_services;
 use crate::tab::{create_tab_and_spawn, TabDefaults, TabHandle, TabOverrides, TabSink};

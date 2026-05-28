@@ -3226,6 +3226,7 @@ dependencies = [
  "gosub_interface",
  "gosub_jsapi",
  "gosub_net",
+ "gosub_render_pipeline",
  "gosub_renderer",
  "gosub_rendering",
  "gosub_shared",
@@ -3272,6 +3273,7 @@ dependencies = [
  "gosub_engine",
  "gosub_fontmanager",
  "gosub_interface",
+ "gosub_render_pipeline",
  "gosub_shared",
  "gosub_svg",
  "image",
@@ -3350,7 +3352,7 @@ dependencies = [
  "gosub_html5",
  "gosub_interface",
  "gosub_net",
- "gosub_pipeline",
+ "gosub_render_pipeline",
  "gosub_renderer_cairo",
  "gosub_shared",
  "gtk4",
@@ -3510,34 +3512,45 @@ dependencies = [
 ]
 
 [[package]]
-name = "gosub_pipeline"
+name = "gosub_render_pipeline"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "cairo-rs",
  "colog",
  "cow-utils",
  "csscolorparser 0.7.2",
  "file_type",
+ "fontique 0.9.0",
+ "gdk4-wayland",
+ "gdk4-x11",
  "gosub_css3",
  "gosub_html5",
  "gosub_interface",
  "gosub_net",
  "gosub_shared",
+ "gtk4",
+ "hashbrown 0.17.1",
  "hex",
  "image",
  "log",
  "parking_lot",
- "parley 0.3.0",
+ "parley 0.9.0",
  "rand 0.10.1",
+ "raw-window-handle",
  "regex",
  "resvg",
  "rstar",
  "serde",
  "serde_json",
  "sha2",
+ "skia-safe",
+ "skrifa 0.42.1",
  "taffy",
  "url",
+ "vello 0.8.0",
+ "wgpu 29.0.3",
 ]
 
 [[package]]
@@ -3564,7 +3577,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cow-utils",
- "gosub_pipeline",
+ "gosub_render_pipeline",
  "gosub_shared",
  "gtk4",
  "log",
@@ -3578,7 +3591,7 @@ name = "gosub_renderer_skia"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "gosub_pipeline",
+ "gosub_render_pipeline",
  "gosub_shared",
  "log",
  "parking_lot",
@@ -3590,7 +3603,7 @@ name = "gosub_renderer_vello"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "gosub_pipeline",
+ "gosub_render_pipeline",
  "gosub_shared",
  "log",
  "parking_lot",
@@ -3694,6 +3707,7 @@ dependencies = [
  "gosub_fontmanager",
  "gosub_html5",
  "gosub_interface",
+ "gosub_render_pipeline",
  "gosub_shared",
  "gosub_svg",
  "image",
@@ -7308,9 +7322,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.149"
+version = "1.0.150"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
+checksum = "e8014e44b4736ed0538adeecded0fce2a272f22dc9578a7eb6b2d9993c74cfb9"
 dependencies = [
  "indexmap",
  "itoa",

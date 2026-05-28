@@ -12,7 +12,7 @@
 //! within the Gosub engine.
 
 use crate::cookies::CookieJarHandle;
-use crate::render::Viewport;
+use gosub_render_pipeline::render::Viewport;
 use crate::storage::{PartitionKey, StorageService};
 use std::sync::Arc;
 

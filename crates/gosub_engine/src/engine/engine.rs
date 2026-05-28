@@ -25,8 +25,8 @@ use crate::engine::types::{EventChannel, IoChannel};
 use crate::engine::DEFAULT_CHANNEL_CAPACITY;
 use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::net::{spawn_io_thread, FetcherConfig, IoHandle};
-use crate::render::backend::{CompositorSink, RenderBackend};
-use crate::render::DefaultCompositor;
+use gosub_render_pipeline::render::backend::{CompositorSink, RenderBackend};
+use gosub_render_pipeline::render::DefaultCompositor;
 use crate::util::spawn_named;
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineConfig, EngineError};
@@ -77,7 +77,7 @@ pub struct EngineContext {
 impl Default for EngineContext {
     fn default() -> Self {
         Self {
-            render_backend: Arc::new(crate::render::backends::null::NullBackend::new().unwrap()),
+            render_backend: Arc::new(gosub_render_pipeline::render::backends::null::NullBackend::new().unwrap()),
             compositor: Arc::new(RwLock::new(DefaultCompositor::new(|| {}))),
             event_tx: broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY).0,
             config: Arc::new(EngineConfig::default()),
@@ -96,8 +96,10 @@ impl GosubEngine {
     /// # use gosub_engine as ge;
     /// # use std::sync::Arc;
     /// # use parking_lot::RwLock;
-    /// let backend = ge::render::backends::null::NullBackend::new().unwrap();
-    /// let compositor = ge::render::DefaultCompositor::default();
+    /// # use gosub_render_pipeline::render::backends::null::NullBackend;
+    /// # use gosub_render_pipeline::render::DefaultCompositor;
+    /// let backend = NullBackend::new().unwrap();
+    /// let compositor = DefaultCompositor::default();
     /// let engine = ge::GosubEngine::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
     /// ```
     pub fn new(

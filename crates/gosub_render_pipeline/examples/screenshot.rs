@@ -5,7 +5,7 @@
 /// a font backend not available here).
 ///
 /// Run with:
-///   cargo run --example screenshot -p gosub_pipeline
+///   cargo run --example screenshot -p gosub_render_pipeline
 use std::sync::Arc;
 
 use gosub_css3::system::Css3System;
@@ -16,12 +16,12 @@ use gosub_interface::css3::CssSystem as _;
 use gosub_interface::document::Document as _;
 use image::{ImageBuffer, Rgba, RgbaImage};
 
-use gosub_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
-use gosub_pipeline::common::document::style::{StyleProperty, Value};
-use gosub_pipeline::common::geo::Dimension;
-use gosub_pipeline::layouter::taffy::TaffyLayouter;
-use gosub_pipeline::layouter::{CanLayout, ElementContext};
-use gosub_pipeline::rendertree_builder::RenderTree;
+use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
+use gosub_render_pipeline::common::document::style::{StyleProperty, Value};
+use gosub_render_pipeline::common::geo::Dimension;
+use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
+use gosub_render_pipeline::layouter::{CanLayout, ElementContext};
+use gosub_render_pipeline::rendertree_builder::RenderTree;
 
 // ── Config ────────────────────────────────────────────────────────────────────
 

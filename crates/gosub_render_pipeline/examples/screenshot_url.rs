@@ -3,9 +3,9 @@
 /// Each element's computed box is painted with its CSS background-color. Text nodes are
 /// rendered as a semi-transparent dark bar (placeholder).
 ///
-/// Usage: cargo run --example screenshot_url -p gosub_pipeline -- <url> [width] [height]
-///   cargo run --example screenshot_url -p gosub_pipeline -- https://example.com
-///   cargo run --example screenshot_url -p gosub_pipeline -- https://example.com 1280 900
+/// Usage: cargo run --example screenshot_url -p gosub_render_pipeline -- <url> [width] [height]
+///   cargo run --example screenshot_url -p gosub_render_pipeline -- https://example.com
+///   cargo run --example screenshot_url -p gosub_render_pipeline -- https://example.com 1280 900
 use std::sync::Arc;
 
 use gosub_css3::system::Css3System;
@@ -19,12 +19,12 @@ use gosub_shared::byte_stream::{ByteStream, Encoding};
 use image::{ImageBuffer, Rgba, RgbaImage};
 use url::Url;
 
-use gosub_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
-use gosub_pipeline::common::document::style::{StyleProperty, Value};
-use gosub_pipeline::common::geo::Dimension;
-use gosub_pipeline::layouter::taffy::TaffyLayouter;
-use gosub_pipeline::layouter::{CanLayout, ElementContext};
-use gosub_pipeline::rendertree_builder::RenderTree;
+use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
+use gosub_render_pipeline::common::document::style::{StyleProperty, Value};
+use gosub_render_pipeline::common::geo::Dimension;
+use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
+use gosub_render_pipeline::layouter::{CanLayout, ElementContext};
+use gosub_render_pipeline::rendertree_builder::RenderTree;
 
 // ── Config ────────────────────────────────────────────────────────────────────
 

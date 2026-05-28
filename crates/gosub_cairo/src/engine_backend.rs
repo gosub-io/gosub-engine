@@ -1,9 +1,8 @@
-use gosub_engine::render::backend::{
+use gosub_render_pipeline::render::backend::{
     ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend as EngineRenderBackend, RgbaImage,
     SurfaceSize,
 };
-use gosub_engine::render::DisplayItem;
-use gosub_engine::BrowsingContext;
+use gosub_render_pipeline::render::{DisplayItem, RenderContext};
 use std::any::Any;
 use std::ptr::NonNull;
 
@@ -71,7 +70,7 @@ impl EngineRenderBackend for CairoBackend {
         Ok(Box::new(OffscreenCairoSurface::new(size, present)?))
     }
 
-    fn render(&self, ctx: &mut BrowsingContext, surface: &mut dyn ErasedSurface) -> anyhow::Result<()> {
+    fn render(&self, ctx: &mut dyn RenderContext, surface: &mut dyn ErasedSurface) -> anyhow::Result<()> {
         let s = surface
             .as_any_mut()
             .downcast_mut::<OffscreenCairoSurface>()

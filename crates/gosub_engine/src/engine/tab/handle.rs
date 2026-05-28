@@ -1,6 +1,6 @@
 use crate::engine::types::TabChannel;
 use crate::events::TabCommand;
-use crate::render::Viewport;
+use gosub_render_pipeline::render::Viewport;
 use crate::tab::sink::TabSink;
 use crate::tab::TabId;
 use crate::EngineError;
@@ -65,7 +65,7 @@ impl TabHandle {
     ///
     /// # Example
     /// ```no_run,ignore
-    /// use gosub_engine::render::Viewport;
+    /// use gosub_render_pipeline::render::Viewport;
     ///
     /// let viewport = Viewport { x: 0.0, y: 0.0, width: 1280.0, height: 720.0 };
     /// tab_handle.set_viewport(viewport);

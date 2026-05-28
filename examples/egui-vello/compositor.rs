@@ -1,4 +1,4 @@
-use gosub_engine::render::backend::{CompositorSink, ExternalHandle};
+use gosub_render_pipeline::render::backend::{CompositorSink, ExternalHandle};
 use gosub_engine::tab::TabId;
 use std::collections::HashMap;
 

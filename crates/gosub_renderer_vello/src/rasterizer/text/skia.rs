@@ -1,6 +1,6 @@
 use crate::font::skia::get_skia_paragraph;
-use gosub_pipeline::common::geo::Dimension;
-use gosub_pipeline::painter::commands::text::Text;
+use gosub_render_pipeline::common::geo::Dimension;
+use gosub_render_pipeline::painter::commands::text::Text;
 use vello::kurbo::Affine;
 use vello::peniko::Blob;
 use vello::Scene;

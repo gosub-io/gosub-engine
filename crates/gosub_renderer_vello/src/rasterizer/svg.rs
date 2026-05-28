@@ -1,5 +1,5 @@
-use gosub_pipeline::common::media::{MediaId, MediaStore};
-use gosub_pipeline::painter::commands::rectangle::Rectangle;
+use gosub_render_pipeline::common::media::{MediaId, MediaStore};
+use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
 use resvg::usvg::Transform;
 use vello::kurbo::Affine;
 use vello::peniko::{Blob, ImageFormat};

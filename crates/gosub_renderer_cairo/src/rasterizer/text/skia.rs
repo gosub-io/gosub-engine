@@ -1,6 +1,6 @@
-use gosub_pipeline::common::media::MediaStore;
-use gosub_pipeline::painter::commands::text::Text;
-use gosub_pipeline::tiler::Tile;
+use gosub_render_pipeline::common::media::MediaStore;
+use gosub_render_pipeline::painter::commands::text::Text;
+use gosub_render_pipeline::tiler::Tile;
 use gtk4::cairo::{Context, Error};
 
 #[allow(dead_code)]

@@ -1,6 +1,6 @@
-use gosub_pipeline::common::browser_state::BrowserState;
-use gosub_pipeline::common::TextureStore;
-use gosub_pipeline::layering::layer::LayerId;
+use gosub_render_pipeline::common::browser_state::BrowserState;
+use gosub_render_pipeline::common::TextureStore;
+use gosub_render_pipeline::layering::layer::LayerId;
 use gtk4::cairo;
 use gtk4::cairo::ImageSurface;
 

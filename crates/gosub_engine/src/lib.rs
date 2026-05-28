@@ -27,8 +27,9 @@
 //! use url::Url;
 //!
 //! use gosub_engine::{EngineConfig, GosubEngine};
-//! use gosub_engine::render::Viewport;
-//! use gosub_engine::render::backends::null::NullBackend;
+//! use gosub_render_pipeline::render::Viewport;
+//! use gosub_render_pipeline::render::backends::null::NullBackend;
+//! use gosub_render_pipeline::render::DefaultCompositor;
 //! use gosub_engine::events::{EngineEvent, TabCommand};
 //! use gosub_engine::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
 //! use gosub_engine::cookies::DefaultCookieJar;
@@ -38,7 +39,7 @@
 //! async fn main() -> anyhow::Result<()> {
 //!     // 1) Engine + backend
 //!     let backend = NullBackend::new().expect("null renderer cannot be created (!?)");
-//!     let compositor = gosub_engine::render::DefaultCompositor::default();
+//!     let compositor = DefaultCompositor::default();
 //!     let mut engine_handle = GosubEngine::new(
 //!         Some(EngineConfig::default()),
 //!         Arc::new(backend),
@@ -93,7 +94,7 @@
 //! - [`GosubEngine`] — engine entry point; creates zones, owns backend and event bus.
 //! - [`Zone`](crate::zone::Zone) — per-profile/session state (cookies, storage, tabs). Owned by the caller.
 //! - [`TabHandle`](crate::tab) — a single browsing context controlled via [`TabCommand`](crate::events::TabCommand).
-//! - [`RenderBackend`](crate::render::backend::RenderBackend) — pluggable renderer (e.g., Null, Cairo, Vello).
+//! - [`RenderBackend`](gosub_render_pipeline::render::backend::RenderBackend) — pluggable renderer (e.g., Null, Cairo, Vello).
 //!
 //! ## Persistence
 //! To persist cookies, pass a [`CookieStore`](crate::cookies::CookieStore) in
@@ -105,8 +106,6 @@ extern crate core;
 mod engine;
 
 pub mod net;
-
-pub mod render;
 
 pub mod util;
 

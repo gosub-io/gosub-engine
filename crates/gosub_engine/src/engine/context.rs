@@ -36,18 +36,18 @@
 
 use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::EngineDocument;
-use crate::render::{Color, DisplayItem, RenderList, Viewport};
+use gosub_render_pipeline::render::{Color, DisplayItem, RenderContext, RenderList, Viewport};
 use std::sync::Arc;
 use url::Url;
 
 #[cfg(feature = "pipeline")]
 use crate::html::HtmlEngineConfig;
 #[cfg(feature = "pipeline")]
-use crate::render::backend::{CachedTile, ExternalHandle};
+use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 #[cfg(feature = "pipeline")]
 use gosub_interface::document::Document as _;
 #[cfg(feature = "pipeline")]
-use gosub_pipeline::layering::layer::LayerList;
+use gosub_render_pipeline::layering::layer::LayerList;
 #[cfg(feature = "pipeline")]
 use gosub_shared::node::NodeId;
 // #[derive(Debug, thiserror::Error)]
@@ -392,6 +392,15 @@ impl BrowsingContext {
     }
 }
 
+impl RenderContext for BrowsingContext {
+    fn viewport(&self) -> &Viewport {
+        &self.viewport
+    }
+    fn render_list(&self) -> &RenderList {
+        &self.render_list
+    }
+}
+
 /// Runs pipeline stages 1–6 for the **entire page** (all tiles, not just the viewport slice)
 /// and returns a `PipelineCache` of rasterized tiles ready for repeated compositing.
 ///
@@ -399,15 +408,15 @@ impl BrowsingContext {
 /// re-running layout or rasterization.
 #[cfg(feature = "pipeline")]
 fn pipeline_build_cache(doc: Arc<EngineDocument>, viewport: &Viewport) -> PipelineCache {
-    use gosub_pipeline::common::browser_state::{BrowserState, WireframeState};
-    use gosub_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
-    use gosub_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
-    use gosub_pipeline::layering::layer::LayerList;
-    use gosub_pipeline::layouter::taffy::TaffyLayouter;
-    use gosub_pipeline::layouter::CanLayout;
-    use gosub_pipeline::painter::Painter;
-    use gosub_pipeline::rendertree_builder::RenderTree;
-    use gosub_pipeline::tiler::{TileList, TileState};
+    use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
+    use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
+    use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
+    use gosub_render_pipeline::layering::layer::LayerList;
+    use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
+    use gosub_render_pipeline::layouter::CanLayout;
+    use gosub_render_pipeline::painter::Painter;
+    use gosub_render_pipeline::rendertree_builder::RenderTree;
+    use gosub_render_pipeline::tiler::{TileList, TileState};
     use gosub_shared::{timing_start, timing_stop};
     use std::time::Instant;
 
@@ -524,9 +533,9 @@ fn pipeline_build_cache(doc: Arc<EngineDocument>, viewport: &Viewport) -> Pipeli
     // Stage 6: rasterize ALL tiles → collect into BakedTile vec.
     #[cfg(feature = "backend_cairo")]
     let baked_tiles = {
-        use gosub_pipeline::common::media::MediaStore;
-        use gosub_pipeline::common::texture_store::TextureStore;
-        use gosub_pipeline::rasterizer::Rasterable;
+        use gosub_render_pipeline::common::media::MediaStore;
+        use gosub_render_pipeline::common::texture_store::TextureStore;
+        use gosub_render_pipeline::rasterizer::Rasterable;
         use gosub_renderer_cairo::CairoRasterizer;
 
         let t = Instant::now();
