@@ -38,15 +38,21 @@ fn create_text_layout(cmd: &Text, media_store: &MediaStore, dpr: i32) -> Result<
     // Physical pixel width = CSS width × DPR.
     let taffy_width = (cmd.rect.width.ceil() as i32 * dpr).max(1);
 
-    // Measure pango's natural (unconstrained) width using set_width(-1) so pango does not wrap.
-    // We use the larger of taffy's allocation and pango's natural width to prevent spurious
-    // wrapping when pango and parley disagree on text metrics.
+    // Measure pango's natural (unconstrained) width. If pango's single-line width is only
+    // slightly wider than taffy's allocation (metric discrepancy ≤ 20px per DPR), expand to
+    // pango's width to avoid a spurious extra wrap. Otherwise, use taffy's width so that long
+    // text that taffy already wrapped is not forced back onto one line.
     let probe_surface = ImageSurface::create(Format::ARgb32, 1, 1)?;
     let probe_cr = Context::new(&probe_surface)?;
     let natural_layout = build_pango_layout_unconstrained(&probe_cr, cmd, dpr);
     let (_, natural_rect) = natural_layout.pixel_extents();
     let pango_natural_width = natural_rect.width().max(1);
-    let width = pango_natural_width.max(taffy_width);
+    let metric_slack = 20 * dpr;
+    let width = if pango_natural_width <= taffy_width + metric_slack {
+        pango_natural_width.max(taffy_width)
+    } else {
+        taffy_width
+    };
 
     // Measure actual pango height at the resolved width.
     let measure_surface = ImageSurface::create(Format::ARgb32, width, 1)?;

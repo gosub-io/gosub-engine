@@ -153,7 +153,6 @@ impl CanLayout for TaffyLayouter {
                                 AvailableSpace::MinContent => 0.0,
                             }
                         };
-
                         // Calculate the text layout dimensions and return it to taffy
                         let text_layout =
                             get_text_layout(text_ctx.text.as_str(), &text_ctx.font_info, max_width, dpi_scale_factor);
@@ -310,16 +309,10 @@ impl TaffyLayouter {
             return;
         }
 
-        // We only have one inline element in the queue so we can add it directly to the taffy node
-        if current_inline_group.len() == 1 {
-            if let Some((inline_layout_element_id, inline_taffy_node_id)) = current_inline_group.first() {
-                self.tree.add_child(leaf_id, *inline_taffy_node_id).unwrap();
-                element_node.children.push(*inline_layout_element_id);
-            }
-            return;
-        }
-
-        // Multiple inline elements are found. We need to wrap them in an anonymous taffy block element
+        // All inline elements (even a single one) are wrapped in an anonymous flex container.
+        // This ensures the text measure function always receives AvailableSpace::Definite from
+        // the flex algorithm, preventing single-child text nodes from getting MaxContent width
+        // (which would make them lay out on one line and overflow their block parent).
         let Ok(taffy_container_id) = self.tree.new_leaf(Style {
             display: Display::Flex,
             flex_direction: FlexDirection::Row,
