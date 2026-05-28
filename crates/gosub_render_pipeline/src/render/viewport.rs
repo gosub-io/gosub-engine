@@ -75,4 +75,3 @@ impl Viewport {
         SurfaceSize { width: w, height: h }
     }
 }
-

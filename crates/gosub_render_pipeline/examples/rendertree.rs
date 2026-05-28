@@ -17,7 +17,7 @@ use url::Url;
 use cow_utils::CowUtils;
 use gosub_render_pipeline::common::document::node::NodeType;
 use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
-use gosub_render_pipeline::common::document::style::{StyleProperty, Unit, Value, lookup};
+use gosub_render_pipeline::common::document::style::{lookup, StyleProperty, Unit, Value};
 use gosub_render_pipeline::rendertree_builder::{RenderNodeId, RenderTree};
 
 // ---- Engine config wiring gosub_html5 + gosub_css3 ----

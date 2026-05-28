@@ -6,8 +6,9 @@ use crate::render::render_list::DisplayItem;
 use anyhow::{anyhow, Result};
 use std::any::Any;
 
-pub use gosub_renderer_cairo::DEVICE_PIXEL_RATIO;
-
+/// Device-pixel ratio shared between the GTK display thread and the render backends.
+/// Set once from `area.scale_factor()` before any rendering begins.
+pub static DEVICE_PIXEL_RATIO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
 #[derive(Default)]
 pub struct CairoBackend;

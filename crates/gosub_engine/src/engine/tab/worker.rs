@@ -7,8 +7,6 @@ use crate::events::{IoCommand, TabCommand};
 use crate::net::req_ref_tracker::RequestReference;
 use crate::net::types::{FetchKeyData, FetchRequest, FetchResult, Initiator, NetError, Priority, ResourceKind};
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
-use gosub_render_pipeline::render::backend::{ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
-use gosub_render_pipeline::render::{DevicePixelRatio, Viewport};
 use crate::storage::types::compute_partition_key;
 use crate::storage::{StorageEvent, StorageHandles};
 use crate::tab::services::EffectiveTabServices;
@@ -17,6 +15,8 @@ use crate::tab::{TabId, TabSink};
 use crate::util::spawn_named;
 use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
+use gosub_render_pipeline::render::backend::{ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
+use gosub_render_pipeline::render::{DevicePixelRatio, Viewport};
 use http::Method;
 use std::sync::Arc;
 use tokio::select;
@@ -360,7 +360,7 @@ impl TabWorker {
                 // This eliminates up to 33ms of latency (at 30fps) per scroll event.
                 #[cfg(all(feature = "pipeline", feature = "backend_cairo"))]
                 {
-                    use crate::render::backends::cairo::DEVICE_PIXEL_RATIO;
+                    use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
                     let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
                     if let Some(handle) = self.context.take_scroll_handle(dpr) {
                         // Keep committed_scene_epoch in sync so a subsequent timer tick
@@ -718,7 +718,7 @@ impl TabWorker {
         // so a scroll event costs only Arc clones and no pixel copies or frame buffer work.
         #[cfg(all(feature = "pipeline", feature = "backend_cairo"))]
         {
-            use crate::render::backends::cairo::DEVICE_PIXEL_RATIO;
+            use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
             let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
             if let Some(handle) = self.context.take_scroll_handle(dpr) {
                 let scene_epoch = self.context.scene_epoch();
@@ -763,9 +763,12 @@ impl TabWorker {
                     log::debug!(
                         "[tick_draw] submitting handle: {}",
                         match &handle {
-                            crate::render::backend::ExternalHandle::NullHandle { width, height, .. } =>
-                                format!("NullHandle({}x{})", width, height),
-                            crate::render::backend::ExternalHandle::CpuPixelsOwned {
+                            gosub_render_pipeline::render::backend::ExternalHandle::NullHandle {
+                                width,
+                                height,
+                                ..
+                            } => format!("NullHandle({}x{})", width, height),
+                            gosub_render_pipeline::render::backend::ExternalHandle::CpuPixelsOwned {
                                 width,
                                 height,
                                 stride,
@@ -778,8 +781,11 @@ impl TabWorker {
                                 stride,
                                 pixels.len()
                             ),
-                            crate::render::backend::ExternalHandle::CpuPixelsPtr {
-                                width, height, stride, ..
+                            gosub_render_pipeline::render::backend::ExternalHandle::CpuPixelsPtr {
+                                width,
+                                height,
+                                stride,
+                                ..
                             } => format!("CpuPixelsPtr({}x{} stride={})", width, height, stride),
                             _ => "Other".to_string(),
                         }

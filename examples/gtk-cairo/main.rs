@@ -4,12 +4,12 @@ use crate::tiling::{
 };
 use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, ResourceEvent, TabCommand};
-use gosub_render_pipeline::render::backend::ExternalHandle;
-use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
+use gosub_render_pipeline::render::backend::ExternalHandle;
+use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use gtk4::glib::clone;
 use gtk4::prelude::*;
 use gtk4::GestureClick;

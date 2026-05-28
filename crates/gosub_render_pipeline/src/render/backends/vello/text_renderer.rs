@@ -11,10 +11,10 @@
 
 use crate::render::backends::vello::font_cache::FontCache;
 use crate::render::backends::vello::font_manager::FontManager;
-#[cfg(feature = "parley_layout")]
-use parley::{FontContext, FontData as Font, LayoutContext};
 #[cfg(not(feature = "parley_layout"))]
 use parley::FontData as Font;
+#[cfg(feature = "parley_layout")]
+use parley::{FontContext, FontData as Font, LayoutContext};
 #[cfg(not(feature = "parley_layout"))]
 use skrifa::MetadataProvider;
 use std::collections::HashMap;
@@ -225,12 +225,11 @@ impl TextRenderer {
                 })
                 .collect::<Arc<[_]>>();
 
-            let mut out: Vec<CachedRun> = Vec::new();
-            out.push(CachedRun {
+            let out: Vec<CachedRun> = vec![CachedRun {
                 vello_font: vello_font.clone(),
                 font_size: key.font_size as f32,
-                glyphs: glyphs.into(),
-            });
+                glyphs,
+            }];
 
             out.into()
         }

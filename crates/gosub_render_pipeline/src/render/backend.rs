@@ -154,7 +154,13 @@ impl RgbaImage {
             pixels.len() >= (height as usize) * (stride as usize),
             "pixel buffer too small for image dimensions"
         );
-        Self { pixels, width, height, stride, format }
+        Self {
+            pixels,
+            width,
+            height,
+            stride,
+            format,
+        }
     }
 }
 

@@ -1,9 +1,9 @@
 use crate::engine::types::TabChannel;
 use crate::events::TabCommand;
-use gosub_render_pipeline::render::Viewport;
 use crate::tab::sink::TabSink;
 use crate::tab::TabId;
 use crate::EngineError;
+use gosub_render_pipeline::render::Viewport;
 use std::sync::Arc;
 
 /// A handle to a running [`Tab`](crate::tab).
