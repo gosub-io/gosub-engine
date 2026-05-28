@@ -6,12 +6,12 @@ use gosub_engine::tab::{TabDefaults, TabHandle};
 use gosub_engine::{
     cookies::DefaultCookieJar,
     events::EngineEvent,
-    render::{DefaultCompositor, Viewport},
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::ZoneConfig,
     zone::ZoneServices,
     Action, EngineConfig, EngineError, GosubEngine, NavigationId,
 };
+use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use http::header;
 use parking_lot::RwLock;
 use std::sync::Arc;

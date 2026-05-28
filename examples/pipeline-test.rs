@@ -16,11 +16,11 @@ use gosub_engine::net::DecisionToken;
 use gosub_engine::tab::{TabDefaults, TabHandle};
 use gosub_engine::{
     cookies::DefaultCookieJar,
-    render::{DefaultCompositor, Viewport},
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::{ZoneConfig, ZoneServices},
     Action, EngineConfig, EngineError, GosubEngine, NavigationId,
 };
+use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use parking_lot::RwLock;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};

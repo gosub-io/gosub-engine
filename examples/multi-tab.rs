@@ -1,12 +1,12 @@
 use gosub_engine::{
     cookies::DefaultCookieJar,
     events::EngineEvent,
-    render::{DefaultCompositor, Viewport},
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::ZoneConfig,
     zone::ZoneServices,
     EngineConfig, EngineError, GosubEngine,
 };
+use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 
 use gosub_engine::events::{NavigationEvent, ResourceEvent};
 use gosub_engine::tab::{TabDefaults, TabId};
