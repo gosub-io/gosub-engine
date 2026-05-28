@@ -93,7 +93,7 @@ impl Rasterable for VelloRasterizer<'_> {
             tile_size.width as u32,
             tile_size.height as u32,
             tile.id,
-        );
+        )?;
 
         let texture_id = texture_store.add(tile_size.width as usize, tile_size.height as usize, texture_data);
 
@@ -125,7 +125,7 @@ fn read_texture_to_image(
     width: u32,
     height: u32,
     _id: TileId,
-) -> Vec<u8> {
+) -> Option<Vec<u8>> {
     let unpadded_bytes_per_row = width * 4;
     let padded_bytes_per_row = (unpadded_bytes_per_row + 255) & !255;
 
@@ -164,10 +164,10 @@ fn read_texture_to_image(
         let _ = sender.send(result);
     });
     device.poll(vello::wgpu::Maintain::Wait);
-    if receiver.recv().ok().and_then(|r| r.ok()).is_none() {
-        log::error!("Failed to map vello output buffer for reading");
-        return Vec::new();
-    }
+    let Ok(Ok(())) = receiver.recv() else {
+        log::error!("Failed to map texture buffer for reading");
+        return None;
+    };
 
     let padded = buffer_slice.get_mapped_range();
     let mut result = Vec::with_capacity((unpadded_bytes_per_row * height) as usize);
@@ -179,5 +179,5 @@ fn read_texture_to_image(
     drop(padded);
     buffer.unmap();
 
-    result
+    Some(result)
 }

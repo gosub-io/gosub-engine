@@ -33,7 +33,7 @@ use winit::window::{Window, WindowId};
 
 const TILE_DIMENSION: f64 = 256.0;
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let doc = common::document::parser::document_from_json("https://brettgfitzgerald.com", "brett.json");
 
     let window_dimension = Dimension::new(800.0, 600.0);
@@ -55,10 +55,7 @@ fn main() {
     let media_store = Arc::new(RwLock::new(MediaStore::new()));
     let doc: Arc<dyn PipelineDocument> = Arc::new(doc);
 
-    let Ok(event_loop) = EventLoop::new() else {
-        log::error!("Failed to create event loop");
-        return;
-    };
+    let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut app = App::new(
@@ -70,6 +67,7 @@ fn main() {
         media_store,
     );
     let _ = event_loop.run_app(&mut app);
+    Ok(())
 }
 
 fn reflow(doc: &Arc<dyn PipelineDocument>, browser_state: &Arc<RwLock<BrowserState>>) {
@@ -160,7 +158,14 @@ impl ApplicationHandler for App<'_> {
 
         self.pfs = Instant::now();
         self.frame = 0;
-        self.env = create_window_env(event_loop, self.window_title.as_str(), self.window_size);
+        self.env = match create_window_env(event_loop, self.window_title.as_str(), self.window_size) {
+            Ok(env) => Some(env),
+            Err(e) => {
+                log::error!("Failed to create window: {:?}", e);
+                event_loop.exit();
+                None
+            }
+        };
 
         reflow(&self.doc, &self.browser_state);
     }
@@ -177,7 +182,9 @@ impl ApplicationHandler for App<'_> {
 
                 let (width, height): (u32, u32) = physical_size.into();
 
-                let Some(surface) = env.surface.as_mut() else { return };
+                let Some(surface) = env.surface.as_mut() else {
+                    return;
+                };
                 env.render_ctx.resize_surface(surface, width, height);
 
                 self.browser_state.write().viewport = Rect::new(0.0, 0.0, width as f64, height as f64);
@@ -189,27 +196,30 @@ impl ApplicationHandler for App<'_> {
                 self.pfs = Instant::now();
                 println!("Redraw requested: framecount: {}", self.frame);
 
-                let Some(surface) = env.surface.as_ref() else { return };
+                let Some(surface) = env.surface.as_ref() else {
+                    return;
+                };
                 let dev_id = surface.dev_id;
                 let DeviceHandle { device, queue, .. } = &env.render_ctx.devices[dev_id];
 
                 let vis_layers = self.browser_state.read().visible_layer_list.clone();
 
-                {
-                    let Some(renderer) = env.renderer.as_mut() else { return };
-                    for (i, &visible) in vis_layers.iter().enumerate() {
-                        if visible {
-                            do_paint(LayerId::new(i as u64), &self.browser_state);
-                            do_rasterize(
-                                device,
-                                queue,
-                                renderer.clone(),
-                                LayerId::new(i as u64),
-                                &self.browser_state,
-                                &self.texture_store,
-                                &self.media_store,
-                            );
-                        }
+                let Some(renderer) = env.renderer.as_mut() else {
+                    return;
+                };
+
+                for (i, &visible) in vis_layers.iter().enumerate() {
+                    if visible {
+                        do_paint(LayerId::new(i as u64), &self.browser_state);
+                        do_rasterize(
+                            device,
+                            queue,
+                            renderer.clone(),
+                            LayerId::new(i as u64),
+                            &self.browser_state,
+                            &self.texture_store,
+                            &self.media_store,
+                        );
                     }
                 }
 
@@ -230,7 +240,9 @@ impl ApplicationHandler for App<'_> {
                     texture_store: self.texture_store.clone(),
                 });
 
-                let Some(binding) = env.renderer.clone() else { return };
+                let Some(binding) = env.renderer.clone() else {
+                    return;
+                };
                 let mut renderer = binding.borrow_mut();
                 let _ = renderer.render_to_surface(device, queue, &scene, &surface_texture, &render_params);
 
@@ -319,7 +331,7 @@ impl ApplicationHandler for App<'_> {
     }
 }
 
-fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> Option<Env<'s>> {
+fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> anyhow::Result<Env<'s>> {
     log::info!(
         "Creating ({}x{}) window with title: {} ",
         size.width,
@@ -332,23 +344,16 @@ fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> 
     let mut attribs = Window::default_attributes();
     attribs.title = title.to_string();
     attribs.inner_size = Some(Size::Physical(PhysicalSize::new(size.width as u32, size.height as u32)));
-    let Ok(window) = el.create_window(attribs) else {
-        log::error!("Failed to create window");
-        return None;
-    };
-    let window = Arc::new(window);
+    let window = Arc::new(el.create_window(attribs)?);
 
     let size = window.inner_size();
     let surface_future =
         render_ctx.create_surface(window.clone(), size.width, size.height, wgpu::PresentMode::AutoVsync);
-    let Ok(surface) = pollster::block_on(surface_future) else {
-        log::error!("Failed to create render surface");
-        return None;
-    };
+    let surface = pollster::block_on(surface_future)?;
 
     let dev_handle = &render_ctx.devices[surface.dev_id];
 
-    let Ok(renderer) = Renderer::new(
+    let renderer = Renderer::new(
         &dev_handle.device,
         RendererOptions {
             surface_format: Some(surface.format),
@@ -356,10 +361,8 @@ fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> 
             antialiasing_support: AaSupport::all(),
             num_init_threads: None,
         },
-    ) else {
-        log::error!("Failed to create Vello renderer");
-        return None;
-    };
+    )
+    .map_err(|e| anyhow::anyhow!("Failed to create Vello renderer: {:?}", e))?;
 
     #[allow(clippy::arc_with_non_send_sync)]
     let env = Env {
@@ -371,7 +374,7 @@ fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> 
 
     log::info!("vello window created");
 
-    Some(env)
+    Ok(env)
 }
 
 fn do_paint(layer_id: LayerId, browser_state: &Arc<RwLock<BrowserState>>) {

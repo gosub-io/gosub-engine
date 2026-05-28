@@ -28,7 +28,9 @@ const WINDOW_HEIGHT: f64 = 768.0;
 fn main() {
     let doc = common::document::parser::document_from_json("file://.", "cm.json");
     let mut output = String::new();
-    let _ = doc.print_tree(&mut output);
+    if let Err(e) = doc.print_tree(&mut output) {
+        log::warn!("Failed to print tree: {:?}", e);
+    }
     println!("{}", output);
 
     let doc = Arc::new(doc);
@@ -108,11 +110,12 @@ fn build_ui(
 
     let dim = {
         let state = browser_state.read();
-        let Some(tile_list) = state.tile_list.as_ref() else {
+        let Some(ref tile_list) = state.tile_list else {
+            log::error!("No tile list");
             return;
         };
-        let guard = tile_list.read();
-        guard.layer_list.layout_tree.root_dimension
+        let d = tile_list.read().layer_list.layout_tree.root_dimension;
+        d
     };
 
     let area = DrawingArea::new();
@@ -148,47 +151,39 @@ fn build_ui(
         motion_controller.connect_motion(move |_, x, y| {
             let el_id = {
                 let state = bs.read();
-                let Some(tile_list) = state.tile_list.as_ref() else {
+                let Some(ref tile_list) = state.tile_list else {
                     return;
                 };
-                let guard = tile_list.read();
-                guard.layer_list.find_element_at(x, y)
+                let id = tile_list.read().layer_list.find_element_at(x, y);
+                id
             };
             let che = bs.read().current_hovered_element;
 
             let mut tile_ids = vec![];
             {
                 let state = bs.read();
-                if let Some(tile_list) = state.tile_list.as_ref() {
-                    let tl = tile_list.read();
-                    match (che, el_id) {
-                        (Some(current_id), Some(new_id)) if current_id != new_id => {
-                            tl.get_tiles_for_element(current_id)
-                                .iter()
-                                .for_each(|tid| tile_ids.push(*tid));
-                            tl.get_tiles_for_element(new_id)
-                                .iter()
-                                .for_each(|tid| tile_ids.push(*tid));
-                        }
-                        (None, Some(new_id)) => {
-                            tl.get_tiles_for_element(new_id)
-                                .iter()
-                                .for_each(|tid| tile_ids.push(*tid));
-                        }
-                        (Some(current_id), None) => {
-                            tl.get_tiles_for_element(current_id)
-                                .iter()
-                                .for_each(|tid| tile_ids.push(*tid));
-                        }
-                        _ => {}
+                let Some(ref tile_list) = state.tile_list else {
+                    return;
+                };
+                match (che, el_id) {
+                    (Some(current_id), Some(new_id)) if current_id != new_id => {
+                        tile_list.read().get_tiles_for_element(current_id).iter().for_each(|tid| tile_ids.push(*tid));
+                        tile_list.read().get_tiles_for_element(new_id).iter().for_each(|tid| tile_ids.push(*tid));
                     }
+                    (None, Some(new_id)) => {
+                        tile_list.read().get_tiles_for_element(new_id).iter().for_each(|tid| tile_ids.push(*tid));
+                    }
+                    (Some(current_id), None) => {
+                        tile_list.read().get_tiles_for_element(current_id).iter().for_each(|tid| tile_ids.push(*tid));
+                    }
+                    _ => {}
                 }
             }
 
             let mut state = bs.write();
             if state.current_hovered_element != el_id {
                 if let Some(id) = el_id {
-                    if let Some(tile_list) = state.tile_list.as_ref() {
+                    if let Some(ref tile_list) = state.tile_list {
                         let binding = tile_list.read();
                         if let Some(layout_element) = binding.layer_list.layout_tree.get_node_by_id(id) {
                             println!("Hovered element id:");
@@ -199,7 +194,7 @@ fn build_ui(
                 }
 
                 for tile_id in &tile_ids {
-                    if let Some(tile_list) = state.tile_list.as_ref() {
+                    if let Some(ref tile_list) = state.tile_list {
                         tile_list.write().invalidate_tile(*tile_id);
                     }
                 }
@@ -293,15 +288,15 @@ fn build_ui(
                         WireframeState::Only => state.wireframed = WireframeState::Both,
                         WireframeState::Both => state.wireframed = WireframeState::None,
                     }
-                    if let Some(tl) = state.tile_list.as_ref() {
-                        tl.write().invalidate_all();
+                    if let Some(ref tile_list) = state.tile_list {
+                        tile_list.write().invalidate_all();
                     }
                     area.queue_draw();
                 }
                 key if key == gtk4::gdk::Key::d => {
                     state.debug_hover = !state.debug_hover;
-                    if let Some(tl) = state.tile_list.as_ref() {
-                        tl.write().invalidate_all();
+                    if let Some(ref tile_list) = state.tile_list {
+                        tile_list.write().invalidate_all();
                     }
                     area.queue_draw();
                 }
@@ -323,7 +318,8 @@ fn build_ui(
 
 fn do_paint(layer_id: LayerId, browser_state: &Arc<RwLock<BrowserState>>) {
     let state = browser_state.read();
-    let Some(tile_list) = state.tile_list.as_ref() else {
+    let Some(ref tile_list) = state.tile_list else {
+        log::error!("No tile list found");
         return;
     };
     let painter = Painter::new(tile_list.read().layer_list.clone());
@@ -356,7 +352,8 @@ fn do_rasterize(
     let mut ts = texture_store.write();
     let ms = media_store.read();
 
-    let Some(tile_list) = state.tile_list.as_ref() else {
+    let Some(ref tile_list) = state.tile_list else {
+        log::error!("No tile list found");
         return;
     };
 
@@ -437,8 +434,8 @@ fn on_viewport_changed(
     let mut state = browser_state.write();
 
     if width != state.viewport.width || height != state.viewport.height {
-        if let Some(tl) = state.tile_list.as_ref() {
-            tl.write().invalidate_all();
+        if let Some(ref tile_list) = state.tile_list {
+            tile_list.write().invalidate_all();
         }
     }
 
