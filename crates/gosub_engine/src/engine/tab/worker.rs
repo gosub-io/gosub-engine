@@ -115,6 +115,9 @@ pub struct TabWorker {
     desired_viewport: Viewport,
     /// Set when a resize arrives while rendering. Causes an immediate re-render after finishing the current rendering.
     dirty_after_inflight: bool,
+    /// Current scroll offset in CSS pixels (updated by MouseScroll).
+    scroll_x: i32,
+    scroll_y: i32,
     /// Keeps track of the tab worker runtime data
     pub(crate) runtime: TabRuntime,
     /// Current in-flight navigation (if any)
@@ -164,6 +167,8 @@ impl TabWorker {
             committed_viewport: Default::default(),
             desired_viewport: Default::default(),
             dirty_after_inflight: false,
+            scroll_x: 0,
+            scroll_y: 0,
             runtime: TabRuntime::default(),
             load: None,
             active_nav: None,
@@ -323,9 +328,54 @@ impl TabWorker {
                 self.navigate_to(url.as_str(), ignore_cache);
                 ControlFlow::Continue
             }
-            TabCommand::SetViewport { x, y, width, height } => {
-                self.set_viewport(Viewport::new(x, y, width, height));
+            TabCommand::SetViewport {
+                x: _,
+                y: _,
+                width,
+                height,
+            } => {
+                self.set_viewport(Viewport::new(0, 0, width, height));
                 self.runtime.dirty = true;
+                ControlFlow::Continue
+            }
+            TabCommand::MouseScroll { delta_x, delta_y } => {
+                // When page height is known, clamp to the real maximum so worker and context
+                // stay in sync. When the page hasn't rendered yet, allow free scrolling (the
+                // context will clamp to the actual page height on its own).
+                let max_y = {
+                    let ph = self.context.page_height();
+                    if ph > 0.0 {
+                        (ph - self.desired_viewport.height as f64).max(0.0) as i32
+                    } else {
+                        i32::MAX / 2
+                    }
+                };
+                let prev_x = self.scroll_x;
+                let prev_y = self.scroll_y;
+                self.scroll_x = (self.scroll_x + delta_x as i32).max(0);
+                self.scroll_y = (self.scroll_y + delta_y as i32).clamp(0, max_y);
+                self.context.set_scroll(self.scroll_x as f64, self.scroll_y as f64);
+
+                // Submit the scroll frame immediately — don't wait for the next timer tick.
+                // This eliminates up to 33ms of latency (at 30fps) per scroll event.
+                #[cfg(all(feature = "pipeline", feature = "backend_cairo"))]
+                {
+                    use crate::render::backends::cairo::DEVICE_PIXEL_RATIO;
+                    let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
+                    if let Some(handle) = self.context.take_scroll_handle(dpr) {
+                        // Keep committed_scene_epoch in sync so a subsequent timer tick
+                        // doesn't see a stale epoch and re-render with the old scroll position.
+                        self.runtime.committed_scene_epoch = self.context.scene_epoch();
+                        self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+                        return ControlFlow::Continue;
+                    }
+                }
+
+                // TileCache not ready yet (first render hasn't completed); fall back to timer path.
+                // Only mark dirty if the scroll position actually moved (sub-pixel deltas are no-ops).
+                if self.scroll_x != prev_x || self.scroll_y != prev_y {
+                    self.runtime.dirty = true;
+                }
                 ControlFlow::Continue
             }
             TabCommand::MouseMove { .. }
@@ -391,6 +441,9 @@ impl TabWorker {
 
     /// Navigate to a new URL, cancelling any in-flight navigation.
     fn navigate_to(&mut self, url: impl Into<String>, _ignore_cache: bool) {
+        self.scroll_x = 0;
+        self.scroll_y = 0;
+        self.context.reset_scroll();
         // Cancel any previous running navigation in this tab
         self.cancel_current_nav();
 
@@ -621,23 +674,93 @@ impl TabWorker {
 
     /// Do a draw tick. This will be called based on the FPS that is requested
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
+        // Skip rendering when nothing has changed to avoid burning CPU at the tick rate.
+        if !self.runtime.dirty {
+            return Ok(());
+        }
+        self.runtime.dirty = false;
+
+        // Fast scroll path: skip the Cairo render pipeline entirely.
+        // The host draw callback composites tiles directly from Arc<Vec<u8>> pixel data,
+        // so a scroll event costs only Arc clones and no pixel copies or frame buffer work.
+        #[cfg(all(feature = "pipeline", feature = "backend_cairo"))]
+        {
+            use crate::render::backends::cairo::DEVICE_PIXEL_RATIO;
+            let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
+            if let Some(handle) = self.context.take_scroll_handle(dpr) {
+                let scene_epoch = self.context.scene_epoch();
+                self.runtime.committed_scene_epoch = scene_epoch;
+                let mut compositor = self.zone_context.compositor.write();
+                compositor.submit_frame(self.tab_id, handle);
+                return Ok(());
+            }
+        }
+
         let render_backend = self.zone_context.render_backend.clone();
 
-        // Ensure we have a surface of the right size to draw on
-        self.ensure_surface(render_backend.clone(), self.desired_viewport.as_size())?;
+        // Ensure we have a surface of the right size to draw on.
+        // Track whether the surface was recreated (meaning pixels are blank and must be re-rendered).
+        let surface_recreated = self.ensure_surface_tracked(render_backend.clone(), self.desired_viewport.as_size())?;
         // Propagate the current viewport so the pipeline lays out at the right dimensions.
         self.context.set_viewport(self.desired_viewport);
         // Rebuild the render list if anything has changed
         self.context.rebuild_render_list_if_needed();
 
+        // Skip the expensive render+copy when neither the scene nor the surface changed.
+        let scene_epoch = self.context.scene_epoch();
+        if !surface_recreated && scene_epoch == self.runtime.committed_scene_epoch {
+            return Ok(());
+        }
+
+        log::debug!(
+            "[tick_draw] tab={:?} vp={}x{} render_items={} epoch={}",
+            self.tab_id,
+            self.desired_viewport.width,
+            self.desired_viewport.height,
+            self.context.render_list().items.len(),
+            scene_epoch,
+        );
+
         // Begin the render process
+        let render_start = std::time::Instant::now();
         if let Some(ref mut surf) = self.surface {
             render_backend.render(&mut self.context, surf.as_mut())?;
-            if let Ok(handle) = render_backend.external_handle(surf.as_mut()) {
-                let mut compositor = self.zone_context.compositor.write();
-                compositor.submit_frame(self.tab_id, handle);
+            match render_backend.external_handle(surf.as_mut()) {
+                Ok(handle) => {
+                    log::debug!(
+                        "[tick_draw] submitting handle: {}",
+                        match &handle {
+                            crate::render::backend::ExternalHandle::NullHandle { width, height, .. } =>
+                                format!("NullHandle({}x{})", width, height),
+                            crate::render::backend::ExternalHandle::CpuPixelsOwned {
+                                width,
+                                height,
+                                stride,
+                                pixels,
+                                ..
+                            } => format!(
+                                "CpuPixelsOwned({}x{} stride={} bytes={})",
+                                width,
+                                height,
+                                stride,
+                                pixels.len()
+                            ),
+                            crate::render::backend::ExternalHandle::CpuPixelsPtr {
+                                width, height, stride, ..
+                            } => format!("CpuPixelsPtr({}x{} stride={})", width, height, stride),
+                            _ => "Other".to_string(),
+                        }
+                    );
+                    self.runtime.committed_scene_epoch = scene_epoch;
+                    let mut compositor = self.zone_context.compositor.write();
+                    compositor.submit_frame(self.tab_id, handle);
+                }
+                Err(e) => {
+                    log::warn!("[tick_draw] external_handle error: {e}");
+                }
             }
         }
+        let render_ms = render_start.elapsed().as_millis();
 
         self.sink.inc_frame();
 
@@ -649,6 +772,7 @@ impl TabWorker {
         if elapsed.as_secs_f32() > 0.0 {
             let fps = 1.0 / elapsed.as_secs_f32();
             self.sink.set_fps(fps);
+            log::debug!("[render] frame {}ms  ({:.1} fps)", render_ms, fps);
         };
 
         Ok(())
@@ -725,6 +849,23 @@ impl TabWorker {
         }
         self.surface = Some(backend.create_surface(size, self.present_mode)?);
         Ok(())
+    }
+
+    /// Like `ensure_surface` but returns `true` when the surface was (re)created, meaning
+    /// previously rendered pixels are gone and a full re-render is required even when the
+    /// scene epoch hasn't changed.
+    fn ensure_surface_tracked(
+        &mut self,
+        backend: Arc<dyn RenderBackend + Send + Sync>,
+        size: SurfaceSize,
+    ) -> anyhow::Result<bool> {
+        if let Some(ref surf) = self.surface {
+            if surf.size() == size {
+                return Ok(false);
+            }
+        }
+        self.surface = Some(backend.create_surface(size, self.present_mode)?);
+        Ok(true)
     }
 
     #[allow(unused)]

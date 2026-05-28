@@ -57,6 +57,7 @@ pub fn get_skia_paragraph(
     paragraph
 }
 
+#[allow(dead_code)]
 fn to_slant(slant: i32) -> skia_safe::font_style::Slant {
     match slant {
         0 => skia_safe::font_style::Slant::Upright,

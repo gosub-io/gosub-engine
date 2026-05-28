@@ -161,21 +161,12 @@ fn read_texture_to_image(
     let buffer_slice = buffer.slice(..);
     let (sender, receiver) = std::sync::mpsc::channel();
     buffer_slice.map_async(vello::wgpu::MapMode::Read, move |result| {
-        if let Err(e) = sender.send(result) {
-            log::error!("Failed to send texture map result: {:?}", e);
-        }
+        let _ = sender.send(result);
     });
     device.poll(vello::wgpu::Maintain::Wait);
-    match receiver.recv() {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
-            log::error!("Failed to map texture buffer: {:?}", e);
-            return Vec::new();
-        }
-        Err(e) => {
-            log::error!("Texture map channel error: {:?}", e);
-            return Vec::new();
-        }
+    if receiver.recv().ok().and_then(|r| r.ok()).is_none() {
+        log::error!("Failed to map vello output buffer for reading");
+        return Vec::new();
     }
 
     let padded = buffer_slice.get_mapped_range();

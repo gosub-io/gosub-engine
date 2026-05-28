@@ -1,7 +1,6 @@
 use crate::common::texture::{Texture, TextureId};
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::io::Cursor;
 use std::sync::Arc;
 
 /// Texture store for a single rasterizer instance. Create one per render context; do not share
@@ -58,25 +57,5 @@ impl TextureStore {
         let id = *nid;
         *nid += 1;
         id
-    }
-
-    pub fn save_to_disk(&self, texture_id: TextureId) -> Result<(), String> {
-        if let Some(texture) = self.get(texture_id) {
-            let img =
-                match image::RgbaImage::from_raw(texture.width as u32, texture.height as u32, texture.data.clone()) {
-                    Some(img) => img,
-                    None => return Err("Failed to create image from texture data".to_string()),
-                };
-
-            let mut png_data = Vec::new();
-            let mut cursor = Cursor::new(&mut png_data);
-            img.write_to(&mut cursor, image::ImageFormat::Png)
-                .map_err(|e| format!("Failed to write image to PNG: {}", e))?;
-            std::fs::write(format!("texture-{}.png", texture_id.as_u64()), png_data)
-                .map_err(|e| format!("Failed to save texture to disk: {}", e))?;
-            Ok(())
-        } else {
-            Err(format!("Texture with ID {} not found", texture_id))
-        }
     }
 }

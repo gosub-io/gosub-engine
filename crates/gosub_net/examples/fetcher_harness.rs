@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -135,12 +135,13 @@ impl MockServer {
 
 // ── Fetcher helpers ───────────────────────────────────────────────────────────
 
-fn make_fetcher(config: FetcherConfig) -> (Arc<Fetcher>, watch::Sender<bool>) {
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+fn make_fetcher(config: FetcherConfig) -> (Arc<Fetcher>, CancellationToken) {
+    let shutdown = CancellationToken::new();
     let fetcher = Arc::new(Fetcher::new(config, Arc::new(NullContext)).expect("reqwest client build failed"));
     let f = fetcher.clone();
-    tokio::spawn(async move { f.run(shutdown_rx).await });
-    (fetcher, shutdown_tx)
+    let cancel = shutdown.clone();
+    tokio::spawn(async move { f.run(cancel).await });
+    (fetcher, shutdown)
 }
 
 async fn fetch(fetcher: &Fetcher, url: Url, priority: Priority, cancel: Option<CancellationToken>) -> FetchResult {
@@ -186,7 +187,7 @@ fn status_of(result: &FetchResult) -> Option<u16> {
 async fn scenario_concurrent(server: &MockServer) {
     println!("\n── Scenario 1: Concurrent downloads ─────────────────────────────");
 
-    let (fetcher, shutdown_tx) = make_fetcher(FetcherConfig::default());
+    let (fetcher, shutdown) = make_fetcher(FetcherConfig::default());
 
     let paths: Vec<&str> = (1..=10)
         .map(|i| match i {
@@ -230,13 +231,13 @@ async fn scenario_concurrent(server: &MockServer) {
     assert_eq!(ok, 10, "all 10 requests should succeed");
     println!("  PASS");
 
-    let _ = shutdown_tx.send(true);
+    shutdown.cancel();
 }
 
 async fn scenario_coalescing(server: &MockServer) {
     println!("\n── Scenario 2: Request coalescing ───────────────────────────────");
 
-    let (fetcher, shutdown_tx) = make_fetcher(FetcherConfig::default());
+    let (fetcher, shutdown) = make_fetcher(FetcherConfig::default());
     let url = server.url("/coalesce");
 
     // Reset hit counter by simply noting current count before the test.
@@ -272,7 +273,7 @@ async fn scenario_coalescing(server: &MockServer) {
     assert!(all_ok, "all subscribers should receive the response");
     println!("  PASS");
 
-    let _ = shutdown_tx.send(true);
+    shutdown.cancel();
 }
 
 async fn scenario_priority(server: &MockServer) {
@@ -284,7 +285,7 @@ async fn scenario_priority(server: &MockServer) {
         global_slots: 1,
         ..FetcherConfig::default()
     };
-    let (fetcher, shutdown_tx) = make_fetcher(config);
+    let (fetcher, shutdown) = make_fetcher(config);
 
     let completion_order: Arc<std::sync::Mutex<Vec<&'static str>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
 
@@ -318,13 +319,13 @@ async fn scenario_priority(server: &MockServer) {
     assert_eq!(order[0], "High", "High priority must complete first");
     println!("  PASS");
 
-    let _ = shutdown_tx.send(true);
+    shutdown.cancel();
 }
 
 async fn scenario_cancellation(server: &MockServer) {
     println!("\n── Scenario 4: Cancellation ─────────────────────────────────────");
 
-    let (fetcher, shutdown_tx) = make_fetcher(FetcherConfig::default());
+    let (fetcher, shutdown) = make_fetcher(FetcherConfig::default());
     let url = server.url("/slow");
 
     let cancel = CancellationToken::new();
@@ -345,13 +346,13 @@ async fn scenario_cancellation(server: &MockServer) {
     // depending on timing — the important thing is no panic or hang.
     println!("  PASS (no hang or panic)");
 
-    let _ = shutdown_tx.send(true);
+    shutdown.cancel();
 }
 
 async fn scenario_errors(server: &MockServer) {
     println!("\n── Scenario 5: Error handling ───────────────────────────────────");
 
-    let (fetcher, shutdown_tx) = make_fetcher(FetcherConfig::default());
+    let (fetcher, shutdown) = make_fetcher(FetcherConfig::default());
 
     // 404 from mock server — not a network error, but a non-200 status.
     let r404 = fetch(&fetcher, server.url("/missing"), Priority::Normal, None).await;
@@ -368,7 +369,7 @@ async fn scenario_errors(server: &MockServer) {
 
     println!("  PASS");
 
-    let _ = shutdown_tx.send(true);
+    shutdown.cancel();
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────

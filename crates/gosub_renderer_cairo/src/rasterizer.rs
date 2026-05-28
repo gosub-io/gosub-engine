@@ -11,6 +11,10 @@ mod rectangle;
 mod svg;
 mod text;
 
+/// Device pixel ratio shared between the GTK display thread and the rasterizer.
+/// Set it once from the GTK `scale_factor()` before any rendering begins.
+pub static DEVICE_PIXEL_RATIO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
 #[derive(Default)]
 pub struct CairoRasterizer {}
 
@@ -22,18 +26,24 @@ impl CairoRasterizer {
 
 impl Rasterable for CairoRasterizer {
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId> {
-        let Ok(mut surface) =
-            cairo::ImageSurface::create(cairo::Format::ARgb32, tile.rect.width as i32, tile.rect.height as i32)
-        else {
-            log::error!("Failed to create Cairo image surface");
+        let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed) as i32;
+
+        // Tile surface is created at physical pixel resolution (CSS pixels × DPR).
+        let tile_w = tile.rect.width as i32 * dpr;
+        let tile_h = tile.rect.height as i32 * dpr;
+
+        let Ok(mut surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, tile_w, tile_h) else {
+            log::error!("Failed to create Cairo image surface for tile rasterization");
             return None;
         };
 
         {
             let Ok(cr) = cairo::Context::new(&surface) else {
-                log::error!("Failed to create Cairo context");
+                log::error!("Failed to create Cairo context for tile rasterization");
                 return None;
             };
+            // Scale the context so all CSS-pixel coordinates map to physical pixels.
+            cr.scale(dpr as f64, dpr as f64);
 
             for element in &tile.elements {
                 for command in &element.paint_commands {
@@ -46,7 +56,7 @@ impl Rasterable for CairoRasterizer {
                         }
                         PaintCommand::Text(command) => {
                             #[cfg(feature = "text_pango")]
-                            match text::pango::do_paint_text(&cr.clone(), tile, command, media_store) {
+                            match text::pango::do_paint_text(&cr.clone(), tile, command, media_store, dpr) {
                                 Ok(_) => {}
                                 Err(e) => {
                                     log::warn!("Failed to paint text: {:?}", e);

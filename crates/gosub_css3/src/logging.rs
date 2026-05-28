@@ -310,7 +310,10 @@ impl CssValue {
             crate::node::NodeType::Percentage { value } => Ok(CssValue::Percentage(value)),
             crate::node::NodeType::Dimension { value, unit } => Ok(CssValue::Unit(value, unit)),
             crate::node::NodeType::String { value } => Ok(CssValue::String(value)),
-            crate::node::NodeType::Hash { value } => Ok(CssValue::String(value)),
+            crate::node::NodeType::Hash { mut value } => {
+                value.insert(0, '#');
+                Ok(CssValue::Color(RgbColor::from(value.as_str())))
+            }
             crate::node::NodeType::Operator(_) => Ok(CssValue::None),
             crate::node::NodeType::Calc { .. } => {
                 Ok(CssValue::Function("calc".to_string(), vec![]))

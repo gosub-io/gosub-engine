@@ -62,8 +62,7 @@ impl Document {
         self_closing: bool,
         style: Option<NodeStyle>,
     ) -> NodeId {
-        let node =
-            Node::new_element(self, parent_id, tag_name.to_string(), attributes, self_closing, style);
+        let node = Node::new_element(self, parent_id, tag_name.to_string(), attributes, self_closing, style);
         let node_id = node.node_id;
         self.arena.insert(node_id, node);
 
@@ -140,7 +139,9 @@ impl Document {
     where
         F: FnMut(NodeId, usize, NodeVisit),
     {
-        let Some(node) = self.get_node_by_id(node_id) else { return };
+        let Some(node) = self.get_node_by_id(node_id) else {
+            return;
+        };
         cb(node_id, level, NodeVisit::Enter);
         let children = node.children.clone();
         for child_id in &children {
@@ -153,7 +154,9 @@ impl Document {
     pub fn print_tree(&self, writer: &mut dyn std::fmt::Write) -> Result<(), std::fmt::Error> {
         let Some(root) = self.root_id else { return Ok(()) };
         self.walk_depth_first(root, &mut |node_id, level, visit_mode| {
-            let Some(node) = self.get_node_by_id(node_id) else { return };
+            let Some(node) = self.get_node_by_id(node_id) else {
+                return;
+            };
             let indent = " ".repeat(level * 4);
             match visit_mode {
                 NodeVisit::Enter => match &node.node_type {

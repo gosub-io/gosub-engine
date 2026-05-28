@@ -1,8 +1,11 @@
 use crate::common::document::node::NodeId;
 use crate::common::document::style::{
-    Display as CssDisplay, NodeStyle, StyleProperty, TextAlign as CssTextAlign, Unit as CssUnit, Value, lookup,
+    lookup, Display as CssDisplay, NodeStyle, StyleProperty, TextAlign as CssTextAlign, Unit as CssUnit, Value,
 };
-use taffy::prelude::{FromLength, TaffyAuto};
+use taffy::prelude::{
+    minmax, span, FromFr, FromLength, FromPercent, MaxTrackSizingFunction, MinTrackSizingFunction, TaffyAuto,
+    TaffyGridLine, TaffyGridSpan, TaffyMaxContent, TaffyMinContent, TaffyZero,
+};
 use taffy::{
     AlignContent, AlignItems, AlignSelf, BoxSizing, Dimension, Display, FlexDirection, FlexWrap, GridAutoFlow,
     GridPlacement, GridTemplateComponent, LengthPercentage, LengthPercentageAuto, Line, Overflow, Point, Position,
@@ -17,6 +20,14 @@ pub struct CssTaffyConverter {
 impl CssTaffyConverter {
     pub fn new(data: &NodeStyle) -> Self {
         Self { data: data.clone() }
+    }
+
+    /// Returns this element's own font-size in px, or 16px if not set.
+    fn font_size_px(&self) -> f32 {
+        match self.data.get_own(&StyleProperty::FontSize) {
+            Some(Value::Unit(v, CssUnit::Px)) => *v,
+            _ => 16.0,
+        }
     }
 
     fn get_f32(&self, prop: StyleProperty, default: f32) -> f32 {
@@ -37,7 +48,8 @@ impl CssTaffyConverter {
         let mut ts = Style::default();
 
         ts.display = self.get_display(ts.display);
-        ts.box_sizing = self.get_box_sizing(ts.box_sizing);
+        // Taffy's built-in default is BorderBox, but the CSS spec default is content-box.
+        ts.box_sizing = self.get_box_sizing(BoxSizing::ContentBox);
         ts.overflow = Point {
             x: self.get_overflow(StyleProperty::OverflowX, ts.overflow.x),
             y: self.get_overflow(StyleProperty::OverflowY, ts.overflow.y),
@@ -117,11 +129,22 @@ impl CssTaffyConverter {
                 ts.flex_direction = FlexDirection::Row;
                 ts.flex_wrap = FlexWrap::NoWrap;
             }
-            Some(Value::Display(CssDisplay::Inline)) => {
+            // CSS initial value for display is inline; treat unset the same as explicit inline.
+            None | Some(Value::Display(CssDisplay::Inline)) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Row;
                 ts.flex_wrap = FlexWrap::Wrap;
                 ts.align_items = Some(AlignItems::Baseline);
+            }
+            // inline-flex / inline-grid: internally flex/grid, but participates inline.
+            // The element itself is already placed as inline by the parent's inline-group
+            // logic; here we just ensure the internal layout uses the right algorithm.
+            Some(Value::Display(CssDisplay::InlineFlex)) => {
+                ts.display = Display::Flex;
+                ts.flex_direction = FlexDirection::Row;
+            }
+            Some(Value::Display(CssDisplay::InlineGrid)) => {
+                ts.display = Display::Grid;
             }
             _ => {}
         }
@@ -173,6 +196,9 @@ impl CssTaffyConverter {
                 CssDisplay::InlineBlock => Display::Block, // We override this later
                 CssDisplay::Inline => Display::Block,      // We override this later
                 CssDisplay::Flex => Display::Flex,
+                CssDisplay::InlineFlex => Display::Flex, // We override to inline below
+                CssDisplay::Grid => Display::Grid,
+                CssDisplay::InlineGrid => Display::Grid, // We override to inline below
                 CssDisplay::None => Display::None,
                 _ => Display::Block,
             },
@@ -199,7 +225,7 @@ impl CssTaffyConverter {
             Some(Value::Unit(value, unit)) => match unit {
                 CssUnit::Px => LengthPercentageAuto::length(*value),
                 CssUnit::Percent => LengthPercentageAuto::percent(*value / 100.0),
-                CssUnit::Em | CssUnit::Rem => LengthPercentageAuto::length(*value * 16.0),
+                CssUnit::Em | CssUnit::Rem => LengthPercentageAuto::length(*value * self.font_size_px()),
             },
             Some(Value::Number(value)) => LengthPercentageAuto::length(*value),
             Some(Value::Keyword(id)) if lookup(*id) == "auto" => LengthPercentageAuto::auto(),
@@ -212,7 +238,7 @@ impl CssTaffyConverter {
             Some(Value::Unit(value, unit)) => match unit {
                 CssUnit::Px => LengthPercentage::length(*value),
                 CssUnit::Percent => LengthPercentage::percent(*value / 100.0),
-                CssUnit::Em | CssUnit::Rem => LengthPercentage::length(*value * 16.0),
+                CssUnit::Em | CssUnit::Rem => LengthPercentage::length(*value * self.font_size_px()),
             },
             Some(Value::Number(value)) => LengthPercentage::length(*value),
             _ => default,
@@ -224,7 +250,7 @@ impl CssTaffyConverter {
             Some(Value::Unit(value, unit)) => match unit {
                 CssUnit::Px => Dimension::from_length(*value),
                 CssUnit::Percent => Dimension::percent(*value / 100.0),
-                CssUnit::Em | CssUnit::Rem => Dimension::from_length(*value * 16.0),
+                CssUnit::Em | CssUnit::Rem => Dimension::from_length(*value * self.font_size_px()),
             },
             Some(Value::Number(value)) => Dimension::from_length(*value),
             _ => default,
@@ -236,7 +262,7 @@ impl CssTaffyConverter {
             Some(Value::Unit(value, unit)) => match unit {
                 CssUnit::Px => Size::length(*value),
                 CssUnit::Percent => Size::percent(*value / 100.0),
-                CssUnit::Em | CssUnit::Rem => Size::length(*value * 16.0),
+                CssUnit::Em | CssUnit::Rem => Size::length(*value * self.font_size_px()),
             },
             Some(Value::Number(value)) => Size::length(*value),
             _ => default,
@@ -346,10 +372,13 @@ impl CssTaffyConverter {
         default: Vec<GridTemplateComponent<String>>,
     ) -> Vec<GridTemplateComponent<String>> {
         match self.data.get_own(&prop) {
-            Some(Value::Keyword(id)) => match lookup(*id).as_str() {
-                "none" | "auto" => Vec::new(),
-                _ => default,
-            },
+            Some(Value::Keyword(id)) => {
+                let s = lookup(*id);
+                match s.as_str() {
+                    "none" | "" => Vec::new(),
+                    _ => parse_grid_template(s.as_str()).unwrap_or(default),
+                }
+            }
             _ => default,
         }
     }
@@ -369,12 +398,13 @@ impl CssTaffyConverter {
 
     fn get_grid_line(&self, prop: StyleProperty, default: Line<GridPlacement>) -> Line<GridPlacement> {
         match self.data.get_own(&prop) {
-            Some(Value::Keyword(id)) => match lookup(*id).as_str() {
-                "auto" => Line {
-                    start: GridPlacement::Auto,
-                    end: GridPlacement::Auto,
-                },
-                _ => default,
+            Some(Value::Keyword(id)) => {
+                let s = lookup(*id);
+                parse_grid_placement(s.as_str()).unwrap_or(default)
+            }
+            Some(Value::Number(n)) => Line {
+                start: GridPlacement::from_line_index(*n as i16),
+                end: GridPlacement::Auto,
             },
             _ => default,
         }
@@ -382,11 +412,130 @@ impl CssTaffyConverter {
 
     fn get_grid_auto(&self, prop: StyleProperty, default: Vec<TrackSizingFunction>) -> Vec<TrackSizingFunction> {
         match self.data.get_own(&prop) {
-            Some(Value::Keyword(id)) => match lookup(*id).as_str() {
-                "auto" => Vec::new(),
-                _ => default,
-            },
+            Some(Value::Keyword(id)) => {
+                let s = lookup(*id);
+                match s.as_str() {
+                    "auto" | "none" | "" => Vec::new(),
+                    _ => parse_grid_template(s.as_str())
+                        .map(|tracks| {
+                            tracks
+                                .into_iter()
+                                .filter_map(|t| match t {
+                                    GridTemplateComponent::Single(tsf) => Some(tsf),
+                                    _ => None,
+                                })
+                                .collect()
+                        })
+                        .unwrap_or(default),
+                }
+            }
             _ => default,
         }
     }
+}
+
+/// Parse a single grid track token ("1fr", "200px", "auto", "50%") into a TrackSizingFunction.
+fn parse_grid_track(token: &str) -> Option<TrackSizingFunction> {
+    let token = token.trim();
+    if token == "auto" {
+        return Some(minmax(MinTrackSizingFunction::AUTO, MaxTrackSizingFunction::AUTO));
+    }
+    if token == "min-content" {
+        return Some(minmax(
+            MinTrackSizingFunction::MIN_CONTENT,
+            MaxTrackSizingFunction::MIN_CONTENT,
+        ));
+    }
+    if token == "max-content" {
+        return Some(minmax(
+            MinTrackSizingFunction::MAX_CONTENT,
+            MaxTrackSizingFunction::MAX_CONTENT,
+        ));
+    }
+    if let Some(rest) = token.strip_suffix("fr") {
+        let v: f32 = rest.trim().parse().ok()?;
+        return Some(minmax(MinTrackSizingFunction::ZERO, MaxTrackSizingFunction::from_fr(v)));
+    }
+    if let Some(rest) = token.strip_suffix("px") {
+        let v: f32 = rest.trim().parse().ok()?;
+        return Some(minmax(
+            MinTrackSizingFunction::from_length(v),
+            MaxTrackSizingFunction::from_length(v),
+        ));
+    }
+    if let Some(rest) = token.strip_suffix('%') {
+        let v: f32 = rest.trim().parse().ok()?;
+        let lp = taffy::LengthPercentage::percent(v / 100.0);
+        return Some(minmax(
+            MinTrackSizingFunction::from(lp),
+            MaxTrackSizingFunction::from(lp),
+        ));
+    }
+    if let Some(rest) = token.strip_suffix("em") {
+        let v: f32 = rest.trim().parse().ok()?;
+        return Some(minmax(
+            MinTrackSizingFunction::from_length(v * 16.0),
+            MaxTrackSizingFunction::from_length(v * 16.0),
+        ));
+    }
+    None
+}
+
+/// Parse a grid-template-columns/rows value string ("1fr 1fr 1fr", "200px 1fr 100px", …).
+fn parse_grid_template(s: &str) -> Option<Vec<GridTemplateComponent<String>>> {
+    let mut tracks = Vec::new();
+    for token in s.split_whitespace() {
+        // Skip named line brackets like [line-name]
+        if token.starts_with('[') {
+            continue;
+        }
+        let tsf = parse_grid_track(token)?;
+        tracks.push(GridTemplateComponent::Single(tsf));
+    }
+    if tracks.is_empty() {
+        None
+    } else {
+        Some(tracks)
+    }
+}
+
+/// Parse a grid-column/row placement value ("auto", "span 2", "1", "2 / 4", …).
+fn parse_grid_placement(s: &str) -> Option<Line<GridPlacement>> {
+    let s = s.trim();
+    if s == "auto" {
+        return Some(Line {
+            start: GridPlacement::Auto,
+            end: GridPlacement::Auto,
+        });
+    }
+    // Handle "start / end" notation
+    if let Some(slash) = s.find('/') {
+        let start_str = s[..slash].trim();
+        let end_str = s[slash + 1..].trim();
+        return Some(Line {
+            start: parse_single_placement(start_str),
+            end: parse_single_placement(end_str),
+        });
+    }
+    // Single value
+    Some(Line {
+        start: parse_single_placement(s),
+        end: GridPlacement::Auto,
+    })
+}
+
+fn parse_single_placement(s: &str) -> GridPlacement {
+    let s = s.trim();
+    if s == "auto" {
+        return GridPlacement::Auto;
+    }
+    if let Some(rest) = s.strip_prefix("span ") {
+        if let Ok(n) = rest.trim().parse::<u16>() {
+            return span(n);
+        }
+    }
+    if let Ok(n) = s.parse::<i16>() {
+        return GridPlacement::from_line_index(n);
+    }
+    GridPlacement::Auto
 }

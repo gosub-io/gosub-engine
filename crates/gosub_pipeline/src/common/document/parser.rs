@@ -1,8 +1,7 @@
 use crate::common::document::document::Document;
 use crate::common::document::node::{AttrMap, NodeId};
 use crate::common::document::style::{
-    intern, BorderStyle, Display, FontWeight, NodeStyle, StyleProperty, TextAlign, TextWrap, Unit,
-    Value,
+    intern, BorderStyle, Display, FontWeight, NodeStyle, StyleProperty, TextAlign, TextWrap, Unit, Value,
 };
 use cow_utils::CowUtils;
 use regex::Regex;
@@ -83,96 +82,240 @@ fn create_dom_from_json(doc: &mut Document, node: &DomNode, parent_id: Option<No
     Some(node_id)
 }
 
-fn get_style_from_node(node: &DomNode) -> NodeStyle {
-    let mut style = NodeStyle::new();
+/// Expand a 1–4-value CSS box shorthand (margin / padding) into [top, right, bottom, left].
+fn parse_box_shorthand(value: &str) -> Vec<Value> {
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    match parts.len() {
+        2 => vec![
+            parse_style_value(parts[0]),
+            parse_style_value(parts[1]),
+            parse_style_value(parts[0]),
+            parse_style_value(parts[1]),
+        ],
+        3 => vec![
+            parse_style_value(parts[0]),
+            parse_style_value(parts[1]),
+            parse_style_value(parts[2]),
+            parse_style_value(parts[1]),
+        ],
+        4 => vec![
+            parse_style_value(parts[0]),
+            parse_style_value(parts[1]),
+            parse_style_value(parts[2]),
+            parse_style_value(parts[3]),
+        ],
+        _ => {
+            let v = parse_style_value(parts.first().copied().unwrap_or(value));
+            vec![v.clone(), v.clone(), v.clone(), v]
+        }
+    }
+}
 
-    for (key, value) in &node.styles {
-        match key.as_str() {
-            "display" => style.set(StyleProperty::Display, parse_display(value)),
-            "position" => style.set(StyleProperty::Position, parse_position(value)),
+fn is_border_style_keyword(s: &str) -> bool {
+    matches!(
+        s,
+        "solid" | "dashed" | "dotted" | "double" | "groove" | "ridge" | "inset" | "outset" | "hidden" | "none"
+    )
+}
 
-            "width" => style.set(StyleProperty::Width, parse_style_value(value)),
-            "height" => style.set(StyleProperty::Height, parse_style_value(value)),
-            "max-width" => style.set(StyleProperty::MaxWidth, parse_style_value(value)),
-            "min-width" => style.set(StyleProperty::MinWidth, parse_style_value(value)),
-            "max-height" => style.set(StyleProperty::MaxHeight, parse_style_value(value)),
-            "min-height" => style.set(StyleProperty::MinHeight, parse_style_value(value)),
+/// Expand `border: <width> <style> <color>` to all four border longhands.
+fn apply_border_shorthand(style: &mut NodeStyle, value: &str) {
+    let mut width = Value::Unit(3.0, Unit::Px);
+    let mut bstyle = Value::BorderStyle(BorderStyle::None);
+    let mut color = Value::Color(0, 0, 0, 255);
 
-            "border-top-width" => style.set(StyleProperty::BorderTopWidth, parse_style_value(value)),
-            "border-left-width" => style.set(StyleProperty::BorderLeftWidth, parse_style_value(value)),
-            "border-right-width" => style.set(StyleProperty::BorderRightWidth, parse_style_value(value)),
-            "border-bottom-width" => style.set(StyleProperty::BorderBottomWidth, parse_style_value(value)),
-            "border-bottom-left-radius" => {
-                style.set(StyleProperty::BorderBottomLeftRadius, parse_style_value(value))
-            }
-            "border-bottom-right-radius" => {
-                style.set(StyleProperty::BorderBottomRightRadius, parse_style_value(value))
-            }
-            "border-top-left-radius" => {
-                style.set(StyleProperty::BorderTopLeftRadius, parse_style_value(value))
-            }
-            "border-top-right-radius" => {
-                style.set(StyleProperty::BorderTopRightRadius, parse_style_value(value))
-            }
-            "border-top-style" => style.set(StyleProperty::BorderTopStyle, parse_border_style(value)),
-            "border-right-style" => style.set(StyleProperty::BorderRightStyle, parse_border_style(value)),
-            "border-bottom-style" => style.set(StyleProperty::BorderBottomStyle, parse_border_style(value)),
-            "border-left-style" => style.set(StyleProperty::BorderLeftStyle, parse_border_style(value)),
-            "border-top-color" => style.set(StyleProperty::BorderTopColor, parse_named_color(value)),
-            "border-left-color" => style.set(StyleProperty::BorderLeftColor, parse_named_color(value)),
-            "border-right-color" => style.set(StyleProperty::BorderRightColor, parse_named_color(value)),
-            "border-bottom-color" => style.set(StyleProperty::BorderBottomColor, parse_named_color(value)),
-
-            "margin-top" | "margin-block-start" => style.set(StyleProperty::MarginTop, parse_style_value(value)),
-            "margin-left" | "margin-inline-start" => style.set(StyleProperty::MarginLeft, parse_style_value(value)),
-            "margin-right" | "margin-inline-end" => style.set(StyleProperty::MarginRight, parse_style_value(value)),
-            "margin-bottom" | "margin-block-end" => style.set(StyleProperty::MarginBottom, parse_style_value(value)),
-
-            "padding-top" | "padding-block-start" => style.set(StyleProperty::PaddingTop, parse_style_value(value)),
-            "padding-left" | "padding-inline-start" => style.set(StyleProperty::PaddingLeft, parse_style_value(value)),
-            "padding-right" | "padding-inline-end" => style.set(StyleProperty::PaddingRight, parse_style_value(value)),
-            "padding-bottom" | "padding-block-end" => style.set(StyleProperty::PaddingBottom, parse_style_value(value)),
-
-            "color" => style.set(StyleProperty::Color, parse_named_color(value)),
-            "background-color" => style.set(StyleProperty::BackgroundColor, parse_named_color(value)),
-
-            "font-weight" => style.set(StyleProperty::FontWeight, parse_font_weight(value)),
-            "font-size" => style.set(StyleProperty::FontSize, parse_style_value(value)),
-            "font-family" => style.set(StyleProperty::FontFamily, Value::Keyword(intern(value))),
-
-            "flex-basis" => style.set(StyleProperty::FlexBasis, parse_style_str(value)),
-            "flex-direction" => style.set(StyleProperty::FlexDirection, parse_style_str(value)),
-            "flex-grow" => style.set(StyleProperty::FlexGrow, parse_style_num(value)),
-            "flex-shrink" => style.set(StyleProperty::FlexShrink, parse_style_num(value)),
-            "flex-wrap" => style.set(StyleProperty::FlexWrap, parse_style_str(value)),
-
-            "aspect-ratio" => style.set(StyleProperty::AspectRatio, parse_style_num(value)),
-            "gap" => style.set(StyleProperty::Gap, parse_style_value(value)),
-            "align-items" => style.set(StyleProperty::AlignItems, parse_style_str(value)),
-            "align-self" => style.set(StyleProperty::AlignSelf, parse_style_str(value)),
-            "align-content" => style.set(StyleProperty::AlignContent, parse_style_str(value)),
-            "text-align" => style.set(StyleProperty::TextAlign, parse_text_align(value)),
-            "line-height" => style.set(StyleProperty::LineHeight, parse_style_value(value)),
-            "text-wrap" => style.set(StyleProperty::TextWrap, parse_text_wrap(value)),
-
-            "inset-block-end" => style.set(StyleProperty::InsetBlockEnd, parse_style_value(value)),
-            "inset-block-start" => style.set(StyleProperty::InsetBlockStart, parse_style_value(value)),
-            "inset-inline-end" => style.set(StyleProperty::InsetInlineEnd, parse_style_value(value)),
-            "inset-inline-start" => style.set(StyleProperty::InsetInlineStart, parse_style_value(value)),
-
-            "justify-items" => style.set(StyleProperty::JustifyItems, parse_style_str(value)),
-            "justify-self" => style.set(StyleProperty::JustifySelf, parse_style_str(value)),
-            "justify-content" => style.set(StyleProperty::JustifyContent, parse_style_str(value)),
-
-            "overflow-x" => style.set(StyleProperty::OverflowX, parse_style_str(value)),
-            "overflow-y" => style.set(StyleProperty::OverflowY, parse_style_str(value)),
-            "box-sizing" => style.set(StyleProperty::BoxSizing, parse_style_str(value)),
-
-            _ => {}
+    for part in value.split_whitespace() {
+        match parse_style_value(part) {
+            v @ Value::Unit(_, _) => width = v,
+            _ if is_border_style_keyword(part) => bstyle = parse_border_style(part),
+            _ => color = parse_named_color(part),
         }
     }
 
+    for prop in &[
+        StyleProperty::BorderTopWidth,
+        StyleProperty::BorderRightWidth,
+        StyleProperty::BorderBottomWidth,
+        StyleProperty::BorderLeftWidth,
+    ] {
+        style.set(prop.clone(), width.clone());
+    }
+    for prop in &[
+        StyleProperty::BorderTopStyle,
+        StyleProperty::BorderRightStyle,
+        StyleProperty::BorderBottomStyle,
+        StyleProperty::BorderLeftStyle,
+    ] {
+        style.set(prop.clone(), bstyle.clone());
+    }
+    for prop in &[
+        StyleProperty::BorderTopColor,
+        StyleProperty::BorderRightColor,
+        StyleProperty::BorderBottomColor,
+        StyleProperty::BorderLeftColor,
+    ] {
+        style.set(prop.clone(), color.clone());
+    }
+}
+
+fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
+    match key {
+        "display" => style.set(StyleProperty::Display, parse_display(value)),
+        "position" => style.set(StyleProperty::Position, parse_position(value)),
+
+        "width" => style.set(StyleProperty::Width, parse_style_value(value)),
+        "height" => style.set(StyleProperty::Height, parse_style_value(value)),
+        "max-width" => style.set(StyleProperty::MaxWidth, parse_style_value(value)),
+        "min-width" => style.set(StyleProperty::MinWidth, parse_style_value(value)),
+        "max-height" => style.set(StyleProperty::MaxHeight, parse_style_value(value)),
+        "min-height" => style.set(StyleProperty::MinHeight, parse_style_value(value)),
+
+        "border-top-width" => style.set(StyleProperty::BorderTopWidth, parse_style_value(value)),
+        "border-left-width" => style.set(StyleProperty::BorderLeftWidth, parse_style_value(value)),
+        "border-right-width" => style.set(StyleProperty::BorderRightWidth, parse_style_value(value)),
+        "border-bottom-width" => style.set(StyleProperty::BorderBottomWidth, parse_style_value(value)),
+        "border-bottom-left-radius" => style.set(StyleProperty::BorderBottomLeftRadius, parse_style_value(value)),
+        "border-bottom-right-radius" => style.set(StyleProperty::BorderBottomRightRadius, parse_style_value(value)),
+        "border-top-left-radius" => style.set(StyleProperty::BorderTopLeftRadius, parse_style_value(value)),
+        "border-top-right-radius" => style.set(StyleProperty::BorderTopRightRadius, parse_style_value(value)),
+        "border-top-style" => style.set(StyleProperty::BorderTopStyle, parse_border_style(value)),
+        "border-right-style" => style.set(StyleProperty::BorderRightStyle, parse_border_style(value)),
+        "border-bottom-style" => style.set(StyleProperty::BorderBottomStyle, parse_border_style(value)),
+        "border-left-style" => style.set(StyleProperty::BorderLeftStyle, parse_border_style(value)),
+        "border-top-color" => style.set(StyleProperty::BorderTopColor, parse_named_color(value)),
+        "border-left-color" => style.set(StyleProperty::BorderLeftColor, parse_named_color(value)),
+        "border-right-color" => style.set(StyleProperty::BorderRightColor, parse_named_color(value)),
+        "border-bottom-color" => style.set(StyleProperty::BorderBottomColor, parse_named_color(value)),
+
+        "margin" => {
+            let v = parse_box_shorthand(value);
+            style.set(StyleProperty::MarginTop, v[0].clone());
+            style.set(StyleProperty::MarginRight, v[1].clone());
+            style.set(StyleProperty::MarginBottom, v[2].clone());
+            style.set(StyleProperty::MarginLeft, v[3].clone());
+        }
+        "margin-top" | "margin-block-start" => style.set(StyleProperty::MarginTop, parse_style_value(value)),
+        "margin-left" | "margin-inline-start" => style.set(StyleProperty::MarginLeft, parse_style_value(value)),
+        "margin-right" | "margin-inline-end" => style.set(StyleProperty::MarginRight, parse_style_value(value)),
+        "margin-bottom" | "margin-block-end" => style.set(StyleProperty::MarginBottom, parse_style_value(value)),
+
+        "padding" => {
+            let v = parse_box_shorthand(value);
+            style.set(StyleProperty::PaddingTop, v[0].clone());
+            style.set(StyleProperty::PaddingRight, v[1].clone());
+            style.set(StyleProperty::PaddingBottom, v[2].clone());
+            style.set(StyleProperty::PaddingLeft, v[3].clone());
+        }
+        "padding-top" | "padding-block-start" => style.set(StyleProperty::PaddingTop, parse_style_value(value)),
+        "padding-left" | "padding-inline-start" => style.set(StyleProperty::PaddingLeft, parse_style_value(value)),
+        "padding-right" | "padding-inline-end" => style.set(StyleProperty::PaddingRight, parse_style_value(value)),
+        "padding-bottom" | "padding-block-end" => style.set(StyleProperty::PaddingBottom, parse_style_value(value)),
+
+        "border" => apply_border_shorthand(style, value),
+
+        "color" => style.set(StyleProperty::Color, parse_named_color(value)),
+        "background-color" => style.set(StyleProperty::BackgroundColor, parse_named_color(value)),
+        "background" => {
+            // Extract the color component from the background shorthand (e.g. "background: #c33")
+            if let Some(color) = parse_background_color_token(value) {
+                style.set(StyleProperty::BackgroundColor, color);
+            }
+        }
+
+        "font-weight" => style.set(StyleProperty::FontWeight, parse_font_weight(value)),
+        "font-style" => style.set(StyleProperty::FontStyle, Value::Keyword(intern(value))),
+        "font-size" => style.set(StyleProperty::FontSize, parse_style_value(value)),
+        "font-family" => style.set(StyleProperty::FontFamily, Value::Keyword(intern(value))),
+
+        "flex-basis" => style.set(StyleProperty::FlexBasis, parse_style_value(value)),
+        "flex-direction" => style.set(StyleProperty::FlexDirection, parse_style_str(value)),
+        "flex-grow" => style.set(StyleProperty::FlexGrow, parse_style_num(value)),
+        "flex-shrink" => style.set(StyleProperty::FlexShrink, parse_style_num(value)),
+        "flex-wrap" => style.set(StyleProperty::FlexWrap, parse_style_str(value)),
+
+        "grid-template-columns" => style.set(StyleProperty::GridTemplateColumns, Value::Keyword(intern(value))),
+        "grid-template-rows" => style.set(StyleProperty::GridTemplateRows, Value::Keyword(intern(value))),
+        "grid-auto-columns" => style.set(StyleProperty::GridAutoColumns, Value::Keyword(intern(value))),
+        "grid-auto-rows" => style.set(StyleProperty::GridAutoRows, Value::Keyword(intern(value))),
+        "grid-auto-flow" => style.set(StyleProperty::GridAutoFlow, Value::Keyword(intern(value))),
+        "grid-column" => style.set(StyleProperty::GridColumn, Value::Keyword(intern(value))),
+        "grid-row" => style.set(StyleProperty::GridRow, Value::Keyword(intern(value))),
+
+        "aspect-ratio" => style.set(StyleProperty::AspectRatio, parse_style_num(value)),
+        "gap" => style.set(StyleProperty::Gap, parse_style_value(value)),
+        "align-items" => style.set(StyleProperty::AlignItems, parse_style_str(value)),
+        "align-self" => style.set(StyleProperty::AlignSelf, parse_style_str(value)),
+        "align-content" => style.set(StyleProperty::AlignContent, parse_style_str(value)),
+        "text-align" => style.set(StyleProperty::TextAlign, parse_text_align(value)),
+        "line-height" => style.set(StyleProperty::LineHeight, parse_line_height(value)),
+        "text-wrap" => style.set(StyleProperty::TextWrap, parse_text_wrap(value)),
+
+        "inset-block-end" => style.set(StyleProperty::InsetBlockEnd, parse_style_value(value)),
+        "inset-block-start" => style.set(StyleProperty::InsetBlockStart, parse_style_value(value)),
+        "inset-inline-end" => style.set(StyleProperty::InsetInlineEnd, parse_style_value(value)),
+        "inset-inline-start" => style.set(StyleProperty::InsetInlineStart, parse_style_value(value)),
+
+        "justify-items" => style.set(StyleProperty::JustifyItems, parse_style_str(value)),
+        "justify-self" => style.set(StyleProperty::JustifySelf, parse_style_str(value)),
+        "justify-content" => style.set(StyleProperty::JustifyContent, parse_style_str(value)),
+
+        "overflow-x" => style.set(StyleProperty::OverflowX, parse_style_str(value)),
+        "overflow-y" => style.set(StyleProperty::OverflowY, parse_style_str(value)),
+        "box-sizing" => style.set(StyleProperty::BoxSizing, parse_style_str(value)),
+        "white-space" => style.set(StyleProperty::WhiteSpace, parse_style_str(value)),
+        "text-decoration" | "text-decoration-line" => {
+            let has_underline = value.contains("underline");
+            let has_line_through = value.contains("line-through");
+            let kw = if has_underline && has_line_through {
+                "underline line-through"
+            } else if has_underline {
+                "underline"
+            } else if has_line_through {
+                "line-through"
+            } else {
+                "none"
+            };
+            style.set(StyleProperty::TextDecorationLine, Value::Keyword(intern(kw)));
+        }
+
+        _ => {}
+    }
+}
+
+fn get_style_from_node(node: &DomNode) -> NodeStyle {
+    let mut style = NodeStyle::new();
+    for (key, value) in &node.styles {
+        apply_style_kv(&mut style, key.as_str(), value.as_str());
+    }
     style
+}
+
+/// Parses a CSS inline `style` attribute value (e.g. `"color: red; width: 100px"`)
+/// into a `NodeStyle`, using the same property mapping as the JSON document parser.
+pub fn parse_inline_style_attr(style_attr: &str) -> NodeStyle {
+    let mut style = NodeStyle::new();
+    for declaration in style_attr.split(';') {
+        let declaration = declaration.trim();
+        if declaration.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = declaration.split_once(':') {
+            apply_style_kv(&mut style, key.trim(), value.trim());
+        }
+    }
+    style
+}
+
+fn parse_background_color_token(value: &str) -> Option<Value> {
+    // The background shorthand may contain image, position, size, repeat, attachment, color.
+    // Try each whitespace-separated token; return the first that parses as a color.
+    for token in value.split_whitespace() {
+        let v = parse_named_color(token);
+        if matches!(v, Value::Color(..)) {
+            return Some(v);
+        }
+    }
+    None
 }
 
 fn parse_named_color(value: &str) -> Value {
@@ -315,6 +458,9 @@ fn parse_display(value: &str) -> Value {
         "inline-block" => Value::Display(Display::InlineBlock),
         "none" => Value::Display(Display::None),
         "flex" => Value::Display(Display::Flex),
+        "inline-flex" => Value::Display(Display::InlineFlex),
+        "grid" => Value::Display(Display::Grid),
+        "inline-grid" => Value::Display(Display::InlineGrid),
         "table" => Value::Display(Display::Table),
         "table-caption" => Value::Display(Display::TableCaption),
         "table-cell" => Value::Display(Display::TableCell),
@@ -324,6 +470,17 @@ fn parse_display(value: &str) -> Value {
         "table-row-group" => Value::Display(Display::TableRowGroup),
         _ => Value::Keyword(intern(value)),
     }
+}
+
+fn parse_line_height(value: &str) -> Value {
+    // CSS line-height: a bare number is a multiplier relative to font-size, not a pixel value.
+    // Only fall through to parse_style_value for explicit length units (px, em, rem, %).
+    if !value.ends_with("px") && !value.ends_with("em") && !value.ends_with("rem") && !value.ends_with('%') {
+        if let Ok(n) = value.parse::<f32>() {
+            return Value::Number(n);
+        }
+    }
+    parse_style_value(value)
 }
 
 fn parse_style_value(value: &str) -> Value {

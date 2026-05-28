@@ -381,10 +381,19 @@ impl CssProperty {
 
     fn find_actual_value(&self) -> CssValue {
         // @TODO: stuff like clipping and such should occur as well
+        // Only round absolute units (px, pt, in, cm, mm). Relative units (em, rem, %, vw, vh)
+        // must NOT be rounded here — 1.5em rounded to 2.0em would make h2 render at h1 size.
         match &self.used {
             CssValue::Number(len) => CssValue::Number(len.round()),
             CssValue::Percentage(perc) => CssValue::Percentage(perc.round()),
-            CssValue::Unit(value, unit) => CssValue::Unit(value.round(), unit.clone()),
+            CssValue::Unit(value, unit) => {
+                let absolute = matches!(unit.as_str(), "px" | "pt" | "in" | "cm" | "mm" | "pc" | "q");
+                if absolute {
+                    CssValue::Unit(value.round(), unit.clone())
+                } else {
+                    self.used.clone()
+                }
+            }
             _ => self.used.clone(),
         }
     }

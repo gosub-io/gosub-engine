@@ -26,4 +26,6 @@ pub struct FontInfo {
     pub line_height: f64,
     /// Font alignment
     pub alignment: FontAlignment,
+    pub underline: bool,
+    pub line_through: bool,
 }

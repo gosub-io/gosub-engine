@@ -10,7 +10,7 @@ description = "Configuration management for Gosub"
 gosub_shared = { version = "0.1.1", registry = "gosub",  path = "../gosub_shared", features = [] }
 parking_lot = "0.12"
 serde_derive = "1.0.228"
-serde_json = {version = "1.0.150", features = ["preserve_order"]}
+serde_json = {version = "1.0.149", features = ["preserve_order"]}
 serde = { version = "1.0.228", features = ["derive"] }
 lazy_static = "1.5"
 thiserror = "2.0.18"

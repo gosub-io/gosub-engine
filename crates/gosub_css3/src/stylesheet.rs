@@ -492,8 +492,7 @@ impl CssValue {
             crate::node::NodeType::String { value } => Ok(CssValue::String(value)),
             crate::node::NodeType::Hash { mut value } => {
                 value.insert(0, '#');
-
-                Ok(CssValue::String(value))
+                Ok(CssValue::Color(RgbColor::from(value.as_str())))
             }
             crate::node::NodeType::Operator(_) => Ok(CssValue::None),
             crate::node::NodeType::Calc { expr } => {

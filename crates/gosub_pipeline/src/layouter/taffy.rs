@@ -1,5 +1,5 @@
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
-use crate::common::document::style::{FontWeight, StyleProperty, TextAlign, Unit, Value, lookup};
+use crate::common::document::style::{lookup, FontWeight, StyleProperty, TextAlign, Unit, Value};
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
 use crate::common::geo::Coordinate;
@@ -21,7 +21,7 @@ use taffy::prelude::*;
 use taffy::NodeId as TaffyNodeId;
 
 const DEFAULT_FONT_SIZE: f64 = 16.0;
-const DEFAULT_FONT_FAMILY: &str = "Sans";
+const DEFAULT_FONT_FAMILY: &str = "sans-serif";
 
 /// Layouter structure that uses taffy as layout engine
 pub struct TaffyLayouter {
@@ -31,6 +31,12 @@ pub struct TaffyLayouter {
     root_id: TaffyNodeId,
     /// Mapping of layout element id to taffy node id
     layout_taffy_mapping: HashMap<LayoutElementId, TaffyNodeId>,
+    /// Maps each layout element that lives inside an anonymous flex container to that
+    /// container's taffy node id. The anonymous container exists in the taffy tree (between
+    /// the real parent and its inline children) but has no corresponding LayoutElementNode.
+    /// populate_boxmodel uses this to add the container's taffy-computed offset to the offset
+    /// it passes down to the child, which would otherwise be missing from the calculation.
+    anon_container_map: HashMap<LayoutElementId, TaffyNodeId>,
     /// Media store for loading images/SVGs during layout
     media_store: MediaStore,
 }
@@ -44,12 +50,19 @@ pub enum TaffyContext {
 }
 
 impl TaffyContext {
-    fn text(text: &str, font_info: FontInfo, node_id: DomNodeId, text_offset: Coordinate) -> TaffyContext {
+    fn text(
+        text: &str,
+        font_info: FontInfo,
+        node_id: DomNodeId,
+        text_offset: Coordinate,
+        no_wrap: bool,
+    ) -> TaffyContext {
         TaffyContext::Text(ElementContextText {
             node_id,
             font_info,
             text: text.to_string(),
             text_offset,
+            no_wrap,
         })
     }
 
@@ -84,6 +97,7 @@ impl TaffyLayouter {
             tree: TaffyTree::new(),
             root_id: TaffyNodeId::new(0),
             layout_taffy_mapping: HashMap::new(),
+            anon_container_map: HashMap::new(),
             media_store: MediaStore::new(),
         }
     }
@@ -129,28 +143,47 @@ impl CanLayout for TaffyLayouter {
                 match v_nc {
                     // Calculate text node
                     Some(TaffyContext::Text(text_ctx)) => {
-                        let max_width = match v_as.width {
-                            AvailableSpace::Definite(width) => width as f64,
-                            AvailableSpace::MaxContent => 1_000_000_000.0, // f64::MAX doesn't work. Seems some kind of overflow. Same goes for f32::MAX
-                            AvailableSpace::MinContent => 0.0,
+                        let max_width = if text_ctx.no_wrap {
+                            // white-space: nowrap — measure at unlimited width so text never wraps
+                            1_000_000_000.0
+                        } else {
+                            match v_as.width {
+                                AvailableSpace::Definite(width) => width as f64,
+                                AvailableSpace::MaxContent => 1_000_000_000.0, // f64::MAX doesn't work. Seems some kind of overflow. Same goes for f32::MAX
+                                AvailableSpace::MinContent => 0.0,
+                            }
                         };
 
                         // Calculate the text layout dimensions and return it to taffy
                         let text_layout =
                             get_text_layout(text_ctx.text.as_str(), &text_ctx.font_info, max_width, dpi_scale_factor);
                         match text_layout {
-                            Ok(text_layout) => Size {
-                                // When taffy gives us a definite container width, report that as our
-                                // width (not parley's measured line width). This ensures pango wraps
-                                // at the same width parley used, producing the same line count and
-                                // height. Without this, pango would receive a narrower rect and create
-                                // more lines, causing the bottom to be clipped.
-                                width: match v_as.width {
-                                    AvailableSpace::Definite(w) => w,
-                                    _ => text_layout.width as f32,
-                                },
-                                height: text_layout.height as f32,
-                            },
+                            Ok(text_layout) => {
+                                // Ceil width to the nearest CSS pixel. Parley returns a fractional
+                                // f64 width; when taffy truncates to f32 and feeds that back as
+                                // available_width, parley re-measures with slightly less space than
+                                // the text requires and wraps. Ceiling ensures allocated width ≥
+                                // natural text width, preventing spurious wrapping at the boundary.
+                                let mut width = text_layout.width.ceil() as f32;
+
+                                // Parley strips trailing whitespace (including NBSP) from the line-box
+                                // advance width. When we appended U+00A0 as a trailing-space marker
+                                // for a text node that ended with whitespace, that NBSP is never
+                                // counted by parley, so taffy under-allocates and pango clips it.
+                                // Detect the marker and add the missing space width manually.
+                                // Whitespace-only nodes ("\u{00A0}") have their width fixed explicitly
+                                // in the taffy style, so the measure callback is not invoked for them.
+                                if text_ctx.text.ends_with('\u{00A0}') && text_ctx.text != "\u{00A0}" {
+                                    width += (text_ctx.font_info.size * 0.3) as f32;
+                                }
+
+                                Size {
+                                    width,
+                                    // Ceil height so the layout height matches the integer-pixel surface
+                                    // that pango creates (prevents descenders from overflowing the box).
+                                    height: text_layout.height.ceil() as f32,
+                                }
+                            }
                             Err(_) => Size::ZERO,
                         }
                     }
@@ -204,11 +237,27 @@ impl TaffyLayouter {
         el.box_model = taffy_layout_to_boxmodel(&layout, offset);
         let child_ids = el.children.clone();
 
+        // Absolute position of this node's content area — used as the base offset for direct children.
+        let children_offset = Coordinate::new(offset.x + layout.location.x as f64, offset.y + layout.location.y as f64);
+
         for child_id in child_ids {
+            // If this child lives inside an anonymous flex container (created by process_inlines),
+            // its taffy position is relative to that container, not to the current node. Add the
+            // anonymous container's own taffy-computed offset so the absolute position is correct.
+            let anon_offset = if let Some(&anon_taffy_id) = self.anon_container_map.get(&child_id) {
+                if let Ok(anon_layout) = self.tree.layout(anon_taffy_id) {
+                    Coordinate::new(anon_layout.location.x as f64, anon_layout.location.y as f64)
+                } else {
+                    Coordinate::ZERO
+                }
+            } else {
+                Coordinate::ZERO
+            };
+
             self.populate_boxmodel(
                 layout_tree,
                 child_id,
-                Coordinate::new(offset.x + layout.location.x as f64, offset.y + layout.location.y as f64),
+                Coordinate::new(children_offset.x + anon_offset.x, children_offset.y + anon_offset.y),
             );
         }
     }
@@ -216,7 +265,15 @@ impl TaffyLayouter {
     /// Generate the layout tree from the render tree
     fn generate_tree(&mut self, render_tree: RenderTree, root_id: RenderNodeId) -> LayoutTree {
         self.tree = TaffyTree::new();
+        // Taffy's built-in rounding snaps layout values to integer CSS pixels, which causes
+        // text containers to lose sub-pixel width (e.g. 52.344 → 52.0). This makes pango
+        // render at a surface too narrow for the text and produces spurious line wraps.
+        // Our renderer handles DPR scaling itself via ceil(width) * dpr, so we disable
+        // taffy's rounding here.
+        self.tree.disable_rounding();
         self.root_id = TaffyNodeId::new(0); // Will be filled in later
+        self.layout_taffy_mapping.clear();
+        self.anon_container_map.clear();
 
         let mut layout_tree = LayoutTree {
             render_tree,
@@ -288,6 +345,10 @@ impl TaffyLayouter {
                 log::warn!("Failed to add inline child to taffy tree: {:?}", e);
             }
             element_node.children.push(*inline_layout_element_id);
+            // Record that this layout element sits inside an anonymous container so that
+            // populate_boxmodel can add the container's taffy-computed offset.
+            self.anon_container_map
+                .insert(*inline_layout_element_id, taffy_container_id);
         }
     }
 
@@ -341,6 +402,11 @@ impl TaffyLayouter {
         // Now we iterate the children, and add them to both taffy and the element_node's children vec.
 
         let mut current_inline_group = Vec::new();
+        // Track how many trailing whitespace-only text nodes are at the end of the current inline
+        // group so they can be stripped before flushing, mirroring how leading whitespace is dropped.
+        // Trailing whitespace (e.g. "\n" after the last text node inside a <p>) would otherwise
+        // produce an empty flex row in the anonymous container, adding a spurious blank line.
+        let mut trailing_ws_count = 0usize;
         let render_node_children = render_node.children.clone();
         for child_id in render_node_children.iter() {
             let Some((child_layout_element_id, child_taffy_id)) = self.generate_taffy_element(layout_tree, *child_id)
@@ -353,31 +419,48 @@ impl TaffyLayouter {
             };
 
             // Don't add inline elements to the taffy tree yet. We need to group them first and possibly wrap inside a block
-            if child_node.is_inline_element() || child_node.is_text() {
-                // Whitespace-only text nodes between elements (e.g. "\n  ") don't contribute to
-                // layout. Excluding them prevents spurious anonymous flex containers that would
-                // shrink real inline elements like <a> to their intrinsic width.
-                if let NodeType::Text(text) = &child_node.node_type {
+            if child_node.is_inline_element() || child_node.is_inline_block_element() || child_node.is_text() {
+                let is_ws = if let NodeType::Text(text) = &child_node.node_type {
                     if text.trim().is_empty() {
-                        continue;
+                        // Drop leading whitespace (before any inline sibling). Keep inter-element
+                        // whitespace — it collapses to a single space in extract_taffy_data and
+                        // visually separates adjacent inline elements (e.g. between </span><span>).
+                        if current_inline_group.is_empty() {
+                            continue;
+                        }
+                        true
+                    } else {
+                        false
                     }
-                }
+                } else {
+                    false
+                };
+
                 log::debug!("Pushing element as inline: {:?}", child_node.node_id);
                 current_inline_group.push((child_layout_element_id, child_taffy_id));
+                if is_ws {
+                    trailing_ws_count += 1;
+                } else {
+                    trailing_ws_count = 0;
+                }
                 continue;
             }
 
             log::debug!("Element {:?} is not an inline", child_node.node_id);
 
+            // Strip trailing whitespace before flushing, then flush.
+            current_inline_group.truncate(current_inline_group.len().saturating_sub(trailing_ws_count));
             self.process_inlines(&current_inline_group, &mut element_node, leaf_id);
             current_inline_group = Vec::new();
+            trailing_ws_count = 0;
 
             // Add this child
             self.tree.add_child(leaf_id, child_taffy_id).unwrap();
             element_node.children.push(child_layout_element_id);
         }
 
-        // Deal with any remaining inline elements in the current inline group
+        // Strip trailing whitespace and deal with any remaining inline elements
+        current_inline_group.truncate(current_inline_group.len().saturating_sub(trailing_ws_count));
         self.process_inlines(&current_inline_group, &mut element_node, leaf_id);
 
         // Finally, we can insert the generated element also in the layout-tree. This is the ultimate
@@ -467,9 +550,8 @@ impl TaffyLayouter {
                 let mut font_size = DEFAULT_FONT_SIZE;
                 let mut font_family = DEFAULT_FONT_FAMILY.to_string();
 
-                match doc.get_style(dom_node.node_id, &StyleProperty::FontSize) {
-                    Value::Unit(value, Unit::Px) => font_size = value as f64,
-                    _ => {}
+                if let Value::Unit(value, Unit::Px) = doc.get_style(dom_node.node_id, &StyleProperty::FontSize) {
+                    font_size = value as f64;
                 }
 
                 if let Value::Keyword(id) = doc.get_style(dom_node.node_id, &StyleProperty::FontFamily) {
@@ -487,6 +569,11 @@ impl TaffyLayouter {
                     _ => 400.0,
                 };
 
+                let font_italic = matches!(
+                    doc.get_style(dom_node.node_id, &StyleProperty::FontStyle),
+                    Value::Keyword(id) if lookup(id) == "italic"
+                );
+
                 let alignment = match doc.get_style(dom_node.node_id, &StyleProperty::TextAlign) {
                     Value::TextAlign(value) => match value {
                         TextAlign::Center => FontAlignment::Center,
@@ -499,26 +586,77 @@ impl TaffyLayouter {
 
                 let line_height = match doc.get_style(dom_node.node_id, &StyleProperty::LineHeight) {
                     Value::Unit(value, Unit::Px) => value as f64,
-                    _ => font_size,
+                    Value::Number(ratio) => font_size * ratio as f64,
+                    // CSS "normal" line-height. We use 1.4 instead of the CSS-spec minimum of
+                    // ~1.2 because pango and parley use different font metrics tables. Parley
+                    // (layout) may return a smaller height than pango (raster), so without this
+                    // buffer the rendered text surface can exceed the span's background
+                    // rectangle, making descenders (e.g. "p") appear to overflow the colored box.
+                    _ => font_size * 1.4,
                 };
 
                 // Calculate vertical offset for centering based on the line height.
                 let text_offset = Coordinate::new(0.0, (line_height - font_size) / 2.0);
 
-                let mut text = text.clone();
+                // Apply CSS white-space: normal — collapse newlines/runs of whitespace to a
+                // single space and strip leading/trailing whitespace.  Raw HTML text nodes
+                // contain the literal source indentation (e.g. "\n    Red box…\n  ") which
+                // pango would render as a blank first line if left untouched.
+                // Whitespace-only source nodes (e.g. "\n  " between </span><span>) collapse
+                // to a single space so they produce an inter-element gap when kept.
+                let is_whitespace_only = !text.is_empty() && text.chars().all(|c: char| c.is_ascii_whitespace());
+                // Preserve one leading/trailing inter-element gap as NBSP (non-breaking) so
+                // pango does not wrap at the boundary space, while still rendering a visible gap.
+                let had_leading_space = text.starts_with(|c: char| c.is_ascii_whitespace());
+                let had_trailing_space = text.ends_with(|c: char| c.is_ascii_whitespace());
+                let mut text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                if !is_whitespace_only {
+                    if had_leading_space && !text.is_empty() {
+                        text.insert(0, '\u{00A0}');
+                    }
+                    if had_trailing_space && !text.is_empty() {
+                        text.push('\u{00A0}');
+                    }
+                }
+                if is_whitespace_only {
+                    // Inter-element whitespace (e.g. between </span><span>). Collapse to a single
+                    // NBSP so the text context is non-empty. We bypass parley measurement entirely
+                    // by setting an explicit taffy width (~0.3em), because parley returns 0 for
+                    // spaces when called with MinContent (max_advance=0), causing the flex item to
+                    // collapse. flex_shrink=0 prevents the space from being squeezed away.
+                    text = "\u{00A0}".to_string();
+                    let space_width = (font_size * 0.3) as f32;
+                    taffy_style.size.width = Dimension::from_length(space_width);
+                    taffy_style.flex_shrink = 0.0;
+                }
                 // if inline_element_counter > 0 {
                 //     // If we are in an inline container, we need to add a space between the text nodes
                 //     text = format!(" {}", text).clone()
                 // }
+
+                let no_wrap = matches!(
+                    doc.get_style(dom_node.node_id, &StyleProperty::WhiteSpace),
+                    Value::Keyword(id) if lookup(id) == "nowrap"
+                );
+                if no_wrap {
+                    taffy_style.flex_shrink = 0.0;
+                }
+
+                let text_decoration = match doc.get_style(dom_node.node_id, &StyleProperty::TextDecorationLine) {
+                    Value::Keyword(id) => lookup(id),
+                    _ => String::new(),
+                };
 
                 let font_info = FontInfo {
                     family: font_family,
                     size: font_size,
                     weight: font_weight as i32,
                     width: 100, // 100%, normal
-                    slant: 0,
+                    slant: if font_italic { 1 } else { 0 },
                     line_height,
                     alignment,
+                    underline: text_decoration.contains("underline"),
+                    line_through: text_decoration.contains("line-through"),
                 };
 
                 taffy_context = Some(TaffyContext::text(
@@ -526,14 +664,11 @@ impl TaffyLayouter {
                     font_info,
                     dom_node.node_id,
                     text_offset,
+                    no_wrap,
                 ));
 
-                // Text nodes must fill their flex container (e.g. text inside an <a> which is
-                // display:flex in our layout). Without this, taffy only allocates the intrinsic
-                // max-content width, and pango may wrap because its metrics differ slightly from
-                // parley's. flex-grow is ignored by block layout, so this is a no-op for block
-                // parents.
-                taffy_style.flex_grow = 1.0;
+                // Whitespace-only separator nodes must not grow — they should remain the
+                // natural width of a single space character so they don't consume the flex row.
             }
             NodeType::Comment(_) => {
                 // No need to layout for comment nodes. In fact, they should have been removed already
@@ -575,6 +710,7 @@ fn to_element_context(taffy_context: Option<&TaffyContext>) -> ElementContext {
             text_ctx.font_info.clone(),
             text_ctx.node_id,
             text_ctx.text_offset,
+            text_ctx.no_wrap,
         ),
         Some(TaffyContext::Image(image_ctx)) => ElementContext::image(
             image_ctx.src.as_str(),

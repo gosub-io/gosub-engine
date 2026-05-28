@@ -72,6 +72,25 @@ impl CssSystem for Css3System {
                                 };
 
                                 if !definition.matches_and_shorthands(match_value, &mut fix_list) {
+                                    // Special-case: `background: <color>` — the full shorthand
+                                    // syntax requires comma-separated layers and the simple
+                                    // single-color form fails the complex syntax. Treat it as
+                                    // `background-color: <color>` which the consumer expects.
+                                    if declaration.property == "background" {
+                                        if let CssValue::Color(_) = &value {
+                                            add_property_to_map(
+                                                &mut css_map_entry,
+                                                sheet,
+                                                specificity,
+                                                &CssDeclaration {
+                                                    property: "background-color".to_string(),
+                                                    value,
+                                                    important: declaration.important,
+                                                },
+                                            );
+                                            continue;
+                                        }
+                                    }
                                     warn!("Declaration does not match definition: {declaration:?}");
                                     continue;
                                 }
@@ -103,7 +122,11 @@ impl CssSystem for Css3System {
                                 // CSS but happen not to have their own PropertyDefinition entry)
                                 // still reach the style consumer.
                                 let value = if let CssValue::List(mut v) = value {
-                                    if v.len() == 1 { v.pop().expect("unreachable") } else { CssValue::List(v) }
+                                    if v.len() == 1 {
+                                        v.pop().expect("unreachable")
+                                    } else {
+                                        CssValue::List(v)
+                                    }
                                 } else {
                                     value
                                 };

@@ -160,8 +160,11 @@ impl Painter {
                 {
                     let border_top_color =
                         self.get_brush(dom_node_id, &StyleProperty::BorderTopColor, Brush::solid(Color::BLACK));
-                    let border_right_color =
-                        self.get_brush(dom_node_id, &StyleProperty::BorderRightColor, Brush::solid(Color::BLACK));
+                    let border_right_color = self.get_brush(
+                        dom_node_id,
+                        &StyleProperty::BorderRightColor,
+                        Brush::solid(Color::BLACK),
+                    );
                     let border_bottom_color = self.get_brush(
                         dom_node_id,
                         &StyleProperty::BorderBottomColor,

@@ -54,12 +54,13 @@
 //!     fn on_ref_done(&self, _: RequestReference) {}
 //! }
 //!
-//! let (shutdown_tx, shutdown_rx) = watch::channel(false);
+//! let shutdown = tokio_util::sync::CancellationToken::new();
 //! let fetcher = Arc::new(Fetcher::new(FetcherConfig::default(), Arc::new(MyContext))?);
 //!
-//! // Spawn the scheduler loop — it runs until shutdown_rx becomes true.
+//! // Spawn the scheduler loop — it runs until the token is cancelled.
 //! let f = fetcher.clone();
-//! tokio::spawn(async move { f.run(shutdown_rx).await });
+//! let cancel = shutdown.clone();
+//! tokio::spawn(async move { f.run(cancel).await });
 //!
 //! // Build and submit a request.
 //! let url = Url::parse("https://example.org").unwrap();

@@ -97,6 +97,20 @@ pub enum GpuPixelFormat {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct WgpuTextureId(pub u64);
 
+/// A single pre-rasterized tile for direct compositing in the host draw callback.
+/// Pixel data is reference-counted so handing out a handle is zero-copy.
+#[derive(Clone, Debug)]
+pub struct CachedTile {
+    /// Tile position in CSS pixels (page coordinate space).
+    pub page_x: f32,
+    pub page_y: f32,
+    /// Tile dimensions in **physical** pixels (DPR already applied).
+    pub width: u32,
+    pub height: u32,
+    /// Pre-multiplied ARgb32 pixel data, row-major, stride = `width * 4`.
+    pub data: Arc<Vec<u8>>,
+}
+
 /// Safety: `ExternalHandle` can be sent between threads, but not shared.
 unsafe impl Send for ExternalHandle {}
 unsafe impl Sync for ExternalHandle {}
@@ -142,6 +156,26 @@ pub enum ExternalHandle {
         stride: u32,
         /// Raw pixel data pointer in RGBA8 format.
         pixel_buf: NonNull<u8>, // This is not SEND + SYNC, we override this above
+    },
+
+    /// Pre-rasterized tile cache for zero-copy smooth scrolling.
+    ///
+    /// The host draw callback composites tiles directly from their `Arc<Vec<u8>>` pixel data
+    /// at `(tile.page_x - scroll_x, tile.page_y - scroll_y)` in CSS pixels.
+    /// No intermediate frame buffer is written, so scroll events have near-zero overhead.
+    TileCache {
+        /// Viewport size in CSS pixels.
+        viewport_width: u32,
+        viewport_height: u32,
+        /// Device-pixel ratio (1 or 2 typically).
+        dpr: u32,
+        /// Current scroll offset in CSS pixels.
+        scroll_x: f32,
+        scroll_y: f32,
+        /// Full page height in CSS pixels (for client-side scroll clamping).
+        page_height: f32,
+        /// All rasterized tiles for the page. Each tile carries its own pixel buffer via Arc.
+        tiles: Arc<Vec<CachedTile>>,
     },
 
     /// GL / GLES texture. `target` is usually GL_TEXTURE_2D or GL_TEXTURE_EXTERNAL_OES.
