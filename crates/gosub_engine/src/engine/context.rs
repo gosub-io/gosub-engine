@@ -45,9 +45,10 @@ use crate::html::HtmlEngineConfig;
 #[cfg(feature = "pipeline")]
 use crate::render::backend::{CachedTile, ExternalHandle};
 #[cfg(feature = "pipeline")]
+use gosub_interface::document::Document as _;
+#[cfg(feature = "pipeline")]
 use gosub_pipeline::layering::layer::LayerList;
 #[cfg(feature = "pipeline")]
-use gosub_interface::document::Document as _;
 use gosub_shared::node::NodeId;
 // #[derive(Debug, thiserror::Error)]
 // pub enum LoadError {
@@ -348,7 +349,7 @@ impl BrowsingContext {
             let doc = self.document.as_ref()?;
             let mut id = leaf;
             loop {
-                if doc.tag_name(id).as_deref() == Some("a") {
+                if doc.tag_name(id) == Some("a") {
                     if let Some(href) = doc.attribute(id, "href") {
                         return Some(href.to_string());
                     }
