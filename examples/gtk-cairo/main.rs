@@ -933,5 +933,6 @@ fn handle_event(evt: EngineEvent) -> bool {
             println!("TabCrashed");
             true
         }
+        EngineEvent::HoverUrl { .. } => true,
     }
 }

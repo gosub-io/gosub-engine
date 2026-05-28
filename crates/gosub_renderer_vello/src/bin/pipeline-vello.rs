@@ -33,7 +33,7 @@ use winit::window::{Window, WindowId};
 
 const TILE_DIMENSION: f64 = 256.0;
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let doc = common::document::parser::document_from_json("https://brettgfitzgerald.com", "brett.json");
 
     let window_dimension = Dimension::new(800.0, 600.0);
@@ -55,10 +55,7 @@ fn main() {
     let media_store = Arc::new(RwLock::new(MediaStore::new()));
     let doc: Arc<dyn PipelineDocument> = Arc::new(doc);
 
-    let Ok(event_loop) = EventLoop::new() else {
-        log::error!("Failed to create event loop");
-        return;
-    };
+    let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut app = App::new(
@@ -70,6 +67,7 @@ fn main() {
         media_store,
     );
     let _ = event_loop.run_app(&mut app);
+    Ok(())
 }
 
 fn reflow(doc: &Arc<dyn PipelineDocument>, browser_state: &Arc<RwLock<BrowserState>>) {

@@ -28,7 +28,9 @@ const WINDOW_HEIGHT: f64 = 768.0;
 fn main() {
     let doc = common::document::parser::document_from_json("file://.", "cm.json");
     let mut output = String::new();
-    let _ = doc.print_tree(&mut output);
+    if let Err(e) = doc.print_tree(&mut output) {
+        log::warn!("Failed to print tree: {:?}", e);
+    }
     println!("{}", output);
 
     let doc = Arc::new(doc);
@@ -109,6 +111,7 @@ fn build_ui(
     let dim = {
         let state = browser_state.read();
         let Some(tile_list) = state.tile_list.as_ref() else {
+            log::error!("No tile list");
             return;
         };
         let guard = tile_list.read();
@@ -324,6 +327,7 @@ fn build_ui(
 fn do_paint(layer_id: LayerId, browser_state: &Arc<RwLock<BrowserState>>) {
     let state = browser_state.read();
     let Some(tile_list) = state.tile_list.as_ref() else {
+        log::error!("No tile list found");
         return;
     };
     let painter = Painter::new(tile_list.read().layer_list.clone());
@@ -357,6 +361,7 @@ fn do_rasterize(
     let ms = media_store.read();
 
     let Some(tile_list) = state.tile_list.as_ref() else {
+        log::error!("No tile list found");
         return;
     };
 

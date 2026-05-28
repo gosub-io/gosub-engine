@@ -439,7 +439,12 @@ fn main() {
             move |_, x, y| {
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseMove { x: x as f32, y: y as f32 }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseMove {
+                            x: x as f32,
+                            y: y as f32,
+                        })
+                        .await;
                 });
             }
         });
@@ -453,11 +458,13 @@ fn main() {
             move |_, _n_press, x, y| {
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseDown {
-                        x: x as f32,
-                        y: y as f32,
-                        button: gosub_engine::events::MouseButton::Left,
-                    }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseDown {
+                            x: x as f32,
+                            y: y as f32,
+                            button: gosub_engine::events::MouseButton::Left,
+                        })
+                        .await;
                 });
             }
         });
