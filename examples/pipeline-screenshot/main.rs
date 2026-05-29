@@ -44,7 +44,11 @@ fn main() {
     simple_logger::init_with_env().unwrap_or_default();
 
     let args: Vec<String> = std::env::args().collect();
-    let url_str = args.get(1).map(|s| s.as_str()).unwrap_or("https://example.com").to_string();
+    let url_str = args
+        .get(1)
+        .map(|s| s.as_str())
+        .unwrap_or("https://example.com")
+        .to_string();
     let output = args.get(2).map(|s| s.as_str()).unwrap_or("screenshot.png").to_string();
     let viewport_w: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(1280);
 
@@ -107,12 +111,14 @@ fn main() {
     // which carries page_height — then we composite only the real content rows.
     let tab_nav = tab.clone();
     TOKIO_RT.spawn(async move {
-        let _ = tab_nav.send(TabCommand::SetViewport {
-            x: 0,
-            y: 0,
-            width: viewport_w,
-            height: MAX_PAGE_HEIGHT,
-        }).await;
+        let _ = tab_nav
+            .send(TabCommand::SetViewport {
+                x: 0,
+                y: 0,
+                width: viewport_w,
+                height: MAX_PAGE_HEIGHT,
+            })
+            .await;
         let _ = tab_nav.send(TabCommand::Navigate { url: url.to_string() }).await;
         let _ = tab_nav.send(TabCommand::ResumeDrawing { fps: 30 }).await;
     });
@@ -135,23 +141,21 @@ fn main() {
 
         loop {
             match event_rx.try_recv() {
-                Ok(EngineEvent::Navigation { tab_id: tid, event }) if tid == tab_id => {
-                    match event {
-                        NavigationEvent::Finished { .. } => {
-                            eprintln!("Navigation finished.");
-                            nav_done = true;
-                        }
-                        NavigationEvent::Failed { error, .. } => {
-                            eprintln!("Navigation failed: {error}");
-                            std::process::exit(1);
-                        }
-                        NavigationEvent::FailedUrl { error, .. } => {
-                            eprintln!("Invalid URL: {error}");
-                            std::process::exit(1);
-                        }
-                        _ => {}
+                Ok(EngineEvent::Navigation { tab_id: tid, event }) if tid == tab_id => match event {
+                    NavigationEvent::Finished { .. } => {
+                        eprintln!("Navigation finished.");
+                        nav_done = true;
                     }
-                }
+                    NavigationEvent::Failed { error, .. } => {
+                        eprintln!("Navigation failed: {error}");
+                        std::process::exit(1);
+                    }
+                    NavigationEvent::FailedUrl { error, .. } => {
+                        eprintln!("Invalid URL: {error}");
+                        std::process::exit(1);
+                    }
+                    _ => {}
+                },
                 Ok(_) => {}
                 Err(_) => break,
             }
@@ -173,7 +177,12 @@ fn main() {
     // The pipeline already has cached tiles; the scroll just swaps the handle type.
     let tab_scroll = tab.clone();
     TOKIO_RT.spawn(async move {
-        let _ = tab_scroll.send(TabCommand::MouseScroll { delta_x: 0.0, delta_y: 1.0 }).await;
+        let _ = tab_scroll
+            .send(TabCommand::MouseScroll {
+                delta_x: 0.0,
+                delta_y: 1.0,
+            })
+            .await;
     });
 
     let mut tile_cache_handle: Option<ExternalHandle> = None;
@@ -195,7 +204,12 @@ fn main() {
 
     // ── Phase 3: composite tiles into a full-page PNG ────────────────────────────
     let (tiles, dpr, page_height_f) = match tile_cache_handle {
-        Some(ExternalHandle::TileCache { tiles, dpr, page_height, .. }) => (tiles, dpr, page_height),
+        Some(ExternalHandle::TileCache {
+            tiles,
+            dpr,
+            page_height,
+            ..
+        }) => (tiles, dpr, page_height),
         _ => {
             // TileCache unavailable (e.g. the page is too short to scroll).
             // Fall back: grab whatever the compositor has and crop at the content rows.
@@ -205,7 +219,13 @@ fn main() {
                 std::process::exit(1);
             });
             match handle {
-                ExternalHandle::CpuPixelsOwned { width, height, stride, pixels, .. } => {
+                ExternalHandle::CpuPixelsOwned {
+                    width,
+                    height,
+                    stride,
+                    pixels,
+                    ..
+                } => {
                     let actual_h = crop_height(&pixels, width, height, stride as usize);
                     eprintln!("Saving {}x{} (cropped from {})", width, actual_h, height);
                     save_argb32_as_png(&pixels, width, actual_h, stride as usize, &output);
@@ -219,16 +239,20 @@ fn main() {
         }
     };
 
-    let page_h = (page_height_f.ceil() as u32).min(MAX_PAGE_HEIGHT).max(1);
+    let page_h = (page_height_f.ceil() as u32).clamp(1, MAX_PAGE_HEIGHT);
     let dpr_f = dpr as f64;
 
-    eprintln!("Page size: {}×{} CSS px (DPR {}). Compositing {} tile(s)…",
-        viewport_w, page_h, dpr, tiles.len());
+    eprintln!(
+        "Page size: {}×{} CSS px (DPR {}). Compositing {} tile(s)…",
+        viewport_w,
+        page_h,
+        dpr,
+        tiles.len()
+    );
 
     // Composite all tiles at their page-coordinate positions onto a surface covering
     // the full page (scroll offset = 0).
-    let surface = ImageSurface::create(Format::ARgb32, viewport_w as i32, page_h as i32)
-        .expect("ImageSurface create");
+    let surface = ImageSurface::create(Format::ARgb32, viewport_w as i32, page_h as i32).expect("ImageSurface create");
     let cr = Context::new(&surface).expect("Cairo context");
 
     cr.set_source_rgb(1.0, 1.0, 1.0);
@@ -248,7 +272,8 @@ fn main() {
         };
         if let Ok(ts) = tile_surface {
             ts.set_device_scale(dpr_f, dpr_f);
-            cr.set_source_surface(&ts, tile.page_x as f64, tile.page_y as f64).unwrap_or_default();
+            cr.set_source_surface(&ts, tile.page_x as f64, tile.page_y as f64)
+                .unwrap_or_default();
             cr.paint().unwrap_or_default();
         }
     }

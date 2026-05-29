@@ -167,14 +167,30 @@ fn build_ui(
                 };
                 match (che, el_id) {
                     (Some(current_id), Some(new_id)) if current_id != new_id => {
-                        tile_list.read().get_tiles_for_element(current_id).iter().for_each(|tid| tile_ids.push(*tid));
-                        tile_list.read().get_tiles_for_element(new_id).iter().for_each(|tid| tile_ids.push(*tid));
+                        tile_list
+                            .read()
+                            .get_tiles_for_element(current_id)
+                            .iter()
+                            .for_each(|tid| tile_ids.push(*tid));
+                        tile_list
+                            .read()
+                            .get_tiles_for_element(new_id)
+                            .iter()
+                            .for_each(|tid| tile_ids.push(*tid));
                     }
                     (None, Some(new_id)) => {
-                        tile_list.read().get_tiles_for_element(new_id).iter().for_each(|tid| tile_ids.push(*tid));
+                        tile_list
+                            .read()
+                            .get_tiles_for_element(new_id)
+                            .iter()
+                            .for_each(|tid| tile_ids.push(*tid));
                     }
                     (Some(current_id), None) => {
-                        tile_list.read().get_tiles_for_element(current_id).iter().for_each(|tid| tile_ids.push(*tid));
+                        tile_list
+                            .read()
+                            .get_tiles_for_element(current_id)
+                            .iter()
+                            .for_each(|tid| tile_ids.push(*tid));
                     }
                     _ => {}
                 }
