@@ -4,7 +4,7 @@ use taffy::{
     compute_block_layout, compute_cached_layout, compute_flexbox_layout, compute_grid_layout, compute_hidden_layout,
     compute_root_layout, AvailableSpace, Cache as TaffyCache, CacheTree, Display as TaffyDisplay,
     Layout as TaffyLayout, LayoutBlockContainer, LayoutFlexboxContainer, LayoutGridContainer, LayoutInput,
-    LayoutOutput, LayoutPartialTree, NodeId as TaffyId, RunMode, SizingMode, Style, TraversePartialTree,
+    LayoutOutput, LayoutPartialTree, NodeId as TaffyId, SizingMode, Style, TraversePartialTree,
 };
 
 use gosub_interface::config::HasLayouter;
@@ -287,13 +287,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutDocument<'_, C> {
 }
 
 impl<C: HasLayouter<Layouter = TaffyLayouter>> CacheTree for LayoutDocument<'_, C> {
-    fn cache_get(
-        &self,
-        node_id: TaffyId,
-        known_dimensions: taffy::Size<Option<f32>>,
-        available_space: taffy::Size<AvailableSpace>,
-        run_mode: RunMode,
-    ) -> Option<LayoutOutput> {
+    fn cache_get(&self, node_id: TaffyId, input: &LayoutInput) -> Option<LayoutOutput> {
         let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into());
         let cache = &self
             .0
@@ -301,17 +295,10 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> CacheTree for LayoutDocument<'_, 
             .expect("Cache not found, why again does taffy don't use optionals?")
             .taffy;
 
-        cache.get(known_dimensions, available_space, run_mode)
+        cache.get(input)
     }
 
-    fn cache_store(
-        &mut self,
-        node_id: TaffyId,
-        known_dimensions: taffy::Size<Option<f32>>,
-        available_space: taffy::Size<AvailableSpace>,
-        run_mode: RunMode,
-        layout_output: LayoutOutput,
-    ) {
+    fn cache_store(&mut self, node_id: TaffyId, input: &LayoutInput, layout_output: LayoutOutput) {
         let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into());
         let cache = &mut self
             .0
@@ -319,7 +306,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> CacheTree for LayoutDocument<'_, 
             .expect("Cache not found, why again does taffy don't use optionals?")
             .taffy;
 
-        cache.store(known_dimensions, available_space, run_mode, layout_output);
+        cache.store(input, layout_output);
     }
 
     fn cache_clear(&mut self, node_id: TaffyId) {
@@ -380,7 +367,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocum
 
             match style.display {
                 TaffyDisplay::None => compute_hidden_layout(tree, node_id_taffy),
-                TaffyDisplay::Block => compute_block_layout(tree, node_id_taffy, inputs),
+                TaffyDisplay::Block => compute_block_layout(tree, node_id_taffy, inputs, None),
                 TaffyDisplay::Flex => compute_flexbox_layout(tree, node_id_taffy, inputs),
                 TaffyDisplay::Grid => compute_grid_layout(tree, node_id_taffy, inputs),
             }
