@@ -53,6 +53,7 @@ impl Display for MouseButton {
 }
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct Modifiers: u8 {
         const SHIFT   = 0b0001;
         const CONTROL = 0b0010;
