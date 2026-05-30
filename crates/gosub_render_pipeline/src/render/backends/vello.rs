@@ -9,8 +9,8 @@ use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use std::any::Any;
 use std::sync::Arc;
-use vello::kurbo::Affine;
-use vello::peniko::{Color, Fill};
+use vello::kurbo::{Affine, Vec2};
+use vello::peniko::{Color, Fill, ImageAlphaType, ImageData, ImageFormat};
 use vello::wgpu;
 use vello::{RenderParams, Renderer, RendererOptions, Scene};
 
@@ -126,8 +126,27 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
 
                     text_renderer.draw(font_manager, font_cache, &mut scene, &key, x, y, (*color).into());
                 }
-                DisplayItem::Blit { .. } => {
-                    log::warn!("VelloBackend: DisplayItem::Blit not yet implemented; tile will be skipped");
+                DisplayItem::Blit { x, y, w, h, data } => {
+                    // Cairo emits premultiplied ARgb32; in-memory bytes are [B, G, R, A] on
+                    // little-endian. peniko ImageFormat::Rgba8 expects [R, G, B, A], so swap.
+                    let mut rgba = vec![0u8; data.len()];
+                    for (dst, src) in rgba.chunks_exact_mut(4).zip(data.chunks_exact(4)) {
+                        dst[0] = src[2];
+                        dst[1] = src[1];
+                        dst[2] = src[0];
+                        dst[3] = src[3];
+                    }
+                    let blob = vello::peniko::Blob::<u8>::new(Arc::new(rgba));
+                    let image = ImageData {
+                        data: blob,
+                        format: ImageFormat::Rgba8,
+                        alpha_type: ImageAlphaType::AlphaPremultiplied,
+                        width: *w,
+                        height: *h,
+                    };
+                    let ax = *x as f64 - offset_x as f64;
+                    let ay = *y as f64 - offset_y as f64;
+                    scene.draw_image(&image, Affine::translate(Vec2::new(ax, ay)));
                 }
             }
         }
@@ -142,9 +161,9 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
     }
 
     fn create_surface(&self, size: SurfaceSize, _present: PresentMode) -> Result<Box<dyn ErasedSurface + Send>> {
-        let texture_store_id =
-            self.context
-                .create_texture(size.width, size.height, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let texture_store_id = self
+            .context
+            .create_texture(size.width, size.height, wgpu::TextureFormat::Rgba8Unorm);
 
         Ok(Box::new(VelloSurface {
             texture_store_id,
