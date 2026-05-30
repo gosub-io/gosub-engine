@@ -378,9 +378,42 @@ impl TabWorker {
                 }
                 ControlFlow::Continue
             }
-            TabCommand::MouseMove { .. }
-            | TabCommand::MouseDown { .. }
-            | TabCommand::MouseUp { .. }
+            TabCommand::MouseMove { x: _x, y: _y } => {
+                #[cfg(feature = "pipeline")]
+                {
+                    let (dirty, link_url) = self.context.update_hover(_x as f64, _y as f64);
+                    if dirty {
+                        self.runtime.dirty = true;
+                    }
+                    self.send_event(EngineEvent::HoverUrl {
+                        tab_id: self.tab_id,
+                        url: link_url,
+                    });
+                }
+                #[cfg(not(feature = "pipeline"))]
+                {
+                    self.runtime.dirty = true;
+                }
+                ControlFlow::Continue
+            }
+            TabCommand::MouseDown { button: _button, .. } => {
+                #[cfg(feature = "pipeline")]
+                if matches!(_button, crate::events::MouseButton::Left) {
+                    if let Some(href) = self.context.hover_link_url.clone() {
+                        let resolved = self
+                            .current_url
+                            .as_ref()
+                            .and_then(|base| base.join(&href).ok())
+                            .map(|u| u.to_string())
+                            .unwrap_or(href);
+                        self.navigate_to(resolved, false);
+                        return ControlFlow::Continue;
+                    }
+                }
+                self.runtime.dirty = true;
+                ControlFlow::Continue
+            }
+            TabCommand::MouseUp { .. }
             | TabCommand::KeyDown { .. }
             | TabCommand::KeyUp { .. }
             | TabCommand::CharInput { .. } => {

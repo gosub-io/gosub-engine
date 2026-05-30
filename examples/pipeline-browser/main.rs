@@ -7,7 +7,7 @@
 //! composite) backed by Cairo.  The result is displayed in a GTK4 window.
 
 use gosub_engine::cookies::SqliteCookieStore;
-use gosub_engine::events::{EngineEvent, TabCommand};
+use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::render::backend::{CachedTile, ExternalHandle};
 use gosub_engine::render::backends::cairo::DEVICE_PIXEL_RATIO;
 use gosub_engine::render::DefaultCompositor;
@@ -17,7 +17,7 @@ use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::{Application, ApplicationWindow, Box as GtkBox, DrawingArea, Entry, Orientation};
+use gtk4::{Application, ApplicationWindow, Box as GtkBox, DrawingArea, Entry, Label, Orientation};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::cell::{Cell, RefCell};
@@ -432,6 +432,44 @@ fn main() {
         });
         drawing_area.add_controller(scroll_ctl);
 
+        // Mouse motion → hover
+        let motion_ctl = gtk4::EventControllerMotion::new();
+        motion_ctl.connect_motion({
+            let tab = tab.clone();
+            move |_, x, y| {
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseMove {
+                            x: x as f32,
+                            y: y as f32,
+                        })
+                        .await;
+                });
+            }
+        });
+        drawing_area.add_controller(motion_ctl);
+
+        // Click → navigate links
+        let click_ctl = gtk4::GestureClick::new();
+        click_ctl.set_button(gtk4::gdk::BUTTON_PRIMARY);
+        click_ctl.connect_pressed({
+            let tab = tab.clone();
+            move |_, _n_press, x, y| {
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseDown {
+                            x: x as f32,
+                            y: y as f32,
+                            button: gosub_engine::events::MouseButton::Left,
+                        })
+                        .await;
+                });
+            }
+        });
+        drawing_area.add_controller(click_ctl);
+
         // Resize → set DPR first so create_surface sees the right value, then notify the engine
         drawing_area.connect_resize({
             let tab = tab.clone();
@@ -491,6 +529,15 @@ fn main() {
             }
         });
 
+        // Status bar label (shown at the bottom, like Firefox's link URL preview)
+        let status_label = Label::new(None);
+        status_label.set_halign(gtk4::Align::Start);
+        status_label.set_margin_start(4);
+        status_label.set_margin_end(4);
+        status_label.set_margin_top(2);
+        status_label.set_margin_bottom(2);
+        status_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+
         // Engine events → UI thread
         let (ui_tx, mut ui_rx) = mpsc::unbounded_channel::<EngineEvent>();
         TOKIO_RT.spawn({
@@ -504,12 +551,35 @@ fn main() {
         });
         {
             let da = drawing_area.clone();
+            let status_label = status_label.clone();
+            let address_entry = address_entry.clone();
+            let local_tiles = local_tiles.clone();
+            let local_scroll = local_scroll.clone();
+            let kinetic_source = kinetic_source.clone();
             glib::spawn_future_local(async move {
                 while let Some(evt) = ui_rx.recv().await {
                     match evt {
                         EngineEvent::Redraw { .. } => da.queue_draw(),
-                        EngineEvent::Navigation { tab_id: _, event } => {
+                        EngineEvent::Navigation { tab_id: _, ref event } => {
                             log::info!("navigation: {event:?}");
+                            match event {
+                                NavigationEvent::Started { .. } => {
+                                    // Same reset the address-bar handler does on manual navigation.
+                                    if let Some(id) = kinetic_source.borrow_mut().take() {
+                                        id.remove();
+                                    }
+                                    *local_tiles.borrow_mut() = None;
+                                    local_scroll.set((0.0, 0.0));
+                                    da.queue_draw();
+                                }
+                                NavigationEvent::Finished { url, .. } => {
+                                    address_entry.set_text(url.as_str());
+                                }
+                                _ => {}
+                            }
+                        }
+                        EngineEvent::HoverUrl { url, .. } => {
+                            status_label.set_text(url.as_deref().unwrap_or(""));
                         }
                         _ => {}
                     }
@@ -524,6 +594,7 @@ fn main() {
         let vbox = GtkBox::new(Orientation::Vertical, 0);
         vbox.append(&url_bar);
         vbox.append(&drawing_area);
+        vbox.append(&status_label);
 
         let window = ApplicationWindow::builder()
             .application(app)
