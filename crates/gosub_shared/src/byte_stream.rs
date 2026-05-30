@@ -508,10 +508,10 @@ impl ByteStream {
             complete = false;
         }
 
-        let mut encoding_detector = chardetng::EncodingDetector::new();
+        let mut encoding_detector = chardetng::EncodingDetector::new(chardetng::Iso2022JpDetection::Deny);
         encoding_detector.feed(buf, complete);
 
-        let encoding = encoding_detector.guess(None, true);
+        let encoding = encoding_detector.guess(None, chardetng::Utf8Detection::Allow);
         if encoding == encoding_rs::UTF_16BE {
             Encoding::UTF16BE
         } else if encoding == encoding_rs::UTF_16LE {
