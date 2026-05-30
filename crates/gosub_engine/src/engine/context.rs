@@ -43,11 +43,11 @@ use url::Url;
 #[cfg(feature = "pipeline")]
 use crate::html::HtmlEngineConfig;
 #[cfg(feature = "pipeline")]
-use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
-#[cfg(feature = "pipeline")]
 use gosub_interface::document::Document as _;
 #[cfg(feature = "pipeline")]
 use gosub_render_pipeline::layering::layer::LayerList;
+#[cfg(feature = "pipeline")]
+use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 #[cfg(feature = "pipeline")]
 use gosub_shared::node::NodeId;
 // #[derive(Debug, thiserror::Error)]
