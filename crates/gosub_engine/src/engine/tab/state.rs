@@ -1,4 +1,4 @@
-use crate::render::Viewport;
+use gosub_render_pipeline::render::Viewport;
 use std::time::Duration;
 use url::Url;
 

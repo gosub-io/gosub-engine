@@ -11,6 +11,7 @@ gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared"
 parking_lot = "0.12"
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
 gosub_engine = { version = "0.1.0", path = "../gosub_engine" }
+gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline" }
 gosub_html5 = { version = "0.1.1", registry = "gosub", path = "../gosub_html5", optional = true }
 gosub_svg = { version = "0.1.1", registry = "gosub", path = "../gosub_svg" }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }

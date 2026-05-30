@@ -1,6 +1,6 @@
-use gosub_pipeline::common::geo::Rect;
-use gosub_pipeline::common::media::MediaStore;
-use gosub_pipeline::painter::commands::brush::Brush;
+use gosub_render_pipeline::common::geo::Rect;
+use gosub_render_pipeline::common::media::MediaStore;
+use gosub_render_pipeline::painter::commands::brush::Brush;
 use vello::peniko::color::{AlphaColor, Rgba8};
 use vello::peniko::Image as PenikoImage;
 use vello::peniko::{Blob, Brush as VelloBrush};

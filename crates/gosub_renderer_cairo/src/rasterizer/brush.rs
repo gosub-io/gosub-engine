@@ -1,6 +1,6 @@
-use gosub_pipeline::common::geo::Rect;
-use gosub_pipeline::common::media::MediaStore;
-use gosub_pipeline::painter::commands::brush::Brush;
+use gosub_render_pipeline::common::geo::Rect;
+use gosub_render_pipeline::common::media::MediaStore;
+use gosub_render_pipeline::painter::commands::brush::Brush;
 use gtk4::cairo::Context;
 use gtk4::gdk_pixbuf::{Colorspace, Pixbuf};
 use gtk4::glib::Bytes;

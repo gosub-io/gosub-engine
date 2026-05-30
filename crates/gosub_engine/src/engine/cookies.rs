@@ -30,7 +30,7 @@
 //! ```no_run
 //! # use std::sync::Arc;
 //! # use tokio::sync::mpsc;
-//! use gosub_engine::render::Viewport;
+//! use gosub_render_pipeline::render::Viewport;
 //! use gosub_engine::zone::{ZoneConfig, ZoneServices};
 //! use gosub_engine::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
 //! use gosub_engine::cookies::{DefaultCookieJar};

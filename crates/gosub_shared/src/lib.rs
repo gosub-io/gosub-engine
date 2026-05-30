@@ -12,6 +12,7 @@ pub mod errors;
 pub mod font;
 pub mod geo;
 pub mod node;
+pub mod tab_id;
 pub mod timing;
 pub mod types;
 

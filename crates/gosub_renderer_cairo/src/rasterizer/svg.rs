@@ -1,6 +1,6 @@
-use gosub_pipeline::common::media::{MediaId, MediaStore};
-use gosub_pipeline::painter::commands::rectangle::Rectangle;
-use gosub_pipeline::tiler::Tile;
+use gosub_render_pipeline::common::media::{MediaId, MediaStore};
+use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
+use gosub_render_pipeline::tiler::Tile;
 use gtk4::cairo::Context;
 use resvg::usvg::Transform;
 

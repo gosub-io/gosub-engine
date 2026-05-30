@@ -1,4 +1,4 @@
-use gosub_pipeline::common::font::{FontAlignment, FontInfo};
+use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
 use parking_lot::Mutex;
 use parley::{AlignmentOptions, Layout};
 use std::sync::OnceLock;

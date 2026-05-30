@@ -1,9 +1,9 @@
 use crate::font::parley::get_parley_layout;
 use crate::rasterizer::brush::set_brush;
-use gosub_pipeline::common::geo::{Dimension, Rect};
-use gosub_pipeline::common::media::MediaStore;
-use gosub_pipeline::painter::commands::brush::Brush;
-use gosub_pipeline::painter::commands::text::Text;
+use gosub_render_pipeline::common::geo::{Dimension, Rect};
+use gosub_render_pipeline::common::media::MediaStore;
+use gosub_render_pipeline::painter::commands::brush::Brush;
+use gosub_render_pipeline::painter::commands::text::Text;
 use parley::layout::{GlyphRun, PositionedLayoutItem};
 use vello::kurbo::Affine;
 use vello::peniko::Fill;

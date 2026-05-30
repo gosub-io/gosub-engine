@@ -11,6 +11,9 @@
 
 use crate::render::backends::vello::font_cache::FontCache;
 use crate::render::backends::vello::font_manager::FontManager;
+#[cfg(not(feature = "parley_layout"))]
+use parley::FontData as Font;
+#[cfg(feature = "parley_layout")]
 use parley::{FontContext, FontData as Font, LayoutContext};
 #[cfg(not(feature = "parley_layout"))]
 use skrifa::MetadataProvider;
@@ -89,7 +92,9 @@ pub struct CachedRun {
 /// - `draw()` looks up/creates cached runs and submits them to the [`Scene`]
 ///   with a single affine translation for the target (x, y).
 pub struct TextRenderer {
+    #[cfg(feature = "parley_layout")]
     font_cx: FontContext,
+    #[cfg(feature = "parley_layout")]
     layout_cx: LayoutContext<[u8; 4]>,
     cache: HashMap<TextKey, Arc<[CachedRun]>>,
 }
@@ -98,7 +103,9 @@ impl TextRenderer {
     /// Create a fresh renderer with empty cache and shaping contexts.
     pub fn new() -> Self {
         Self {
+            #[cfg(feature = "parley_layout")]
             font_cx: FontContext::new(),
+            #[cfg(feature = "parley_layout")]
             layout_cx: LayoutContext::new(),
             cache: HashMap::new(),
         }
@@ -172,7 +179,7 @@ impl TextRenderer {
     ///   When adding alignment, adjust each line’s glyph x by the rag width delta.
     fn shape(&mut self, fm: &mut FontManager, fc: &mut FontCache, key: &TextKey) -> Arc<[CachedRun]> {
         // Resolve font
-        let (vello_font, resolved_name) = match fc.fetch(&key.font_name) {
+        let (vello_font, _resolved_name) = match fc.fetch(&key.font_name) {
             Some(f) => (f.0.clone(), f.1),
             None => {
                 let (vf, rn) = fm
@@ -218,12 +225,11 @@ impl TextRenderer {
                 })
                 .collect::<Arc<[_]>>();
 
-            let mut out: Vec<CachedRun> = Vec::new();
-            out.push(CachedRun {
+            let out: Vec<CachedRun> = vec![CachedRun {
                 vello_font: vello_font.clone(),
                 font_size: key.font_size as f32,
-                glyphs: glyphs.into(),
-            });
+                glyphs,
+            }];
 
             out.into()
         }
@@ -236,7 +242,7 @@ impl TextRenderer {
                 .ranged_builder(&mut self.font_cx, key.text.as_ref(), 1.0, true);
             builder.push_default(parley::style::StyleProperty::FontSize(key.font_size as f32));
             builder.push_default(parley::style::StyleProperty::FontFamily(
-                parley::style::FontFamily::Source(resolved_name.into()),
+                parley::style::FontFamily::Source(_resolved_name.into()),
             ));
             let mut layout = builder.build(key.text.as_ref());
 

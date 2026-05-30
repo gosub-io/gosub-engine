@@ -1,10 +1,10 @@
-use gosub_pipeline::common::geo::Dimension;
-use gosub_pipeline::common::media::MediaStore;
-use gosub_pipeline::common::texture::TextureId;
-use gosub_pipeline::common::TextureStore;
-use gosub_pipeline::painter::commands::PaintCommand;
-use gosub_pipeline::rasterizer::Rasterable;
-use gosub_pipeline::tiler::{Tile, TileId};
+use gosub_render_pipeline::common::geo::Dimension;
+use gosub_render_pipeline::common::media::MediaStore;
+use gosub_render_pipeline::common::texture::TextureId;
+use gosub_render_pipeline::common::TextureStore;
+use gosub_render_pipeline::painter::commands::PaintCommand;
+use gosub_render_pipeline::rasterizer::Rasterable;
+use gosub_render_pipeline::tiler::{Tile, TileId};
 use std::cell::RefCell;
 use vello::kurbo::{Affine, Rect, Vec2};
 use vello::peniko::{Color, Mix};

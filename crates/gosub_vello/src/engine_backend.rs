@@ -10,12 +10,11 @@ use vello::peniko::{Color as VelloColor, Fill};
 use vello::wgpu;
 use vello::{AaConfig, RenderParams, Renderer as VelloRenderer, Scene};
 
-use gosub_engine::render::backend::{
+use gosub_render_pipeline::render::backend::{
     ErasedSurface, ExternalHandle, GpuPixelFormat, PresentMode, RenderBackend as EngineRenderBackend, RgbaImage,
     SurfaceSize,
 };
-use gosub_engine::render::DisplayItem;
-use gosub_engine::BrowsingContext;
+use gosub_render_pipeline::render::{DisplayItem, RenderContext};
 
 use crate::render::InstanceAdapter;
 
@@ -97,7 +96,7 @@ impl EngineRenderBackend for VelloEngineBackend {
         Ok(Box::new(VelloEngineSurface { id, size, frame_id: 0 }))
     }
 
-    fn render(&self, ctx: &mut BrowsingContext, surface: &mut dyn ErasedSurface) -> anyhow::Result<()> {
+    fn render(&self, ctx: &mut dyn RenderContext, surface: &mut dyn ErasedSurface) -> anyhow::Result<()> {
         let s = surface
             .as_any_mut()
             .downcast_mut::<VelloEngineSurface>()

@@ -1,10 +1,10 @@
-use crate::engine::BrowsingContext;
 use crate::render::backend::GpuPixelFormat;
 use crate::render::backend::{ErasedSurface, ExternalHandle, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
 use crate::render::backends::vello::font_cache::FontCache;
 use crate::render::backends::vello::font_manager::FontManager;
 use crate::render::backends::vello::text_renderer::{TextKey, TextRenderer};
-use crate::render::DisplayItem;
+use crate::render::render_context::RenderContext;
+use crate::render::render_list::DisplayItem;
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use std::any::Any;
@@ -18,8 +18,6 @@ mod font_cache;
 mod font_manager;
 mod text_renderer;
 
-/// This trait abstracts over the wgpu context (device, queue, texture management) so we can connect
-/// UI based wgpu contexts (like eframe) to the Vello backend.
 pub trait WgpuContextProvider {
     fn device(&self) -> &wgpu::Device;
     fn queue(&self) -> &wgpu::Queue;
@@ -28,11 +26,8 @@ pub trait WgpuContextProvider {
     fn remove_texture(&self, id: u64);
 }
 
-/// A render backend that uses Vello for rendering.
 pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
-    /// The wgpu context provider that we can use for device, queue, and texture management.
     context: Arc<C>,
-    /// The Vello renderer instance.
     renderer: Mutex<Renderer>,
     text_renderer: Mutex<TextRenderer>,
     font_manager: Mutex<FontManager>,
@@ -52,9 +47,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
         })
     }
 
-    /// Takes a scene and renders it to the given surface.
     fn render_to_surface(&self, surface: &VelloSurface, scene: &Scene) -> Result<()> {
-        // Retrieve the texture and view from our texture store
         let (_texture, texture_view) = self
             .context
             .get_texture(surface.texture_store_id)
@@ -76,14 +69,13 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
         Ok(())
     }
 
-    fn convert_browsing_context_to_scene(
+    fn build_scene(
         &self,
         text_renderer: &mut TextRenderer,
         font_manager: &mut FontManager,
         font_cache: &mut FontCache,
-        ctx: &mut BrowsingContext,
+        ctx: &mut dyn RenderContext,
     ) -> Result<Scene> {
-        // Build a scene from your DisplayItems
         let vp = ctx.viewport();
         let offset_x = vp.x as f32;
         let offset_y = vp.y as f32;
@@ -92,7 +84,6 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
         for item in ctx.render_list().items.iter() {
             match item {
                 DisplayItem::Clear { color } => {
-                    // full-frame clear
                     scene.fill(
                         Fill::NonZero,
                         Affine::IDENTITY,
@@ -130,7 +121,6 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                         font_name: Arc::from("Comic Sans"),
                         font_size: size.ceil() as u32,
                         wrap: max_width.map(|mw| mw.ceil() as u32),
-                        // wrap: Some(600),
                         align: 0,
                     };
 
@@ -163,36 +153,29 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
         }))
     }
 
-    fn render(&self, ctx: &mut BrowsingContext, surface: &mut dyn ErasedSurface) -> Result<()> {
-        // Downcast
+    fn render(&self, ctx: &mut dyn RenderContext, surface: &mut dyn ErasedSurface) -> Result<()> {
         let s = surface
             .as_any_mut()
             .downcast_mut::<VelloSurface>()
             .ok_or_else(|| anyhow!("VelloBackend used with non-vello surface"))?;
 
-        // Generate a scene which contains the gpu render commands
         let scene = {
             let mut tr = self.text_renderer.lock();
             let mut fm = self.font_manager.lock();
             let mut fc = self.font_cache.lock();
-            self.convert_browsing_context_to_scene(&mut tr, &mut fm, &mut fc, ctx)?
+            self.build_scene(&mut tr, &mut fm, &mut fc, ctx)?
         };
 
-        // Render the scene to the surface
         self.render_to_surface(s, &scene)?;
-
-        // Increment frame id, since we have rendered a new frame onto the surface
         s.frame_id = s.frame_id.wrapping_add(1);
 
         Ok(())
     }
 
-    /// Takes a snapshot of the surface and returns it as an RGBA image
     fn snapshot(&self, _surface: &mut dyn ErasedSurface, _max_dim: u32) -> Result<RgbaImage> {
         Err(anyhow!("VelloBackend snapshot not implemented"))
     }
 
-    /// Converts a surface into an external handle for sending to the compositor
     fn external_handle(&self, surface: &mut dyn ErasedSurface) -> Result<ExternalHandle> {
         let s = surface
             .as_any_mut()
@@ -209,7 +192,6 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
     }
 }
 
-/// A vello surface that wraps a wgpu texture.
 struct VelloSurface {
     texture_store_id: u64,
     size: SurfaceSize,
@@ -220,11 +202,9 @@ impl ErasedSurface for VelloSurface {
     fn as_any(&self) -> &dyn Any {
         self
     }
-
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
-
     fn size(&self) -> SurfaceSize {
         self.size
     }

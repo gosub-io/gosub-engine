@@ -12,8 +12,8 @@
 //! within the Gosub engine.
 
 use crate::cookies::CookieJarHandle;
-use crate::render::Viewport;
 use crate::storage::{PartitionKey, StorageService};
+use gosub_render_pipeline::render::Viewport;
 use std::sync::Arc;
 
 /// Default parameters for a newly created tab.

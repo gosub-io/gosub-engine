@@ -196,7 +196,7 @@ pub enum DisplayItem {
 /// # Example
 ///
 /// ```rust
-/// use gosub_engine::render::{RenderList, DisplayItem, Color};
+/// use gosub_render_pipeline::render::{RenderList, DisplayItem, Color};
 ///
 /// let mut list = RenderList::new();
 ///

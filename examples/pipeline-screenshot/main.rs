@@ -10,13 +10,13 @@
 //! If no display is available (e.g. CI), set GDK_BACKEND=offscreen before running.
 
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
-use gosub_engine::render::backend::ExternalHandle;
-use gosub_engine::render::backends::cairo::CairoBackend;
-use gosub_engine::render::DefaultCompositor;
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
+use gosub_render_pipeline::render::backend::ExternalHandle;
+use gosub_render_pipeline::render::backends::cairo::CairoBackend;
+use gosub_render_pipeline::render::DefaultCompositor;
 use gtk4::cairo::{Context, Format, ImageSurface};
 use image::ColorType;
 use once_cell::sync::Lazy;

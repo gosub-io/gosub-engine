@@ -1,9 +1,9 @@
-use gosub_pipeline::common::media::MediaStore;
-use gosub_pipeline::common::texture::TextureId;
-use gosub_pipeline::common::TextureStore;
-use gosub_pipeline::painter::commands::PaintCommand;
-use gosub_pipeline::rasterizer::Rasterable;
-use gosub_pipeline::tiler::Tile;
+use gosub_render_pipeline::common::media::MediaStore;
+use gosub_render_pipeline::common::texture::TextureId;
+use gosub_render_pipeline::common::TextureStore;
+use gosub_render_pipeline::painter::commands::PaintCommand;
+use gosub_render_pipeline::rasterizer::Rasterable;
+use gosub_render_pipeline::tiler::Tile;
 use gtk4::cairo;
 
 mod brush;
@@ -11,9 +11,7 @@ mod rectangle;
 mod svg;
 mod text;
 
-/// Device pixel ratio shared between the GTK display thread and the rasterizer.
-/// Set it once from the GTK `scale_factor()` before any rendering begins.
-pub static DEVICE_PIXEL_RATIO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+pub use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
 
 #[derive(Default)]
 pub struct CairoRasterizer {}

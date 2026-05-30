@@ -1,15 +1,13 @@
-use crate::engine::BrowsingContext;
 use crate::render::backend::{
     ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
 };
+use crate::render::render_context::RenderContext;
 use anyhow::{anyhow, Result};
 use std::any::Any;
 
-/// Null backend renderer that does not perform any rendering.
 pub struct NullBackend;
 
 impl NullBackend {
-    /// Creates a new instance of the null backend.
     pub fn new() -> Result<Self> {
         Ok(Self)
     }
@@ -24,7 +22,7 @@ impl RenderBackend for NullBackend {
         Ok(Box::new(NullSurface::new(size)?))
     }
 
-    fn render(&self, _ctx: &mut BrowsingContext, surface: &mut dyn ErasedSurface) -> Result<()> {
+    fn render(&self, _ctx: &mut dyn RenderContext, surface: &mut dyn ErasedSurface) -> Result<()> {
         let s = surface
             .as_any_mut()
             .downcast_mut::<NullSurface>()
@@ -64,11 +62,8 @@ impl RenderBackend for NullBackend {
     }
 }
 
-/// A surface for the null backend that does not perform any actual rendering. It does however track the size and frame ID.
 pub struct NullSurface {
-    /// Size of the surface in pixels.
     pub size: SurfaceSize,
-    /// Frame ID for the surface, used to track rendering frames.
     frame_id: u64,
 }
 

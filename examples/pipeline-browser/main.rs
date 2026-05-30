@@ -1,4 +1,4 @@
-//! A minimal browser window that renders pages through the new gosub_pipeline render system.
+//! A minimal browser window that renders pages through the new gosub_render_pipeline render system.
 //!
 //! Usage:  cargo run --example pipeline-browser -- https://example.com
 //!
@@ -8,13 +8,13 @@
 
 use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
-use gosub_engine::render::backend::{CachedTile, ExternalHandle};
-use gosub_engine::render::backends::cairo::DEVICE_PIXEL_RATIO;
-use gosub_engine::render::DefaultCompositor;
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
+use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
+use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
+use gosub_render_pipeline::render::DefaultCompositor;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, DrawingArea, Entry, Label, Orientation};
@@ -79,7 +79,7 @@ fn main() {
             }
         })));
 
-        let backend = gosub_engine::render::backends::cairo::CairoBackend::new();
+        let backend = gosub_render_pipeline::render::backends::cairo::CairoBackend::new();
         let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
         let event_rx = engine.subscribe_events();

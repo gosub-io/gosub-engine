@@ -1,5 +1,5 @@
-use gosub_pipeline::painter::commands::PaintCommand;
-use gosub_pipeline::tiler::Tile;
+use gosub_render_pipeline::painter::commands::PaintCommand;
+use gosub_render_pipeline::tiler::Tile;
 use skia_safe::Canvas;
 
 #[allow(dead_code)]

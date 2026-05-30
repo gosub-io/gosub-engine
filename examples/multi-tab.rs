@@ -1,12 +1,12 @@
 use gosub_engine::{
     cookies::DefaultCookieJar,
     events::EngineEvent,
-    render::{DefaultCompositor, Viewport},
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::ZoneConfig,
     zone::ZoneServices,
     EngineConfig, EngineError, GosubEngine,
 };
+use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 
 use gosub_engine::events::{NavigationEvent, ResourceEvent};
 use gosub_engine::tab::{TabDefaults, TabId};
@@ -86,7 +86,7 @@ async fn main() -> Result<(), EngineError> {
 
     // Set up a render backend. In this example we use the NullBackend which does not render
     // anything.
-    let backend = gosub_engine::render::backends::null::NullBackend::new().expect("null backend");
+    let backend = gosub_render_pipeline::render::backends::null::NullBackend::new().expect("null backend");
 
     // Instantiate and start the engine
     let mut engine = GosubEngine::new(

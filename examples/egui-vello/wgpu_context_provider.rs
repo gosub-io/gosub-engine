@@ -1,5 +1,5 @@
 use eframe::wgpu;
-use gosub_engine::render::backends::vello::WgpuContextProvider;
+use gosub_render_pipeline::render::backends::vello::WgpuContextProvider;
 use std::collections::HashMap;
 use parking_lot::RwLock;
 use std::sync::Arc;
