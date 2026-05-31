@@ -1,597 +1,415 @@
-use crate::tiling::{
-    close_leaf, collect_leaves, compute_layout, find_leaf_at, split_leaf_into_cols, split_leaf_into_rows, LayoutHandle,
-    LayoutNode, Rect,
-};
-use crate::wgpu_context_provider::EguiWgpuContextProvider;
+//! Minimal browser window: Vello (GPU) rasterizer + egui toolkit.
+//!
+//! Usage: cargo run --example egui-vello -- https://example.com
+//!
+//! No GTK dependency — pure egui + wgpu.
+
 use eframe::{egui, CreationContext};
-use egui::StrokeKind;
-use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::ExternalHandle;
-use gosub_render_pipeline::render::backends::vello::VelloBackend;
+use gosub_render_pipeline::render::backends::vello::{VelloBackend, WgpuContextProvider};
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
-use gosub_shared::tab_id::TabId as SharedTabId;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
 use url::Url;
 use uuid::uuid;
+use vello::wgpu;
 
-mod tiling;
-mod wgpu_context_provider;
-
-const DEFAULT_MAIN_ZONE: uuid::Uuid = uuid!("95d9c701-5f1b-43ea-ba7e-bc509ee8aa54");
-const DEFAULT_WIDTH: u32 = 800;
-const DEFAULT_HEIGHT: u32 = 600;
+const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000008");
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
     Builder::new_multi_thread()
         .enable_io()
         .enable_time()
-        .thread_name("gosub-rt")
+        .thread_name("gosub-egui-vello-rt")
         .build()
-        .expect("init tokio runtime")
+        .expect("tokio runtime")
 });
 
-/// Events forwarded from the engine event bus to the UI thread.
-enum UiEvent {
-    LocationChanged { tab_id: TabId, url: String },
-    TitleChanged { _tab_id: TabId, _title: String },
-    NavigationStarted { tab_id: TabId },
-    NavigationFinished { tab_id: TabId },
+// ── wgpu context provider (backed by eframe's wgpu state) ───────────────────
+
+struct EguiContextProvider {
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
+    textures: RwLock<HashMap<u64, (wgpu::Texture, wgpu::TextureView)>>,
+    next_id: AtomicU64,
 }
 
-struct GosubApp {
+impl EguiContextProvider {
+    fn from_eframe(cc: &CreationContext) -> Option<Self> {
+        let ws = cc.wgpu_render_state.as_ref()?;
+        Some(Self {
+            device: Arc::new(ws.device.clone()),
+            queue: Arc::new(ws.queue.clone()),
+            textures: RwLock::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+        })
+    }
+}
+
+impl WgpuContextProvider for EguiContextProvider {
+    fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    fn create_texture(&self, width: u32, height: u32, format: wgpu::TextureFormat) -> u64 {
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("gosub-vello-texture"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        self.textures.write().insert(id, (texture, view));
+        id
+    }
+
+    fn get_texture(&self, id: u64) -> Option<(wgpu::Texture, wgpu::TextureView)> {
+        self.textures
+            .read()
+            .get(&id)
+            .map(|(t, v): &(wgpu::Texture, wgpu::TextureView)| (t.clone(), v.clone()))
+    }
+
+    fn remove_texture(&self, id: u64) {
+        self.textures.write().remove(&id);
+    }
+}
+
+// ── UI events ────────────────────────────────────────────────────────────────
+
+enum UiEvent {
+    LocationChanged { url: String },
+    NavigationStarted,
+    NavigationFinished,
+    HoverUrl(Option<String>),
+}
+
+// ── Application ──────────────────────────────────────────────────────────────
+
+struct BrowserApp {
     #[allow(dead_code)]
     engine: GosubEngine,
+    #[allow(dead_code)]
     zone: Zone,
-    root: LayoutHandle,
-    active_tab: TabId,
-    tabs: HashMap<TabId, TabHandle>,
-    last_size: (i32, i32),
-    current_url_input: String,
-    /// Current URL per tab (updated from LocationChanged engine events).
-    tab_urls: HashMap<TabId, String>,
-    pointer_pos: (f64, f64),
+    tab: TabHandle,
+    tab_id: TabId,
+    compositor: Arc<RwLock<DefaultCompositor>>,
+    context: Arc<EguiContextProvider>,
+
+    url_input: String,
+    status_url: String,
+    /// Cached egui texture id for the current Vello frame.
+    egui_texture: Option<(u64, egui::TextureId)>,
     last_panel_size: egui::Vec2,
-    /// Latest rendered frame per tab, populated by the compositor callback.
-    compositor_frames: Arc<RwLock<HashMap<SharedTabId, ExternalHandle>>>,
-    /// wgpu context provider shared with VelloBackend.
-    wgpu_provider: Arc<EguiWgpuContextProvider>,
-    /// Per-tab cached egui TextureId: (frame_id, egui_texture_id).
-    tab_textures: HashMap<TabId, (u64, egui::TextureId)>,
-    /// Engine events relevant to the UI (URL bar, title, loading state).
     ui_rx: std::sync::mpsc::Receiver<UiEvent>,
-    /// True while the active tab is still loading.
     is_loading: bool,
 }
 
-impl GosubApp {
-    fn new(cc: &CreationContext) -> Self {
-        let _rt_guard = TOKIO_RT.enter();
+impl BrowserApp {
+    fn new(cc: &CreationContext, initial_url: String) -> Option<Self> {
+        let _rt = TOKIO_RT.enter();
 
-        let provider = Arc::new(
-            EguiWgpuContextProvider::from_eframe(cc)
-                .expect("egui-vello requires a wgpu render context; ensure eframe uses the wgpu backend"),
-        );
-
-        let backend: Arc<dyn gosub_render_pipeline::render::RenderBackend + Send + Sync> =
-            Arc::new(VelloBackend::new(Arc::clone(&provider)).expect("VelloBackend::new failed"));
-
-        // Wire the compositor's redraw callback directly to egui's repaint request.
-        // This means egui repaints only when the engine actually produces a new frame.
-        let ctx_for_compositor = cc.egui_ctx.clone();
+        let ctx = cc.egui_ctx.clone();
         let compositor = Arc::new(RwLock::new(DefaultCompositor::new(move || {
-            ctx_for_compositor.request_repaint();
+            ctx.request_repaint();
         })));
-        let compositor_frames = compositor.read().frames_arc();
 
-        let mut engine = GosubEngine::new(None, backend, compositor);
-        let _engine_join_handle = engine.start().expect("Engine start failed");
+        let context = Arc::new(EguiContextProvider::from_eframe(cc)?);
+        let backend = VelloBackend::new(context.clone()).ok()?;
 
-        // Forward relevant engine events to the UI thread via a std channel so ui() can
-        // drain them synchronously without holding a lock or using async.
+        let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
+        let _join = engine.start().expect("engine start");
+
         let (ui_tx, ui_rx) = std::sync::mpsc::channel::<UiEvent>();
         let mut event_rx = engine.subscribe_events();
-        let ctx_for_events = cc.egui_ctx.clone();
-
+        let ctx_ev = cc.egui_ctx.clone();
         TOKIO_RT.spawn(async move {
             loop {
                 match event_rx.recv().await {
                     Ok(ev) => {
-                        let ui_ev = match ev {
-                            EngineEvent::LocationChanged { tab_id, url } => {
-                                Some(UiEvent::LocationChanged { tab_id, url })
+                        let out = match ev {
+                            EngineEvent::LocationChanged { url, .. } => Some(UiEvent::LocationChanged { url }),
+                            EngineEvent::Navigation { event: NavigationEvent::Started { .. }, .. } => {
+                                Some(UiEvent::NavigationStarted)
                             }
-                            EngineEvent::TitleChanged { tab_id, title }
-                            | EngineEvent::TabTitleChanged { tab_id, title } => Some(UiEvent::TitleChanged {
-                                _tab_id: tab_id,
-                                _title: title,
-                            }),
                             EngineEvent::Navigation {
-                                tab_id,
-                                event: NavigationEvent::Started { .. },
-                            } => Some(UiEvent::NavigationStarted { tab_id }),
-                            EngineEvent::Navigation {
-                                tab_id,
                                 event: NavigationEvent::Finished { .. } | NavigationEvent::Failed { .. },
-                            } => Some(UiEvent::NavigationFinished { tab_id }),
+                                ..
+                            } => Some(UiEvent::NavigationFinished),
+                            EngineEvent::HoverUrl { url, .. } => Some(UiEvent::HoverUrl(url)),
                             _ => None,
                         };
-
-                        if let Some(ev) = ui_ev {
+                        if let Some(ev) = out {
                             let _ = ui_tx.send(ev);
-                            ctx_for_events.request_repaint();
+                            ctx_ev.request_repaint();
                         }
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        log::warn!("UI event receiver lagged by {} events", n);
-                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
             }
         });
 
-        let zone_cfg = ZoneConfig::builder()
-            .do_not_track(true)
-            .accept_languages("fr-CH, fr;q=0.9, en;q=0.8, de;q=0.7, *;q=0.5")
-            .build()
-            .expect("ZoneConfig is not valid");
-
-        let sqlite_store = SqliteCookieStore::new(".gosub-gtk-cookie-store.db".into());
-        let cookie_store: gosub_engine::cookies::CookieStoreHandle = sqlite_store.into();
-
+        let zone_cfg = ZoneConfig::builder().do_not_track(true).build().expect("ZoneConfig");
         let zone_services = ZoneServices {
             storage: Arc::new(StorageService::new(
-                Arc::new(SqliteLocalStore::new(".gosub-gtk-local-storage.db").unwrap()),
+                Arc::new(SqliteLocalStore::new(":memory:").expect("local store")),
                 Arc::new(InMemorySessionStore::new()),
             )),
-            cookie_store: Some(cookie_store),
+            cookie_store: None,
             cookie_jar: None,
             partition_policy: PartitionPolicy::None,
         };
 
         let mut zone = engine
-            .create_zone(zone_cfg, zone_services, Some(ZoneId::from(DEFAULT_MAIN_ZONE)))
-            .expect("create_zone failed");
-
-        let mut tabs: HashMap<TabId, TabHandle> = HashMap::new();
+            .create_zone(zone_cfg, zone_services, Some(ZoneId::from(DEFAULT_ZONE)))
+            .expect("create_zone");
 
         let tab = TOKIO_RT
-            .block_on(async {
-                let tab = zone
-                    .create_tab(
-                        TabDefaults {
-                            url: None,
-                            title: Some("New Tab".to_string()),
-                            viewport: Some(Viewport::new(0, 0, DEFAULT_WIDTH, DEFAULT_HEIGHT)),
-                        },
-                        None,
-                    )
-                    .await?;
-                let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
-                Ok::<TabHandle, gosub_engine::EngineError>(tab)
-            })
-            .expect("create_tab failed");
+            .block_on(zone.create_tab(
+                TabDefaults {
+                    url: None,
+                    title: Some("Gosub".to_string()),
+                    // Vello needs a non-zero viewport to create the wgpu texture.
+                    // The real size is sent via SetViewport on the first panel resize.
+                    viewport: Some(Viewport::new(0, 0, 1024, 768)),
+                },
+                None,
+            ))
+            .expect("create_tab");
 
         let tab_id = tab.tab_id;
-        tabs.insert(tab_id, tab);
+        let nav_tab = tab.clone();
+        let nav_url = initial_url.clone();
+        TOKIO_RT.spawn(async move {
+            let _ = nav_tab.send(TabCommand::Navigate { url: nav_url }).await;
+            let _ = nav_tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+        });
 
-        if let Some(t) = tabs.get(&tab_id).cloned() {
-            TOKIO_RT.spawn(async move {
-                let _ = t.navigate("https://example.com").await;
-            });
-        }
-
-        let active_tab = tab_id;
-        let root: LayoutHandle = std::rc::Rc::new(std::cell::RefCell::new(LayoutNode::Leaf(active_tab)));
-
-        Self {
+        Some(Self {
             engine,
             zone,
-            root,
-            active_tab,
-            tabs,
-            last_size: (DEFAULT_WIDTH as i32, DEFAULT_HEIGHT as i32),
-            current_url_input: String::new(),
-            tab_urls: HashMap::new(),
-            pointer_pos: (0.0, 0.0),
+            tab,
+            tab_id,
+            compositor,
+            context,
+            url_input: initial_url,
+            status_url: String::new(),
+            egui_texture: None,
             last_panel_size: egui::Vec2::ZERO,
-            compositor_frames,
-            wgpu_provider: provider,
-            tab_textures: HashMap::new(),
             ui_rx,
             is_loading: true,
-        }
+        })
     }
 
-    fn handle_navigation(&mut self, ctx: egui::Context) {
-        let composed_url = self.current_url_input.clone();
-
-        let url_str = if !composed_url.starts_with("http://") && !composed_url.starts_with("https://") {
-            format!("https://{}", composed_url)
-        } else {
-            composed_url
-        };
-
-        let Ok(url) = Url::parse(&url_str) else {
-            return;
-        };
-
+    fn navigate(&mut self) {
+        let mut s = self.url_input.clone();
+        if !s.starts_with("http://") && !s.starts_with("https://") {
+            s = format!("https://{s}");
+            self.url_input = s.clone();
+        }
+        let Ok(_) = Url::parse(&s) else { return };
         self.is_loading = true;
-
-        let tab_id = self.active_tab;
-        if let Some(tab) = self.tabs.get(&tab_id).cloned() {
-            TOKIO_RT.spawn(async move {
-                let _ = tab.navigate(url.as_str()).await;
-                let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
-                ctx.request_repaint();
-            });
-        }
+        let tab = self.tab.clone();
+        TOKIO_RT.spawn(async move {
+            let _ = tab.send(TabCommand::Navigate { url: s }).await;
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+        });
     }
 
-    fn handle_split_col(&mut self) {
-        let (w, h) = self.last_size;
-        let new_tab = TOKIO_RT
-            .block_on(async {
-                let tab = self
-                    .zone
-                    .create_tab(
-                        TabDefaults {
-                            url: None,
-                            title: Some("New Tab".to_string()),
-                            viewport: Some(Viewport::new(0, 0, (w / 2).max(1) as u32, h as u32)),
-                        },
-                        None,
-                    )
-                    .await?;
-                let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
-                Ok::<TabHandle, gosub_engine::EngineError>(tab)
-            })
-            .expect("create_tab failed");
+    /// Register or refresh the egui texture from the latest Vello frame.
+    fn refresh_texture(&mut self, frame: &mut eframe::Frame) {
+        let Some(handle) = self.compositor.read().frame_for(self.tab_id) else { return };
+        let ExternalHandle::WgpuTextureId { id, frame_id, .. } = handle else { return };
 
-        let new_id = new_tab.tab_id;
-        self.tabs.insert(new_id, new_tab);
+        let needs_update = self
+            .egui_texture
+            .as_ref()
+            .map(|(fid, _)| *fid != frame_id)
+            .unwrap_or(true);
 
-        let target = self.active_tab;
-        split_leaf_into_cols(&self.root, target, vec![new_id]);
+        if !needs_update { return; }
 
-        let mut pairs = Vec::new();
-        compute_layout(&self.root.borrow(), Rect { x: 0, y: 0, w, h }, &mut pairs);
-        for (tab_id, r) in pairs {
-            if let Some(tab) = self.tabs.get(&tab_id).cloned() {
-                TOKIO_RT.spawn(async move {
-                    let _ = tab.set_viewport(Viewport::new(0, 0, r.w as u32, r.h as u32)).await;
-                });
-            }
+        let Some(wgpu_state) = frame.wgpu_render_state() else { return };
+        let Some((_, view)) = self.context.get_texture(id) else { return };
+
+        if let Some((_, old)) = self.egui_texture.take() {
+            wgpu_state.renderer.write().free_texture(&old);
         }
-    }
 
-    fn handle_split_row(&mut self) {
-        let (w, h) = self.last_size;
-        let new_tab = TOKIO_RT
-            .block_on(async {
-                let tab = self
-                    .zone
-                    .create_tab(
-                        TabDefaults {
-                            url: None,
-                            title: Some("New Tab".to_string()),
-                            viewport: Some(Viewport::new(0, 0, w as u32, (h / 2).max(1) as u32)),
-                        },
-                        None,
-                    )
-                    .await?;
-                let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
-                Ok::<TabHandle, gosub_engine::EngineError>(tab)
-            })
-            .expect("create_tab failed");
-
-        let new_id = new_tab.tab_id;
-        self.tabs.insert(new_id, new_tab);
-
-        let target = self.active_tab;
-        split_leaf_into_rows(&self.root, target, vec![new_id]);
-
-        let mut pairs = Vec::new();
-        compute_layout(&self.root.borrow(), Rect { x: 0, y: 0, w, h }, &mut pairs);
-        for (tab_id, r) in pairs {
-            if let Some(tab) = self.tabs.get(&tab_id).cloned() {
-                TOKIO_RT.spawn(async move {
-                    let _ = tab.set_viewport(Viewport::new(0, 0, r.w as u32, r.h as u32)).await;
-                });
-            }
-        }
-    }
-
-    fn handle_close_pane(&mut self) {
-        let target = self.active_tab;
-        if close_leaf(&self.root, target) {
-            let mut leaves = Vec::new();
-            collect_leaves(&self.root.borrow(), &mut leaves);
-            if let Some(&first) = leaves.first() {
-                self.active_tab = first;
-            }
-            let (w, h) = self.last_size;
-            let mut pairs = Vec::new();
-            compute_layout(&self.root.borrow(), Rect { x: 0, y: 0, w, h }, &mut pairs);
-            for (tab_id, r) in pairs {
-                if let Some(tab) = self.tabs.get(&tab_id).cloned() {
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab.set_viewport(Viewport::new(0, 0, r.w as u32, r.h as u32)).await;
-                    });
-                }
-            }
-        }
-    }
-
-    fn handle_click(&mut self, pos: egui::Pos2) {
-        let (w, h) = self.last_size;
-        if let Some(tab_id) = find_leaf_at(
-            &self.root.borrow(),
-            Rect { x: 0, y: 0, w, h },
-            pos.x as f64,
-            pos.y as f64,
-        ) {
-            self.active_tab = tab_id;
-        }
-    }
-
-    fn handle_scroll(&mut self, delta: egui::Vec2) {
-        let (px, py) = self.pointer_pos;
-        let (w, h) = self.last_size;
-
-        if let Some(tab_id) = find_leaf_at(&self.root.borrow(), Rect { x: 0, y: 0, w, h }, px, py) {
-            let line_h = 2.0;
-            let dx_px = delta.x * line_h;
-            let dy_px = delta.y * line_h;
-
-            if let Some(tab) = self.tabs.get(&tab_id).cloned() {
-                TOKIO_RT.spawn(async move {
-                    let _ = tab
-                        .send(TabCommand::MouseScroll {
-                            delta_x: dx_px,
-                            delta_y: dy_px,
-                        })
-                        .await;
-                });
-            }
-        }
+        let new_tex = wgpu_state.renderer.write().register_native_texture(
+            &self.context.device,
+            &view,
+            eframe::wgpu::FilterMode::Linear,
+        );
+        self.egui_texture = Some((frame_id, new_tex));
     }
 }
 
-impl eframe::App for GosubApp {
+impl eframe::App for BrowserApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
-        ctx.global_style_mut(|style| {
-            style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 16.0;
-            style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 14.0;
-        });
-
-        if let Some(pointer_pos) = ctx.pointer_latest_pos() {
-            self.pointer_pos = (pointer_pos.x as f64, pointer_pos.y as f64);
-        }
-
-        let scroll_delta = ctx.input(|i| i.smooth_scroll_delta);
-        if scroll_delta != egui::Vec2::ZERO {
-            self.handle_scroll(scroll_delta);
-        }
-
-        if ctx.input(|i| i.pointer.primary_clicked()) {
-            if let Some(click_pos) = ctx.input(|i| i.pointer.interact_pos()) {
-                self.handle_click(click_pos);
-            }
-        }
-
-        // Drain engine events: URL bar updates, title changes, load state.
+        // Drain engine events.
         while let Ok(ev) = self.ui_rx.try_recv() {
             match ev {
-                UiEvent::LocationChanged { tab_id, url } => {
-                    self.tab_urls.insert(tab_id, url.clone());
-                    if tab_id == self.active_tab {
-                        self.current_url_input = url;
-                    }
-                }
-                UiEvent::TitleChanged { .. } => {}
-                UiEvent::NavigationStarted { tab_id } => {
-                    if tab_id == self.active_tab {
-                        self.is_loading = true;
-                    }
-                }
-                UiEvent::NavigationFinished { tab_id } => {
-                    if tab_id == self.active_tab {
-                        self.is_loading = false;
-                    }
-                }
+                UiEvent::LocationChanged { url } => self.url_input = url,
+                UiEvent::NavigationStarted => self.is_loading = true,
+                UiEvent::NavigationFinished => self.is_loading = false,
+                UiEvent::HoverUrl(url) => self.status_url = url.unwrap_or_default(),
             }
         }
 
-        egui::Panel::top("address_bar")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(12, 10)))
+        self.refresh_texture(frame);
+
+        // Address bar
+        egui::Panel::top("addr")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(8, 6)))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     if self.is_loading {
                         ui.spinner();
                     }
-
-                    let response = ui.add(
-                        egui::TextEdit::singleline(&mut self.current_url_input)
+                    let r = ui.add(
+                        egui::TextEdit::singleline(&mut self.url_input)
                             .desired_width(f32::INFINITY)
-                            .hint_text("Enter URL")
-                            .char_limit(100)
-                            .font(egui::TextStyle::Heading)
-                            .min_size(egui::vec2(0.0, 36.0)),
+                            .hint_text("Enter URL…")
+                            .font(egui::TextStyle::Monospace),
                     );
-
-                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        self.handle_navigation(ctx.clone());
+                    if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        self.navigate();
                     }
                 });
             });
 
-        egui::Panel::top("toolbar")
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(12, 8)))
+        // Status bar
+        egui::Panel::bottom("status")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(4, 2)))
             .show_inside(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let button_size = egui::vec2(120.0, 32.0);
-
-                    if ui.add(egui::Button::new("Split Col").min_size(button_size)).clicked() {
-                        self.handle_split_col();
-                    }
-
-                    if ui.add(egui::Button::new("Split Row").min_size(button_size)).clicked() {
-                        self.handle_split_row();
-                    }
-
-                    if ui.add(egui::Button::new("Close Pane").min_size(button_size)).clicked() {
-                        self.handle_close_pane();
-                    }
-                });
+                ui.label(egui::RichText::new(&self.status_url).small());
             });
 
+        // Browser content
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            // Capture available_size before adding any widgets. This is the stable measurement
-            // for both layout and viewport resize: it is unaffected by whatever we render into
-            // the panel, preventing the feedback loop where content overflow inflates the size
-            // reported by panel.response.rect, which in turn triggers a resize, which inflates
-            // the content again.
-            let available_size = ui.available_size();
+            let panel_size = ui.available_size();
 
-            if available_size != self.last_panel_size {
-                self.last_panel_size = available_size;
-
-                let mut pairs = Vec::new();
-                compute_layout(
-                    &self.root.borrow(),
-                    Rect {
-                        x: 0,
-                        y: 0,
-                        w: available_size.x as i32,
-                        h: available_size.y as i32,
-                    },
-                    &mut pairs,
-                );
-
-                for (tab_id, r) in pairs {
-                    if let Some(tab) = self.tabs.get(&tab_id).cloned() {
-                        TOKIO_RT.spawn(async move {
-                            let _ = tab.set_viewport(Viewport::new(0, 0, r.w as u32, r.h as u32)).await;
-                        });
-                    }
-                }
+            if panel_size != self.last_panel_size && panel_size.x > 0.0 && panel_size.y > 0.0 {
+                self.last_panel_size = panel_size;
+                let tab = self.tab.clone();
+                let w = panel_size.x as u32;
+                let h = panel_size.y as u32;
+                TOKIO_RT.spawn(async move {
+                    let _ = tab.send(TabCommand::SetViewport { x: 0, y: 0, width: w, height: h }).await;
+                });
             }
 
-            self.last_size = (available_size.x as i32, available_size.y as i32);
+            // Scroll
+            let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
+            if scroll_delta != egui::Vec2::ZERO {
+                let tab = self.tab.clone();
+                let dx = -scroll_delta.x;
+                let dy = -scroll_delta.y;
+                TOKIO_RT.spawn(async move {
+                    let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
+                });
+            }
 
-            let (w, h) = self.last_size;
-            let mut pairs = Vec::new();
-            compute_layout(&self.root.borrow(), Rect { x: 0, y: 0, w, h }, &mut pairs);
+            if let Some((_, tex_id)) = self.egui_texture {
+                let (rect, response) = ui.allocate_exact_size(panel_size, egui::Sense::click());
 
-            let active_tab_id = self.active_tab;
-
-            let frames_snapshot: HashMap<TabId, ExternalHandle> = {
-                let guard = self.compositor_frames.read();
-                guard.iter().map(|(k, v)| (*k, v.clone())).collect()
-            };
-
-            for (tab_id, rect) in pairs {
-                let is_active = tab_id == active_tab_id;
-
-                let rect_ui = egui::Rect::from_min_max(
-                    egui::pos2(rect.x as f32, rect.y as f32),
-                    egui::pos2((rect.x + rect.w) as f32, (rect.y + rect.h) as f32),
+                // Paint the native wgpu texture directly.
+                ui.painter().image(
+                    tex_id,
+                    rect,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
                 );
 
-                ui.painter().rect_filled(rect_ui, 0.0, egui::Color32::WHITE);
-
-                let mut rendered = false;
-                if let Some(ExternalHandle::WgpuTextureId { id, frame_id, .. }) = frames_snapshot.get(&tab_id).cloned()
-                {
-                    if let Some(wgpu_state) = frame.wgpu_render_state() {
-                        let needs_register = self
-                            .tab_textures
-                            .get(&tab_id)
-                            .map(|(fid, _)| *fid != frame_id)
-                            .unwrap_or(true);
-
-                        if needs_register {
-                            if let Some((_, old_tex)) = self.tab_textures.remove(&tab_id) {
-                                wgpu_state.renderer.write().free_texture(&old_tex);
-                            }
-                            if let Some((_, view)) = self.wgpu_provider.get_texture(id) {
-                                let new_tex = wgpu_state.renderer.write().register_native_texture(
-                                    &self.wgpu_provider.device,
-                                    &view,
-                                    eframe::wgpu::FilterMode::Nearest,
-                                );
-                                self.tab_textures.insert(tab_id, (frame_id, new_tex));
-                            }
-                        }
-
-                        if let Some((_, egui_tex)) = self.tab_textures.get(&tab_id) {
-                            // Draw directly to the painter at rect_ui rather than adding a
-                            // widget. A widget allocates layout space based on the texture's
-                            // pixel dimensions, which can exceed available_size and start the
-                            // feedback loop we fixed above.
-                            ui.painter().image(
-                                *egui_tex,
-                                rect_ui,
-                                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                                egui::Color32::WHITE,
-                            );
-                            rendered = true;
-                        }
+                // Mouse move → hover
+                if let Some(pos) = ctx.pointer_latest_pos() {
+                    if rect.contains(pos) {
+                        let rel = pos - rect.min;
+                        let tab = self.tab.clone();
+                        TOKIO_RT.spawn(async move {
+                            let _ = tab.send(TabCommand::MouseMove { x: rel.x, y: rel.y }).await;
+                        });
                     }
                 }
 
-                if !rendered {
-                    ui.scope_builder(egui::UiBuilder::new().max_rect(rect_ui), |ui| {
-                        ui.centered_and_justified(|ui| {
-                            ui.label(
-                                egui::RichText::new("No frame yet — navigate to a URL")
-                                    .italics()
-                                    .color(egui::Color32::GRAY),
-                            );
+                // Click → links
+                if response.clicked() {
+                    if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                        let rel = pos - rect.min;
+                        let tab = self.tab.clone();
+                        TOKIO_RT.spawn(async move {
+                            let _ = tab
+                                .send(TabCommand::MouseDown {
+                                    x: rel.x,
+                                    y: rel.y,
+                                    button: gosub_engine::events::MouseButton::Left,
+                                })
+                                .await;
                         });
-                    });
+                    }
                 }
-
-                let col = if is_active {
-                    egui::Color32::YELLOW
-                } else {
-                    egui::Color32::DARK_GRAY
-                };
-                ui.painter()
-                    .rect_stroke(rect_ui, 0.0, egui::Stroke::new(2.0, col), StrokeKind::Outside);
+            } else {
+                ui.centered_and_justified(|ui| {
+                    ui.label(
+                        egui::RichText::new("Loading…")
+                            .italics()
+                            .color(egui::Color32::GRAY),
+                    );
+                });
             }
         });
     }
 }
 
 fn main() -> Result<(), eframe::Error> {
-    simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
-        .init()
-        .ok();
+    simple_logger::init_with_env().unwrap_or_default();
+
+    let initial_url = {
+        let raw = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".to_string());
+        if raw.contains("://") { raw } else { format!("https://{raw}") }
+    };
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_title("Gosub Browser - Egui + Vello"),
+        viewport: egui::ViewportBuilder::default()
+            .with_title("Gosub Browser — egui + Vello")
+            .with_inner_size([1024.0, 768.0]),
+        renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
 
     eframe::run_native(
         "Gosub Browser",
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::light());
-            Ok(Box::new(GosubApp::new(cc)))
+            BrowserApp::new(cc, initial_url)
+                .map(|app| Box::new(app) as Box<dyn eframe::App>)
+                .ok_or_else(|| "wgpu render state not available — eframe must use the wgpu renderer".into())
         }),
     )
 }

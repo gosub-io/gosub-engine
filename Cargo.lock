@@ -3308,6 +3308,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "vello 0.8.0",
  "walkdir",
  "wasm-bindgen",
  "wasm-bindgen-futures",
