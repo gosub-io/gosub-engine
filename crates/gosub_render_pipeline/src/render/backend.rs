@@ -136,6 +136,12 @@ pub enum ExternalHandle {
         height: u32,
         frame_id: u64,
     },
+
+    /// Frame was rendered directly into an OpenGL framebuffer (e.g. GTK4 GLArea).
+    /// No CPU pixels available — the GPU already wrote to the display framebuffer.
+    GlFramebufferRendered {
+        frame_id: u64,
+    },
 }
 
 /// Small RGBA image, typically used for thumbnails or previews.
