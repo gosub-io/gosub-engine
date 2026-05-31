@@ -1,7 +1,7 @@
 use eframe::wgpu;
 use gosub_render_pipeline::render::backends::vello::WgpuContextProvider;
-use std::collections::HashMap;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Helper that holds eframe's wgpu device/queue and manages textures for the egui renderer.
