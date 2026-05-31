@@ -8,7 +8,6 @@ description = "Gosub shared code"
 
 [dependencies]
 parking_lot = "0.12"
-chardet = "0.2.4"
 thiserror = "2.0.18"
 url = "2.5.8"
 anyhow = "1.0.102"
@@ -19,9 +18,6 @@ chardetng = "1.0.0"
 encoding_rs = "0.8.35"
 derive_more = {version = "2.1.1", features = ["display"]}
 log = "0.4.29"
-raw-window-handle = "0.6.2"
-smallvec = "1.15.1"
-image = "0.25.10"
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
