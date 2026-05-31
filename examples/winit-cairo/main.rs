@@ -137,7 +137,15 @@ impl BrowserApp {
         if content_h > 0 {
             let guard = self.compositor.read();
             if let Some(handle) = guard.frame_for(self.tab_id) {
-                blit_handle_to_buffer(&mut buf, win_w, ADDRESS_BAR_HEIGHT, content_h, self.scroll, handle, &mut self.page_height);
+                blit_handle_to_buffer(
+                    &mut buf,
+                    win_w,
+                    ADDRESS_BAR_HEIGHT,
+                    content_h,
+                    self.scroll,
+                    handle,
+                    &mut self.page_height,
+                );
             }
         }
 
@@ -300,7 +308,12 @@ impl ApplicationHandler<()> for BrowserApp {
 
                 let tab = self.tab.clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseScroll {
+                            delta_x: dx,
+                            delta_y: dy,
+                        })
+                        .await;
                 });
 
                 if let Some(window) = &self.window {
@@ -309,12 +322,13 @@ impl ApplicationHandler<()> for BrowserApp {
             }
 
             WindowEvent::KeyboardInput {
-                event: KeyEvent {
-                    logical_key,
-                    text,
-                    state: ElementState::Pressed,
-                    ..
-                },
+                event:
+                    KeyEvent {
+                        logical_key,
+                        text,
+                        state: ElementState::Pressed,
+                        ..
+                    },
                 ..
             } => {
                 // Ctrl+L: focus address bar
@@ -407,9 +421,8 @@ fn blit_handle_to_buffer(
                 let screen_y = py.saturating_sub(sy);
                 let tw = tile.width as usize;
                 let th = tile.height as usize;
-                let tile_u32 = unsafe {
-                    std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4)
-                };
+                let tile_u32 =
+                    unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
                 for row in 0..th {
                     let dst_y = addr_h as usize + screen_y + row;
                     if dst_y >= (addr_h + content_h) as usize {
@@ -474,7 +487,9 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
     };
 
     {
-        let Ok(cr) = gtk4::cairo::Context::new(&surface) else { return };
+        let Ok(cr) = gtk4::cairo::Context::new(&surface) else {
+            return;
+        };
 
         // Background
         cr.set_source_rgb(0.93, 0.93, 0.93);
@@ -529,8 +544,14 @@ fn main() {
     gosub_engine::init_gtk_resources();
 
     let initial_url = {
-        let raw = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".to_string());
-        if raw.contains("://") { raw } else { format!("https://{raw}") }
+        let raw = std::env::args()
+            .nth(1)
+            .unwrap_or_else(|| "https://example.com".to_string());
+        if raw.contains("://") {
+            raw
+        } else {
+            format!("https://{raw}")
+        }
     };
 
     let _rt_guard = TOKIO_RT.enter();

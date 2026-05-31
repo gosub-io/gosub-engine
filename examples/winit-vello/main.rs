@@ -73,7 +73,11 @@ impl WgpuContextProvider for WinitWgpuContextProvider {
     fn create_texture(&self, width: u32, height: u32, format: wgpu::TextureFormat) -> u64 {
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("gosub-vello-texture"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -151,7 +155,14 @@ impl GpuState {
             ..Default::default()
         });
 
-        Self { window, surface, config, pipeline, bg_layout, sampler }
+        Self {
+            window,
+            surface,
+            config,
+            pipeline,
+            bg_layout,
+            sampler,
+        }
     }
 
     fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
@@ -176,8 +187,14 @@ impl GpuState {
             label: None,
             layout: &self.bg_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
             ],
         });
 
@@ -249,7 +266,12 @@ fn build_blit_pipeline(
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("blit"),
         layout: Some(&layout),
-        vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), buffers: &[], compilation_options: Default::default() },
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[],
+            compilation_options: Default::default(),
+        },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
             entry_point: Some("fs_main"),
@@ -373,13 +395,27 @@ impl ApplicationHandler<()> for BrowserApp {
         if self.gpu.is_some() {
             return;
         }
-        let gpu = GpuState::new(event_loop, &self.device, &self.queue, &self.adapter, &self.instance, (1024, 768));
+        let gpu = GpuState::new(
+            event_loop,
+            &self.device,
+            &self.queue,
+            &self.adapter,
+            &self.instance,
+            (1024, 768),
+        );
         let size = gpu.window.inner_size();
         self.viewport = (size.width, size.height);
         let tab = self.tab.clone();
         let (w, h) = self.viewport;
         TOKIO_RT.spawn(async move {
-            let _ = tab.send(TabCommand::SetViewport { x: 0, y: 0, width: w, height: h }).await;
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: w,
+                    height: h,
+                })
+                .await;
             let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
         });
         self.gpu = Some(gpu);
@@ -399,7 +435,9 @@ impl ApplicationHandler<()> for BrowserApp {
             WindowEvent::RedrawRequested => self.redraw(),
 
             WindowEvent::Resized(PhysicalSize { width, height }) => {
-                if width == 0 || height == 0 { return; }
+                if width == 0 || height == 0 {
+                    return;
+                }
                 if let Some(gpu) = &mut self.gpu {
                     gpu.resize(&self.device, width, height);
                 }
@@ -407,7 +445,14 @@ impl ApplicationHandler<()> for BrowserApp {
                 self.scroll = (0.0, 0.0);
                 let tab = self.tab.clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::SetViewport { x: 0, y: 0, width, height }).await;
+                    let _ = tab
+                        .send(TabCommand::SetViewport {
+                            x: 0,
+                            y: 0,
+                            width,
+                            height,
+                        })
+                        .await;
                 });
             }
 
@@ -430,7 +475,13 @@ impl ApplicationHandler<()> for BrowserApp {
                 let y = self.cursor.y as f32;
                 let tab = self.tab.clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseDown { x, y, button: MouseButton::Left }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseDown {
+                            x,
+                            y,
+                            button: MouseButton::Left,
+                        })
+                        .await;
                 });
             }
 
@@ -444,7 +495,12 @@ impl ApplicationHandler<()> for BrowserApp {
                 self.scroll.1 = (self.scroll.1 + dy).clamp(0.0, max_y);
                 let tab = self.tab.clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseScroll {
+                            delta_x: dx,
+                            delta_y: dy,
+                        })
+                        .await;
                 });
             }
 
@@ -453,12 +509,13 @@ impl ApplicationHandler<()> for BrowserApp {
             }
 
             WindowEvent::KeyboardInput {
-                event: KeyEvent {
-                    logical_key,
-                    text,
-                    state: ElementState::Pressed,
-                    ..
-                },
+                event:
+                    KeyEvent {
+                        logical_key,
+                        text,
+                        state: ElementState::Pressed,
+                        ..
+                    },
                 ..
             } => {
                 // Ctrl+L: focus address bar
@@ -502,8 +559,14 @@ fn main() {
     simple_logger::init_with_env().unwrap_or_default();
 
     let initial_url = {
-        let raw = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".to_string());
-        if raw.contains("://") { raw } else { format!("https://{raw}") }
+        let raw = std::env::args()
+            .nth(1)
+            .unwrap_or_else(|| "https://example.com".to_string());
+        if raw.contains("://") {
+            raw
+        } else {
+            format!("https://{raw}")
+        }
     };
 
     let _rt_guard = TOKIO_RT.enter();
@@ -528,7 +591,9 @@ fn main() {
 
     let compositor = Arc::new(RwLock::new(DefaultCompositor::new({
         let p = proxy.clone();
-        move || { let _ = p.send_event(()); }
+        move || {
+            let _ = p.send_event(());
+        }
     })));
 
     let backend = VelloBackend::new(context.clone()).expect("VelloBackend");
@@ -541,7 +606,10 @@ fn main() {
     TOKIO_RT.spawn(async move {
         loop {
             match event_rx.recv().await {
-                Ok(EngineEvent::Navigation { event: NavigationEvent::Finished { .. } | NavigationEvent::Started { .. }, .. }) => {
+                Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. } | NavigationEvent::Started { .. },
+                    ..
+                }) => {
                     let _ = proxy_ev.send_event(());
                 }
                 Ok(_) => {}
@@ -567,7 +635,14 @@ fn main() {
         .expect("create_zone");
 
     let tab = TOKIO_RT
-        .block_on(zone.create_tab(TabDefaults { url: None, title: Some("Gosub".to_string()), viewport: Some(Viewport::new(0, 0, 1024, 768)) }, None))
+        .block_on(zone.create_tab(
+            TabDefaults {
+                url: None,
+                title: Some("Gosub".to_string()),
+                viewport: Some(Viewport::new(0, 0, 1024, 768)),
+            },
+            None,
+        ))
         .expect("create_tab");
 
     let tab_id = tab.tab_id;

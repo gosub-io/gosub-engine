@@ -185,9 +185,8 @@ impl BrowserApp {
                 stride,
                 pixel_buf,
             } => {
-                let bytes = unsafe {
-                    std::slice::from_raw_parts(pixel_buf.as_ptr(), height as usize * stride as usize)
-                };
+                let bytes =
+                    unsafe { std::slice::from_raw_parts(pixel_buf.as_ptr(), height as usize * stride as usize) };
                 let rgba = argb32_to_rgba8(bytes, width as usize, height as usize, stride as usize);
                 (width as usize, height as usize, rgba)
             }
@@ -218,9 +217,8 @@ impl BrowserApp {
                     let screen_y = py.saturating_sub(sy);
                     let tw = tile.width as usize;
                     let th = tile.height as usize;
-                    let tile_u32 = unsafe {
-                        std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4)
-                    };
+                    let tile_u32 =
+                        unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
                     for row in 0..th {
                         let dst_y = screen_y + row;
                         if dst_y >= h {
@@ -345,7 +343,14 @@ impl eframe::App for BrowserApp {
                 let w = panel_size.x as u32;
                 let h = panel_size.y as u32;
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::SetViewport { x: 0, y: 0, width: w, height: h }).await;
+                    let _ = tab
+                        .send(TabCommand::SetViewport {
+                            x: 0,
+                            y: 0,
+                            width: w,
+                            height: h,
+                        })
+                        .await;
                 });
             }
 
@@ -357,7 +362,12 @@ impl eframe::App for BrowserApp {
                 let dx = -scroll_delta.x;
                 let dy = -scroll_delta.y;
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseScroll {
+                            delta_x: dx,
+                            delta_y: dy,
+                        })
+                        .await;
                 });
             }
 
@@ -393,11 +403,7 @@ impl eframe::App for BrowserApp {
                 }
             } else {
                 ui.centered_and_justified(|ui| {
-                    ui.label(
-                        egui::RichText::new("Loading…")
-                            .italics()
-                            .color(egui::Color32::GRAY),
-                    );
+                    ui.label(egui::RichText::new("Loading…").italics().color(egui::Color32::GRAY));
                 });
             }
         });
@@ -412,8 +418,14 @@ fn main() -> Result<(), eframe::Error> {
     gosub_engine::init_gtk_resources();
 
     let initial_url = {
-        let raw = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".to_string());
-        if raw.contains("://") { raw } else { format!("https://{raw}") }
+        let raw = std::env::args()
+            .nth(1)
+            .unwrap_or_else(|| "https://example.com".to_string());
+        if raw.contains("://") {
+            raw
+        } else {
+            format!("https://{raw}")
+        }
     };
 
     let options = eframe::NativeOptions {

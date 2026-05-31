@@ -67,7 +67,11 @@ impl WgpuContextProvider for EguiContextProvider {
     fn create_texture(&self, width: u32, height: u32, format: wgpu::TextureFormat) -> u64 {
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("gosub-vello-texture"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -150,9 +154,10 @@ impl BrowserApp {
                     Ok(ev) => {
                         let out = match ev {
                             EngineEvent::LocationChanged { url, .. } => Some(UiEvent::LocationChanged { url }),
-                            EngineEvent::Navigation { event: NavigationEvent::Started { .. }, .. } => {
-                                Some(UiEvent::NavigationStarted)
-                            }
+                            EngineEvent::Navigation {
+                                event: NavigationEvent::Started { .. },
+                                ..
+                            } => Some(UiEvent::NavigationStarted),
                             EngineEvent::Navigation {
                                 event: NavigationEvent::Finished { .. } | NavigationEvent::Failed { .. },
                                 ..
@@ -240,8 +245,12 @@ impl BrowserApp {
 
     /// Register or refresh the egui texture from the latest Vello frame.
     fn refresh_texture(&mut self, frame: &mut eframe::Frame) {
-        let Some(handle) = self.compositor.read().frame_for(self.tab_id) else { return };
-        let ExternalHandle::WgpuTextureId { id, frame_id, .. } = handle else { return };
+        let Some(handle) = self.compositor.read().frame_for(self.tab_id) else {
+            return;
+        };
+        let ExternalHandle::WgpuTextureId { id, frame_id, .. } = handle else {
+            return;
+        };
 
         let needs_update = self
             .egui_texture
@@ -249,10 +258,16 @@ impl BrowserApp {
             .map(|(fid, _)| *fid != frame_id)
             .unwrap_or(true);
 
-        if !needs_update { return; }
+        if !needs_update {
+            return;
+        }
 
-        let Some(wgpu_state) = frame.wgpu_render_state() else { return };
-        let Some((_, view)) = self.context.get_texture(id) else { return };
+        let Some(wgpu_state) = frame.wgpu_render_state() else {
+            return;
+        };
+        let Some((_, view)) = self.context.get_texture(id) else {
+            return;
+        };
 
         if let Some((_, old)) = self.egui_texture.take() {
             wgpu_state.renderer.write().free_texture(&old);
@@ -320,7 +335,14 @@ impl eframe::App for BrowserApp {
                 let w = panel_size.x as u32;
                 let h = panel_size.y as u32;
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::SetViewport { x: 0, y: 0, width: w, height: h }).await;
+                    let _ = tab
+                        .send(TabCommand::SetViewport {
+                            x: 0,
+                            y: 0,
+                            width: w,
+                            height: h,
+                        })
+                        .await;
                 });
             }
 
@@ -331,7 +353,12 @@ impl eframe::App for BrowserApp {
                 let dx = -scroll_delta.x;
                 let dy = -scroll_delta.y;
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseScroll {
+                            delta_x: dx,
+                            delta_y: dy,
+                        })
+                        .await;
                 });
             }
 
@@ -375,11 +402,7 @@ impl eframe::App for BrowserApp {
                 }
             } else {
                 ui.centered_and_justified(|ui| {
-                    ui.label(
-                        egui::RichText::new("Loading…")
-                            .italics()
-                            .color(egui::Color32::GRAY),
-                    );
+                    ui.label(egui::RichText::new("Loading…").italics().color(egui::Color32::GRAY));
                 });
             }
         });
@@ -390,8 +413,14 @@ fn main() -> Result<(), eframe::Error> {
     simple_logger::init_with_env().unwrap_or_default();
 
     let initial_url = {
-        let raw = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".to_string());
-        if raw.contains("://") { raw } else { format!("https://{raw}") }
+        let raw = std::env::args()
+            .nth(1)
+            .unwrap_or_else(|| "https://example.com".to_string());
+        if raw.contains("://") {
+            raw
+        } else {
+            format!("https://{raw}")
+        }
     };
 
     let options = eframe::NativeOptions {
