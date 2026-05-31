@@ -380,7 +380,7 @@ impl eframe::App for BrowserApp {
 }
 
 fn main() -> Result<(), eframe::Error> {
-    simple_logger::init_with_env().unwrap_or_default();
+    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
 
     let initial_url = {
         let raw = std::env::args()

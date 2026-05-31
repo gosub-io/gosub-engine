@@ -3,7 +3,7 @@ use crate::rasterizer::brush::set_brush;
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::text::Text;
 use gosub_render_pipeline::tiler::Tile;
-use gtk4::cairo::{Antialias, Context, Error, Filter, FontOptions, Format, HintMetrics, HintStyle, ImageSurface};
+use cairo::{Antialias, Context, Error, Filter, FontOptions, Format, HintMetrics, HintStyle, ImageSurface};
 use gtk4::pango::SCALE;
 use pangocairo::functions::{context_set_resolution, create_layout};
 use pangocairo::pango::{AttrInt, AttrList, FontDescription, Underline, WrapMode};

@@ -3,7 +3,7 @@ use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::border::BorderStyle;
 use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
 use gosub_render_pipeline::tiler::Tile;
-use gtk4::cairo::Context;
+use cairo::Context;
 
 pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangle, media_store: &MediaStore) {
     _ = cr.save();

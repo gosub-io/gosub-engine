@@ -4,7 +4,7 @@ use gosub_render_pipeline::common::TextureStore;
 use gosub_render_pipeline::painter::commands::PaintCommand;
 use gosub_render_pipeline::rasterizer::Rasterable;
 use gosub_render_pipeline::tiler::Tile;
-use gtk4::cairo;
+use cairo;
 
 mod brush;
 mod rectangle;

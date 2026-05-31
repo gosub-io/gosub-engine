@@ -1,8 +1,8 @@
 use gosub_render_pipeline::common::browser_state::BrowserState;
 use gosub_render_pipeline::common::TextureStore;
 use gosub_render_pipeline::layering::layer::LayerId;
-use gtk4::cairo;
-use gtk4::cairo::ImageSurface;
+use cairo;
+use cairo::ImageSurface;
 
 pub fn cairo_compositor(
     cr: &cairo::Context,
