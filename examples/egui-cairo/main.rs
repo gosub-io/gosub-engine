@@ -411,10 +411,9 @@ impl eframe::App for BrowserApp {
 }
 
 fn main() -> Result<(), eframe::Error> {
-    simple_logger::init_with_env().unwrap_or_default();
+    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
 
     // Cairo/Pango need GTK4 initialised for font rendering. No GTK window is created.
-    gtk4::init().expect("GTK init failed — on headless systems set GDK_BACKEND=offscreen");
     gosub_engine::init_gtk_resources();
 
     let initial_url = {

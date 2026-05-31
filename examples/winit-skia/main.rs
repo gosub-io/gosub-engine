@@ -340,7 +340,7 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
 }
 
 fn main() {
-    simple_logger::init_with_env().unwrap_or_default();
+    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
 
     let initial_url = {
         let raw = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".to_string());

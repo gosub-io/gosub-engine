@@ -3,7 +3,7 @@ use gosub_render_pipeline::common::browser_state::BrowserState;
 use gosub_render_pipeline::common::TextureStore;
 use gosub_render_pipeline::compositor::Composable;
 use gosub_render_pipeline::layering::layer::LayerId;
-use gtk4::cairo;
+use cairo;
 use parking_lot::RwLock;
 use std::sync::Arc;
 

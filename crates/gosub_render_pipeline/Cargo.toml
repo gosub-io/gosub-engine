@@ -56,7 +56,7 @@ gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
 url = "2"
 
 [features]
-backend_cairo = ["dep:gtk4", "dep:cairo-rs"]
+backend_cairo = ["dep:cairo-rs"]
 backend_vello = ["dep:vello", "dep:wgpu", "dep:fontique", "dep:hashbrown", "dep:skrifa"]
 backend_skia = ["dep:skia-safe"]
 backend_skia_gl = ["backend_skia", "skia-safe/gl", "skia-safe/egl"]

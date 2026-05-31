@@ -2401,6 +2401,237 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-egui-cairo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "eframe",
+ "egui 0.31.1",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "example-egui-skia"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "eframe",
+ "egui 0.31.1",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "example-egui-vello"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "eframe",
+ "egui 0.31.1",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "tokio",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "vello 0.8.0",
+]
+
+[[package]]
+name = "example-egui-vello-paned"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "eframe",
+ "egui 0.31.1",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "gosub_shared",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "tokio",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "vello 0.8.0",
+ "wgpu 29.0.3",
+]
+
+[[package]]
+name = "example-gtk4-cairo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "gtk4",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "example-gtk4-skia"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "gtk4",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "example-gtk4-skia-gpu"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "gtk4",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "skia-safe",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "example-pipeline-screenshot"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cairo-rs",
+ "clap",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "image",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "example-winit-cairo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cairo-rs",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "softbuffer",
+ "tokio",
+ "url",
+ "uuid",
+ "winit",
+]
+
+[[package]]
+name = "example-winit-skia"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "skia-safe",
+ "softbuffer",
+ "tokio",
+ "url",
+ "uuid",
+ "winit",
+]
+
+[[package]]
+name = "example-winit-skia-gpu"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "glutin",
+ "glutin-winit",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "raw-window-handle",
+ "simple_logger",
+ "skia-safe",
+ "softbuffer",
+ "tokio",
+ "url",
+ "uuid",
+ "winit",
+]
+
+[[package]]
+name = "example-winit-vello"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "tokio",
+ "url",
+ "uuid",
+ "vello 0.8.0",
+ "winit",
+]
+
+[[package]]
 name = "exr"
 version = "1.74.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3260,21 +3491,16 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
- "console-subscriber",
  "console_error_panic_hook",
  "console_log",
  "cookie",
  "cow-utils",
  "criterion",
  "derive_more",
- "eframe",
- "egui 0.31.1",
  "futures",
  "getrandom 0.2.17",
  "getrandom 0.3.4",
  "getrandom 0.4.2",
- "glutin",
- "glutin-winit",
  "gosub_config",
  "gosub_css3",
  "gosub_engine",
@@ -3290,20 +3516,15 @@ dependencies = [
  "gosub_webexecutor",
  "gtk4",
  "http",
- "image",
  "indicatif",
  "js-sys",
  "log",
  "once_cell",
  "parking_lot",
  "rand 0.10.1",
- "raw-window-handle",
  "reqwest",
  "serde_json",
  "simple_logger",
- "skia-safe",
- "slotmap",
- "softbuffer",
  "test-case",
  "tokio",
  "tokio-util",
@@ -3312,12 +3533,10 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
- "vello 0.8.0",
  "walkdir",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "winit",
 ]
 
 [[package]]
@@ -3582,6 +3801,7 @@ name = "gosub_renderer_cairo"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cairo-rs",
  "cow-utils",
  "gosub_render_pipeline",
  "gosub_shared",

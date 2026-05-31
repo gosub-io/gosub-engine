@@ -17,7 +17,7 @@ use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::backends::cairo::CairoBackend;
 use gosub_render_pipeline::render::DefaultCompositor;
-use gtk4::cairo::{Context, Format, ImageSurface};
+use cairo::{Context, Format, ImageSurface};
 use image::ColorType;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
@@ -41,7 +41,7 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 });
 
 fn main() {
-    simple_logger::init_with_env().unwrap_or_default();
+    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
 
     let args: Vec<String> = std::env::args().collect();
     let url_str = args
@@ -61,7 +61,6 @@ fn main() {
 
     // GTK must be initialised before pango can measure fonts. No window is created.
     // On headless systems set GDK_BACKEND=offscreen.
-    gtk4::init().expect("GTK init failed — try setting GDK_BACKEND=offscreen");
     gosub_engine::init_gtk_resources();
 
     let _rt_guard = TOKIO_RT.enter();
@@ -261,8 +260,9 @@ fn main() {
 
     for tile in tiles.iter() {
         // SAFETY: tile.data is Arc-owned and lives for this compositing call.
+        #[allow(unsafe_code)]
         let tile_surface = unsafe {
-            gtk4::cairo::ImageSurface::create_for_data_unsafe(
+            ImageSurface::create_for_data_unsafe(
                 tile.data.as_ptr() as *mut u8,
                 Format::ARgb32,
                 tile.width as i32,
