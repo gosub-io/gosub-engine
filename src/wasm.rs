@@ -5,6 +5,7 @@ mod css;
 mod html;
 mod renderer;
 mod styles;
+mod wgpu_context;
 
 #[wasm_bindgen(start)]
 pub fn init() {

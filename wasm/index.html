@@ -2,48 +2,53 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
+    <title>Gosub Browser — WASM</title>
 
     <script type="module">
-        import init, {renderer, RendererOptions} from "../pkg/gosub_engine.js";
+        import init, { GosubBrowser } from "../pkg/gosub_engine.js";
 
-        
-        await init()
+        await init();
 
+        const canvas = document.getElementById("canvas");
+        const url = new URLSearchParams(window.location.search).get("url") ?? "https://example.com";
 
-        let opts = new RendererOptions("canvas", "canvas-wrapper", "https://news.ycombinator.com/", true);
-
-
-        renderer(opts)
-    </script>
-    
-    <style>
-        :root {
-            background-color: #1a1b1b;
+        try {
+            const browser = await new GosubBrowser(
+                "canvas",
+                url,
+                canvas.width,
+                canvas.height,
+            );
+            console.log("GosubBrowser started, navigating to", url);
+        } catch (e) {
+            console.error("GosubBrowser failed to start:", e);
+            document.getElementById("error").textContent = String(e);
         }
-        
+    </script>
+
+    <style>
+        :root { background-color: #1a1b1b; color: #eee; font-family: sans-serif; }
+
         #canvas {
+            display: block;
             width: 90vw;
             height: 90vh;
             background-color: #000;
-            margin-top: 2rem;
+            margin: 2rem auto;
             border-radius: 1rem;
-            border: cyan solid 2px;
+            border: 2px solid cyan;
         }
 
-        #canvas-wrapper {
-            margin: 0 auto;
-            width: fit-content;
-            height: fit-content;
+        #error {
+            color: #f66;
+            text-align: center;
+            font-family: monospace;
+            white-space: pre-wrap;
         }
-        
-        
     </style>
 </head>
 <body>
-
-
-<div id="canvas-wrapper"></div>
-
+    <canvas id="canvas" width="1280" height="800"></canvas>
+    <p id="error"></p>
 </body>
 </html>

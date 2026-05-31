@@ -888,9 +888,9 @@ dependencies = [
 
 [[package]]
 name = "brotli"
-version = "8.0.2"
+version = "8.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bd8b9603c7aa97359dbd97ecf258968c95f3adddd6db2f7e7a5bef101c84560"
+checksum = "8119e4516436f5708bbc474a9d395bf12f1b5395e93a92a56e647ac3388c8610"
 dependencies = [
  "alloc-no-stdlib",
  "alloc-stdlib",
@@ -899,9 +899,9 @@ dependencies = [
 
 [[package]]
 name = "brotli-decompressor"
-version = "5.0.0"
+version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "874bb8112abecc98cbd6d81ea4fa7e94fb9449648c93cc89aa40c81c24d7de03"
+checksum = "5962523e1b92ce1b5e793d9169b9943eece10d39f62550bc04bb605d75b94924"
 dependencies = [
  "alloc-no-stdlib",
  "alloc-stdlib",
@@ -1343,9 +1343,9 @@ dependencies = [
 
 [[package]]
 name = "compact_str"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fdb1325a1cece981e8a296ab8f0f9b63ae357bd0784a9faaf548cc7b480707a"
+checksum = "9dfdd1c2274d9aa354115b09dc9a901d6c5576818cdf70d14cae2bdb47df00ab"
 dependencies = [
  "castaway",
  "cfg-if",
@@ -3215,6 +3215,8 @@ dependencies = [
  "eframe",
  "egui 0.31.1",
  "futures",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
  "getrandom 0.4.2",
  "gosub_config",
  "gosub_css3",
@@ -3255,27 +3257,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "winit",
-]
-
-[[package]]
-name = "gosub_cairo"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "cairo-rs",
- "cairo-sys-rs",
- "freetype-rs",
- "gosub_engine",
- "gosub_fontmanager",
- "gosub_interface",
- "gosub_render_pipeline",
- "gosub_shared",
- "gosub_svg",
- "image",
- "kurbo 0.13.1",
- "log",
- "peniko 0.6.0",
- "smallvec",
 ]
 
 [[package]]
@@ -3444,19 +3425,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gosub_instance"
-version = "0.1.0"
-dependencies = [
- "gosub_interface",
- "gosub_net",
- "gosub_shared",
- "gosub_web_platform",
- "log",
- "tokio",
- "url",
-]
-
-[[package]]
 name = "gosub_interface"
 version = "0.1.2"
 dependencies = [
@@ -3549,24 +3517,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gosub_renderer"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "gosub_fontmanager",
- "gosub_interface",
- "gosub_net",
- "gosub_rendering",
- "gosub_shared",
- "image",
- "log",
- "parking_lot",
- "url",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "gosub_renderer_cairo"
 version = "0.1.0"
 dependencies = [
@@ -3611,19 +3561,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gosub_rendering"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "cow-utils",
- "gosub_html5",
- "gosub_interface",
- "gosub_shared",
- "log",
- "rstar",
-]
-
-[[package]]
 name = "gosub_shared"
 version = "0.1.1"
 dependencies = [
@@ -3660,7 +3597,6 @@ dependencies = [
  "gosub_interface",
  "gosub_shared",
  "resvg",
- "tiny-skia 0.12.0",
 ]
 
 [[package]]
@@ -3689,31 +3625,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "v8",
-]
-
-[[package]]
-name = "gosub_vello"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "cow-utils",
- "futures",
- "gosub_engine",
- "gosub_fontmanager",
- "gosub_html5",
- "gosub_interface",
- "gosub_render_pipeline",
- "gosub_shared",
- "gosub_svg",
- "image",
- "log",
- "parking_lot",
- "raw-window-handle",
- "skrifa 0.42.1",
- "smallvec",
- "vello 0.8.0",
- "vello_encoding 0.8.0",
- "vello_svg",
 ]
 
 [[package]]
@@ -6968,7 +6879,7 @@ dependencies = [
  "rgb",
  "svgtypes",
  "tiny-skia 0.12.0",
- "usvg 0.47.0",
+ "usvg",
  "zune-jpeg",
 ]
 
@@ -8677,33 +8588,6 @@ dependencies = [
 
 [[package]]
 name = "usvg"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e419dff010bb12512b0ae9e3d2f318dfbdf0167fde7eb05465134d4e8756076f"
-dependencies = [
- "base64 0.22.1",
- "data-url",
- "flate2",
- "fontdb",
- "imagesize",
- "kurbo 0.13.1",
- "log",
- "pico-args",
- "roxmltree 0.21.1",
- "rustybuzz",
- "simplecss",
- "siphasher",
- "strict-num",
- "svgtypes",
- "tiny-skia-path 0.11.4",
- "unicode-bidi",
- "unicode-script",
- "unicode-vo",
- "xmlwriter",
-]
-
-[[package]]
-name = "usvg"
 version = "0.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d46cf96c5f498d36b7a9693bc6a7075c0bb9303189d61b2249b0dc3d309c07de"
@@ -8816,22 +8700,6 @@ dependencies = [
 
 [[package]]
 name = "vello"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72fef40773530322d5c2ffe3c1107e9874bd8239ac137d1c2b6c1edad695146e"
-dependencies = [
- "bytemuck",
- "log",
- "peniko 0.6.0",
- "png 0.17.16",
- "skrifa 0.40.0",
- "static_assertions",
- "thiserror 2.0.18",
- "vello_encoding 0.7.0",
-]
-
-[[package]]
-name = "vello"
 version = "0.8.0"
 source = "git+https://github.com/linebender/vello?rev=1b24e77ba4e01d12f5db86a9b1b5f2cf828a6a33#1b24e77ba4e01d12f5db86a9b1b5f2cf828a6a33"
 dependencies = [
@@ -8889,19 +8757,6 @@ dependencies = [
 
 [[package]]
 name = "vello_encoding"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24c91203ec4b483440614a9a5c7c2d991932af72c5349659a63ec49476f0b79c"
-dependencies = [
- "bytemuck",
- "guillotiere 0.6.2",
- "peniko 0.6.0",
- "skrifa 0.40.0",
- "smallvec",
-]
-
-[[package]]
-name = "vello_encoding"
 version = "0.8.0"
 source = "git+https://github.com/linebender/vello?rev=1b24e77ba4e01d12f5db86a9b1b5f2cf828a6a33#1b24e77ba4e01d12f5db86a9b1b5f2cf828a6a33"
 dependencies = [
@@ -8934,18 +8789,6 @@ dependencies = [
  "naga 29.0.3",
  "thiserror 2.0.18",
  "vello_encoding 0.8.0",
-]
-
-[[package]]
-name = "vello_svg"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79dfa03829a8fb45ad458a05bd533d399d2259d042cdd78f391b290dbbdf1bd3"
-dependencies = [
- "image",
- "thiserror 2.0.18",
- "usvg 0.46.0",
- "vello 0.7.0",
 ]
 
 [[package]]

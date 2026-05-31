@@ -5,11 +5,8 @@ use gosub_interface::document::Document;
 use gosub_shared::node::NodeId;
 use gosub_shared::types::Result;
 
-#[cfg(feature = "resvg")]
-pub mod resvg;
-
 pub struct SVGDocument {
-    tree: usvg::Tree,
+    pub tree: usvg::Tree,
 }
 
 impl SVGDocument {

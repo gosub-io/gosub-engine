@@ -560,7 +560,7 @@ impl TabWorker {
         let parent_cancel_clone = parent_cancel.clone();
 
         // Spawn the actual fetcher into a seperate task
-        tokio::spawn(async move {
+        spawn_named("tab-fetcher", async move {
             let _enter = span.enter();
 
             let submit = submit_to_io(zone_id, req.clone(), io_tx.clone(), Some(parent_cancel_clone.clone())).await;

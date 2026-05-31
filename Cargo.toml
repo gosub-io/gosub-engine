@@ -74,22 +74,12 @@ harness = false
 [dependencies]
 gosub_interface = { version = "0.1.1", path = "./crates/gosub_interface", features = [], registry = "gosub" }
 gosub_shared = { version = "0.1.1", path = "./crates/gosub_shared", features = [], registry = "gosub" }
-gosub_config = { version = "0.1.1", path = "./crates/gosub_config", features = [], registry = "gosub" }
 gosub_html5 = { version = "0.1.1", path = "./crates/gosub_html5", features = [], registry = "gosub" }
 gosub_css3 = { version = "0.1.1", path = "./crates/gosub_css3", features = [], registry = "gosub" }
-gosub_jsapi = { version = "0.1.1", path = "./crates/gosub_jsapi", features = [], registry = "gosub" }
-gosub_taffy = { version = "0.1.1", path = "./crates/gosub_taffy", features = [], registry = "gosub" }
-gosub_net = { version = "0.1.1", path = "./crates/gosub_net", features = [], registry = "gosub" }
-gosub_fontmanager = { version = "0.1.0", path = "./crates/gosub_fontmanager", registry = "gosub" }
 # Dependencies are needed for gosub_engine itself, and some of the binaries in src/bin.
-cookie = { version = "0.18.1", features = ["secure", "private"] }
-url = "2.5.8"
-clap = { version = "4.6.0", features = ["derive"] }
 anyhow = "1.0.102"
-derive_more = "2.1.1"
-simple_logger = "5.2.0"
+url = "2.5.8"
 log = "0.4.29"
-walkdir = "2.5.0"
 
 # Dependencies for testing and development. Also used for some of the examples (like the gtk/vello renderer).
 [dev-dependencies]
@@ -133,19 +123,38 @@ metrics = ["gosub_engine/metrics"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3.91"
-web-sys = "0.3.91"
+web-sys = { version = "0.3.91", features = ["HtmlCanvasElement", "Window", "Document", "Element"] }
 console_log = "1.0.0"
 console_error_panic_hook = "0.1.7"
 wasm-bindgen-futures = "0.4.64"
 wasm-bindgen = "0.2.114"
-getrandom = "0.4.2"
+getrandom = { version = "0.4.2", features = ["wasm_js"] }
+# Enable the 'js' feature on getrandom 0.2/0.3 pulled in transitively (e.g. via uuid, rand).
+# The renamed aliases force Cargo to merge features on those resolved versions.
+getrandom_v02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom_v03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+# No default features on WASM: excludes sqlite_cookie_store (needs C SQLite) and parley_layout (needs freetype).
+gosub_engine = { path = "./crates/gosub_engine", default-features = false, features = ["backend_vello"] }
+gosub_render_pipeline = { path = "./crates/gosub_render_pipeline", features = ["backend_vello"] }
+gosub_shared = { version = "0.1.1", path = "./crates/gosub_shared", registry = "gosub" }
+parking_lot = "0.12"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gosub_v8 = { version = "0.1.1", path = "./crates/gosub_v8", features = [], registry = "gosub" }
 gosub_webexecutor = { version = "0.1.1", path = "./crates/gosub_webexecutor", features = [], registry = "gosub" }
+gosub_config = { version = "0.1.1", path = "./crates/gosub_config", features = [], registry = "gosub" }
+gosub_jsapi = { version = "0.1.1", path = "./crates/gosub_jsapi", features = [], registry = "gosub" }
+gosub_taffy = { version = "0.1.1", path = "./crates/gosub_taffy", features = [], registry = "gosub" }
+gosub_net = { version = "0.1.1", path = "./crates/gosub_net", features = [], registry = "gosub" }
 futures = "0.3.32"
+cookie = { version = "0.18.1", features = ["secure", "private"] }
+clap = { version = "4.6.0", features = ["derive"] }
+derive_more = "2.1.1"
+simple_logger = "5.2.0"
+walkdir = "2.5.0"
 
 [target.'cfg(unix)'.dependencies]
+gosub_fontmanager = { version = "0.1.0", path = "./crates/gosub_fontmanager", registry = "gosub" }
 
 [target.'cfg(unix)'.dev-dependencies]
 gtk4 = "0.11.1"

@@ -1,4 +1,4 @@
-use crate::config::{HasDocument, HasRenderTree};
+use crate::config::HasDocument;
 use gosub_shared::async_executor::WasmNotSend;
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
@@ -36,8 +36,6 @@ pub trait CssSystem: Clone + Debug + 'static {
         id: NodeId,
         sheets: &[Self::Stylesheet],
     ) -> Option<Self::PropertyMap>;
-
-    fn inheritance<C: HasRenderTree<CssSystem = Self>>(tree: &mut C::RenderTree);
 
     fn load_default_useragent_stylesheet() -> Self::Stylesheet;
 }

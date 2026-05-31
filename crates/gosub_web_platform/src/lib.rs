@@ -3,9 +3,7 @@ extern crate core;
 use crate::callback::{FutureExecutor, TokioExecutor};
 use crate::event_listeners::{EventListeners, Listeners};
 use crate::timers::WebTimers;
-use gosub_interface::config::HasWebComponents;
 use gosub_interface::input::InputEvent;
-use gosub_interface::instance::Handles;
 use gosub_shared::types::Result;
 use std::thread;
 use tokio::runtime::{Handle, Runtime};
@@ -18,19 +16,19 @@ pub mod poll_guard;
 #[allow(dead_code)]
 mod timers;
 
-/// The web event loop, this will be the main event loop for a JS or Lua runtime, it is directly tied to an instance's `EventLoop`
+/// The web event loop for a JS or Lua runtime. Previously generic over `HasWebComponents`;
+/// the rendering/chrome handles now live outside this crate.
 #[allow(unused)]
-pub struct WebEventLoop<C: HasWebComponents, E: FutureExecutor = TokioExecutor> {
+pub struct WebEventLoop<E: FutureExecutor = TokioExecutor> {
     listeners: EventListeners<E>,
     rt: Handle,
-    handles: Handles<C>,
     rx: Receiver<WebEventLoopMessage>,
     irx: Receiver<LocalEventLoopMessage<E>>,
     itx: Sender<LocalEventLoopMessage<E>>,
     timers: WebTimers,
 }
 
-/// Handle to the event loop, this can be used to spawn tasks or send messages to the event loop
+/// Handle to the event loop — use to spawn tasks or send messages.
 pub struct WebEventLoopHandle {
     pub rt: Handle,
     pub tx: Sender<WebEventLoopMessage>,
@@ -45,27 +43,22 @@ pub enum LocalEventLoopMessage<E: FutureExecutor> {
     AddListener(Listeners<E>),
 }
 
-impl<C: HasWebComponents> WebEventLoop<C> {
-    /// Create a new `WebEventLoop` on a new thead, returning the handle to the event loop
-    pub fn new_on_thread(handles: Handles<C>) -> Result<WebEventLoopHandle> {
+impl WebEventLoop {
+    pub fn new_on_thread() -> Result<WebEventLoopHandle> {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-
         let handle = rt.handle().clone();
-
         let (tx, rx) = tokio::sync::mpsc::channel(100);
 
         thread::spawn(|| {
             let (itx, irx) = tokio::sync::mpsc::channel(100);
             let mut el = WebEventLoop {
                 listeners: EventListeners::default(),
-                handles,
                 rt: rt.handle().clone(),
                 irx,
                 itx,
                 rx,
                 timers: WebTimers::new(),
             };
-
             el.run(rt, TokioExecutor);
         });
 
@@ -73,7 +66,7 @@ impl<C: HasWebComponents> WebEventLoop<C> {
     }
 }
 
-impl<C: HasWebComponents, E: FutureExecutor> WebEventLoop<C, E> {
+impl<E: FutureExecutor> WebEventLoop<E> {
     pub fn run(&mut self, rt: Runtime, mut e: E) {
         let set = LocalSet::new();
 
@@ -81,16 +74,11 @@ impl<C: HasWebComponents, E: FutureExecutor> WebEventLoop<C, E> {
             loop {
                 tokio::select! {
                     val = self.rx.recv() => {
-                        let Some(msg) = val else {
-                            break;
-                        };
+                        let Some(msg) = val else { break; };
                         self.handle_message(msg, &mut e);
                     }
-
                     val = self.irx.recv() => {
-                        let Some(msg) = val else {
-                            break;
-                        };
+                        let Some(msg) = val else { break; };
                         self.handle_local_message(msg);
                     }
                 }
