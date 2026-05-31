@@ -19,7 +19,7 @@ anyhow = "1.0"
 cow-utils = "0.1"
 parking_lot = "0.12"
 
-cairo-rs = { version = "0.22", features = ["use_glib"] }
+cairo-rs = { version = "0.22" }
 gtk4 = { version = "0.11.1", optional = true }
 pangocairo = { version = "0.22", optional = true }
 

@@ -2,12 +2,12 @@
 //! saves the result as a PNG without opening a window.
 //!
 //! Usage:
-//!   cargo run --example pipeline-screenshot -- <url> [output.png] [width]
+//!   cargo run -p example-pipeline-screenshot -- <url> [output.png] [width]
 //!
 //! width defaults to 1280. Height is determined automatically from the full page content.
 //! Maximum captured page height is 16384 px (safety cap).
 //!
-//! If no display is available (e.g. CI), set GDK_BACKEND=offscreen before running.
+//! No display server required — uses Cairo in software rendering mode.
 
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
@@ -58,10 +58,6 @@ fn main() {
         format!("https://{url_str}")
     };
     let url = Url::parse(&url_str).expect("invalid URL");
-
-    // GTK must be initialised before pango can measure fonts. No window is created.
-    // On headless systems set GDK_BACKEND=offscreen.
-    gosub_engine::init_gtk_resources();
 
     let _rt_guard = TOKIO_RT.enter();
 
