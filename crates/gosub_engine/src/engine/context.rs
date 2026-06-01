@@ -252,6 +252,32 @@ impl BrowsingContext {
     /// Two paths:
     /// - **Full pipeline** (`render_dirty`): runs stages 1–6 for the whole page, caches tiles,
     ///   then composites. Triggered by navigation, DOM/style changes, or viewport resize.
+    /// Rebuild stages 1-6 (pipeline cache) if content has changed, without building a display
+    /// list. Used by TileCache backends (Cairo, Skia, Vello) which composite tiles directly
+    /// on the host thread and never consume the render list.
+    #[cfg(feature = "pipeline")]
+    pub fn rebuild_pipeline_cache_if_needed(&mut self) {
+        if !self.render_dirty && !self.scroll_dirty {
+            return;
+        }
+        if self.render_dirty {
+            if let Some(doc) = &self.document {
+                self.pipeline_cache = Some(pipeline_build_cache(
+                    doc.clone(),
+                    &self.viewport,
+                    #[cfg(feature = "backend_vello")]
+                    self.vello_resources.clone(),
+                ));
+            }
+            self.render_dirty = false;
+            self.dom_dirty = false;
+            self.style_dirty = false;
+            self.layout_dirty = false;
+        }
+        self.scroll_dirty = false;
+        self.scene_epoch = self.scene_epoch.wrapping_add(1);
+    }
+
     /// - **Scroll composite** (`scroll_dirty`): re-composites visible tiles from the cache with
     ///   the new scroll offset. No layout or rasterization work.
     pub fn rebuild_render_list_if_needed(&mut self) {

@@ -1,6 +1,6 @@
 use crate::engine::errors::NavigationError;
 use crate::engine::events::{EngineEvent, NavigationEvent, TabInternalCommand};
-use crate::engine::pipeline::Hooks;
+use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
 use crate::events::{IoCommand, TabCommand};
@@ -609,7 +609,7 @@ impl TabWorker {
                 allow_download_without_user_activation: false,
             };
 
-            let mut hooks = Hooks::new(zone_id, io_tx.clone());
+            let mut hooks = ResourcePipelines::new(zone_id, io_tx.clone());
 
             let outcome = route_response_for(
                 RequestDestination::Document,
@@ -744,9 +744,9 @@ impl TabWorker {
                 return Ok(());
             }
 
-            // Full render: rebuild stages 1-6 if dirty, then submit TileCache directly.
+            // Full render: rebuild stages 1-6 only (no display list), then submit TileCache.
             self.context.set_viewport(self.desired_viewport);
-            self.context.rebuild_render_list_if_needed();
+            self.context.rebuild_pipeline_cache_if_needed();
             let scene_epoch = self.context.scene_epoch();
             if let Some(handle) = self.context.tile_cache_handle(dpr) {
                 self.runtime.committed_scene_epoch = scene_epoch;
@@ -770,7 +770,7 @@ impl TabWorker {
             }
 
             self.context.set_viewport(self.desired_viewport);
-            self.context.rebuild_render_list_if_needed();
+            self.context.rebuild_pipeline_cache_if_needed();
             let scene_epoch = self.context.scene_epoch();
             if let Some(handle) = self.context.tile_cache_handle(1) {
                 self.runtime.committed_scene_epoch = scene_epoch;
