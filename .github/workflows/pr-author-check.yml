@@ -73,7 +73,7 @@ jobs:
 
       - name: Remove notice comment (all authors found)
         if: steps.author_check.outputs.missing == 'false' && steps.fc.outputs.comment-id != ''
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             github.rest.issues.deleteComment({
