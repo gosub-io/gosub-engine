@@ -5,8 +5,8 @@ use crate::render::render_context::RenderContext;
 use crate::render::render_list::DisplayItem;
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
-use skia_safe::gpu::{Budgeted, DirectContext, SurfaceOrigin};
-use skia_safe::{Color4f, Font, FontMgr, FontStyle, ImageInfo, Paint, Rect, Surface};
+use skia_safe::gpu::DirectContext;
+use skia_safe::{Color4f, Font, FontMgr, FontStyle, ImageInfo, Paint, Rect};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -26,12 +26,15 @@ pub trait GlContextProvider: Send + Sync {
 ///
 /// SAFETY: `GlContextProvider::make_current()` is called before every GPU operation,
 /// ensuring the GL context is current on whichever thread the engine uses.
+#[allow(dead_code)]
 struct SendDirectContext(DirectContext);
 unsafe impl Send for SendDirectContext {}
 unsafe impl Sync for SendDirectContext {}
 
 pub struct SkiaGpuBackend<C: GlContextProvider> {
+    #[allow(dead_code)]
     context: Arc<C>,
+    #[allow(dead_code)]
     direct_context: Mutex<SendDirectContext>,
 }
 
@@ -44,7 +47,7 @@ impl<C: GlContextProvider> SkiaGpuBackend<C> {
         })
         .ok_or_else(|| anyhow!("Failed to create Skia GL interface — no GL functions found"))?;
 
-        let direct_context = DirectContext::new_gl(interface, None)
+        let direct_context = skia_safe::gpu::direct_contexts::make_gl(interface, None)
             .ok_or_else(|| anyhow!("Failed to create Skia GL DirectContext — GL context must be current"))?;
 
         Ok(Self {

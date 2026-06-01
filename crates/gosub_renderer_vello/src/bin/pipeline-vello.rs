@@ -409,7 +409,7 @@ fn do_paint(layer_id: LayerId, browser_state: &Arc<RwLock<BrowserState>>) {
 fn do_rasterize(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    renderer: Rc<RefCell<Renderer>>,
+    _renderer: Rc<RefCell<Renderer>>,
     layer_id: LayerId,
     browser_state: &Arc<RwLock<BrowserState>>,
     texture_store: &Arc<RwLock<TextureStore>>,

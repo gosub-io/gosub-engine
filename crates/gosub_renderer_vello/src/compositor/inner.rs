@@ -48,7 +48,7 @@ pub fn compose_layer(scene: &mut vello::Scene, layer_id: LayerId, state: &Browse
         };
 
         let surface = ImageData {
-            data: Blob::from(texture.data.clone()),
+            data: Blob::from((*texture.data).clone()),
             format: ImageFormat::Rgba8,
             alpha_type: ImageAlphaType::AlphaPremultiplied,
             width: texture.width as u32,

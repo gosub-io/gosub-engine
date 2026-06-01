@@ -129,7 +129,7 @@ impl GpuState {
     fn new(
         event_loop: &ActiveEventLoop,
         device: &Arc<wgpu::Device>,
-        queue: &Arc<wgpu::Queue>,
+        _queue: &Arc<wgpu::Queue>,
         adapter: &wgpu::Adapter,
         instance: &wgpu::Instance,
         initial_size: (u32, u32),
@@ -344,7 +344,7 @@ struct BrowserApp {
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
-    proxy: EventLoopProxy<()>,
+    #[allow(dead_code)] proxy: EventLoopProxy<()>,
 
     // UI state
     url_input: String,

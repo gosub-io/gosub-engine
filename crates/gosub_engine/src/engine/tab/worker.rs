@@ -710,6 +710,7 @@ impl TabWorker {
     }
 
     /// Do a draw tick. This will be called based on the FPS that is requested
+    #[allow(unreachable_code)]
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
         // Skip rendering when nothing has changed to avoid burning CPU at the tick rate.
         if !self.runtime.dirty {

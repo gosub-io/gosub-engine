@@ -51,6 +51,7 @@ struct BrowserApp {
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
+    #[allow(dead_code)]
     proxy: EventLoopProxy<()>,
 
     // Window / surface — created on `resumed`.
@@ -113,7 +114,7 @@ impl BrowserApp {
     }
 
     fn redraw(&mut self) {
-        let Some(window) = &self.window else { return };
+        let Some(_window) = &self.window else { return };
         let Some(surface) = &mut self.surface else { return };
 
         let (win_w, win_h) = self.surface_size;
