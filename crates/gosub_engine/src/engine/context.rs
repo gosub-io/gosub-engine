@@ -590,123 +590,99 @@ fn pipeline_build_cache(
     );
 
     // Stage 6: rasterize ALL tiles → collect into BakedTile vec.
-    #[cfg(feature = "backend_cairo")]
-    let baked_tiles = {
-        use gosub_render_pipeline::common::media::MediaStore;
-        use gosub_render_pipeline::common::texture_store::TextureStore;
-        use gosub_render_pipeline::rasterizer::Rasterable;
-        use gosub_renderer_cairo::CairoRasterizer;
+    //
+    // Cairo and Skia rasterize tiles independently (no shared GPU state), so we use
+    // rayon to spread the work across all available CPU cores.  Each worker gets its
+    // own temporary TextureStore so there is zero shared mutable state in the hot loop.
+    //
+    // Three phases:
+    //   1. Collect IDs of dirty tiles (sequential — cheap iteration).
+    //   2. Rasterize each tile in parallel → Option<BakedTile>.
+    //   3. Update tile states and gather results (sequential — trivial).
+    //
+    // Vello stays sequential because all tiles share a Mutex<Renderer>; batching
+    // (not parallelism) is the fix there.
+    #[cfg(any(feature = "backend_cairo", feature = "backend_skia"))]
+    macro_rules! rasterize_parallel {
+        ($rasterizer:expr, $label:literal) => {{
+            use gosub_render_pipeline::common::media::MediaStore;
+            use gosub_render_pipeline::common::texture_store::TextureStore;
+            use gosub_render_pipeline::rasterizer::Rasterable;
+            use rayon::prelude::*;
 
-        let t = Instant::now();
-        let ts6 = timing_start!("pipeline.rasterize");
-        let media_store = MediaStore::new();
-        let mut texture_store = TextureStore::new();
-        let rasterizer = CairoRasterizer::new();
-        let mut rasterized = 0usize;
-        let mut empty = 0usize;
-        for &layer_id in &layer_ids {
-            let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
-            for tile_id in tile_ids {
-                if let Some(tile) = tile_list.get_tile_mut(tile_id) {
-                    if tile.state == TileState::Dirty {
-                        match rasterizer.rasterize(tile, &mut texture_store, &media_store) {
-                            Some(texture_id) => {
-                                tile.texture_id = Some(texture_id);
-                                tile.state = TileState::Clean;
-                                rasterized += 1;
-                            }
-                            None => {
-                                tile.state = TileState::Empty;
-                                empty += 1;
-                            }
+            let t = Instant::now();
+            let ts6 = timing_start!("pipeline.rasterize");
+            let media_store = MediaStore::new();
+            let rasterizer = $rasterizer;
+
+            // Phase 1: collect IDs of dirty tiles across all layers.
+            let dirty_ids: Vec<TileId> = layer_ids
+                .iter()
+                .flat_map(|&layer_id| tile_list.get_intersecting_tiles(layer_id, full_page_rect))
+                .filter(|&id| tile_list.arena.get(&id).map_or(false, |t| t.state == TileState::Dirty))
+                .collect();
+
+            // Phase 2: parallel rasterization — no shared mutable state.
+            let results: Vec<(TileId, Option<BakedTile>)> = dirty_ids
+                .par_iter()
+                .map(|&tile_id| {
+                    let baked = tile_list.arena.get(&tile_id).and_then(|tile| {
+                        let mut local_store = TextureStore::new();
+                        let tex_id = rasterizer.rasterize(tile, &mut local_store, &media_store)?;
+                        let tex = local_store.get(tex_id)?;
+                        Some(BakedTile {
+                            page_x: tile.rect.x,
+                            page_y: tile.rect.y,
+                            width: tex.width as u32,
+                            height: tex.height as u32,
+                            data: Arc::clone(&tex.data),
+                        })
+                    });
+                    (tile_id, baked)
+                })
+                .collect();
+
+            // Phase 3: update tile states and gather BakedTiles (sequential).
+            let mut rasterized = 0usize;
+            let mut empty = 0usize;
+            let mut tiles: Vec<BakedTile> = Vec::with_capacity(results.len());
+            for (tile_id, baked) in results {
+                if let Some(tile) = tile_list.arena.get_mut(&tile_id) {
+                    match baked {
+                        Some(b) => {
+                            tile.state = TileState::Clean;
+                            tiles.push(b);
+                            rasterized += 1;
+                        }
+                        None => {
+                            tile.state = TileState::Empty;
+                            empty += 1;
                         }
                     }
                 }
             }
-        }
-        timing_stop!(ts6);
-        log::info!(
-            "[pipeline] stage 6 rasterize:     {:>6.1}ms  ({} clean, {} empty)",
-            t.elapsed().as_secs_f64() * 1000.0,
-            rasterized,
-            empty
-        );
 
-        // Collect all clean tiles into BakedTile structs.
-        let mut tiles: Vec<BakedTile> = Vec::with_capacity(rasterized);
-        for tile in tile_list.arena.values() {
-            if let (Some(texture_id), true) = (tile.texture_id, tile.state == TileState::Clean) {
-                if let Some(tex) = texture_store.get(texture_id) {
-                    tiles.push(BakedTile {
-                        page_x: tile.rect.x,
-                        page_y: tile.rect.y,
-                        width: tex.width as u32,
-                        height: tex.height as u32,
-                        data: Arc::clone(&tex.data),
-                    });
-                }
-            }
-        }
-        tiles
+            timing_stop!(ts6);
+            log::info!(
+                concat!("[pipeline] stage 6 rasterize ", $label, " {:>6.1}ms  ({} clean, {} empty)"),
+                t.elapsed().as_secs_f64() * 1000.0,
+                rasterized,
+                empty
+            );
+            tiles
+        }};
+    }
+
+    #[cfg(feature = "backend_cairo")]
+    let baked_tiles = {
+        use gosub_renderer_cairo::CairoRasterizer;
+        rasterize_parallel!(CairoRasterizer::new(), "(cairo):    ")
     };
 
     #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
     let baked_tiles = {
-        use gosub_render_pipeline::common::media::MediaStore;
-        use gosub_render_pipeline::common::texture_store::TextureStore;
-        use gosub_render_pipeline::rasterizer::Rasterable;
         use gosub_renderer_skia::SkiaRasterizer;
-
-        let t = Instant::now();
-        let ts6 = timing_start!("pipeline.rasterize");
-        let media_store = MediaStore::new();
-        let mut texture_store = TextureStore::new();
-        let rasterizer = SkiaRasterizer::new(1.0);
-        let mut rasterized = 0usize;
-        let mut empty = 0usize;
-        for &layer_id in &layer_ids {
-            let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
-            for tile_id in tile_ids {
-                if let Some(tile) = tile_list.get_tile_mut(tile_id) {
-                    if tile.state == TileState::Dirty {
-                        match rasterizer.rasterize(tile, &mut texture_store, &media_store) {
-                            Some(texture_id) => {
-                                tile.texture_id = Some(texture_id);
-                                tile.state = TileState::Clean;
-                                rasterized += 1;
-                            }
-                            None => {
-                                tile.state = TileState::Empty;
-                                empty += 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        timing_stop!(ts6);
-        log::info!(
-            "[pipeline] stage 6 rasterize (skia): {:>6.1}ms  ({} clean, {} empty)",
-            t.elapsed().as_secs_f64() * 1000.0,
-            rasterized,
-            empty
-        );
-
-        let mut tiles: Vec<BakedTile> = Vec::with_capacity(rasterized);
-        for tile in tile_list.arena.values() {
-            if let (Some(texture_id), true) = (tile.texture_id, tile.state == TileState::Clean) {
-                if let Some(tex) = texture_store.get(texture_id) {
-                    tiles.push(BakedTile {
-                        page_x: tile.rect.x,
-                        page_y: tile.rect.y,
-                        width: tex.width as u32,
-                        height: tex.height as u32,
-                        data: Arc::clone(&tex.data),
-                    });
-                }
-            }
-        }
-        tiles
+        rasterize_parallel!(SkiaRasterizer::new(1.0), "(skia):     ")
     };
 
     #[cfg(all(feature = "backend_vello", not(feature = "backend_cairo"), not(feature = "backend_skia")))]
