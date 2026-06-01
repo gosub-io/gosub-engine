@@ -29,7 +29,7 @@ impl TextureStore {
             id: self.next_id(),
             width,
             height,
-            data,
+            data: std::sync::Arc::new(data),
         };
 
         let id = texture.id;
