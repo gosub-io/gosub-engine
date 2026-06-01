@@ -930,7 +930,7 @@ fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
 fn pipeline_build_cache(
     doc: Arc<EngineDocument>,
     viewport: &Viewport,
-    #[cfg(feature = "backend_vello")] _vello_resources: Option<
+    #[cfg(feature = "backend_vello")] vello_resources: Option<
         std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
     >,
     prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)>,
@@ -1215,7 +1215,7 @@ fn pipeline_build_cache(
         let mut rasterized = 0usize;
         let mut empty = 0usize;
 
-        let tiles = if let Some(ref resources) = _vello_resources {
+        let tiles = if let Some(ref resources) = vello_resources {
             let rasterizer = VelloRasterizer::new(std::sync::Arc::clone(resources));
             for &layer_id in &layer_ids {
                 let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
