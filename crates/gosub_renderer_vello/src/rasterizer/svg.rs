@@ -2,7 +2,7 @@ use gosub_render_pipeline::common::media::{MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
 use resvg::usvg::Transform;
 use vello::kurbo::Affine;
-use vello::peniko::{Blob, ImageFormat};
+use vello::peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
 
 pub(crate) fn do_paint_svg(
     scene: &mut vello::Scene,
@@ -19,14 +19,14 @@ pub(crate) fn do_paint_svg(
     {
         let cached = media.svg.rendered.read();
         if cached.dimension == target_dim && !cached.data.is_empty() {
-            let data = Blob::from(cached.data.clone());
-            let vello_img = vello::peniko::Image::new(
-                data,
-                ImageFormat::Rgba8,
-                cached.dimension.width as u32,
-                cached.dimension.height as u32,
-            );
-            scene.draw_image(&vello_img, affine);
+            let image = ImageData {
+                data: Blob::from(cached.data.clone()),
+                format: ImageFormat::Rgba8,
+                alpha_type: ImageAlphaType::AlphaPremultiplied,
+                width: cached.dimension.width as u32,
+                height: cached.dimension.height as u32,
+            };
+            scene.draw_image(&image, affine);
             return;
         }
     }
@@ -37,32 +37,22 @@ pub(crate) fn do_paint_svg(
     let scale_x = target_w as f32 / intrinsic.width().max(1) as f32;
     let scale_y = target_h as f32 / intrinsic.height().max(1) as f32;
     let Some(mut pixmap) = resvg::tiny_skia::Pixmap::new(target_w, target_h) else {
-        log::error!(
-            "Failed to allocate pixmap for SVG {:?} ({}x{})",
-            media_id,
-            target_w,
-            target_h
-        );
+        log::error!("Failed to allocate pixmap for SVG {:?} ({}x{})", media_id, target_w, target_h);
         return;
     };
-    resvg::render(
-        &media.svg.tree,
-        Transform::from_scale(scale_x, scale_y),
-        &mut pixmap.as_mut(),
-    );
+    resvg::render(&media.svg.tree, Transform::from_scale(scale_x, scale_y), &mut pixmap.as_mut());
     let new_data = pixmap.data().to_vec();
 
     let mut cached = media.svg.rendered.write();
     cached.data = new_data;
     cached.dimension = target_dim;
 
-    let data = Blob::from(cached.data.clone());
-    let vello_img = vello::peniko::Image::new(
-        data,
-        ImageFormat::Rgba8,
-        cached.dimension.width as u32,
-        cached.dimension.height as u32,
-    );
-
-    scene.draw_image(&vello_img, affine);
+    let image = ImageData {
+        data: Blob::from(cached.data.clone()),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::AlphaPremultiplied,
+        width: cached.dimension.width as u32,
+        height: cached.dimension.height as u32,
+    };
+    scene.draw_image(&image, affine);
 }

@@ -1,24 +1,87 @@
 # Render Backends
 
-A render backend is responsible for consuming the `RenderList` produced by
-Stage 7 and drawing it to a visible surface (a window, an off-screen buffer, or
-a PNG file).
+A render backend turns the engine's output into pixels on screen. There are two distinct compositing paths:
 
-Backends are **decoupled from the pipeline**: they see only `DisplayItem` enums
-and have no knowledge of tiles, textures, or paint commands.
+## Compositing paths
+
+### Display-list path
+
+Stage 7 (`pipeline_composite`) assembles visible tiles into a `RenderList` of `DisplayItem::Blit` entries. The engine calls `render_backend.render()` which processes that list and writes pixels into an off-screen surface. `external_handle()` then returns a `CpuPixelsOwned` (or similar) handle that the host reads back to display.
+
+**Used by:** Cairo (always), Vello.
+
+### TileCache path
+
+Stage 7 is bypassed entirely. After stages 1–6 build the `PipelineCache`, the engine calls `tile_cache_handle()` and submits an `ExternalHandle::TileCache` directly to the compositor. `RenderBackend::render()` is **never called**. The host window thread receives a list of `Arc<Vec<u8>>` tiles and composites them itself — in a GTK draw callback, a winit softbuffer blit loop, or a GPU canvas on the main GL thread.
+
+**Used by:** all Skia backends (always, regardless of display-list backend also being wired up).
+
+### Scroll-only fast path (Cairo and Skia)
+
+When only the scroll offset changed (no content or layout change), `take_scroll_handle()` returns a `TileCache` immediately without rebuilding any pipeline stage. This eliminates up to 33 ms of render latency at 30 fps and is available for both Cairo and Skia backends.
+
+### Note on `SkiaBackend::render()`
+
+`SkiaBackend` (in `render/backends/skia.rs`) is wired up as the `RenderBackend` in all Skia examples and does implement `render()` against the display list. However, when `pipeline + backend_skia` are both active, `tick_draw` returns early via the TileCache path and never reaches `render_backend.render()`. `SkiaBackend::render()` is therefore dead code in normal operation — it exists as a fallback for non-pipeline builds or future headless snapshot use.
+
+---
+
+## ExternalHandle
+
+`ExternalHandle` is the typed envelope that the compositor hands to the host window thread. The host pattern-matches on it to decide how to draw.
+
+```rust
+pub enum ExternalHandle {
+    NullHandle        { width, height, frame_id },
+    CpuPixelsOwned    { width, height, stride, pixels: Vec<u8>, format: PixelFormat },
+    CpuPixelsPtr      { width, height, stride, pixel_buf: NonNull<u8> },
+    TileCache         { viewport_width, viewport_height, dpr,
+                        scroll_x, scroll_y, page_height,
+                        tiles: Arc<Vec<CachedTile>> },
+    GlTexture         { tex, target, width, height, frame_id },
+    WgpuTextureId     { id, width, height, format, frame_id },
+    SkiaImageId       { id, width, height, frame_id },
+    GlFramebufferRendered { frame_id },
+}
+```
+
+### CachedTile
+
+```rust
+pub struct CachedTile {
+    pub page_x:  f32,      // tile origin in page space (CSS pixels)
+    pub page_y:  f32,
+    pub width:   u32,      // tile physical pixel width
+    pub height:  u32,
+    pub data:    Arc<Vec<u8>>,   // premultiplied BGRA32, stride = width × 4
+}
+```
+
+`Arc` ownership lets the host thread hold tiles across frames with zero copies, even while the engine is building the next cache.
+
+### TileCache scroll fields
+
+`scroll_x` / `scroll_y` in `TileCache` record the engine's scroll offset at the time the handle was created. The host uses them to compute screen positions:
+
+```
+screen_x = tile.page_x - scroll_x
+screen_y = tile.page_y - scroll_y
+```
+
+Tiles outside `[0, viewport_width) × [0, viewport_height)` after this transform should be culled before drawing.
 
 ---
 
 ## The `RenderBackend` trait
 
-**File:** `crates/gosub_engine/src/render/backend.rs`
+**File:** `crates/gosub_render_pipeline/src/render/backend.rs`
 
 ```rust
-pub trait RenderBackend {
+pub trait RenderBackend: Send {
     fn name(&self) -> &'static str;
     fn create_surface(&self, size: SurfaceSize, present: PresentMode)
         -> Result<Box<dyn ErasedSurface + Send>>;
-    fn render(&self, ctx: &mut BrowsingContext, surface: &mut dyn ErasedSurface)
+    fn render(&self, ctx: &mut dyn RenderContext, surface: &mut dyn ErasedSurface)
         -> Result<()>;
     fn snapshot(&self, surface: &mut dyn ErasedSurface, max_dim: u32)
         -> Result<RgbaImage>;
@@ -27,109 +90,201 @@ pub trait RenderBackend {
 }
 ```
 
-`render()` reads `ctx.render_list()` and draws each `DisplayItem` onto the
-`ErasedSurface`. After drawing, the surface can be presented to a window or
-read back via `snapshot()`.
+`render()` reads `ctx.render_list()` and draws each `DisplayItem` onto the `ErasedSurface`. When the pipeline is in TileCache mode (Skia path) this method is never called.
 
 ---
 
 ## Cairo backend
 
-**Crate:** `crates/gosub_cairo/`  
+**Crate:** `crates/gosub_renderer_cairo`  
+**File:** `crates/gosub_render_pipeline/src/render/backends/cairo.rs`  
 **Feature:** `backend_cairo`  
-**Surface type:** `OffscreenCairoSurface` (CPU, ARgb32 pixel buffer)
+**Surface format:** premultiplied ARgb32 (= BGRA8888 on little-endian)
 
-### How it draws each `DisplayItem`
+### Surface creation
 
-| Variant | Cairo operation |
-|---------|----------------|
+`CairoBackend::create_surface()` reads the `DEVICE_PIXEL_RATIO` atomic and creates a physical-pixel surface:
+
+```
+physical_width  = css_width  × DPR
+physical_height = css_height × DPR
+```
+
+The atomic is set by the GTK display thread before any rendering begins:
+
+```rust
+DEVICE_PIXEL_RATIO.store(area.scale_factor() as u32, Ordering::Relaxed);
+```
+
+### Rendering display list items
+
+| DisplayItem | Cairo operation |
+|---|---|
 | `Clear { color }` | `set_operator(Source)` + `paint()` — replaces entire surface |
 | `Rect { … }` | `rectangle()` + `fill()` |
-| `TextRun { … }` | `select_font_face()` + `show_text()` (basic fallback, no Pango) |
-| `Blit { x, y, w, h, data }` | `create_for_data_unsafe()` → `SurfacePattern` → `fill()` |
+| `TextRun { … }` | `select_font_face()` + `show_text()` (basic fallback) |
+| `Blit { x, y, w, h, data }` | Creates a read-only `ImageSurface` over the tile buffer; builds a `SurfacePattern` with translation matrix; fills the tile rectangle |
 
-The `Blit` path is the primary path when the pipeline is active. It:
+All CSS-pixel coordinates in `Blit` are multiplied by DPR before use, so tiles rasterized at physical resolution land at their correct screen positions.
 
-1. Validates `data.len() >= h * w * 4` before touching the pointer.
-2. Creates a read-only `cairo::ImageSurface` over the existing buffer (zero
-   copy — Cairo never writes to source data).
-3. Builds a `SurfacePattern` with a translation matrix that maps from page
-   space into surface space.
-4. Fills the tile rectangle with the pattern.
+### External handle
 
-### Thread safety
+`external_handle()` returns `CpuPixelsOwned` when called via the display-list path (e.g. headless snapshot). In normal interactive rendering `render()` and `external_handle()` are never called — the engine uses the TileCache path instead (see below).
 
-`OffscreenCairoSurface` is `Send`. The `CairoBackend` struct is stateless and
-can be shared across threads.
+### TileCache path (interactive rendering)
 
-### GTK integration
+For all interactive rendering, the Cairo backend uses the unified TileCache path shared with Skia. The engine submits `ExternalHandle::TileCache` directly; the host composites tiles without invoking `CairoBackend::render()`.
 
-The `gosub_cairo` crate also provides a GTK4 drawing area integration (in
-`src/lib.rs`) that calls `render()` on the `draw` signal and uses
-`ExternalHandle` to hand the pixel buffer to GDK.
+On GTK, `draw_tile_cache()` blits each tile using `cairo::ImageSurface::create_for_data_unsafe()` — zero-copy, Cairo reads source data but never writes it. On winit, tiles are blitted into the softbuffer pixel loop.
+
+---
+
+## Skia CPU backend
+
+**Crate:** `crates/gosub_renderer_skia`  
+**File:** `crates/gosub_render_pipeline/src/render/backends/skia.rs`  
+**Feature:** `backend_skia`  
+**Surface format:** premultiplied BGRA32 (`raster_n32_premul`)
+
+### Pipeline integration
+
+The Skia backend **bypasses the display-list render pipeline entirely**. After stages 1–6 produce a `PipelineCache`, the engine calls `tile_cache_handle(1)` and submits `TileCache` directly to the compositor. The host composites tiles on its own thread (where the GL context is current if GPU compositing is used).
+
+`SkiaBackend::render()` and `external_handle()` exist and return `CpuPixelsOwned` for cases where the display-list path is needed (e.g. egui integration), but they are not called in the normal Skia render loop.
+
+### Rasterizer
+
+`SkiaRasterizer` (in `crates/gosub_renderer_skia/src/rasterizer.rs`) runs during stage 6:
+
+- Creates a `skia_safe::surfaces::raster_n32_premul` surface sized to the tile in CSS pixels.
+- Pre-translates the canvas by `(-tile.rect.x, -tile.rect.y)` so paint commands work in page coordinates.
+- Dispatches `PaintCommand` variants:
+  - `Rectangle`: `draw_rect` / `draw_round_rect` with solid colour fills and stroke borders.
+  - `Text`: greedy word-wrap using `font.measure_str()`; renders lines with `draw_str()`.
+  - `Svg`: delegates to `svg::do_paint_svg()`.
+- Reads pixels via `canvas.peek_pixels()` and stores them in the `TextureStore`.
+
+### Host compositing (GTK / winit / egui)
+
+The host receives `TileCache` and iterates the tile list:
+
+```
+for tile in tiles:
+    screen_x = tile.page_x - scroll_x
+    screen_y = tile.page_y - scroll_y
+    [cull if outside viewport]
+    [blit tile.data at (screen_x, screen_y)]
+```
+
+Blit implementations by host:
+- **GTK4 (`gtk4-skia`)**: `cairo::ImageSurface::create_for_data_unsafe()` + `cr.set_source_surface()` + `cr.paint()`.
+- **winit (`winit-skia`)**: pixel-copy loop into softbuffer `u32` framebuffer.
+- **winit GPU (`winit-skia-gpu`)**: upload each tile as a `skia_safe::Image` via `raster_from_data()`, then `canvas.draw_image()` on a GL-backed Skia canvas, swap buffers.
+
+---
+
+## Skia GPU backend
+
+**File:** `crates/gosub_render_pipeline/src/render/backends/skia_gpu.rs`  
+**Feature:** `backend_skia_gl` (on `gosub_render_pipeline`)  
+**Used by:** `winit-skia-gpu`
+
+### Purpose
+
+`SkiaGpuBackend` provides GPU-accelerated compositing of pre-rasterized CPU tiles. Stage 6 still runs `SkiaRasterizer` on the CPU (tiles are BGRA32 buffers). The GPU compositing happens in the host window's GL context, not in the backend's `render()` method.
+
+### Thread affinity
+
+OpenGL contexts are thread-affine. The `GlContextProvider` trait abstracts context management:
+
+```rust
+pub trait GlContextProvider: Send + Sync {
+    fn make_current(&self);
+    fn get_proc_address(&self, name: &str) -> *const c_void;
+}
+```
+
+In `winit-skia-gpu`, the GL context is created on and stays current on the main thread (event loop). All compositing happens in `BrowserApp::redraw()` on that same thread — no `make_current()` call needed across threads.
+
+### Compositing in `winit-skia-gpu`
+
+`redraw()` creates a Skia GPU surface wrapping the default OpenGL framebuffer (FBO 0):
+
+```rust
+let fb_info = FramebufferInfo { fboid: 0, format: RGBA8, .. };
+let render_target = backend_render_targets::make_gl((w, h), None, 8, fb_info);
+let surface = surface_ganesh::wrap_backend_render_target(
+    &mut direct_context, &render_target, BottomLeft, RGBA8888, ..,
+);
+```
+
+It then composites tiles by uploading each one as a `skia_safe::Image` and calling `canvas.draw_image()`. After all tiles and the address bar are drawn, `direct_context.flush_and_submit()` + `gl_surface.swap_buffers()` presents to the window.
+
+**No CPU readback occurs.** Tile pixels go directly from CPU → GPU texture → framebuffer.
+
+### `SkiaGpuBackend::render()`
+
+The `render()` method falls back to CPU compositing (using `raster_n32_premul`) for the display-list path. This is only used in egui / GTK variants that call `external_handle()`.
 
 ---
 
 ## Vello backend
 
-**Crate:** `crates/gosub_vello/`  
+**File:** `crates/gosub_render_pipeline/src/render/backends/vello.rs`  
 **Feature:** `backend_vello`  
-**Surface type:** GPU texture via wgpu
+**Used by:** `egui-vello`, `egui-vello-paned`, `winit-vello`
 
-### How it draws each `DisplayItem`
+Vello is a GPU vector-graphics renderer built on wgpu. It processes the display list differently from the Blit-based backends: it rebuilds a `Scene` every frame from the `RenderList` rather than consuming pre-rasterized pixel tiles.
 
-| Variant | Vello operation |
-|---------|----------------|
-| `Clear { color }` | Clears the wgpu render pass |
-| `Rect { … }` | `scene.fill()` with a solid brush |
-| `TextRun { … }` | Logs a warning; not yet implemented |
-| `Blit { … }` | Logs a warning; not yet implemented |
+### Display item handling
 
-The Vello backend currently has its own internal rasterization path (separate
-from the `TextureStore` blit approach used by Stage 7). Full integration with
-the compositing stage is pending.
+| DisplayItem | Vello operation |
+|---|---|
+| `Clear { color }` | Clear the wgpu render pass |
+| `Rect { … }` | `scene.fill()` with solid brush |
+| `TextRun { … }` | Rendered via internal font cache + text renderer |
+| `Blit { … }` | Not yet implemented (warns, skips) |
 
-### wgpu surface lifecycle
+`Blit` is currently unimplemented, which means Vello cannot consume the tile-based output of the standard pipeline. The Vello path uses a separate internal rasterization approach.
 
-`VelloSurface` wraps a `wgpu::Surface` and a `wgpu::Texture`. `create_surface`
-creates the wgpu resources; `present()` submits the render pass and presents
-the swap chain.
+### wgpu integration
+
+`VelloBackend` requires a `WgpuContextProvider` that supplies a `wgpu::Device`, `wgpu::Queue`, and target texture. The `render()` method submits a wgpu render pass; `external_handle()` returns `WgpuTextureId` or `GlFramebufferRendered`.
 
 ---
 
 ## Null backend
 
-**File:** `crates/gosub_engine/src/render/backends/null.rs`  
-**Always available** (no feature flag required)
+**File:** `crates/gosub_render_pipeline/src/render/backends/null.rs`  
+**Always available** (no feature flag)
 
-The null backend does nothing. It is used in headless tests and CI where no
-display server is available. `render()` is a no-op; `snapshot()` returns a
-1×1 transparent image.
+Used when the engine needs a valid backend but no rendering is desired (headless, screenshot pipeline when only tile data is needed). `render()` is a no-op; `external_handle()` returns `NullHandle`.
+
+---
+
+## Backend × example mapping
+
+| Example | Framework | Backend | TileCache path? | Storage |
+|---|---|---|---|---|
+| `gtk4-cairo` | GTK4 | Cairo | Yes (scroll fast path) | Persistent SQLite |
+| `gtk4-skia` | GTK4 | Skia CPU | Yes (always) | Persistent SQLite |
+| `gtk4-skia-gpu` | GTK4 + GL | Skia GPU | Yes (always) | Persistent SQLite |
+| `winit-cairo` | winit + softbuffer | Cairo | Yes (scroll fast path) | In-memory |
+| `winit-skia` | winit + softbuffer | Skia CPU | Yes (always) | In-memory |
+| `winit-skia-gpu` | winit + glutin/GL | Skia GPU | Yes (always, GPU blit) | In-memory |
+| `winit-vello` | winit + wgpu | Vello | No (display list) | In-memory |
+| `egui-cairo` | egui/eframe | Cairo | No (display list) | In-memory |
+| `egui-skia` | egui/eframe | Skia CPU | Yes (always) | In-memory |
+| `egui-vello` | egui/eframe | Vello | No (display list) | In-memory |
+| `pipeline-screenshot` | Headless | Cairo | No (PNG snapshot) | In-memory |
 
 ---
 
 ## Adding a new backend
 
-1. Implement `RenderBackend` for your type.
-2. Implement `ErasedSurface` for your surface type.
-3. Handle at minimum `DisplayItem::Clear` and `DisplayItem::Blit`.
-4. Wire it up in `BrowsingContext::new()` behind a feature flag.
+1. Implement `RenderBackend` for your type, with `ErasedSurface` for the surface.
+2. Handle `DisplayItem::Clear` and `DisplayItem::Blit` at minimum. Pixel data in `Blit` is premultiplied BGRA32.
+3. Return an appropriate `ExternalHandle` variant from `external_handle()`.
+4. Wire it up in your example's `main()` behind a feature flag.
 
-The pipeline's output is a flat `Vec<DisplayItem>` — no Rust generics or
-associated types leak into the backend interface. Any backend that can blit
-an ARgb32 buffer can be integrated without touching the pipeline crates.
-
----
-
-## Pixel format
-
-All `Blit` payloads and `OffscreenCairoSurface` pixel buffers use the same
-format:
-
-- **Format:** `cairo::Format::ARgb32` (also known as `BGRA8888` on
-  little-endian, with premultiplied alpha)
-- **Stride:** `width * 4` bytes
-- **Total size:** `height * width * 4` bytes
-
-When blitting to a different format (e.g. wgpu `Bgra8UnormSrgb`), the backend
-is responsible for any format conversion.
+If your backend composites on a thread where a GPU context is always current (like `winit-skia-gpu`), consider the **TileCache path**: add `#[cfg(feature = "backend_yourbackend")]` to `tick_draw()` in `worker.rs` to call `tile_cache_handle()` and return early, bypassing the display-list pipeline entirely.

@@ -2,8 +2,7 @@ use gosub_render_pipeline::common::geo::Rect;
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::brush::Brush;
 use vello::peniko::color::{AlphaColor, Rgba8};
-use vello::peniko::Image as PenikoImage;
-use vello::peniko::{Blob, Brush as VelloBrush};
+use vello::peniko::{Blob, Brush as VelloBrush, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageSampler};
 
 pub fn set_brush(brush: &Brush, _rect: Rect, media_store: &MediaStore) -> VelloBrush {
     match brush {
@@ -13,13 +12,17 @@ pub fn set_brush(brush: &Brush, _rect: Rect, media_store: &MediaStore) -> VelloB
         }
         Brush::Image(media_id) => {
             let media = media_store.get_image(*media_id);
-
-            VelloBrush::Image(PenikoImage::new(
-                Blob::<u8>::from(media.image.as_raw().clone()),
-                vello::peniko::ImageFormat::Rgba8,
-                media.image.width(),
-                media.image.height(),
-            ))
+            let image_data = ImageData {
+                data: Blob::<u8>::from(media.image.as_raw().clone()),
+                format: ImageFormat::Rgba8,
+                alpha_type: ImageAlphaType::AlphaPremultiplied,
+                width: media.image.width(),
+                height: media.image.height(),
+            };
+            VelloBrush::Image(ImageBrush {
+                image: image_data,
+                sampler: ImageSampler::default(),
+            })
         }
     }
 }
