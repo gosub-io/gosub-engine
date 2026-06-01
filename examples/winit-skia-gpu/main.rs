@@ -18,15 +18,15 @@ use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use glutin::config::{Config, GlConfig};
-use glutin::context::{ContextApi, ContextAttributesBuilder, NotCurrentGlContext, PossiblyCurrentContext};
+use glutin::context::{ContextApi, ContextAttributesBuilder, PossiblyCurrentContext};
 use glutin::display::GetGlDisplay;
 use glutin::prelude::{GlDisplay, GlSurface, NotCurrentGlContext as _};
-use glutin::surface::{Surface as GlSurface_, SurfaceAttributesBuilder, WindowSurface};
+use glutin::surface::{Surface as GlSurface_, WindowSurface};
 use glutin_winit::{DisplayBuilder, GlWindow};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use skia_safe::gpu::ganesh::surface_ganesh;
-use skia_safe::gpu::{self, gl::FramebufferInfo, Budgeted, DirectContext, SurfaceOrigin};
+use skia_safe::gpu::{self, gl::FramebufferInfo, DirectContext, SurfaceOrigin};
 use skia_safe::{Color4f, ColorType, Font, FontMgr, FontStyle, ImageInfo, Paint, Rect as SkRect, Surface};
 use std::ffi::{CString, c_void};
 use std::num::NonZeroU32;
@@ -57,6 +57,7 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 
 // ── GL state kept on the main thread ─────────────────────────────────────────
 
+#[allow(dead_code)]
 struct GlState {
     gl_context: PossiblyCurrentContext,
     gl_surface: GlSurface_<WindowSurface>,
@@ -104,7 +105,7 @@ struct BrowserApp {
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
-    proxy: EventLoopProxy<()>,
+    #[allow(dead_code)] proxy: EventLoopProxy<()>,
 
     window: Option<Arc<Window>>,
     gl: Option<GlState>,
@@ -402,7 +403,7 @@ fn main() {
         let c = CString::new(name).unwrap_or_default();
         gl_display.get_proc_address(&c) as *const c_void
     }).expect("GL interface");
-    let direct_context = DirectContext::new_gl(interface, None).expect("Skia DirectContext");
+    let direct_context = skia_safe::gpu::direct_contexts::make_gl(interface, None).expect("Skia DirectContext");
 
     let gl_state = GlState { gl_context, gl_surface, gl_config, direct_context };
 
