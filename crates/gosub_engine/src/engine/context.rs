@@ -844,7 +844,7 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
             y: (tile.page_y - scroll_y) as f32,
             w: tile.width,
             h: tile.height,
-            data: (*tile.data).clone(),
+            data: Arc::clone(&tile.data),
         });
         blits += 1;
     }
