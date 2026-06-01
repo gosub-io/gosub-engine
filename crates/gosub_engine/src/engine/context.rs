@@ -645,7 +645,7 @@ fn pipeline_build_cache(
                         page_y: tile.rect.y,
                         width: tex.width as u32,
                         height: tex.height as u32,
-                        data: Arc::new(tex.data.clone()),
+                        data: Arc::clone(&tex.data),
                     });
                 }
             }
@@ -704,7 +704,7 @@ fn pipeline_build_cache(
                         page_y: tile.rect.y,
                         width: tex.width as u32,
                         height: tex.height as u32,
-                        data: Arc::new(tex.data.clone()),
+                        data: Arc::clone(&tex.data),
                     });
                 }
             }
@@ -761,7 +761,7 @@ fn pipeline_build_cache(
                             page_y: tile.rect.y,
                             width: tex.width as u32,
                             height: tex.height as u32,
-                            data: Arc::new(tex.data.clone()),
+                            data: Arc::clone(&tex.data),
                         });
                     }
                 }
