@@ -68,6 +68,11 @@ struct BakedTile {
     data: Arc<Vec<u8>>,
 }
 
+/// Key that uniquely identifies a tile's content for cache lookup.
+/// Format: (page_x bits, page_y bits, layer_id, paint-command hash).
+#[cfg(feature = "pipeline")]
+type TileCacheKey = (u64, u64, u64, u64);
+
 /// Cached output of stages 1–6 for the whole page. Re-used on every scroll tick.
 #[cfg(feature = "pipeline")]
 struct PipelineCache {
@@ -77,6 +82,10 @@ struct PipelineCache {
     cached_tiles: Arc<Vec<CachedTile>>,
     /// Layer list retained for hit-testing (hover).
     layer_list: Arc<LayerList>,
+    /// Rasterized tile data keyed by (page_x, page_y, layer_id, content_hash).
+    /// Passed to the next render so unchanged tiles skip rasterization.
+    /// Value is (physical_width, physical_height, pixel_data).
+    tile_pixel_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)>,
 }
 
 /// BrowsingContext dedicated to a specific tab
@@ -262,11 +271,15 @@ impl BrowsingContext {
         }
         if self.render_dirty {
             if let Some(doc) = &self.document {
+                let prev_tile_cache = self.pipeline_cache.as_mut()
+                    .map(|c| std::mem::take(&mut c.tile_pixel_cache))
+                    .unwrap_or_default();
                 self.pipeline_cache = Some(pipeline_build_cache(
                     doc.clone(),
                     &self.viewport,
                     #[cfg(feature = "backend_vello")]
                     self.vello_resources.clone(),
+                    prev_tile_cache,
                 ));
             }
             self.render_dirty = false;
@@ -289,11 +302,15 @@ impl BrowsingContext {
         {
             if self.render_dirty {
                 if let Some(doc) = &self.document {
+                    let prev_tile_cache = self.pipeline_cache.as_mut()
+                        .map(|c| std::mem::take(&mut c.tile_pixel_cache))
+                        .unwrap_or_default();
                     self.pipeline_cache = Some(pipeline_build_cache(
                         doc.clone(),
                         &self.viewport,
                         #[cfg(feature = "backend_vello")]
                         self.vello_resources.clone(),
+                        prev_tile_cache,
                     ));
                 }
                 self.render_dirty = false;
@@ -457,6 +474,112 @@ impl RenderContext for BrowsingContext {
 }
 
 /// Runs pipeline stages 1–6 for the **entire page** (all tiles, not just the viewport slice)
+/// Compute a stable cache key for a tile: (page_x bits, page_y bits, layer_id, content hash).
+/// The content hash covers all paint commands so any visual change produces a different key.
+#[cfg(any(feature = "backend_cairo", feature = "backend_skia"))]
+fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
+    use gosub_render_pipeline::painter::commands::{
+        PaintCommand,
+        border::{BorderRadius, BorderStyle},
+        brush::Brush,
+    };
+
+    // Minimal inline FNV-1a hasher — no trait bounds needed on the types being hashed.
+    let mut h: u64 = 14695981039346656037;
+    macro_rules! fnv {
+        ($bytes:expr) => {
+            for b in $bytes { h ^= *b as u64; h = h.wrapping_mul(1099511628211); }
+        };
+    }
+    macro_rules! hf32  { ($v:expr) => { fnv!(&$v.to_bits().to_le_bytes()) } }
+    macro_rules! hf64  { ($v:expr) => { fnv!(&$v.to_bits().to_le_bytes()) } }
+    macro_rules! hu64  { ($v:expr) => { fnv!(&($v as u64).to_le_bytes()) } }
+    macro_rules! hbool { ($v:expr) => { fnv!(&[$v as u8]) } }
+    macro_rules! hstr  { ($s:expr) => { fnv!($s.as_bytes()); fnv!(&[0u8]) } }
+
+    macro_rules! hash_brush {
+        ($b:expr) => {
+            match $b {
+                Brush::Solid(c) => { fnv!(&[0]); hf32!(c.r()); hf32!(c.g()); hf32!(c.b()); hf32!(c.a()); }
+                Brush::Image(m) => { fnv!(&[1]); hu64!(m.as_u64()); }
+            }
+        };
+    }
+
+    // Hash tile background.
+    match tile.bgcolor {
+        Some((r, g, b, a)) => { hbool!(true); hf32!(r); hf32!(g); hf32!(b); hf32!(a); }
+        None => hbool!(false),
+    }
+
+    for elem in &tile.elements {
+        hu64!(elem.id.as_u64());
+        hf64!(elem.rect.x); hf64!(elem.rect.y); hf64!(elem.rect.width); hf64!(elem.rect.height);
+
+        for cmd in &elem.paint_commands {
+            match cmd {
+                PaintCommand::Rectangle(r) => {
+                    fnv!(&[0u8]);
+                    let rect = r.rect();
+                    hf64!(rect.x); hf64!(rect.y); hf64!(rect.width); hf64!(rect.height);
+                    match r.background() {
+                        None => hbool!(false),
+                        Some(b) => { hbool!(true); hash_brush!(b); }
+                    }
+                    let border = r.border();
+                    hf32!(border.width());
+                    fnv!(&[match border.style() {
+                        BorderStyle::Solid => 1, BorderStyle::Dashed => 2, BorderStyle::Dotted => 3,
+                        BorderStyle::Double => 4, BorderStyle::Groove => 5, BorderStyle::Ridge => 6,
+                        BorderStyle::Inset => 7, BorderStyle::Outset => 8, BorderStyle::Hidden => 9,
+                        BorderStyle::None => 0,
+                    }]);
+                    for b in border.brushes() { hash_brush!(&b); }
+                    if let Some(tr) = border.radius() {
+                        hbool!(true);
+                        for br in [&tr.top, &tr.right, &tr.bottom, &tr.left] {
+                            match br {
+                                BorderRadius::Uniform(v) => { fnv!(&[0]); hf32!(*v); }
+                                BorderRadius::Elliptical { horizontal, vertical } => {
+                                    fnv!(&[1]); hf32!(*horizontal); hf32!(*vertical);
+                                }
+                            }
+                        }
+                    } else {
+                        hbool!(false);
+                    }
+                    let (tl, tr, br, bl) = r.radius_x();
+                    hf64!(tl); hf64!(tr); hf64!(br); hf64!(bl);
+                    let (tl, tr, br, bl) = r.radius_y();
+                    hf64!(tl); hf64!(tr); hf64!(br); hf64!(bl);
+                }
+                PaintCommand::Text(t) => {
+                    fnv!(&[1u8]);
+                    hf64!(t.rect.x); hf64!(t.rect.y); hf64!(t.rect.width); hf64!(t.rect.height);
+                    hstr!(&t.text);
+                    hstr!(&t.font_info.family);
+                    hf64!(t.font_info.size);
+                    hf64!(t.font_info.line_height);
+                    hu64!(t.font_info.weight as u64);
+                    hu64!(t.font_info.width as u64);
+                    hu64!(t.font_info.slant as u64);
+                    hbool!(t.font_info.underline);
+                    hbool!(t.font_info.line_through);
+                    hash_brush!(&t.brush);
+                }
+                PaintCommand::Svg(s) => {
+                    fnv!(&[2u8]);
+                    hu64!(s.media_id.as_u64());
+                    let rect = s.rect.rect();
+                    hf64!(rect.x); hf64!(rect.y); hf64!(rect.width); hf64!(rect.height);
+                }
+            }
+        }
+    }
+
+    (tile.rect.x.to_bits(), tile.rect.y.to_bits(), tile.layer_id.as_u64(), h)
+}
+
 /// and returns a `PipelineCache` of rasterized tiles ready for repeated compositing.
 ///
 /// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
@@ -466,6 +589,7 @@ fn pipeline_build_cache(
     doc: Arc<EngineDocument>,
     viewport: &Viewport,
     #[cfg(feature = "backend_vello")] vello_resources: Option<std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>>,
+    prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)>,
 ) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
@@ -475,7 +599,7 @@ fn pipeline_build_cache(
     use gosub_render_pipeline::layouter::CanLayout;
     use gosub_render_pipeline::painter::Painter;
     use gosub_render_pipeline::rendertree_builder::RenderTree;
-    use gosub_render_pipeline::tiler::{TileList, TileState};
+    use gosub_render_pipeline::tiler::{TileId, TileList, TileState};
     use gosub_shared::{timing_start, timing_stop};
     use std::time::Instant;
 
@@ -622,37 +746,70 @@ fn pipeline_build_cache(
                 .filter(|&id| tile_list.arena.get(&id).map_or(false, |t| t.state == TileState::Dirty))
                 .collect();
 
-            // Phase 2: parallel rasterization — no shared mutable state.
-            let results: Vec<(TileId, Option<BakedTile>)> = dirty_ids
+            // Phase 2: parallel rasterization with dirty-tile cache.
+            // For each tile: compute a content hash; if it matches the previous render's cached
+            // pixels, reuse them (cache hit). Otherwise rasterize on this thread.
+            // Result: (tile_id, Option<BakedTile>, Option<new_cache_entry>)
+            type CacheEntry = (TileCacheKey, (u32, u32, Arc<Vec<u8>>));
+            let results: Vec<(TileId, Option<BakedTile>, Option<CacheEntry>)> = dirty_ids
                 .par_iter()
                 .map(|&tile_id| {
-                    let baked = tile_list.arena.get(&tile_id).and_then(|tile| {
-                        let mut local_store = TextureStore::new();
-                        let tex_id = rasterizer.rasterize(tile, &mut local_store, &media_store)?;
-                        let tex = local_store.get(tex_id)?;
-                        Some(BakedTile {
+                    let Some(tile) = tile_list.arena.get(&tile_id) else {
+                        return (tile_id, None, None);
+                    };
+
+                    let key = tile_cache_key(tile);
+
+                    // Cache hit: same content as the previous render — reuse pixels.
+                    if let Some(&(w, h, ref data)) = prev_tile_cache.get(&key) {
+                        let baked = BakedTile {
+                            page_x: tile.rect.x,
+                            page_y: tile.rect.y,
+                            width: w,
+                            height: h,
+                            data: Arc::clone(data),
+                        };
+                        return (tile_id, Some(baked), None);
+                    }
+
+                    // Cache miss: rasterize and emit a new cache entry.
+                    let mut local_store = TextureStore::new();
+                    let baked = rasterizer.rasterize(tile, &mut local_store, &media_store)
+                        .and_then(|tid| local_store.get(tid))
+                        .map(|tex| BakedTile {
                             page_x: tile.rect.x,
                             page_y: tile.rect.y,
                             width: tex.width as u32,
                             height: tex.height as u32,
                             data: Arc::clone(&tex.data),
-                        })
-                    });
-                    (tile_id, baked)
+                        });
+
+                    let cache_entry = baked.as_ref()
+                        .map(|b| (key, (b.width, b.height, Arc::clone(&b.data))));
+                    (tile_id, baked, cache_entry)
                 })
                 .collect();
 
-            // Phase 3: update tile states and gather BakedTiles (sequential).
+            // Phase 3: update tile states, gather BakedTiles, and build the new tile cache.
             let mut rasterized = 0usize;
+            let mut cache_hits = 0usize;
             let mut empty = 0usize;
             let mut tiles: Vec<BakedTile> = Vec::with_capacity(results.len());
-            for (tile_id, baked) in results {
+            let mut new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)> =
+                std::collections::HashMap::with_capacity(results.len());
+
+            for (tile_id, baked, cache_entry) in results {
                 if let Some(tile) = tile_list.arena.get_mut(&tile_id) {
                     match baked {
                         Some(b) => {
                             tile.state = TileState::Clean;
+                            if let Some(entry) = cache_entry {
+                                new_tile_cache.insert(entry.0, entry.1);
+                                rasterized += 1;
+                            } else {
+                                cache_hits += 1;
+                            }
                             tiles.push(b);
-                            rasterized += 1;
                         }
                         None => {
                             tile.state = TileState::Empty;
@@ -664,23 +821,24 @@ fn pipeline_build_cache(
 
             timing_stop!(ts6);
             log::info!(
-                concat!("[pipeline] stage 6 rasterize ", $label, " {:>6.1}ms  ({} clean, {} empty)"),
+                concat!("[pipeline] stage 6 rasterize ", $label, " {:>6.1}ms  ({} rasterized, {} hits, {} empty)"),
                 t.elapsed().as_secs_f64() * 1000.0,
                 rasterized,
+                cache_hits,
                 empty
             );
-            tiles
+            (tiles, new_tile_cache)
         }};
     }
 
     #[cfg(feature = "backend_cairo")]
-    let baked_tiles = {
+    let (baked_tiles, new_tile_cache) = {
         use gosub_renderer_cairo::CairoRasterizer;
         rasterize_parallel!(CairoRasterizer::new(), "(cairo):    ")
     };
 
     #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
-    let baked_tiles = {
+    let (baked_tiles, new_tile_cache) = {
         use gosub_renderer_skia::SkiaRasterizer;
         rasterize_parallel!(SkiaRasterizer::new(1.0), "(skia):     ")
     };
@@ -750,9 +908,16 @@ fn pipeline_build_cache(
         );
         tiles
     };
+    // Vello uses sequential rasterization; dirty-tile cache not yet implemented.
+    #[cfg(all(feature = "backend_vello", not(feature = "backend_cairo"), not(feature = "backend_skia")))]
+    let new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)> =
+        std::collections::HashMap::new();
 
     #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
     let baked_tiles: Vec<BakedTile> = Vec::new();
+    #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
+    let new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)> =
+        std::collections::HashMap::new();
 
     timing_stop!(ts_total);
     log::info!(
@@ -780,6 +945,7 @@ fn pipeline_build_cache(
         page_height,
         cached_tiles,
         layer_list: saved_layer_list,
+        tile_pixel_cache: new_tile_cache,
     }
 }
 
