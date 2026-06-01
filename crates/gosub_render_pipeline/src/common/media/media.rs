@@ -10,6 +10,9 @@ impl MediaId {
     pub const fn new(val: u64) -> Self {
         Self(val)
     }
+    pub fn as_u64(self) -> u64 {
+        self.0
+    }
 }
 
 impl std::fmt::Display for MediaId {
