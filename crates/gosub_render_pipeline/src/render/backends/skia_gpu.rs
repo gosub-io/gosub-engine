@@ -2,7 +2,7 @@ use crate::render::backend::{
     ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
 };
 use crate::render::render_context::RenderContext;
-use crate::render::render_list::{Color, DisplayItem};
+use crate::render::render_list::DisplayItem;
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use skia_safe::gpu::DirectContext;
@@ -228,7 +228,7 @@ impl ErasedSurface for SkiaGpuSurface {
 }
 
 #[inline]
-pub fn to_color4f(c: &Color) -> Color4f {
+pub fn to_color4f(c: &crate::render::render_list::Color) -> Color4f {
     Color4f::new(c.r, c.g, c.b, c.a)
 }
 
@@ -254,29 +254,19 @@ pub struct SkiaGpuDirectFbBackend {
 
 impl SkiaGpuDirectFbBackend {
     pub fn new() -> Self {
-        Self {
-            pending: Arc::new(Mutex::new(None)),
-        }
+        Self { pending: Arc::new(Mutex::new(None)) }
     }
 }
 
 impl Default for SkiaGpuDirectFbBackend {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl RenderBackend for SkiaGpuDirectFbBackend {
-    fn name(&self) -> &'static str {
-        "skia-gpu-direct-fb"
-    }
+    fn name(&self) -> &'static str { "skia-gpu-direct-fb" }
 
     fn create_surface(&self, size: SurfaceSize, present: PresentMode) -> Result<Box<dyn ErasedSurface + Send>> {
-        Ok(Box::new(SkiaDirectFbSurface {
-            size,
-            frame_id: 0,
-            present,
-        }))
+        Ok(Box::new(SkiaDirectFbSurface { size, frame_id: 0, present }))
     }
 
     fn render(&self, ctx: &mut dyn RenderContext, surface: &mut dyn ErasedSurface) -> Result<()> {
@@ -296,9 +286,7 @@ impl RenderBackend for SkiaGpuDirectFbBackend {
     }
 
     fn snapshot(&self, _surface: &mut dyn ErasedSurface, _max_dim: u32) -> Result<RgbaImage> {
-        Err(anyhow!(
-            "SkiaGpuDirectFbBackend: snapshot not supported (frame is on GPU)"
-        ))
+        Err(anyhow!("SkiaGpuDirectFbBackend: snapshot not supported (frame is on GPU)"))
     }
 
     fn external_handle(&self, surface: &mut dyn ErasedSurface) -> Result<ExternalHandle> {
@@ -318,13 +306,7 @@ struct SkiaDirectFbSurface {
 }
 
 impl ErasedSurface for SkiaDirectFbSurface {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-    fn size(&self) -> SurfaceSize {
-        self.size
-    }
+    fn as_any(&self) -> &dyn Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn size(&self) -> SurfaceSize { self.size }
 }

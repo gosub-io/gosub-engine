@@ -21,6 +21,7 @@ use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::backends::skia::SkiaBackend;
 use gosub_render_pipeline::render::DefaultCompositor;
+use gosub_render_pipeline::render::render_list::DisplayItem;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, Entry, GLArea, Label, Orientation};
@@ -60,26 +61,22 @@ fn get_bound_fbo() -> u32 {
         fn glGetIntegerv(pname: u32, data: *mut i32);
     }
     let mut fbo = 0i32;
-    unsafe {
-        glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &mut fbo)
-    };
+    unsafe { glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &mut fbo) };
     fbo as u32
 }
 
 // ── Application ───────────────────────────────────────────────────────────────
 
 fn main() {
-    simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Warn)
-        .env()
-        .init()
-        .unwrap_or_default();
+    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
 
     let initial_url: String = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "https://example.com".to_string());
 
-    let app = Application::builder().application_id("io.gosub.gtk4-skia-gpu").build();
+    let app = Application::builder()
+        .application_id("io.gosub.gtk4-skia-gpu")
+        .build();
 
     app.connect_activate(move |app| {
         let _rt_guard = TOKIO_RT.enter();
@@ -90,9 +87,7 @@ fn main() {
 
         let compositor = Arc::new(RwLock::new(DefaultCompositor::new({
             let tx = tx_redraw.clone();
-            move || {
-                let _ = tx.send(());
-            }
+            move || { let _ = tx.send(()); }
         })));
 
         let backend = SkiaBackend::new();
@@ -121,11 +116,7 @@ fn main() {
 
         let tab = TOKIO_RT
             .block_on(zone.borrow_mut().create_tab(
-                TabDefaults {
-                    url: None,
-                    title: Some("Gosub".to_string()),
-                    viewport: None,
-                },
+                TabDefaults { url: None, title: Some("Gosub".to_string()), viewport: None },
                 None,
             ))
             .expect("create_tab");
@@ -145,7 +136,9 @@ fn main() {
         gl_area.set_hexpand(true);
         gl_area.set_focusable(true);
 
-        let dc_holder: Rc<RefCell<Option<skia_safe::gpu::DirectContext>>> = Rc::new(RefCell::new(None));
+        // Hold Skia's DirectContext: created in connect_realize, used in connect_render.
+        let dc_holder: Rc<RefCell<Option<skia_safe::gpu::DirectContext>>> =
+            Rc::new(RefCell::new(None));
 
         gl_area.connect_realize({
             let dc_holder = dc_holder.clone();
@@ -157,7 +150,8 @@ fn main() {
                 }
                 let interface = skia_safe::gpu::gl::Interface::new_native()
                     .expect("Skia GL interface — GLArea context must be current");
-                let dc = skia_safe::gpu::direct_contexts::make_gl(interface, None).expect("Skia DirectContext");
+                let dc = skia_safe::gpu::direct_contexts::make_gl(interface, None)
+                    .expect("Skia DirectContext");
                 *dc_holder.borrow_mut() = Some(dc);
             }
         });
@@ -292,14 +286,7 @@ fn main() {
                 local_scroll.set((0.0, 0.0));
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab
-                        .send(TabCommand::SetViewport {
-                            x: 0,
-                            y: 0,
-                            width: w as u32,
-                            height: h as u32,
-                        })
-                        .await;
+                    let _ = tab.send(TabCommand::SetViewport { x: 0, y: 0, width: w as u32, height: h as u32 }).await;
                 });
             }
         });
@@ -325,12 +312,7 @@ fn main() {
                 local_scroll.set(((px + dx).max(0.0), (py + dy).clamp(0.0, max_y)));
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab
-                        .send(TabCommand::MouseScroll {
-                            delta_x: dx,
-                            delta_y: dy,
-                        })
-                        .await;
+                    let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
                 });
                 glib::Propagation::Stop
             }
@@ -345,12 +327,7 @@ fn main() {
             move |_, x, y| {
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab
-                        .send(TabCommand::MouseMove {
-                            x: x as f32,
-                            y: y as f32,
-                        })
-                        .await;
+                    let _ = tab.send(TabCommand::MouseMove { x: x as f32, y: y as f32 }).await;
                 });
             }
         });
@@ -363,13 +340,10 @@ fn main() {
             move |_, _, x, y| {
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab
-                        .send(TabCommand::MouseDown {
-                            x: x as f32,
-                            y: y as f32,
-                            button: gosub_engine::events::MouseButton::Left,
-                        })
-                        .await;
+                    let _ = tab.send(TabCommand::MouseDown {
+                        x: x as f32, y: y as f32,
+                        button: gosub_engine::events::MouseButton::Left,
+                    }).await;
                 });
             }
         });
@@ -426,10 +400,7 @@ fn main() {
             async move {
                 while let Some(evt) = ui_rx.recv().await {
                     match evt {
-                        EngineEvent::Navigation {
-                            event: NavigationEvent::Finished { url, .. },
-                            ..
-                        } => {
+                        EngineEvent::Navigation { event: NavigationEvent::Finished { url, .. }, .. } => {
                             address_entry.set_text(url.as_str());
                         }
                         EngineEvent::HoverUrl { url, .. } => {
