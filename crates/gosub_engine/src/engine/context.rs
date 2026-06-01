@@ -130,6 +130,11 @@ pub struct BrowsingContext {
     /// The href of the link currently under the pointer, if any.
     #[cfg(feature = "pipeline")]
     pub hover_link_url: Option<String>,
+
+    /// Shared wgpu resources for the Vello rasterizer (device, queue, renderer).
+    /// Set by the tab worker when the engine is initialised with a VelloBackend.
+    #[cfg(feature = "backend_vello")]
+    pub vello_resources: Option<std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>>,
 }
 
 impl BrowsingContext {
@@ -156,6 +161,8 @@ impl BrowsingContext {
             hover_leaf: None,
             #[cfg(feature = "pipeline")]
             hover_link_url: None,
+            #[cfg(feature = "backend_vello")]
+            vello_resources: None,
         }
     }
 
@@ -256,7 +263,12 @@ impl BrowsingContext {
         {
             if self.render_dirty {
                 if let Some(doc) = &self.document {
-                    self.pipeline_cache = Some(pipeline_build_cache(doc.clone(), &self.viewport));
+                    self.pipeline_cache = Some(pipeline_build_cache(
+                        doc.clone(),
+                        &self.viewport,
+                        #[cfg(feature = "backend_vello")]
+                        self.vello_resources.clone(),
+                    ));
                 }
                 self.render_dirty = false;
                 self.dom_dirty = false;
@@ -320,6 +332,23 @@ impl BrowsingContext {
         self.scroll_dirty = false;
         self.scene_epoch = self.scene_epoch.wrapping_add(1);
         Some(handle)
+    }
+
+    /// Returns a `TileCache` handle from the current pipeline cache regardless of dirty flags.
+    /// Used by backends (e.g. Skia) that bypass the display-list render pipeline entirely
+    /// and composite tiles directly on the host thread.
+    #[cfg(feature = "pipeline")]
+    pub fn tile_cache_handle(&self, dpr: u32) -> Option<ExternalHandle> {
+        let cache = self.pipeline_cache.as_ref()?;
+        Some(ExternalHandle::TileCache {
+            viewport_width: self.viewport.width,
+            viewport_height: self.viewport.height,
+            dpr,
+            scroll_x: self.scroll_x as f32,
+            scroll_y: self.scroll_y as f32,
+            page_height: cache.page_height as f32,
+            tiles: Arc::clone(&cache.cached_tiles),
+        })
     }
 
     /// Returns the full page height from the last pipeline cache (0 if not yet rendered).
@@ -407,7 +436,11 @@ impl RenderContext for BrowsingContext {
 /// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
 /// re-running layout or rasterization.
 #[cfg(feature = "pipeline")]
-fn pipeline_build_cache(doc: Arc<EngineDocument>, viewport: &Viewport) -> PipelineCache {
+fn pipeline_build_cache(
+    doc: Arc<EngineDocument>,
+    viewport: &Viewport,
+    #[cfg(feature = "backend_vello")] vello_resources: Option<std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>>,
+) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
     use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
@@ -591,7 +624,132 @@ fn pipeline_build_cache(doc: Arc<EngineDocument>, viewport: &Viewport) -> Pipeli
         tiles
     };
 
-    #[cfg(not(feature = "backend_cairo"))]
+    #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
+    let baked_tiles = {
+        use gosub_render_pipeline::common::media::MediaStore;
+        use gosub_render_pipeline::common::texture_store::TextureStore;
+        use gosub_render_pipeline::rasterizer::Rasterable;
+        use gosub_renderer_skia::SkiaRasterizer;
+
+        let t = Instant::now();
+        let ts6 = timing_start!("pipeline.rasterize");
+        let media_store = MediaStore::new();
+        let mut texture_store = TextureStore::new();
+        let rasterizer = SkiaRasterizer::new(1.0);
+        let mut rasterized = 0usize;
+        let mut empty = 0usize;
+        for &layer_id in &layer_ids {
+            let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
+            for tile_id in tile_ids {
+                if let Some(tile) = tile_list.get_tile_mut(tile_id) {
+                    if tile.state == TileState::Dirty {
+                        match rasterizer.rasterize(tile, &mut texture_store, &media_store) {
+                            Some(texture_id) => {
+                                tile.texture_id = Some(texture_id);
+                                tile.state = TileState::Clean;
+                                rasterized += 1;
+                            }
+                            None => {
+                                tile.state = TileState::Empty;
+                                empty += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        timing_stop!(ts6);
+        log::info!(
+            "[pipeline] stage 6 rasterize (skia): {:>6.1}ms  ({} clean, {} empty)",
+            t.elapsed().as_secs_f64() * 1000.0,
+            rasterized,
+            empty
+        );
+
+        let mut tiles: Vec<BakedTile> = Vec::with_capacity(rasterized);
+        for tile in tile_list.arena.values() {
+            if let (Some(texture_id), true) = (tile.texture_id, tile.state == TileState::Clean) {
+                if let Some(tex) = texture_store.get(texture_id) {
+                    tiles.push(BakedTile {
+                        page_x: tile.rect.x,
+                        page_y: tile.rect.y,
+                        width: tex.width as u32,
+                        height: tex.height as u32,
+                        data: Arc::new(tex.data.clone()),
+                    });
+                }
+            }
+        }
+        tiles
+    };
+
+    #[cfg(all(feature = "backend_vello", not(feature = "backend_cairo"), not(feature = "backend_skia")))]
+    let baked_tiles = {
+        use gosub_render_pipeline::common::media::MediaStore;
+        use gosub_render_pipeline::common::texture_store::TextureStore;
+        use gosub_render_pipeline::rasterizer::Rasterable;
+        use gosub_renderer_vello::VelloRasterizer;
+
+        let t = Instant::now();
+        let ts6 = timing_start!("pipeline.rasterize");
+        let media_store = MediaStore::new();
+        let mut texture_store = TextureStore::new();
+        let mut rasterized = 0usize;
+        let mut empty = 0usize;
+
+        let tiles = if let Some(ref resources) = vello_resources {
+            let rasterizer = VelloRasterizer::new(std::sync::Arc::clone(resources));
+            for &layer_id in &layer_ids {
+                let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
+                for tile_id in tile_ids {
+                    if let Some(tile) = tile_list.get_tile_mut(tile_id) {
+                        if tile.state == TileState::Dirty {
+                            match rasterizer.rasterize(tile, &mut texture_store, &media_store) {
+                                Some(texture_id) => {
+                                    tile.texture_id = Some(texture_id);
+                                    tile.state = TileState::Clean;
+                                    rasterized += 1;
+                                }
+                                None => {
+                                    tile.state = TileState::Empty;
+                                    empty += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let mut tiles: Vec<BakedTile> = Vec::with_capacity(rasterized);
+            for tile in tile_list.arena.values() {
+                if let (Some(texture_id), true) = (tile.texture_id, tile.state == TileState::Clean) {
+                    if let Some(tex) = texture_store.get(texture_id) {
+                        tiles.push(BakedTile {
+                            page_x: tile.rect.x,
+                            page_y: tile.rect.y,
+                            width: tex.width as u32,
+                            height: tex.height as u32,
+                            data: Arc::new(tex.data.clone()),
+                        });
+                    }
+                }
+            }
+            tiles
+        } else {
+            log::warn!("[pipeline] backend_vello active but no wgpu resources set — stage 6 skipped");
+            Vec::new()
+        };
+
+        timing_stop!(ts6);
+        log::info!(
+            "[pipeline] stage 6 rasterize (vello): {:>6.1}ms  ({} clean, {} empty)",
+            t.elapsed().as_secs_f64() * 1000.0,
+            rasterized,
+            empty
+        );
+        tiles
+    };
+
+    #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
     let baked_tiles: Vec<BakedTile> = Vec::new();
 
     timing_stop!(ts_total);

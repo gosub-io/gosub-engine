@@ -357,14 +357,18 @@ impl TabWorker {
                 self.context.set_scroll(self.scroll_x as f64, self.scroll_y as f64);
 
                 // Submit the scroll frame immediately — don't wait for the next timer tick.
-                // This eliminates up to 33ms of latency (at 30fps) per scroll event.
-                #[cfg(all(feature = "pipeline", feature = "backend_cairo"))]
+                // Eliminates up to 33ms of latency at 30fps per scroll event.
+                #[cfg(all(feature = "pipeline", any(feature = "backend_cairo", feature = "backend_skia")))]
                 {
-                    use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
-                    let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
+                    #[cfg(feature = "backend_cairo")]
+                    let dpr = {
+                        use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
+                        DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed)
+                    };
+                    #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
+                    let dpr: u32 = 1;
+
                     if let Some(handle) = self.context.take_scroll_handle(dpr) {
-                        // Keep committed_scene_epoch in sync so a subsequent timer tick
-                        // doesn't see a stale epoch and re-render with the old scroll position.
                         self.runtime.committed_scene_epoch = self.context.scene_epoch();
                         self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
                         return ControlFlow::Continue;
@@ -713,20 +717,67 @@ impl TabWorker {
         }
         self.runtime.dirty = false;
 
-        // Fast scroll path: skip the Cairo render pipeline entirely.
-        // The host draw callback composites tiles directly from Arc<Vec<u8>> pixel data,
-        // so a scroll event costs only Arc clones and no pixel copies or frame buffer work.
-        #[cfg(all(feature = "pipeline", feature = "backend_cairo"))]
+        // TileCache path — used by both Cairo and Skia.
+        //
+        // Neither backend needs the display-list render pipeline: tiles are rasterized
+        // during stages 1-6 and the host composites them directly.  Cairo additionally
+        // gets a scroll-only fast path that skips stages 1-6 entirely when only the
+        // scroll offset changed.
+        //
+        // DPR: Cairo rasterizes at physical pixels (DPR > 1 on HiDPI), so it reads the
+        // DEVICE_PIXEL_RATIO atomic set by the GTK display thread.  Skia rasterizes at
+        // CSS pixels (DPR = 1) — no physical scaling in the rasterizer.
+        #[cfg(all(feature = "pipeline", any(feature = "backend_cairo", feature = "backend_skia")))]
         {
-            use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
-            let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
+            #[cfg(feature = "backend_cairo")]
+            let dpr = {
+                use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
+                DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed)
+            };
+            #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
+            let dpr: u32 = 1;
+
+            // Scroll-only fast path: tiles are still valid, only the offset changed.
             if let Some(handle) = self.context.take_scroll_handle(dpr) {
-                let scene_epoch = self.context.scene_epoch();
-                self.runtime.committed_scene_epoch = scene_epoch;
-                let mut compositor = self.zone_context.compositor.write();
-                compositor.submit_frame(self.tab_id, handle);
+                self.runtime.committed_scene_epoch = self.context.scene_epoch();
+                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
                 return Ok(());
             }
+
+            // Full render: rebuild stages 1-6 if dirty, then submit TileCache directly.
+            self.context.set_viewport(self.desired_viewport);
+            self.context.rebuild_render_list_if_needed();
+            let scene_epoch = self.context.scene_epoch();
+            if let Some(handle) = self.context.tile_cache_handle(dpr) {
+                self.runtime.committed_scene_epoch = scene_epoch;
+                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+            }
+            self.sink.inc_frame();
+            return Ok(());
+        }
+
+        // Vello: same TileCache path as Skia. Extract wgpu resources from the backend on first use.
+        #[cfg(all(feature = "pipeline", feature = "backend_vello"))]
+        {
+            if self.context.vello_resources.is_none() {
+                self.context.vello_resources = self.zone_context.render_backend.wgpu_resources();
+            }
+
+            if let Some(handle) = self.context.take_scroll_handle(1) {
+                self.runtime.committed_scene_epoch = self.context.scene_epoch();
+                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+                return Ok(());
+            }
+
+            self.context.set_viewport(self.desired_viewport);
+            self.context.rebuild_render_list_if_needed();
+            let scene_epoch = self.context.scene_epoch();
+            if let Some(handle) = self.context.tile_cache_handle(1) {
+                self.runtime.committed_scene_epoch = scene_epoch;
+                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+            }
+            self.sink.inc_frame();
+            return Ok(());
         }
 
         let render_backend = self.zone_context.render_backend.clone();

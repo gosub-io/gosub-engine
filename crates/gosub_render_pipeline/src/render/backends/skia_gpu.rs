@@ -5,7 +5,6 @@ use crate::render::render_context::RenderContext;
 use crate::render::render_list::DisplayItem;
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
-use skia_safe::gpu::ganesh::surface_ganesh::render_target as gpu_render_target;
 use skia_safe::gpu::{Budgeted, DirectContext, SurfaceOrigin};
 use skia_safe::{Color4f, Font, FontMgr, FontStyle, ImageInfo, Paint, Rect, Surface};
 use std::any::Any;
@@ -70,36 +69,22 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
             return Ok(());
         }
 
-        self.context.make_current();
-
         let vp = ctx.viewport();
         let offset_x = vp.x as f32;
         let offset_y = vp.y as f32;
         let clip = Rect::new(0.0, 0.0, s.size.width as f32, s.size.height as f32);
         let items: Vec<DisplayItem> = ctx.render_list().items.to_vec();
 
-        let image_info = ImageInfo::new_n32_premul(
-            (s.size.width as i32, s.size.height as i32),
-            None,
-        );
-
-        let mut dc = self.direct_context.lock();
-
-        let Some(mut gpu_surface): Option<Surface> = gpu_render_target(
-            &mut dc.0,
-            Budgeted::No,
-            &image_info,
-            None,
-            SurfaceOrigin::TopLeft,
-            None,
-            None,
-            None,
+        // Tile data from SkiaRasterizer is already on CPU; composite into a CPU raster
+        // surface to avoid GL-context thread-affinity issues with the GPU path.
+        let Some(mut cpu_surface) = skia_safe::surfaces::raster_n32_premul(
+            skia_safe::ISize::new(s.size.width as i32, s.size.height as i32),
         ) else {
-            return Err(anyhow!("Failed to create Skia GPU render target"));
+            return Err(anyhow!("SkiaGpuBackend: failed to create CPU raster surface"));
         };
 
         {
-            let canvas = gpu_surface.canvas();
+            let canvas = cpu_surface.canvas();
             canvas.clip_rect(clip, None, None);
             canvas.save();
             canvas.translate((-offset_x, -offset_y));
@@ -153,13 +138,11 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
             canvas.restore();
         }
 
-        // Flush GPU commands and read pixels back to CPU buffer.
-        dc.0.flush_surface(&mut gpu_surface);
-        dc.0.submit(skia_safe::gpu::SyncCpu::Yes);
-
-        let stride = s.size.width as usize * 4;
-        s.pixels.resize(s.size.height as usize * stride, 0);
-        gpu_surface.read_pixels(&image_info, &mut s.pixels, stride, (0, 0));
+        if let Some(peek) = cpu_surface.canvas().peek_pixels() {
+            if let Some(bytes) = peek.bytes() {
+                s.pixels = bytes.to_vec();
+            }
+        }
 
         s.frame_id = s.frame_id.wrapping_add(1);
         Ok(())

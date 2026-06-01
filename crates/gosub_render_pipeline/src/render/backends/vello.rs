@@ -21,14 +21,23 @@ mod text_renderer;
 pub trait WgpuContextProvider {
     fn device(&self) -> &wgpu::Device;
     fn queue(&self) -> &wgpu::Queue;
+    fn device_arc(&self) -> Arc<wgpu::Device>;
+    fn queue_arc(&self) -> Arc<wgpu::Queue>;
     fn create_texture(&self, width: u32, height: u32, format: wgpu::TextureFormat) -> u64;
     fn get_texture(&self, id: u64) -> Option<(wgpu::Texture, wgpu::TextureView)>;
     fn remove_texture(&self, id: u64);
 }
 
+/// Shareable wgpu resources used by both the display backend and the stage-6 rasterizer.
+pub struct WgpuResources {
+    pub device: Arc<wgpu::Device>,
+    pub queue: Arc<wgpu::Queue>,
+    pub renderer: Mutex<Renderer>,
+}
+
 pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
     context: Arc<C>,
-    renderer: Mutex<Renderer>,
+    resources: Arc<WgpuResources>,
     text_renderer: Mutex<TextRenderer>,
     font_manager: Mutex<FontManager>,
     font_cache: Mutex<FontCache>,
@@ -37,14 +46,24 @@ pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
 impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
     pub fn new(context: Arc<C>) -> Result<Self> {
         let renderer = Renderer::new(context.device(), RendererOptions::default())?;
+        let resources = Arc::new(WgpuResources {
+            device: context.device_arc(),
+            queue: context.queue_arc(),
+            renderer: Mutex::new(renderer),
+        });
 
         Ok(Self {
             context,
-            renderer: Mutex::new(renderer),
+            resources,
             text_renderer: Mutex::new(TextRenderer::new()),
             font_manager: Mutex::new(FontManager::new()),
             font_cache: Mutex::new(FontCache::new()),
         })
+    }
+
+    /// Returns the shared wgpu resources (device, queue, renderer) for use by the tile rasterizer.
+    pub fn wgpu_resources(&self) -> Arc<WgpuResources> {
+        Arc::clone(&self.resources)
     }
 
     fn render_to_surface(&self, surface: &VelloSurface, scene: &Scene) -> Result<()> {
@@ -53,7 +72,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
             .get_texture(surface.texture_store_id)
             .expect("invalid texture id in VelloSurface");
 
-        self.renderer.lock().render_to_texture(
+        self.resources.renderer.lock().render_to_texture(
             self.context.device(),
             self.context.queue(),
             scene,
@@ -193,6 +212,10 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
 
     fn snapshot(&self, _surface: &mut dyn ErasedSurface, _max_dim: u32) -> Result<RgbaImage> {
         Err(anyhow!("VelloBackend snapshot not implemented"))
+    }
+
+    fn wgpu_resources(&self) -> Option<Arc<WgpuResources>> {
+        Some(Arc::clone(&self.resources))
     }
 
     fn external_handle(&self, surface: &mut dyn ErasedSurface) -> Result<ExternalHandle> {
