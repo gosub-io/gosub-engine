@@ -25,13 +25,12 @@ impl std::fmt::Display for TextureId {
     }
 }
 
-// Texture is a simple structure that holds the texture data. It's raw data, width, height and an id.
-// Note that we do not specify what the data contains. It could be a specific image format from the
-// used painting backend (like ImageSurface data for cairo)
+/// Raw pixel buffer produced by a rasterizer. Data is Arc-wrapped so it can be shared
+/// zero-copy into BakedTile / CachedTile without any pixel buffer copies.
 #[derive(Debug)]
 pub struct Texture {
     pub id: TextureId,
     pub width: usize,
     pub height: usize,
-    pub data: Vec<u8>,
+    pub data: std::sync::Arc<Vec<u8>>,
 }
