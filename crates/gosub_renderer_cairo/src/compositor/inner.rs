@@ -41,7 +41,7 @@ pub fn compose_layer(cr: &cairo::Context, layer_id: LayerId, state: &BrowserStat
         };
 
         let surface = match ImageSurface::create_for_data(
-            texture.data.clone(),
+            (*texture.data).clone(),
             cairo::Format::ARgb32,
             texture.width as i32,
             texture.height as i32,
