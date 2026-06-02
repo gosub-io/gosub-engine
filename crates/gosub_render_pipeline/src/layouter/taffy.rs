@@ -400,6 +400,11 @@ impl TaffyLayouter {
             return None;
         };
 
+        // Flex and grid containers are formatting contexts where ALL children — inline or block —
+        // are direct layout participants. Wrapping inline children in an anonymous flex container
+        // would insert an extra level that breaks the parent's `gap`, `align-items`, etc.
+        let parent_is_flex_or_grid = matches!(taffy_style.display, Display::Flex | Display::Grid);
+
         // The context will be moved to the taffy tree, so we need to convert it before that happens.
         let element_context = match taffy_context {
             Some(ref ctx) => to_element_context(Some(ctx)),
@@ -445,6 +450,20 @@ impl TaffyLayouter {
             let Some(child_node) = layout_tree.render_tree.get_document_node_by_render_id(*child_id) else {
                 continue;
             };
+
+            // In a flex/grid parent every child is a direct layout participant — inline or block —
+            // so skip the anonymous-container wrapping and add them straight to the parent.
+            if parent_is_flex_or_grid {
+                // Still discard pure-whitespace text nodes; they carry no visual content.
+                if let NodeType::Text(text) = &child_node.node_type {
+                    if text.trim().is_empty() {
+                        continue;
+                    }
+                }
+                self.tree.add_child(leaf_id, child_taffy_id).unwrap();
+                element_node.children.push(child_layout_element_id);
+                continue;
+            }
 
             // Don't add inline elements to the taffy tree yet. We need to group them first and possibly wrap inside a block
             if child_node.is_inline_element() || child_node.is_inline_block_element() || child_node.is_text() {
