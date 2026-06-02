@@ -1,4 +1,4 @@
-use crate::font::pango::{find_available_font, to_pango_weight};
+use crate::font::pango::{PangoFontSystem, to_pango_weight};
 use crate::rasterizer::brush::set_brush;
 use cairo::{Antialias, Context, Error, Filter, FontOptions, Format, HintMetrics, HintStyle, ImageSurface};
 use gosub_render_pipeline::common::media::MediaStore;
@@ -14,8 +14,9 @@ pub(crate) fn do_paint_text(
     cmd: &Text,
     media_store: &MediaStore,
     dpr: i32,
+    font_system: &PangoFontSystem,
 ) -> Result<(), Error> {
-    let surface = create_text_layout(cmd, media_store, dpr)?;
+    let surface = create_text_layout(cmd, media_store, dpr, font_system)?;
 
     cr.save()?;
 
@@ -34,7 +35,7 @@ pub(crate) fn do_paint_text(
     Ok(())
 }
 
-fn create_text_layout(cmd: &Text, media_store: &MediaStore, dpr: i32) -> Result<ImageSurface, Error> {
+fn create_text_layout(cmd: &Text, media_store: &MediaStore, dpr: i32, font_system: &PangoFontSystem) -> Result<ImageSurface, Error> {
     // Physical pixel width = CSS width × DPR.
     let taffy_width = (cmd.rect.width.ceil() as i32 * dpr).max(1);
 
@@ -44,7 +45,7 @@ fn create_text_layout(cmd: &Text, media_store: &MediaStore, dpr: i32) -> Result<
     // text that taffy already wrapped is not forced back onto one line.
     let probe_surface = ImageSurface::create(Format::ARgb32, 1, 1)?;
     let probe_cr = Context::new(&probe_surface)?;
-    let natural_layout = build_pango_layout_unconstrained(&probe_cr, cmd, dpr);
+    let natural_layout = build_pango_layout_unconstrained(&probe_cr, cmd, dpr, font_system);
     let (_, natural_rect) = natural_layout.pixel_extents();
     let pango_natural_width = natural_rect.width().max(1);
     let metric_slack = 20 * dpr;
@@ -57,7 +58,7 @@ fn create_text_layout(cmd: &Text, media_store: &MediaStore, dpr: i32) -> Result<
     // Measure actual pango height at the resolved width.
     let measure_surface = ImageSurface::create(Format::ARgb32, width, 1)?;
     let measure_cr = Context::new(&measure_surface)?;
-    let measure_layout = build_pango_layout(&measure_cr, cmd, width, dpr);
+    let measure_layout = build_pango_layout(&measure_cr, cmd, width, dpr, font_system);
     let (_, logical_rect) = measure_layout.pixel_extents();
     let pango_height = logical_rect.height().max(1);
 
@@ -66,7 +67,7 @@ fn create_text_layout(cmd: &Text, media_store: &MediaStore, dpr: i32) -> Result<
     let surface = ImageSurface::create(Format::ARgb32, width, height)?;
 
     let cr = Context::new(&surface)?;
-    let layout = build_pango_layout(&cr, cmd, width, dpr);
+    let layout = build_pango_layout(&cr, cmd, width, dpr, font_system);
 
     set_brush(&cr, &cmd.brush, cmd.rect, media_store);
     cr.move_to(0.0, 0.0);
@@ -79,19 +80,19 @@ fn create_text_layout(cmd: &Text, media_store: &MediaStore, dpr: i32) -> Result<
     Ok(surface)
 }
 
-fn build_pango_layout_unconstrained(cr: &Context, cmd: &Text, dpr: i32) -> pangocairo::pango::Layout {
-    let layout = build_pango_layout_inner(cr, cmd, dpr);
+fn build_pango_layout_unconstrained(cr: &Context, cmd: &Text, dpr: i32, font_system: &PangoFontSystem) -> pangocairo::pango::Layout {
+    let layout = build_pango_layout_inner(cr, cmd, dpr, font_system);
     layout.set_width(-1);
     layout
 }
 
-fn build_pango_layout(cr: &Context, cmd: &Text, width: i32, dpr: i32) -> pangocairo::pango::Layout {
-    let layout = build_pango_layout_inner(cr, cmd, dpr);
+fn build_pango_layout(cr: &Context, cmd: &Text, width: i32, dpr: i32, font_system: &PangoFontSystem) -> pangocairo::pango::Layout {
+    let layout = build_pango_layout_inner(cr, cmd, dpr, font_system);
     layout.set_width(width * SCALE);
     layout
 }
 
-fn build_pango_layout_inner(cr: &Context, cmd: &Text, dpr: i32) -> pangocairo::pango::Layout {
+fn build_pango_layout_inner(cr: &Context, cmd: &Text, dpr: i32, font_system: &PangoFontSystem) -> pangocairo::pango::Layout {
     if let Ok(mut font_opts) = FontOptions::new() {
         font_opts.set_antialias(Antialias::Gray);
         font_opts.set_hint_style(HintStyle::Full);
@@ -102,7 +103,7 @@ fn build_pango_layout_inner(cr: &Context, cmd: &Text, dpr: i32) -> pangocairo::p
     let layout = create_layout(cr);
     context_set_resolution(&layout.context(), 72.0);
 
-    let selected_family = find_available_font(cmd.font_info.family.as_str(), &layout.context());
+    let selected_family = font_system.find_available_font(cmd.font_info.family.as_str(), &layout.context());
     let mut font_desc = FontDescription::new();
     font_desc.set_family(&selected_family);
     // Font size in physical pixels = CSS size × DPR.

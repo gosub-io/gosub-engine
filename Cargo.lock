@@ -36,7 +36,7 @@ dependencies = [
  "accesskit",
  "accesskit_consumer 0.36.0",
  "atspi-common",
- "phf 0.13.1",
+ "phf",
  "serde",
  "zvariant",
 ]
@@ -1025,9 +1025,9 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.44"
+version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c673075a2e0e5f4a1dde27ce9dee1ea4558c7ffe648f576438a20ca1d2acc4b0"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
  "js-sys",
@@ -1497,11 +1497,14 @@ dependencies = [
 
 [[package]]
 name = "csscolorparser"
-version = "0.7.2"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fda6aace1fbef3aa217b27f4c8d7d071ef2a70a5ca51050b1f17d40299d3f16"
+checksum = "199f851bd3cb5004c09474252c7f74e7c047441ed0979bf3688a7106a13da952"
 dependencies = [
- "phf 0.11.3",
+ "num-traits",
+ "phf",
+ "serde",
+ "uncased",
 ]
 
 [[package]]
@@ -1777,21 +1780,12 @@ dependencies = [
 
 [[package]]
 name = "ecolor"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc4feb366740ded31a004a0e4452fbf84e80ef432ecf8314c485210229672fd1"
-dependencies = [
- "emath 0.31.1",
-]
-
-[[package]]
-name = "ecolor"
 version = "0.34.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a05fbfa222ffb51989d5ccf33e5f7aebfcf96c5023413856b0c3618a7f79896e"
 dependencies = [
  "bytemuck",
- "emath 0.34.3",
+ "emath",
 ]
 
 [[package]]
@@ -1803,7 +1797,7 @@ dependencies = [
  "ahash",
  "bytemuck",
  "document-features",
- "egui 0.34.3",
+ "egui",
  "egui-wgpu",
  "egui-winit",
  "egui_glow",
@@ -1832,20 +1826,6 @@ dependencies = [
 
 [[package]]
 name = "egui"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25dd34cec49ab55d85ebf70139cb1ccd29c977ef6b6ba4fe85489d6877ee9ef3"
-dependencies = [
- "ahash",
- "bitflags 2.11.1",
- "emath 0.31.1",
- "epaint 0.31.1",
- "nohash-hasher",
- "profiling",
-]
-
-[[package]]
-name = "egui"
 version = "0.34.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42112be0ae157289312b92b3dfaf20e911b5a3c4c65d4aab0e7c47fbc0ce16e3"
@@ -1853,8 +1833,8 @@ dependencies = [
  "accesskit",
  "ahash",
  "bitflags 2.11.1",
- "emath 0.34.3",
- "epaint 0.34.3",
+ "emath",
+ "epaint",
  "log",
  "nohash-hasher",
  "profiling",
@@ -1871,8 +1851,8 @@ dependencies = [
  "ahash",
  "bytemuck",
  "document-features",
- "egui 0.34.3",
- "epaint 0.34.3",
+ "egui",
+ "epaint",
  "log",
  "profiling",
  "thiserror 2.0.18",
@@ -1891,7 +1871,7 @@ dependencies = [
  "accesskit_winit",
  "arboard",
  "bytemuck",
- "egui 0.34.3",
+ "egui",
  "log",
  "objc2 0.6.4",
  "objc2-foundation 0.3.2",
@@ -1911,7 +1891,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62b652957fa7e1ab01e8fecbfbf4e35f6e43a53fa98af8a562b50d5403cd44b9"
 dependencies = [
  "bytemuck",
- "egui 0.34.3",
+ "egui",
  "glow",
  "log",
  "memoffset",
@@ -1926,12 +1906,6 @@ name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
-
-[[package]]
-name = "emath"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e4cadcff7a5353ba72b7fea76bf2122b5ebdbc68e8155aa56dfdea90083fe1b"
 
 [[package]]
 name = "emath"
@@ -2009,31 +1983,15 @@ dependencies = [
 
 [[package]]
 name = "epaint"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41fcc0f5a7c613afd2dee5e4b30c3e6acafb8ad6f0edb06068811f708a67c562"
-dependencies = [
- "ab_glyph",
- "ahash",
- "ecolor 0.31.1",
- "emath 0.31.1",
- "epaint_default_fonts 0.31.1",
- "nohash-hasher",
- "parking_lot",
- "profiling",
-]
-
-[[package]]
-name = "epaint"
 version = "0.34.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6675898a291ec212fc3df04f537d177fce8496120244590e6359dcaa4c25da79"
 dependencies = [
  "ahash",
  "bytemuck",
- "ecolor 0.34.3",
- "emath 0.34.3",
- "epaint_default_fonts 0.34.3",
+ "ecolor",
+ "emath",
+ "epaint_default_fonts",
  "font-types",
  "log",
  "nohash-hasher",
@@ -2044,12 +2002,6 @@ dependencies = [
  "smallvec",
  "vello_cpu",
 ]
-
-[[package]]
-name = "epaint_default_fonts"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc7e7a64c02cf7a5b51e745a9e45f60660a286f151c238b9d397b3e923f5082f"
 
 [[package]]
 name = "epaint_default_fonts"
@@ -2135,7 +2087,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "eframe",
- "egui 0.31.1",
+ "egui",
  "gosub_engine",
  "gosub_render_pipeline",
  "log",
@@ -2153,7 +2105,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "eframe",
- "egui 0.31.1",
+ "egui",
  "gosub_engine",
  "gosub_render_pipeline",
  "log",
@@ -2171,7 +2123,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "eframe",
- "egui 0.31.1",
+ "egui",
  "gosub_engine",
  "gosub_render_pipeline",
  "log",
@@ -2193,7 +2145,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "eframe",
- "egui 0.31.1",
+ "egui",
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_shared",
@@ -2433,7 +2385,7 @@ version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "678acf8099d6cd5d8f1c665140918c36b4875c251c05a7f76acd79ab84f1d1ed"
 dependencies = [
- "phf 0.13.1",
+ "phf",
 ]
 
 [[package]]
@@ -3237,7 +3189,7 @@ dependencies = [
  "cow-utils",
  "dashmap",
  "eframe",
- "egui 0.31.1",
+ "egui",
  "env_logger",
  "futures",
  "futures-core",
@@ -3264,6 +3216,7 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "parking_lot",
+ "psl",
  "r2d2",
  "r2d2_sqlite",
  "rand 0.10.1",
@@ -3331,7 +3284,7 @@ dependencies = [
  "log",
  "nom 8.0.0",
  "nom_locate",
- "phf 0.13.1",
+ "phf",
  "regex",
  "serde",
  "serde_json",
@@ -5472,33 +5425,13 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "phf"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fd6780a80ae0c52cc120a26a1a42c1ae51b247a253e4e06113d23d2c2edd078"
-dependencies = [
- "phf_macros 0.11.3",
- "phf_shared 0.11.3",
-]
-
-[[package]]
-name = "phf"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1562dc717473dbaa4c1f85a36410e03c047b2e7df7f45ee938fbef64ae7fadf"
 dependencies = [
- "phf_macros 0.13.1",
- "phf_shared 0.13.1",
+ "phf_macros",
+ "phf_shared",
  "serde",
-]
-
-[[package]]
-name = "phf_generator"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c80231409c20246a13fddb31776fb942c38553c51e871f8cbd687a4cfb5843d"
-dependencies = [
- "phf_shared 0.11.3",
- "rand 0.8.6",
 ]
 
 [[package]]
@@ -5508,20 +5441,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "135ace3a761e564ec88c03a77317a7c6b80bb7f7135ef2544dbe054243b89737"
 dependencies = [
  "fastrand",
- "phf_shared 0.13.1",
-]
-
-[[package]]
-name = "phf_macros"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f84ac04429c13a7ff43785d75ad27569f2951ce0ffd30a3321230db2fc727216"
-dependencies = [
- "phf_generator 0.11.3",
- "phf_shared 0.11.3",
- "proc-macro2",
- "quote",
- "syn",
+ "phf_shared",
 ]
 
 [[package]]
@@ -5530,20 +5450,12 @@ version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "812f032b54b1e759ccd5f8b6677695d5268c588701effba24601f6932f8269ef"
 dependencies = [
- "phf_generator 0.13.1",
- "phf_shared 0.13.1",
+ "phf_generator",
+ "phf_shared",
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "phf_shared"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67eabc2ef2a60eb7faa00097bd1ffdb5bd28e62bf39990626a582201b7a754e5"
-dependencies = [
- "siphasher",
+ "uncased",
 ]
 
 [[package]]
@@ -5553,6 +5465,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e57fef6bc5981e38c2ce2d63bfa546861309f875b8a75f092d1d54ae2d64f266"
 dependencies = [
  "siphasher",
+ "uncased",
 ]
 
 [[package]]
@@ -5798,6 +5711,15 @@ checksum = "4488a4a36b9a4ba6b9334a32a39971f77c1436ec82c38707bce707699cc3bbcb"
 dependencies = [
  "quote",
  "syn",
+]
+
+[[package]]
+name = "psl"
+version = "2.1.212"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9f6415ab1b08394487005d41ae7ee69e69903efa1ace538f3b274db605bf8ec"
+dependencies = [
+ "psl-types",
 ]
 
 [[package]]
@@ -7714,6 +7636,15 @@ dependencies = [
  "memoffset",
  "tempfile",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "uncased"
+version = "0.9.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1b88fcfe09e89d3866a5c11019378088af2d24c3fbd4f0543f96b479ec90697"
+dependencies = [
+ "version_check",
 ]
 
 [[package]]
