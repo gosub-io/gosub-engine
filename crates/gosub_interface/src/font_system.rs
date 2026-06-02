@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::sync::Arc;
 use parking_lot::Mutex;
 
@@ -161,6 +162,9 @@ impl ShapedText {
 /// Callers must hold the mutex across a full resolve+shape pair if they need
 /// the results to be consistent.
 pub trait FontSystem: Send + Sync + 'static {
+    /// Required for downcasting to a concrete font system implementation.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
     /// Register a font from raw bytes.
     ///
     /// Used for `@font-face` web fonts and for bundled fallback fonts (e.g. Roboto).
