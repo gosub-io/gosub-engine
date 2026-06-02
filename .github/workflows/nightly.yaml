@@ -1,0 +1,73 @@
+name: Nightly Build
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # 02:00 UTC daily
+  workflow_dispatch:        # allow manual trigger
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build Linux binaries
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-release
+          save-if: 'true'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt update -y
+          sudo apt install -y \
+            sqlite3 libsqlite3-dev \
+            libglib2.0-dev libcairo2-dev \
+            libgdk-pixbuf-2.0-dev libpango1.0-dev \
+            libgtk-4-dev
+
+      - name: Build release binaries
+        run: |
+          cargo build --release --locked --bins
+          cargo build --release --locked -p gosub-screenshot
+
+      - name: Collect binaries
+        run: |
+          mkdir -p dist
+          for bin in \
+            gosub-screenshot \
+            gosub-parser \
+            css3-parser \
+            config-store \
+            display-text-tree \
+            html5-parser-test \
+            parser-test \
+            run-js; do
+            if [ -f "target/release/$bin" ]; then
+              cp "target/release/$bin" dist/
+            fi
+          done
+          tar -czf gosub-linux-x86_64.tar.gz -C dist .
+          echo "=== Bundled binaries ==="
+          ls -lh dist/
+
+      - name: Update nightly release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git tag -f nightly
+          git push -f origin nightly
+          gh release delete nightly --yes 2>/dev/null || true
+          gh release create nightly \
+            --prerelease \
+            --title "Nightly Build ($(date -u '+%Y-%m-%d'))" \
+            --notes "Automated nightly build from \`main\` · $(date -u '+%Y-%m-%d %H:%M UTC')" \
+            gosub-linux-x86_64.tar.gz
