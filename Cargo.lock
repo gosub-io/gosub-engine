@@ -3401,6 +3401,7 @@ dependencies = [
  "gdk4-wayland",
  "gdk4-x11",
  "gosub_css3",
+ "gosub_fontmanager",
  "gosub_html5",
  "gosub_interface",
  "gosub_net",
