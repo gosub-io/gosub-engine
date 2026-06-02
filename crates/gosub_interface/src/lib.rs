@@ -2,6 +2,7 @@ pub mod config;
 pub mod css3;
 pub mod document;
 pub mod font;
+pub mod font_system;
 pub mod html5;
 pub mod input;
 pub mod layout;
