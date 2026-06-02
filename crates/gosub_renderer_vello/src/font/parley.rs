@@ -1,53 +1,48 @@
 use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
-use parking_lot::Mutex;
-use parley::{AlignmentOptions, Layout};
-use std::sync::OnceLock;
+use parley::{Alignment, AlignmentOptions, FontContext, FontFamily, Layout, LayoutContext, StyleProperty};
 
-static FONT_CTX: OnceLock<Mutex<parley::FontContext>> = OnceLock::new();
-static LAYOUT_CTX: OnceLock<Mutex<parley::LayoutContext>> = OnceLock::new();
+/// Build a parley layout for `text` using the shared `font_cx`.
+///
+/// A fresh `LayoutContext` is created per call because its brush type `[u8; 4]`
+/// is render-pipeline-specific and it holds no expensive state — the expensive
+/// state (font collection) lives in `font_cx` which is shared.
+pub fn get_parley_layout(
+    text: &str,
+    font_info: &FontInfo,
+    max_width: f64,
+    font_cx: &mut FontContext,
+) -> Layout<[u8; 4]> {
+    let mut layout_cx: LayoutContext<[u8; 4]> = LayoutContext::new();
 
-pub fn get_font_context() -> parking_lot::MutexGuard<'static, parley::FontContext> {
-    FONT_CTX.get_or_init(|| Mutex::new(parley::FontContext::new())).lock()
-}
+    let display_scale = 1.0_f32;
+    let max_advance = (max_width * display_scale as f64) as f32;
 
-fn get_layout_context() -> parking_lot::MutexGuard<'static, parley::LayoutContext> {
-    LAYOUT_CTX
-        .get_or_init(|| Mutex::new(parley::LayoutContext::new()))
-        .lock()
-}
+    let mut builder = layout_cx.ranged_builder(font_cx, text, display_scale, false);
 
-pub fn get_parley_layout(text: &str, font_info: &FontInfo, max_width: f64) -> Layout<[u8; 4]> {
-    let font_stack = parley::FontStack::from(font_info.family.as_str());
-
-    let display_scale = 1.0;
-    let max_advance = (max_width * display_scale) as f32;
-
-    let mut font_ctx = get_font_context();
-    let mut layout_ctx = get_layout_context();
-
-    let mut builder = layout_ctx.ranged_builder(&mut font_ctx, text, display_scale as f32);
-    builder.push_default(font_stack);
-    builder.push_default(parley::StyleProperty::LineHeight(
-        font_info.line_height as f32 / font_info.size as f32,
-    ));
-    builder.push_default(parley::StyleProperty::FontSize(font_info.size as f32));
-    builder.push_default(parley::StyleProperty::FontWeight(parley::FontWeight::new(
+    builder.push_default(StyleProperty::FontFamily(FontFamily::Source(
+        font_info.family.as_str().into(),
+    )));
+    builder.push_default(StyleProperty::FontSize(font_info.size as f32));
+    builder.push_default(StyleProperty::LineHeight(parley::LineHeight::Absolute(
+        font_info.line_height as f32,
+    )));
+    builder.push_default(StyleProperty::FontWeight(parley::FontWeight::new(
         font_info.weight as f32,
     )));
     if font_info.slant != 0 {
-        builder.push_default(parley::StyleProperty::FontStyle(parley::FontStyle::Italic));
+        builder.push_default(StyleProperty::FontStyle(parley::FontStyle::Italic));
     }
 
     let align = match font_info.alignment {
-        FontAlignment::Start => parley::layout::Alignment::Start,
-        FontAlignment::Center => parley::layout::Alignment::Middle,
-        FontAlignment::End => parley::layout::Alignment::End,
-        FontAlignment::Justify => parley::layout::Alignment::Justified,
+        FontAlignment::Start => Alignment::Start,
+        FontAlignment::Center => Alignment::Center,
+        FontAlignment::End => Alignment::End,
+        FontAlignment::Justify => Alignment::Justify,
     };
 
     let mut layout: Layout<[u8; 4]> = builder.build(text);
     layout.break_all_lines(Some(max_advance * 1.01));
-    layout.align(Some(max_advance), align, AlignmentOptions::default());
+    layout.align(align, AlignmentOptions::default());
 
     layout
 }

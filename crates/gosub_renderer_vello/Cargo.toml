@@ -12,6 +12,7 @@ required-features = ["text_parley"]
 
 [dependencies]
 gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline", features = ["backend_vello"] }
+gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
 resvg = "0.47.0"
 log = "0.4.29"
@@ -22,7 +23,7 @@ vello = "0.8.0"
 pollster = "0.4.0"
 winit = "0.30.12"
 
-parley = { version = "0.3.0", optional = true }
+parley = { version = "0.9.0", optional = true, default-features = false, features = ["std"] }
 skia-safe = { version = "0.87.0", features = ["textlayout"], optional = true }
 
 [features]
