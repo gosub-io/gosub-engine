@@ -163,6 +163,6 @@ pub fn init_gtk_resources() {
     #[cfg(feature = "backend_cairo_pango")]
     {
         gtk4::init().expect("GTK init failed — on headless systems set GDK_BACKEND=offscreen");
-        gosub_renderer_cairo::font::pango::init_system_ui_font();
+        gosub_renderer_cairo::font::pango::init();
     }
 }
