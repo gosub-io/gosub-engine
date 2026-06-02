@@ -1,3 +1,4 @@
+use gosub_fontmanager::ParleyFontSystem;
 use gosub_render_pipeline::common::geo::Dimension;
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::common::texture::TextureId;
@@ -6,6 +7,7 @@ use gosub_render_pipeline::painter::commands::PaintCommand;
 use gosub_render_pipeline::rasterizer::Rasterable;
 use gosub_render_pipeline::render::backends::vello::WgpuResources;
 use gosub_render_pipeline::tiler::{Tile, TileId};
+use parking_lot::Mutex;
 use std::sync::Arc;
 use vello::kurbo::{Affine, Rect, Vec2};
 use vello::peniko::{Color, Fill};
@@ -19,11 +21,30 @@ mod text;
 
 pub struct VelloRasterizer {
     resources: Arc<WgpuResources>,
+    font_system: Arc<Mutex<ParleyFontSystem>>,
 }
 
 impl VelloRasterizer {
+    /// Create a rasterizer with its own font system.
+    ///
+    /// To share the font collection with `TaffyLayouter` (so layout and rendering
+    /// use identical font data), use [`VelloRasterizer::with_font_system`] instead
+    /// and pass the same `Arc` to both.
     pub fn new(resources: Arc<WgpuResources>) -> Self {
-        Self { resources }
+        Self {
+            resources,
+            font_system: Arc::new(Mutex::new(ParleyFontSystem::new())),
+        }
+    }
+
+    /// Create a rasterizer that shares an existing font system.
+    pub fn with_font_system(resources: Arc<WgpuResources>, font_system: Arc<Mutex<ParleyFontSystem>>) -> Self {
+        Self { resources, font_system }
+    }
+
+    /// Expose the font system so callers can share it with the layout engine.
+    pub fn font_system(&self) -> Arc<Mutex<ParleyFontSystem>> {
+        Arc::clone(&self.font_system)
     }
 }
 
@@ -38,6 +59,11 @@ impl Rasterable for VelloRasterizer {
 
         let affine = Affine::translate(Vec2::new(-tile.rect.x, -tile.rect.y));
 
+        // Lock the font system once per tile. All text commands in this tile share
+        // the same FontContext, so font data is loaded at most once per family.
+        let mut font_guard = self.font_system.lock();
+        let font_cx = font_guard.font_cx_mut();
+
         for element in &tile.elements {
             for command in &element.paint_commands {
                 match command {
@@ -48,7 +74,7 @@ impl Rasterable for VelloRasterizer {
                         rectangle::do_paint_rectangle(&mut scene, command, affine, media_store);
                     }
                     PaintCommand::Text(command) => {
-                        match text::do_paint_text(&mut scene, command, tile_size, affine, media_store) {
+                        match text::do_paint_text(&mut scene, command, tile_size, affine, media_store, font_cx) {
                             Ok(_) => {}
                             Err(e) => {
                                 log::warn!("Failed to paint text: {:?}", e);
@@ -58,6 +84,7 @@ impl Rasterable for VelloRasterizer {
                 }
             }
         }
+        drop(font_guard);
 
         scene.pop_layer();
 

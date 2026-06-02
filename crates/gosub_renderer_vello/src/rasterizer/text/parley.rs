@@ -5,6 +5,7 @@ use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::text::Text;
 use parley::layout::{GlyphRun, PositionedLayoutItem};
+use parley::FontContext;
 use vello::kurbo::Affine;
 use vello::peniko::Fill;
 use vello::Scene;
@@ -15,8 +16,9 @@ pub fn do_paint_text(
     _tile_size: Dimension,
     affine: Affine,
     media_store: &MediaStore,
+    font_cx: &mut FontContext,
 ) -> Result<(), anyhow::Error> {
-    let layout = get_parley_layout(cmd.text.as_str(), &cmd.font_info, cmd.rect.width);
+    let layout = get_parley_layout(cmd.text.as_str(), &cmd.font_info, cmd.rect.width, font_cx);
 
     for line in layout.lines() {
         for item in line.items() {
