@@ -63,6 +63,7 @@ impl Rasterable for CairoRasterizer {
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId> {
         let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed) as i32;
 
+        // Tile surface is created at physical pixel resolution (CSS pixels × DPR).
         let tile_w = tile.rect.width as i32 * dpr;
         let tile_h = tile.rect.height as i32 * dpr;
 
@@ -76,6 +77,7 @@ impl Rasterable for CairoRasterizer {
                 log::error!("Failed to create Cairo context");
                 return None;
             };
+            // Scale the context so all CSS-pixel coordinates map to physical pixels.
             cr.scale(dpr as f64, dpr as f64);
 
             for element in &tile.elements {

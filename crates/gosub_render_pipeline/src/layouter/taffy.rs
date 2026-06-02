@@ -33,7 +33,10 @@ pub struct TaffyLayouter {
     /// Mapping of layout element id to taffy node id
     layout_taffy_mapping: HashMap<LayoutElementId, TaffyNodeId>,
     /// Maps each layout element that lives inside an anonymous flex container to that
-    /// container's taffy node id.
+    /// container's taffy node id. The anonymous container exists in the taffy tree (between
+    /// the real parent and its inline children) but has no corresponding LayoutElementNode.
+    /// populate_boxmodel uses this to add the container's taffy-computed offset to the offset
+    /// it passes down to the child, which would otherwise be missing from the calculation.
     anon_container_map: HashMap<LayoutElementId, TaffyNodeId>,
     /// Media store for loading images/SVGs during layout
     media_store: MediaStore,
