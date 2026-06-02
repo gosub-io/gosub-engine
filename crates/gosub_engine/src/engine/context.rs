@@ -271,7 +271,9 @@ impl BrowsingContext {
         }
         if self.render_dirty {
             if let Some(doc) = &self.document {
-                let prev_tile_cache = self.pipeline_cache.as_mut()
+                let prev_tile_cache = self
+                    .pipeline_cache
+                    .as_mut()
                     .map(|c| std::mem::take(&mut c.tile_pixel_cache))
                     .unwrap_or_default();
                 self.pipeline_cache = Some(pipeline_build_cache(
@@ -302,7 +304,9 @@ impl BrowsingContext {
         {
             if self.render_dirty {
                 if let Some(doc) = &self.document {
-                    let prev_tile_cache = self.pipeline_cache.as_mut()
+                    let prev_tile_cache = self
+                        .pipeline_cache
+                        .as_mut()
                         .map(|c| std::mem::take(&mut c.tile_pixel_cache))
                         .unwrap_or_default();
                     self.pipeline_cache = Some(pipeline_build_cache(
@@ -479,69 +483,130 @@ impl RenderContext for BrowsingContext {
 #[cfg(any(feature = "backend_cairo", feature = "backend_skia"))]
 fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
     use gosub_render_pipeline::painter::commands::{
-        PaintCommand,
         border::{BorderRadius, BorderStyle},
         brush::Brush,
+        PaintCommand,
     };
 
     // Minimal inline FNV-1a hasher — no trait bounds needed on the types being hashed.
     let mut h: u64 = 14695981039346656037;
     macro_rules! fnv {
         ($bytes:expr) => {
-            for b in $bytes { h ^= *b as u64; h = h.wrapping_mul(1099511628211); }
+            for b in $bytes {
+                h ^= *b as u64;
+                h = h.wrapping_mul(1099511628211);
+            }
         };
     }
-    macro_rules! hf32  { ($v:expr) => { fnv!(&$v.to_bits().to_le_bytes()) } }
-    macro_rules! hf64  { ($v:expr) => { fnv!(&$v.to_bits().to_le_bytes()) } }
-    macro_rules! hu64  { ($v:expr) => { fnv!(&($v as u64).to_le_bytes()) } }
-    macro_rules! hbool { ($v:expr) => { fnv!(&[$v as u8]) } }
-    macro_rules! hstr  { ($s:expr) => { fnv!($s.as_bytes()); fnv!(&[0u8]) } }
+    macro_rules! hf32 {
+        ($v:expr) => {
+            fnv!(&$v.to_bits().to_le_bytes())
+        };
+    }
+    macro_rules! hf64 {
+        ($v:expr) => {
+            fnv!(&$v.to_bits().to_le_bytes())
+        };
+    }
+    macro_rules! hu64 {
+        ($v:expr) => {
+            fnv!(&($v as u64).to_le_bytes())
+        };
+    }
+    macro_rules! hbool {
+        ($v:expr) => {
+            fnv!(&[$v as u8])
+        };
+    }
+    macro_rules! hstr {
+        ($s:expr) => {
+            fnv!($s.as_bytes());
+            fnv!(&[0u8])
+        };
+    }
 
     macro_rules! hash_brush {
         ($b:expr) => {
             match $b {
-                Brush::Solid(c) => { fnv!(&[0]); hf32!(c.r()); hf32!(c.g()); hf32!(c.b()); hf32!(c.a()); }
-                Brush::Image(m) => { fnv!(&[1]); hu64!(m.as_u64()); }
+                Brush::Solid(c) => {
+                    fnv!(&[0]);
+                    hf32!(c.r());
+                    hf32!(c.g());
+                    hf32!(c.b());
+                    hf32!(c.a());
+                }
+                Brush::Image(m) => {
+                    fnv!(&[1]);
+                    hu64!(m.as_u64());
+                }
             }
         };
     }
 
     // Hash tile background.
     match tile.bgcolor {
-        Some((r, g, b, a)) => { hbool!(true); hf32!(r); hf32!(g); hf32!(b); hf32!(a); }
+        Some((r, g, b, a)) => {
+            hbool!(true);
+            hf32!(r);
+            hf32!(g);
+            hf32!(b);
+            hf32!(a);
+        }
         None => hbool!(false),
     }
 
     for elem in &tile.elements {
         hu64!(elem.id.as_u64());
-        hf64!(elem.rect.x); hf64!(elem.rect.y); hf64!(elem.rect.width); hf64!(elem.rect.height);
+        hf64!(elem.rect.x);
+        hf64!(elem.rect.y);
+        hf64!(elem.rect.width);
+        hf64!(elem.rect.height);
 
         for cmd in &elem.paint_commands {
             match cmd {
                 PaintCommand::Rectangle(r) => {
                     fnv!(&[0u8]);
                     let rect = r.rect();
-                    hf64!(rect.x); hf64!(rect.y); hf64!(rect.width); hf64!(rect.height);
+                    hf64!(rect.x);
+                    hf64!(rect.y);
+                    hf64!(rect.width);
+                    hf64!(rect.height);
                     match r.background() {
                         None => hbool!(false),
-                        Some(b) => { hbool!(true); hash_brush!(b); }
+                        Some(b) => {
+                            hbool!(true);
+                            hash_brush!(b);
+                        }
                     }
                     let border = r.border();
                     hf32!(border.width());
                     fnv!(&[match border.style() {
-                        BorderStyle::Solid => 1, BorderStyle::Dashed => 2, BorderStyle::Dotted => 3,
-                        BorderStyle::Double => 4, BorderStyle::Groove => 5, BorderStyle::Ridge => 6,
-                        BorderStyle::Inset => 7, BorderStyle::Outset => 8, BorderStyle::Hidden => 9,
+                        BorderStyle::Solid => 1,
+                        BorderStyle::Dashed => 2,
+                        BorderStyle::Dotted => 3,
+                        BorderStyle::Double => 4,
+                        BorderStyle::Groove => 5,
+                        BorderStyle::Ridge => 6,
+                        BorderStyle::Inset => 7,
+                        BorderStyle::Outset => 8,
+                        BorderStyle::Hidden => 9,
                         BorderStyle::None => 0,
                     }]);
-                    for b in border.brushes() { hash_brush!(&b); }
+                    for b in border.brushes() {
+                        hash_brush!(&b);
+                    }
                     if let Some(tr) = border.radius() {
                         hbool!(true);
                         for br in [&tr.top, &tr.right, &tr.bottom, &tr.left] {
                             match br {
-                                BorderRadius::Uniform(v) => { fnv!(&[0]); hf32!(*v); }
+                                BorderRadius::Uniform(v) => {
+                                    fnv!(&[0]);
+                                    hf32!(*v);
+                                }
                                 BorderRadius::Elliptical { horizontal, vertical } => {
-                                    fnv!(&[1]); hf32!(*horizontal); hf32!(*vertical);
+                                    fnv!(&[1]);
+                                    hf32!(*horizontal);
+                                    hf32!(*vertical);
                                 }
                             }
                         }
@@ -549,13 +614,22 @@ fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
                         hbool!(false);
                     }
                     let (tl, tr, br, bl) = r.radius_x();
-                    hf64!(tl); hf64!(tr); hf64!(br); hf64!(bl);
+                    hf64!(tl);
+                    hf64!(tr);
+                    hf64!(br);
+                    hf64!(bl);
                     let (tl, tr, br, bl) = r.radius_y();
-                    hf64!(tl); hf64!(tr); hf64!(br); hf64!(bl);
+                    hf64!(tl);
+                    hf64!(tr);
+                    hf64!(br);
+                    hf64!(bl);
                 }
                 PaintCommand::Text(t) => {
                     fnv!(&[1u8]);
-                    hf64!(t.rect.x); hf64!(t.rect.y); hf64!(t.rect.width); hf64!(t.rect.height);
+                    hf64!(t.rect.x);
+                    hf64!(t.rect.y);
+                    hf64!(t.rect.width);
+                    hf64!(t.rect.height);
                     hstr!(&t.text);
                     hstr!(&t.font_info.family);
                     hf64!(t.font_info.size);
@@ -571,7 +645,10 @@ fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
                     fnv!(&[2u8]);
                     hu64!(s.media_id.as_u64());
                     let rect = s.rect.rect();
-                    hf64!(rect.x); hf64!(rect.y); hf64!(rect.width); hf64!(rect.height);
+                    hf64!(rect.x);
+                    hf64!(rect.y);
+                    hf64!(rect.width);
+                    hf64!(rect.height);
                 }
             }
         }
@@ -588,7 +665,9 @@ fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
 fn pipeline_build_cache(
     doc: Arc<EngineDocument>,
     viewport: &Viewport,
-    #[cfg(feature = "backend_vello")] _vello_resources: Option<std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>>,
+    #[cfg(feature = "backend_vello")] _vello_resources: Option<
+        std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
+    >,
     prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)>,
 ) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
@@ -774,7 +853,8 @@ fn pipeline_build_cache(
 
                     // Cache miss: rasterize and emit a new cache entry.
                     let mut local_store = TextureStore::new();
-                    let baked = rasterizer.rasterize(tile, &mut local_store, &media_store)
+                    let baked = rasterizer
+                        .rasterize(tile, &mut local_store, &media_store)
                         .and_then(|tid| local_store.get(tid))
                         .map(|tex| BakedTile {
                             page_x: tile.rect.x,
@@ -784,8 +864,7 @@ fn pipeline_build_cache(
                             data: Arc::clone(&tex.data),
                         });
 
-                    let cache_entry = baked.as_ref()
-                        .map(|b| (key, (b.width, b.height, Arc::clone(&b.data))));
+                    let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, Arc::clone(&b.data))));
                     (tile_id, baked, cache_entry)
                 })
                 .collect();
@@ -821,7 +900,11 @@ fn pipeline_build_cache(
 
             timing_stop!(ts6);
             log::info!(
-                concat!("[pipeline] stage 6 rasterize ", $label, " {:>6.1}ms  ({} rasterized, {} hits, {} empty)"),
+                concat!(
+                    "[pipeline] stage 6 rasterize ",
+                    $label,
+                    " {:>6.1}ms  ({} rasterized, {} hits, {} empty)"
+                ),
                 t.elapsed().as_secs_f64() * 1000.0,
                 rasterized,
                 cache_hits,
@@ -843,7 +926,11 @@ fn pipeline_build_cache(
         rasterize_parallel!(SkiaRasterizer::new(1.0), "(skia):     ")
     };
 
-    #[cfg(all(feature = "backend_vello", not(feature = "backend_cairo"), not(feature = "backend_skia")))]
+    #[cfg(all(
+        feature = "backend_vello",
+        not(feature = "backend_cairo"),
+        not(feature = "backend_skia")
+    ))]
     let baked_tiles = {
         use gosub_render_pipeline::common::media::MediaStore;
         use gosub_render_pipeline::common::texture_store::TextureStore;
@@ -909,7 +996,11 @@ fn pipeline_build_cache(
         tiles
     };
     // Vello uses sequential rasterization; dirty-tile cache not yet implemented.
-    #[cfg(all(feature = "backend_vello", not(feature = "backend_cairo"), not(feature = "backend_skia")))]
+    #[cfg(all(
+        feature = "backend_vello",
+        not(feature = "backend_cairo"),
+        not(feature = "backend_skia")
+    ))]
     let new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)> =
         std::collections::HashMap::new();
 

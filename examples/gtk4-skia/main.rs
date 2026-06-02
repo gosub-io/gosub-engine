@@ -50,15 +50,17 @@ struct TileDrawState {
 }
 
 fn main() {
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap_or_default();
 
     let initial_url: String = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "https://stop-ai-slop.com".to_string());
 
-    let app = Application::builder()
-        .application_id("io.gosub.gtk4-skia")
-        .build();
+    let app = Application::builder().application_id("io.gosub.gtk4-skia").build();
 
     app.connect_activate(move |app| {
         let _rt_guard = TOKIO_RT.enter();
@@ -475,7 +477,7 @@ fn main() {
             let local_scroll = local_scroll.clone();
             move |area, w, h| {
                 let _scale = area.scale_factor() as u32;
-                
+
                 // Clear cached tiles — they were rasterized for the old viewport size.
                 *local_tiles.borrow_mut() = None;
                 local_scroll.set((0.0, 0.0));

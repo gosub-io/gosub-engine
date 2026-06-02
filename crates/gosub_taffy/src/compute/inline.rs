@@ -9,8 +9,8 @@ use gosub_interface::css3::{CssProperty, CssValue};
 use gosub_interface::font::{FontBlob, FontStyle};
 use gosub_interface::layout::{Decoration, DecorationStyle, HasTextLayout, LayoutNode, LayoutTree};
 use gosub_shared::font::Glyph;
-use gosub_shared::geo::FP;
 use gosub_shared::geo;
+use gosub_shared::geo::FP;
 
 use crate::text::TextLayout;
 use crate::{Display, LayoutDocument, TaffyLayouter};
@@ -317,10 +317,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
             if let Some(letter_spacing) = text_node.letter_spacing {
                 builder.push(parley::StyleProperty::LetterSpacing(letter_spacing), from..text_node.to);
             }
-            builder.push(
-                parley::StyleProperty::FontWeight(info.weight),
-                from..text_node.to,
-            );
+            builder.push(parley::StyleProperty::FontWeight(info.weight), from..text_node.to);
             builder.push(
                 parley::StyleProperty::FontStyle(match info.style {
                     FontStyle::Normal => parley::FontStyle::Normal,
@@ -548,7 +545,9 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
     }
 
     for id in ids {
-        let Some(node) = tree.tree.get_node_mut(id) else { continue };
+        let Some(node) = tree.tree.get_node_mut(id) else {
+            continue;
+        };
 
         let Some(layouts) = node.get_text_layouts_mut() else {
             continue;

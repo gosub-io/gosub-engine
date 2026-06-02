@@ -1,3 +1,4 @@
+use cairo;
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::common::texture::TextureId;
 use gosub_render_pipeline::common::TextureStore;
@@ -5,10 +6,9 @@ use gosub_render_pipeline::painter::commands::PaintCommand;
 use gosub_render_pipeline::rasterizer::Rasterable;
 use gosub_render_pipeline::tiler::Tile;
 use std::sync::Arc;
-use cairo;
 
 #[cfg(feature = "text_pango")]
-use crate::font::pango::{PangoFontSystem, get as get_font_system};
+use crate::font::pango::{get as get_font_system, PangoFontSystem};
 
 mod brush;
 mod rectangle;

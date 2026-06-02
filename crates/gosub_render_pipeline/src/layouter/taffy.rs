@@ -183,7 +183,13 @@ impl CanLayout for TaffyLayouter {
                         let text_layout = {
                             let mut fs = font_system.lock();
                             let font_cx = fs.font_cx_mut();
-                            get_text_layout(text_ctx.text.as_str(), &text_ctx.font_info, max_width, dpi_scale_factor, font_cx)
+                            get_text_layout(
+                                text_ctx.text.as_str(),
+                                &text_ctx.font_info,
+                                max_width,
+                                dpi_scale_factor,
+                                font_cx,
+                            )
                         };
                         match text_layout {
                             Ok(text_layout) => {

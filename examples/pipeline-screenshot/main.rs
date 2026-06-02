@@ -9,6 +9,7 @@
 //!
 //! No display server required — uses Cairo in software rendering mode.
 
+use cairo::{Context, Format, ImageSurface};
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabId};
@@ -17,7 +18,6 @@ use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::backends::cairo::CairoBackend;
 use gosub_render_pipeline::render::DefaultCompositor;
-use cairo::{Context, Format, ImageSurface};
 use image::ColorType;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
@@ -41,7 +41,11 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 });
 
 fn main() {
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap_or_default();
 
     let args: Vec<String> = std::env::args().collect();
     let url_str = args

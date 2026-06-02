@@ -183,10 +183,10 @@ fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
             // Slash notation for elliptical radii is not yet supported; only the first half is used.
             let radii_part = value.split('/').next().unwrap_or(value).trim();
             let v = parse_box_shorthand(radii_part);
-            style.set(StyleProperty::BorderTopLeftRadius,     v[0].clone());
-            style.set(StyleProperty::BorderTopRightRadius,    v[1].clone());
+            style.set(StyleProperty::BorderTopLeftRadius, v[0].clone());
+            style.set(StyleProperty::BorderTopRightRadius, v[1].clone());
             style.set(StyleProperty::BorderBottomRightRadius, v[2].clone());
-            style.set(StyleProperty::BorderBottomLeftRadius,  v[3].clone());
+            style.set(StyleProperty::BorderBottomLeftRadius, v[3].clone());
         }
         "border-top-style" => style.set(StyleProperty::BorderTopStyle, parse_border_style(value)),
         "border-right-style" => style.set(StyleProperty::BorderRightStyle, parse_border_style(value)),

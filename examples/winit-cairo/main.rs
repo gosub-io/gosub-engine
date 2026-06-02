@@ -390,7 +390,7 @@ fn blit_handle_to_buffer(
             pixels,
             ..
         } => {
-            let copy_rows = (height as u32).min(content_h) as usize;
+            let copy_rows = height.min(content_h) as usize;
             for row in 0..copy_rows {
                 for col in 0..(width as usize).min(win_w as usize) {
                     let src_off = row * stride as usize + col * 4;
@@ -453,7 +453,7 @@ fn blit_handle_to_buffer(
             pixel_buf,
         } => {
             let pixels = unsafe { std::slice::from_raw_parts(pixel_buf.as_ptr(), height as usize * stride as usize) };
-            let copy_rows = (height as u32).min(content_h) as usize;
+            let copy_rows = height.min(content_h) as usize;
             for row in 0..copy_rows {
                 for col in 0..(width as usize).min(win_w as usize) {
                     let src_off = row * stride as usize + col * 4;
@@ -538,7 +538,11 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
 }
 
 fn main() {
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap_or_default();
 
     // Cairo/Pango need GTK4 initialised. No GTK window is created.
     gosub_engine::init_gtk_resources();

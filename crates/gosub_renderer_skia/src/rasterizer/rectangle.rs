@@ -10,7 +10,15 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle) {
     if let Some(brush) = cmd.background() {
         let mut paint = Paint::new(brush_to_color4f(brush), None);
         paint.set_anti_alias(true);
-        draw_rect_or_rounded(canvas, cmd, r.x as f32, r.y as f32, r.width as f32, r.height as f32, &paint);
+        draw_rect_or_rounded(
+            canvas,
+            cmd,
+            r.x as f32,
+            r.y as f32,
+            r.width as f32,
+            r.height as f32,
+            &paint,
+        );
     }
 
     let border = cmd.border();
@@ -20,7 +28,15 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle) {
         paint.set_anti_alias(true);
         paint.set_stroke_width(border.width());
         paint.set_style(skia_safe::paint::Style::Stroke);
-        draw_rect_or_rounded(canvas, cmd, r.x as f32, r.y as f32, r.width as f32, r.height as f32, &paint);
+        draw_rect_or_rounded(
+            canvas,
+            cmd,
+            r.x as f32,
+            r.y as f32,
+            r.width as f32,
+            r.height as f32,
+            &paint,
+        );
     }
 }
 

@@ -20,11 +20,9 @@ use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalSt
 use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backends::skia_gpu::{
-    PendingFrame, SkiaGpuDirectFbBackend, to_color4f,
-};
-use gosub_render_pipeline::render::DefaultCompositor;
+use gosub_render_pipeline::render::backends::skia_gpu::{to_color4f, PendingFrame, SkiaGpuDirectFbBackend};
 use gosub_render_pipeline::render::render_list::DisplayItem;
+use gosub_render_pipeline::render::DefaultCompositor;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, Entry, GLArea, Label, Orientation};
@@ -59,18 +57,15 @@ fn get_bound_fbo() -> u32 {
         fn glGetIntegerv(pname: u32, data: *mut i32);
     }
     let mut fbo = 0i32;
-    unsafe { glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &mut fbo) };
+    unsafe {
+        glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &mut fbo)
+    };
     fbo as u32
 }
 
 // ── Skia GPU rendering ────────────────────────────────────────────────────────
 
-fn render_frame_to_gl(
-    dc: &mut skia_safe::gpu::DirectContext,
-    frame: &PendingFrame,
-    width: i32,
-    height: i32,
-) {
+fn render_frame_to_gl(dc: &mut skia_safe::gpu::DirectContext, frame: &PendingFrame, width: i32, height: i32) {
     if width == 0 || height == 0 {
         return;
     }
@@ -81,12 +76,7 @@ fn render_frame_to_gl(
         format: 0x8058, // GL_RGBA8
         protected: skia_safe::gpu::Protected::No,
     };
-    let target = skia_safe::gpu::backend_render_targets::make_gl(
-        (width, height),
-        None,
-        8,
-        fb_info,
-    );
+    let target = skia_safe::gpu::backend_render_targets::make_gl((width, height), None, 8, fb_info);
 
     let Some(mut surface) = skia_safe::gpu::surfaces::wrap_backend_render_target(
         dc,
@@ -128,11 +118,20 @@ fn render_item(canvas: &skia_safe::Canvas, item: &DisplayItem) {
             paint.set_anti_alias(true);
             canvas.draw_rect(SkRect::new(*x, *y, x + w, y + h), &paint);
         }
-        DisplayItem::TextRun { x, y, text, size, color, .. } => {
+        DisplayItem::TextRun {
+            x,
+            y,
+            text,
+            size,
+            color,
+            ..
+        } => {
             thread_local! { static FONT_MGR: FontMgr = FontMgr::new(); }
             let typeface = FONT_MGR.with(|fm| {
-                fm.legacy_make_typeface(None, FontStyle::normal())
-                    .unwrap_or_else(|| fm.legacy_make_typeface("sans-serif", FontStyle::normal()).expect("no typeface"))
+                fm.legacy_make_typeface(None, FontStyle::normal()).unwrap_or_else(|| {
+                    fm.legacy_make_typeface("sans-serif", FontStyle::normal())
+                        .expect("no typeface")
+                })
             });
             let font = Font::new(typeface, *size);
             let mut paint = Paint::new(to_color4f(color), None);
@@ -150,11 +149,7 @@ fn render_item(canvas: &skia_safe::Canvas, item: &DisplayItem) {
                 skia_safe::AlphaType::Premul,
                 None,
             );
-            if let Some(image) = skia_safe::images::raster_from_data(
-                &info,
-                skia_safe::Data::new_copy(data),
-                stride,
-            ) {
+            if let Some(image) = skia_safe::images::raster_from_data(&info, skia_safe::Data::new_copy(data), stride) {
                 canvas.draw_image(&image, (*x, *y), None);
             }
         }
@@ -164,15 +159,17 @@ fn render_item(canvas: &skia_safe::Canvas, item: &DisplayItem) {
 // ── Application ───────────────────────────────────────────────────────────────
 
 fn main() {
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap_or_default();
 
     let initial_url: String = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "https://example.com".to_string());
 
-    let app = Application::builder()
-        .application_id("io.gosub.gtk4-skia-gpu")
-        .build();
+    let app = Application::builder().application_id("io.gosub.gtk4-skia-gpu").build();
 
     app.connect_activate(move |app| {
         let _rt_guard = TOKIO_RT.enter();
@@ -183,7 +180,9 @@ fn main() {
 
         let compositor = Arc::new(RwLock::new(DefaultCompositor::new({
             let tx = tx_redraw.clone();
-            move || { let _ = tx.send(()); }
+            move || {
+                let _ = tx.send(());
+            }
         })));
 
         let backend = SkiaGpuDirectFbBackend::new();
@@ -214,7 +213,11 @@ fn main() {
 
         let tab = TOKIO_RT
             .block_on(zone.borrow_mut().create_tab(
-                TabDefaults { url: None, title: Some("Gosub".to_string()), viewport: None },
+                TabDefaults {
+                    url: None,
+                    title: Some("Gosub".to_string()),
+                    viewport: None,
+                },
                 None,
             ))
             .expect("create_tab");
@@ -233,8 +236,7 @@ fn main() {
         gl_area.set_focusable(true);
 
         // Hold Skia's DirectContext: created in connect_realize, used in connect_render.
-        let dc_holder: Rc<RefCell<Option<skia_safe::gpu::DirectContext>>> =
-            Rc::new(RefCell::new(None));
+        let dc_holder: Rc<RefCell<Option<skia_safe::gpu::DirectContext>>> = Rc::new(RefCell::new(None));
 
         // Initialise Skia's GL DirectContext once the GLArea is realized.
         gl_area.connect_realize({
@@ -247,8 +249,7 @@ fn main() {
                 }
                 let interface = skia_safe::gpu::gl::Interface::new_native()
                     .expect("Skia GL interface — GLArea context must be current");
-                let dc = skia_safe::gpu::direct_contexts::make_gl(interface, None)
-                    .expect("Skia DirectContext");
+                let dc = skia_safe::gpu::direct_contexts::make_gl(interface, None).expect("Skia DirectContext");
                 *dc_holder.borrow_mut() = Some(dc);
                 log::info!("gtk4-skia-gpu: Skia DirectContext initialised");
             }
@@ -260,8 +261,12 @@ fn main() {
             let pending = pending.clone();
             move |area, _ctx| {
                 let mut dc_ref = dc_holder.borrow_mut();
-                let Some(dc) = dc_ref.as_mut() else { return glib::Propagation::Stop; };
-                let Some(frame) = pending.lock().take() else { return glib::Propagation::Stop; };
+                let Some(dc) = dc_ref.as_mut() else {
+                    return glib::Propagation::Stop;
+                };
+                let Some(frame) = pending.lock().take() else {
+                    return glib::Propagation::Stop;
+                };
                 render_frame_to_gl(dc, &frame, area.width(), area.height());
                 glib::Propagation::Stop
             }
@@ -286,7 +291,14 @@ fn main() {
                 local_scroll.set((0.0, 0.0));
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::SetViewport { x: 0, y: 0, width: w as u32, height: h as u32 }).await;
+                    let _ = tab
+                        .send(TabCommand::SetViewport {
+                            x: 0,
+                            y: 0,
+                            width: w as u32,
+                            height: h as u32,
+                        })
+                        .await;
                 });
             }
         });
@@ -306,7 +318,12 @@ fn main() {
                 local_scroll.set(((px + dx).max(0.0), (py + dy).max(0.0)));
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseScroll {
+                            delta_x: dx,
+                            delta_y: dy,
+                        })
+                        .await;
                 });
                 glib::Propagation::Stop
             }
@@ -321,7 +338,12 @@ fn main() {
             move |_, x, y| {
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseMove { x: x as f32, y: y as f32 }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseMove {
+                            x: x as f32,
+                            y: y as f32,
+                        })
+                        .await;
                 });
             }
         });
@@ -334,10 +356,13 @@ fn main() {
             move |_, _, x, y| {
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseDown {
-                        x: x as f32, y: y as f32,
-                        button: gosub_engine::events::MouseButton::Left,
-                    }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseDown {
+                            x: x as f32,
+                            y: y as f32,
+                            button: gosub_engine::events::MouseButton::Left,
+                        })
+                        .await;
                 });
             }
         });
@@ -394,7 +419,10 @@ fn main() {
             async move {
                 while let Some(evt) = ui_rx.recv().await {
                     match evt {
-                        EngineEvent::Navigation { event: NavigationEvent::Finished { url, .. }, .. } => {
+                        EngineEvent::Navigation {
+                            event: NavigationEvent::Finished { url, .. },
+                            ..
+                        } => {
                             address_entry.set_text(url.as_str());
                         }
                         EngineEvent::HoverUrl { url, .. } => {

@@ -15,7 +15,7 @@ use gosub_render_pipeline::render::backends::skia::SkiaBackend;
 use gosub_render_pipeline::render::DefaultCompositor;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
-use skia_safe::{Color4f, Font, FontMgr, FontStyle, Paint, Rect as SkRect, surfaces};
+use skia_safe::{surfaces, Color4f, Font, FontMgr, FontStyle, Paint, Rect as SkRect};
 use softbuffer::Surface;
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -85,11 +85,15 @@ impl BrowserApp {
     fn redraw(&mut self) {
         let Some(surface) = &mut self.surface else { return };
         let (win_w, win_h) = self.surface_size;
-        if win_w == 0 || win_h == 0 { return; }
+        if win_w == 0 || win_h == 0 {
+            return;
+        }
 
         let Ok(nw) = NonZeroU32::try_from(win_w) else { return };
         let Ok(nh) = NonZeroU32::try_from(win_h) else { return };
-        if surface.resize(nw, nh).is_err() { return; }
+        if surface.resize(nw, nh).is_err() {
+            return;
+        }
 
         let Ok(mut buf) = surface.buffer_mut() else { return };
         buf.fill(0x00FF_FFFF);
@@ -98,7 +102,14 @@ impl BrowserApp {
         if content_h > 0 {
             let guard = self.compositor.read();
             if let Some(handle) = guard.frame_for(self.tab_id) {
-                blit_to_buffer(&mut buf, win_w, ADDRESS_BAR_HEIGHT, content_h, handle, &mut self.page_height);
+                blit_to_buffer(
+                    &mut buf,
+                    win_w,
+                    ADDRESS_BAR_HEIGHT,
+                    content_h,
+                    handle,
+                    &mut self.page_height,
+                );
             }
         }
 
@@ -121,7 +132,9 @@ impl BrowserApp {
 
 impl ApplicationHandler<()> for BrowserApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_some() { return; }
+        if self.window.is_some() {
+            return;
+        }
 
         let attrs = WindowAttributes::default()
             .with_title("Gosub Browser — winit + Skia")
@@ -138,7 +151,14 @@ impl ApplicationHandler<()> for BrowserApp {
 
         let tab = self.tab.clone();
         TOKIO_RT.spawn(async move {
-            let _ = tab.send(TabCommand::SetViewport { x: 0, y: 0, width: size.width, height: content_h }).await;
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: size.width,
+                    height: content_h,
+                })
+                .await;
             let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
         });
 
@@ -147,7 +167,9 @@ impl ApplicationHandler<()> for BrowserApp {
     }
 
     fn user_event(&mut self, _: &ActiveEventLoop, _: ()) {
-        if let Some(w) = &self.window { w.request_redraw(); }
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
@@ -156,16 +178,27 @@ impl ApplicationHandler<()> for BrowserApp {
             WindowEvent::RedrawRequested => self.redraw(),
 
             WindowEvent::Resized(PhysicalSize { width, height }) => {
-                if width == 0 || height == 0 { return; }
+                if width == 0 || height == 0 {
+                    return;
+                }
                 self.surface_size = (width, height);
                 let content_h = height.saturating_sub(ADDRESS_BAR_HEIGHT);
                 self.viewport = (width, content_h);
                 self.scroll = (0.0, 0.0);
                 let tab = self.tab.clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::SetViewport { x: 0, y: 0, width, height: content_h }).await;
+                    let _ = tab
+                        .send(TabCommand::SetViewport {
+                            x: 0,
+                            y: 0,
+                            width,
+                            height: content_h,
+                        })
+                        .await;
                 });
-                if let Some(w) = &self.window { w.request_redraw(); }
+                if let Some(w) = &self.window {
+                    w.request_redraw();
+                }
             }
 
             WindowEvent::CursorMoved { position, .. } => {
@@ -173,20 +206,34 @@ impl ApplicationHandler<()> for BrowserApp {
                 if !self.is_in_address_bar(position.y) {
                     let (x, y) = (self.to_css_x(position.x), self.to_css_y(position.y));
                     let tab = self.tab.clone();
-                    TOKIO_RT.spawn(async move { let _ = tab.send(TabCommand::MouseMove { x, y }).await; });
+                    TOKIO_RT.spawn(async move {
+                        let _ = tab.send(TabCommand::MouseMove { x, y }).await;
+                    });
                 }
             }
 
-            WindowEvent::MouseInput { state: ElementState::Pressed, button: WinitMouseButton::Left, .. } => {
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: WinitMouseButton::Left,
+                ..
+            } => {
                 if self.is_in_address_bar(self.cursor.y) {
                     self.addr_focused = true;
-                    if let Some(w) = &self.window { w.request_redraw(); }
+                    if let Some(w) = &self.window {
+                        w.request_redraw();
+                    }
                 } else {
                     self.addr_focused = false;
                     let (x, y) = (self.to_css_x(self.cursor.x), self.to_css_y(self.cursor.y));
                     let tab = self.tab.clone();
                     TOKIO_RT.spawn(async move {
-                        let _ = tab.send(TabCommand::MouseDown { x, y, button: MouseButton::Left }).await;
+                        let _ = tab
+                            .send(TabCommand::MouseDown {
+                                x,
+                                y,
+                                button: MouseButton::Left,
+                            })
+                            .await;
                     });
                 }
             }
@@ -200,33 +247,54 @@ impl ApplicationHandler<()> for BrowserApp {
                 self.scroll.0 = (self.scroll.0 + dx).max(0.0);
                 self.scroll.1 = (self.scroll.1 + dy).clamp(0.0, max_y);
                 let tab = self.tab.clone();
-                TOKIO_RT.spawn(async move { let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await; });
-                if let Some(w) = &self.window { w.request_redraw(); }
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseScroll {
+                            delta_x: dx,
+                            delta_y: dy,
+                        })
+                        .await;
+                });
+                if let Some(w) = &self.window {
+                    w.request_redraw();
+                }
             }
 
             WindowEvent::KeyboardInput {
-                event: KeyEvent { logical_key, text, state: ElementState::Pressed, .. }, ..
-            } => {
-                if self.addr_focused {
+                event:
+                    KeyEvent {
+                        logical_key,
+                        text,
+                        state: ElementState::Pressed,
+                        ..
+                    },
+                ..
+            }
+                if self.addr_focused => {
                     match &logical_key {
                         Key::Named(NamedKey::Enter) => self.navigate(),
                         Key::Named(NamedKey::Escape) => {
                             self.addr_focused = false;
-                            if let Some(w) = &self.window { w.request_redraw(); }
+                            if let Some(w) = &self.window {
+                                w.request_redraw();
+                            }
                         }
                         Key::Named(NamedKey::Backspace) => {
                             self.url_input.pop();
-                            if let Some(w) = &self.window { w.request_redraw(); }
+                            if let Some(w) = &self.window {
+                                w.request_redraw();
+                            }
                         }
                         _ => {
                             if let Some(t) = &text {
                                 self.url_input.push_str(t.as_str());
-                                if let Some(w) = &self.window { w.request_redraw(); }
+                                if let Some(w) = &self.window {
+                                    w.request_redraw();
+                                }
                             }
                         }
                     }
                 }
-            }
 
             _ => {}
         }
@@ -242,8 +310,14 @@ fn blit_to_buffer(
     page_height: &mut f32,
 ) {
     match handle {
-        ExternalHandle::CpuPixelsOwned { width, height, stride, pixels, .. } => {
-            let copy_rows = (height as u32).min(content_h) as usize;
+        ExternalHandle::CpuPixelsOwned {
+            width,
+            height,
+            stride,
+            pixels,
+            ..
+        } => {
+            let copy_rows = height.min(content_h) as usize;
             for row in 0..copy_rows {
                 for col in 0..(width as usize).min(win_w as usize) {
                     let off = row * stride as usize + col * 4;
@@ -251,11 +325,20 @@ fn blit_to_buffer(
                     let g = pixels[off + 1] as u32;
                     let r = pixels[off + 2] as u32;
                     let idx = (addr_h as usize + row) * win_w as usize + col;
-                    if idx < buf.len() { buf[idx] = (r << 16) | (g << 8) | b; }
+                    if idx < buf.len() {
+                        buf[idx] = (r << 16) | (g << 8) | b;
+                    }
                 }
             }
         }
-        ExternalHandle::TileCache { tiles, page_height: ph, scroll_x, scroll_y, dpr, .. } => {
+        ExternalHandle::TileCache {
+            tiles,
+            page_height: ph,
+            scroll_x,
+            scroll_y,
+            dpr,
+            ..
+        } => {
             *page_height = ph;
             let d = dpr as usize;
             let sx = scroll_x as usize * d;
@@ -265,21 +348,26 @@ fn blit_to_buffer(
                 let screen_y = (tile.page_y as usize * d).saturating_sub(sy);
                 let tw = tile.width as usize;
                 let th = tile.height as usize;
-                let tile_u32 = unsafe {
-                    std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4)
-                };
+                let tile_u32 =
+                    unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
                 for row in 0..th {
                     let dst_y = addr_h as usize + screen_y + row;
-                    if dst_y >= (addr_h + content_h) as usize { break; }
+                    if dst_y >= (addr_h + content_h) as usize {
+                        break;
+                    }
                     let cw = tw.min(win_w as usize - screen_x.min(win_w as usize));
-                    if cw == 0 { break; }
+                    if cw == 0 {
+                        break;
+                    }
                     for col in 0..cw {
                         let px = tile_u32[row * tw + col];
                         let b = px & 0xFF;
                         let g = (px >> 8) & 0xFF;
                         let r = (px >> 16) & 0xFF;
                         let idx = dst_y * win_w as usize + screen_x + col;
-                        if idx < buf.len() { buf[idx] = (r << 16) | (g << 8) | b; }
+                        if idx < buf.len() {
+                            buf[idx] = (r << 16) | (g << 8) | b;
+                        }
                     }
                 }
             }
@@ -300,14 +388,26 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
 
     let canvas = surface.canvas();
 
-    canvas.clear(if focused { Color4f::new(0.98, 0.98, 0.98, 1.0) } else { Color4f::new(0.93, 0.93, 0.93, 1.0) });
+    canvas.clear(if focused {
+        Color4f::new(0.98, 0.98, 0.98, 1.0)
+    } else {
+        Color4f::new(0.93, 0.93, 0.93, 1.0)
+    });
 
-    let box_color = if focused { Color4f::new(1.0, 1.0, 1.0, 1.0) } else { Color4f::new(0.97, 0.97, 0.97, 1.0) };
+    let box_color = if focused {
+        Color4f::new(1.0, 1.0, 1.0, 1.0)
+    } else {
+        Color4f::new(0.97, 0.97, 0.97, 1.0)
+    };
     let mut bg = Paint::new(box_color, None);
     bg.set_anti_alias(true);
     canvas.draw_rect(SkRect::new(4.0, 5.0, (w - 4) as f32, (h - 5) as f32), &bg);
 
-    let border_color = if focused { Color4f::new(0.26, 0.52, 0.96, 1.0) } else { Color4f::new(0.7, 0.7, 0.7, 1.0) };
+    let border_color = if focused {
+        Color4f::new(0.26, 0.52, 0.96, 1.0)
+    } else {
+        Color4f::new(0.7, 0.7, 0.7, 1.0)
+    };
     let mut border = Paint::new(border_color, None);
     border.set_anti_alias(true);
     border.set_style(skia_safe::PaintStyle::Stroke);
@@ -316,8 +416,10 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
 
     thread_local! { static FONT_MGR: FontMgr = FontMgr::new(); }
     let typeface = FONT_MGR.with(|fm| {
-        fm.legacy_make_typeface(None, FontStyle::normal())
-            .unwrap_or_else(|| fm.legacy_make_typeface("sans-serif", FontStyle::normal()).expect("no typeface"))
+        fm.legacy_make_typeface(None, FontStyle::normal()).unwrap_or_else(|| {
+            fm.legacy_make_typeface("sans-serif", FontStyle::normal())
+                .expect("no typeface")
+        })
     });
     let font = Font::new(typeface, 14.0);
     let mut text_paint = Paint::new(Color4f::new(0.0, 0.0, 0.0, 1.0), None);
@@ -342,11 +444,21 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
 }
 
 fn main() {
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap_or_default();
 
     let initial_url = {
-        let raw = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".to_string());
-        if raw.contains("://") { raw } else { format!("https://{raw}") }
+        let raw = std::env::args()
+            .nth(1)
+            .unwrap_or_else(|| "https://example.com".to_string());
+        if raw.contains("://") {
+            raw
+        } else {
+            format!("https://{raw}")
+        }
     };
 
     let _rt_guard = TOKIO_RT.enter();
@@ -355,7 +467,9 @@ fn main() {
 
     let compositor = Arc::new(RwLock::new(DefaultCompositor::new({
         let p = proxy.clone();
-        move || { let _ = p.send_event(()); }
+        move || {
+            let _ = p.send_event(());
+        }
     })));
 
     let backend = SkiaBackend::new();
@@ -367,7 +481,10 @@ fn main() {
     TOKIO_RT.spawn(async move {
         loop {
             match event_rx.recv().await {
-                Ok(EngineEvent::Navigation { event: NavigationEvent::Finished { .. } | NavigationEvent::Started { .. }, .. }) => {
+                Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. } | NavigationEvent::Started { .. },
+                    ..
+                }) => {
                     let _ = proxy_ev.send_event(());
                 }
                 Ok(_) => {}
@@ -393,13 +510,22 @@ fn main() {
         .expect("create_zone");
 
     let tab = TOKIO_RT
-        .block_on(zone.create_tab(TabDefaults { url: None, title: Some("Gosub".to_string()), viewport: None }, None))
+        .block_on(zone.create_tab(
+            TabDefaults {
+                url: None,
+                title: Some("Gosub".to_string()),
+                viewport: None,
+            },
+            None,
+        ))
         .expect("create_tab");
 
     let tab_id = tab.tab_id;
     let nav_tab = tab.clone();
     let nav_url = initial_url.clone();
-    TOKIO_RT.spawn(async move { let _ = nav_tab.send(TabCommand::Navigate { url: nav_url }).await; });
+    TOKIO_RT.spawn(async move {
+        let _ = nav_tab.send(TabCommand::Navigate { url: nav_url }).await;
+    });
 
     let mut app = BrowserApp {
         engine,

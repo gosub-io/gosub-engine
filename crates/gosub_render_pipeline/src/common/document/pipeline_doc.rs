@@ -386,11 +386,7 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
                         Some(to_value(v, u))
                     } else if let Some(v) = cv.as_number() {
                         Some(Value::Unit(v, Unit::Px))
-                    } else if let Some(v) = cv.as_percentage() {
-                        Some(Value::Unit(v, Unit::Percent))
-                    } else {
-                        None
-                    }
+                    } else { cv.as_percentage().map(|v| Value::Unit(v, Unit::Percent)) }
                 })
                 .collect();
 
@@ -441,8 +437,8 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
         ("max-width", StyleProperty::MaxWidth),
         ("max-height", StyleProperty::MaxHeight),
         ("gap", StyleProperty::Gap),
-        ("column-gap", StyleProperty::Gap),  // column-gap alone maps to horizontal gap
-        ("row-gap", StyleProperty::Gap),     // row-gap alone maps to vertical gap
+        ("column-gap", StyleProperty::Gap), // column-gap alone maps to horizontal gap
+        ("row-gap", StyleProperty::Gap),    // row-gap alone maps to vertical gap
         ("border-top-left-radius", StyleProperty::BorderTopLeftRadius),
         ("border-top-right-radius", StyleProperty::BorderTopRightRadius),
         ("border-bottom-left-radius", StyleProperty::BorderBottomLeftRadius),
