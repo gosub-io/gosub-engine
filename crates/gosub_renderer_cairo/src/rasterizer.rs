@@ -5,6 +5,7 @@ use gosub_render_pipeline::common::TextureStore;
 use gosub_render_pipeline::painter::commands::PaintCommand;
 use gosub_render_pipeline::rasterizer::Rasterable;
 use gosub_render_pipeline::tiler::Tile;
+#[cfg(feature = "text_pango")]
 use std::sync::Arc;
 
 #[cfg(feature = "text_pango")]
