@@ -369,21 +369,26 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
             StyleProperty::BorderBottomLeftRadius,
         ];
 
-        let to_value = |v: f32, u: &str| Value::Unit(v, str_to_unit(u));
-
-        if let Some((v, u)) = br.as_unit() {
-            // Single value: all four corners the same
-            let val = to_value(v, u);
-            for c in &corners {
-                style.set(c.clone(), val.clone());
+        if let Some(_) = br.as_unit() {
+            // Single value: all four corners the same.
+            // Use unit_to_px() so that rem/em values are converted — otherwise
+            // `border-radius: 0.25rem` would be stored as 0.25 and treated as
+            // 0.25 px (invisible) when get_style_f32 ignores the unit.
+            let px = br.unit_to_px();
+            if px > 0.0 {
+                let val = Value::Unit(px, Unit::Px);
+                for c in &corners {
+                    style.set(c.clone(), val.clone());
+                }
             }
         } else if let Some(list) = br.as_list() {
-            // Extract numeric values from the list, skipping slashes (elliptical notation not yet supported)
+            // Extract numeric values from the list, converting all units to px.
             let vals: Vec<Value> = list
                 .iter()
                 .filter_map(|cv| {
-                    if let Some((v, u)) = cv.as_unit() {
-                        Some(to_value(v, u))
+                    if cv.as_unit().is_some() {
+                        let px = cv.unit_to_px();
+                        Some(Value::Unit(px, Unit::Px))
                     } else if let Some(v) = cv.as_number() {
                         Some(Value::Unit(v, Unit::Px))
                     } else { cv.as_percentage().map(|v| Value::Unit(v, Unit::Percent)) }
