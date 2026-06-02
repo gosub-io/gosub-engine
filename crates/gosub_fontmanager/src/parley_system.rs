@@ -1,3 +1,4 @@
+use std::any::Any;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
 use gosub_interface::font_system::{FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, ShapedGlyph, ShapedRun, ShapedText};
 use parley::fontique::{Attributes, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache};
@@ -16,6 +17,12 @@ pub struct ParleyFontSystem {
     font_cx: FontContext,
     layout_cx: LayoutContext<()>,
     source_cache: SourceCache,
+}
+
+impl std::fmt::Debug for ParleyFontSystem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParleyFontSystem").finish_non_exhaustive()
+    }
 }
 
 impl Default for ParleyFontSystem {
@@ -44,7 +51,21 @@ impl ParleyFontSystem {
     }
 }
 
+impl ParleyFontSystem {
+    /// Grants direct access to the underlying Parley font collection.
+    ///
+    /// Used by `TaffyLayouter` so that the same font collection is shared between
+    /// the layout engine and rendering, ensuring consistent shaping.
+    pub fn font_cx_mut(&mut self) -> &mut FontContext {
+        &mut self.font_cx
+    }
+}
+
 impl FontSystem for ParleyFontSystem {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn register_font(&mut self, data: Vec<u8>, _family_override: Option<&str>) -> Result<(), FontError> {
         // fontique derives the family name from the font's own `name` table;
         // custom name overrides are not yet supported here.
