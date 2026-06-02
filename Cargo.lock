@@ -3348,6 +3348,7 @@ dependencies = [
  "font-kit",
  "freetype-rs",
  "gosub_interface",
+ "gosub_shared",
  "gtk4",
  "image",
  "lazy_static",
