@@ -54,7 +54,7 @@ fn main() {
     });
 
     let width: u32 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(1280);
-    let out_path   = args.get(3).map(|s| s.as_str()).unwrap_or("pipeline-screenshot.png");
+    let out_path = args.get(3).map(|s| s.as_str()).unwrap_or("pipeline-screenshot.png");
 
     // 1. Fetch HTML.
     eprintln!("Fetching {url}…");
@@ -87,11 +87,7 @@ fn main() {
     // layout_tree.root_dimension after layout completes.
     eprintln!("Running layout (taffy)…");
     let mut layouter = TaffyLayouter::new();
-    let layout_tree = layouter.layout(
-        render_tree,
-        Some(Dimension::new(width as f64, 1_000_000.0)),
-        1.0,
-    );
+    let layout_tree = layouter.layout(render_tree, Some(Dimension::new(width as f64, 1_000_000.0)), 1.0);
     eprintln!("  {} layout nodes computed", layout_tree.arena.len());
 
     // Derive the actual page height from the root element's computed size.
@@ -114,16 +110,17 @@ fn main() {
                 let doc = &layout_tree.render_tree.doc;
                 let bb = &el.box_model.border_box;
 
-                let bg = if let Value::Color(r, g, b, a) = doc.get_style(el.dom_node_id, &StyleProperty::BackgroundColor) {
-                    Some([r, g, b, a])
-                } else {
-                    None
-                };
+                let bg =
+                    if let Value::Color(r, g, b, a) = doc.get_style(el.dom_node_id, &StyleProperty::BackgroundColor) {
+                        Some([r, g, b, a])
+                    } else {
+                        None
+                    };
 
-                let bw_top    = doc.get_style_f32(el.dom_node_id, &StyleProperty::BorderTopWidth) as f64;
-                let bw_right  = doc.get_style_f32(el.dom_node_id, &StyleProperty::BorderRightWidth) as f64;
+                let bw_top = doc.get_style_f32(el.dom_node_id, &StyleProperty::BorderTopWidth) as f64;
+                let bw_right = doc.get_style_f32(el.dom_node_id, &StyleProperty::BorderRightWidth) as f64;
                 let bw_bottom = doc.get_style_f32(el.dom_node_id, &StyleProperty::BorderBottomWidth) as f64;
-                let bw_left   = doc.get_style_f32(el.dom_node_id, &StyleProperty::BorderLeftWidth) as f64;
+                let bw_left = doc.get_style_f32(el.dom_node_id, &StyleProperty::BorderLeftWidth) as f64;
 
                 let color_of = |prop: &StyleProperty| -> [u8; 4] {
                     if let Value::Color(r, g, b, a) = doc.get_style(el.dom_node_id, prop) {
@@ -132,10 +129,10 @@ fn main() {
                         [0u8, 0u8, 0u8, 0u8]
                     }
                 };
-                let bc_top    = color_of(&StyleProperty::BorderTopColor);
-                let bc_right  = color_of(&StyleProperty::BorderRightColor);
+                let bc_top = color_of(&StyleProperty::BorderTopColor);
+                let bc_right = color_of(&StyleProperty::BorderRightColor);
                 let bc_bottom = color_of(&StyleProperty::BorderBottomColor);
-                let bc_left   = color_of(&StyleProperty::BorderLeftColor);
+                let bc_left = color_of(&StyleProperty::BorderLeftColor);
 
                 let r_tl = doc.get_style_f32(el.dom_node_id, &StyleProperty::BorderTopLeftRadius) as f64;
                 let r_tr = doc.get_style_f32(el.dom_node_id, &StyleProperty::BorderTopRightRadius) as f64;
@@ -144,11 +141,17 @@ fn main() {
 
                 render_box_cairo(
                     &mut img,
-                    bb.x as f32, bb.y as f32, bb.width as f32, bb.height as f32,
+                    bb.x as f32,
+                    bb.y as f32,
+                    bb.width as f32,
+                    bb.height as f32,
                     bg,
                     [bw_top, bw_right, bw_bottom, bw_left],
                     [bc_top, bc_right, bc_bottom, bc_left],
-                    r_tl, r_tr, r_br, r_bl,
+                    r_tl,
+                    r_tr,
+                    r_br,
+                    r_bl,
                 );
             }
             ElementContext::Text(ctx) => {
@@ -187,7 +190,8 @@ fn main() {
 
     // 6. Save PNG.
     let out = out_path;
-    img.save_with_format(out, image::ImageFormat::Png).expect("failed to save PNG");
+    img.save_with_format(out, image::ImageFormat::Png)
+        .expect("failed to save PNG");
 
     eprintln!("Done.");
     println!("gosub pipeline screenshot");
@@ -210,28 +214,42 @@ fn fetch_html(url: &str) -> anyhow::Result<String> {
 #[allow(clippy::too_many_arguments)]
 fn render_box_cairo(
     img: &mut RgbaImage,
-    x: f32, y: f32, w: f32, h: f32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
     bg: Option<[u8; 4]>,
     border_widths: [f64; 4],
     border_colors: [[u8; 4]; 4],
-    r_tl: f64, r_tr: f64, r_br: f64, r_bl: f64,
+    r_tl: f64,
+    r_tr: f64,
+    r_br: f64,
+    r_bl: f64,
 ) {
     use cairo::{Context, Format, ImageSurface};
     use std::f64::consts::PI;
 
     let sw = w.ceil() as i32;
     let sh = h.ceil() as i32;
-    if sw <= 0 || sh <= 0 { return; }
+    if sw <= 0 || sh <= 0 {
+        return;
+    }
 
     let has_bg = bg.map_or(false, |c| c[3] > 0);
     let is_rounded = r_tl > 0.0 || r_tr > 0.0 || r_br > 0.0 || r_bl > 0.0;
     // Any side with a non-zero width and non-transparent colour counts as a border.
-    let has_any_border = border_widths.iter().zip(border_colors.iter())
+    let has_any_border = border_widths
+        .iter()
+        .zip(border_colors.iter())
         .any(|(&bw, bc)| bw > 0.0 && bc[3] > 0);
 
-    if !has_bg && !has_any_border { return; }
+    if !has_bg && !has_any_border {
+        return;
+    }
 
-    let Ok(mut surface) = ImageSurface::create(Format::ARgb32, sw, sh) else { return };
+    let Ok(mut surface) = ImageSurface::create(Format::ARgb32, sw, sh) else {
+        return;
+    };
     let Ok(cr) = Context::new(&surface) else { return };
 
     let fw = w as f64;
@@ -242,13 +260,29 @@ fn render_box_cairo(
         cr.new_path();
         cr.move_to(r_tl, 0.0);
         cr.line_to(fw - r_tr, 0.0);
-        if r_tr > 0.0 { cr.arc(fw - r_tr, r_tr,      r_tr, -PI / 2.0, 0.0);      } else { cr.line_to(fw, 0.0); }
+        if r_tr > 0.0 {
+            cr.arc(fw - r_tr, r_tr, r_tr, -PI / 2.0, 0.0);
+        } else {
+            cr.line_to(fw, 0.0);
+        }
         cr.line_to(fw, fh - r_br);
-        if r_br > 0.0 { cr.arc(fw - r_br, fh - r_br, r_br, 0.0,       PI / 2.0); } else { cr.line_to(fw, fh); }
+        if r_br > 0.0 {
+            cr.arc(fw - r_br, fh - r_br, r_br, 0.0, PI / 2.0);
+        } else {
+            cr.line_to(fw, fh);
+        }
         cr.line_to(r_bl, fh);
-        if r_bl > 0.0 { cr.arc(r_bl,      fh - r_bl, r_bl, PI / 2.0,  PI);       } else { cr.line_to(0.0, fh); }
+        if r_bl > 0.0 {
+            cr.arc(r_bl, fh - r_bl, r_bl, PI / 2.0, PI);
+        } else {
+            cr.line_to(0.0, fh);
+        }
         cr.line_to(0.0, r_tl);
-        if r_tl > 0.0 { cr.arc(r_tl,      r_tl,      r_tl, PI,        3.0 * PI / 2.0); } else { cr.line_to(0.0, 0.0); }
+        if r_tl > 0.0 {
+            cr.arc(r_tl, r_tl, r_tl, PI, 3.0 * PI / 2.0);
+        } else {
+            cr.line_to(0.0, 0.0);
+        }
         cr.close_path();
     };
 
@@ -280,7 +314,9 @@ fn render_box_cairo(
         } else {
             // Asymmetric borders: draw only the sides with non-zero width.
             let draw_side = |cr: &Context, x0: f64, y0: f64, x1: f64, y1: f64, bw: f64, bc: [u8; 4]| {
-                if bw <= 0.0 || bc[3] == 0 { return; }
+                if bw <= 0.0 || bc[3] == 0 {
+                    return;
+                }
                 let [r, g, b, a] = bc;
                 cr.set_source_rgba(r as f64 / 255.0, g as f64 / 255.0, b as f64 / 255.0, a as f64 / 255.0);
                 cr.set_line_width(bw);
@@ -292,10 +328,10 @@ fn render_box_cairo(
             let hw_r = bw_r / 2.0;
             let hw_b = bw_b / 2.0;
             let hw_l = bw_l / 2.0;
-            draw_side(&cr, 0.0,       hw_t,      fw,         hw_t,      bw_t, border_colors[0]); // top
-            draw_side(&cr, fw - hw_r, 0.0,       fw - hw_r,  fh,        bw_r, border_colors[1]); // right
-            draw_side(&cr, 0.0,       fh - hw_b, fw,         fh - hw_b, bw_b, border_colors[2]); // bottom
-            draw_side(&cr, hw_l,      0.0,       hw_l,       fh,        bw_l, border_colors[3]); // left
+            draw_side(&cr, 0.0, hw_t, fw, hw_t, bw_t, border_colors[0]); // top
+            draw_side(&cr, fw - hw_r, 0.0, fw - hw_r, fh, bw_r, border_colors[1]); // right
+            draw_side(&cr, 0.0, fh - hw_b, fw, fh - hw_b, bw_b, border_colors[2]); // bottom
+            draw_side(&cr, hw_l, 0.0, hw_l, fh, bw_l, border_colors[3]); // left
         }
     }
     drop(cr);
@@ -313,20 +349,28 @@ fn render_box_cairo(
             let sx = (px - ix0) as usize;
             let sy = (py - iy0) as usize;
             let base = (sy * sw as usize + sx) * 4;
-            if base + 3 >= data.len() { continue; }
+            if base + 3 >= data.len() {
+                continue;
+            }
             let sa = data[base + 3];
-            if sa == 0 { continue; }
+            if sa == 0 {
+                continue;
+            }
             let sb = data[base];
             let sg = data[base + 1];
             let sr = data[base + 2];
             let fa = sa as f32 / 255.0;
             let Rgba([dr, dg, db, _]) = *img.get_pixel(px, py);
-            img.put_pixel(px, py, Rgba([
-                (sr as f32 * fa + dr as f32 * (1.0 - fa)) as u8,
-                (sg as f32 * fa + dg as f32 * (1.0 - fa)) as u8,
-                (sb as f32 * fa + db as f32 * (1.0 - fa)) as u8,
-                255,
-            ]));
+            img.put_pixel(
+                px,
+                py,
+                Rgba([
+                    (sr as f32 * fa + dr as f32 * (1.0 - fa)) as u8,
+                    (sg as f32 * fa + dg as f32 * (1.0 - fa)) as u8,
+                    (sb as f32 * fa + db as f32 * (1.0 - fa)) as u8,
+                    255,
+                ]),
+            );
         }
     }
 }
@@ -354,8 +398,8 @@ fn render_text_pango(
     // often measures slightly wider than the box that taffy allocated.  Give the
     // Cairo surface extra horizontal room so glyphs are never clipped; we
     // composite only the pixels that fall inside the original bounding box anyway.
-    let layout_w = max_width.ceil() as i32;  // the wrap / clip width for Pango
-    let surf_w = layout_w + 64;              // extra pixels so the last glyph isn't cut
+    let layout_w = max_width.ceil() as i32; // the wrap / clip width for Pango
+    let surf_w = layout_w + 64; // extra pixels so the last glyph isn't cut
     let surf_h = (max_height.ceil() as i32 + 4).max(1);
     if layout_w <= 0 {
         return;
@@ -450,36 +494,6 @@ fn render_text_pango(
                     255,
                 ]),
             );
-        }
-    }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-fn fill_rect(img: &mut RgbaImage, x: f32, y: f32, w: f32, h: f32, color: [u8; 4]) {
-    let x0 = (x as u32).min(img.width());
-    let y0 = (y as u32).min(img.height());
-    let x1 = ((x + w) as u32).min(img.width());
-    let y1 = ((y + h) as u32).min(img.height());
-    for py in y0..y1 {
-        for px in x0..x1 {
-            let [r, g, b, a] = color;
-            if a == 255 {
-                img.put_pixel(px, py, Rgba([r, g, b, 255]));
-            } else {
-                let Rgba([br, bg, bb, _]) = *img.get_pixel(px, py);
-                let fa = a as f32 / 255.0;
-                img.put_pixel(
-                    px,
-                    py,
-                    Rgba([
-                        ((r as f32 / 255.0 * fa + br as f32 / 255.0 * (1.0 - fa)) * 255.0) as u8,
-                        ((g as f32 / 255.0 * fa + bg as f32 / 255.0 * (1.0 - fa)) * 255.0) as u8,
-                        ((b as f32 / 255.0 * fa + bb as f32 / 255.0 * (1.0 - fa)) * 255.0) as u8,
-                        255,
-                    ]),
-                );
-            }
         }
     }
 }
