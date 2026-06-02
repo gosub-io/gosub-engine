@@ -3384,6 +3384,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "image",
  "log",
+ "pangocairo",
  "parking_lot",
  "parley",
  "rand 0.10.1",
