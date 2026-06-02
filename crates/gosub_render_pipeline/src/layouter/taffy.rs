@@ -13,7 +13,8 @@ use crate::layouter::{
     LayoutElementNode, LayoutTree,
 };
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
-use parking_lot::RwLock;
+use gosub_fontmanager::ParleyFontSystem;
+use parking_lot::{Mutex, RwLock};
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -32,13 +33,14 @@ pub struct TaffyLayouter {
     /// Mapping of layout element id to taffy node id
     layout_taffy_mapping: HashMap<LayoutElementId, TaffyNodeId>,
     /// Maps each layout element that lives inside an anonymous flex container to that
-    /// container's taffy node id. The anonymous container exists in the taffy tree (between
-    /// the real parent and its inline children) but has no corresponding LayoutElementNode.
-    /// populate_boxmodel uses this to add the container's taffy-computed offset to the offset
-    /// it passes down to the child, which would otherwise be missing from the calculation.
+    /// container's taffy node id.
     anon_container_map: HashMap<LayoutElementId, TaffyNodeId>,
     /// Media store for loading images/SVGs during layout
     media_store: MediaStore,
+    /// Shared font system used for text measurement. Locking once per measurement
+    /// call avoids keeping the guard alive across the full layout pass, which lets
+    /// other threads (e.g. the rasterizer) access the font collection between calls.
+    font_system: Arc<Mutex<ParleyFontSystem>>,
 }
 
 /// Context structures to pass to taffy measure functions so we can calculate the size of the text or images.
@@ -92,14 +94,29 @@ impl Default for TaffyLayouter {
 }
 
 impl TaffyLayouter {
+    /// Create a layouter with its own font system.
+    ///
+    /// To share the font collection with other components (e.g. a `VelloRasterizer`)
+    /// use [`TaffyLayouter::with_font_system`] and pass the same `Arc` to both.
     pub fn new() -> Self {
+        Self::with_font_system(Arc::new(Mutex::new(ParleyFontSystem::new())))
+    }
+
+    /// Create a layouter that shares an existing font system.
+    pub fn with_font_system(font_system: Arc<Mutex<ParleyFontSystem>>) -> Self {
         Self {
             tree: TaffyTree::new(),
             root_id: TaffyNodeId::new(0),
             layout_taffy_mapping: HashMap::new(),
             anon_container_map: HashMap::new(),
             media_store: MediaStore::new(),
+            font_system,
         }
+    }
+
+    /// Expose the font system so callers can share it with other components.
+    pub fn font_system(&self) -> Arc<Mutex<ParleyFontSystem>> {
+        Arc::clone(&self.font_system)
     }
 
     pub fn print_tree(&mut self) {
@@ -136,6 +153,10 @@ impl CanLayout for TaffyLayouter {
             None => Size::MAX_CONTENT,
         };
 
+        // Clone the Arc so the closure can lock the font system without holding a
+        // borrow of `self` while `self.tree` is also mutably borrowed.
+        let font_system = Arc::clone(&self.font_system);
+
         // Compute the layout with a measure function
         if let Err(e) = self
             .tree
@@ -153,9 +174,14 @@ impl CanLayout for TaffyLayouter {
                                 AvailableSpace::MinContent => 0.0,
                             }
                         };
-                        // Calculate the text layout dimensions and return it to taffy
-                        let text_layout =
-                            get_text_layout(text_ctx.text.as_str(), &text_ctx.font_info, max_width, dpi_scale_factor);
+                        // Acquire the font context for this measurement. The lock is
+                        // released immediately after the call so other callers
+                        // (e.g. the rasterizer) can interleave without contention.
+                        let text_layout = {
+                            let mut fs = font_system.lock();
+                            let font_cx = fs.font_cx_mut();
+                            get_text_layout(text_ctx.text.as_str(), &text_ctx.font_info, max_width, dpi_scale_factor, font_cx)
+                        };
                         match text_layout {
                             Ok(text_layout) => {
                                 // Ceil width to the nearest CSS pixel. Parley returns a fractional
