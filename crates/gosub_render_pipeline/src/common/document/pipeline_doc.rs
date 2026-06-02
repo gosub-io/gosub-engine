@@ -332,15 +332,6 @@ where
 
 // ── build_node_style — converts CssPropertyMap into NodeStyle ─────────────────
 
-fn str_to_unit(s: &str) -> Unit {
-    match s {
-        "em" => Unit::Em,
-        "rem" => Unit::Rem,
-        "%" => Unit::Percent,
-        _ => Unit::Px,
-    }
-}
-
 fn str_to_border_style(s: &str) -> BorderStyle {
     match s {
         "hidden" => BorderStyle::Hidden,
@@ -369,7 +360,7 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
             StyleProperty::BorderBottomLeftRadius,
         ];
 
-        if let Some(_) = br.as_unit() {
+        if br.as_unit().is_some() {
             // Single value: all four corners the same.
             // Use unit_to_px() so that rem/em values are converted — otherwise
             // `border-radius: 0.25rem` would be stored as 0.25 and treated as
@@ -391,7 +382,9 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
                         Some(Value::Unit(px, Unit::Px))
                     } else if let Some(v) = cv.as_number() {
                         Some(Value::Unit(v, Unit::Px))
-                    } else { cv.as_percentage().map(|v| Value::Unit(v, Unit::Percent)) }
+                    } else {
+                        cv.as_percentage().map(|v| Value::Unit(v, Unit::Percent))
+                    }
                 })
                 .collect();
 

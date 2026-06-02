@@ -269,32 +269,29 @@ impl ApplicationHandler<()> for BrowserApp {
                         ..
                     },
                 ..
-            }
-                if self.addr_focused => {
-                    match &logical_key {
-                        Key::Named(NamedKey::Enter) => self.navigate(),
-                        Key::Named(NamedKey::Escape) => {
-                            self.addr_focused = false;
-                            if let Some(w) = &self.window {
-                                w.request_redraw();
-                            }
-                        }
-                        Key::Named(NamedKey::Backspace) => {
-                            self.url_input.pop();
-                            if let Some(w) = &self.window {
-                                w.request_redraw();
-                            }
-                        }
-                        _ => {
-                            if let Some(t) = &text {
-                                self.url_input.push_str(t.as_str());
-                                if let Some(w) = &self.window {
-                                    w.request_redraw();
-                                }
-                            }
+            } if self.addr_focused => match &logical_key {
+                Key::Named(NamedKey::Enter) => self.navigate(),
+                Key::Named(NamedKey::Escape) => {
+                    self.addr_focused = false;
+                    if let Some(w) = &self.window {
+                        w.request_redraw();
+                    }
+                }
+                Key::Named(NamedKey::Backspace) => {
+                    self.url_input.pop();
+                    if let Some(w) = &self.window {
+                        w.request_redraw();
+                    }
+                }
+                _ => {
+                    if let Some(t) = &text {
+                        self.url_input.push_str(t.as_str());
+                        if let Some(w) = &self.window {
+                            w.request_redraw();
                         }
                     }
                 }
+            },
 
             _ => {}
         }

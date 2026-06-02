@@ -166,7 +166,7 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
             s.pixels.clone(),
             s.size.width,
             s.size.height,
-            ((s.size.width * 4)),
+            s.size.width * 4,
             PixelFormat::PreMulArgb32,
         ))
     }

@@ -114,7 +114,7 @@ impl RenderBackend for SkiaBackend {
             s.pixels.clone(),
             s.size.width,
             s.size.height,
-            ((s.size.width * 4)),
+            s.size.width * 4,
             PixelFormat::PreMulArgb32,
         ))
     }

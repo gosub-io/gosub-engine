@@ -2264,25 +2264,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "example-pipeline-screenshot"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cairo-rs",
- "clap",
- "gosub_engine",
- "gosub_render_pipeline",
- "image",
- "log",
- "once_cell",
- "parking_lot",
- "simple_logger",
- "tokio",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "example-winit-cairo"
 version = "0.1.0"
 dependencies = [
@@ -3126,6 +3107,25 @@ dependencies = [
  "glib-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "gosub-screenshot"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cairo-rs",
+ "clap",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "image",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "tokio",
+ "url",
+ "uuid",
 ]
 
 [[package]]

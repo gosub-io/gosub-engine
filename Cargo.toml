@@ -25,7 +25,7 @@ members = [
     "examples/winit-skia",
     "examples/winit-skia-gpu",
     "examples/winit-vello",
-    "examples/pipeline-screenshot",
+    "bin/gosub-screenshot",
 ]
 exclude = [
     "crates/gosub_storage",
