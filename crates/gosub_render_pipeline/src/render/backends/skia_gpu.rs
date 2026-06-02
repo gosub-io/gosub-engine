@@ -6,7 +6,7 @@ use crate::render::render_list::DisplayItem;
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use skia_safe::gpu::ganesh::surface_ganesh::render_target as gpu_render_target;
-use skia_safe::gpu::{Budgeted, DirectContext, SurfaceOrigin};
+use skia_safe::gpu::{direct_contexts, Budgeted, DirectContext, SurfaceOrigin};
 use skia_safe::{Color4f, Font, FontMgr, FontStyle, ImageInfo, Paint, Rect, Surface};
 use std::any::Any;
 use std::sync::Arc;
@@ -36,12 +36,10 @@ impl<C: GlContextProvider> SkiaGpuBackend<C> {
     pub fn new(context: Arc<C>) -> Result<Self> {
         context.make_current();
 
-        let interface = skia_safe::gpu::gl::Interface::new_load_with(|name| {
-            context.get_proc_address(name)
-        })
-        .ok_or_else(|| anyhow!("Failed to create Skia GL interface — no GL functions found"))?;
+        let interface = skia_safe::gpu::gl::Interface::new_load_with(|name| context.get_proc_address(name))
+            .ok_or_else(|| anyhow!("Failed to create Skia GL interface — no GL functions found"))?;
 
-        let direct_context = DirectContext::new_gl(interface, None)
+        let direct_context = direct_contexts::make_gl(interface, None)
             .ok_or_else(|| anyhow!("Failed to create Skia GL DirectContext — GL context must be current"))?;
 
         Ok(Self {
@@ -78,10 +76,7 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
         let clip = Rect::new(0.0, 0.0, s.size.width as f32, s.size.height as f32);
         let items: Vec<DisplayItem> = ctx.render_list().items.to_vec();
 
-        let image_info = ImageInfo::new_n32_premul(
-            (s.size.width as i32, s.size.height as i32),
-            None,
-        );
+        let image_info = ImageInfo::new_n32_premul((s.size.width as i32, s.size.height as i32), None);
 
         let mut dc = self.direct_context.lock();
 
@@ -114,7 +109,14 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
                         paint.set_anti_alias(true);
                         canvas.draw_rect(Rect::new(*x, *y, x + w, y + h), &paint);
                     }
-                    DisplayItem::TextRun { x, y, text, size, color, .. } => {
+                    DisplayItem::TextRun {
+                        x,
+                        y,
+                        text,
+                        size,
+                        color,
+                        ..
+                    } => {
                         let typeface = FontMgr::new()
                             .legacy_make_typeface(None, FontStyle::normal())
                             .unwrap_or_else(|| {
@@ -139,11 +141,9 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
                             skia_safe::AlphaType::Premul,
                             None,
                         );
-                        if let Some(image) = skia_safe::images::raster_from_data(
-                            &info,
-                            skia_safe::Data::new_copy(data),
-                            stride,
-                        ) {
+                        if let Some(image) =
+                            skia_safe::images::raster_from_data(&info, skia_safe::Data::new_copy(data), stride)
+                        {
                             canvas.draw_image(&image, (*x, *y), None);
                         }
                     }
@@ -174,7 +174,7 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
             s.pixels.clone(),
             s.size.width,
             s.size.height,
-            (s.size.width * 4) as u32,
+            s.size.width * 4,
             PixelFormat::PreMulArgb32,
         ))
     }
@@ -215,14 +215,25 @@ pub struct SkiaGpuSurface {
 
 impl SkiaGpuSurface {
     fn new(size: SurfaceSize, present: PresentMode) -> Self {
-        Self { size, pixels: Vec::new(), present, frame_id: 0 }
+        Self {
+            size,
+            pixels: Vec::new(),
+            present,
+            frame_id: 0,
+        }
     }
 }
 
 impl ErasedSurface for SkiaGpuSurface {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
-    fn size(&self) -> SurfaceSize { self.size }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn size(&self) -> SurfaceSize {
+        self.size
+    }
 }
 
 #[inline]
@@ -252,19 +263,29 @@ pub struct SkiaGpuDirectFbBackend {
 
 impl SkiaGpuDirectFbBackend {
     pub fn new() -> Self {
-        Self { pending: Arc::new(Mutex::new(None)) }
+        Self {
+            pending: Arc::new(Mutex::new(None)),
+        }
     }
 }
 
 impl Default for SkiaGpuDirectFbBackend {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RenderBackend for SkiaGpuDirectFbBackend {
-    fn name(&self) -> &'static str { "skia-gpu-direct-fb" }
+    fn name(&self) -> &'static str {
+        "skia-gpu-direct-fb"
+    }
 
     fn create_surface(&self, size: SurfaceSize, present: PresentMode) -> Result<Box<dyn ErasedSurface + Send>> {
-        Ok(Box::new(SkiaDirectFbSurface { size, frame_id: 0, present }))
+        Ok(Box::new(SkiaDirectFbSurface {
+            size,
+            frame_id: 0,
+            present,
+        }))
     }
 
     fn render(&self, ctx: &mut dyn RenderContext, surface: &mut dyn ErasedSurface) -> Result<()> {
@@ -284,7 +305,9 @@ impl RenderBackend for SkiaGpuDirectFbBackend {
     }
 
     fn snapshot(&self, _surface: &mut dyn ErasedSurface, _max_dim: u32) -> Result<RgbaImage> {
-        Err(anyhow!("SkiaGpuDirectFbBackend: snapshot not supported (frame is on GPU)"))
+        Err(anyhow!(
+            "SkiaGpuDirectFbBackend: snapshot not supported (frame is on GPU)"
+        ))
     }
 
     fn external_handle(&self, surface: &mut dyn ErasedSurface) -> Result<ExternalHandle> {
@@ -304,7 +327,13 @@ struct SkiaDirectFbSurface {
 }
 
 impl ErasedSurface for SkiaDirectFbSurface {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
-    fn size(&self) -> SurfaceSize { self.size }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn size(&self) -> SurfaceSize {
+        self.size
+    }
 }

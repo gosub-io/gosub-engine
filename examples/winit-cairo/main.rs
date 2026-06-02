@@ -51,6 +51,7 @@ struct BrowserApp {
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
+    #[allow(dead_code)]
     proxy: EventLoopProxy<()>,
 
     // Window / surface — created on `resumed`.
@@ -113,7 +114,7 @@ impl BrowserApp {
     }
 
     fn redraw(&mut self) {
-        let Some(window) = &self.window else { return };
+        let Some(_window) = &self.window else { return };
         let Some(surface) = &mut self.surface else { return };
 
         let (win_w, win_h) = self.surface_size;
@@ -389,7 +390,7 @@ fn blit_handle_to_buffer(
             pixels,
             ..
         } => {
-            let copy_rows = (height as u32).min(content_h) as usize;
+            let copy_rows = height.min(content_h) as usize;
             for row in 0..copy_rows {
                 for col in 0..(width as usize).min(win_w as usize) {
                     let src_off = row * stride as usize + col * 4;
@@ -452,7 +453,7 @@ fn blit_handle_to_buffer(
             pixel_buf,
         } => {
             let pixels = unsafe { std::slice::from_raw_parts(pixel_buf.as_ptr(), height as usize * stride as usize) };
-            let copy_rows = (height as u32).min(content_h) as usize;
+            let copy_rows = height.min(content_h) as usize;
             for row in 0..copy_rows {
                 for col in 0..(width as usize).min(win_w as usize) {
                     let src_off = row * stride as usize + col * 4;
