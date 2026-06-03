@@ -43,6 +43,8 @@ use url::Url;
 #[cfg(feature = "pipeline")]
 use crate::html::HtmlEngineConfig;
 #[cfg(feature = "pipeline")]
+use gosub_css3::stylesheet::CssSelectorPart;
+#[cfg(feature = "pipeline")]
 use gosub_interface::document::Document as _;
 #[cfg(feature = "pipeline")]
 use gosub_render_pipeline::layering::layer::LayerList;
@@ -52,6 +54,98 @@ use gosub_render_pipeline::layouter::LayoutElementId;
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 #[cfg(feature = "pipeline")]
 use gosub_shared::node::NodeId;
+
+/// Fingerprints of nodes that are the subject of a `:hover` CSS rule.
+/// Built once per document load; used to skip style recalcs when hover moves
+/// between elements that have no `:hover` rules.
+#[cfg(feature = "pipeline")]
+#[derive(Default)]
+struct HoverFingerprints {
+    /// True when a bare `:hover` or `*:hover` rule exists — every node is sensitive.
+    has_universal: bool,
+    types: std::collections::HashSet<String>,
+    classes: std::collections::HashSet<String>,
+    ids: std::collections::HashSet<String>,
+}
+
+#[cfg(feature = "pipeline")]
+impl HoverFingerprints {
+    fn empty() -> Self {
+        Self::default()
+    }
+
+    /// Scan all stylesheets in `doc` and collect the hover-subject fingerprints.
+    fn build(doc: &EngineDocument) -> Self {
+        let mut fp = Self::empty();
+
+        for sheet in doc.stylesheets() {
+            for rule in &sheet.rules {
+                for selector in &rule.selectors {
+                    for part_list in &selector.parts {
+                        // Split the part list into compounds (groups between Combinators).
+                        // :hover belongs to the compound it appears in; that compound's
+                        // Type/Class/Id parts are the hover-subject fingerprint.
+                        let mut compound: Vec<&CssSelectorPart> = Vec::new();
+                        for part in part_list {
+                            if matches!(part, CssSelectorPart::Combinator(_)) {
+                                compound.clear();
+                                continue;
+                            }
+                            compound.push(part);
+                            if !matches!(part, CssSelectorPart::PseudoClass(n) if n == "hover") {
+                                continue;
+                            }
+                            // Found :hover — classify this compound.
+                            let mut specific = false;
+                            for p in &compound {
+                                match p {
+                                    CssSelectorPart::Type(t) => { fp.types.insert(t.clone()); specific = true; }
+                                    CssSelectorPart::Class(c) => { fp.classes.insert(c.clone()); specific = true; }
+                                    CssSelectorPart::Id(id) => { fp.ids.insert(id.clone()); specific = true; }
+                                    _ => {}
+                                }
+                            }
+                            if !specific {
+                                // Bare :hover or *:hover — everything is sensitive.
+                                fp.has_universal = true;
+                                return fp;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        fp
+    }
+
+    fn is_empty(&self) -> bool {
+        !self.has_universal && self.types.is_empty() && self.classes.is_empty() && self.ids.is_empty()
+    }
+
+    fn matches(&self, doc: &EngineDocument, node_id: NodeId) -> bool {
+        if self.has_universal {
+            return true;
+        }
+        if let Some(tag) = doc.tag_name(node_id) {
+            if self.types.contains(tag) {
+                return true;
+            }
+        }
+        for cls in &self.classes {
+            if doc.has_class(node_id, cls) {
+                return true;
+            }
+        }
+        if !self.ids.is_empty() {
+            if let Some(id_attr) = doc.attribute(node_id, "id") {
+                if self.ids.contains(id_attr) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
 // #[derive(Debug, thiserror::Error)]
 // pub enum LoadError {
 //     #[error("navigation cancelled")]
@@ -141,6 +235,12 @@ pub struct BrowsingContext {
     /// The layout element currently under the pointer, used for bounding-box pre-check.
     #[cfg(feature = "pipeline")]
     hover_layout_element: Option<LayoutElementId>,
+    /// Cached :hover fingerprints for the current document; rebuilt on document change.
+    #[cfg(feature = "pipeline")]
+    hover_fingerprints: Option<HoverFingerprints>,
+    /// True when the last hover chain contained a fingerprint-sensitive node.
+    #[cfg(feature = "pipeline")]
+    hover_chain_sensitive: bool,
     /// The href of the link currently under the pointer, if any.
     #[cfg(feature = "pipeline")]
     pub hover_link_url: Option<String>,
@@ -176,6 +276,10 @@ impl BrowsingContext {
             #[cfg(feature = "pipeline")]
             hover_layout_element: None,
             #[cfg(feature = "pipeline")]
+            hover_fingerprints: None,
+            #[cfg(feature = "pipeline")]
+            hover_chain_sensitive: false,
+            #[cfg(feature = "pipeline")]
             hover_link_url: None,
             #[cfg(feature = "backend_vello")]
             vello_resources: None,
@@ -204,6 +308,9 @@ impl BrowsingContext {
         {
             self.pipeline_cache = None;
             self.hover_leaf = None;
+            self.hover_layout_element = None;
+            self.hover_fingerprints = None;
+            self.hover_chain_sensitive = false;
         }
     }
 
@@ -414,21 +521,24 @@ impl BrowsingContext {
     }
 
     /// Hit-test at viewport coordinates `(vp_x, vp_y)` and update hover state.
-    /// Returns `(dirty, link_url)`: dirty=true when the hovered element changed,
-    /// link_url=Some(href) when the cursor is over a link (None otherwise).
+    ///
+    /// Returns `(visual_dirty, url_changed, link_url)`:
+    /// - `visual_dirty`: a node with a `:hover` CSS rule entered or left the hover chain → needs repaint.
+    /// - `url_changed`: the link URL under the cursor changed → caller should emit a `HoverUrl` event.
+    /// - `link_url`: the href of the nearest `<a>` ancestor, if any.
     #[cfg(feature = "pipeline")]
-    pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> (bool, Option<String>) {
+    pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> (bool, bool, Option<String>) {
         let _t_total = gosub_shared::timing_guard!("hover.total");
 
         let page_x = vp_x + self.scroll_x;
         let page_y = vp_y + self.scroll_y;
 
-        // Fast path: if the cursor is still inside the last-hit element's box, nothing changed.
+        // Fast path: cursor still inside the last-hit element's box — nothing can have changed.
         if let (Some(cache), Some(prev_lei)) = (&self.pipeline_cache, self.hover_layout_element) {
             if let Some(el) = cache.layer_list.layout_tree.get_node_by_id(prev_lei) {
                 let b = &el.box_model.margin_box;
                 if page_x >= b.x && page_x < b.x + b.width && page_y >= b.y && page_y < b.y + b.height {
-                    return (false, self.hover_link_url.clone());
+                    return (false, false, self.hover_link_url.clone());
                 }
             }
         }
@@ -442,39 +552,73 @@ impl BrowsingContext {
             (dom_node_id, Some(lei))
         });
 
-        // Common case: same element — skip the ancestor walk entirely.
+        // Same element — skip the ancestor walk entirely.
         if new_leaf == self.hover_leaf {
-            return (false, self.hover_link_url.clone());
+            return (false, false, self.hover_link_url.clone());
         }
 
         self.hover_leaf = new_leaf;
         self.hover_layout_element = new_lei;
 
-        // Walk the ancestor chain to find the nearest <a href>.
-        let link_url = new_leaf.and_then(|leaf| {
-            let _t = gosub_shared::timing_guard!("hover.ancestor_walk");
-            let doc = self.document.as_ref()?;
-            let mut id = leaf;
-            loop {
-                if doc.tag_name(id) == Some("a") {
-                    if let Some(href) = doc.attribute(id, "href") {
-                        return Some(href.to_string());
-                    }
-                }
-                id = doc.parent(id)?;
-            }
-        });
-
-        self.hover_link_url = link_url.clone();
-
-        if let Some(doc) = &self.document {
-            let _t = gosub_shared::timing_guard!("hover.set_hovered");
-            doc.set_hovered_nodes(new_leaf);
+        // Build hover fingerprints lazily on first use after a document load.
+        if self.hover_fingerprints.is_none() {
+            self.hover_fingerprints = Some(
+                self.document
+                    .as_ref()
+                    .map(|doc| HoverFingerprints::build(doc))
+                    .unwrap_or_else(HoverFingerprints::empty),
+            );
         }
 
-        self.render_dirty = true;
-        self.style_dirty = true;
-        (true, link_url)
+        // Walk the ancestor chain once for both link detection and fingerprint matching.
+        // Terminate early once both are found.
+        let (link_url, new_sensitive) = {
+            let fps = self.hover_fingerprints.as_ref().unwrap();
+            let mut link: Option<String> = None;
+            let mut sensitive = false;
+
+            if let (Some(leaf), Some(doc)) = (new_leaf, self.document.as_ref()) {
+                let _t = gosub_shared::timing_guard!("hover.ancestor_walk");
+                let mut id = leaf;
+                loop {
+                    if !sensitive && fps.matches(doc, id) {
+                        sensitive = true;
+                    }
+                    if link.is_none() && doc.tag_name(id) == Some("a") {
+                        if let Some(href) = doc.attribute(id, "href") {
+                            link = Some(href.to_string());
+                        }
+                    }
+                    if sensitive && link.is_some() {
+                        break;
+                    }
+                    match doc.parent(id) {
+                        Some(parent) => id = parent,
+                        None => break,
+                    }
+                }
+            }
+            (link, sensitive)
+        };
+
+        let url_changed = link_url != self.hover_link_url;
+        self.hover_link_url = link_url.clone();
+
+        // Only trigger a style recalc + repaint when a hover-sensitive node entered or left
+        // the hover chain. If neither the old nor new chain touches a :hover rule, skip it.
+        let visual_dirty = self.hover_chain_sensitive || new_sensitive;
+        self.hover_chain_sensitive = new_sensitive;
+
+        if visual_dirty {
+            if let Some(doc) = &self.document {
+                let _t = gosub_shared::timing_guard!("hover.set_hovered");
+                doc.set_hovered_nodes(new_leaf);
+            }
+            self.render_dirty = true;
+            self.style_dirty = true;
+        }
+
+        (visual_dirty, url_changed, link_url)
     }
 
     /// Returns the render list
