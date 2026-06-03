@@ -540,7 +540,10 @@ impl TabWorker {
             priority: Priority::High,
             kind: ResourceKind::Document,
             initiator: Initiator::Navigation,
-            streaming: true,
+            // Use buffered mode so the full document body is available before parsing.
+            // The streaming path has a race where SharedBody can close before parse_stream
+            // subscribes, causing truncated HTML (only the 5 KB peek buffer is parsed).
+            streaming: false,
             auto_decode: true,
             max_bytes: None,
         };

@@ -195,6 +195,27 @@ mod rendertree_from_engine {
     }
 
     // -----------------------------------------------------------------------
+    // Helper: DFS to find the first element whose `class` attribute matches.
+    // -----------------------------------------------------------------------
+    fn find_node_by_class_dfs(
+        doc: &DocumentImpl<Config>,
+        node: gosub_shared::node::NodeId,
+        target_class: &str,
+    ) -> Option<gosub_shared::node::NodeId> {
+        if let Some(attrs) = doc.attributes(node) {
+            if attrs.get("class").map(|s| s.as_str()) == Some(target_class) {
+                return Some(node);
+            }
+        }
+        for &child in doc.children(node) {
+            if let Some(found) = find_node_by_class_dfs(doc, child, target_class) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    // -----------------------------------------------------------------------
     // Helper: DFS to find the first element whose `id` attribute matches.
     // -----------------------------------------------------------------------
     fn find_node_by_id_attr(
