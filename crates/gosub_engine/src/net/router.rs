@@ -72,7 +72,8 @@ pub async fn route_response_for(
     let (meta, body_content, peek_buf) = match fetch_result {
         FetchResult::Stream { meta, peek_buf, shared } => (meta, BodyContent::Stream { shared }, peek_buf),
         FetchResult::Buffered { meta, body } => {
-            let peek_buf = PeekBuf::from_slice(&body[0..5 * 1024]);
+            let peek_len = body.len().min(5 * 1024);
+            let peek_buf = PeekBuf::from_slice(&body[0..peek_len]);
             (meta, BodyContent::Buffered { body }, peek_buf)
         }
         FetchResult::Error(e) => {

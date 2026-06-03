@@ -2294,7 +2294,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.insertion_mode = InsertionMode::AfterBody;
                 self.reprocess_token = true;
             }
-            Token::StartTag { name, .. }
+            Token::StartTag { name, attributes, .. }
                 if name == "address"
                     || name == "article"
                     || name == "aside"
