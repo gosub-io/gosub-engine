@@ -40,6 +40,11 @@ pub trait PipelineDocument: Send + Sync {
     /// Returns the own (explicitly-set) value for `prop` on node `id`, without recursing.
     fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value>;
 
+    /// Discard the computed-style cache so the next `get_own_style` call re-evaluates
+    /// CSS selectors (including `:hover`) from scratch.  No-op for backends that do
+    /// not cache styles.
+    fn clear_style_cache(&self) {}
+
     /// Returns the computed value for `prop` on node `id`:
     ///  1. own value if set,
     ///  2. parent's computed value if the property is inherited,
@@ -272,6 +277,10 @@ where
 
     fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value> {
         self.cached_styles(id).get_own(prop).cloned()
+    }
+
+    fn clear_style_cache(&self) {
+        self.style_cache.lock().clear();
     }
 
     fn html_node_id(&self) -> Option<NodeId> {

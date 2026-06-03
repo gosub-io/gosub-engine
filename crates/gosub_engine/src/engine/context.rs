@@ -77,6 +77,7 @@ impl HoverFingerprints {
     /// Scan all stylesheets in `doc` and collect the hover-subject fingerprints.
     fn build(doc: &EngineDocument) -> Self {
         let mut fp = Self::empty();
+        let sheet_count = doc.stylesheets().len();
 
         for sheet in doc.stylesheets() {
             for rule in &sheet.rules {
@@ -108,6 +109,7 @@ impl HoverFingerprints {
                             if !specific {
                                 // Bare :hover or *:hover — everything is sensitive.
                                 fp.has_universal = true;
+                                log::info!("[hover] fingerprints: universal :hover (from {} stylesheet(s))", sheet_count);
                                 return fp;
                             }
                         }
@@ -115,6 +117,15 @@ impl HoverFingerprints {
                 }
             }
         }
+
+        log::info!(
+            "[hover] fingerprints built from {} stylesheet(s): types={:?}  classes={:?}  ids={:?}  universal={}",
+            sheet_count,
+            fp.types.iter().collect::<Vec<_>>(),
+            fp.classes.iter().collect::<Vec<_>>(),
+            fp.ids.iter().collect::<Vec<_>>(),
+            fp.has_universal,
+        );
         fp
     }
 
@@ -229,6 +240,10 @@ pub struct BrowsingContext {
     /// Cached rasterized tiles for the full page. Valid until render_dirty is set.
     #[cfg(feature = "pipeline")]
     pipeline_cache: Option<PipelineCache>,
+    /// Set when only hover state changed — triggers a paint-only repaint (stages 4–6),
+    /// skipping the expensive render-tree rebuild (stage 1) and layout (stage 2).
+    #[cfg(feature = "pipeline")]
+    hover_dirty: bool,
     /// The DOM node currently under the pointer (for :hover matching).
     #[cfg(feature = "pipeline")]
     hover_leaf: Option<NodeId>,
@@ -272,6 +287,8 @@ impl BrowsingContext {
             #[cfg(feature = "pipeline")]
             pipeline_cache: None,
             #[cfg(feature = "pipeline")]
+            hover_dirty: false,
+            #[cfg(feature = "pipeline")]
             hover_leaf: None,
             #[cfg(feature = "pipeline")]
             hover_layout_element: None,
@@ -307,6 +324,7 @@ impl BrowsingContext {
         #[cfg(feature = "pipeline")]
         {
             self.pipeline_cache = None;
+            self.hover_dirty = false;
             self.hover_leaf = None;
             self.hover_layout_element = None;
             self.hover_fingerprints = None;
@@ -380,7 +398,7 @@ impl BrowsingContext {
     /// on the host thread and never consume the render list.
     #[cfg(feature = "pipeline")]
     pub fn rebuild_pipeline_cache_if_needed(&mut self) {
-        if !self.render_dirty && !self.scroll_dirty {
+        if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty {
             return;
         }
         if self.render_dirty {
@@ -399,9 +417,36 @@ impl BrowsingContext {
                 ));
             }
             self.render_dirty = false;
+            self.hover_dirty = false;
             self.dom_dirty = false;
             self.style_dirty = false;
             self.layout_dirty = false;
+        } else if self.hover_dirty {
+            log::warn!("[hover] hover_dirty → dispatching paint-only repaint (stages 4–6)");
+            // Paint-only repaint: reuse the cached layout tree, skip stages 1–2.
+            if let Some(old_cache) = self.pipeline_cache.take() {
+                let PipelineCache { layer_list, page_height, tile_pixel_cache: prev_tile_cache, .. } = old_cache;
+                self.pipeline_cache = Some(pipeline_hover_repaint(
+                    layer_list,
+                    page_height,
+                    &self.viewport,
+                    #[cfg(feature = "backend_vello")]
+                    self.vello_resources.clone(),
+                    prev_tile_cache,
+                ));
+            } else {
+                // No cached layout yet — fall back to a full rebuild.
+                if let Some(doc) = &self.document {
+                    self.pipeline_cache = Some(pipeline_build_cache(
+                        doc.clone(),
+                        &self.viewport,
+                        #[cfg(feature = "backend_vello")]
+                        self.vello_resources.clone(),
+                        std::collections::HashMap::new(),
+                    ));
+                }
+            }
+            self.hover_dirty = false;
         }
         self.scroll_dirty = false;
         self.scene_epoch = self.scene_epoch.wrapping_add(1);
@@ -432,6 +477,7 @@ impl BrowsingContext {
                     ));
                 }
                 self.render_dirty = false;
+                self.hover_dirty = false;
                 self.dom_dirty = false;
                 self.style_dirty = false;
                 self.layout_dirty = false;
@@ -477,7 +523,7 @@ impl BrowsingContext {
     /// Calling this consumes the scroll-dirty flag and advances the scene epoch.
     #[cfg(feature = "pipeline")]
     pub fn take_scroll_handle(&mut self, dpr: u32) -> Option<ExternalHandle> {
-        if !self.scroll_dirty || self.render_dirty {
+        if !self.scroll_dirty || self.render_dirty || self.hover_dirty {
             return None;
         }
         let cache = self.pipeline_cache.as_ref()?;
@@ -533,15 +579,6 @@ impl BrowsingContext {
         let page_x = vp_x + self.scroll_x;
         let page_y = vp_y + self.scroll_y;
 
-        // Fast path: cursor still inside the last-hit element's box — nothing can have changed.
-        if let (Some(cache), Some(prev_lei)) = (&self.pipeline_cache, self.hover_layout_element) {
-            if let Some(el) = cache.layer_list.layout_tree.get_node_by_id(prev_lei) {
-                let b = &el.box_model.margin_box;
-                if page_x >= b.x && page_x < b.x + b.width && page_y >= b.y && page_y < b.y + b.height {
-                    return (false, false, self.hover_link_url.clone());
-                }
-            }
-        }
 
         let (new_leaf, new_lei) = self.pipeline_cache.as_ref().map_or((None, None), |cache| {
             let _t = gosub_shared::timing_guard!("hover.hit_test");
@@ -552,7 +589,7 @@ impl BrowsingContext {
             (dom_node_id, Some(lei))
         });
 
-        // Same element — skip the ancestor walk entirely.
+        // Common case: same element — skip the ancestor walk entirely.
         if new_leaf == self.hover_leaf {
             return (false, false, self.hover_link_url.clone());
         }
@@ -569,6 +606,8 @@ impl BrowsingContext {
                     .unwrap_or_else(HoverFingerprints::empty),
             );
         }
+
+        log::debug!("[hover] leaf → {:?}  lei={:?}", new_leaf, new_lei);
 
         // Walk the ancestor chain once for both link detection and fingerprint matching.
         // Terminate early once both are found.
@@ -609,13 +648,18 @@ impl BrowsingContext {
         let visual_dirty = self.hover_chain_sensitive || new_sensitive;
         self.hover_chain_sensitive = new_sensitive;
 
+        log::debug!(
+            "[hover] visual_dirty={visual_dirty}  url_changed={url_changed}  new_sensitive={new_sensitive}  url={link_url:?}"
+        );
+
         if visual_dirty {
             if let Some(doc) = &self.document {
                 let _t = gosub_shared::timing_guard!("hover.set_hovered");
                 doc.set_hovered_nodes(new_leaf);
             }
-            self.render_dirty = true;
-            self.style_dirty = true;
+            // Hover-only changes are paint-only (color, background, box-shadow).
+            // Use the cheap hover-dirty path which skips render-tree + layout.
+            self.hover_dirty = true;
         }
 
         (visual_dirty, url_changed, link_url)
@@ -1208,6 +1252,246 @@ fn pipeline_build_cache(
         layer_list: saved_layer_list,
         tile_pixel_cache: new_tile_cache,
     }
+}
+
+/// Hover-only repaint: skip stages 1–2 (render-tree + layout), reuse the cached
+/// `LayerList`, then run stages 4–6 (tile, paint, rasterize) with a fresh style cache.
+/// This makes `:hover` visual changes (background, color, box-shadow, …) cheap —
+/// only the tiles that changed content get re-rasterized.
+#[cfg(feature = "pipeline")]
+fn pipeline_hover_repaint(
+    layer_list: Arc<gosub_render_pipeline::layering::layer::LayerList>,
+    page_height: f64,
+    viewport: &gosub_render_pipeline::render::Viewport,
+    #[cfg(feature = "backend_vello")] _vello_resources: Option<
+        std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
+    >,
+    prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)>,
+) -> PipelineCache {
+    use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
+    use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
+    use gosub_render_pipeline::painter::Painter;
+    use gosub_render_pipeline::tiler::{TileId, TileList, TileState};
+    use gosub_shared::{timing_start, timing_stop};
+    use std::time::Instant;
+
+    log::info!("[pipeline] hover repaint (skipping stages 1–2)");
+    let t_total = Instant::now();
+
+    // Invalidate the per-node style cache so the painter re-evaluates :hover rules.
+    layer_list.layout_tree.render_tree.doc.clear_style_cache();
+
+    // Stage 4: tiling — reuse existing LayerList, no layout work.
+    let t = Instant::now();
+    let ts4 = timing_start!("pipeline.hover.tiling");
+    let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(256.0, 256.0));
+    tile_list.generate();
+    let total_tiles = tile_list.arena.len();
+    timing_stop!(ts4);
+    log::info!(
+        "[pipeline] hover stage 4 tiling: {:>6.1}ms  ({} tiles)",
+        t.elapsed().as_secs_f64() * 1000.0,
+        total_tiles
+    );
+
+    // Stage 5: paint — reads live styles from doc (now with cleared cache).
+    let t = Instant::now();
+    let ts5 = timing_start!("pipeline.hover.painting");
+    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, page_height.max(viewport.height as f64));
+    let layer_ids = tile_list.layer_list.layer_ids.read().clone();
+    let paint_state = BrowserState {
+        visible_layer_list: vec![true; layer_ids.len()],
+        wireframed: WireframeState::None,
+        debug_hover: false,
+        current_hovered_element: None,
+        show_tilegrid: false,
+        viewport: full_page_rect,
+        tile_list: None,
+        dpi_scale_factor: 1.0,
+    };
+    let painter = Painter::new(tile_list.layer_list.clone());
+    let mut painted_tiles = 0usize;
+    for &layer_id in &layer_ids {
+        let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
+        for tile_id in tile_ids {
+            if let Some(tile) = tile_list.get_tile_mut(tile_id) {
+                if tile.state == TileState::Dirty {
+                    let mut cmds = 0usize;
+                    for tiled_element in &mut tile.elements {
+                        let c = painter.paint(tiled_element, &paint_state);
+                        cmds += c.len();
+                        tiled_element.paint_commands = c;
+                    }
+                    painted_tiles += 1;
+                    let _ = cmds;
+                }
+            }
+        }
+    }
+    timing_stop!(ts5);
+    log::info!(
+        "[pipeline] hover stage 5 painting: {:>6.1}ms  ({} tiles painted)",
+        t.elapsed().as_secs_f64() * 1000.0,
+        painted_tiles
+    );
+
+    // Stage 6: rasterize (parallel for Cairo/Skia, using the tile-pixel cache).
+    #[cfg(any(feature = "backend_cairo", feature = "backend_skia"))]
+    macro_rules! rasterize_parallel {
+        ($rasterizer:expr, $label:literal) => {{
+            use gosub_render_pipeline::common::media::MediaStore;
+            use gosub_render_pipeline::common::texture_store::TextureStore;
+            use gosub_render_pipeline::rasterizer::Rasterable;
+            use rayon::prelude::*;
+
+            let t = Instant::now();
+            let ts6 = timing_start!("pipeline.hover.rasterize");
+            let media_store = MediaStore::new();
+            let rasterizer = $rasterizer;
+
+            let dirty_ids: Vec<TileId> = layer_ids
+                .iter()
+                .flat_map(|&layer_id| tile_list.get_intersecting_tiles(layer_id, full_page_rect))
+                .filter(|&id| tile_list.arena.get(&id).map_or(false, |t| t.state == TileState::Dirty))
+                .collect();
+
+            type CacheEntry = (TileCacheKey, (u32, u32, Arc<Vec<u8>>));
+            let results: Vec<(TileId, Option<BakedTile>, Option<CacheEntry>)> = dirty_ids
+                .par_iter()
+                .map(|&tile_id| {
+                    let Some(tile) = tile_list.arena.get(&tile_id) else {
+                        return (tile_id, None, None);
+                    };
+                    let key = tile_cache_key(tile);
+                    if let Some(&(w, h, ref data)) = prev_tile_cache.get(&key) {
+                        return (tile_id, Some(BakedTile {
+                            page_x: tile.rect.x, page_y: tile.rect.y,
+                            width: w, height: h, data: Arc::clone(data),
+                        }), None);
+                    }
+                    let mut local_store = TextureStore::new();
+                    let baked = rasterizer
+                        .rasterize(tile, &mut local_store, &media_store)
+                        .and_then(|tid| local_store.get(tid))
+                        .map(|tex| BakedTile {
+                            page_x: tile.rect.x, page_y: tile.rect.y,
+                            width: tex.width as u32, height: tex.height as u32,
+                            data: Arc::clone(&tex.data),
+                        });
+                    let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, Arc::clone(&b.data))));
+                    (tile_id, baked, cache_entry)
+                })
+                .collect();
+
+            let mut rasterized = 0usize;
+            let mut cache_hits = 0usize;
+            let mut tiles: Vec<BakedTile> = Vec::with_capacity(results.len());
+            let mut new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)> =
+                std::collections::HashMap::with_capacity(results.len());
+            for (tile_id, baked, cache_entry) in results {
+                if let Some(tile) = tile_list.arena.get_mut(&tile_id) {
+                    match baked {
+                        Some(b) => {
+                            tile.state = TileState::Clean;
+                            if let Some(e) = cache_entry { new_tile_cache.insert(e.0, e.1); rasterized += 1; }
+                            else { cache_hits += 1; }
+                            tiles.push(b);
+                        }
+                        None => { tile.state = TileState::Empty; }
+                    }
+                }
+            }
+            timing_stop!(ts6);
+            log::info!(
+                concat!("[pipeline] hover stage 6 rasterize ", $label, " {:>6.1}ms  ({} rasterized, {} hits)"),
+                t.elapsed().as_secs_f64() * 1000.0, rasterized, cache_hits
+            );
+            (tiles, new_tile_cache)
+        }};
+    }
+
+    #[cfg(feature = "backend_cairo")]
+    let (baked_tiles, new_tile_cache) = {
+        use gosub_renderer_cairo::CairoRasterizer;
+        rasterize_parallel!(CairoRasterizer::new(), "(cairo):")
+    };
+
+    #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
+    let (baked_tiles, new_tile_cache) = {
+        use gosub_renderer_skia::SkiaRasterizer;
+        rasterize_parallel!(SkiaRasterizer::new(1.0), "(skia): ")
+    };
+
+    #[cfg(all(
+        feature = "backend_vello",
+        not(feature = "backend_cairo"),
+        not(feature = "backend_skia")
+    ))]
+    let (baked_tiles, new_tile_cache) = {
+        // Vello: sequential rasterization, no tile-pixel cache yet.
+        use gosub_render_pipeline::common::media::MediaStore;
+        use gosub_render_pipeline::common::texture_store::TextureStore;
+        use gosub_render_pipeline::rasterizer::Rasterable;
+        use gosub_renderer_vello::VelloRasterizer;
+        let t = Instant::now();
+        let ts6 = timing_start!("pipeline.hover.rasterize");
+        let media_store = MediaStore::new();
+        let mut texture_store = TextureStore::new();
+        let mut tiles: Vec<BakedTile> = Vec::new();
+        if let Some(ref resources) = _vello_resources {
+            let rasterizer = VelloRasterizer::new(std::sync::Arc::clone(resources));
+            for &layer_id in &layer_ids {
+                for tile_id in tile_list.get_intersecting_tiles(layer_id, full_page_rect) {
+                    if let Some(tile) = tile_list.get_tile_mut(tile_id) {
+                        if tile.state == TileState::Dirty {
+                            if let Some(tid) = rasterizer.rasterize(tile, &mut texture_store, &media_store) {
+                                tile.texture_id = Some(tid);
+                                tile.state = TileState::Clean;
+                            } else {
+                                tile.state = TileState::Empty;
+                            }
+                        }
+                    }
+                }
+            }
+            for tile in tile_list.arena.values() {
+                if let (Some(tid), true) = (tile.texture_id, tile.state == TileState::Clean) {
+                    if let Some(tex) = texture_store.get(tid) {
+                        tiles.push(BakedTile {
+                            page_x: tile.rect.x, page_y: tile.rect.y,
+                            width: tex.width as u32, height: tex.height as u32,
+                            data: Arc::clone(&tex.data),
+                        });
+                    }
+                }
+            }
+        }
+        timing_stop!(ts6);
+        log::info!("[pipeline] hover stage 6 rasterize (vello): {:>6.1}ms", t.elapsed().as_secs_f64() * 1000.0);
+        (tiles, std::collections::HashMap::new())
+    };
+
+    #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
+    let (baked_tiles, new_tile_cache): (Vec<BakedTile>, std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)>) =
+        (Vec::new(), std::collections::HashMap::new());
+
+    log::info!(
+        "[pipeline] hover repaint total: {:.1}ms  ({} baked tiles)",
+        t_total.elapsed().as_secs_f64() * 1000.0,
+        baked_tiles.len()
+    );
+
+    let cached_tiles = Arc::new(
+        baked_tiles
+            .iter()
+            .map(|t| gosub_render_pipeline::render::backend::CachedTile {
+                page_x: t.page_x as f32, page_y: t.page_y as f32,
+                width: t.width, height: t.height, data: Arc::clone(&t.data),
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    PipelineCache { tiles: baked_tiles, page_height, cached_tiles, layer_list, tile_pixel_cache: new_tile_cache }
 }
 
 /// Stage 7: composite visible tiles from the cache into `rl`.
