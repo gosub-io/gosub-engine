@@ -115,6 +115,8 @@ pub struct TabWorker {
     desired_viewport: Viewport,
     /// Set when a resize arrives while rendering. Causes an immediate re-render after finishing the current rendering.
     dirty_after_inflight: bool,
+    /// Latest unprocessed mouse position; coalesced into one hit-test per frame tick.
+    pending_mouse_pos: Option<(f64, f64)>,
     /// Current scroll offset in CSS pixels (updated by MouseScroll).
     scroll_x: i32,
     scroll_y: i32,
@@ -167,6 +169,7 @@ impl TabWorker {
             committed_viewport: Default::default(),
             desired_viewport: Default::default(),
             dirty_after_inflight: false,
+            pending_mouse_pos: None,
             scroll_x: 0,
             scroll_y: 0,
             runtime: TabRuntime::default(),
@@ -383,17 +386,8 @@ impl TabWorker {
                 ControlFlow::Continue
             }
             TabCommand::MouseMove { x: _x, y: _y } => {
-                #[cfg(feature = "pipeline")]
-                {
-                    let (dirty, link_url) = self.context.update_hover(_x as f64, _y as f64);
-                    if dirty {
-                        self.runtime.dirty = true;
-                    }
-                    self.send_event(EngineEvent::HoverUrl {
-                        tab_id: self.tab_id,
-                        url: link_url,
-                    });
-                }
+                // Coalesce: store the latest position and let tick_draw do one hit-test per frame.
+                self.pending_mouse_pos = Some((_x as f64, _y as f64));
                 #[cfg(not(feature = "pipeline"))]
                 {
                     self.runtime.dirty = true;
@@ -715,6 +709,19 @@ impl TabWorker {
     /// Do a draw tick. This will be called based on the FPS that is requested
     #[allow(unreachable_code)]
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
+        // Drain the coalesced mouse position — at most one hit-test per frame tick.
+        #[cfg(feature = "pipeline")]
+        if let Some((mx, my)) = self.pending_mouse_pos.take() {
+            let (dirty, link_url) = self.context.update_hover(mx, my);
+            if dirty {
+                self.runtime.dirty = true;
+                self.send_event(EngineEvent::HoverUrl {
+                    tab_id: self.tab_id,
+                    url: link_url,
+                });
+            }
+        }
+
         // Skip rendering when nothing has changed to avoid burning CPU at the tick rate.
         if !self.runtime.dirty {
             return Ok(());

@@ -47,6 +47,8 @@ use gosub_interface::document::Document as _;
 #[cfg(feature = "pipeline")]
 use gosub_render_pipeline::layering::layer::LayerList;
 #[cfg(feature = "pipeline")]
+use gosub_render_pipeline::layouter::LayoutElementId;
+#[cfg(feature = "pipeline")]
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 #[cfg(feature = "pipeline")]
 use gosub_shared::node::NodeId;
@@ -136,6 +138,9 @@ pub struct BrowsingContext {
     /// The DOM node currently under the pointer (for :hover matching).
     #[cfg(feature = "pipeline")]
     hover_leaf: Option<NodeId>,
+    /// The layout element currently under the pointer, used for bounding-box pre-check.
+    #[cfg(feature = "pipeline")]
+    hover_layout_element: Option<LayoutElementId>,
     /// The href of the link currently under the pointer, if any.
     #[cfg(feature = "pipeline")]
     pub hover_link_url: Option<String>,
@@ -168,6 +173,8 @@ impl BrowsingContext {
             pipeline_cache: None,
             #[cfg(feature = "pipeline")]
             hover_leaf: None,
+            #[cfg(feature = "pipeline")]
+            hover_layout_element: None,
             #[cfg(feature = "pipeline")]
             hover_link_url: None,
             #[cfg(feature = "backend_vello")]
@@ -411,17 +418,41 @@ impl BrowsingContext {
     /// link_url=Some(href) when the cursor is over a link (None otherwise).
     #[cfg(feature = "pipeline")]
     pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> (bool, Option<String>) {
+        let _t_total = gosub_shared::timing_guard!("hover.total");
+
         let page_x = vp_x + self.scroll_x;
         let page_y = vp_y + self.scroll_y;
 
-        let new_leaf = self.pipeline_cache.as_ref().and_then(|cache| {
-            let lei = cache.layer_list.find_element_at(page_x, page_y)?;
-            let el = cache.layer_list.layout_tree.get_node_by_id(lei)?;
-            Some(el.dom_node_id)
+        // Fast path: if the cursor is still inside the last-hit element's box, nothing changed.
+        if let (Some(cache), Some(prev_lei)) = (&self.pipeline_cache, self.hover_layout_element) {
+            if let Some(el) = cache.layer_list.layout_tree.get_node_by_id(prev_lei) {
+                let b = &el.box_model.margin_box;
+                if page_x >= b.x && page_x < b.x + b.width && page_y >= b.y && page_y < b.y + b.height {
+                    return (false, self.hover_link_url.clone());
+                }
+            }
+        }
+
+        let (new_leaf, new_lei) = self.pipeline_cache.as_ref().map_or((None, None), |cache| {
+            let _t = gosub_shared::timing_guard!("hover.hit_test");
+            let Some(lei) = cache.layer_list.find_element_at(page_x, page_y) else {
+                return (None, None);
+            };
+            let dom_node_id = cache.layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id);
+            (dom_node_id, Some(lei))
         });
+
+        // Common case: same element — skip the ancestor walk entirely.
+        if new_leaf == self.hover_leaf {
+            return (false, self.hover_link_url.clone());
+        }
+
+        self.hover_leaf = new_leaf;
+        self.hover_layout_element = new_lei;
 
         // Walk the ancestor chain to find the nearest <a href>.
         let link_url = new_leaf.and_then(|leaf| {
+            let _t = gosub_shared::timing_guard!("hover.ancestor_walk");
             let doc = self.document.as_ref()?;
             let mut id = leaf;
             loop {
@@ -436,13 +467,8 @@ impl BrowsingContext {
 
         self.hover_link_url = link_url.clone();
 
-        if new_leaf == self.hover_leaf {
-            return (false, link_url);
-        }
-
-        self.hover_leaf = new_leaf;
-
         if let Some(doc) = &self.document {
+            let _t = gosub_shared::timing_guard!("hover.set_hovered");
             doc.set_hovered_nodes(new_leaf);
         }
 
