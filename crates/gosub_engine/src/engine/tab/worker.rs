@@ -258,7 +258,8 @@ impl TabWorker {
             }
         }
 
-        self.send_event(EngineEvent::TabClosed {
+        // Receiver may already be gone at shutdown; that is expected.
+        let _ = self.zone_context.event_tx.send(EngineEvent::TabClosed {
             tab_id: self.tab_id,
             zone_id: self.zone_id,
         });

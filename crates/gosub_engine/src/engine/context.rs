@@ -141,11 +141,6 @@ impl HoverFingerprints {
         fp
     }
 
-    #[allow(dead_code)]
-    fn is_empty(&self) -> bool {
-        !self.has_universal && self.types.is_empty() && self.classes.is_empty() && self.ids.is_empty()
-    }
-
     fn matches(&self, doc: &EngineDocument, node_id: NodeId) -> bool {
         if self.has_universal {
             return true;
@@ -985,10 +980,16 @@ fn pipeline_build_cache(
         total_tiles
     );
 
-    // Stage 5: paint ALL tiles (full-page rect so nothing is culled).
+    // Stage 5: paint tiles in the renderable window.
+    // We only rasterize tiles that fall within [0, render_height], where render_height is
+    // capped to the viewport height. This bounds memory usage on tall pages: at 256×256×4B
+    // per tile, rendering all tiles for a 117K-px page across hundreds of layers would
+    // exhaust RAM. The viewport is already set to MAX_PAGE_HEIGHT by the screenshot tool
+    // (and to the actual window height by the browser), so capping here is always correct.
+    let render_height = page_height.min(viewport.height as f64);
     let t = Instant::now();
     let ts5 = timing_start!("pipeline.painting");
-    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, page_height.max(viewport.height as f64));
+    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, render_height.max(1.0));
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
     let paint_state = BrowserState {
         visible_layer_list: vec![true; layer_ids.len()],
@@ -1317,9 +1318,10 @@ fn pipeline_hover_repaint(
     );
 
     // Stage 5: paint — reads live styles from doc (now with cleared cache).
+    let render_height = page_height.min(viewport.height as f64);
     let t = Instant::now();
     let ts5 = timing_start!("pipeline.hover.painting");
-    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, page_height.max(viewport.height as f64));
+    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, render_height.max(1.0));
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
     let paint_state = BrowserState {
         visible_layer_list: vec![true; layer_ids.len()],
