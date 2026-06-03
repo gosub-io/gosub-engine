@@ -88,6 +88,7 @@ Available key commands:
   w     Toggle wireframe
   d     Toggle debug hover
   t     Toggle tile grid
+  s     Print hover timing stats to stdout
 
 "
     );
@@ -149,13 +150,16 @@ fn build_ui(
     {
         let bs = browser_state.clone();
         motion_controller.connect_motion(move |_, x, y| {
+            let _t_total = gosub_shared::timing_guard!("cairo_hover.total");
+
             let el_id = {
                 let state = bs.read();
                 let Some(ref tile_list) = state.tile_list else {
                     return;
                 };
-                let id = tile_list.read().layer_list.find_element_at(x, y);
-                id
+                let binding = tile_list.read();
+                let _t = gosub_shared::timing_guard!("cairo_hover.hit_test");
+                binding.layer_list.find_element_at(x, y)
             };
             let che = bs.read().current_hovered_element;
 
@@ -198,6 +202,7 @@ fn build_ui(
 
             let mut state = bs.write();
             if state.current_hovered_element != el_id {
+                let _t_change = gosub_shared::timing_guard!("cairo_hover.changed");
                 if let Some(id) = el_id {
                     if let Some(ref tile_list) = state.tile_list {
                         let binding = tile_list.read();
@@ -319,6 +324,11 @@ fn build_ui(
                 key if key == gtk4::gdk::Key::t => {
                     state.show_tilegrid = !state.show_tilegrid;
                     area.queue_draw();
+                }
+                key if key == gtk4::gdk::Key::s => {
+                    gosub_shared::timing::TIMING_TABLE
+                        .lock()
+                        .print_timings(false, gosub_shared::timing::Scale::Auto);
                 }
                 _ => (),
             }
