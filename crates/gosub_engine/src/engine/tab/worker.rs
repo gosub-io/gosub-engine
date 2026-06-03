@@ -734,9 +734,11 @@ impl TabWorker {
         // Drain the coalesced mouse position — at most one hit-test per frame tick.
         #[cfg(feature = "pipeline")]
         if let Some((mx, my)) = self.pending_mouse_pos.take() {
-            let (dirty, link_url) = self.context.update_hover(mx, my);
-            if dirty {
+            let (visual_dirty, url_changed, link_url) = self.context.update_hover(mx, my);
+            if visual_dirty {
                 self.runtime.dirty = true;
+            }
+            if url_changed {
                 self.send_event(EngineEvent::HoverUrl {
                     tab_id: self.tab_id,
                     url: link_url,
