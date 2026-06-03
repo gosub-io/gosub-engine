@@ -20,6 +20,7 @@ use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::{HasCssSystem, HasDocument};
 use gosub_interface::css3::CssSystem as _;
+use gosub_interface::document::Document as _;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 
 use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
@@ -122,7 +123,7 @@ struct StageTimes {
     painting: Duration,
 }
 
-fn run_pipeline_once(html: &str) -> StageTimes {
+fn run_pipeline_once(html: &str, layouter: &mut TaffyLayouter) -> StageTimes {
     let viewport_w = 1280.0_f64;
     let viewport_h = 800.0_f64;
 
@@ -144,7 +145,6 @@ fn run_pipeline_once(html: &str) -> StageTimes {
 
     // Stage 2: layout
     let t = Instant::now();
-    let mut layouter = TaffyLayouter::new();
     let layout_tree = layouter.layout(render_tree, Some(Dimension::new(viewport_w, viewport_h)), 1.0);
     let layout_time = t.elapsed();
 
@@ -153,18 +153,11 @@ fn run_pipeline_once(html: &str) -> StageTimes {
     // Stage 3: layering
     let t = Instant::now();
     let layer_list = LayerList::new(layout_tree);
-    let layer_list_arc = Arc::new(layer_list);
     let layering_time = t.elapsed();
 
     // Stage 4: tiling
     let t = Instant::now();
-    let mut tile_list = TileList::new(
-        // LayerList::new takes ownership, so we clone the Arc-wrapped version
-        // via the field; the TileList keeps its own Arc<LayerList>.
-        Arc::try_unwrap(Arc::clone(&layer_list_arc))
-            .unwrap_or_else(|arc| (*arc).clone()),
-        Dimension::new(256.0, 256.0),
-    );
+    let mut tile_list = TileList::new(layer_list, Dimension::new(256.0, 256.0));
     tile_list.generate();
     let tiling_time = t.elapsed();
 
@@ -206,17 +199,6 @@ fn run_pipeline_once(html: &str) -> StageTimes {
     }
 }
 
-// ── LayerList Clone ────────────────────────────────────────────────────────
-// TileList::new takes ownership of a LayerList. Since LayerList wraps an Arc<LayoutTree>
-// internally, a clone is cheap for the tree data but rebuilds the layer HashMap.
-impl Clone for gosub_render_pipeline::layering::layer::LayerList {
-    fn clone(&self) -> Self {
-        // LayerList::new re-derives layers from the LayoutTree, which is the same
-        // operation that would happen on a real page load.
-        Self::new((*self.layout_tree).clone())
-    }
-}
-
 // ── Main ───────────────────────────────────────────────────────────────────
 
 fn main() {
@@ -238,8 +220,12 @@ fn main() {
     for fixture in &fixtures {
         println!("── {} ─────────────────────────────────────────────────────", fixture.name);
 
-        // Warm up — one throw-away run to avoid cold-cache skew.
-        let _ = run_pipeline_once(&fixture.html);
+        // Each fixture gets its own layouter so the media store (images, SVGs) is warm
+        // for all timed iterations — we measure layout computation, not network I/O.
+        let mut layouter = TaffyLayouter::new();
+
+        // Warm up — one throw-away run to prime the media store and OS caches.
+        let _ = run_pipeline_once(&fixture.html, &mut layouter);
 
         let mut rt_times = Vec::with_capacity(iterations);
         let mut layout_times = Vec::with_capacity(iterations);
@@ -248,7 +234,7 @@ fn main() {
         let mut paint_times = Vec::with_capacity(iterations);
 
         for _ in 0..iterations {
-            let t = run_pipeline_once(&fixture.html);
+            let t = run_pipeline_once(&fixture.html, &mut layouter);
             rt_times.push(t.render_tree);
             layout_times.push(t.layout);
             layer_times.push(t.layering);

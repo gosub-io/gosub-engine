@@ -24,6 +24,11 @@ use taffy::NodeId as TaffyNodeId;
 const DEFAULT_FONT_SIZE: f64 = 16.0;
 const DEFAULT_FONT_FAMILY: &str = "sans-serif";
 
+// Cache key: (text, font_family, size_bits, line_height_bits, weight, max_width_bits).
+// Floats are stored as their bit pattern so the tuple is Hash + Eq.
+type MeasureKey = (String, String, u32, u32, i32, u32);
+
+
 /// Layouter structure that uses taffy as layout engine
 pub struct TaffyLayouter {
     /// Generated taffy tree
@@ -44,6 +49,10 @@ pub struct TaffyLayouter {
     /// call avoids keeping the guard alive across the full layout pass, which lets
     /// other threads (e.g. the rasterizer) access the font collection between calls.
     font_system: Arc<Mutex<ParleyFontSystem>>,
+    /// Memoized text measurements. Taffy calls the measure function 2-4× per node
+    /// (MinContent, MaxContent, actual width). Caching by (text, font, max_width)
+    /// eliminates the redundant Parley shaping calls.
+    measure_cache: HashMap<MeasureKey, Size<f32>>,
 }
 
 /// Context structures to pass to taffy measure functions so we can calculate the size of the text or images.
@@ -114,6 +123,7 @@ impl TaffyLayouter {
             anon_container_map: HashMap::new(),
             media_store: MediaStore::new(),
             font_system,
+            measure_cache: HashMap::new(),
         }
     }
 
@@ -156,20 +166,26 @@ impl CanLayout for TaffyLayouter {
             None => Size::MAX_CONTENT,
         };
 
-        // Clone the Arc so the closure can lock the font system without holding a
-        // borrow of `self` while `self.tree` is also mutably borrowed.
+        // Clone the Arc and take the measure cache so the closure can capture them
+        // without holding a borrow of `self` while `self.tree` is mutably borrowed.
         let font_system = Arc::clone(&self.font_system);
+        let mut measure_cache: HashMap<MeasureKey, Size<f32>> = std::mem::take(&mut self.measure_cache);
 
         // Compute the layout with a measure function
         if let Err(e) = self
             .tree
             .compute_layout_with_measure(self.root_id, size, |v_kd, v_as, v_ni, v_nc, v_s| {
+                // If taffy already knows both dimensions, no measurement needed.
+                if let (Some(w), Some(h)) = (v_kd.width, v_kd.height) {
+                    return Size { width: w, height: h };
+                }
+
                 match v_nc {
                     // Calculate text node
                     Some(TaffyContext::Text(text_ctx)) => {
                         let max_width = if text_ctx.no_wrap {
                             // white-space: nowrap — measure at unlimited width so text never wraps
-                            1_000_000_000.0
+                            1_000_000_000.0_f64
                         } else {
                             match v_as.width {
                                 AvailableSpace::Definite(width) => width as f64,
@@ -177,6 +193,19 @@ impl CanLayout for TaffyLayouter {
                                 AvailableSpace::MinContent => 0.0,
                             }
                         };
+
+                        let cache_key: MeasureKey = (
+                            text_ctx.text.clone(),
+                            text_ctx.font_info.family.clone(),
+                            (text_ctx.font_info.size as f32).to_bits(),
+                            (text_ctx.font_info.line_height as f32).to_bits(),
+                            text_ctx.font_info.weight,
+                            (max_width as f32).to_bits(),
+                        );
+                        if let Some(&cached) = measure_cache.get(&cache_key) {
+                            return cached;
+                        }
+
                         // Acquire the font context for this measurement. The lock is
                         // released immediately after the call so other callers
                         // (e.g. the rasterizer) can interleave without contention.
@@ -211,12 +240,14 @@ impl CanLayout for TaffyLayouter {
                                     width += (text_ctx.font_info.size * 0.3) as f32;
                                 }
 
-                                Size {
+                                let result = Size {
                                     width,
                                     // Ceil height so the layout height matches the integer-pixel surface
                                     // that pango creates (prevents descenders from overflowing the box).
                                     height: text_layout.height.ceil() as f32,
-                                }
+                                };
+                                measure_cache.insert(cache_key, result);
+                                result
                             }
                             Err(_) => Size::ZERO,
                         }
@@ -231,8 +262,10 @@ impl CanLayout for TaffyLayouter {
             })
         {
             log::error!("Failed to compute taffy layout: {:?}", e);
+            self.measure_cache = measure_cache;
             return layout_tree;
         }
+        self.measure_cache = measure_cache;
 
         // Since we are not interested in taffy layout after this stage in the pipeline, we convert
         // the taffy layout to a box model layout tree. This makes the rest of the pipeline
@@ -298,6 +331,7 @@ impl TaffyLayouter {
 
     /// Generate the layout tree from the render tree
     fn generate_tree(&mut self, render_tree: RenderTree, root_id: RenderNodeId) -> LayoutTree {
+        self.measure_cache.clear();
         self.tree = TaffyTree::new();
         // Taffy's built-in rounding snaps layout values to integer CSS pixels, which causes
         // text containers to lose sub-pixel width (e.g. 52.344 → 52.0). This makes pango
@@ -528,6 +562,7 @@ impl TaffyLayouter {
     /// Extracts taffy variables based the DOM node. It will generate the taffy style based on the node CSS properties,
     /// any context that might be needed (images, svg, text).
     fn extract_taffy_data(&self, layout_tree: &LayoutTree, dom_node: &Node) -> Option<(Option<TaffyContext>, Style)> {
+
         let mut taffy_context = None;
         let mut taffy_style = Style::default();
 
@@ -570,7 +605,6 @@ impl TaffyLayouter {
 
                 if data.tag_name.eq_ignore_ascii_case("svg") {
                     let inner_html = layout_tree.render_tree.doc.inner_html(dom_node.node_id);
-
                     match self
                         .media_store
                         .load_media_from_data(MediaType::Svg, inner_html.into_bytes().as_slice())

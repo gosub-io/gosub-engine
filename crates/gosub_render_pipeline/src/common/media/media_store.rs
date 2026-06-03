@@ -84,6 +84,10 @@ impl MediaStore {
 
     /// Load the given media from src into the media store, and return the media ID. Will also store the media(id) in cache
     /// so the next call with the same src will return the same media ID without reloading.
+    ///
+    /// If the resource cannot be fetched or decoded, the default placeholder for the detected media
+    /// type is returned and the failure is cached so subsequent calls with the same URL skip the
+    /// network entirely.
     pub fn load_media(&self, src: &str) -> anyhow::Result<MediaId> {
         // Check if the media from src is already loaded into the cache. If so, return that
         let h = hash_from_string(src);
@@ -96,13 +100,24 @@ impl MediaStore {
 
         let result = self.load_media_from_source(src);
 
-        if let Ok(media_id) = result {
-            let mut cache = self.cache.write();
-            // Another thread may have inserted while we were loading — don't overwrite
-            cache.entry(h).or_insert(media_id);
-        }
+        let media_id = match result {
+            Ok(media_id) => media_id,
+            Err(e) => {
+                log::warn!("Failed to load media from '{}': {}", src, e);
+                // Cache the failure as the default image placeholder so the same URL is
+                // never re-fetched in this session (avoids repeated blocking I/O).
+                let fallback_id = DEFAULT_IMAGE_ID;
+                let mut cache = self.cache.write();
+                cache.entry(h).or_insert(fallback_id);
+                return Ok(fallback_id);
+            }
+        };
 
-        result
+        let mut cache = self.cache.write();
+        // Another thread may have inserted while we were loading — don't overwrite
+        cache.entry(h).or_insert(media_id);
+
+        Ok(media_id)
     }
 
     pub fn load_media_from_data(&self, media_type: MediaType, data: &[u8]) -> anyhow::Result<MediaId> {
