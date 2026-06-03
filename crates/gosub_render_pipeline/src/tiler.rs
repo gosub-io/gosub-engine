@@ -254,6 +254,18 @@ impl TileList {
         }
     }
 
+    /// Like `new`, but accepts an already-`Arc`-wrapped `LayerList` — used by
+    /// the hover-repaint fast path to avoid cloning the layout tree.
+    pub fn from_arc(layer_list: Arc<LayerList>, dimension: Dimension) -> Self {
+        Self {
+            layer_list,
+            tiles: HashMap::new(),
+            arena: HashMap::new(),
+            next_node_id: Arc::new(RwLock::new(TileId::new(0))),
+            default_tile_dimension: dimension,
+        }
+    }
+
     // @TODO: Optimize: remove all tiles that are empty
     pub fn generate(&mut self) {
         self.tiles.clear();
