@@ -207,6 +207,11 @@ where
     }
 
     fn compute_styles(&self, id: NodeId) -> NodeStyle {
+        // CSS selectors cannot target text nodes — only elements. Skip the full
+        // stylesheet scan for text nodes; they inherit everything from their parent.
+        if self.doc.node_type(id) == GosubNodeType::TextNode {
+            return NodeStyle::new();
+        }
         let sheets = self.doc.stylesheets();
         let Some(mut prop_map) = C::CssSystem::properties_from_node::<C>(&*self.doc, id, sheets) else {
             return NodeStyle::new();

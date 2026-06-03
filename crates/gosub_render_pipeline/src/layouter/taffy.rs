@@ -591,13 +591,22 @@ impl TaffyLayouter {
                     };
 
                     let media = self.media_store.get(media_id, MediaType::Image);
+                    // When the media is a placeholder (load failed), use a small fixed
+                    // size so the broken-image icon doesn't blow up the layout. The
+                    // rasterizer scales the icon to whatever rect the element actually
+                    // occupies, so display quality is unaffected.
+                    let is_placeholder = self.media_store.is_placeholder(media_id);
                     taffy_context = match media.borrow() {
                         Media::Svg(_) => Some(TaffyContext::svg(src.as_str(), media_id, dom_node.node_id)),
                         Media::Image(media_image) => {
-                            let dimension = geo::Dimension::new(
-                                media_image.image.width() as f64,
-                                media_image.image.height() as f64,
-                            );
+                            let dimension = if is_placeholder {
+                                geo::Dimension::new(32.0, 32.0)
+                            } else {
+                                geo::Dimension::new(
+                                    media_image.image.width() as f64,
+                                    media_image.image.height() as f64,
+                                )
+                            };
                             Some(TaffyContext::image(src.as_str(), media_id, dimension, dom_node.node_id))
                         }
                     }
@@ -768,8 +777,14 @@ fn to_absolute_url(uri: &str, base_uri: &str) -> String {
         return uri.to_string();
     }
 
-    // We have a relative path, so we need to prepend the base URL
-    // Make sure we don't have double slashes
+    // Protocol-relative URL (e.g. "//cdn.example.com/img.png"): inherit the scheme from base_uri.
+    if uri.starts_with("//") {
+        let scheme = base_uri.split("://").next().unwrap_or("https");
+        return format!("{}:{}", scheme, uri);
+    }
+
+    // We have a relative path, so we need to prepend the base URL.
+    // Avoid double slashes at the join point.
     if base_uri.ends_with('/') && uri.starts_with('/') {
         return format!("{}{}", base_uri, &uri[1..]);
     }

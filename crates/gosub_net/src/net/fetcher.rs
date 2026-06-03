@@ -186,6 +186,7 @@ impl Fetcher {
             .connect_timeout(config.connect_timeout)
             .timeout(config.req_timeout)
             .use_rustls_tls()
+            .user_agent(crate::net::simple::USER_AGENT)
             .build()?;
 
         Ok(Self {
