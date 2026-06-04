@@ -125,7 +125,8 @@ impl Painter {
                 let brush = self.get_parent_brush(dom_node_id, &StyleProperty::Color, Brush::solid(Color::BLACK));
 
                 let r = layout_element.box_model.content_box;
-                let t = Text::new(r, &ctx.text, &ctx.font_info, brush);
+                let avail_w = if ctx.available_width > 0.0 { ctx.available_width } else { 1_000_000_000.0 };
+                let t = Text::new(r, &ctx.text, &ctx.font_info, brush, avail_w);
                 commands.push(PaintCommand::text(t));
             }
             ElementContext::Svg(svg_ctx) => {

@@ -50,6 +50,10 @@ pub struct ElementContextText {
     pub text_offset: Coordinate,
     /// When true (white-space: nowrap), the text is measured at unlimited width and must not wrap.
     pub no_wrap: bool,
+    /// The definite container width (CSS px) that Parley received as its max_width during layout.
+    /// Renderers must use this — not content_box.width — as the word-wrap limit to avoid metric
+    /// mismatches between Parley (layout) and the rendering backend (e.g. Skia).
+    pub available_width: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +104,7 @@ impl ElementContext {
             node_id,
             text_offset,
             no_wrap,
+            available_width: 0.0,
         })
     }
 

@@ -32,7 +32,11 @@ pub fn do_paint_text(canvas: &Canvas, _tile: &Tile, cmd: &Text, _dpi_scale_facto
 
     let font_size = cmd.font_info.size as f32;
     let font = Font::new(typeface, font_size);
-    let max_width = cmd.rect.width as f32;
+    // Determine how many lines Parley allocated for this text node.
+    // If it's a single line, use a huge max_width so Skia never wraps due to
+    // font-metric differences. Only multi-line nodes need a real width constraint.
+    let parley_line_count = (cmd.rect.height as f32 / cmd.font_info.line_height as f32 + 0.1).floor() as u32;
+    let max_width = if parley_line_count <= 1 { 1_000_000_000.0_f32 } else { cmd.available_width as f32 };
 
     // Word-wrap: greedily pack words into lines that fit within max_width.
     let mut lines: Vec<String> = Vec::new();
