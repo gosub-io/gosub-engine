@@ -358,6 +358,27 @@ impl CookieJar for DefaultCookieJar {
                         continue;
                     }
 
+                    // Reject Secure cookies over plain HTTP (RFC 6265bis §4.1.2.1).
+                    // Only HTTPS responses may set cookies with the Secure attribute.
+                    if cookie.secure && url.scheme() != "https" {
+                        continue;
+                    }
+
+                    // Enforce cookie name prefixes (RFC 6265bis §4.1.3).
+                    //
+                    // __Secure-: cookie must have the Secure attribute.
+                    if cookie.name.starts_with("__Secure-") && !cookie.secure {
+                        continue;
+                    }
+                    // __Host-: cookie must have Secure, no Domain attribute, and Path=/.
+                    if cookie.name.starts_with("__Host-")
+                        && (!cookie.secure
+                            || cookie.domain.is_some()
+                            || cookie.path.as_deref() != Some("/"))
+                    {
+                        continue;
+                    }
+
                     // Resolve expiry: Max-Age takes precedence over Expires (RFC 6265 §5.2).
                     let now = Utc::now().timestamp();
                     cookie.expires = if let Some(ma) = max_age {
@@ -819,6 +840,116 @@ mod tests {
             jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
             Some("s=1"),
             "cookie with valid Domain superdomain must be stored and returned"
+        );
+    }
+
+    // ── Secure attribute / HTTP rejection ────────────────────────────────────
+
+    #[test]
+    fn secure_cookie_over_http_is_dropped() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("http://example.com/"); // plain HTTP
+        jar.store_response_cookies(&req, &headers(&["s=1; Path=/; Secure"]), None);
+        // Cookie with Secure flag MUST NOT be stored from an HTTP response.
+        assert!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
+            "Secure cookie from HTTP must be dropped"
+        );
+    }
+
+    #[test]
+    fn secure_cookie_over_https_is_stored() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        jar.store_response_cookies(&req, &headers(&["s=1; Path=/; Secure"]), None);
+        assert_eq!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            Some("s=1")
+        );
+    }
+
+    #[test]
+    fn non_secure_cookie_over_http_is_stored() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("http://example.com/");
+        jar.store_response_cookies(&req, &headers(&["n=1; Path=/"]), None);
+        assert_eq!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            Some("n=1"),
+            "Plain cookie (no Secure flag) must be accepted over HTTP"
+        );
+    }
+
+    // ── Cookie name prefix enforcement ────────────────────────────────────────
+
+    #[test]
+    fn secure_prefix_accepted_with_secure_flag() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        jar.store_response_cookies(&req, &headers(&["__Secure-tok=x; Path=/; Secure"]), None);
+        assert_eq!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            Some("__Secure-tok=x")
+        );
+    }
+
+    #[test]
+    fn secure_prefix_without_secure_flag_is_dropped() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        jar.store_response_cookies(&req, &headers(&["__Secure-tok=x; Path=/"]), None);
+        assert!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
+            "__Secure- without Secure flag must be dropped"
+        );
+    }
+
+    #[test]
+    fn host_prefix_accepted_when_all_conditions_met() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        // Secure + no Domain + Path=/
+        jar.store_response_cookies(&req, &headers(&["__Host-sid=1; Path=/; Secure"]), None);
+        assert_eq!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            Some("__Host-sid=1")
+        );
+    }
+
+    #[test]
+    fn host_prefix_without_secure_is_dropped() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        jar.store_response_cookies(&req, &headers(&["__Host-sid=1; Path=/"]), None);
+        assert!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
+            "__Host- without Secure must be dropped"
+        );
+    }
+
+    #[test]
+    fn host_prefix_with_domain_attribute_is_dropped() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        jar.store_response_cookies(
+            &req,
+            &headers(&["__Host-sid=1; Secure; Path=/; Domain=example.com"]),
+            None,
+        );
+        assert!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
+            "__Host- with Domain attribute must be dropped"
+        );
+    }
+
+    #[test]
+    fn host_prefix_with_non_root_path_is_dropped() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/app/");
+        jar.store_response_cookies(&req, &headers(&["__Host-sid=1; Secure; Path=/app"]), None);
+        assert!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
+            "__Host- with Path != / must be dropped"
         );
     }
 
