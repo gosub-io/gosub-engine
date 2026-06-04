@@ -92,4 +92,10 @@ impl CookieJar for PersistentCookieJar {
         self.inner.write().remove_cookies_for_url(url);
         self.persist();
     }
+
+    /// Removes expired cookies from the inner jar, then persists the result.
+    fn purge_expired(&mut self) {
+        self.inner.write().purge_expired();
+        self.persist();
+    }
 }

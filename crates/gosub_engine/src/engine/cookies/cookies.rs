@@ -41,7 +41,7 @@
 //!     path: Some("/".into()),
 //!     domain: Some("example.com".into()),
 //!     secure: true,
-//!     expires: Some("2025-12-31T23:59:59Z".into()), // ISO 8601 recommended
+//!     expires: Some(1735689599), // 2025-12-31T23:59:59 UTC as Unix timestamp
 //!     same_site: Some("Lax".into()),                 // "Strict" | "Lax" | "None"
 //!     http_only: true,
 //! };
@@ -209,11 +209,11 @@ pub struct Cookie {
     /// If `true`, cookie is sent only over HTTPS.
     pub secure: bool,
 
-    /// Expiration timestamp, if any.
+    /// Expiration time as **Unix timestamp** (seconds since 1970-01-01T00:00:00Z).
     ///
-    /// Prefer **ISO 8601** (`YYYY-MM-DDThh:mm:ssZ`) for portability.
-    /// Session cookies have `None`.
-    pub expires: Option<String>,
+    /// Computed at receive time from `Max-Age` (preferred) or the `Expires` date header.
+    /// `None` means a session cookie that is not persisted across browser restarts.
+    pub expires: Option<i64>,
 
     /// SameSite policy (`"Strict"`, `"Lax"`, or `"None"`).
     ///

@@ -21,6 +21,7 @@
 //! See also: RFC 6265bis (HTTP State Management Mechanism).
 //!
 use crate::engine::cookies::Cookie;
+use chrono::Utc;
 use cow_utils::CowUtils;
 use http::HeaderMap;
 use once_cell::sync::Lazy;
@@ -31,6 +32,16 @@ use std::collections::HashMap;
 use url::Url;
 
 static PSL: Lazy<List> = Lazy::new(List::new);
+
+/// Parse an HTTP date string (RFC 1123 / RFC 2822) into a Unix timestamp.
+///
+/// Returns `None` if the string cannot be parsed, which causes the cookie to be
+/// treated as a session cookie rather than silently accepting a bad expiry.
+fn parse_http_date(s: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc2822(s)
+        .ok()
+        .map(|dt| dt.timestamp())
+}
 
 /// Returns `true` when two hostnames share the same registrable domain (eTLD+1).
 ///
@@ -149,6 +160,12 @@ pub trait CookieJar: Send + Sync {
 
     /// Removes all cookies associated with `url` (bucketed by its origin).
     fn remove_cookies_for_url(&mut self, url: &Url);
+
+    /// Removes all cookies whose expiry timestamp is in the past.
+    ///
+    /// Session cookies (`expires == None`) are never removed by this call.
+    /// Useful on jar load and for periodic cleanup to bound memory growth.
+    fn purge_expired(&mut self);
 }
 
 /// Default cookie jar which holds cookies for a single zone.
@@ -257,6 +274,10 @@ impl CookieJar for DefaultCookieJar {
                         http_only: false,
                     };
 
+                    // Collected during attribute parsing; resolved after the loop.
+                    let mut max_age: Option<i64> = None;
+                    let mut expires_str: Option<String> = None;
+
                     for part in rest.split(';') {
                         let part = part.trim();
                         if cookie.value.is_empty() {
@@ -268,7 +289,8 @@ impl CookieJar for DefaultCookieJar {
                             match k.cow_to_ascii_lowercase().as_ref() {
                                 "path" => cookie.path = Some(v.to_string()),
                                 "domain" => cookie.domain = Some(v.trim_start_matches('.').to_string()),
-                                "expires" => cookie.expires = Some(v.to_string()),
+                                "expires" => expires_str = Some(v.to_string()),
+                                "max-age" => max_age = v.trim().parse::<i64>().ok(),
                                 "samesite" => {
                                     let val = v.trim();
                                     if val.eq_ignore_ascii_case("lax") {
@@ -293,6 +315,19 @@ impl CookieJar for DefaultCookieJar {
                     if cookie.path.is_none() {
                         cookie.path = Some(default_path.to_string());
                     }
+
+                    // Resolve expiry: Max-Age takes precedence over Expires (RFC 6265 §5.2).
+                    let now = Utc::now().timestamp();
+                    cookie.expires = if let Some(ma) = max_age {
+                        if ma <= 0 {
+                            // Max-Age=0 (or negative) means delete the cookie immediately.
+                            bucket.retain(|c| c.name != cookie.name);
+                            continue;
+                        }
+                        Some(now + ma)
+                    } else {
+                        expires_str.as_deref().and_then(parse_http_date)
+                    };
 
                     // In SameSiteNoneOnly mode, drop third-party cookies that don't
                     // carry SameSite=None; Secure.
@@ -336,8 +371,14 @@ impl CookieJar for DefaultCookieJar {
 
         let cookies = self.entries.get(&origin)?;
 
+        let now = Utc::now().timestamp();
+
         let header = cookies
             .iter()
+            .filter(|cookie| {
+                // Drop expired cookies (session cookies have expires == None).
+                cookie.expires.map_or(true, |exp| exp > now)
+            })
             .filter(|cookie| {
                 // Third-party policy: SameSiteNoneOnly allows only None+Secure cross-site.
                 if is_third_party && self.third_party_policy == ThirdPartyCookiePolicy::SameSiteNoneOnly {
@@ -405,6 +446,14 @@ impl CookieJar for DefaultCookieJar {
     fn remove_cookies_for_url(&mut self, url: &Url) {
         let origin = url.origin().ascii_serialization();
         self.entries.remove(&origin);
+    }
+
+    fn purge_expired(&mut self) {
+        let now = Utc::now().timestamp();
+        for cookies in self.entries.values_mut() {
+            cookies.retain(|c| c.expires.map_or(true, |exp| exp > now));
+        }
+        self.entries.retain(|_, v| !v.is_empty());
     }
 }
 
@@ -640,6 +689,107 @@ mod tests {
                 "SameSite=None; Secure must be sent in all contexts"
             );
         }
+    }
+
+    // ── Expiry / Max-Age ──────────────────────────────────────────────────────
+
+    #[test]
+    fn expired_cookie_not_sent() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        // Store a cookie with an expiry in the past (Unix epoch = 1970).
+        let h = headers(&["old=1; Path=/; Max-Age=-1"]);
+        jar.store_response_cookies(&req, &h, None);
+
+        assert!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
+            "expired cookie must not be sent"
+        );
+    }
+
+    #[test]
+    fn max_age_zero_deletes_existing_cookie() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        jar.store_response_cookies(&req, &headers(&["tok=abc; Path=/"]), None);
+        assert!(jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_some());
+
+        // Max-Age=0 means delete.
+        jar.store_response_cookies(&req, &headers(&["tok=abc; Path=/; Max-Age=0"]), None);
+        assert!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
+            "Max-Age=0 must delete the cookie"
+        );
+    }
+
+    #[test]
+    fn future_max_age_cookie_is_sent() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        let h = headers(&["sess=x; Path=/; Max-Age=3600"]);
+        jar.store_response_cookies(&req, &h, None);
+
+        assert_eq!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            Some("sess=x"),
+            "cookie with future Max-Age must be sent"
+        );
+    }
+
+    #[test]
+    fn session_cookie_is_sent() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        let h = headers(&["s=1; Path=/"]);
+        jar.store_response_cookies(&req, &h, None);
+
+        assert_eq!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            Some("s=1"),
+            "session cookie (no expires) must always be sent"
+        );
+    }
+
+    #[test]
+    fn max_age_takes_precedence_over_expires() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        // Expires is in the past, but Max-Age is 1 hour from now — Max-Age wins.
+        let h = headers(&["t=1; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=3600"]);
+        jar.store_response_cookies(&req, &h, None);
+
+        assert_eq!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            Some("t=1"),
+            "Max-Age must override a past Expires date"
+        );
+    }
+
+    #[test]
+    fn purge_expired_removes_stale_cookies() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+        jar.store_response_cookies(&req, &headers(&["good=1; Path=/; Max-Age=3600"]), None);
+        // Manually insert an already-expired cookie to simulate time passing.
+        jar.entries
+            .entry(req.origin().ascii_serialization())
+            .or_default()
+            .push(crate::engine::cookies::Cookie {
+                name: "stale".into(),
+                value: "old".into(),
+                path: Some("/".into()),
+                domain: None,
+                secure: false,
+                expires: Some(1), // 1970
+                same_site: None,
+                http_only: false,
+            });
+
+        jar.purge_expired();
+
+        let cookies = jar.get_request_cookies(&req, None, SameSiteContext::SameSite).unwrap_or_default();
+        assert!(cookies.contains("good=1"), "non-expired cookie must survive purge");
+        assert!(!cookies.contains("stale=old"), "expired cookie must be removed by purge");
     }
 
     #[test]
