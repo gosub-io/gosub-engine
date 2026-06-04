@@ -2,6 +2,7 @@ use crate::engine::types::{IoChannel, PeekBuf, RequestId};
 use crate::html::{parse_main_document_stream, EngineDocument, ResourceHint};
 use crate::net::types::{FetchHandle, FetchKeyData, FetchRequest, FetchResultMeta, Initiator};
 use crate::net::{submit_to_io, SharedBody};
+use crate::util::spawn_named;
 use crate::zone::ZoneId;
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -96,7 +97,7 @@ impl HtmlPipelineImpl {
                 return;
             }
 
-            let join_handle = tokio::spawn(async move {
+            let join_handle = spawn_named("html-sub-resource", async move {
                 match submit_to_io(zone_id, sub_req, io_tx_cloned, Some(parent_cancel_cloned)).await {
                     Ok((child_handle, rx)) => {
                         child_handles.lock().push(child_handle);

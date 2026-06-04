@@ -5,12 +5,10 @@ use crate::matcher::shorthands::FixList;
 use crate::matcher::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
 use crate::stylesheet::{CssDeclaration, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, Css3};
-use gosub_interface::config::{HasDocument, HasRenderTree};
-use gosub_interface::css3::{CssOrigin, CssPropertyMap, CssSystem};
+use gosub_interface::config::HasDocument;
+use gosub_interface::css3::{CssOrigin, CssSystem};
 use gosub_interface::document::Document;
-
 use gosub_interface::node::NodeType;
-use gosub_interface::render_tree::{RenderTree, RenderTreeNode};
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
 use gosub_shared::node::NodeId;
@@ -154,59 +152,8 @@ impl CssSystem for Css3System {
         Some(css_map_entry)
     }
 
-    fn inheritance<C: HasRenderTree<CssSystem = Self>>(tree: &mut C::RenderTree) {
-        Self::resolve_inheritance::<C>(tree, tree.root(), &Vec::new());
-    }
-
     fn load_default_useragent_stylesheet() -> Self::Stylesheet {
         load_default_useragent_stylesheet()
-    }
-}
-
-impl Css3System {
-    fn resolve_inheritance<C: HasRenderTree<CssSystem = Self>>(
-        tree: &mut C::RenderTree,
-        node_id: <C::RenderTree as RenderTree<C>>::NodeId,
-        inherit_props: &Vec<(String, CssValue)>,
-    ) {
-        let Some(current_node) = tree.get_node_mut(node_id) else {
-            return;
-        };
-
-        for prop in inherit_props {
-            let mut p = CssProperty::new(prop.0.as_str());
-
-            p.inherited = prop.1.clone();
-
-            current_node.props_mut().insert_inherited(prop.0.as_str(), p);
-        }
-
-        let mut inherit_props = inherit_props.clone();
-
-        'props: for (name, prop) in &mut current_node.props_mut().iter_mut() {
-            prop.compute_value();
-
-            let value = prop.actual.clone();
-
-            if prop_is_inherit(name) {
-                for (k, v) in &mut inherit_props {
-                    if k == name {
-                        *v = value;
-                        continue 'props;
-                    }
-                }
-
-                inherit_props.push((name.to_owned(), value));
-            }
-        }
-
-        let Some(children) = tree.get_children(node_id) else {
-            return;
-        };
-
-        for child in children {
-            Self::resolve_inheritance::<C>(tree, child, &inherit_props);
-        }
     }
 }
 
