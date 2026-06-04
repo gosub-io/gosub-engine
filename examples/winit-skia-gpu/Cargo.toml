@@ -12,7 +12,15 @@ gosub_engine = { path = "../../crates/gosub_engine", features = ["winit", "backe
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline", features = ["backend_skia_gl"] }
 winit = "0.30.12"
 softbuffer = "0.4"
-skia-safe = { version = "0.87.0", features = ["gl", "egl"] }
+skia-safe = { version = "0.87.0", features = ["gl"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+skia-safe = { version = "0.87.0", features = ["egl"] }
+gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline", features = ["backend_skia_egl"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+skia-safe = { version = "0.87.0", features = ["metal"] }
+gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline", features = ["backend_skia_metal"] }
 glutin = "0.32"
 glutin-winit = "0.5"
 raw-window-handle = "0.6"
