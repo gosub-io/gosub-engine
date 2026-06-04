@@ -60,6 +60,164 @@ vs
     h4 { color: rebeccapurple; }
 */
 
+fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
+    let mut rule = CssRule {
+        selectors: vec![],
+        declarations: vec![],
+    };
+
+    let (prelude, declarations) = node.as_rule();
+    if let Some(node) = prelude {
+        if !node.is_selector_list() {
+            return Ok(None);
+        }
+
+        let mut selector = CssSelector { parts: vec![vec![]] };
+        for node in node.as_selector_list() {
+            if !node.is_selector() {
+                continue;
+            }
+
+            for node in node.as_selector() {
+                let part = match &*node.node_type {
+                    NodeType::Ident { value } => CssSelectorPart::Type(value.clone()),
+                    NodeType::ClassSelector { value } => CssSelectorPart::Class(value.clone()),
+                    NodeType::Combinator { value } => {
+                        let combinator = match value.as_str() {
+                            ">" => Combinator::Child,
+                            "+" => Combinator::NextSibling,
+                            "~" => Combinator::SubsequentSibling,
+                            " " => Combinator::Descendant,
+                            "||" => Combinator::Column,
+                            "|" => Combinator::Namespace,
+                            _ => return Err(CssError::new(format!("Unknown combinator: {value}").as_str())),
+                        };
+
+                        CssSelectorPart::Combinator(combinator)
+                    }
+                    NodeType::IdSelector { value } => CssSelectorPart::Id(value.clone()),
+                    NodeType::TypeSelector { value, .. } if value == "*" => CssSelectorPart::Universal,
+                    NodeType::PseudoClassSelector { value, .. } => CssSelectorPart::PseudoClass(value.to_string()),
+                    NodeType::PseudoElementSelector { value, .. } => {
+                        CssSelectorPart::PseudoElement(value.to_string())
+                    }
+                    NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value.clone()),
+                    NodeType::AttributeSelector {
+                        name,
+                        value,
+                        flags,
+                        matcher,
+                    } => {
+                        let matcher = match matcher {
+                            None => MatcherType::None,
+
+                            Some(matcher) => {
+                                if let NodeType::Operator(op) = &*matcher.node_type {
+                                    match op.as_str() {
+                                        "=" => MatcherType::Equals,
+                                        "~=" => MatcherType::Includes,
+                                        "|=" => MatcherType::DashMatch,
+                                        "^=" => MatcherType::PrefixMatch,
+                                        "$=" => MatcherType::SuffixMatch,
+                                        "*=" => MatcherType::SubstringMatch,
+                                        _ => {
+                                            warn!("Unsupported matcher: {matcher:?}");
+                                            MatcherType::Equals
+                                        }
+                                    }
+                                } else {
+                                    warn!("Unsupported matcher: {matcher:?}");
+                                    MatcherType::Equals
+                                }
+                            }
+                        };
+
+                        CssSelectorPart::Attribute(Box::new(AttributeSelector {
+                            name: name.clone(),
+                            matcher,
+                            value: value.clone(),
+                            case_insensitive: flags.eq_ignore_ascii_case("i"),
+                        }))
+                    }
+                    NodeType::Comma => {
+                        selector.parts.push(vec![]);
+                        continue;
+                    }
+                    _ => {
+                        return Err(CssError::new(
+                            format!("Unsupported selector part: {:?}", node.node_type).as_str(),
+                        ));
+                    }
+                };
+                if let Some(x) = selector.parts.last_mut() {
+                    x.push(part);
+                } else {
+                    selector.parts.push(vec![part]); //unreachable, but still, we handle it
+                }
+            }
+        }
+        rule.selectors.push(selector);
+    }
+
+    if let Some(declaration) = declarations {
+        if !declaration.is_block() {
+            return Ok(None);
+        }
+
+        let block = declaration.as_block();
+        for declaration in block {
+            if !declaration.is_declaration() {
+                continue;
+            }
+
+            let (property, nodes, important) = declaration.as_declaration();
+
+            // Convert the nodes into CSS Values
+            let mut css_values = vec![];
+            for node in nodes {
+                if let Ok(value) = CssValue::parse_ast_node(node) {
+                    css_values.push(value);
+                }
+            }
+
+            if css_values.is_empty() {
+                continue;
+            }
+
+            let value = if css_values.len() == 1 {
+                css_values.pop().expect("unreachable")
+            } else {
+                CssValue::List(css_values)
+            };
+
+            rule.declarations.push(CssDeclaration {
+                property: property.clone(),
+                value,
+                important: *important,
+            });
+        }
+    }
+
+    Ok(Some(rule))
+}
+
+fn collect_rules(nodes: &[CssNode], rules: &mut Vec<CssRule>) -> CssResult<()> {
+    for node in nodes {
+        match &*node.node_type {
+            NodeType::Rule { .. } => {
+                if let Some(rule) = collect_rule(node)? {
+                    rules.push(rule);
+                }
+            }
+            NodeType::AtRule { name, block: Some(block), .. } if name.eq_ignore_ascii_case("layer") => {
+                collect_rules(block.as_block(), rules)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Converts a CSS AST to a CSS stylesheet structure
 pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str) -> CssResult<CssStylesheet> {
     if !css_ast.is_stylesheet() {
@@ -73,150 +231,7 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
         parse_log: vec![],
     };
 
-    for node in css_ast.as_stylesheet() {
-        if !node.is_rule() {
-            continue;
-        }
-
-        let mut rule = CssRule {
-            selectors: vec![],
-            declarations: vec![],
-        };
-
-        let (prelude, declarations) = node.as_rule();
-        if let Some(node) = prelude {
-            if !node.is_selector_list() {
-                continue;
-            }
-
-            let mut selector = CssSelector { parts: vec![vec![]] };
-            for node in node.as_selector_list() {
-                if !node.is_selector() {
-                    continue;
-                }
-
-                for node in node.as_selector() {
-                    let part = match &*node.node_type {
-                        NodeType::Ident { value } => CssSelectorPart::Type(value.clone()),
-                        NodeType::ClassSelector { value } => CssSelectorPart::Class(value.clone()),
-                        NodeType::Combinator { value } => {
-                            let combinator = match value.as_str() {
-                                ">" => Combinator::Child,
-                                "+" => Combinator::NextSibling,
-                                "~" => Combinator::SubsequentSibling,
-                                " " => Combinator::Descendant,
-                                "||" => Combinator::Column,
-                                "|" => Combinator::Namespace,
-                                _ => return Err(CssError::new(format!("Unknown combinator: {value}").as_str())),
-                            };
-
-                            CssSelectorPart::Combinator(combinator)
-                        }
-                        NodeType::IdSelector { value } => CssSelectorPart::Id(value.clone()),
-                        NodeType::TypeSelector { value, .. } if value == "*" => CssSelectorPart::Universal,
-                        NodeType::PseudoClassSelector { value, .. } => CssSelectorPart::PseudoClass(value.to_string()),
-                        NodeType::PseudoElementSelector { value, .. } => {
-                            CssSelectorPart::PseudoElement(value.to_string())
-                        }
-                        NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value.clone()),
-                        NodeType::AttributeSelector {
-                            name,
-                            value,
-                            flags,
-                            matcher,
-                        } => {
-                            let matcher = match matcher {
-                                None => MatcherType::None,
-
-                                Some(matcher) => {
-                                    if let NodeType::Operator(op) = &*matcher.node_type {
-                                        match op.as_str() {
-                                            "=" => MatcherType::Equals,
-                                            "~=" => MatcherType::Includes,
-                                            "|=" => MatcherType::DashMatch,
-                                            "^=" => MatcherType::PrefixMatch,
-                                            "$=" => MatcherType::SuffixMatch,
-                                            "*=" => MatcherType::SubstringMatch,
-                                            _ => {
-                                                warn!("Unsupported matcher: {matcher:?}");
-                                                MatcherType::Equals
-                                            }
-                                        }
-                                    } else {
-                                        warn!("Unsupported matcher: {matcher:?}");
-                                        MatcherType::Equals
-                                    }
-                                }
-                            };
-
-                            CssSelectorPart::Attribute(Box::new(AttributeSelector {
-                                name: name.clone(),
-                                matcher,
-                                value: value.clone(),
-                                case_insensitive: flags.eq_ignore_ascii_case("i"),
-                            }))
-                        }
-                        NodeType::Comma => {
-                            selector.parts.push(vec![]);
-                            continue;
-                        }
-                        _ => {
-                            return Err(CssError::new(
-                                format!("Unsupported selector part: {:?}", node.node_type).as_str(),
-                            ));
-                        }
-                    };
-                    if let Some(x) = selector.parts.last_mut() {
-                        x.push(part);
-                    } else {
-                        selector.parts.push(vec![part]); //unreachable, but still, we handle it
-                    }
-                }
-            }
-            rule.selectors.push(selector);
-        }
-
-        if let Some(declaration) = declarations {
-            if !declaration.is_block() {
-                continue;
-            }
-
-            let block = declaration.as_block();
-            for declaration in block {
-                if !declaration.is_declaration() {
-                    continue;
-                }
-
-                let (property, nodes, important) = declaration.as_declaration();
-
-                // Convert the nodes into CSS Values
-                let mut css_values = vec![];
-                for node in nodes {
-                    if let Ok(value) = CssValue::parse_ast_node(node) {
-                        css_values.push(value);
-                    }
-                }
-
-                if css_values.is_empty() {
-                    continue;
-                }
-
-                let value = if css_values.len() == 1 {
-                    css_values.pop().expect("unreachable")
-                } else {
-                    CssValue::List(css_values)
-                };
-
-                rule.declarations.push(CssDeclaration {
-                    property: property.clone(),
-                    value,
-                    important: *important,
-                });
-            }
-        }
-
-        sheet.rules.push(rule);
-    }
+    collect_rules(css_ast.as_stylesheet(), &mut sheet.rules)?;
     Ok(sheet)
 }
 
@@ -225,6 +240,46 @@ mod tests {
     use super::*;
     use crate::Css3;
     use gosub_shared::config::ParserConfig;
+
+    #[test]
+    fn layer_rules_are_flattened() {
+        let stylesheet = Css3::parse_str(
+            r#"
+            @layer base {
+                h1 { color: red; }
+            }
+            h2 { color: blue; }
+            @layer utilities {
+                h3 { font-size: 1em; }
+            }
+            "#,
+            ParserConfig::default(),
+            CssOrigin::User,
+            "test.css",
+        )
+        .unwrap();
+
+        assert_eq!(stylesheet.rules.len(), 3);
+        assert_eq!(stylesheet.rules[0].selectors[0].parts[0][0], CssSelectorPart::Type("h1".into()));
+        assert_eq!(stylesheet.rules[1].selectors[0].parts[0][0], CssSelectorPart::Type("h2".into()));
+        assert_eq!(stylesheet.rules[2].selectors[0].parts[0][0], CssSelectorPart::Type("h3".into()));
+    }
+
+    #[test]
+    fn layer_ordering_declaration_is_ignored() {
+        let stylesheet = Css3::parse_str(
+            r#"
+            @layer base, utilities;
+            h1 { color: red; }
+            "#,
+            ParserConfig::default(),
+            CssOrigin::User,
+            "test.css",
+        )
+        .unwrap();
+
+        assert_eq!(stylesheet.rules.len(), 1);
+    }
 
     #[test]
     fn convert_font_family() {
