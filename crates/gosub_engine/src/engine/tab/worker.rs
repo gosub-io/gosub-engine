@@ -1,3 +1,4 @@
+use crate::cookies::SameSiteContext;
 use crate::engine::errors::NavigationError;
 use crate::engine::events::{EngineEvent, NavigationEvent, TabInternalCommand};
 use crate::engine::pipeline::Hooks;
@@ -17,7 +18,6 @@ use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
 use gosub_render_pipeline::render::backend::{ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
 use gosub_render_pipeline::render::{DevicePixelRatio, Viewport};
-use crate::cookies::SameSiteContext;
 use http::{HeaderMap, Method};
 use std::sync::Arc;
 use tokio::select;
@@ -528,7 +528,12 @@ impl TabWorker {
 
         // Attach cookies for the navigation request.
         let mut fetch_headers = HeaderMap::new();
-        if let Some(cookie_str) = self.services.cookie_jar.read().get_request_cookies(&url, Some(&url), SameSiteContext::SameSite) {
+        if let Some(cookie_str) =
+            self.services
+                .cookie_jar
+                .read()
+                .get_request_cookies(&url, Some(&url), SameSiteContext::SameSite)
+        {
             if let Ok(val) = cookie_str.parse() {
                 fetch_headers.insert(http::header::COOKIE, val);
             }
@@ -609,11 +614,9 @@ impl TabWorker {
 
             // Store Set-Cookie headers from the navigation response.
             if let Some(meta) = fetch_result.meta() {
-                cookie_jar.write().store_response_cookies(
-                    &meta.final_url,
-                    &meta.headers,
-                    Some(&url),
-                );
+                cookie_jar
+                    .write()
+                    .store_response_cookies(&meta.final_url, &meta.headers, Some(&url));
             }
 
             let ua_policy = UaPolicy {

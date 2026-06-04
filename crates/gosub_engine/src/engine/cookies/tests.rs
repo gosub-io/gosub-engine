@@ -302,10 +302,7 @@ mod tests {
         let origin = u("https://example.com/");
         jar.store_response_cookies(&origin, &set_headers(&["a=first; Path=/"]), None);
         jar.store_response_cookies(&origin, &set_headers(&["a=second; Path=/"]), None);
-        assert_eq!(
-            get_cookies(&jar, "https://example.com/").as_deref(),
-            Some("a=second"),
-        );
+        assert_eq!(get_cookies(&jar, "https://example.com/").as_deref(), Some("a=second"),);
     }
 
     // ── SameSite attribute storage ────────────────────────────────────────────
@@ -313,22 +310,18 @@ mod tests {
     #[test]
     fn samesite_values_are_normalised() {
         let cases = [
-            ("SameSite=Lax",    SameSiteContext::SameSite,            true),
-            ("SameSite=lax",    SameSiteContext::SameSite,            true),
-            ("SameSite=LAX",    SameSiteContext::SameSite,            true),
-            ("SameSite=Strict", SameSiteContext::SameSite,            true),
+            ("SameSite=Lax", SameSiteContext::SameSite, true),
+            ("SameSite=lax", SameSiteContext::SameSite, true),
+            ("SameSite=LAX", SameSiteContext::SameSite, true),
+            ("SameSite=Strict", SameSiteContext::SameSite, true),
             ("SameSite=Strict", SameSiteContext::CrossSiteNavigation, false),
-            ("SameSite=Lax",    SameSiteContext::CrossSiteNavigation, true),
-            ("SameSite=Lax",    SameSiteContext::CrossSite,           false),
+            ("SameSite=Lax", SameSiteContext::CrossSiteNavigation, true),
+            ("SameSite=Lax", SameSiteContext::CrossSite, false),
         ];
         for (attr, ctx, expect_sent) in cases {
             let mut jar = jar();
             let origin = u("https://example.com/");
-            jar.store_response_cookies(
-                &origin,
-                &set_headers(&[&format!("x=1; Path=/; {attr}")]),
-                None,
-            );
+            jar.store_response_cookies(&origin, &set_headers(&[&format!("x=1; Path=/; {attr}")]), None);
             let got = jar.get_request_cookies(&origin, None, ctx);
             assert_eq!(
                 got.is_some(),
@@ -388,10 +381,7 @@ mod tests {
             &set_headers(&["a=1; Path=/; Domain=.example.com"]),
             None,
         );
-        assert_eq!(
-            get_cookies(&jar, "https://example.com/").as_deref(),
-            Some("a=1"),
-        );
+        assert_eq!(get_cookies(&jar, "https://example.com/").as_deref(), Some("a=1"),);
     }
 
     // ── Expiry / Max-Age ──────────────────────────────────────────────────────
@@ -517,23 +507,53 @@ mod tests {
         // to the same-origin request that set them, which contradicts RFC 6265
         // §5.4 and modern browser behaviour (also confirmed by the WPT suite).
         // We follow the RFC and WPT, so these tests disagree with our output.
-        ("DOMAIN0002",  "http-state quirk: Domain=host expected not sent; RFC says send"),
-        ("DOMAIN0006",  "http-state quirk: Domain=.host expected not sent; RFC says send"),
-        ("DOMAIN0010",  "http-state quirk: Domain=..host expected not sent; RFC says send"),
-        ("DOMAIN0024",  "http-state quirk: two Domain attrs expected not sent; RFC says send"),
-        ("DOMAIN0029",  "http-state quirk: no Domain attr expected not sent; RFC says send"),
-        ("DOMAIN0035",  "http-state quirk: cross-origin Domain expected not sent; RFC says send"),
-        ("DOMAIN0036",  "http-state quirk: mixed Domain attrs expected not sent; RFC says send"),
-        ("OPTIONAL_DOMAIN0030", "Domain= (empty) treated as host-only — not yet handled"),
+        (
+            "DOMAIN0002",
+            "http-state quirk: Domain=host expected not sent; RFC says send",
+        ),
+        (
+            "DOMAIN0006",
+            "http-state quirk: Domain=.host expected not sent; RFC says send",
+        ),
+        (
+            "DOMAIN0010",
+            "http-state quirk: Domain=..host expected not sent; RFC says send",
+        ),
+        (
+            "DOMAIN0024",
+            "http-state quirk: two Domain attrs expected not sent; RFC says send",
+        ),
+        (
+            "DOMAIN0029",
+            "http-state quirk: no Domain attr expected not sent; RFC says send",
+        ),
+        (
+            "DOMAIN0035",
+            "http-state quirk: cross-origin Domain expected not sent; RFC says send",
+        ),
+        (
+            "DOMAIN0036",
+            "http-state quirk: mixed Domain attrs expected not sent; RFC says send",
+        ),
+        (
+            "OPTIONAL_DOMAIN0030",
+            "Domain= (empty) treated as host-only — not yet handled",
+        ),
         ("OPTIONAL_DOMAIN0041", "Domain then empty Domain — not yet handled"),
         // Note: PATH0006/0007/0010/0015/0016/0017/0026/0027/0032 and ORDERING0001
         // were previously here but now pass after:
         //   - (name, domain, path) dedup so same-name/different-path cookies coexist
         //   - sent-to URL support in the test runner
         // ── Disabled/optional tests (non-conforming inputs) ───────────────────
-        ("DISABLED_CHROMIUM0022", "NUL byte in cookie value — invalid HTTP header"),
+        (
+            "DISABLED_CHROMIUM0022",
+            "NUL byte in cookie value — invalid HTTP header",
+        ),
         ("DISABLED_CHROMIUM0023", "CR byte in cookie value — invalid HTTP header"),
-        ("DISABLED_PATH0029",     "Optional: path /cookie-parser-result/foo/bar — same domain limitation"),
+        (
+            "DISABLED_PATH0029",
+            "Optional: path /cookie-parser-result/foo/bar — same domain limitation",
+        ),
     ];
 
     /// Replace Expires years that were future when the http-state tests were written
@@ -592,8 +612,7 @@ mod tests {
         let default_set: Url = "http://home.example.org:8888/cookie-parser".parse().unwrap();
         let default_send: Url = "http://home.example.org:8888/cookie-parser-result".parse().unwrap();
 
-        let known_failing: std::collections::HashSet<&str> =
-            KNOWN_FAILING.iter().map(|(id, _)| *id).collect();
+        let known_failing: std::collections::HashSet<&str> = KNOWN_FAILING.iter().map(|(id, _)| *id).collect();
 
         let mut unexpected_failures: Vec<String> = Vec::new();
         let mut unexpected_passes: Vec<String> = Vec::new();
@@ -623,9 +642,7 @@ mod tests {
             );
 
             let mut jar = DefaultCookieJar::new();
-            let hdrs = set_headers(
-                &received.iter().map(String::as_str).collect::<Vec<_>>(),
-            );
+            let hdrs = set_headers(&received.iter().map(String::as_str).collect::<Vec<_>>());
             jar.store_response_cookies(&default_set, &hdrs, None);
 
             let got_str = jar
@@ -641,11 +658,7 @@ mod tests {
             actual.sort();
 
             // Build expected set.
-            let mut expected: Vec<String> = tc
-                .sent
-                .iter()
-                .map(|c| format!("{}={}", c.name, c.value))
-                .collect();
+            let mut expected: Vec<String> = tc.sent.iter().map(|c| format!("{}={}", c.name, c.value)).collect();
             expected.sort();
 
             let passes = actual == expected;
@@ -723,8 +736,7 @@ mod tests {
         }
 
         let raw = include_str!("testdata/wpt-attributes.json");
-        let sections: Vec<WptSection> =
-            serde_json::from_str(raw).expect("parse wpt-attributes.json");
+        let sections: Vec<WptSection> = serde_json::from_str(raw).expect("parse wpt-attributes.json");
 
         let default_url = "https://example.com/";
         let mut failures: Vec<String> = Vec::new();
@@ -732,23 +744,11 @@ mod tests {
 
         for section in &sections {
             for tc in &section.tests {
-                let set_from: Url = tc
-                    .set_from
-                    .as_deref()
-                    .unwrap_or(default_url)
-                    .parse()
-                    .unwrap();
-                let send_to: Url = tc
-                    .send_to
-                    .as_deref()
-                    .unwrap_or(default_url)
-                    .parse()
-                    .unwrap();
+                let set_from: Url = tc.set_from.as_deref().unwrap_or(default_url).parse().unwrap();
+                let send_to: Url = tc.send_to.as_deref().unwrap_or(default_url).parse().unwrap();
 
                 let mut jar = DefaultCookieJar::new();
-                let hdrs = set_headers(
-                    &tc.cookies.iter().map(String::as_str).collect::<Vec<_>>(),
-                );
+                let hdrs = set_headers(&tc.cookies.iter().map(String::as_str).collect::<Vec<_>>());
                 jar.store_response_cookies(&set_from, &hdrs, None);
 
                 let got = jar
@@ -815,8 +815,7 @@ mod tests {
         }
 
         let raw = include_str!("testdata/wpt-domain.json");
-        let sections: Vec<WptSection> =
-            serde_json::from_str(raw).expect("parse wpt-domain.json");
+        let sections: Vec<WptSection> = serde_json::from_str(raw).expect("parse wpt-domain.json");
 
         let mut failures: Vec<String> = Vec::new();
         let mut pass = 0usize;
@@ -827,9 +826,7 @@ mod tests {
                 let send_to: Url = tc.send_to.parse().expect(&tc.send_to);
 
                 let mut jar = DefaultCookieJar::new();
-                let hdrs = set_headers(
-                    &tc.cookies.iter().map(String::as_str).collect::<Vec<_>>(),
-                );
+                let hdrs = set_headers(&tc.cookies.iter().map(String::as_str).collect::<Vec<_>>());
                 jar.store_response_cookies(&set_from, &hdrs, None);
 
                 let got = jar
@@ -849,9 +846,7 @@ mod tests {
                 if normalise(&got) != normalise(&tc.expected) {
                     failures.push(format!(
                         "[{}] {}: set_from={} cookies={:?} send_to={}\n  got:      {:?}\n  expected: {:?}",
-                        section.source, tc.name,
-                        tc.set_from, tc.cookies, tc.send_to,
-                        got, tc.expected,
+                        section.source, tc.name, tc.set_from, tc.cookies, tc.send_to, got, tc.expected,
                     ));
                 } else {
                     pass += 1;
@@ -894,8 +889,7 @@ mod tests {
         }
 
         let raw = include_str!("testdata/wpt-encoding.json");
-        let sections: Vec<WptSection> =
-            serde_json::from_str(raw).expect("parse wpt-encoding.json");
+        let sections: Vec<WptSection> = serde_json::from_str(raw).expect("parse wpt-encoding.json");
 
         let origin = u("https://example.com/");
         let mut failures: Vec<String> = Vec::new();
@@ -955,8 +949,7 @@ mod tests {
         }
 
         let raw = include_str!("testdata/wpt-value.json");
-        let sections: Vec<WptSection> =
-            serde_json::from_str(raw).expect("parse wpt-value.json");
+        let sections: Vec<WptSection> = serde_json::from_str(raw).expect("parse wpt-value.json");
 
         let origin = u("https://example.com/");
         let mut failures: Vec<String> = Vec::new();
@@ -965,9 +958,7 @@ mod tests {
         for section in &sections {
             for tc in &section.tests {
                 let mut jar = DefaultCookieJar::new();
-                let hdrs = set_headers(
-                    &tc.cookies.iter().map(String::as_str).collect::<Vec<_>>(),
-                );
+                let hdrs = set_headers(&tc.cookies.iter().map(String::as_str).collect::<Vec<_>>());
                 jar.store_response_cookies(&origin, &hdrs, None);
 
                 let got = jar
@@ -1035,8 +1026,7 @@ mod tests {
         }
 
         let raw = include_str!("testdata/wpt-name.json");
-        let sections: Vec<WptSection> =
-            serde_json::from_str(raw).expect("parse wpt-name.json");
+        let sections: Vec<WptSection> = serde_json::from_str(raw).expect("parse wpt-name.json");
 
         let default_url = "https://example.com/";
         let mut failures: Vec<String> = Vec::new();
@@ -1048,9 +1038,7 @@ mod tests {
                 let send_to: Url = tc.send_to.as_deref().unwrap_or(default_url).parse().unwrap();
 
                 let mut jar = DefaultCookieJar::new();
-                let hdrs = set_headers(
-                    &tc.cookies.iter().map(String::as_str).collect::<Vec<_>>(),
-                );
+                let hdrs = set_headers(&tc.cookies.iter().map(String::as_str).collect::<Vec<_>>());
                 jar.store_response_cookies(&set_from, &hdrs, None);
 
                 let got = jar
@@ -1118,8 +1106,7 @@ mod tests {
         }
 
         let raw = include_str!("testdata/wpt-ordering.json");
-        let sections: Vec<WptSection> =
-            serde_json::from_str(raw).expect("parse wpt-ordering.json");
+        let sections: Vec<WptSection> = serde_json::from_str(raw).expect("parse wpt-ordering.json");
 
         let mut failures: Vec<String> = Vec::new();
         let mut pass = 0usize;

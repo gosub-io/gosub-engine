@@ -57,7 +57,14 @@ pub async fn fetch_response_top(
     observer.on_event(NetEvent::Started { url: url.clone() });
 
     // Get the response (GET requests only for now), and redirect if needed (300 requests)
-    let resp = get_with_redirects(client.clone(), url.clone(), cancel.clone(), observer.clone(), extra_headers).await?;
+    let resp = get_with_redirects(
+        client.clone(),
+        url.clone(),
+        cancel.clone(),
+        observer.clone(),
+        extra_headers,
+    )
+    .await?;
 
     // Response is received, setup our meta structure
     let mut meta = FetchResultMeta {
@@ -571,7 +578,9 @@ mod tests {
             meta,
             peek_buf,
             mut reader,
-        } = super::fetch_response_top(client, url, cancel, observer, None).await.unwrap();
+        } = super::fetch_response_top(client, url, cancel, observer, None)
+            .await
+            .unwrap();
 
         assert_eq!(peek_buf.len(), super::PEEK_MAX, "peek must be exactly PEEK_MAX");
         // Read remainder

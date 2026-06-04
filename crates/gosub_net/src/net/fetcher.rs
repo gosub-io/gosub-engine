@@ -491,7 +491,15 @@ pub fn spawn_fetch_task(
         }
         let _cleanup = Cleanup(Some(on_finish));
 
-        let top = match fetch_response_top(client.clone(), url.clone(), cancel_parent.clone(), observer.clone(), Some(&req.key_data.headers)).await {
+        let top = match fetch_response_top(
+            client.clone(),
+            url.clone(),
+            cancel_parent.clone(),
+            observer.clone(),
+            Some(&req.key_data.headers),
+        )
+        .await
+        {
             Ok(top) => top,
             Err(e) => {
                 let _ = entry.waiter.finish(FetchResult::Error(e)).await;

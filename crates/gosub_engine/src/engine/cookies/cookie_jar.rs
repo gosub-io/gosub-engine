@@ -39,8 +39,8 @@ use url::Url;
 ///    are allowed because the PSL may not list them.
 fn is_valid_cookie_domain(request_host: &str, domain: &str) -> bool {
     // RFC 4343: domain comparisons are case-insensitive.
-    let req = request_host.to_ascii_lowercase();
-    let dom = domain.to_ascii_lowercase();
+    let req = request_host.cow_to_ascii_lowercase();
+    let dom = domain.cow_to_ascii_lowercase();
 
     // Rule 1: domain must be a registrable-domain suffix of the request host.
     if req != dom && !req.ends_with(&format!(".{dom}")) {
@@ -55,9 +55,7 @@ fn is_valid_cookie_domain(request_host: &str, domain: &str) -> bool {
     // labels that are simply absent from the PSL ("localhost", intranet names) —
     // the latter should be allowed even though domain() also returns None for them.
     if psl::List.domain(domain.as_bytes()).is_none()
-        && psl::List
-            .suffix(domain.as_bytes())
-            .is_some_and(|s| s.is_known())
+        && psl::List.suffix(domain.as_bytes()).is_some_and(|s| s.is_known())
     {
         return false;
     }
@@ -377,9 +375,9 @@ impl CookieJar for DefaultCookieJar {
                                 }
                                 "domain" => {
                                     // Strip leading dot, then normalise to lowercase (RFC 4343).
-                                    let d = v.trim().trim_start_matches('.').to_ascii_lowercase();
+                                    let d = v.trim().trim_start_matches('.').cow_to_ascii_lowercase();
                                     if is_valid_cookie_domain(request_host, &d) {
-                                        cookie.domain = Some(d);
+                                        cookie.domain = Some(d.into_owned());
                                     } else {
                                         domain_rejected = true;
                                     }
@@ -434,9 +432,7 @@ impl CookieJar for DefaultCookieJar {
                     }
                     // __Host-: cookie must have Secure, no Domain attribute, and Path=/.
                     if cookie.name.starts_with("__Host-")
-                        && (!cookie.secure
-                            || cookie.domain.is_some()
-                            || cookie.path.as_deref() != Some("/"))
+                        && (!cookie.secure || cookie.domain.is_some() || cookie.path.as_deref() != Some("/"))
                     {
                         continue;
                     }
@@ -466,11 +462,10 @@ impl CookieJar for DefaultCookieJar {
                     // Cookies are unique by (name, domain, path) — RFC 6265bis §5.6.
                     // On update, preserve the original creation time so path-based ordering
                     // (RFC 6265bis §5.5) reflects when the cookie was *first* set.
-                    if let Some(existing) = bucket.iter_mut().find(|c| {
-                        c.name == cookie.name
-                            && c.domain == cookie.domain
-                            && c.path == cookie.path
-                    }) {
+                    if let Some(existing) = bucket
+                        .iter_mut()
+                        .find(|c| c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path)
+                    {
                         let original_created_at = existing.created_at;
                         *existing = cookie;
                         existing.created_at = original_created_at;
@@ -501,7 +496,7 @@ impl CookieJar for DefaultCookieJar {
 
         let origin = url.origin().ascii_serialization();
         // RFC 4343: domain comparison is case-insensitive.
-        let host_lower = url.host_str().unwrap_or_default().to_ascii_lowercase();
+        let host_lower = url.host_str().unwrap_or_default().cow_to_ascii_lowercase();
         let path = url.path();
         let is_https = url.scheme() == "https";
 
@@ -515,18 +510,14 @@ impl CookieJar for DefaultCookieJar {
         let mut matching: Vec<&Cookie> = self
             .entries
             .iter()
-            .flat_map(|(bucket_origin, cookies)| {
-                cookies.iter().map(move |c| (bucket_origin.as_str(), c))
-            })
+            .flat_map(|(bucket_origin, cookies)| cookies.iter().map(move |c| (bucket_origin.as_str(), c)))
             .filter(|(_, cookie)| {
                 // Drop expired cookies (session cookies have expires == None).
-                cookie.expires.map_or(true, |exp| exp > now)
+                cookie.expires.is_none_or(|exp| exp > now)
             })
             .filter(|(_, cookie)| {
                 // Third-party policy: SameSiteNoneOnly allows only None+Secure cross-site.
-                if is_third_party
-                    && self.third_party_policy == ThirdPartyCookiePolicy::SameSiteNoneOnly
-                {
+                if is_third_party && self.third_party_policy == ThirdPartyCookiePolicy::SameSiteNoneOnly {
                     return matches!(cookie.same_site.as_deref(), Some("None")) && cookie.secure;
                 }
                 true
@@ -548,7 +539,7 @@ impl CookieJar for DefaultCookieJar {
                 match &cookie.domain {
                     Some(domain) => {
                         // Domain cookie: case-insensitive match against request host.
-                        let d = domain.to_ascii_lowercase();
+                        let d = domain.cow_to_ascii_lowercase();
                         host_lower == d || host_lower.ends_with(&format!(".{d}"))
                     }
                     None => {
@@ -562,8 +553,7 @@ impl CookieJar for DefaultCookieJar {
                 Some(cookie_path) => {
                     path == cookie_path
                         || (path.starts_with(cookie_path.as_str())
-                            && (cookie_path.ends_with('/')
-                                || path[cookie_path.len()..].starts_with('/')))
+                            && (cookie_path.ends_with('/') || path[cookie_path.len()..].starts_with('/')))
                 }
                 None => true,
             })
@@ -627,7 +617,7 @@ impl CookieJar for DefaultCookieJar {
     fn purge_expired(&mut self) {
         let now = Utc::now().timestamp();
         for cookies in self.entries.values_mut() {
-            cookies.retain(|c| c.expires.map_or(true, |exp| exp > now));
+            cookies.retain(|c| c.expires.is_none_or(|exp| exp > now));
         }
         self.entries.retain(|_, v| !v.is_empty());
     }
@@ -683,7 +673,8 @@ mod tests {
         jar.store_response_cookies(&req, &h, None);
 
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                .as_deref(),
             Some("id=1")
         );
     }
@@ -700,11 +691,14 @@ mod tests {
         jar.store_response_cookies(&resource, &h, Some(&top));
 
         assert_eq!(
-            jar.get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSiteNavigation).as_deref(),
+            jar.get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSiteNavigation)
+                .as_deref(),
             Some("uid=x")
         );
         // The same cookie is still blocked on a cross-site subrequest (Lax default).
-        assert!(jar.get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSite).is_none());
+        assert!(jar
+            .get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSite)
+            .is_none());
     }
 
     // ── ThirdPartyCookiePolicy::Block ─────────────────────────────────────────
@@ -717,7 +711,9 @@ mod tests {
         let h = headers(&["uid=x; Path=/"]);
         jar.store_response_cookies(&resource, &h, Some(&top));
 
-        assert!(jar.get_request_cookies(&resource, None, SameSiteContext::SameSite).is_none());
+        assert!(jar
+            .get_request_cookies(&resource, None, SameSiteContext::SameSite)
+            .is_none());
     }
 
     #[test]
@@ -729,7 +725,9 @@ mod tests {
         jar.store_response_cookies(&resource, &h, None);
 
         let top = url("https://example.com/");
-        assert!(jar.get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSite).is_none());
+        assert!(jar
+            .get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSite)
+            .is_none());
     }
 
     #[test]
@@ -741,7 +739,8 @@ mod tests {
         jar.store_response_cookies(&req, &h, Some(&top));
 
         assert_eq!(
-            jar.get_request_cookies(&req, Some(&top), SameSiteContext::SameSite).as_deref(),
+            jar.get_request_cookies(&req, Some(&top), SameSiteContext::SameSite)
+                .as_deref(),
             Some("id=1")
         );
     }
@@ -757,7 +756,9 @@ mod tests {
         let h = headers(&["uid=x; Path=/"]);
         jar.store_response_cookies(&resource, &h, Some(&top));
 
-        assert!(jar.get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSite).is_none());
+        assert!(jar
+            .get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSite)
+            .is_none());
     }
 
     #[test]
@@ -769,7 +770,8 @@ mod tests {
         jar.store_response_cookies(&resource, &h, Some(&top));
 
         assert_eq!(
-            jar.get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSite).as_deref(),
+            jar.get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSite)
+                .as_deref(),
             Some("uid=x")
         );
     }
@@ -783,7 +785,9 @@ mod tests {
         let h = headers(&["uid=x; Path=/; SameSite=None"]);
         jar.store_response_cookies(&resource, &h, Some(&top));
 
-        assert!(jar.get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSite).is_none());
+        assert!(jar
+            .get_request_cookies(&resource, Some(&top), SameSiteContext::CrossSite)
+            .is_none());
     }
 
     // ── SameSite attribute enforcement ────────────────────────────────────────
@@ -795,16 +799,19 @@ mod tests {
         jar.store_response_cookies(&req, &headers(&["s=1; Path=/; SameSite=Strict"]), None);
 
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                .as_deref(),
             Some("s=1"),
             "Strict cookie must be sent on same-site requests"
         );
         assert!(
-            jar.get_request_cookies(&req, None, SameSiteContext::CrossSiteNavigation).is_none(),
+            jar.get_request_cookies(&req, None, SameSiteContext::CrossSiteNavigation)
+                .is_none(),
             "Strict cookie must not be sent on cross-site navigation"
         );
         assert!(
-            jar.get_request_cookies(&req, None, SameSiteContext::CrossSite).is_none(),
+            jar.get_request_cookies(&req, None, SameSiteContext::CrossSite)
+                .is_none(),
             "Strict cookie must not be sent on cross-site subrequest"
         );
     }
@@ -816,17 +823,20 @@ mod tests {
         jar.store_response_cookies(&req, &headers(&["l=1; Path=/; SameSite=Lax"]), None);
 
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                .as_deref(),
             Some("l=1"),
             "Lax cookie must be sent on same-site requests"
         );
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::CrossSiteNavigation).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::CrossSiteNavigation)
+                .as_deref(),
             Some("l=1"),
             "Lax cookie must be sent on cross-site top-level navigation"
         );
         assert!(
-            jar.get_request_cookies(&req, None, SameSiteContext::CrossSite).is_none(),
+            jar.get_request_cookies(&req, None, SameSiteContext::CrossSite)
+                .is_none(),
             "Lax cookie must not be sent on cross-site subrequest"
         );
     }
@@ -839,15 +849,18 @@ mod tests {
         jar.store_response_cookies(&req, &headers(&["n=1; Path=/"]), None);
 
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                .as_deref(),
             Some("n=1")
         );
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::CrossSiteNavigation).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::CrossSiteNavigation)
+                .as_deref(),
             Some("n=1")
         );
         assert!(
-            jar.get_request_cookies(&req, None, SameSiteContext::CrossSite).is_none(),
+            jar.get_request_cookies(&req, None, SameSiteContext::CrossSite)
+                .is_none(),
             "Cookie with no SameSite must be blocked on cross-site subrequest (Lax default)"
         );
     }
@@ -858,7 +871,11 @@ mod tests {
         let req = url("https://example.com/");
         jar.store_response_cookies(&req, &headers(&["x=1; Path=/; SameSite=None; Secure"]), None);
 
-        for ctx in [SameSiteContext::SameSite, SameSiteContext::CrossSiteNavigation, SameSiteContext::CrossSite] {
+        for ctx in [
+            SameSiteContext::SameSite,
+            SameSiteContext::CrossSiteNavigation,
+            SameSiteContext::CrossSite,
+        ] {
             assert_eq!(
                 jar.get_request_cookies(&req, None, ctx).as_deref(),
                 Some("x=1"),
@@ -872,7 +889,9 @@ mod tests {
     #[test]
     fn psl_domain_behavior() {
         let reg = |h: &str| -> Option<String> {
-            psl::List.domain(h.as_bytes()).and_then(|d| std::str::from_utf8(d.as_bytes()).ok().map(str::to_owned))
+            psl::List
+                .domain(h.as_bytes())
+                .and_then(|d| std::str::from_utf8(d.as_bytes()).ok().map(str::to_owned))
         };
         // Known registrable domains — psl::List must return the eTLD+1.
         assert_eq!(reg("a.com"), Some("a.com".into()));
@@ -931,11 +950,7 @@ mod tests {
         let mut jar = DefaultCookieJar::new();
         let req = url("https://example.com/");
 
-        jar.store_response_cookies(
-            &req,
-            &headers(&["id=1; Path=/; Domain=other.com"]),
-            None,
-        );
+        jar.store_response_cookies(&req, &headers(&["id=1; Path=/; Domain=other.com"]), None);
         assert!(
             jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
             "cookie with Domain=other.com set from example.com must be dropped"
@@ -950,7 +965,8 @@ mod tests {
         jar.store_response_cookies(&req, &headers(&["s=1; Path=/; Domain=example.com"]), None);
 
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                .as_deref(),
             Some("s=1"),
             "cookie with valid Domain superdomain must be stored and returned"
         );
@@ -976,7 +992,8 @@ mod tests {
         let req = url("https://example.com/");
         jar.store_response_cookies(&req, &headers(&["s=1; Path=/; Secure"]), None);
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                .as_deref(),
             Some("s=1")
         );
     }
@@ -987,7 +1004,8 @@ mod tests {
         let req = url("http://example.com/");
         jar.store_response_cookies(&req, &headers(&["n=1; Path=/"]), None);
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                .as_deref(),
             Some("n=1"),
             "Plain cookie (no Secure flag) must be accepted over HTTP"
         );
@@ -1001,7 +1019,8 @@ mod tests {
         let req = url("https://example.com/");
         jar.store_response_cookies(&req, &headers(&["__Secure-tok=x; Path=/; Secure"]), None);
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                .as_deref(),
             Some("__Secure-tok=x")
         );
     }
@@ -1024,7 +1043,8 @@ mod tests {
         // Secure + no Domain + Path=/
         jar.store_response_cookies(&req, &headers(&["__Host-sid=1; Path=/; Secure"]), None);
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                .as_deref(),
             Some("__Host-sid=1")
         );
     }
@@ -1105,7 +1125,8 @@ mod tests {
         jar.store_response_cookies(&req, &h, None);
 
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                .as_deref(),
             Some("sess=x"),
             "cookie with future Max-Age must be sent"
         );
@@ -1119,7 +1140,8 @@ mod tests {
         jar.store_response_cookies(&req, &h, None);
 
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                .as_deref(),
             Some("s=1"),
             "session cookie (no expires) must always be sent"
         );
@@ -1134,7 +1156,8 @@ mod tests {
         jar.store_response_cookies(&req, &h, None);
 
         assert_eq!(
-            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite)
+                .as_deref(),
             Some("t=1"),
             "Max-Age must override a past Expires date"
         );
@@ -1163,9 +1186,14 @@ mod tests {
 
         jar.purge_expired();
 
-        let cookies = jar.get_request_cookies(&req, None, SameSiteContext::SameSite).unwrap_or_default();
+        let cookies = jar
+            .get_request_cookies(&req, None, SameSiteContext::SameSite)
+            .unwrap_or_default();
         assert!(cookies.contains("good=1"), "non-expired cookie must survive purge");
-        assert!(!cookies.contains("stale=old"), "expired cookie must be removed by purge");
+        assert!(
+            !cookies.contains("stale=old"),
+            "expired cookie must be removed by purge"
+        );
     }
 
     #[test]
@@ -1174,7 +1202,11 @@ mod tests {
         let req = url("http://example.com/"); // HTTP, not HTTPS
         jar.store_response_cookies(&req, &headers(&["x=1; Path=/; SameSite=None"]), None);
 
-        for ctx in [SameSiteContext::SameSite, SameSiteContext::CrossSiteNavigation, SameSiteContext::CrossSite] {
+        for ctx in [
+            SameSiteContext::SameSite,
+            SameSiteContext::CrossSiteNavigation,
+            SameSiteContext::CrossSite,
+        ] {
             assert!(
                 jar.get_request_cookies(&req, None, ctx).is_none(),
                 "SameSite=None without Secure must be blocked everywhere"

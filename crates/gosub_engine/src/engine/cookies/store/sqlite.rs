@@ -107,9 +107,7 @@ impl SqliteCookieStore {
             .expect("Failed to create cookies table");
 
             // Add created_at to any pre-existing table that lacks it.
-            let _ = conn.execute_batch(
-                "ALTER TABLE cookies ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;",
-            );
+            let _ = conn.execute_batch("ALTER TABLE cookies ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;");
         }
 
         let store = Arc::new(Self {
