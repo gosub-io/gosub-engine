@@ -44,6 +44,7 @@
 //!     expires: Some(1735689599), // 2025-12-31T23:59:59 UTC as Unix timestamp
 //!     same_site: Some("Lax".into()),                 // "Strict" | "Lax" | "None"
 //!     http_only: true,
+//!     created_at: 0,
 //! };
 //! ```
 
@@ -223,4 +224,16 @@ pub struct Cookie {
 
     /// If `true`, cookie is blocked from access by client-side scripts (`document.cookie`).
     pub http_only: bool,
+
+    /// Creation time as Unix timestamp in **milliseconds**.
+    ///
+    /// Set once when the cookie is first stored; preserved on subsequent updates to
+    /// the same (name, domain, path) triple so that creation order survives overwrites.
+    /// Used to break ties when two cookies have equal-length paths — earlier cookies
+    /// are sent first (RFC 6265bis §5.5).
+    ///
+    /// Defaults to `0` so that cookies persisted before this field was added still
+    /// deserialise correctly.
+    #[serde(default)]
+    pub created_at: i64,
 }

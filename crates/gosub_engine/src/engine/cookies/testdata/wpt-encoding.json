@@ -1,0 +1,40 @@
+[
+  {
+    "_license": "BSD-3-Clause",
+    "_license_url": "https://github.com/web-platform-tests/wpt/blob/master/LICENSE",
+    "_source_url": "https://github.com/web-platform-tests/wpt/tree/master/cookies/encoding",
+    "source": "cookies/encoding/charset.html",
+    "tests": [
+      {
+        "name": "ASCII name and UTF-8 value",
+        "cookie": "test=1春节回家路·春运完全手册",
+        "expected": "test=1春节回家路·春运完全手册"
+      },
+      {
+        "name": "UTF-8 name (Cyrillic) and ASCII value",
+        "cookie": "тест=2",
+        "expected": "тест=2"
+      },
+      {
+        "name": "ASCII name and quoted UTF-8 value",
+        "cookie": "test=\"3春节回家路·春运完全手册\"",
+        "expected": "test=\"3春节回家路·春运完全手册\""
+      },
+      {
+        "name": "UTF-8 name and value",
+        "cookie": "春节回=4家路·春运完全手册",
+        "expected": "春节回=4家路·春运完全手册"
+      },
+      {
+        "name": "Quoted UTF-8 name and value",
+        "cookie": "\"春节回=5家路·春运完全手册\"",
+        "expected": "\"春节回=5家路·春运完全手册\""
+      },
+      {
+        "name": "UTF-8 name and value with semicolon delimiter",
+        "cookie": "春节回=6家路·春运; 完全手册",
+        "expected": "春节回=6家路·春运"
+      }
+    ]
+  }
+]

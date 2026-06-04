@@ -38,8 +38,12 @@ use url::Url;
 ///    `"co.uk"` (RFC 6265bis §5.4).  Unknown TLDs (e.g. `localhost`, intranet names)
 ///    are allowed because the PSL may not list them.
 fn is_valid_cookie_domain(request_host: &str, domain: &str) -> bool {
+    // RFC 4343: domain comparisons are case-insensitive.
+    let req = request_host.to_ascii_lowercase();
+    let dom = domain.to_ascii_lowercase();
+
     // Rule 1: domain must be a registrable-domain suffix of the request host.
-    if request_host != domain && !request_host.ends_with(&format!(".{domain}")) {
+    if req != dom && !req.ends_with(&format!(".{dom}")) {
         return false;
     }
 
@@ -61,14 +65,42 @@ fn is_valid_cookie_domain(request_host: &str, domain: &str) -> bool {
     true
 }
 
-/// Parse an HTTP date string (RFC 1123 / RFC 2822) into a Unix timestamp.
+/// Parse an HTTP date string into a Unix timestamp.
 ///
-/// Returns `None` if the string cannot be parsed, which causes the cookie to be
+/// Handles three formats in order of preference:
+/// 1. RFC 2822 with numeric offset (`+0000`) — e.g. from well-behaved clients.
+/// 2. RFC 1123 / HTTP-date (`GMT` timezone) — the dominant real-world format
+///    per RFC 7231 §7.1.1.1: `"Fri, 07 Aug 2007 08:04:19 GMT"`.
+/// 3. RFC 850 / obsolete format (`"Friday, 07-Aug-07 08:04:19 GMT"`).
+///
+/// Returns `None` if none of the formats match, which causes the cookie to be
 /// treated as a session cookie rather than silently accepting a bad expiry.
 fn parse_http_date(s: &str) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc2822(s)
-        .ok()
-        .map(|dt| dt.timestamp())
+    use chrono::NaiveDateTime;
+
+    let s = s.trim();
+
+    // 1. Strict RFC 2822 (numeric timezone offset)
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc2822(s) {
+        return Some(dt.timestamp());
+    }
+
+    // 2. RFC 1123 "Fri, 07 Aug 2007 08:04:19 GMT"
+    //    Strip the timezone suffix, then strip the optional "Day, " prefix before
+    //    parsing — chrono's %a can be locale-sensitive; avoiding it is more robust.
+    let bare = s.strip_suffix(" GMT").or_else(|| s.strip_suffix("GMT")).unwrap_or(s);
+    // Strip "Weekday, " prefix if present.
+    let bare = bare.find(", ").map(|i| &bare[i + 2..]).unwrap_or(bare);
+    if let Ok(ndt) = NaiveDateTime::parse_from_str(bare, "%d %b %Y %H:%M:%S") {
+        return Some(ndt.and_utc().timestamp());
+    }
+
+    // 3. RFC 850 "Friday, 07-Aug-07 08:04:19 GMT" (already stripped prefix above)
+    if let Ok(ndt) = NaiveDateTime::parse_from_str(bare, "%d-%b-%y %H:%M:%S") {
+        return Some(ndt.and_utc().timestamp());
+    }
+
+    None
 }
 
 /// Returns `true` when two hostnames share the same registrable domain (eTLD+1).
@@ -290,7 +322,9 @@ impl CookieJar for DefaultCookieJar {
         let bucket = self.entries.entry(origin).or_default();
 
         for header in headers.get_all("set-cookie") {
-            if let Ok(header_str) = header.to_str() {
+            // Use from_utf8 (not to_str) so that non-ASCII cookie values (e.g.
+            // UTF-8 encoded characters) are accepted rather than silently dropped.
+            if let Ok(header_str) = std::str::from_utf8(header.as_bytes()) {
                 if let Some((name, rest)) = header_str.split_once('=') {
                     let cookie_name = name.trim();
                     // RFC 6265 §5.2: the name-value-pair is the portion before the
@@ -308,27 +342,44 @@ impl CookieJar for DefaultCookieJar {
                         expires: None,
                         same_site: None,
                         http_only: false,
+                        created_at: 0, // set in the dedup/insert block below
                     };
 
                     // Collected during attribute parsing; resolved after the loop.
                     let mut max_age: Option<i64> = None;
                     let mut expires_str: Option<String> = None;
                     let mut domain_rejected = false;
+                    // Separate flag so that an empty value "" doesn't cause the
+                    // next attribute to be mistakenly treated as the value.
+                    let mut value_parsed = false;
 
                     for part in rest.split(';') {
                         let part = part.trim();
-                        if cookie.value.is_empty() {
+                        if !value_parsed {
                             cookie.value = part.to_string();
+                            value_parsed = true;
                             continue;
                         }
 
                         if let Some((k, v)) = part.split_once('=') {
-                            match k.cow_to_ascii_lowercase().as_ref() {
-                                "path" => cookie.path = Some(v.to_string()),
+                            // Trim the attribute name: "Secure =" is equivalent to "Secure".
+                            match k.trim().cow_to_ascii_lowercase().as_ref() {
+                                "path" => {
+                                    // Strip surrounding double-quotes — browsers tolerate
+                                    // quoted path values and the semicolon delimiter inside
+                                    // them splits the raw header, leaving a stray leading '"'.
+                                    let p = v.trim().trim_matches('"');
+                                    if p.starts_with('/') {
+                                        cookie.path = Some(p.to_string());
+                                    } else {
+                                        cookie.path = Some(v.trim().to_string());
+                                    }
+                                }
                                 "domain" => {
-                                    let d = v.trim_start_matches('.');
-                                    if is_valid_cookie_domain(request_host, d) {
-                                        cookie.domain = Some(d.to_string());
+                                    // Strip leading dot, then normalise to lowercase (RFC 4343).
+                                    let d = v.trim().trim_start_matches('.').to_ascii_lowercase();
+                                    if is_valid_cookie_domain(request_host, &d) {
+                                        cookie.domain = Some(d);
                                     } else {
                                         domain_rejected = true;
                                     }
@@ -347,6 +398,10 @@ impl CookieJar for DefaultCookieJar {
                                         cookie.same_site = Some(val.to_string());
                                     }
                                 }
+                                // "Secure=anything" and "HttpOnly=anything" are treated
+                                // as the bare flag form (browsers are lenient here).
+                                "secure" => cookie.secure = true,
+                                "httponly" => cookie.http_only = true,
                                 _ => {}
                             }
                         } else if part.eq_ignore_ascii_case("secure") {
@@ -408,9 +463,19 @@ impl CookieJar for DefaultCookieJar {
                         continue;
                     }
 
-                    if let Some(existing) = bucket.iter_mut().find(|c| c.name == cookie.name) {
+                    // Cookies are unique by (name, domain, path) — RFC 6265bis §5.6.
+                    // On update, preserve the original creation time so path-based ordering
+                    // (RFC 6265bis §5.5) reflects when the cookie was *first* set.
+                    if let Some(existing) = bucket.iter_mut().find(|c| {
+                        c.name == cookie.name
+                            && c.domain == cookie.domain
+                            && c.path == cookie.path
+                    }) {
+                        let original_created_at = existing.created_at;
                         *existing = cookie;
+                        existing.created_at = original_created_at;
                     } else {
+                        cookie.created_at = Utc::now().timestamp_millis();
                         bucket.push(cookie);
                     }
                 }
@@ -435,47 +500,65 @@ impl CookieJar for DefaultCookieJar {
         }
 
         let origin = url.origin().ascii_serialization();
-        let host = url.host_str().unwrap_or_default();
+        // RFC 4343: domain comparison is case-insensitive.
+        let host_lower = url.host_str().unwrap_or_default().to_ascii_lowercase();
         let path = url.path();
         let is_https = url.scheme() == "https";
 
-        let cookies = self.entries.get(&origin)?;
-
         let now = Utc::now().timestamp();
 
-        let header = cookies
+        // Scan ALL origin buckets:
+        // - Domain cookies (Some(domain)): send if request host matches the domain attribute,
+        //   regardless of which origin set the cookie.
+        // - Host-only cookies (None domain): send only from the exact same origin (RFC 6265 §5.3,
+        //   "host-only-flag").
+        let mut matching: Vec<&Cookie> = self
+            .entries
             .iter()
-            .filter(|cookie| {
+            .flat_map(|(bucket_origin, cookies)| {
+                cookies.iter().map(move |c| (bucket_origin.as_str(), c))
+            })
+            .filter(|(_, cookie)| {
                 // Drop expired cookies (session cookies have expires == None).
                 cookie.expires.map_or(true, |exp| exp > now)
             })
-            .filter(|cookie| {
+            .filter(|(_, cookie)| {
                 // Third-party policy: SameSiteNoneOnly allows only None+Secure cross-site.
-                if is_third_party && self.third_party_policy == ThirdPartyCookiePolicy::SameSiteNoneOnly {
+                if is_third_party
+                    && self.third_party_policy == ThirdPartyCookiePolicy::SameSiteNoneOnly
+                {
                     return matches!(cookie.same_site.as_deref(), Some("None")) && cookie.secure;
                 }
                 true
             })
-            .filter(|cookie| {
+            .filter(|(_, cookie)| {
                 // SameSite attribute enforcement (RFC 6265bis).
                 // Cookies with no SameSite attribute default to Lax behavior.
                 match cookie.same_site.as_deref() {
                     Some("Strict") => samesite == SameSiteContext::SameSite,
                     Some("None") => cookie.secure,
                     // Lax (explicit) or absent (implicit Lax default)
-                    _ => matches!(samesite, SameSiteContext::SameSite | SameSiteContext::CrossSiteNavigation),
+                    _ => matches!(
+                        samesite,
+                        SameSiteContext::SameSite | SameSiteContext::CrossSiteNavigation
+                    ),
                 }
             })
-            .filter(|cookie| match &cookie.domain {
-                Some(domain) => host == domain || host.ends_with(&format!(".{domain}")),
-                None => true,
+            .filter(|(bucket_origin, cookie)| {
+                match &cookie.domain {
+                    Some(domain) => {
+                        // Domain cookie: case-insensitive match against request host.
+                        let d = domain.to_ascii_lowercase();
+                        host_lower == d || host_lower.ends_with(&format!(".{d}"))
+                    }
+                    None => {
+                        // Host-only cookie: must originate from the exact same origin.
+                        *bucket_origin == origin.as_str()
+                    }
+                }
             })
-            .filter(|cookie| match &cookie.path {
-                // RFC 6265 §5.1.4 path-match:
-                // cookie-path is a prefix of request-path AND one of:
-                //   (a) they are identical, or
-                //   (b) cookie-path ends with '/', or
-                //   (c) the first non-prefix char of the request path is '/'.
+            .filter(|(_, cookie)| match &cookie.path {
+                // RFC 6265 §5.1.4 path-match.
                 Some(cookie_path) => {
                     path == cookie_path
                         || (path.starts_with(cookie_path.as_str())
@@ -484,7 +567,20 @@ impl CookieJar for DefaultCookieJar {
                 }
                 None => true,
             })
-            .filter(|cookie| !cookie.secure || is_https)
+            .filter(|(_, cookie)| !cookie.secure || is_https)
+            .map(|(_, c)| c)
+            .collect::<Vec<_>>();
+
+        // RFC 6265bis §5.5: cookies with longer paths are sent first;
+        // ties broken by creation time ascending (earlier = higher priority).
+        matching.sort_by(|a, b| {
+            let len_a = a.path.as_deref().map_or(0, str::len);
+            let len_b = b.path.as_deref().map_or(0, str::len);
+            len_b.cmp(&len_a).then_with(|| a.created_at.cmp(&b.created_at))
+        });
+
+        let header = matching
+            .iter()
             .map(|c| format!("{}={}", c.name, c.value))
             .collect::<Vec<_>>()
             .join("; ");
@@ -1062,6 +1158,7 @@ mod tests {
                 expires: Some(1), // 1970
                 same_site: None,
                 http_only: false,
+                created_at: 0,
             });
 
         jar.purge_expired();

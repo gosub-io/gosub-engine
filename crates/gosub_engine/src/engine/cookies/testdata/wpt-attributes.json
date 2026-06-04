@@ -1,0 +1,565 @@
+[
+  {
+    "_license": "BSD-3-Clause",
+    "_license_url": "https://github.com/web-platform-tests/wpt/blob/master/LICENSE",
+    "_source_url": "https://github.com/web-platform-tests/wpt/tree/master/cookies/attributes",
+    "source": "cookies/attributes/expires.html",
+    "tests": [
+      {
+        "name": "Set cookie with future expiration",
+        "cookies": ["test=1; Expires=Fri, 01 Jan 2038 00:00:00 GMT"],
+        "expected": "test=1"
+      },
+      {
+        "name": "Set cookie with expires value followed by comma",
+        "cookies": ["test=2; Expires=Fri 01 Jan 2038 00:00:00 GMT, baz=qux"],
+        "expected": "test=2"
+      },
+      {
+        "name": "Set cookie with future expiration (3)",
+        "cookies": ["test=3; Expires=Fri, 01 Jan 2038 00:00:00 GMT"],
+        "expected": "test=3"
+      },
+      {
+        "name": "Set expired cookie along with valid cookie",
+        "cookies": ["test=expired; Expires=Fri, 07 Aug 2007 08:04:19 GMT", "test=4; Expires=Fri, 07 Aug 2027 08:04:19 GMT"],
+        "expected": "test=4"
+      },
+      {
+        "name": "Don't set cookie with expires set to the past",
+        "cookies": ["test=5; expires=Thu, 10 Apr 1980 16:33:12 GMT"],
+        "expected": ""
+      }
+    ]
+  },
+  {
+    "source": "cookies/attributes/max-age.html",
+    "tests": [
+      {
+        "name": "Ignore max-age with comma (invalid non-zero-digit)",
+        "cookies": ["test=1; Max-Age=50,399"],
+        "expected": "test=1"
+      },
+      {
+        "name": "Set cookie with positive max-age",
+        "cookies": ["test=2; max-age=10000"],
+        "expected": "test=2"
+      },
+      {
+        "name": "Don't set cookie with max-age=0",
+        "cookies": ["test=3; max-age=0"],
+        "expected": ""
+      },
+      {
+        "name": "Don't set cookie with max-age=-1",
+        "cookies": ["test=4; max-age=-1"],
+        "expected": ""
+      },
+      {
+        "name": "Don't set cookie with max-age=-20",
+        "cookies": ["test=5; max-age=-20"],
+        "expected": ""
+      },
+      {
+        "name": "Set multiple cookies with max-age",
+        "cookies": ["testA=6; max-age=60", "testB=6; max-age=60"],
+        "expected": "testA=6; testB=6"
+      },
+      {
+        "name": "Expire later cookie with same name via max-age=0",
+        "cookies": ["testA=7; max-age=60", "testB=7; max-age=60", "testA=differentvalue; max-age=0"],
+        "expected": "testB=7"
+      },
+      {
+        "name": "Expire two cookies with max-age=0, keep one",
+        "cookies": ["testA=8; max-age=60", "testB=8; max-age=60", "testA=differentvalue; max-age=0", "testC=8; max-age=0"],
+        "expected": "testB=8"
+      },
+      {
+        "name": "Don't set multiple cookies with max-age=0",
+        "cookies": ["test=10; max-age=0", "test10; max-age=0"],
+        "expected": ""
+      }
+    ]
+  },
+  {
+    "source": "cookies/attributes/secure.https.html",
+    "tests": [
+      {
+        "name": "Set cookie for Secure attribute",
+        "set_from": "https://example.com/",
+        "send_to": "https://example.com/",
+        "cookies": ["test=1; Secure"],
+        "expected": "test=1"
+      },
+      {
+        "name": "Set cookie for seCURe attribute (case-insensitive)",
+        "set_from": "https://example.com/",
+        "send_to": "https://example.com/",
+        "cookies": ["test=2; seCURe"],
+        "expected": "test=2"
+      },
+      {
+        "name": "Set cookie for Secure= attribute (empty value form)",
+        "set_from": "https://example.com/",
+        "send_to": "https://example.com/",
+        "cookies": ["test=3; Secure="],
+        "expected": "test=3"
+      },
+      {
+        "name": "Set cookie for Secure=aaaa (value form treated as flag)",
+        "set_from": "https://example.com/",
+        "send_to": "https://example.com/",
+        "cookies": ["test=4; Secure=aaaa"],
+        "expected": "test=4"
+      },
+      {
+        "name": "Set cookie for Secure space equals",
+        "set_from": "https://example.com/",
+        "send_to": "https://example.com/",
+        "cookies": ["test=5; Secure =aaaaa"],
+        "expected": "test=5"
+      },
+      {
+        "name": "Set cookie for Secure equals space",
+        "set_from": "https://example.com/",
+        "send_to": "https://example.com/",
+        "cookies": ["test=6; Secure= aaaaa"],
+        "expected": "test=6"
+      },
+      {
+        "name": "Set cookie for spaced Secure",
+        "set_from": "https://example.com/",
+        "send_to": "https://example.com/",
+        "cookies": ["test=7;                Secure"],
+        "expected": "test=7"
+      },
+      {
+        "name": "Set cookie for spaced Secure with trailing semicolon",
+        "set_from": "https://example.com/",
+        "send_to": "https://example.com/",
+        "cookies": ["test=8;       Secure     ;"],
+        "expected": "test=8"
+      },
+      {
+        "name": "Ignore name- and value-less Set-Cookie: ; secure",
+        "set_from": "https://example.com/",
+        "send_to": "https://example.com/",
+        "cookies": ["testa9a=x; secure; ", "; secure", "testa9b=y; secure;"],
+        "expected": "testa9a=x; testa9b=y"
+      },
+      {
+        "name": "Secure cookie not sent over HTTP",
+        "set_from": "http://example.com/",
+        "send_to": "http://example.com/",
+        "cookies": ["test=1; Secure"],
+        "expected": ""
+      },
+      {
+        "name": "Non-secure cookie sent over HTTP",
+        "set_from": "http://example.com/",
+        "send_to": "http://example.com/",
+        "cookies": ["test=1"],
+        "expected": "test=1"
+      }
+    ]
+  },
+  {
+    "source": "cookies/attributes/httponly.html",
+    "tests": [
+      {
+        "name": "HttpOnly cookie is sent in HTTP requests",
+        "cookies": ["test=1; HttpOnly"],
+        "expected": "test=1"
+      },
+      {
+        "name": "HttpOnly + Secure over HTTPS",
+        "set_from": "https://example.com/",
+        "send_to": "https://example.com/",
+        "cookies": ["test=1; HttpOnly; Secure"],
+        "expected": "test=1"
+      }
+    ]
+  },
+  {
+    "source": "cookies/attributes/samesite.html",
+    "tests": [
+      {
+        "name": "SameSite=Strict stored",
+        "cookies": ["test=1; SameSite=Strict"],
+        "expected": "test=1"
+      },
+      {
+        "name": "SameSite=Lax stored",
+        "cookies": ["test=1; SameSite=Lax"],
+        "expected": "test=1"
+      },
+      {
+        "name": "SameSite=None without Secure not stored",
+        "set_from": "https://example.com/",
+        "send_to": "https://example.com/",
+        "cookies": ["test=1; SameSite=None"],
+        "expected": ""
+      },
+      {
+        "name": "SameSite=None with Secure stored",
+        "set_from": "https://example.com/",
+        "send_to": "https://example.com/",
+        "cookies": ["test=1; SameSite=None; Secure"],
+        "expected": "test=1"
+      }
+    ]
+  },
+  {
+    "source": "cookies/attributes/path.html",
+    "_note": "Cookies set via /cookies/resources/cookie.py; defaultPath=true reads from echo-cookie.html, defaultPath=false reads from path.html",
+    "tests": [
+      {
+        "name": "Set cookie for bare Path",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/resources/echo-cookie.html",
+        "cookies": ["test=1; Path"],
+        "expected": "test=1"
+      },
+      {
+        "name": "Set cookie for Path=",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/resources/echo-cookie.html",
+        "cookies": ["test=2; Path="],
+        "expected": "test=2"
+      },
+      {
+        "name": "Set cookie for Path=/",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["test=3; Path=/"],
+        "expected": "test=3"
+      },
+      {
+        "name": "No cookie returned for mismatched path",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["test=4; Path=/qux"],
+        "expected": ""
+      },
+      {
+        "name": "No cookie returned for path space equals mismatched path",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["test=5; Path    =/qux"],
+        "expected": ""
+      },
+      {
+        "name": "No cookie returned for path equals space mismatched path",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["test=6; Path=    /qux"],
+        "expected": ""
+      },
+      {
+        "name": "No cookie returned for mismatched path and attribute",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["test=7; Path=/qux      ; taz"],
+        "expected": ""
+      },
+      {
+        "name": "Set cookie for mismatched and root path (last Path wins)",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/resources/echo-cookie.html",
+        "cookies": ["test=8; Path=/qux; Path=/"],
+        "expected": "test=8"
+      },
+      {
+        "name": "No cookie returned for root and mismatched path (last Path wins)",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["test=9; Path=/; Path=/qux"],
+        "expected": ""
+      },
+      {
+        "name": "No cookie returned for multiple mismatched paths",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["test=10; Path=/lol; Path=/qux"],
+        "expected": ""
+      },
+      {
+        "name": "Return 2 cookies sorted by matching path length (earlier name with shorter path set first)",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["testA=11; path=/", "testB=11; path=/cookies/attributes"],
+        "expected": "testB=11; testA=11"
+      },
+      {
+        "name": "Return 2 cookies sorted by matching path length (later name with shorter path set first)",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["testB=12; path=/", "testA=12; path=/cookies/attributes"],
+        "expected": "testA=12; testB=12"
+      },
+      {
+        "name": "Return 2 cookies sorted by matching path length (earlier name with longer path set first)",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["testA=13; path=/cookies/attributes", "testB=13; path=/"],
+        "expected": "testA=13; testB=13"
+      },
+      {
+        "name": "Return 2 cookies sorted by matching path length (later name with longer path set first)",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["testB=14; path=/cookies/attributes", "testA=14; path=/"],
+        "expected": "testB=14; testA=14"
+      },
+      {
+        "name": "No cookie returned for partial path match",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["test=15; path=/cookies/attributes/foo"],
+        "expected": ""
+      },
+      {
+        "name": "No cookie returned for partial path match, return cookie for default path",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/resources/echo-cookie.html",
+        "cookies": ["test=16", "test=0; path=/cookies/attributes/foo"],
+        "expected": "test=16"
+      },
+      {
+        "name": "Return cookie for path= / (whitespace after equals)",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/resources/echo-cookie.html",
+        "cookies": ["test=17; path= /"],
+        "expected": "test=17"
+      },
+      {
+        "name": "No cookie returned for case mismatched path",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["test=18; path=/cookies/ATTRIBUTES"],
+        "expected": ""
+      },
+      {
+        "name": "Return cookie A on path match, no cookie returned for path mismatch (plus whitespace)",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["testA=19; \tpath\t=\t/cookies/attributes", "testB=19; \tpath\t=\t/book"],
+        "expected": "testA=19"
+      },
+      {
+        "name": "No cookie returned for mismatched path (after bare path=)",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/attributes/path.html",
+        "cookies": ["test=20; path=; path=/dog"],
+        "expected": ""
+      },
+      {
+        "name": "Return cookie for bare path= (after mismatched path)",
+        "set_from": "https://example.com/cookies/resources/cookie.py",
+        "send_to": "https://example.com/cookies/resources/echo-cookie.html",
+        "cookies": ["test=21; path=/dog; path="],
+        "expected": "test=21"
+      }
+    ]
+  },
+  {
+    "source": "cookies/attributes/invalid.html",
+    "_skipped": "Tests 22-25 omitted: they set name-only cookies (no '=') which browsers store but RFC 6265 §5.2 requires dropping",
+    "tests": [
+      {
+        "name": "Set cookie with invalid attribute",
+        "cookies": ["test=1; lol; Path=/"],
+        "expected": "test=1"
+      },
+      {
+        "name": "Set cookie ending with invalid attribute",
+        "cookies": ["test=2; Path=/; lol"],
+        "expected": "test=2"
+      },
+      {
+        "name": "Set cookie ending with quoted invalid attribute",
+        "cookies": ["test=3; Path=/; 'lol'"],
+        "expected": "test=3"
+      },
+      {
+        "name": "Set cookie ending with double-quoted invalid attribute",
+        "cookies": ["test=4; Path=/; \"lol\""],
+        "expected": "test=4"
+      },
+      {
+        "name": "Set cookie ending with invalid attribute equals",
+        "cookies": ["test=5; Path=/; lol="],
+        "expected": "test=5"
+      },
+      {
+        "name": "Set cookie with two invalid attributes (lol=\"aaa and bbb)",
+        "cookies": ["test=6; lol=\"aaa;bbb\"; Path=/"],
+        "expected": "test=6"
+      },
+      {
+        "name": "Set cookie ending with two invalid attributes (lol=\"aaa and bbb)",
+        "cookies": ["test=7; Path=/; lol=\"aaa;bbb\""],
+        "expected": "test=7"
+      },
+      {
+        "name": "Set cookie for quoted Secure attribute",
+        "cookies": ["test=8; \"Secure\""],
+        "expected": "test=8"
+      },
+      {
+        "name": "Set cookie for Secure qux",
+        "cookies": ["test=9; Secure qux"],
+        "expected": "test=9"
+      },
+      {
+        "name": "Ignore invalid attribute name with comma",
+        "cookies": ["test=10; b,az=qux"],
+        "expected": "test=10"
+      },
+      {
+        "name": "Ignore invalid attribute value with comma",
+        "cookies": ["test=11; baz=q,ux"],
+        "expected": "test=11"
+      },
+      {
+        "name": "Set cookie ignoring multiple invalid attributes, whitespace, and semicolons",
+        "cookies": ["  test  = 12  ;foo;;;   bar"],
+        "expected": "test=12"
+      },
+      {
+        "name": "Set cookie with multiple '='s in its value, ignoring multiple invalid attributes",
+        "cookies": ["  test=== 13  ;foo;;;   bar"],
+        "expected": "test=== 13"
+      },
+      {
+        "name": "Set cookie with (invalid) version=1 attribute",
+        "cookies": ["test=14; version=1;"],
+        "expected": "test=14"
+      },
+      {
+        "name": "Set cookie with (invalid) version=1000 attribute",
+        "cookies": ["test=15; version=1000;"],
+        "expected": "test=15"
+      },
+      {
+        "name": "Set cookie ignoring invalid attribute with single-quoted value",
+        "cookies": ["test=16; customvalue='1000 or more';"],
+        "expected": "test=16"
+      },
+      {
+        "name": "Set cookie ignoring invalid attribute with single-quoted value (no trailing semicolon)",
+        "cookies": ["test=17; customvalue='1000 or more'"],
+        "expected": "test=17"
+      },
+      {
+        "name": "Ignore keys after semicolon (comma in attribute value)",
+        "cookies": ["test=18; foo=bar, a=b"],
+        "expected": "test=18"
+      },
+      {
+        "name": "Ignore attributes after semicolon (comma after max-age value)",
+        "cookies": ["test=19;max-age=3600, c=d;path=/"],
+        "expected": "test=19"
+      },
+      {
+        "name": "Ignore Set-Cookie: =",
+        "cookies": ["testA=20", "=", "testb=20"],
+        "expected": "testA=20; testb=20"
+      },
+      {
+        "name": "Ignore empty cookie string",
+        "cookies": ["test=21", ""],
+        "expected": "test=21"
+      },
+      {
+        "name": "Ignore cookie with domain that won't domain match",
+        "cookies": ["test=26; domain=.parser.test; ;; ;=; ,,, ===,abc,=; abracadabra! max-age=20;=;;"],
+        "expected": ""
+      }
+    ]
+  },
+  {
+    "source": "cookies/attributes/resources/secure-non-secure-child.html",
+    "_note": "Secure cookies must be rejected when set from a non-secure (HTTP) origin",
+    "tests": [
+      {
+        "name": "(non-secure) Ignore cookie for Secure attribute",
+        "set_from": "http://example.com/",
+        "send_to": "http://example.com/",
+        "cookies": ["test=1; Secure"],
+        "expected": ""
+      },
+      {
+        "name": "(non-secure) Ignore cookie for seCURe attribute",
+        "set_from": "http://example.com/",
+        "send_to": "http://example.com/",
+        "cookies": ["test=2; seCURe"],
+        "expected": ""
+      },
+      {
+        "name": "(non-secure) Ignore cookie for Secure= attribute",
+        "set_from": "http://example.com/",
+        "send_to": "http://example.com/",
+        "cookies": ["test=3; Secure="],
+        "expected": ""
+      },
+      {
+        "name": "(non-secure) Ignore cookie for Secure=aaaa",
+        "set_from": "http://example.com/",
+        "send_to": "http://example.com/",
+        "cookies": ["test=4; Secure=aaaa"],
+        "expected": ""
+      },
+      {
+        "name": "(non-secure) Ignore cookie for Secure space equals",
+        "set_from": "http://example.com/",
+        "send_to": "http://example.com/",
+        "cookies": ["test=5; Secure =aaaaa"],
+        "expected": ""
+      },
+      {
+        "name": "(non-secure) Ignore cookie for Secure equals space",
+        "set_from": "http://example.com/",
+        "send_to": "http://example.com/",
+        "cookies": ["test=6; Secure= aaaaa"],
+        "expected": ""
+      },
+      {
+        "name": "(non-secure) Ignore cookie for spaced Secure",
+        "set_from": "http://example.com/",
+        "send_to": "http://example.com/",
+        "cookies": ["test=7;                Secure"],
+        "expected": ""
+      },
+      {
+        "name": "(non-secure) Ignore cookie for spaced Secure with semicolon",
+        "set_from": "http://example.com/",
+        "send_to": "http://example.com/",
+        "cookies": ["test=8;       Secure     ;"],
+        "expected": ""
+      },
+      {
+        "name": "(non-secure) Ignore cookie with __Secure- prefix and Secure flag",
+        "set_from": "http://example.com/",
+        "send_to": "http://example.com/",
+        "cookies": ["__Secure-test=9; Secure"],
+        "expected": ""
+      },
+      {
+        "name": "(non-secure) Ignore cookie with __Secure- prefix without Secure flag",
+        "set_from": "http://example.com/",
+        "send_to": "http://example.com/",
+        "cookies": ["__Secure-test=10"],
+        "expected": ""
+      },
+      {
+        "name": "(non-secure) Cookie with percent-encoded prefix accepted without Secure",
+        "set_from": "http://example.com/",
+        "send_to": "http://example.com/",
+        "cookies": ["__%53ecure-test=11"],
+        "expected": "__%53ecure-test=11"
+      }
+    ]
+  }
+]

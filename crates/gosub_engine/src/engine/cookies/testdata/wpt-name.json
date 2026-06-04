@@ -1,0 +1,88 @@
+[
+  {
+    "_license": "BSD-3-Clause",
+    "_license_url": "https://github.com/web-platform-tests/wpt/blob/master/LICENSE",
+    "_source_url": "https://github.com/web-platform-tests/wpt/tree/master/cookies/name",
+    "_skipped": "Tests 2-4, 8, 11-16, 22-23 omitted: they rely on nameless/name-only cookies (no '=' separator) which browsers store but RFC 6265 §5.2 requires dropping",
+    "source": "cookies/name/name.html",
+    "tests": [
+      {
+        "name": "Set valueless cookie to its name with empty value",
+        "cookies": ["test1=;  path = /"],
+        "expected": "test1="
+      },
+      {
+        "name": "Remove trailing WSP characters from the name string",
+        "cookies": ["test =3"],
+        "expected": "test=3"
+      },
+      {
+        "name": "Remove leading WSP characters from the name string",
+        "cookies": ["   test=4"],
+        "expected": "test=4"
+      },
+      {
+        "name": "Only return the new cookie (with the same name)",
+        "cookies": ["\"test=5\"=test", "\"test=5"],
+        "expected": "\"test=5"
+      },
+      {
+        "name": "Ignore invalid attributes after valid name (Cookie2 Version attribute)",
+        "cookies": ["$Version=1; test=7"],
+        "expected": "$Version=1"
+      },
+      {
+        "name": "Set a cookie that has whitespace in its name",
+        "cookies": ["test test=8"],
+        "expected": "test test=8"
+      },
+      {
+        "name": "Use last value for cookies with identical names",
+        "cookies": ["test12=11", "test12=12"],
+        "expected": "test12=12"
+      },
+      {
+        "name": "Keep first-in, first-out name order",
+        "cookies": ["testA=13", "testB=13"],
+        "expected": "testA=13; testB=13"
+      },
+      {
+        "name": "Keep first-in, first-out single-char name order",
+        "cookies": ["a=test14", "z=test14"],
+        "expected": "a=test14; z=test14"
+      },
+      {
+        "name": "Keep non-alphabetic first-in, first-out name order",
+        "cookies": ["z=test15", "a=test15"],
+        "expected": "z=test15; a=test15"
+      },
+      {
+        "name": "Keep first-in, first-out order if comma-separated",
+        "cookies": ["z=test16, a=test16"],
+        "expected": "z=test16, a=test16"
+      },
+      {
+        "name": "Ignore nameless cookies that impersonate cookie prefixes",
+        "set_from": "https://example.com/",
+        "send_to": "https://example.com/",
+        "cookies": ["=__Secure-abc=123", "=__Host-abc=123", "=__SeCuRe-abc=123", "=__HoSt-abc=123", "__Secure-abc", "__Host-abc", "__SeCuRe-abc", "__HoSt-abc"],
+        "expected": ""
+      },
+      {
+        "name": "Ignore cookie with empty name and empty value",
+        "cookies": ["="],
+        "expected": ""
+      },
+      {
+        "name": "Ignore cookie with no name or value",
+        "cookies": [""],
+        "expected": ""
+      },
+      {
+        "name": "URL-encoded cookie name is not decoded",
+        "cookies": ["%74%65%73%74=20"],
+        "expected": "%74%65%73%74=20"
+      }
+    ]
+  }
+]

@@ -73,8 +73,7 @@ impl SqliteCookieStore {
         {
             let conn = pool.get().expect("DB connection");
 
-            // Migrate schema if the expires column was stored as TEXT in a previous version.
-            // Detection: pragma_table_info returns the declared type; TEXT means old schema.
+            // Drop table if the expires column is TEXT (pre-i64 schema).
             let old_schema = conn
                 .query_row(
                     "SELECT COUNT(*) FROM pragma_table_info('cookies') \
@@ -91,20 +90,26 @@ impl SqliteCookieStore {
 
             conn.execute_batch(
                 "CREATE TABLE IF NOT EXISTS cookies (
-                    zone_id   TEXT    NOT NULL,
-                    origin    TEXT    NOT NULL,
-                    name      TEXT    NOT NULL,
-                    value     TEXT    NOT NULL,
-                    path      TEXT,
-                    domain    TEXT,
-                    secure    INTEGER NOT NULL,
-                    expires   INTEGER,
-                    same_site TEXT,
-                    http_only INTEGER NOT NULL,
-                    PRIMARY KEY (zone_id, origin, name)
+                    zone_id    TEXT    NOT NULL,
+                    origin     TEXT    NOT NULL,
+                    name       TEXT    NOT NULL,
+                    value      TEXT    NOT NULL,
+                    path       TEXT,
+                    domain     TEXT,
+                    secure     INTEGER NOT NULL,
+                    expires    INTEGER,
+                    same_site  TEXT,
+                    http_only  INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (zone_id, origin, name, path, domain)
                 );",
             )
             .expect("Failed to create cookies table");
+
+            // Add created_at to any pre-existing table that lacks it.
+            let _ = conn.execute_batch(
+                "ALTER TABLE cookies ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;",
+            );
         }
 
         let store = Arc::new(Self {
@@ -138,7 +143,7 @@ impl SqliteCookieStore {
 
         let mut stmt = conn
             .prepare(
-                "SELECT origin, name, value, path, domain, secure, expires, same_site, http_only
+                "SELECT origin, name, value, path, domain, secure, expires, same_site, http_only, created_at
              FROM cookies WHERE zone_id = ?1",
             )
             .expect("Prepare failed");
@@ -155,6 +160,7 @@ impl SqliteCookieStore {
                     expires: row.get::<_, Option<i64>>(6)?,
                     same_site: row.get(7)?,
                     http_only: row.get::<_, i64>(8)? != 0,
+                    created_at: row.get::<_, i64>(9).unwrap_or(0),
                 };
                 Ok((origin, entry))
             })
@@ -184,8 +190,8 @@ impl SqliteCookieStore {
             .expect("Failed to delete cookies");
 
         let mut stmt = tx.prepare(
-            "INSERT INTO cookies (zone_id, origin, name, value, path, domain, secure, expires, same_site, http_only)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+            "INSERT INTO cookies (zone_id, origin, name, value, path, domain, secure, expires, same_site, http_only, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"
         ).expect("Prepare failed");
 
         for (origin, cookies) in &jar.entries {
@@ -198,9 +204,10 @@ impl SqliteCookieStore {
                     cookie.path,
                     cookie.domain,
                     cookie.secure as i64,
-                    cookie.expires,   // Option<i64> stored as INTEGER / NULL
+                    cookie.expires,
                     cookie.same_site,
-                    cookie.http_only as i64
+                    cookie.http_only as i64,
+                    cookie.created_at,
                 ])
                 .expect("Failed to insert cookie");
             }
