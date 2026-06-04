@@ -391,6 +391,17 @@ fn parse_group(input: &str) -> IResult<&str, SyntaxComponent> {
     Ok((input, components))
 }
 
+/// Parse a parenthesised group `( ... )`. In CSS value definition syntax, `( ... )` means
+/// the literal parentheses must appear in the CSS output. We parse it structurally the same
+/// as `[ ... ]` so that these definitions load correctly.
+fn parse_paren_group(input: &str) -> IResult<&str, SyntaxComponent> {
+    debug_print!("Parsing paren group: {}", input);
+
+    let (input, components) = delimited(ws(tag("(")), parse_component_singlebar_list, ws(tag(")"))).parse(input)?;
+
+    Ok((input, components))
+}
+
 fn parse_component_singlebar_list(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing component singlebar list: {}", input);
 
@@ -630,11 +641,34 @@ fn parse_property(input: &str) -> IResult<&str, SyntaxComponent> {
 fn parse_generic_keyword(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing generic keyword: '{}'", input);
 
-    map(parse_keyword, |s: &str| SyntaxComponent::GenericKeyword {
-        keyword: s.to_string(),
-        multipliers: vec![SyntaxComponentMultiplier::Once],
-    })
+    // '%' appears as a bare token in some type definitions (e.g. <type-or-unit>)
+    alt((
+        map(tag("%"), |_| SyntaxComponent::GenericKeyword {
+            keyword: "%".to_string(),
+            multipliers: vec![SyntaxComponentMultiplier::Once],
+        }),
+        map(parse_keyword, |s: &str| SyntaxComponent::GenericKeyword {
+            keyword: s.to_string(),
+            multipliers: vec![SyntaxComponentMultiplier::Once],
+        }),
+    ))
     .parse(input)
+}
+
+/// Parse an at-keyword like `@stylistic`, `@top-left-corner` etc. that appears in some
+/// CSS value definition syntax strings (e.g. `<feature-type>`, `<page-margin-box-type>`).
+fn parse_at_keyword(input: &str) -> IResult<&str, SyntaxComponent> {
+    debug_print!("Parsing at-keyword: '{}'", input);
+
+    let (input, _) = tag("@")(input)?;
+    let (input, name) = parse_keyword(input)?;
+    Ok((
+        input,
+        SyntaxComponent::GenericKeyword {
+            keyword: format!("@{name}"),
+            multipliers: vec![SyntaxComponentMultiplier::Once],
+        },
+    ))
 }
 
 /// Parses an infinity symbol and returns `NumberOrInfinity::Infinity`
@@ -768,6 +802,14 @@ fn parse_literal(input: &str) -> IResult<&str, SyntaxComponent> {
             literal: ",".to_string(),
             multipliers: vec![SyntaxComponentMultiplier::Once],
         }),
+        map(ws(tag(":")), |_| SyntaxComponent::Literal {
+            literal: ":".to_string(),
+            multipliers: vec![SyntaxComponentMultiplier::Once],
+        }),
+        map(ws(tag(";")), |_| SyntaxComponent::Literal {
+            literal: ";".to_string(),
+            multipliers: vec![SyntaxComponentMultiplier::Once],
+        }),
         map(delimited(tag("'"), take_while(|c| c != '\''), tag("'")), |s: &str| {
             SyntaxComponent::Literal {
                 literal: s.to_string(),
@@ -783,11 +825,13 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
 
     let (input, mut component) = alt((
         parse_unit_function,
+        parse_at_keyword,
         parse_function,
         parse_property,
         parse_specific_keyword,
         parse_literal,
         parse_group,
+        parse_paren_group,
         parse_unit,
         parse_datatype,
         parse_generic_keyword, // This is more of a catch-all

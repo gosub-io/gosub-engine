@@ -1,59 +1,50 @@
 use crate::stylesheet::CssValue;
-use gosub_interface::config::HasDocument;
-use gosub_shared::node::NodeId;
 use std::collections::HashMap;
 
-#[allow(dead_code)]
-#[derive(Clone, Debug, Default)]
-pub struct VariableEnvironment {
-    pub values: HashMap<String, CssValue>,
-}
-
-#[allow(dead_code)]
-impl VariableEnvironment {
-    pub fn get<C: HasDocument>(&self, name: &str, _doc: &C::Document, _id: NodeId) -> Option<CssValue> {
-        let mut current = Some(self);
-
-        while let Some(env) = current {
-            if let Some(value) = env.values.get(name) {
-                return Some(value.clone());
-            }
-
-            current = None;
-
-            //TODO: give node a variable env
-            // let node = doc.get_parent(node);
-            // current =  node.get_variable_env();
-        }
-
-        None
-    }
-}
-
-#[allow(dead_code)]
-pub fn resolve_var<C: HasDocument>(values: &[CssValue], doc: &C::Document, id: NodeId) -> Vec<CssValue> {
-    let Some(name) = values.first().map(|v| {
-        let mut str = v.to_string();
-
-        if str.starts_with("--") {
-            str.remove(0);
-            str.remove(0);
-        }
-
-        str
-    }) else {
+pub fn resolve_var(values: &[CssValue], custom_props: &HashMap<String, CssValue>) -> Vec<CssValue> {
+    let Some(name) = values.first().map(|v| v.to_string()) else {
         return vec![];
     };
 
-    let environment = VariableEnvironment::default(); //TODO: get from node
+    if let Some(value) = custom_props.get(&name) {
+        return vec![value.clone()];
+    }
 
-    let Some(value) = environment.get::<C>(&name, doc, id) else {
-        let Some(default) = values.get(1).cloned() else {
-            return vec![];
-        };
+    // Variable not found — use the fallback if provided
+    if let Some(fallback) = values.get(1).cloned() {
+        return vec![fallback];
+    }
 
-        return vec![default];
-    };
+    vec![]
+}
 
-    vec![value.clone()]
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_defined_variable() {
+        let mut props = HashMap::new();
+        props.insert("--color".to_string(), CssValue::String("red".to_string()));
+
+        let args = vec![CssValue::String("--color".to_string())];
+        assert_eq!(resolve_var(&args, &props), vec![CssValue::String("red".to_string())]);
+    }
+
+    #[test]
+    fn falls_back_when_undefined() {
+        let props = HashMap::new();
+        let args = vec![
+            CssValue::String("--missing".to_string()),
+            CssValue::String("blue".to_string()),
+        ];
+        assert_eq!(resolve_var(&args, &props), vec![CssValue::String("blue".to_string())]);
+    }
+
+    #[test]
+    fn returns_empty_when_undefined_and_no_fallback() {
+        let props = HashMap::new();
+        let args = vec![CssValue::String("--missing".to_string())];
+        assert_eq!(resolve_var(&args, &props), vec![]);
+    }
 }
