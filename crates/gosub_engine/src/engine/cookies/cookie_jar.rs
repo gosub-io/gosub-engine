@@ -292,8 +292,15 @@ impl CookieJar for DefaultCookieJar {
         for header in headers.get_all("set-cookie") {
             if let Ok(header_str) = header.to_str() {
                 if let Some((name, rest)) = header_str.split_once('=') {
+                    let cookie_name = name.trim();
+                    // RFC 6265 §5.2: the name-value-pair is the portion before the
+                    // first ';'. If the extracted name is empty or contains ';'
+                    // (which means the ';' appeared before '='), the header is invalid.
+                    if cookie_name.is_empty() || cookie_name.contains(';') {
+                        continue;
+                    }
                     let mut cookie = Cookie {
-                        name: name.trim().to_string(),
+                        name: cookie_name.to_string(),
                         value: String::new(),
                         path: None,
                         domain: None,
@@ -464,7 +471,17 @@ impl CookieJar for DefaultCookieJar {
                 None => true,
             })
             .filter(|cookie| match &cookie.path {
-                Some(cookie_path) => path.starts_with(cookie_path),
+                // RFC 6265 §5.1.4 path-match:
+                // cookie-path is a prefix of request-path AND one of:
+                //   (a) they are identical, or
+                //   (b) cookie-path ends with '/', or
+                //   (c) the first non-prefix char of the request path is '/'.
+                Some(cookie_path) => {
+                    path == cookie_path
+                        || (path.starts_with(cookie_path.as_str())
+                            && (cookie_path.ends_with('/')
+                                || path[cookie_path.len()..].starts_with('/')))
+                }
                 None => true,
             })
             .filter(|cookie| !cookie.secure || is_https)

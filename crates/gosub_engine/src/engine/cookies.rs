@@ -106,6 +106,8 @@ mod cookie_jar;
 mod cookies;
 mod persistent_cookie_jar;
 mod store;
+#[cfg(test)]
+mod tests;
 
 pub use cookies::Cookie;
 pub use cookies::CookieJarHandle;
