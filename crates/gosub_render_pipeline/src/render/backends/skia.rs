@@ -163,10 +163,13 @@ impl SkiaSurface {
     }
 
     fn with_canvas(&mut self, f: impl FnOnce(&skia_safe::Canvas)) {
-        let Some(mut surface) = skia_safe::surfaces::raster_n32_premul(skia_safe::ISize::new(
-            self.size.width as i32,
-            self.size.height as i32,
-        )) else {
+        let info = skia_safe::ImageInfo::new(
+            skia_safe::ISize::new(self.size.width as i32, self.size.height as i32),
+            skia_safe::ColorType::BGRA8888,
+            skia_safe::AlphaType::Premul,
+            None,
+        );
+        let Some(mut surface) = skia_safe::surfaces::raster(&info, None, None) else {
             log::error!(
                 "SkiaBackend: failed to create raster surface {}x{}",
                 self.size.width,
