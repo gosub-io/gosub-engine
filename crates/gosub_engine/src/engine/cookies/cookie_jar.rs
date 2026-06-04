@@ -24,14 +24,42 @@ use crate::engine::cookies::Cookie;
 use chrono::Utc;
 use cow_utils::CowUtils;
 use http::HeaderMap;
-use once_cell::sync::Lazy;
-use publicsuffix::{List, Psl as _};
+use psl::Psl as _;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashMap;
 use url::Url;
 
-static PSL: Lazy<List> = Lazy::new(List::new);
+/// Returns `true` if `request_host` may set a cookie scoped to `domain`.
+///
+/// Enforces two RFC 6265 rules:
+/// 1. `domain` must be a registrable-domain suffix of `request_host` (§5.3 step 6).
+/// 2. `domain` must not itself be a known public suffix / eTLD such as `"com"` or
+///    `"co.uk"` (RFC 6265bis §5.4).  Unknown TLDs (e.g. `localhost`, intranet names)
+///    are allowed because the PSL may not list them.
+fn is_valid_cookie_domain(request_host: &str, domain: &str) -> bool {
+    // Rule 1: domain must be a registrable-domain suffix of the request host.
+    if request_host != domain && !request_host.ends_with(&format!(".{domain}")) {
+        return false;
+    }
+
+    // Rule 2: reject bare public suffixes (eTLDs) using the compiled Mozilla PSL.
+    //
+    // `psl::List.domain()` returns None when the input has no registrable portion,
+    // i.e. the input itself is a bare eTLD ("com", "co.uk", "github.io").
+    // We combine this with `suffix().is_known()` to distinguish known eTLDs from
+    // labels that are simply absent from the PSL ("localhost", intranet names) —
+    // the latter should be allowed even though domain() also returns None for them.
+    if psl::List.domain(domain.as_bytes()).is_none()
+        && psl::List
+            .suffix(domain.as_bytes())
+            .is_some_and(|s| s.is_known())
+    {
+        return false;
+    }
+
+    true
+}
 
 /// Parse an HTTP date string (RFC 1123 / RFC 2822) into a Unix timestamp.
 ///
@@ -45,12 +73,12 @@ fn parse_http_date(s: &str) -> Option<i64> {
 
 /// Returns `true` when two hostnames share the same registrable domain (eTLD+1).
 ///
-/// Uses the Mozilla Public Suffix List for accurate comparison. Falls back to
-/// exact hostname equality for IP addresses, `localhost`, and other hosts that
-/// the PSL cannot parse.
+/// Uses the compile-time embedded Mozilla Public Suffix List (`psl` crate) for
+/// accurate comparison. Falls back to exact hostname equality for IP addresses,
+/// `localhost`, and other labels not present in the PSL.
 fn same_site(host_a: &str, host_b: &str) -> bool {
     let registrable = |host: &str| -> Option<String> {
-        let d = PSL.domain(host.as_bytes())?;
+        let d = psl::List.domain(host.as_bytes())?;
         std::str::from_utf8(d.as_bytes()).ok().map(str::to_owned)
     };
     match (registrable(host_a), registrable(host_b)) {
@@ -252,6 +280,7 @@ impl CookieJar for DefaultCookieJar {
             !same_site(req_host, tl_host)
         });
 
+        let request_host = url.host_str().unwrap_or_default();
         let origin = url.origin().ascii_serialization();
         let default_path = url
             .path()
@@ -277,6 +306,7 @@ impl CookieJar for DefaultCookieJar {
                     // Collected during attribute parsing; resolved after the loop.
                     let mut max_age: Option<i64> = None;
                     let mut expires_str: Option<String> = None;
+                    let mut domain_rejected = false;
 
                     for part in rest.split(';') {
                         let part = part.trim();
@@ -288,7 +318,14 @@ impl CookieJar for DefaultCookieJar {
                         if let Some((k, v)) = part.split_once('=') {
                             match k.cow_to_ascii_lowercase().as_ref() {
                                 "path" => cookie.path = Some(v.to_string()),
-                                "domain" => cookie.domain = Some(v.trim_start_matches('.').to_string()),
+                                "domain" => {
+                                    let d = v.trim_start_matches('.');
+                                    if is_valid_cookie_domain(request_host, d) {
+                                        cookie.domain = Some(d.to_string());
+                                    } else {
+                                        domain_rejected = true;
+                                    }
+                                }
                                 "expires" => expires_str = Some(v.to_string()),
                                 "max-age" => max_age = v.trim().parse::<i64>().ok(),
                                 "samesite" => {
@@ -314,6 +351,11 @@ impl CookieJar for DefaultCookieJar {
 
                     if cookie.path.is_none() {
                         cookie.path = Some(default_path.to_string());
+                    }
+
+                    // Drop the cookie if the Domain attribute failed validation (RFC 6265 §5.3).
+                    if domain_rejected {
+                        continue;
                     }
 
                     // Resolve expiry: Max-Age takes precedence over Expires (RFC 6265 §5.2).
@@ -689,6 +731,95 @@ mod tests {
                 "SameSite=None; Secure must be sent in all contexts"
             );
         }
+    }
+
+    // ── Domain validation ─────────────────────────────────────────────────────
+
+    #[test]
+    fn psl_domain_behavior() {
+        let reg = |h: &str| -> Option<String> {
+            psl::List.domain(h.as_bytes()).and_then(|d| std::str::from_utf8(d.as_bytes()).ok().map(str::to_owned))
+        };
+        // Known registrable domains — psl::List must return the eTLD+1.
+        assert_eq!(reg("a.com"), Some("a.com".into()));
+        assert_eq!(reg("a.co.uk"), Some("a.co.uk".into())); // co.uk IS a PSL entry
+        assert_eq!(reg("a.github.io"), Some("a.github.io".into())); // github.io is a private PSL entry
+        assert_eq!(reg("example.com"), Some("example.com".into()));
+        // Bare eTLDs — PSL must return None (no registrable portion above the suffix).
+        assert_eq!(reg("com"), None);
+        assert_eq!(reg("co.uk"), None);
+        assert_eq!(reg("github.io"), None);
+        // Unknown labels — PSL must also return None (not in the list).
+        assert_eq!(reg("localhost"), None);
+    }
+
+    #[test]
+    fn valid_domain_suffix_is_accepted() {
+        assert!(is_valid_cookie_domain("foo.example.com", "example.com"));
+        assert!(is_valid_cookie_domain("example.com", "example.com"));
+        assert!(is_valid_cookie_domain("a.b.example.com", "example.com"));
+    }
+
+    #[test]
+    fn domain_not_a_suffix_is_rejected() {
+        assert!(!is_valid_cookie_domain("example.com", "other.com"));
+        assert!(!is_valid_cookie_domain("foo.example.com", "bar.example.com"));
+        assert!(!is_valid_cookie_domain("example.com", "www.example.com")); // more specific
+    }
+
+    #[test]
+    fn public_suffix_domain_is_rejected() {
+        assert!(!is_valid_cookie_domain("foo.com", "com"));
+        assert!(!is_valid_cookie_domain("foo.co.uk", "co.uk"));
+        assert!(!is_valid_cookie_domain("foo.github.io", "github.io")); // private PSL entry
+    }
+
+    #[test]
+    fn localhost_domain_is_allowed() {
+        assert!(is_valid_cookie_domain("localhost", "localhost"));
+    }
+
+    #[test]
+    fn invalid_domain_causes_cookie_to_be_dropped() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+
+        // Domain is a public suffix — entire cookie must be dropped.
+        jar.store_response_cookies(&req, &headers(&["id=1; Path=/; Domain=com"]), None);
+        assert!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
+            "cookie with Domain=com must be silently dropped"
+        );
+    }
+
+    #[test]
+    fn cross_domain_cookie_is_dropped() {
+        let mut jar = DefaultCookieJar::new();
+        let req = url("https://example.com/");
+
+        jar.store_response_cookies(
+            &req,
+            &headers(&["id=1; Path=/; Domain=other.com"]),
+            None,
+        );
+        assert!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
+            "cookie with Domain=other.com set from example.com must be dropped"
+        );
+    }
+
+    #[test]
+    fn valid_subdomain_cookie_is_stored() {
+        let mut jar = DefaultCookieJar::new();
+        // Server at foo.example.com sets Domain=example.com — that's valid.
+        let req = url("https://foo.example.com/");
+        jar.store_response_cookies(&req, &headers(&["s=1; Path=/; Domain=example.com"]), None);
+
+        assert_eq!(
+            jar.get_request_cookies(&req, None, SameSiteContext::SameSite).as_deref(),
+            Some("s=1"),
+            "cookie with valid Domain superdomain must be stored and returned"
+        );
     }
 
     // ── Expiry / Max-Age ──────────────────────────────────────────────────────
