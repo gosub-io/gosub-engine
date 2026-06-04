@@ -498,7 +498,11 @@ fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) 
                 );
             }
             Err(e) => {
-                log::warn!(
+                // Type-definition compilation failures are expected for some advanced CSS
+                // grammar constructs (e.g. structural `{ }` blocks in @keyframes, bare `)`
+                // literals inside `[ ]` in <general-enclosed>). These types are not used
+                // in property value matching anyway, so log at debug rather than warn.
+                log::debug!(
                     "Could not compile syntax for syntax {:?}: {:?}",
                     entry.get("name").unwrap().to_string(),
                     e

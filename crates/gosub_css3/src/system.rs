@@ -3,7 +3,7 @@ use crate::functions::var::resolve_var;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::shorthands::FixList;
 use crate::matcher::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
-use crate::stylesheet::{CssDeclaration, CssValue, Specificity};
+use crate::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, Css3};
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssSystem};
@@ -12,6 +12,7 @@ use gosub_interface::node::NodeType;
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
 use gosub_shared::node::NodeId;
+use std::collections::HashMap;
 use std::slice;
 
 /// Strip a vendor prefix (-webkit-, -moz-, -ms-, -o-) from a CSS keyword, returning
@@ -62,6 +63,9 @@ impl CssSystem for Css3System {
 
         let definitions = get_css_definitions();
 
+        // Pass 1: collect all custom property values visible to this node (with inheritance).
+        let custom_props = collect_custom_props::<C>(doc, id, sheets);
+
         let mut fix_list = FixList::new();
 
         for sheet in sheets {
@@ -75,7 +79,12 @@ impl CssSystem for Css3System {
 
                     // Selector matched, so we add all declared values to the map
                     for declaration in rule.declarations() {
-                        let value = resolve_functions::<C>(&declaration.value, doc, id);
+                        // Custom property declarations are consumed by collect_custom_props;
+                        // skip them here so they don't clutter the regular property map.
+                        if declaration.property.starts_with("--") {
+                            continue;
+                        }
+                        let value = resolve_functions::<C>(&declaration.value, doc, id, &custom_props);
                         // Normalize vendor-prefixed values (-webkit-X → X) so they match
                         // against the standard keyword definitions.
                         let value = normalize_vendor_prefixes(value);
@@ -240,13 +249,59 @@ pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bo
     }
 }
 
-pub fn resolve_functions<C: HasDocument>(value: &CssValue, doc: &C::Document, id: NodeId) -> CssValue {
-    fn resolve<C: HasDocument>(val: &CssValue, doc: &C::Document, id: NodeId) -> CssValue {
+/// Collects all custom property (`--*`) values visible to `id`, walking ancestors
+/// root-first so that each element's own declarations override inherited ones.
+fn collect_custom_props<C: HasDocument<CssSystem = Css3System>>(
+    doc: &C::Document,
+    id: NodeId,
+    sheets: &[CssStylesheet],
+) -> HashMap<String, CssValue> {
+    let mut chain = vec![id];
+    let mut cur = id;
+    while let Some(parent) = doc.parent(cur) {
+        chain.push(parent);
+        cur = parent;
+    }
+    chain.reverse(); // root first — descendants override ancestors
+
+    let mut custom_props: HashMap<String, CssValue> = HashMap::new();
+    for node_id in chain {
+        for sheet in sheets {
+            for rule in &sheet.rules {
+                for selector in rule.selectors() {
+                    let (matched, _) = match_selector::<C>(doc, node_id, selector);
+                    if !matched {
+                        continue;
+                    }
+                    for decl in rule.declarations() {
+                        if decl.property.starts_with("--") {
+                            custom_props.insert(decl.property.clone(), decl.value.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    custom_props
+}
+
+pub fn resolve_functions<C: HasDocument>(
+    value: &CssValue,
+    doc: &C::Document,
+    id: NodeId,
+    custom_props: &HashMap<String, CssValue>,
+) -> CssValue {
+    fn resolve<C: HasDocument>(
+        val: &CssValue,
+        doc: &C::Document,
+        id: NodeId,
+        custom_props: &HashMap<String, CssValue>,
+    ) -> CssValue {
         match val {
             CssValue::Function(func, values) => {
                 let resolved = match func.as_str() {
                     "attr" => resolve_attr::<C>(values, doc, id),
-                    "var" => resolve_var::<C>(values, doc, id),
+                    "var" => resolve_var(values, custom_props),
                     _ => vec![val.clone()],
                 };
 
@@ -257,9 +312,9 @@ pub fn resolve_functions<C: HasDocument>(value: &CssValue, doc: &C::Document, id
     }
 
     if let CssValue::List(list) = value {
-        let resolved = list.iter().map(|val| resolve::<C>(val, doc, id)).collect();
+        let resolved = list.iter().map(|val| resolve::<C>(val, doc, id, custom_props)).collect();
         CssValue::List(resolved)
     } else {
-        resolve::<C>(value, doc, id)
+        resolve::<C>(value, doc, id, custom_props)
     }
 }
