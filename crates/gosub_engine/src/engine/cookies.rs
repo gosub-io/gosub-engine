@@ -113,6 +113,8 @@ pub use cookies::CookieStoreHandle;
 
 pub use cookie_jar::CookieJar;
 pub use cookie_jar::DefaultCookieJar;
+pub use cookie_jar::SameSiteContext;
+pub use cookie_jar::ThirdPartyCookiePolicy;
 pub use persistent_cookie_jar::PersistentCookieJar;
 
 pub use store::CookieStore;

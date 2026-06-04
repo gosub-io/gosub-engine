@@ -1,4 +1,4 @@
-use crate::engine::cookies::cookie_jar::DefaultCookieJar;
+use crate::engine::cookies::cookie_jar::{DefaultCookieJar, SameSiteContext};
 use crate::engine::cookies::{CookieJar, CookieJarHandle, CookieStoreHandle};
 use crate::engine::zone::ZoneId;
 use http::HeaderMap;
@@ -60,14 +60,14 @@ impl CookieJar for PersistentCookieJar {
     }
 
     /// Stores cookies from a response, then persists the updated state.
-    fn store_response_cookies(&mut self, url: &Url, headers: &HeaderMap) {
-        self.inner.write().store_response_cookies(url, headers);
+    fn store_response_cookies(&mut self, url: &Url, headers: &HeaderMap, top_level: Option<&Url>) {
+        self.inner.write().store_response_cookies(url, headers, top_level);
         self.persist();
     }
 
     /// Returns the `Cookie` request header value for `url` without persisting.
-    fn get_request_cookies(&self, url: &Url) -> Option<String> {
-        self.inner.read().get_request_cookies(url)
+    fn get_request_cookies(&self, url: &Url, top_level: Option<&Url>, samesite: SameSiteContext) -> Option<String> {
+        self.inner.read().get_request_cookies(url, top_level, samesite)
     }
 
     /// Clears all cookies in the jar, then persists the updated state.

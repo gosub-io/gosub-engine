@@ -13,17 +13,19 @@
 //!
 //! # Typical usage
 //! ```ignore,no_run
-//! // Acquire cookies for a request
+//! // Acquire cookies for a request.
+//! // Pass the tab's current page URL as `top_level` so the jar can apply
+//! // the configured ThirdPartyCookiePolicy for cross-site sub-requests.
 //! let jar = zone.cookie_jar(); // -> CookieJarHandle
 //! let cookies_header = {
 //!     let guard = jar.read();
-//!     guard.get_request_cookies(&url)
+//!     guard.get_request_cookies(&request_url, Some(&page_url))
 //! };
 //!
-//! // Store cookies from a response
+//! // Store cookies from a response (pass top_level for third-party enforcement).
 //! {
 //!     let mut guard = jar.write();
-//!     guard.store_response_cookies(&url, &headers);
+//!     guard.store_response_cookies(&request_url, &headers, Some(&page_url));
 //! }
 //! ```
 //!
@@ -65,7 +67,7 @@ use std::sync::Arc;
 /// ```ignore,no_run
 /// let jar: CookieJarHandle = zone.cookie_jar();
 /// {
-///     let cookies = jar.read().get_request_cookies(&url);
+///     let cookies = jar.read().get_request_cookies(&url, Some(&top_level_url));
 /// }
 /// {
 ///     let mut guard = jar.write();
