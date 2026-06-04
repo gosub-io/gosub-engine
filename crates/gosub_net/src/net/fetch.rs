@@ -6,6 +6,7 @@ use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use futures_util::{stream, StreamExt, TryStreamExt};
 use gosub_shared::timing_guard;
+use http::HeaderMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -34,6 +35,10 @@ pub struct ResponseTop {
 /// are most likely the headers and the first 5 KB of body. This can be used to determine mime type
 /// of the resource fetched. It will also return a stream reader that is able to read the remainder
 /// of the body (minus the peek buffer).
+///
+/// `extra_headers` are added to every outgoing request (including after redirects that stay
+/// on the same registered domain). `Cookie` headers are automatically stripped when a redirect
+/// crosses to a different registered domain.
 pub async fn fetch_response_top(
     // Configured reqewst client to fetch the result
     client: Arc<reqwest::Client>,
@@ -43,6 +48,8 @@ pub async fn fetch_response_top(
     cancel: CancellationToken,
     // Observer which can send out NetEvents to the UA
     observer: Arc<dyn NetObserver + Send + Sync>,
+    // Extra request headers (e.g. Cookie, Authorization) to include.
+    extra_headers: Option<&HeaderMap>,
 ) -> Result<ResponseTop, NetError> {
     // Emit we are starting
     let _timer = timing_guard!("net.fetch", url.as_str());
@@ -50,7 +57,7 @@ pub async fn fetch_response_top(
     observer.on_event(NetEvent::Started { url: url.clone() });
 
     // Get the response (GET requests only for now), and redirect if needed (300 requests)
-    let resp = get_with_redirects(client.clone(), url.clone(), cancel.clone(), observer.clone()).await?;
+    let resp = get_with_redirects(client.clone(), url.clone(), cancel.clone(), observer.clone(), extra_headers).await?;
 
     // Response is received, setup our meta structure
     let mut meta = FetchResultMeta {
@@ -283,6 +290,8 @@ pub async fn fetch_response_complete(
     read_idle_timeout: Duration,
     // Total time of read allowed (if any)
     total_body_timeout: Option<Duration>,
+    // Extra request headers (e.g. Cookie, Authorization) to include.
+    extra_headers: Option<&HeaderMap>,
 ) -> Result<(FetchResultMeta, Vec<u8>), NetError> {
     let _timer = timing_guard!("net.fetch_complete", url.as_str());
     let started = Instant::now();
@@ -291,7 +300,7 @@ pub async fn fetch_response_complete(
         meta,
         peek_buf,
         mut reader,
-    } = fetch_response_top(client, url, cancel.clone(), observer.clone()).await?;
+    } = fetch_response_top(client, url, cancel.clone(), observer.clone(), extra_headers).await?;
 
     // We don't care about the peek buffer. We just create a new buffer and read the rest of the
     // stream into it.
@@ -344,19 +353,38 @@ pub async fn fetch_response_complete(
     Ok((meta, body_buf))
 }
 
-/// Perform a GET request, following redirects up to MAX_REDIRECTS times, while sending out net events
+/// Perform a GET request, following redirects up to MAX_REDIRECTS times, while sending out net events.
+///
+/// `extra_headers` are forwarded on every hop. `Cookie` headers are stripped when a redirect
+/// crosses to a different registered domain (eTLD+1) to avoid leaking session tokens.
 async fn get_with_redirects(
     client: Arc<reqwest::Client>,
     url: Url,
     cancel: CancellationToken,
     observer: Arc<dyn NetObserver + Send + Sync>,
+    extra_headers: Option<&HeaderMap>,
 ) -> Result<reqwest::Response, NetError> {
     let mut url = url;
+    let initial_host = url.host_str().map(str::to_owned);
 
     // We cap the number of redirects in order to prevent redirection loops
     for _ in 0..MAX_REDIRECTS {
+        // Build request, injecting caller-supplied headers.
+        // Strip Cookie on cross-origin redirects to prevent session-token leakage.
+        let mut builder = client.get(url.clone());
+        if let Some(hdrs) = extra_headers {
+            let current_host = url.host_str().map(str::to_owned);
+            let same_domain = current_host == initial_host;
+            for (name, value) in hdrs {
+                if name == http::header::COOKIE && !same_domain {
+                    continue;
+                }
+                builder = builder.header(name, value);
+            }
+        }
+
         // Get response from the client. Note that we need to pin the future as we are using it in select!
-        let fut = client.get(url.clone()).send();
+        let fut = builder.send();
         tokio::pin!(fut);
 
         let resp = tokio::select! {
@@ -543,7 +571,7 @@ mod tests {
             meta,
             peek_buf,
             mut reader,
-        } = super::fetch_response_top(client, url, cancel, observer).await.unwrap();
+        } = super::fetch_response_top(client, url, cancel, observer, None).await.unwrap();
 
         assert_eq!(peek_buf.len(), super::PEEK_MAX, "peek must be exactly PEEK_MAX");
         // Read remainder
@@ -573,6 +601,7 @@ mod tests {
             None,                         // max_bytes
             Duration::from_secs(3),       // read_idle_timeout
             Some(Duration::from_secs(5)), // total_body_timeout
+            None,                         // extra_headers
         )
         .await
         .unwrap();
@@ -600,6 +629,7 @@ mod tests {
             None,
             Duration::from_millis(100),   // read_idle_timeout
             Some(Duration::from_secs(2)), // total_body_timeout
+            None,                         // extra_headers
         )
         .await;
 
@@ -620,7 +650,7 @@ mod tests {
 
         // Kick off, then cancel quickly; server sends headers + PEEK_MAX fast, but we cancel immediately
         let cancel_clone = cancel.clone();
-        let fut = super::fetch_response_top(client, url, cancel.clone(), observer);
+        let fut = super::fetch_response_top(client, url, cancel.clone(), observer, None);
 
         // Cancel immediately
         cancel_clone.cancel();

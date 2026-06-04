@@ -17,7 +17,8 @@ use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
 use gosub_render_pipeline::render::backend::{ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
 use gosub_render_pipeline::render::{DevicePixelRatio, Viewport};
-use http::Method;
+use crate::cookies::SameSiteContext;
+use http::{HeaderMap, Method};
 use std::sync::Arc;
 use tokio::select;
 use tokio::sync::{mpsc, oneshot};
@@ -525,13 +526,21 @@ impl TabWorker {
             },
         });
 
+        // Attach cookies for the navigation request.
+        let mut fetch_headers = HeaderMap::new();
+        if let Some(cookie_str) = self.services.cookie_jar.read().get_request_cookies(&url, Some(&url), SameSiteContext::SameSite) {
+            if let Ok(val) = cookie_str.parse() {
+                fetch_headers.insert(http::header::COOKIE, val);
+            }
+        }
+
         let req = FetchRequest {
             reference: RequestReference::Navigation(nav_id),
             req_id: RequestId::new(),
             key_data: FetchKeyData {
                 url: url.clone(),
                 method: Method::GET,
-                headers: Default::default(),
+                headers: fetch_headers,
             },
             priority: Priority::High,
             kind: ResourceKind::Document,
@@ -547,6 +556,7 @@ impl TabWorker {
         let zone_id = self.zone_id;
         let io_tx = self.zone_context.io_tx.clone();
         let event_tx = self.zone_context.event_tx.clone();
+        let cookie_jar = self.services.cookie_jar.clone();
 
         let span = tracing::info_span!(
             "tab_nav",
@@ -596,6 +606,15 @@ impl TabWorker {
                     }
                 }
             };
+
+            // Store Set-Cookie headers from the navigation response.
+            if let Some(meta) = fetch_result.meta() {
+                cookie_jar.write().store_response_cookies(
+                    &meta.final_url,
+                    &meta.headers,
+                    Some(&url),
+                );
+            }
 
             let ua_policy = UaPolicy {
                 enable_sniffing: false,
