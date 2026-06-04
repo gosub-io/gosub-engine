@@ -15,18 +15,9 @@ impl Css3<'_> {
             TokenType::Ident(ident) => Ok(Node::new(NodeType::Ident { value: ident }, loc)),
             TokenType::Number(value) => Ok(Node::new(NodeType::Number { value }, loc)),
             TokenType::Dimension { value, unit } => Ok(Node::new(NodeType::Dimension { value, unit }, loc)),
-            TokenType::Function(name) => {
-                let name = name.cow_to_lowercase();
-                let args = self.parse_pseudo_function(name.as_ref())?;
-                self.consume(TokenType::RParen)?;
-
-                Ok(Node::new(
-                    NodeType::Function {
-                        name: name.to_string(),
-                        arguments: vec![args],
-                    },
-                    loc,
-                ))
+            TokenType::Function(_) => {
+                self.tokenizer.reconsume();
+                Ok(self.parse_function()?)
             }
             _ => Err(CssError::with_location(
                 "Expected identifier, number, dimension, or ratio",
@@ -46,12 +37,13 @@ impl Css3<'_> {
         }
 
         if delim == '>' || delim == '<' {
-            let eq_sign = self.consume_any_delim()?;
-            if eq_sign == '=' {
+            // Optional `=` may be separated by whitespace, e.g. `>= 0` or `> 0`
+            self.consume_whitespace_comments();
+            let la = self.tokenizer.lookahead(0);
+            if la.is_delim('=') {
+                self.consume_any()?;
                 return Ok(Node::new(NodeType::Operator(format!("{delim}=")), loc));
             }
-
-            self.tokenizer.reconsume();
             return Ok(Node::new(NodeType::Operator(format!("{delim}")), loc));
         }
 
@@ -111,18 +103,9 @@ impl Css3<'_> {
                     Some(Node::new(NodeType::Dimension { value, unit }, t.location))
                 }
                 TokenType::Ident(value) => Some(Node::new(NodeType::Ident { value }, t.location)),
-                TokenType::Function(name) => {
-                    let name = name.cow_to_lowercase();
-                    let args = self.parse_pseudo_function(name.as_ref())?;
-                    self.consume(TokenType::RParen)?;
-
-                    Some(Node::new(
-                        NodeType::Function {
-                            name: name.to_string(),
-                            arguments: vec![args],
-                        },
-                        t.location,
-                    ))
+                TokenType::Function(_) => {
+                    self.tokenizer.reconsume();
+                    Some(self.parse_function()?)
                 }
                 _ => {
                     return Err(CssError::with_location(
