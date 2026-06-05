@@ -7,7 +7,7 @@
 //!   - WPT attribute tests (expires, max-age, secure, samesite, httponly)
 
 #[cfg(test)]
-mod tests {
+mod cookie_tests {
     use crate::engine::cookies::cookie_jar::{CookieJar, DefaultCookieJar, SameSiteContext};
     use http::HeaderMap;
     use url::Url;
@@ -565,7 +565,8 @@ mod tests {
     /// appears in an `Expires=` attribute with 2099.  Years before 2010 were
     /// intentionally past even when the tests were written.
     fn freshen_stale_expires(header: &str) -> String {
-        let lower = header.to_ascii_lowercase();
+        use cow_utils::CowUtils;
+        let lower = header.cow_to_ascii_lowercase();
         if !lower.contains("expires") {
             return header.to_string();
         }

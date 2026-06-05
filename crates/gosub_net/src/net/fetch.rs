@@ -286,6 +286,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for ProgressReader<R> {
 }
 
 /// Fetch a complete resource, returning the metadata and the full body as a Vec<u8>.
+#[allow(clippy::too_many_arguments)]
 pub async fn fetch_response_complete(
     client: Arc<reqwest::Client>,
     url: Url,
