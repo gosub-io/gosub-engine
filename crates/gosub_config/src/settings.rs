@@ -113,8 +113,7 @@ impl Serialize for Setting {
     where
         S: Serializer,
     {
-        let s = self.to_string();
-        serializer.collect_str(&s)
+        serializer.collect_str(self)
     }
 }
 
@@ -135,15 +134,7 @@ impl Display for Setting {
             Setting::UInt(value) => write!(f, "u:{value}"),
             Setting::String(value) => write!(f, "s:{value}"),
             Setting::Bool(value) => write!(f, "b:{value}"),
-            Setting::Map(values) => {
-                let mut result = String::new();
-                for value in values {
-                    result.push_str(value);
-                    result.push(',');
-                }
-                result.pop();
-                write!(f, "m: {result}")
-            }
+            Setting::Map(values) => write!(f, "m:{}", values.join(",")),
         }
     }
 }
@@ -185,11 +176,11 @@ impl FromStr for Setting {
             "s" => Setting::String(key_value.to_string()),
 
             "m" => {
-                let mut values = Vec::new();
-                for value in key_value.split(',') {
-                    values.push(value.to_string());
+                if key_value.is_empty() {
+                    Setting::Map(vec![])
+                } else {
+                    Setting::Map(key_value.split(',').map(str::to_string).collect())
                 }
-                Setting::Map(values)
             }
             _ => return Err(Error::Config(format!("unknown setting: {key_value}"))),
         };
@@ -201,14 +192,12 @@ impl FromStr for Setting {
 /// `SettingInfo` returns information about a given setting
 #[derive(Clone, PartialEq, Debug)]
 pub struct SettingInfo {
-    /// Name of the key (dot notation, (ie: dns.resolver.enabled
+    /// Name of the key (dot notation, e.g. `dns.resolver.enabled`)
     pub key: String,
     /// Description of the setting
     pub description: String,
     /// Default setting if none has been specified
     pub default: Setting,
-    /// Timestamp this setting is last accessed (useful for debugging old/obsolete settings)
-    pub last_accessed: u64,
 }
 
 #[cfg(test)]
@@ -303,5 +292,40 @@ mod test {
         assert!(!s.to_bool());
         assert_eq!(0, s.to_sint());
         assert_eq!(0, s.to_uint());
+    }
+}
+
+#[cfg(test)]
+mod round_trip_tests {
+    use super::*;
+
+    #[test]
+    fn display_round_trip() {
+        for wire in [
+            "b:true",
+            "b:false",
+            "i:-1",
+            "i:42",
+            "u:0",
+            "u:9999",
+            "s:hello world",
+            "m:foo,bar,baz",
+            "m:",
+        ] {
+            let s = Setting::from_str(wire).unwrap();
+            assert_eq!(format!("{s}"), wire, "Display round-trip failed for {wire}");
+            let s2 = Setting::from_str(&format!("{s}")).unwrap();
+            assert_eq!(s, s2, "from_str(Display(s)) != s for {wire}");
+        }
+    }
+
+    #[test]
+    fn serde_round_trip() {
+        for wire in ["b:true", "i:-42", "u:100", "s:hello", "m:x,y,z", "m:"] {
+            let s = Setting::from_str(wire).unwrap();
+            let serialized = serde_json::to_string(&s).unwrap();
+            let deserialized: Setting = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(s, deserialized, "serde round-trip failed for {wire}");
+        }
     }
 }

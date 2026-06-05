@@ -159,11 +159,7 @@ struct JsonEntry {
 
 /// Configuration storage is the place where the gosub engine can find all configurable options
 pub struct ConfigStore {
-    /// A hashmap of all settings so we can search o(1) time
-    /// The mutex allows to share between multiple threads,
-    /// The refcell allows us to use mutable references in a non-mutable way (ie: settings can be
-    /// stored while doing a immutable `get()`)
-    settings: parking_lot::Mutex<std::cell::RefCell<HashMap<String, Setting>>>,
+    settings: parking_lot::Mutex<HashMap<String, Setting>>,
     /// A hashmap of all setting descriptions, default values and type information
     settings_info: HashMap<String, SettingInfo>,
     /// Keys of all settings so we can iterate keys easily
@@ -175,7 +171,7 @@ pub struct ConfigStore {
 impl Default for ConfigStore {
     fn default() -> Self {
         let mut store = ConfigStore {
-            settings: parking_lot::Mutex::new(std::cell::RefCell::new(HashMap::new())),
+            settings: parking_lot::Mutex::new(HashMap::new()),
             settings_info: HashMap::new(),
             setting_keys: Vec::new(),
             storage: Box::new(MemoryStorageAdapter::new()),
@@ -198,14 +194,14 @@ impl ConfigStore {
         // Find all keys, and add them to the configuration store
         if let Ok(all_settings) = self.storage.all() {
             for (key, value) in all_settings {
-                self.settings.lock().borrow_mut().insert(key, value);
+                self.settings.lock().insert(key, value);
             }
         }
     }
 
     /// Returns true when the storage knows about the given key
     pub fn has(&self, key: &str) -> bool {
-        self.settings.lock().borrow().contains_key(key)
+        self.settings.lock().contains_key(key)
     }
 
     /// Returns a list of keys that matches the given search string (can use ? and *) for search
@@ -233,16 +229,13 @@ impl ConfigStore {
     /// storage, it will load the key from the storage. If the key is still not found, it will
     /// return the default value for the given key. Returns `Ok(None)` when the key is unknown.
     pub fn get(&self, key: &str) -> Result<Option<Setting>> {
-        if let Some(setting) = self.settings.lock().borrow().get(key) {
+        if let Some(setting) = self.settings.lock().get(key) {
             return Ok(Some(setting.clone()));
         }
 
         // Setting not found, try and load it from the storage adapter
         if let Some(setting) = self.storage.get(key)? {
-            self.settings
-                .lock()
-                .borrow_mut()
-                .insert(key.to_string(), setting.clone());
+            self.settings.lock().insert(key.to_string(), setting.clone());
             return Ok(Some(setting.clone()));
         }
 
@@ -272,7 +265,7 @@ impl ConfigStore {
             )));
         }
 
-        self.settings.lock().borrow_mut().insert(key.to_owned(), value.clone());
+        self.settings.lock().insert(key.to_owned(), value.clone());
         self.storage.set(key, value)?;
         Ok(())
     }
@@ -292,15 +285,11 @@ impl ConfigStore {
                         key: key.clone(),
                         description: entry.description,
                         default: Setting::from_str(&entry.default)?,
-                        last_accessed: 0,
                     };
 
                     self.setting_keys.push(key.clone());
                     self.settings_info.insert(key.clone(), info.clone());
-                    self.settings
-                        .lock()
-                        .borrow_mut()
-                        .insert(key.clone(), info.default.clone());
+                    self.settings.lock().insert(key.clone(), info.default.clone());
                 }
             }
         }

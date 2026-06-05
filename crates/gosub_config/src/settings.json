@@ -27,7 +27,7 @@
     {
       "key": "local.table",
       "type": "m",
-      "default": "m:''",
+      "default": "m:",
       "description": "This setting defines the local DNS override table."
     },
     {
@@ -45,7 +45,7 @@
     {
       "key": "remote.nameservers",
       "type": "m",
-      "default": "m:''",
+      "default": "m:",
       "description": "Any resolvers defined here will be used for DNS lookups. If no resolvers are defined, the system resolvers will be used."
     },
     {
