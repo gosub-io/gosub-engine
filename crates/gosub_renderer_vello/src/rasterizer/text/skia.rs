@@ -2,7 +2,7 @@ use crate::font::skia::get_skia_paragraph;
 use gosub_render_pipeline::common::geo::Dimension;
 use gosub_render_pipeline::painter::commands::text::Text;
 use vello::kurbo::Affine;
-use vello::peniko::Blob;
+use vello::peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality};
 use vello::Scene;
 
 #[allow(dead_code)]
@@ -43,14 +43,15 @@ pub fn do_paint_text(scene: &mut Scene, cmd: &Text, tile_size: Dimension, affine
     let pixels = bytes.to_vec();
 
     let blob = Blob::from(pixels);
-    let mut img = vello::peniko::Image::new(
-        blob,
-        vello::peniko::ImageFormat::Rgba8,
-        tile_size.width as u32,
-        tile_size.height as u32,
-    );
-    img.quality = vello::peniko::ImageQuality::High;
-    scene.draw_image(&img, Affine::IDENTITY);
+    let img_data = ImageData {
+        data: blob,
+        format: ImageFormat::Bgra8,
+        alpha_type: ImageAlphaType::AlphaPremultiplied,
+        width: tile_size.width as u32,
+        height: tile_size.height as u32,
+    };
+    let img_brush = ImageBrush::new(img_data).with_quality(ImageQuality::High);
+    scene.draw_image(img_brush.as_ref(), Affine::IDENTITY);
 
     Ok(())
 }

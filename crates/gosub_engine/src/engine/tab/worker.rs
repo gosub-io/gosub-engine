@@ -732,6 +732,7 @@ impl TabWorker {
     }
 
     /// Do a draw tick. This will be called based on the FPS that is requested
+    #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
         // Skip rendering when nothing has changed to avoid burning CPU at the tick rate.
         if !self.runtime.dirty {
@@ -779,7 +780,11 @@ impl TabWorker {
         }
 
         // Vello: same TileCache path as Skia. Extract wgpu resources from the backend on first use.
-        #[cfg(all(feature = "pipeline", feature = "backend_vello"))]
+        #[cfg(all(
+            feature = "pipeline",
+            feature = "backend_vello",
+            not(any(feature = "backend_cairo", feature = "backend_skia"))
+        ))]
         {
             if self.context.vello_resources.is_none() {
                 self.context.vello_resources = self.zone_context.render_backend.wgpu_resources();

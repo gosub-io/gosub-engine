@@ -252,6 +252,7 @@ impl BrowsingContext {
     /// Two paths:
     /// - **Full pipeline** (`render_dirty`): runs stages 1–6 for the whole page, caches tiles,
     ///   then composites. Triggered by navigation, DOM/style changes, or viewport resize.
+    ///
     /// Rebuild stages 1-6 (pipeline cache) if content has changed, without building a display
     /// list. Used by TileCache backends (Cairo, Skia, Vello) which composite tiles directly
     /// on the host thread and never consume the render list.
@@ -465,7 +466,7 @@ impl RenderContext for BrowsingContext {
 fn pipeline_build_cache(
     doc: Arc<EngineDocument>,
     viewport: &Viewport,
-    #[cfg(feature = "backend_vello")] vello_resources: Option<
+    #[cfg(feature = "backend_vello")] _vello_resources: Option<
         std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
     >,
 ) -> PipelineCache {
@@ -729,7 +730,7 @@ fn pipeline_build_cache(
         let mut rasterized = 0usize;
         let mut empty = 0usize;
 
-        let tiles = if let Some(ref resources) = vello_resources {
+        let tiles = if let Some(ref resources) = _vello_resources {
             let rasterizer = VelloRasterizer::new(std::sync::Arc::clone(resources));
             for &layer_id in &layer_ids {
                 let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);

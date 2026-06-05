@@ -11,10 +11,10 @@
 extern "C" {}
 
 use glutin::config::{Config, GlConfig};
-use glutin::context::{ContextApi, ContextAttributesBuilder, NotCurrentGlContext, PossiblyCurrentContext};
+use glutin::context::{ContextApi, ContextAttributesBuilder, PossiblyCurrentContext};
 use glutin::display::GetGlDisplay;
 use glutin::prelude::{GlDisplay, GlSurface, NotCurrentGlContext as _};
-use glutin::surface::{Surface as GlSurface_, SurfaceAttributesBuilder, WindowSurface};
+use glutin::surface::{Surface as GlSurface_, WindowSurface};
 use glutin_winit::{DisplayBuilder, GlWindow};
 use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
@@ -26,9 +26,9 @@ use gosub_render_pipeline::render::DefaultCompositor;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use skia_safe::gpu::ganesh::surface_ganesh;
-use skia_safe::gpu::{self, gl::FramebufferInfo, Budgeted, DirectContext, SurfaceOrigin};
+use skia_safe::gpu::{self, gl::FramebufferInfo, DirectContext, SurfaceOrigin};
 use skia_safe::{Color4f, ColorType, Font, FontMgr, FontStyle, ImageInfo, Paint, Rect as SkRect, Surface};
-use std::ffi::{c_void, CString};
+use std::ffi::CString;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
@@ -60,6 +60,7 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 struct GlState {
     gl_context: PossiblyCurrentContext,
     gl_surface: GlSurface_<WindowSurface>,
+    #[allow(dead_code)]
     gl_config: Config,
     direct_context: DirectContext,
 }
@@ -99,6 +100,7 @@ struct BrowserApp {
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
+    #[allow(dead_code)]
     proxy: EventLoopProxy<()>,
 
     window: Option<Arc<Window>>,
@@ -300,33 +302,29 @@ impl ApplicationHandler<()> for BrowserApp {
                         ..
                     },
                 ..
-            } => {
-                if self.addr_focused {
-                    match &logical_key {
-                        Key::Named(NamedKey::Enter) => self.navigate(),
-                        Key::Named(NamedKey::Escape) => {
-                            self.addr_focused = false;
-                            if let Some(w) = &self.window {
-                                w.request_redraw();
-                            }
-                        }
-                        Key::Named(NamedKey::Backspace) => {
-                            self.url_input.pop();
-                            if let Some(w) = &self.window {
-                                w.request_redraw();
-                            }
-                        }
-                        _ => {
-                            if let Some(t) = &text {
-                                self.url_input.push_str(t.as_str());
-                                if let Some(w) = &self.window {
-                                    w.request_redraw();
-                                }
-                            }
+            } if self.addr_focused => match &logical_key {
+                Key::Named(NamedKey::Enter) => self.navigate(),
+                Key::Named(NamedKey::Escape) => {
+                    self.addr_focused = false;
+                    if let Some(w) = &self.window {
+                        w.request_redraw();
+                    }
+                }
+                Key::Named(NamedKey::Backspace) => {
+                    self.url_input.pop();
+                    if let Some(w) = &self.window {
+                        w.request_redraw();
+                    }
+                }
+                _ => {
+                    if let Some(t) = &text {
+                        self.url_input.push_str(t.as_str());
+                        if let Some(w) = &self.window {
+                            w.request_redraw();
                         }
                     }
                 }
-            }
+            },
 
             _ => {}
         }
@@ -507,10 +505,10 @@ fn main() {
     // Build Skia DirectContext using the GL interface.
     let interface = skia_safe::gpu::gl::Interface::new_load_with(|name| {
         let c = CString::new(name).unwrap_or_default();
-        gl_display.get_proc_address(&c) as *const c_void
+        gl_display.get_proc_address(&c)
     })
     .expect("GL interface");
-    let direct_context = DirectContext::new_gl(interface, None).expect("Skia DirectContext");
+    let direct_context = gpu::direct_contexts::make_gl(interface, None).expect("Skia DirectContext");
 
     let gl_state = GlState {
         gl_context,

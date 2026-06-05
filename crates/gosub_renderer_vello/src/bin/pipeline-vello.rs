@@ -419,7 +419,7 @@ fn do_paint(layer_id: LayerId, browser_state: &Arc<RwLock<BrowserState>>) {
 fn do_rasterize(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    renderer: Rc<RefCell<Renderer>>,
+    _renderer: Rc<RefCell<Renderer>>,
     layer_id: LayerId,
     browser_state: &Arc<RwLock<BrowserState>>,
     texture_store: &Arc<RwLock<TextureStore>>,
@@ -454,7 +454,7 @@ fn do_rasterize(
             continue;
         };
 
-        let rasterizer_renderer = Renderer::new(
+        let rasterizer_renderer = match Renderer::new(
             device,
             RendererOptions {
                 use_cpu: false,
@@ -462,8 +462,13 @@ fn do_rasterize(
                 num_init_threads: None,
                 pipeline_cache: None,
             },
-        )
-        .unwrap_or_else(|e| panic!("rasterizer Renderer::new failed: {e:?}"));
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                log::error!("rasterizer Renderer::new failed: {e:?}");
+                return;
+            }
+        };
         let resources = Arc::new(WgpuResources {
             device: Arc::new(device.clone()),
             queue: Arc::new(queue.clone()),
