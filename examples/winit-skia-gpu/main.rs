@@ -10,6 +10,12 @@
 #[link(name = "GL")]
 extern "C" {}
 
+use glutin::config::{Config, GlConfig};
+use glutin::context::{ContextApi, ContextAttributesBuilder, NotCurrentGlContext, PossiblyCurrentContext};
+use glutin::display::GetGlDisplay;
+use glutin::prelude::{GlDisplay, GlSurface, NotCurrentGlContext as _};
+use glutin::surface::{Surface as GlSurface_, SurfaceAttributesBuilder, WindowSurface};
+use glutin_winit::{DisplayBuilder, GlWindow};
 use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
@@ -17,18 +23,12 @@ use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
-use glutin::config::{Config, GlConfig};
-use glutin::context::{ContextApi, ContextAttributesBuilder, NotCurrentGlContext, PossiblyCurrentContext};
-use glutin::display::GetGlDisplay;
-use glutin::prelude::{GlDisplay, GlSurface, NotCurrentGlContext as _};
-use glutin::surface::{Surface as GlSurface_, SurfaceAttributesBuilder, WindowSurface};
-use glutin_winit::{DisplayBuilder, GlWindow};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use skia_safe::gpu::ganesh::surface_ganesh;
 use skia_safe::gpu::{self, gl::FramebufferInfo, Budgeted, DirectContext, SurfaceOrigin};
 use skia_safe::{Color4f, ColorType, Font, FontMgr, FontStyle, ImageInfo, Paint, Rect as SkRect, Surface};
-use std::ffi::{CString, c_void};
+use std::ffi::{c_void, CString};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
@@ -72,12 +72,7 @@ impl GlState {
             format: skia_safe::gpu::gl::Format::RGBA8.into(),
             ..Default::default()
         };
-        let render_target = gpu::backend_render_targets::make_gl(
-            (width, height),
-            None,
-            8,
-            fb_info,
-        );
+        let render_target = gpu::backend_render_targets::make_gl((width, height), None, 8, fb_info);
         surface_ganesh::wrap_backend_render_target(
             &mut self.direct_context,
             &render_target,
@@ -137,7 +132,9 @@ impl BrowserApp {
     fn redraw(&mut self) {
         let Some(gl) = self.gl.as_mut() else { return };
         let (win_w, win_h) = self.surface_size;
-        if win_w == 0 || win_h == 0 { return; }
+        if win_w == 0 || win_h == 0 {
+            return;
+        }
 
         let Some(mut skia_surface) = gl.skia_surface(win_w as i32, win_h as i32) else {
             return;
@@ -152,20 +149,39 @@ impl BrowserApp {
         {
             let guard = self.compositor.read();
             if let Some(handle) = guard.frame_for(self.tab_id) {
-                composite_tiles(canvas, win_w, ADDRESS_BAR_HEIGHT, content_h, &handle, &mut self.page_height);
+                composite_tiles(
+                    canvas,
+                    win_w,
+                    ADDRESS_BAR_HEIGHT,
+                    content_h,
+                    &handle,
+                    &mut self.page_height,
+                );
             }
         }
 
         // Address bar (drawn on top via Skia)
-        draw_address_bar(canvas, win_w, ADDRESS_BAR_HEIGHT as i32, &self.url_input, self.addr_focused);
+        draw_address_bar(
+            canvas,
+            win_w,
+            ADDRESS_BAR_HEIGHT as i32,
+            &self.url_input,
+            self.addr_focused,
+        );
 
         drop(skia_surface);
         gl.flush();
     }
 
-    fn is_addr_bar(&self, y: f64) -> bool { y < ADDRESS_BAR_HEIGHT as f64 }
-    fn css_x(&self, x: f64) -> f32 { (x + self.scroll.0 as f64) as f32 }
-    fn css_y(&self, y: f64) -> f32 { (y - ADDRESS_BAR_HEIGHT as f64 + self.scroll.1 as f64) as f32 }
+    fn is_addr_bar(&self, y: f64) -> bool {
+        y < ADDRESS_BAR_HEIGHT as f64
+    }
+    fn css_x(&self, x: f64) -> f32 {
+        (x + self.scroll.0 as f64) as f32
+    }
+    fn css_y(&self, y: f64) -> f32 {
+        (y - ADDRESS_BAR_HEIGHT as f64 + self.scroll.1 as f64) as f32
+    }
 }
 
 impl ApplicationHandler<()> for BrowserApp {
@@ -175,7 +191,9 @@ impl ApplicationHandler<()> for BrowserApp {
     }
 
     fn user_event(&mut self, _: &ActiveEventLoop, _: ()) {
-        if let Some(w) = &self.window { w.request_redraw(); }
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
@@ -184,7 +202,9 @@ impl ApplicationHandler<()> for BrowserApp {
             WindowEvent::RedrawRequested => self.redraw(),
 
             WindowEvent::Resized(PhysicalSize { width, height }) => {
-                if width == 0 || height == 0 { return; }
+                if width == 0 || height == 0 {
+                    return;
+                }
                 self.surface_size = (width, height);
                 let content_h = height.saturating_sub(ADDRESS_BAR_HEIGHT as u32);
                 self.viewport = (width, content_h);
@@ -198,9 +218,18 @@ impl ApplicationHandler<()> for BrowserApp {
                 }
                 let tab = self.tab.clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::SetViewport { x: 0, y: 0, width, height: content_h }).await;
+                    let _ = tab
+                        .send(TabCommand::SetViewport {
+                            x: 0,
+                            y: 0,
+                            width,
+                            height: content_h,
+                        })
+                        .await;
                 });
-                if let Some(w) = &self.window { w.request_redraw(); }
+                if let Some(w) = &self.window {
+                    w.request_redraw();
+                }
             }
 
             WindowEvent::CursorMoved { position, .. } => {
@@ -208,20 +237,34 @@ impl ApplicationHandler<()> for BrowserApp {
                 if !self.is_addr_bar(position.y) {
                     let (x, y) = (self.css_x(position.x), self.css_y(position.y));
                     let tab = self.tab.clone();
-                    TOKIO_RT.spawn(async move { let _ = tab.send(TabCommand::MouseMove { x, y }).await; });
+                    TOKIO_RT.spawn(async move {
+                        let _ = tab.send(TabCommand::MouseMove { x, y }).await;
+                    });
                 }
             }
 
-            WindowEvent::MouseInput { state: ElementState::Pressed, button: WinitMouseButton::Left, .. } => {
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: WinitMouseButton::Left,
+                ..
+            } => {
                 if self.is_addr_bar(self.cursor.y) {
                     self.addr_focused = true;
-                    if let Some(w) = &self.window { w.request_redraw(); }
+                    if let Some(w) = &self.window {
+                        w.request_redraw();
+                    }
                 } else {
                     self.addr_focused = false;
                     let (x, y) = (self.css_x(self.cursor.x), self.css_y(self.cursor.y));
                     let tab = self.tab.clone();
                     TOKIO_RT.spawn(async move {
-                        let _ = tab.send(TabCommand::MouseDown { x, y, button: MouseButton::Left }).await;
+                        let _ = tab
+                            .send(TabCommand::MouseDown {
+                                x,
+                                y,
+                                button: MouseButton::Left,
+                            })
+                            .await;
                     });
                 }
             }
@@ -235,28 +278,50 @@ impl ApplicationHandler<()> for BrowserApp {
                 self.scroll.0 = (self.scroll.0 + dx).max(0.0);
                 self.scroll.1 = (self.scroll.1 + dy).clamp(0.0, max_y);
                 let tab = self.tab.clone();
-                TOKIO_RT.spawn(async move { let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await; });
-                if let Some(w) = &self.window { w.request_redraw(); }
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseScroll {
+                            delta_x: dx,
+                            delta_y: dy,
+                        })
+                        .await;
+                });
+                if let Some(w) = &self.window {
+                    w.request_redraw();
+                }
             }
 
             WindowEvent::KeyboardInput {
-                event: KeyEvent { logical_key, text, state: ElementState::Pressed, .. }, ..
+                event:
+                    KeyEvent {
+                        logical_key,
+                        text,
+                        state: ElementState::Pressed,
+                        ..
+                    },
+                ..
             } => {
                 if self.addr_focused {
                     match &logical_key {
                         Key::Named(NamedKey::Enter) => self.navigate(),
                         Key::Named(NamedKey::Escape) => {
                             self.addr_focused = false;
-                            if let Some(w) = &self.window { w.request_redraw(); }
+                            if let Some(w) = &self.window {
+                                w.request_redraw();
+                            }
                         }
                         Key::Named(NamedKey::Backspace) => {
                             self.url_input.pop();
-                            if let Some(w) = &self.window { w.request_redraw(); }
+                            if let Some(w) = &self.window {
+                                w.request_redraw();
+                            }
                         }
                         _ => {
                             if let Some(t) = &text {
                                 self.url_input.push_str(t.as_str());
-                                if let Some(w) = &self.window { w.request_redraw(); }
+                                if let Some(w) = &self.window {
+                                    w.request_redraw();
+                                }
                             }
                         }
                     }
@@ -278,7 +343,14 @@ fn composite_tiles(
     handle: &ExternalHandle,
     page_height: &mut f32,
 ) {
-    let ExternalHandle::TileCache { tiles, page_height: ph, scroll_x: sx, scroll_y: sy, .. } = handle else {
+    let ExternalHandle::TileCache {
+        tiles,
+        page_height: ph,
+        scroll_x: sx,
+        scroll_y: sy,
+        ..
+    } = handle
+    else {
         return;
     };
     *page_height = *ph;
@@ -286,7 +358,8 @@ fn composite_tiles(
     canvas.save();
     canvas.clip_rect(
         SkRect::from_xywh(0.0, addr_h, win_w as f32, content_h as f32),
-        None, None,
+        None,
+        None,
     );
 
     for tile in tiles.iter() {
@@ -296,10 +369,18 @@ fn composite_tiles(
         let screen_y = tile.page_y - sy + addr_h;
 
         // Cull tiles outside the viewport
-        if screen_x + tile.width as f32 <= 0.0 { continue; }
-        if screen_y + tile.height as f32 <= addr_h { continue; }
-        if screen_x >= win_w as f32 { continue; }
-        if screen_y >= addr_h + content_h as f32 { continue; }
+        if screen_x + tile.width as f32 <= 0.0 {
+            continue;
+        }
+        if screen_y + tile.height as f32 <= addr_h {
+            continue;
+        }
+        if screen_x >= win_w as f32 {
+            continue;
+        }
+        if screen_y >= addr_h + content_h as f32 {
+            continue;
+        }
 
         blit_tile(canvas, tile, screen_x, screen_y);
     }
@@ -314,11 +395,9 @@ fn blit_tile(canvas: &skia_safe::Canvas, tile: &CachedTile, x: f32, y: f32) {
         skia_safe::AlphaType::Premul,
         None,
     );
-    if let Some(image) = skia_safe::images::raster_from_data(
-        &info,
-        skia_safe::Data::new_copy(&tile.data),
-        (tile.width * 4) as usize,
-    ) {
+    if let Some(image) =
+        skia_safe::images::raster_from_data(&info, skia_safe::Data::new_copy(&tile.data), (tile.width * 4) as usize)
+    {
         canvas.draw_image(&image, (x, y), None);
     }
 }
@@ -329,16 +408,28 @@ fn draw_address_bar(canvas: &skia_safe::Canvas, win_w: u32, h: i32, url: &str, f
     let w = win_w as f32;
     let hf = h as f32;
 
-    let bg = if focused { Color4f::new(0.98, 0.98, 0.98, 1.0) } else { Color4f::new(0.93, 0.93, 0.93, 1.0) };
+    let bg = if focused {
+        Color4f::new(0.98, 0.98, 0.98, 1.0)
+    } else {
+        Color4f::new(0.93, 0.93, 0.93, 1.0)
+    };
     let mut paint = Paint::new(bg, None);
     canvas.draw_rect(SkRect::from_xywh(0.0, 0.0, w, hf), &paint);
 
-    let field_bg = if focused { Color4f::new(1.0, 1.0, 1.0, 1.0) } else { Color4f::new(0.97, 0.97, 0.97, 1.0) };
+    let field_bg = if focused {
+        Color4f::new(1.0, 1.0, 1.0, 1.0)
+    } else {
+        Color4f::new(0.97, 0.97, 0.97, 1.0)
+    };
     paint.set_color4f(field_bg, None);
     paint.set_anti_alias(true);
     canvas.draw_round_rect(SkRect::from_xywh(6.0, 5.0, w - 12.0, hf - 10.0), 4.0, 4.0, &paint);
 
-    let border = if focused { Color4f::new(0.26, 0.52, 0.96, 1.0) } else { Color4f::new(0.7, 0.7, 0.7, 1.0) };
+    let border = if focused {
+        Color4f::new(0.26, 0.52, 0.96, 1.0)
+    } else {
+        Color4f::new(0.7, 0.7, 0.7, 1.0)
+    };
     paint.set_color4f(border, None);
     paint.set_style(skia_safe::PaintStyle::Stroke);
     paint.set_stroke_width(1.0);
@@ -346,7 +437,11 @@ fn draw_address_bar(canvas: &skia_safe::Canvas, win_w: u32, h: i32, url: &str, f
 
     let typeface = FontMgr::new()
         .legacy_make_typeface(None, FontStyle::normal())
-        .unwrap_or_else(|| FontMgr::new().legacy_make_typeface("sans-serif", FontStyle::normal()).expect("typeface"));
+        .unwrap_or_else(|| {
+            FontMgr::new()
+                .legacy_make_typeface("sans-serif", FontStyle::normal())
+                .expect("typeface")
+        });
     let font = Font::new(typeface, 14.0);
     paint.set_color4f(Color4f::new(0.0, 0.0, 0.0, 1.0), None);
     paint.set_style(skia_safe::PaintStyle::Fill);
@@ -356,11 +451,21 @@ fn draw_address_bar(canvas: &skia_safe::Canvas, win_w: u32, h: i32, url: &str, f
 // ── main ──────────────────────────────────────────────────────────────────────
 
 fn main() {
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap_or_default();
 
     let initial_url = {
-        let raw = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".to_string());
-        if raw.contains("://") { raw } else { format!("https://{raw}") }
+        let raw = std::env::args()
+            .nth(1)
+            .unwrap_or_else(|| "https://example.com".to_string());
+        if raw.contains("://") {
+            raw
+        } else {
+            format!("https://{raw}")
+        }
     };
 
     let _rt_guard = TOKIO_RT.enter();
@@ -389,23 +494,37 @@ fn main() {
 
     let not_current = unsafe { gl_display.create_context(&gl_config, &ctx_attrs).expect("GL context") };
 
-    let surf_attrs = gl_window.build_surface_attributes(Default::default()).expect("surface attrs");
-    let gl_surface = unsafe { gl_display.create_window_surface(&gl_config, &surf_attrs).expect("GL surface") };
+    let surf_attrs = gl_window
+        .build_surface_attributes(Default::default())
+        .expect("surface attrs");
+    let gl_surface = unsafe {
+        gl_display
+            .create_window_surface(&gl_config, &surf_attrs)
+            .expect("GL surface")
+    };
     let gl_context = not_current.make_current(&gl_surface).expect("make current");
 
     // Build Skia DirectContext using the GL interface.
     let interface = skia_safe::gpu::gl::Interface::new_load_with(|name| {
         let c = CString::new(name).unwrap_or_default();
         gl_display.get_proc_address(&c) as *const c_void
-    }).expect("GL interface");
+    })
+    .expect("GL interface");
     let direct_context = DirectContext::new_gl(interface, None).expect("Skia DirectContext");
 
-    let gl_state = GlState { gl_context, gl_surface, gl_config, direct_context };
+    let gl_state = GlState {
+        gl_context,
+        gl_surface,
+        gl_config,
+        direct_context,
+    };
 
     // Engine + compositor
     let compositor = Arc::new(RwLock::new(DefaultCompositor::new({
         let p = proxy.clone();
-        move || { let _ = p.send_event(()); }
+        move || {
+            let _ = p.send_event(());
+        }
     })));
 
     // Use a null render backend — TileCache frames are submitted directly by the engine
@@ -419,7 +538,10 @@ fn main() {
     TOKIO_RT.spawn(async move {
         loop {
             match event_rx.recv().await {
-                Ok(EngineEvent::Navigation { event: NavigationEvent::Finished { .. } | NavigationEvent::Started { .. }, .. }) => {
+                Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. } | NavigationEvent::Started { .. },
+                    ..
+                }) => {
                     let _ = proxy_ev.send_event(());
                 }
                 Ok(_) => {}
@@ -440,22 +562,40 @@ fn main() {
         partition_policy: PartitionPolicy::None,
     };
 
-    let mut zone = engine.create_zone(zone_cfg, zone_services, Some(ZoneId::from(DEFAULT_ZONE))).expect("zone");
+    let mut zone = engine
+        .create_zone(zone_cfg, zone_services, Some(ZoneId::from(DEFAULT_ZONE)))
+        .expect("zone");
     let tab = TOKIO_RT
-        .block_on(zone.create_tab(TabDefaults { url: None, title: Some("Gosub".to_string()), viewport: None }, None))
+        .block_on(zone.create_tab(
+            TabDefaults {
+                url: None,
+                title: Some("Gosub".to_string()),
+                viewport: None,
+            },
+            None,
+        ))
         .expect("tab");
 
     let tab_id = tab.tab_id;
     let nav_tab = tab.clone();
     let nav_url = initial_url.clone();
-    TOKIO_RT.spawn(async move { let _ = nav_tab.send(TabCommand::Navigate { url: nav_url }).await; });
+    TOKIO_RT.spawn(async move {
+        let _ = nav_tab.send(TabCommand::Navigate { url: nav_url }).await;
+    });
 
     let size = gl_window.inner_size();
     let content_h = size.height.saturating_sub(ADDRESS_BAR_HEIGHT as u32);
     {
         let t = tab.clone();
         TOKIO_RT.block_on(async move {
-            let _ = t.send(TabCommand::SetViewport { x: 0, y: 0, width: size.width, height: content_h }).await;
+            let _ = t
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: size.width,
+                    height: content_h,
+                })
+                .await;
             let _ = t.send(TabCommand::ResumeDrawing { fps: 30 }).await;
         });
     }
@@ -463,7 +603,12 @@ fn main() {
     let window = Arc::new(gl_window);
 
     let mut app = BrowserApp {
-        engine, zone, tab, tab_id, compositor, proxy,
+        engine,
+        zone,
+        tab,
+        tab_id,
+        compositor,
+        proxy,
         window: Some(window),
         gl: Some(gl_state),
         surface_size: (size.width, size.height),

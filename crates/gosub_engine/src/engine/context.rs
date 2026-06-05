@@ -465,7 +465,9 @@ impl RenderContext for BrowsingContext {
 fn pipeline_build_cache(
     doc: Arc<EngineDocument>,
     viewport: &Viewport,
-    #[cfg(feature = "backend_vello")] vello_resources: Option<std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>>,
+    #[cfg(feature = "backend_vello")] vello_resources: Option<
+        std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
+    >,
 ) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
@@ -709,7 +711,11 @@ fn pipeline_build_cache(
         tiles
     };
 
-    #[cfg(all(feature = "backend_vello", not(feature = "backend_cairo"), not(feature = "backend_skia")))]
+    #[cfg(all(
+        feature = "backend_vello",
+        not(feature = "backend_cairo"),
+        not(feature = "backend_skia")
+    ))]
     let baked_tiles = {
         use gosub_render_pipeline::common::media::MediaStore;
         use gosub_render_pipeline::common::texture_store::TextureStore;

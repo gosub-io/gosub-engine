@@ -159,7 +159,11 @@ fn render_item(canvas: &skia_safe::Canvas, item: &DisplayItem) {
 // ── Application ───────────────────────────────────────────────────────────────
 
 fn main() {
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap_or_default();
 
     let initial_url: String = std::env::args()
         .nth(1)

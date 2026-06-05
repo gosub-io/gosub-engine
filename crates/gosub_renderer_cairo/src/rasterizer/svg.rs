@@ -1,7 +1,7 @@
+use cairo::Context;
 use gosub_render_pipeline::common::media::{MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
 use gosub_render_pipeline::tiler::Tile;
-use cairo::Context;
 use resvg::usvg::Transform;
 
 pub(crate) fn do_paint_svg(cr: &Context, tile: &Tile, rect: &Rectangle, media_id: MediaId, media_store: &MediaStore) {

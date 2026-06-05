@@ -538,7 +538,11 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
 }
 
 fn main() {
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap_or_default();
 
     // Cairo/Pango need GTK4 initialised. No GTK window is created.
     gosub_engine::init_gtk_resources();
