@@ -106,6 +106,8 @@ mod cookie_jar;
 mod cookies;
 mod persistent_cookie_jar;
 mod store;
+#[cfg(test)]
+mod tests;
 
 pub use cookies::Cookie;
 pub use cookies::CookieJarHandle;
@@ -113,6 +115,8 @@ pub use cookies::CookieStoreHandle;
 
 pub use cookie_jar::CookieJar;
 pub use cookie_jar::DefaultCookieJar;
+pub use cookie_jar::SameSiteContext;
+pub use cookie_jar::ThirdPartyCookiePolicy;
 pub use persistent_cookie_jar::PersistentCookieJar;
 
 pub use store::CookieStore;

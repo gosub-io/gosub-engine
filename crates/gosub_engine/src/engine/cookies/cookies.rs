@@ -13,17 +13,19 @@
 //!
 //! # Typical usage
 //! ```ignore,no_run
-//! // Acquire cookies for a request
+//! // Acquire cookies for a request.
+//! // Pass the tab's current page URL as `top_level` so the jar can apply
+//! // the configured ThirdPartyCookiePolicy for cross-site sub-requests.
 //! let jar = zone.cookie_jar(); // -> CookieJarHandle
 //! let cookies_header = {
 //!     let guard = jar.read();
-//!     guard.get_request_cookies(&url)
+//!     guard.get_request_cookies(&request_url, Some(&page_url))
 //! };
 //!
-//! // Store cookies from a response
+//! // Store cookies from a response (pass top_level for third-party enforcement).
 //! {
 //!     let mut guard = jar.write();
-//!     guard.store_response_cookies(&url, &headers);
+//!     guard.store_response_cookies(&request_url, &headers, Some(&page_url));
 //! }
 //! ```
 //!
@@ -39,9 +41,10 @@
 //!     path: Some("/".into()),
 //!     domain: Some("example.com".into()),
 //!     secure: true,
-//!     expires: Some("2025-12-31T23:59:59Z".into()), // ISO 8601 recommended
+//!     expires: Some(1735689599), // 2025-12-31T23:59:59 UTC as Unix timestamp
 //!     same_site: Some("Lax".into()),                 // "Strict" | "Lax" | "None"
 //!     http_only: true,
+//!     created_at: 0,
 //! };
 //! ```
 
@@ -65,7 +68,7 @@ use std::sync::Arc;
 /// ```ignore,no_run
 /// let jar: CookieJarHandle = zone.cookie_jar();
 /// {
-///     let cookies = jar.read().get_request_cookies(&url);
+///     let cookies = jar.read().get_request_cookies(&url, Some(&top_level_url));
 /// }
 /// {
 ///     let mut guard = jar.write();
@@ -207,11 +210,11 @@ pub struct Cookie {
     /// If `true`, cookie is sent only over HTTPS.
     pub secure: bool,
 
-    /// Expiration timestamp, if any.
+    /// Expiration time as **Unix timestamp** (seconds since 1970-01-01T00:00:00Z).
     ///
-    /// Prefer **ISO 8601** (`YYYY-MM-DDThh:mm:ssZ`) for portability.
-    /// Session cookies have `None`.
-    pub expires: Option<String>,
+    /// Computed at receive time from `Max-Age` (preferred) or the `Expires` date header.
+    /// `None` means a session cookie that is not persisted across browser restarts.
+    pub expires: Option<i64>,
 
     /// SameSite policy (`"Strict"`, `"Lax"`, or `"None"`).
     ///
@@ -221,4 +224,16 @@ pub struct Cookie {
 
     /// If `true`, cookie is blocked from access by client-side scripts (`document.cookie`).
     pub http_only: bool,
+
+    /// Creation time as Unix timestamp in **milliseconds**.
+    ///
+    /// Set once when the cookie is first stored; preserved on subsequent updates to
+    /// the same (name, domain, path) triple so that creation order survives overwrites.
+    /// Used to break ties when two cookies have equal-length paths — earlier cookies
+    /// are sent first (RFC 6265bis §5.5).
+    ///
+    /// Defaults to `0` so that cookies persisted before this field was added still
+    /// deserialise correctly.
+    #[serde(default)]
+    pub created_at: i64,
 }

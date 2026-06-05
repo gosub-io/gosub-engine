@@ -138,6 +138,10 @@ pub use engine::storage;
 #[doc(inline)]
 pub use crate::engine::config::EngineConfig;
 
+#[doc(inline)]
+pub use crate::engine::cookies::SameSiteContext;
+pub use crate::engine::cookies::ThirdPartyCookiePolicy;
+
 /// Public `events` namespace with the enums/structs:
 pub mod events {
     pub use crate::engine::events::{EngineCommand, EngineEvent, IoCommand, MouseButton, TabCommand};

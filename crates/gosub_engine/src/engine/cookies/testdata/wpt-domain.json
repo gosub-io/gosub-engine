@@ -1,0 +1,166 @@
+[
+  {
+    "_license": "BSD-3-Clause",
+    "_license_url": "https://github.com/web-platform-tests/wpt/blob/master/LICENSE",
+    "_source_url": "https://github.com/web-platform-tests/wpt/tree/master/cookies/domain",
+    "source": "cookies/domain/domain-attribute-missing.sub.html",
+    "description": "Host-only cookie (no Domain attribute) - sent only to exact origin, not subdomains",
+    "tests": [
+      {
+        "name": "No Domain => sent with same-origin request",
+        "set_from": "https://www.example.org/",
+        "cookies": ["domain-missing=b; Path=/"],
+        "send_to": "https://www.example.org/",
+        "expected": "domain-missing=b"
+      },
+      {
+        "name": "No Domain => NOT sent to subdomain",
+        "set_from": "https://www.example.org/",
+        "cookies": ["domain-missing=b; Path=/"],
+        "send_to": "https://sub.www.example.org/",
+        "expected": ""
+      },
+      {
+        "name": "No Domain => NOT sent to parent domain",
+        "set_from": "https://sub.example.org/",
+        "cookies": ["domain-missing=b; Path=/"],
+        "send_to": "https://example.org/",
+        "expected": ""
+      }
+    ]
+  },
+  {
+    "source": "cookies/domain/domain-attribute-matches-host.sub.https.html",
+    "description": "Domain=host becomes a domain cookie - sent to exact host AND subdomains",
+    "tests": [
+      {
+        "name": "Domain=host => sent with same-origin request",
+        "set_from": "https://www.example.org/",
+        "cookies": ["domain-matches=b; Path=/; Domain=www.example.org"],
+        "send_to": "https://www.example.org/",
+        "expected": "domain-matches=b"
+      },
+      {
+        "name": "Domain=host => sent to subdomain",
+        "set_from": "https://www.example.org/",
+        "cookies": ["domain-matches=b; Path=/; Domain=www.example.org"],
+        "send_to": "https://sub.www.example.org/",
+        "expected": "domain-matches=b"
+      },
+      {
+        "name": "Domain=host => NOT sent to unrelated domain",
+        "set_from": "https://www.example.org/",
+        "cookies": ["domain-matches=b; Path=/; Domain=www.example.org"],
+        "send_to": "https://other.example.org/",
+        "expected": ""
+      }
+    ]
+  },
+  {
+    "source": "cookies/domain/domain-attribute-host-with-leading-period.sub.https.html",
+    "description": "Domain=.host (leading dot stripped) - same as Domain=host",
+    "tests": [
+      {
+        "name": "Domain=.host => sent with same-origin request",
+        "set_from": "https://www.example.org/",
+        "cookies": ["domain-dot=b; Path=/; Domain=.www.example.org"],
+        "send_to": "https://www.example.org/",
+        "expected": "domain-dot=b"
+      },
+      {
+        "name": "Domain=.host => sent to subdomain (leading dot stripped per RFC 6265)",
+        "set_from": "https://www.example.org/",
+        "cookies": ["domain-dot=b; Path=/; Domain=.www.example.org"],
+        "send_to": "https://sub.www.example.org/",
+        "expected": "domain-dot=b"
+      }
+    ]
+  },
+  {
+    "source": "cookies/domain/domain-attribute-host-with-and-without-leading-period.sub.https.html",
+    "description": "Second Set-Cookie with same name overwrites first; both dot and no-dot forms equivalent",
+    "tests": [
+      {
+        "name": "Two Set-Cookies same name, last value wins",
+        "set_from": "https://www.example.org/",
+        "cookies": [
+          "dup=b; Path=/; Domain=.www.example.org",
+          "dup=c; Path=/; Domain=www.example.org"
+        ],
+        "send_to": "https://www.example.org/",
+        "expected": "dup=c"
+      },
+      {
+        "name": "Last cookie (no leading dot) sent to subdomain",
+        "set_from": "https://www.example.org/",
+        "cookies": [
+          "dup=b; Path=/; Domain=.www.example.org",
+          "dup=c; Path=/; Domain=www.example.org"
+        ],
+        "send_to": "https://sub.www.example.org/",
+        "expected": "dup=c"
+      }
+    ]
+  },
+  {
+    "source": "cookies/domain/case-insensitive-domain-matching",
+    "description": "Domain matching is case-insensitive per RFC 4343",
+    "tests": [
+      {
+        "name": "Domain=EXAMPLE.ORG matches example.org request",
+        "set_from": "https://example.org/",
+        "cookies": ["ci=1; Path=/; Domain=EXAMPLE.ORG"],
+        "send_to": "https://example.org/",
+        "expected": "ci=1"
+      },
+      {
+        "name": "Domain=Example.Org matches sub.example.org request",
+        "set_from": "https://example.org/",
+        "cookies": ["ci=1; Path=/; Domain=Example.Org"],
+        "send_to": "https://sub.example.org/",
+        "expected": "ci=1"
+      },
+      {
+        "name": "Domain with mixed case set from matching mixed-case origin",
+        "set_from": "https://www.example.org/",
+        "cookies": ["ci=1; Path=/; Domain=www.eXaMpLe.oRg"],
+        "send_to": "https://www.example.org/",
+        "expected": "ci=1"
+      }
+    ]
+  },
+  {
+    "source": "cookies/domain/subdomain-scoping",
+    "description": "Subdomain cookies: domain set from subdomain, only sent to that subdomain and below",
+    "tests": [
+      {
+        "name": "Domain=sub.example.org set from sub, sent to sub",
+        "set_from": "https://sub.example.org/",
+        "cookies": ["s=1; Path=/; Domain=sub.example.org"],
+        "send_to": "https://sub.example.org/",
+        "expected": "s=1"
+      },
+      {
+        "name": "Domain=sub.example.org sent to deeper subdomain",
+        "set_from": "https://sub.example.org/",
+        "cookies": ["s=1; Path=/; Domain=sub.example.org"],
+        "send_to": "https://deep.sub.example.org/",
+        "expected": "s=1"
+      },
+      {
+        "name": "Domain=sub.example.org NOT sent to parent example.org",
+        "set_from": "https://sub.example.org/",
+        "cookies": ["s=1; Path=/; Domain=sub.example.org"],
+        "send_to": "https://example.org/",
+        "expected": ""
+      },
+      {
+        "name": "Domain=sub.example.org NOT sent to sibling other.example.org",
+        "set_from": "https://sub.example.org/",
+        "cookies": ["s=1; Path=/; Domain=sub.example.org"],
+        "send_to": "https://other.example.org/",
+        "expected": ""
+      }
+    ]
+  }
+]

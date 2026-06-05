@@ -264,7 +264,7 @@ mod tests {
 
             let url: Url = "https://example.com/".parse().unwrap();
             let headers = mk_headers(&["id=123; Path=/; HttpOnly"]);
-            inner.store_response_cookies(&url, &headers);
+            inner.store_response_cookies(&url, &headers, None);
         }
 
         // snapshot everything
