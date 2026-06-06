@@ -32,11 +32,27 @@ pub fn do_paint_text(canvas: &Canvas, _tile: &Tile, cmd: &Text, _dpi_scale_facto
 
     let font_size = cmd.font_info.size as f32;
     let font = Font::new(typeface, font_size);
-    // Determine how many lines Parley allocated for this text node.
-    // If it's a single line, use a huge max_width so Skia never wraps due to
-    // font-metric differences. Only multi-line nodes need a real width constraint.
-    let parley_line_count = (cmd.rect.height as f32 / cmd.font_info.line_height as f32 + 0.1).floor() as u32;
-    let max_width = if parley_line_count <= 1 { 1_000_000_000.0_f32 } else { cmd.available_width as f32 };
+
+    // Determine the effective wrap width using the same approach as the Cairo/Pango backend:
+    //
+    // 1. Measure the text unconstrained (single line) to find its natural width.
+    // 2. Base width = max(taffy rect width, available_width). The rect is the text node's
+    //    own taffy allocation; available_width is the parent block's content width and acts
+    //    as a floor when the flex algorithm squeezes a text node to near-zero.
+    // 3. If natural ≤ base + 20px tolerance the text was measured as a single line by
+    //    Parley — use the natural width so Skia's slightly-different font metrics don't
+    //    introduce a spurious extra line break.
+    // 4. Otherwise Parley intentionally wrapped the text; use the base width so Skia
+    //    reproduces the same line-break points.
+    let text_single_line: String = cmd.text.lines().collect::<Vec<_>>().join(" ");
+    let (natural_width, _) = font.measure_str(&text_single_line, Some(&paint));
+    let base_width = (cmd.rect.width as f32).max(cmd.available_width as f32);
+    let metric_slack = 20.0_f32;
+    let max_width = if natural_width <= base_width + metric_slack {
+        natural_width.max(base_width)
+    } else {
+        base_width
+    };
 
     // Word-wrap: greedily pack words into lines that fit within max_width.
     let mut lines: Vec<String> = Vec::new();

@@ -7,7 +7,7 @@ use gosub_shared::errors::CssResult;
 use std::cmp::Ordering;
 use std::fmt::Display;
 
-use crate::colors::RgbColor;
+use crate::colors::{oklab_to_srgb, oklch_to_srgb, RgbColor};
 
 /// Severity of a CSS error
 #[derive(Debug, PartialEq)]
@@ -418,6 +418,7 @@ impl CssValue {
         match self {
             CssValue::Color(col) => Some(*col),
             CssValue::String(s) => Some(RgbColor::from(s.as_str())),
+            CssValue::Function(name, args) => parse_css_color_function(name, args),
             _ => None,
         }
     }
@@ -569,6 +570,75 @@ impl CssValue {
         }
 
         Ok(CssValue::String(value.to_string()))
+    }
+}
+
+/// Parse a CSS color function like `oklch()`, `oklab()`, or `color()` into an RgbColor.
+///
+/// Handles the CSS Color Level 4 space-separated syntax, including an optional alpha
+/// separated by `/` (represented as `CssValue::None` after the CSS parser processes it).
+fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
+    // Collect numeric/percentage/none arguments, skipping the `/` delimiter (stored as None)
+    // and any string tokens (like the color-space name in `color(srgb ...)`).
+    // CSS `none` keyword means "missing value" = 0.
+    let nums: Vec<f32> = args
+        .iter()
+        .filter_map(|v| match v {
+            CssValue::Number(n) => Some(*n),
+            CssValue::Percentage(p) => Some(*p),
+            CssValue::Zero => Some(0.0),
+            CssValue::String(s) if s.eq_ignore_ascii_case("none") => Some(0.0),
+            _ => None,
+        })
+        .collect();
+
+    // Helper to resolve an L (lightness) argument: percentage 0-100 → 0.0-1.0, decimal as-is.
+    let resolve_l = |raw: f32, is_pct: bool| -> f32 {
+        if is_pct { raw / 100.0 } else { raw }
+    };
+
+    // Detect whether each positional arg was given as a percentage.
+    let is_pct: Vec<bool> = args
+        .iter()
+        .filter_map(|v| match v {
+            CssValue::Number(_) | CssValue::Zero => Some(false),
+            CssValue::Percentage(_) => Some(true),
+            CssValue::String(s) if s.eq_ignore_ascii_case("none") => Some(false),
+            _ => None,
+        })
+        .collect();
+
+    match name.to_ascii_lowercase().as_str() {
+        "oklch" if nums.len() >= 3 => {
+            let l = resolve_l(nums[0], *is_pct.first().unwrap_or(&false));
+            // Chroma: percentage 0-100 maps to ~0-0.4 max chroma.
+            let c = if *is_pct.get(1).unwrap_or(&false) { nums[1] / 100.0 * 0.4 } else { nums[1] };
+            let h = nums[2];
+            let alpha = nums.get(3).copied().map(|a| {
+                if *is_pct.get(3).unwrap_or(&false) { a / 100.0 * 255.0 } else { a * 255.0 }
+            }).unwrap_or(255.0);
+            let (r, g, b) = oklch_to_srgb(l, c, h);
+            Some(RgbColor::new(r, g, b, alpha))
+        }
+        "oklab" if nums.len() >= 3 => {
+            let l = resolve_l(nums[0], *is_pct.first().unwrap_or(&false));
+            let a_ok = if *is_pct.get(1).unwrap_or(&false) { nums[1] / 100.0 * 0.4 } else { nums[1] };
+            let b_ok = if *is_pct.get(2).unwrap_or(&false) { nums[2] / 100.0 * 0.4 } else { nums[2] };
+            let alpha = nums.get(3).copied().map(|a| {
+                if *is_pct.get(3).unwrap_or(&false) { a / 100.0 * 255.0 } else { a * 255.0 }
+            }).unwrap_or(255.0);
+            let (r, g, b) = oklab_to_srgb(l, a_ok, b_ok);
+            Some(RgbColor::new(r, g, b, alpha))
+        }
+        // color(srgb R G B) or color(display-p3 R G B) — treat as linear/sRGB for now.
+        "color" if nums.len() >= 3 => {
+            // First element of args is the color space name (a String), skip it.
+            let alpha = nums.get(3).copied().map(|a| {
+                if *is_pct.get(3).unwrap_or(&false) { a / 100.0 * 255.0 } else { a * 255.0 }
+            }).unwrap_or(255.0);
+            Some(RgbColor::new(nums[0] * 255.0, nums[1] * 255.0, nums[2] * 255.0, alpha))
+        }
+        _ => None,
     }
 }
 
