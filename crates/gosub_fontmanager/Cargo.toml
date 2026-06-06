@@ -32,7 +32,7 @@ path = "src/bin/vello-test.rs"
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
 parking_lot = "0.12"
 colog = "1.4.0"
-log = "0.4.29"
+log = "0.4.32"
 anyhow = "1.0.102"
 prettytable = "0.10.0"
 vello = "0.8.0"

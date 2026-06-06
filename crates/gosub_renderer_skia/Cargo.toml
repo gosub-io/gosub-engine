@@ -8,7 +8,7 @@ license = "MIT"
 [dependencies]
 gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline" }
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
-log = "0.4.29"
+log = "0.4.32"
 anyhow = "1.0"
 parking_lot = "0.12"
 

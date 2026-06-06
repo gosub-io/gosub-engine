@@ -14,7 +14,7 @@ phf = { version = "0.13.1", features = ["macros"] }
 lazy_static = "1.5"
 thiserror = "2.0.18"
 url = { version = "2.5.8", features = [] }
-log = { version = "0.4.29", features = [] }
+log = { version = "0.4.32", features = [] }
 nom = "8.0.0"
 nom_locate = "5.0.0"
 regex = "1"

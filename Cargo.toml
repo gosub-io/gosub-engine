@@ -115,7 +115,7 @@ gosub_css3 = { version = "0.1.1", path = "./crates/gosub_css3", features = [], r
 # Dependencies are needed for gosub_engine itself, and some of the binaries in src/bin.
 anyhow = "1.0.102"
 url = "2.5.8"
-log = "0.4.29"
+log = "0.4.32"
 
 # Dependencies for testing and development. Also used for some of the examples (like the gtk/vello renderer).
 [dev-dependencies]
@@ -132,7 +132,7 @@ cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.8"
 clap = { version = "4.6.0", features = ["derive"] }
 simple_logger = "5.2.0"
-log = "0.4.29"
+log = "0.4.32"
 anyhow = "1.0.102"
 image = "0.25.10"
 slotmap = "1.1.1"

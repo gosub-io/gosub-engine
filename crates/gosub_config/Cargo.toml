@@ -15,7 +15,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 lazy_static = "1.5"
 thiserror = "2.0.18"
 wildmatch = "2.6.1"
-log = "0.4.29"
+log = "0.4.32"
 url = "2.5.8"
 anyhow = "1.0.102"
 cow-utils = "0.1.3"
