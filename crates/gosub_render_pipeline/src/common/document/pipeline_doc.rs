@@ -461,12 +461,32 @@ fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
         ("inset-inline-start", StyleProperty::InsetInlineStart),
         ("inset-inline-end", StyleProperty::InsetInlineEnd),
     ];
+    // Pre-compute the element's font-size so ch/ex units can use it below.
+    // unit_to_px() resolves em/rem with 16px base, giving a close enough value.
+    let font_size_for_ch = prop_map
+        .get("font-size")
+        .filter(|fp| fp.as_unit().is_some())
+        .map(|fp| fp.unit_to_px())
+        .unwrap_or(16.0_f32);
+
     for (css_name, prop) in unit_props {
         if let Some(p) = prop_map.get(css_name) {
             if p.as_unit().is_some() {
                 // Convert em/rem to px now so downstream code (get_style_f32) can
                 // treat all Unit values as pixels without knowing the unit.
-                style.set(prop.clone(), Value::Unit(p.unit_to_px(), Unit::Px));
+                // Also handle font-relative units that unit_to_px() ignores:
+                //   ch  ≈ 0.45 × font-size  (width of "0" in the current font)
+                //   ex  ≈ 0.50 × font-size  (x-height)
+                //   ic  ≈ 1.00 × font-size  (CJK ideograph width)
+                //   lh  ≈ 1.40 × font-size  (line-height)
+                let px = match p.as_unit() {
+                    Some((v, "ch")) => v * font_size_for_ch * 0.45,
+                    Some((v, "ex")) => v * font_size_for_ch * 0.50,
+                    Some((v, "ic")) => v * font_size_for_ch,
+                    Some((v, "lh")) => v * font_size_for_ch * 1.40,
+                    _ => p.unit_to_px(),
+                };
+                style.set(prop.clone(), Value::Unit(px, Unit::Px));
             } else if let Some(pct) = p.as_percentage() {
                 style.set(prop.clone(), Value::Unit(pct, Unit::Percent));
             } else if let Some(val) = p.as_number() {

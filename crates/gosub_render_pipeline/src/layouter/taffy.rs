@@ -309,9 +309,9 @@ impl TaffyLayouter {
             return;
         };
         el.box_model = taffy_layout_to_boxmodel(&layout, offset);
-        // The parent's content width is the true word-wrap limit for text children.
-        // Using the text node's own measured width (rect_w) causes premature wrapping
-        // because Skia's font metrics differ slightly from Parley's.
+        // For text nodes, available_width is the wrap limit passed to the renderer.
+        // Use the parent element's content width (supplied by our caller), which is the
+        // most accurate available constraint for text that lives directly in a block box.
         if let ElementContext::Text(ref mut text_ctx) = el.context {
             text_ctx.available_width = parent_content_width;
         }

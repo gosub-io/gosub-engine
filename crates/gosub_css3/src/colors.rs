@@ -96,8 +96,121 @@ impl From<&str> for RgbColor {
             return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha() * 255.0);
         }
 
+        // Modern CSS Color Level 4 functions stored as unparsed strings.
+        if value.starts_with("oklch(") {
+            if let Some(c) = parse_oklch_str(value) {
+                return c;
+            }
+        }
+        if value.starts_with("oklab(") {
+            if let Some(c) = parse_oklab_str(value) {
+                return c;
+            }
+        }
+
         get_hex_color_from_name(value).map_or(RgbColor::default(), parse_hex)
     }
+}
+
+/// Parse `oklch(L C H [/ alpha])` from a raw CSS string into an `RgbColor`.
+fn parse_oklch_str(s: &str) -> Option<RgbColor> {
+    let inner = s.strip_prefix("oklch(")?.strip_suffix(')')?;
+    let nums = parse_space_nums(inner);
+    if nums.len() < 3 {
+        return None;
+    }
+    let (r, g, b) = oklch_to_srgb(nums[0], nums[1], nums[2]);
+    let a = nums.get(3).copied().unwrap_or(1.0) * 255.0;
+    Some(RgbColor::new(r, g, b, a))
+}
+
+/// Parse `oklab(L a b [/ alpha])` from a raw CSS string into an `RgbColor`.
+fn parse_oklab_str(s: &str) -> Option<RgbColor> {
+    let inner = s.strip_prefix("oklab(")?.strip_suffix(')')?;
+    let nums = parse_space_nums(inner);
+    if nums.len() < 3 {
+        return None;
+    }
+    let (r, g, b) = oklab_to_srgb(nums[0], nums[1], nums[2]);
+    let a = nums.get(3).copied().unwrap_or(1.0) * 255.0;
+    Some(RgbColor::new(r, g, b, a))
+}
+
+/// Extract whitespace-/slash-separated floats from a CSS function argument string.
+/// Strips trailing `%` and skips non-numeric tokens (like the `/` slash).
+fn parse_space_nums(s: &str) -> Vec<f32> {
+    s.split(|c: char| c.is_ascii_whitespace() || c == '/')
+        .filter_map(|tok| {
+            let tok = tok.trim().trim_end_matches('%');
+            tok.parse::<f32>().ok()
+        })
+        .collect()
+}
+
+/// Convert an oklch(L C H) triplet to an sRGB [r,g,b] triplet in the 0.0–255.0 range.
+/// L: 0.0–1.0 lightness, C: 0.0–0.37+ chroma, H: hue in degrees.
+pub fn oklch_to_srgb(l: f32, c: f32, h_deg: f32) -> (f32, f32, f32) {
+    // oklch → oklab
+    let h = h_deg * std::f32::consts::PI / 180.0;
+    let a = c * h.cos();
+    let b = c * h.sin();
+
+    // oklab → linear sRGB (M2 and M1 matrices from the Oklab specification)
+    let l_ = l + 0.396_337_78 * a + 0.215_803_76 * b;
+    let m_ = l - 0.105_561_35 * a - 0.063_854_17 * b;
+    let s_ = l - 0.089_484_18 * a - 1.291_485_55 * b;
+
+    let l_c = l_ * l_ * l_;
+    let m_c = m_ * m_ * m_;
+    let s_c = s_ * s_ * s_;
+
+    let r_lin = 4.076_741_7 * l_c - 3.307_711_6 * m_c + 0.230_970_0 * s_c;
+    let g_lin = -1.268_438_0 * l_c + 2.609_757_4 * m_c - 0.341_319_4 * s_c;
+    let b_lin = -0.004_196_1 * l_c - 0.703_418_6 * m_c + 1.707_614_7 * s_c;
+
+    // linear sRGB → gamma-corrected sRGB
+    let gamma = |x: f32| -> f32 {
+        if x <= 0.003_130_8 {
+            12.92 * x
+        } else {
+            1.055 * x.powf(1.0 / 2.4) - 0.055
+        }
+    };
+
+    (
+        gamma(r_lin).clamp(0.0, 1.0) * 255.0,
+        gamma(g_lin).clamp(0.0, 1.0) * 255.0,
+        gamma(b_lin).clamp(0.0, 1.0) * 255.0,
+    )
+}
+
+/// Convert an oklab(L a b) triplet to an sRGB [r,g,b] triplet in the 0.0–255.0 range.
+pub fn oklab_to_srgb(l: f32, a: f32, b: f32) -> (f32, f32, f32) {
+    let l_ = l + 0.396_337_78 * a + 0.215_803_76 * b;
+    let m_ = l - 0.105_561_35 * a - 0.063_854_17 * b;
+    let s_ = l - 0.089_484_18 * a - 1.291_485_55 * b;
+
+    let l_c = l_ * l_ * l_;
+    let m_c = m_ * m_ * m_;
+    let s_c = s_ * s_ * s_;
+
+    let r_lin = 4.076_741_7 * l_c - 3.307_711_6 * m_c + 0.230_970_0 * s_c;
+    let g_lin = -1.268_438_0 * l_c + 2.609_757_4 * m_c - 0.341_319_4 * s_c;
+    let b_lin = -0.004_196_1 * l_c - 0.703_418_6 * m_c + 1.707_614_7 * s_c;
+
+    let gamma = |x: f32| -> f32 {
+        if x <= 0.003_130_8 {
+            12.92 * x
+        } else {
+            1.055 * x.powf(1.0 / 2.4) - 0.055
+        }
+    };
+
+    (
+        gamma(r_lin).clamp(0.0, 1.0) * 255.0,
+        gamma(g_lin).clamp(0.0, 1.0) * 255.0,
+        gamma(b_lin).clamp(0.0, 1.0) * 255.0,
+    )
 }
 
 fn get_hex_color_from_name(color_name: &str) -> Option<&str> {

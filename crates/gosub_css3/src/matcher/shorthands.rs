@@ -232,7 +232,7 @@ impl<'a> ShorthandResolver<'a> {
                 let idx = self.fix_list.multipliers.iter_mut().find(|m| m.0 == self.name);
 
                 if let Some(idx) = idx {
-                    let Some(items) = self.multiplier.get_names(complete, idx.1) else {
+                    let Some(items) = self.multiplier.get_names(complete.clone(), idx.1) else {
                         return Ok(None);
                     };
 
@@ -246,7 +246,7 @@ impl<'a> ShorthandResolver<'a> {
                     });
                 }
 
-                let Some(items) = self.multiplier.get_names(complete, 0) else {
+                let Some(items) = self.multiplier.get_names(complete.clone(), 0) else {
                     return Ok(None);
                 };
 
@@ -339,6 +339,14 @@ impl FixList {
 
     pub fn set_info(&mut self, info: FixListInfo) {
         self.current_info = Some(info);
+    }
+
+    /// Reset the {1,4}-multiplier counter for a specific shorthand name.
+    /// Must be called before each CSS declaration is expanded so that the counter
+    /// from a prior rule (e.g. `* { margin: 0 }`) does not bleed into the current
+    /// rule (e.g. `.container { margin: 0 auto }`), causing wrong TRBL assignment.
+    pub fn reset_multiplier(&mut self, name: &str) {
+        self.multipliers.retain(|m| m.0 != name);
     }
 
     fn get_declaration(&self, value: CssValue) -> DeclarationProperty {
