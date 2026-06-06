@@ -473,8 +473,12 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     pub fn relocate_node(&mut self, node_id: NodeId, parent_id: NodeId) {
-        let node = self.arena.node_ref(node_id).unwrap();
-        assert!(node.registered, "Node is not registered to the arena");
+        let Some(node) = self.arena.node_ref(node_id) else {
+            return;
+        };
+        if !node.registered {
+            return;
+        }
         if node.parent.is_some() && node.parent.unwrap() == parent_id {
             return;
         }

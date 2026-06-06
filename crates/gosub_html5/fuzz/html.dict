@@ -421,10 +421,10 @@
 "&notavalidref;"
 
 # Whitespace variations
-"\t"
-"\n"
-"\r\n"
-"\r"
+"\x09"
+"\x0A"
+"\x0D\x0A"
+"\x0D"
 "\x0C"
 
 # Null bytes (parser must handle replacement)

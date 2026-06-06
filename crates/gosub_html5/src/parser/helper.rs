@@ -272,15 +272,16 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                         before_id: *node_id,
                     };
                 }
-                return InsertionPositionMode::LastChild {
-                    parent_id: *(*iter.peek().unwrap()),
-                };
+                if let Some(below) = iter.peek() {
+                    return InsertionPositionMode::LastChild { parent_id: **below };
+                }
+                break;
             }
         }
         // No table found: use the first element in the stack (the html element, or in the
         // fragment case, the context element). This covers spec sub-step 4.
         InsertionPositionMode::LastChild {
-            parent_id: *self.open_elements.first().unwrap(),
+            parent_id: *self.open_elements.first().unwrap_or(&NodeId::root()),
         }
     }
 
@@ -288,7 +289,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         // step 1
         let subject = match token {
             Token::StartTag { name, .. } | Token::EndTag { name, .. } => name,
-            _ => panic!("un reached"),
+            _ => return,
         };
         let current_node_id = *self.open_elements.last().unwrap_or(&NodeId::root());
         let current_tag = self.document.tag_name(current_node_id).unwrap_or_default();
@@ -370,6 +371,9 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 };
 
             // step 4.9
+            if format_ele_stack_position == 0 {
+                return;
+            }
             let common_ancestor = self.open_elements[format_ele_stack_position - 1];
 
             // step 4.10
@@ -389,6 +393,9 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 inner_loop_counter += 1;
 
                 // step 4.13.2
+                if node_idx == 0 {
+                    break;
+                }
                 node_idx -= 1;
                 node_id = self.open_elements[node_idx];
 
@@ -456,22 +463,26 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             // step 4.18
             match bookmark_node_id {
                 BookMark::Replace(current) => {
-                    let index = self.find_position_in_active_format(current).expect("node not found");
-                    self.active_formatting_elements[index] = ActiveElement::Node(new_node_id);
+                    if let Some(index) = self.find_position_in_active_format(current) {
+                        self.active_formatting_elements[index] = ActiveElement::Node(new_node_id);
+                    }
                 }
                 BookMark::InsertAfter(previous) => {
-                    let index = self.find_position_in_active_format(previous).expect("node not found") + 1;
-                    self.active_formatting_elements
-                        .insert(index, ActiveElement::Node(new_node_id));
-                    let position = self.find_position_in_active_format(format_elem_node_id);
-                    self.active_formatting_elements.remove(position.unwrap());
+                    if let Some(index) = self.find_position_in_active_format(previous) {
+                        self.active_formatting_elements
+                            .insert(index + 1, ActiveElement::Node(new_node_id));
+                        if let Some(position) = self.find_position_in_active_format(format_elem_node_id) {
+                            self.active_formatting_elements.remove(position);
+                        }
+                    }
                 }
             }
 
             // step 4.19
             self.open_elements.retain(|x| x != &format_elem_node_id);
-            let position = self.find_position_in_open_element(further_block_node_id).unwrap();
-            self.open_elements.insert(position + 1, new_node_id);
+            if let Some(position) = self.find_position_in_open_element(further_block_node_id) {
+                self.open_elements.insert(position + 1, new_node_id);
+            }
         }
     }
 }

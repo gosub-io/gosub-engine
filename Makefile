@@ -1,8 +1,8 @@
 .SILENT:
 
-SHELL=/usr/bin/env bash -O globstar
+SHELL=/usr/bin/env bash
 
-.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke help
+.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer help
 
 all: help
 
@@ -58,6 +58,12 @@ test-smoke: ## CLI smoke tests
 		cargo run --example html5-parser >/dev/null && \
 		cargo run --example pipeline-test \
 	'
+
+fuzz-html5: ## Run html5 parser fuzzer (cargo-fuzz, requires nightly)
+	cd crates/gosub_html5 && cargo +nightly fuzz run html5_parser -- -dict=fuzz/html.dict
+
+fuzz-html5-tokenizer: ## Run html5 tokenizer fuzzer (cargo-fuzz, requires nightly)
+	cd crates/gosub_html5 && cargo +nightly fuzz run tokenizer -- -dict=fuzz/html.dict
 
 help: ## Display available commands
 	echo "Available make commands:"

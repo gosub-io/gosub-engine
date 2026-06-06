@@ -32,7 +32,10 @@ impl Css3<'_> {
                         FeatureKind::Media => self.parse_media_feature_or_range(kind.clone()),
                         FeatureKind::Container => self.parse_media_feature_or_range(kind.clone()),
                         FeatureKind::Supports => {
-                            panic!("not implemented")
+                            return Err(CssError::with_location(
+                                "supports conditions not yet implemented",
+                                self.tokenizer.current_location(),
+                            ))
                         }
                     };
 
