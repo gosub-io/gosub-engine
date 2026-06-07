@@ -1,275 +1,264 @@
 # Pipeline Stages
 
-All seven stages run inside `pipeline_render()` in
-`crates/gosub_engine/src/engine/context.rs`. Each stage is timed and its
-duration is logged at `INFO` level with the `[pipeline]` prefix.
+All seven stages are orchestrated in `crates/gosub_engine/src/engine/context.rs`.  
+Stages 1–6 run inside `pipeline_build_cache()` and their output is cached in `PipelineCache`.  
+Stage 7 runs every frame inside `pipeline_composite()` or is bypassed for the Skia path (see README).
+
+Each stage is timed and its duration logged at `INFO` level with the `[pipeline]` prefix.
 
 ---
 
 ## Stage 1 — Render Tree Builder
 
-**Crate/module:** `crates/gosub_pipeline/src/rendertree_builder/`  
+**Module:** `crates/gosub_render_pipeline/src/rendertree_builder/`  
 **Input:** `Arc<dyn PipelineDocument>`  
 **Output:** `RenderTree`
 
-The render tree is a pruned, flat-indexed copy of the DOM that contains only
-nodes relevant to rendering. Anything the CSS engine would also skip is dropped
-here before layout gets involved.
+Builds a pruned, flat-indexed view of the DOM that contains only nodes relevant to rendering.
 
 ### What gets filtered out
 
-- Elements whose tag name is in the *invisible set*:
-  `head`, `style`, `script`, `meta`, `link`, `title`
+- Tag names in the invisible set: `head`, `style`, `script`, `meta`, `link`, `title`
 - Comment nodes
 - Elements with `display: none`
 
 ### Algorithm
 
-`build_rendertree()` does an iterative post-order traversal using an explicit
-`Frame` stack (avoids stack overflow on deep documents). For each element node
-it pushes a `RenderNode` into the arena; for text nodes it preserves them as
-children of their parent element.
+`build_rendertree()` does an iterative post-order traversal using an explicit `Frame` stack (avoids stack overflow on deep documents). Each element node becomes a `RenderNode` in an arena; text nodes are preserved as children of their parent element.
 
-The result is a `HashMap<RenderNodeId, RenderNode>` with a single `root_id`.
-`RenderNodeId` is a newtype over `u64` and is convertible to/from the
-interface-level `NodeId`.
+Result: `HashMap<RenderNodeId, RenderNode>` with a single `root_id`. `RenderNodeId` is a newtype over `u64`.
 
 ---
 
 ## Stage 2 — Layout
 
-**Crate/module:** `crates/gosub_pipeline/src/layouter/taffy.rs`  
+**Module:** `crates/gosub_render_pipeline/src/layouter/taffy.rs`  
 **Input:** `RenderTree`, viewport `Dimension`  
-**Output:** `LayoutTree`
+**Output:** `Arc<LayoutTree>`
 
-Layout computes the final position and size of every render node using the
-[Taffy](https://github.com/DioxusLabs/taffy) CSS layout engine.
+Computes the final position and size of every render node using the [Taffy](https://github.com/DioxusLabs/taffy) CSS layout engine.
 
 ### Steps
 
-1. **Tree conversion** — `generate_tree()` walks the `RenderTree` and creates
-   a parallel `TaffyTree<TaffyContext>`. Each node carries a `TaffyContext`
-   that tells the measure callback what kind of content it holds.
+1. **Tree conversion** — `generate_tree()` walks the `RenderTree` and builds a parallel `TaffyTree<TaffyContext>`. Each node carries a `TaffyContext` that tells the measure callback what kind of content it holds.
+2. **CSS → Taffy** — `CssTaffyConverter` maps `StylePropertyList` values to Taffy's `Style` struct (flex, grid, box model, sizing, positioning, overflow, typography).
+3. **Measurement callbacks** — Taffy calls back for intrinsic sizes: text nodes call `get_text_layout()` with font descriptor + available width; image/SVG nodes return their intrinsic `Dimension`.
+4. **`populate_boxmodel()`** — Results are stored in `LayoutElementNode.box_model` as four `Edges` (margin, border, padding, content).
 
-2. **CSS → Taffy** — `CssTaffyConverter` maps pipeline `StylePropertyList`
-   values to Taffy's `Style` struct. Supported CSS properties include flex,
-   grid, box model, sizing, positioning, overflow, and typography basics.
-
-3. **Measurement callbacks** — Taffy calls back into Gosub for intrinsic sizes:
-   - *Text nodes* call `get_text_layout()` with the font descriptor and
-     available width, returning a pixel `Size`.
-   - *Image/SVG nodes* return the intrinsic `Dimension` stored in
-     `ElementContextImage` / `ElementContextSvg`.
-
-4. **`populate_boxmodel()`** — After Taffy finishes, results are read back and
-   stored in `LayoutElementNode.box_model` as a `BoxModel` with four `Edges`
-   (margin, border, padding, content).
-
-### `LayoutTree` structure
+### Output structure
 
 ```
 LayoutTree
-├── render_tree: RenderTree         (source)
+├── render_tree: RenderTree
 ├── arena: HashMap<LayoutElementId, LayoutElementNode>
 │   └── LayoutElementNode
-│       ├── box_model: BoxModel     (margin/border/padding/content)
+│       ├── box_model: BoxModel     (margin / border / padding / content rects)
 │       ├── context: ElementContext (None | Text | Image | Svg)
 │       └── children: Vec<LayoutElementId>
-└── root_dimension: Dimension       (viewport extent after layout)
+└── root_dimension: Dimension       (full page size after layout)
 ```
 
 ---
 
 ## Stage 3 — Layering
 
-**Crate/module:** `crates/gosub_pipeline/src/layering/`  
+**Module:** `crates/gosub_render_pipeline/src/layering/`  
 **Input:** `Arc<LayoutTree>`  
 **Output:** `Arc<LayerList>`
 
-Layering assigns layout elements to ordered *layers* for correct z-order
-compositing. The current implementation is intentionally minimal.
+Assigns layout elements to ordered layers for z-order compositing.
 
 ### Current behaviour
 
-- All elements go into a **default layer** at `order = 0`.
-- Any element corresponding to an `<img>` tag gets its own dedicated layer at
-  `order = 1`, ensuring images render on top of normal content.
+- All elements go into **layer 0** (base layer, `order = 0`).
+- Any element corresponding to an `<img>` tag gets its own layer at `order = 1`, ensuring images composite on top of normal content.
+
+The `LayerList` also provides spatial indexing for hover hit-testing via `find_element_at(x, y)`, which walks layers back-to-front checking element bounding boxes.
 
 ### Future work
 
-Full CSS stacking context support (z-index, `position: fixed`, opacity layers,
-mix-blend-mode) is not yet implemented. The architecture has a clean
-`LayerList` / `Layer` abstraction ready for it.
+Full CSS stacking context support (z-index, `position: fixed`, opacity, `mix-blend-mode`) is not yet implemented. The `LayerList` / `Layer` abstraction is ready for it.
 
 ---
 
 ## Stage 4 — Tiling
 
-**Crate/module:** `crates/gosub_pipeline/src/tiler.rs`  
-**Input:** `Arc<LayerList>`, viewport rect  
+**Module:** `crates/gosub_render_pipeline/src/tiler.rs`  
+**Input:** `Arc<LayerList>`  
 **Output:** `TileList`
 
-The viewport is divided into a uniform grid of tiles. Each tile represents a
-fixed-size region (default: **256 × 256 pixels**) of page space. Elements are
-clipped and distributed to whichever tiles they intersect.
+Divides the full page into a uniform grid of tiles and maps elements to tiles they intersect.
 
-### Tile grid construction
+### Tile grid
 
 ```
-cols = ceil(viewport_width  / tile_width)
-rows = ceil(viewport_height / tile_height)
+cols = ceil(page_width  / tile_width)   // default tile_width  = 256 px
+rows = ceil(page_height / tile_height)  // default tile_height = 256 px
 ```
 
-One grid is created per layer. Tiles are inserted into an **R* tree**
-(`rstar::RTree`) for fast spatial queries.
+One grid is created per layer. Tiles are inserted into an **R\* tree** (`rstar::RTree`) for fast spatial queries.
 
 ### Element distribution
 
-For each layout element, `get_intersecting_tiles()` queries the R* tree and
-returns all tiles the element's bounding rect overlaps. For each intersecting
-tile, a `TiledLayoutElement` is created:
+For each layout element, `get_intersecting_tiles()` queries the R\* tree and returns all tiles the element's bounding rect overlaps. For each intersecting tile a `TiledLayoutElement` is created:
 
-- `rect` — the element's bounding box clipped to the tile boundary
-- `position` — where the element origin falls inside the tile
-- `paint_commands` — filled in Stage 5
+- `rect` — the element's bounding box clipped to this tile
+- `position` — element origin relative to tile top-left
+- `paint_commands` — filled in stage 5
+
+The background colour is extracted from the `<html>` or `<body>` element and stored in `Tile.bgcolor` so the rasterizer can clear each tile to the page background before drawing content.
 
 ### `TileState`
 
-Each tile starts with `state = Dirty`. After rasterization it becomes `Clean`
-(has a texture) or `Empty` (no visible content, skip compositing).
+| State | Meaning |
+|---|---|
+| `Dirty` | Needs rasterization |
+| `Clean` | Pixel data is valid; has a `texture_id` |
+| `Empty` | No visible content; skip compositing |
+| `Unrenderable` | Backend cannot rasterize this tile |
 
 ---
 
 ## Stage 5 — Painting
 
-**Crate/module:** `crates/gosub_pipeline/src/painter/`  
+**Module:** `crates/gosub_render_pipeline/src/painter/`  
 **Input:** `TileList` (elements without paint commands)  
 **Output:** `TileList` (elements with `Vec<PaintCommand>`)
 
-The painter converts each `TiledLayoutElement` into a sequence of backend-
-independent draw commands. At this stage no pixels are produced — painting
-is purely a data transformation.
+Converts each `TiledLayoutElement` into a backend-agnostic sequence of draw commands. No pixels are produced at this stage.
 
 ### Command generation
 
-`Painter::paint(element, browser_state)` is called for each element in each
-tile. It inspects the element's `ElementContext` and `BoxModel` to decide which
-commands to emit:
+`Painter::paint(element, browser_state)` inspects `ElementContext` and `BoxModel`:
 
-| Element kind | Command emitted |
+| Element kind | Commands emitted |
 |---|---|
 | Text node | `PaintCommand::Text { text, font_info, brush, rect }` |
 | `<img>` | `PaintCommand::Rectangle` with `Brush::Image(media_id)` |
 | `<svg>` | `PaintCommand::Svg { media_id, rect }` |
-| Everything else | `PaintCommand::Rectangle` with background color, border, radius |
+| Everything else | `PaintCommand::Rectangle` with background colour, border, radius |
+
+Optional debug overlays (hover box-model, wireframe) are also added here when `BrowserState` flags are set.
 
 ### Paint command types
 
 ```rust
-pub enum PaintCommand {
-    Text(Text),
-    Rectangle(Rectangle),
-    Svg(PaintSvg),
-}
+PaintCommand::Rectangle(Rectangle)   // fill + stroke a rect; optional border-radius
+PaintCommand::Text(Text)             // string, FontInfo, colour brush, bounding rect
+PaintCommand::Svg(PaintSvg)         // reference to a loaded SVG in MediaStore
 ```
-
-A `Rectangle` carries:
-- `rect: Rect` — position and size
-- `brush: Brush` — fill (`Solid(Color)` or `Image(MediaId)`)
-- `border: Option<Border>` — per-side width, style, color
-- `radius: Option<Radius>` — per-corner border radius
-
-A `Text` carries the string, `FontInfo` (family, size, weight), colour brush,
-and the bounding rect.
 
 ---
 
 ## Stage 6 — Rasterization
 
-**Crate/module:** `crates/gosub_pipeline/src/rasterizer/`  
-**Input:** `TileList`, `&MediaStore`  
+**Module:** `crates/gosub_render_pipeline/src/rasterizer.rs` (trait)  
+**Implementations:** `gosub_renderer_cairo`, `gosub_renderer_skia`  
+**Input:** `TileList` + `MediaStore`  
 **Output:** `TextureStore` (pixel buffers keyed by `TextureId`)
 
-Rasterization executes the paint commands and produces raw ARGB32 pixel buffers.
-The rasterizer backend is selected at compile time via feature flags.
+Executes paint commands and produces raw pixel buffers. The rasterizer is selected at compile time via feature flags.
 
-### Cairo rasterizer (`rasterizer/cairo.rs`)
+### Rasterable trait
 
-1. Create a `cairo::ImageSurface` (ARgb32 format) sized to the tile dimensions.
-2. Create a `cairo::Context` from the surface.
-3. For each paint command in the tile:
-   - `Rectangle` → `rectangle::do_paint_rectangle()` — sets source colour or
-     image brush, draws path, fills; handles borders and rounded corners.
-   - `Text` → `text::pango::do_paint_text()` (or Parley/Skia stub) — renders
-     text via Pangocairo into an off-screen surface, then blits.
-   - `Svg` → `svg::do_paint_svg()` — loads SVG from `MediaStore`, renders via
-     librsvg.
-4. Flush the surface, copy pixel data to a `Vec<u8>`, store in `TextureStore`.
+```rust
+pub trait Rasterable {
+    fn rasterize(
+        &self,
+        tile: &Tile,
+        texture_store: &mut TextureStore,
+        media_store: &MediaStore,
+    ) -> Option<TextureId>;
+}
+```
 
-All coordinates inside the rasterizer are in **tile-local space** (origin at
-tile top-left). The tiler's `position` field provides the tile-relative offset
-for each element.
+Returns `None` for tiles with no renderable content (mapped to `TileState::Empty`).
 
-### Vello rasterizer (`rasterizer/vello.rs`)
+### Cairo rasterizer (`crates/gosub_renderer_cairo`)
 
-GPU-accelerated path using wgpu. Paint commands are translated to Vello scene
-graph nodes and submitted to the GPU. Texture readback populates the same
-`TextureStore` interface so Stage 7 is backend-agnostic.
+Feature flag: `backend_cairo`
 
-### Text backends
+- **DPR:** reads `DEVICE_PIXEL_RATIO` static atomic (set by the GTK display thread from `area.scale_factor()`).
+- **Surface size:** `tile_css_width × DPR` by `tile_css_height × DPR` physical pixels.
+- **Context:** creates a `cairo::Context`, scales it by DPR so all CSS-pixel coordinates map to physical pixels, then dispatches commands:
+  - `Rectangle` → `rectangle::do_paint_rectangle()` — path + fill; handles borders and border-radius.
+  - `Text` → `text::pango::do_paint_text()` with Pango (`backend_cairo_pango`) or Parley.
+  - `Svg` → `svg::do_paint_svg()` via librsvg.
+- **Output:** premultiplied ARGB32 pixel data (`cairo::Format::ARgb32`), stride = `tile_phys_width × 4`.
 
-| Feature flag | Library | Notes |
-|---|---|---|
-| `text_pango` | Pangocairo | Requires GTK4; production quality |
-| `text_parley` | Parley | Pure Rust; default |
-| `text_skia` | Skia | Stub, not yet implemented |
+### Skia rasterizer (`crates/gosub_renderer_skia`)
 
-When multiple text features are enabled, `text_pango` takes precedence.
+Feature flag: `backend_skia`
+
+- **DPR:** takes `dpi_scale_factor: f32` at construction (currently 1.0 — no DPR scaling).
+- **Surface size:** `tile_css_width` by `tile_css_height` (CSS pixel dimensions; no physical scaling).
+- **Context:** creates a `skia_safe` raster surface, clips to tile bounds, pre-translates canvas by `-tile.rect.x, -tile.rect.y` so paint commands work in page coordinates, then dispatches:
+  - `Rectangle` → `rectangle::do_paint_rectangle()` — `draw_rect` / `draw_round_rect`; handles solid fills and borders.
+  - `Text` → `text::do_paint_text()` — word-wraps via `font.measure_str()`, renders with `draw_str()`.
+  - `Svg` → `svg::do_paint_svg()`.
+- **Output:** premultiplied BGRA32 (`raster_n32_premul`), stride = `tile_width × 4`. On little-endian Linux `n32 = BGRA8888`, which is byte-for-byte compatible with Cairo's `ARgb32`.
+
+### Pixel format compatibility
+
+Both rasterizers produce `BGRA8888` (premultiplied) in memory on little-endian systems. Cairo calls this `ARgb32`; Skia calls it `n32_premul`; they are the same byte layout. This means the same `DisplayItem::Blit` handling code works for both backends.
 
 ---
 
 ## Stage 7 — Compositing
 
-**Location:** `pipeline_render()` in `crates/gosub_engine/src/engine/context.rs`  
-**Input:** `TileList` + `TextureStore`  
+**Location:** `pipeline_composite()` in `crates/gosub_engine/src/engine/context.rs`  
+**Input:** `PipelineCache` + scroll offset + viewport size  
 **Output:** `RenderList` populated with `DisplayItem::Blit`
 
-The final stage assembles rasterized tiles into the display list that backends
-consume. Only `Clean` tiles (those that were successfully rasterized) are
-included.
+The final stage of the display-list path selects visible tiles from the cache and emits blit items for the render backend. It runs every frame; cost is proportional to visible tile count and is typically sub-millisecond.
 
 ### Algorithm
 
+```rust
+rl.push(DisplayItem::Clear { color: WHITE });
+for tile in cache.tiles {
+    // Cull tiles fully outside the viewport
+    if tile.page_x + tile.width  <= scroll_x { continue; }
+    if tile.page_y + tile.height <= scroll_y { continue; }
+    if tile.page_x >= scroll_x + vp_width    { continue; }
+    if tile.page_y >= scroll_y + vp_height   { continue; }
+
+    rl.push(DisplayItem::Blit {
+        x: (tile.page_x - scroll_x) as f32,
+        y: (tile.page_y - scroll_y) as f32,
+        w: tile.width,
+        h: tile.height,
+        data: (*tile.data).clone(),   // Arc<Vec<u8>>, premultiplied BGRA32
+    });
+}
 ```
-for tile in tile_list.all_tiles():
-    if tile.state == Clean and tile.texture_id is Some:
-        texture = texture_store.get(texture_id)
-        render_list.push(DisplayItem::Blit {
-            x: tile.rect.x,
-            y: tile.rect.y,
-            w: texture.width,
-            h: texture.height,
-            data: texture.data.clone(),   // ARgb32, stride = w * 4
-        })
-```
 
-`Empty` tiles are skipped (transparent region, no need to blit).
+### Skia bypass (TileCache path)
 
-### Current limitation
-
-Stages 6 and 7 are currently gated on `#[cfg(feature = "backend_cairo")]`.
-The Vello backend has its own rasterization path and does not use the
-`TextureStore` blit approach. Supporting multiple compositing strategies is
-future work.
+When `backend_skia` is active, `pipeline_composite()` and `RenderBackend::render()` are not called. Instead the engine calls `tile_cache_handle(dpr)` which wraps the same `Arc<Vec<CachedTile>>` into an `ExternalHandle::TileCache` and submits it to the compositor. The host window thread composites the tiles directly — for example, by uploading each tile as a Skia image and calling `draw_image()` on a GPU canvas.
 
 ---
 
 ## Dirty flags and caching
 
-The pipeline short-circuits at `rebuild_render_list_if_needed()` when
-`render_dirty` is false. Within the pipeline itself there is currently no
-incremental caching — all seven stages run from scratch on every dirty frame.
+`BrowsingContext` tracks several granular dirty flags:
 
-Tile `TileState` is reset to `Dirty` at the start of each pipeline run.
-Future optimisations could preserve `Clean` tiles whose source elements have
-not changed.
+| Flag | Set when | Triggers |
+|---|---|---|
+| `render_dirty` | DOM change, style change, layout change, viewport resize | Full stages 1–6 rebuild |
+| `scroll_dirty` | Scroll offset changes | Stage 7 only (or TileCache fast path) |
+| `dom_dirty` | HTML content changed | Sets `render_dirty` |
+| `style_dirty` | CSS computed values changed | Sets `render_dirty` |
+| `layout_dirty` | Box model changed | Sets `render_dirty` |
+
+`rebuild_render_list_if_needed()` checks `render_dirty` first; if true it calls `pipeline_build_cache()`, clears all flags, then runs stage 7. If only `scroll_dirty` is true it skips stages 1–6 and runs stage 7 against the existing cache.
+
+### Scroll fast paths
+
+**Cairo** (`backend_cairo`): `take_scroll_handle(dpr)` returns `Some(TileCache)` only when `scroll_dirty && !render_dirty`. The tab worker submits the handle immediately (in the scroll event handler, not waiting for the next tick) to eliminate up to 33 ms of latency at 30 fps.
+
+**Skia** (`backend_skia`): `tile_cache_handle(dpr)` is called unconditionally after `rebuild_render_list_if_needed()`. The TileCache is always submitted regardless of what triggered the dirty flag.
+
+### Hover hit-testing
+
+`BrowsingContext::update_hover(vp_x, vp_y)` uses the cached `LayerList` to find the DOM node under the cursor without re-running any pipeline stage. It walks ancestor nodes to detect `<a href>` links and emits `EngineEvent::HoverUrl`.

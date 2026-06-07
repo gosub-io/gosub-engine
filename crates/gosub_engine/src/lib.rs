@@ -155,10 +155,14 @@ pub mod config {
     };
 }
 
-/// Initialize backend-specific GTK/GLib resources that must be resolved on the main thread
-/// before any background rendering begins. Call once inside `connect_activate`, after GTK
-/// is initialised, before any tabs start loading.
+/// Initialize GTK and Cairo/Pango resources that must be called on the main thread before
+/// any background rendering begins. Required when using `backend_cairo_pango` outside a
+/// GTK window (e.g. egui, winit, headless). GTK4-window apps may skip this — GTK is
+/// already initialized by their `Application`. On headless systems set GDK_BACKEND=offscreen.
 pub fn init_gtk_resources() {
-    #[cfg(feature = "backend_cairo")]
-    gosub_renderer_cairo::font::pango::init_system_ui_font();
+    #[cfg(feature = "backend_cairo_pango")]
+    {
+        gtk4::init().expect("GTK init failed — on headless systems set GDK_BACKEND=offscreen");
+        gosub_renderer_cairo::font::pango::init_system_ui_font();
+    }
 }

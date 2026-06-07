@@ -476,7 +476,7 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
     let h = ADDRESS_BAR_HEIGHT as i32;
     let w = win_w as i32;
 
-    let Ok(mut surface) = gtk4::cairo::ImageSurface::create(gtk4::cairo::Format::ARgb32, w, h) else {
+    let Ok(mut surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h) else {
         // Fallback: fill with flat gray
         let gray = 0x00D0D0D0u32;
         for row in 0..ADDRESS_BAR_HEIGHT as usize {
@@ -488,7 +488,7 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
     };
 
     {
-        let Ok(cr) = gtk4::cairo::Context::new(&surface) else {
+        let Ok(cr) = cairo::Context::new(&surface) else {
             return;
         };
 
@@ -512,7 +512,7 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
 
         // URL text
         cr.set_source_rgb(0.0, 0.0, 0.0);
-        cr.select_font_face("Sans", gtk4::cairo::FontSlant::Normal, gtk4::cairo::FontWeight::Normal);
+        cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
         cr.set_font_size(14.0);
         cr.move_to(10.0, h as f64 - 10.0);
         cr.show_text(url).unwrap_or_default();
@@ -538,10 +538,13 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
 }
 
 fn main() {
-    simple_logger::init_with_env().unwrap_or_default();
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap_or_default();
 
     // Cairo/Pango need GTK4 initialised. No GTK window is created.
-    gtk4::init().expect("GTK init failed — on headless systems set GDK_BACKEND=offscreen");
     gosub_engine::init_gtk_resources();
 
     let initial_url = {

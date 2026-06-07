@@ -12,8 +12,27 @@ use gosub_interface::node::NodeType;
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
 use gosub_shared::node::NodeId;
-use log::warn;
 use std::slice;
+
+/// Strip a vendor prefix (-webkit-, -moz-, -ms-, -o-) from a CSS keyword, returning
+/// the unprefixed form. E.g. "-webkit-match-parent" → "match-parent".
+fn strip_vendor_prefix(s: &str) -> &str {
+    for prefix in &["-webkit-", "-moz-", "-ms-", "-o-"] {
+        if let Some(rest) = s.strip_prefix(prefix) {
+            return rest;
+        }
+    }
+    s
+}
+
+/// Recursively normalize vendor-prefixed string values to their standard form.
+fn normalize_vendor_prefixes(value: CssValue) -> CssValue {
+    match value {
+        CssValue::String(s) => CssValue::String(strip_vendor_prefix(&s).to_string()),
+        CssValue::List(values) => CssValue::List(values.into_iter().map(normalize_vendor_prefixes).collect()),
+        other => other,
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Css3System;
@@ -57,6 +76,9 @@ impl CssSystem for Css3System {
                     // Selector matched, so we add all declared values to the map
                     for declaration in rule.declarations() {
                         let value = resolve_functions::<C>(&declaration.value, doc, id);
+                        // Normalize vendor-prefixed values (-webkit-X → X) so they match
+                        // against the standard keyword definitions.
+                        let value = normalize_vendor_prefixes(value);
 
                         // If the property has a definition, validate and expand shorthands.
                         // If not (e.g. margin-top, padding-bottom — longhand properties not yet
@@ -89,7 +111,7 @@ impl CssSystem for Css3System {
                                             continue;
                                         }
                                     }
-                                    warn!("Declaration does not match definition: {declaration:?}");
+                                    log::debug!("Declaration does not match definition: {declaration:?}");
                                     continue;
                                 }
 
