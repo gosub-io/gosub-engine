@@ -1783,21 +1783,12 @@ dependencies = [
 
 [[package]]
 name = "ecolor"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc4feb366740ded31a004a0e4452fbf84e80ef432ecf8314c485210229672fd1"
-dependencies = [
- "emath 0.31.1",
-]
-
-[[package]]
-name = "ecolor"
 version = "0.34.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a05fbfa222ffb51989d5ccf33e5f7aebfcf96c5023413856b0c3618a7f79896e"
 dependencies = [
  "bytemuck",
- "emath 0.34.3",
+ "emath",
 ]
 
 [[package]]
@@ -1809,7 +1800,7 @@ dependencies = [
  "ahash",
  "bytemuck",
  "document-features",
- "egui 0.34.3",
+ "egui",
  "egui-wgpu",
  "egui-winit",
  "egui_glow",
@@ -1838,20 +1829,6 @@ dependencies = [
 
 [[package]]
 name = "egui"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25dd34cec49ab55d85ebf70139cb1ccd29c977ef6b6ba4fe85489d6877ee9ef3"
-dependencies = [
- "ahash",
- "bitflags 2.12.1",
- "emath 0.31.1",
- "epaint 0.31.1",
- "nohash-hasher",
- "profiling",
-]
-
-[[package]]
-name = "egui"
 version = "0.34.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42112be0ae157289312b92b3dfaf20e911b5a3c4c65d4aab0e7c47fbc0ce16e3"
@@ -1859,8 +1836,8 @@ dependencies = [
  "accesskit",
  "ahash",
  "bitflags 2.12.1",
- "emath 0.34.3",
- "epaint 0.34.3",
+ "emath",
+ "epaint",
  "log",
  "nohash-hasher",
  "profiling",
@@ -1877,8 +1854,8 @@ dependencies = [
  "ahash",
  "bytemuck",
  "document-features",
- "egui 0.34.3",
- "epaint 0.34.3",
+ "egui",
+ "epaint",
  "log",
  "profiling",
  "thiserror 2.0.18",
@@ -1897,7 +1874,7 @@ dependencies = [
  "accesskit_winit",
  "arboard",
  "bytemuck",
- "egui 0.34.3",
+ "egui",
  "log",
  "objc2 0.6.4",
  "objc2-foundation 0.3.2",
@@ -1917,7 +1894,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62b652957fa7e1ab01e8fecbfbf4e35f6e43a53fa98af8a562b50d5403cd44b9"
 dependencies = [
  "bytemuck",
- "egui 0.34.3",
+ "egui",
  "glow",
  "log",
  "memoffset",
@@ -1932,12 +1909,6 @@ name = "either"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91622ff5e7162018101f2fea40d6ebf4a78bbe5a49736a2020649edf9693679e"
-
-[[package]]
-name = "emath"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e4cadcff7a5353ba72b7fea76bf2122b5ebdbc68e8155aa56dfdea90083fe1b"
 
 [[package]]
 name = "emath"
@@ -2015,31 +1986,15 @@ dependencies = [
 
 [[package]]
 name = "epaint"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41fcc0f5a7c613afd2dee5e4b30c3e6acafb8ad6f0edb06068811f708a67c562"
-dependencies = [
- "ab_glyph",
- "ahash",
- "ecolor 0.31.1",
- "emath 0.31.1",
- "epaint_default_fonts 0.31.1",
- "nohash-hasher",
- "parking_lot",
- "profiling",
-]
-
-[[package]]
-name = "epaint"
 version = "0.34.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6675898a291ec212fc3df04f537d177fce8496120244590e6359dcaa4c25da79"
 dependencies = [
  "ahash",
  "bytemuck",
- "ecolor 0.34.3",
- "emath 0.34.3",
- "epaint_default_fonts 0.34.3",
+ "ecolor",
+ "emath",
+ "epaint_default_fonts",
  "font-types 0.11.3",
  "log",
  "nohash-hasher",
@@ -2050,12 +2005,6 @@ dependencies = [
  "smallvec",
  "vello_cpu",
 ]
-
-[[package]]
-name = "epaint_default_fonts"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc7e7a64c02cf7a5b51e745a9e45f60660a286f151c238b9d397b3e923f5082f"
 
 [[package]]
 name = "epaint_default_fonts"
@@ -2141,7 +2090,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "eframe",
- "egui 0.31.1",
+ "egui",
  "gosub_engine",
  "gosub_render_pipeline",
  "log",
@@ -2159,7 +2108,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "eframe",
- "egui 0.31.1",
+ "egui",
  "gosub_engine",
  "gosub_render_pipeline",
  "log",
@@ -2177,7 +2126,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "eframe",
- "egui 0.31.1",
+ "egui",
  "gosub_engine",
  "gosub_render_pipeline",
  "log",
@@ -2199,7 +2148,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "eframe",
- "egui 0.31.1",
+ "egui",
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_shared",
@@ -3284,7 +3233,7 @@ dependencies = [
  "cow-utils",
  "dashmap",
  "eframe",
- "egui 0.31.1",
+ "egui",
  "env_logger",
  "futures",
  "futures-core",
