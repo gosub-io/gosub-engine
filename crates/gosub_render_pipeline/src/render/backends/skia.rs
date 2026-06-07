@@ -88,11 +88,9 @@ impl RenderBackend for SkiaBackend {
                             skia_safe::AlphaType::Premul,
                             None,
                         );
-                        if let Some(image) = skia_safe::images::raster_from_data(
-                            &info,
-                            skia_safe::Data::new_copy(data),
-                            stride,
-                        ) {
+                        if let Some(image) =
+                            skia_safe::images::raster_from_data(&info, skia_safe::Data::new_copy(data), stride)
+                        {
                             canvas.draw_image(&image, (*x, *y), None);
                         }
                     }
@@ -116,7 +114,7 @@ impl RenderBackend for SkiaBackend {
             s.pixels.clone(),
             s.size.width,
             s.size.height,
-            (s.size.width * 4) as u32,
+            s.size.width * 4,
             PixelFormat::PreMulArgb32,
         ))
     }
@@ -156,17 +154,19 @@ pub struct SkiaSurface {
 impl SkiaSurface {
     fn new(size: SurfaceSize, present: PresentMode) -> Result<Self> {
         let pixels = vec![0u8; size.width as usize * size.height as usize * 4];
-        Ok(Self { size, pixels, present, frame_id: 0 })
+        Ok(Self {
+            size,
+            pixels,
+            present,
+            frame_id: 0,
+        })
     }
 
     fn with_canvas(&mut self, f: impl FnOnce(&skia_safe::Canvas)) {
-        let info = skia_safe::ImageInfo::new(
-            skia_safe::ISize::new(self.size.width as i32, self.size.height as i32),
-            skia_safe::ColorType::BGRA8888,
-            skia_safe::AlphaType::Premul,
-            None,
-        );
-        let Some(mut surface) = skia_safe::surfaces::raster(&info, None, None) else {
+        let Some(mut surface) = skia_safe::surfaces::raster_n32_premul(skia_safe::ISize::new(
+            self.size.width as i32,
+            self.size.height as i32,
+        )) else {
             log::error!(
                 "SkiaBackend: failed to create raster surface {}x{}",
                 self.size.width,
