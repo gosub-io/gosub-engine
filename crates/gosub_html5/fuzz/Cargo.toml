@@ -1,0 +1,31 @@
+[package]
+name = "gosub-html5-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+gosub_html5 = { path = ".." }
+gosub_css3 = { path = "../../gosub_css3" }
+gosub_interface = { path = "../../gosub_interface" }
+gosub_shared = { path = "../../gosub_shared" }
+
+# Keep this crate out of the parent workspace
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "html5_parser"
+path = "fuzz_targets/html5_parser.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "tokenizer"
+path = "fuzz_targets/tokenizer.rs"
+test = false
+doc = false

@@ -246,9 +246,7 @@ fn match_component_group<'a>(
                 GroupCombinators::ExactlyOne => match_group_exactly_one(input, components, shorthand_resolver),
             }
         }
-        e => {
-            panic!("Unknown syntax component group: {e:?}");
-        }
+        _ => no_match(input),
     }
 }
 

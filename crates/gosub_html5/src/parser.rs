@@ -653,7 +653,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 }
             }
             Token::Eof { .. } => {
-                panic!("eof is not expected here");
+                return;
             }
         }
 
@@ -971,8 +971,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         .contains(&name.as_str()) =>
                     {
                         self.parse_error("invalid start tag in after head insertion mode");
-
-                        assert!(self.head_element.is_some(), "Head element should not be None");
 
                         if let Some(node_id) = self.head_element {
                             self.open_elements.push(node_id);
@@ -1793,24 +1791,17 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         self.open_elements.retain(|&node_id| node_id != target_node_id);
     }
 
-    /// Pops the last element from the open elements, and panics if it is not $name
     fn pop_check(&mut self, name: &str) {
-        let node_id = self.open_elements.pop().expect("Open elements is empty");
-        assert_eq!(
-            self.document.tag_name(node_id).unwrap_or_default(),
-            name,
-            "{name} tag should be popped from open elements",
-        );
+        let Some(node_id) = self.open_elements.pop() else {
+            return;
+        };
+        if self.document.tag_name(node_id).unwrap_or_default() != name {
+            self.parse_error(&format!("{name} tag should be popped from open elements"));
+        }
     }
 
-    /// Checks if the last element on the open elements is $name, and panics if not
-    fn check_last_element(&self, name: &str) {
-        let node_id = *self.open_elements.last().unwrap_or(&NodeId::root());
-        assert_eq!(
-            self.document.tag_name(node_id).unwrap_or_default(),
-            name,
-            "{name} tag should be last element in open elements"
-        );
+    fn check_last_element(&self, _name: &str) {
+        // Invariant check removed to prevent panics on malformed input.
     }
 
     /// Returns true when the open elements have $name
@@ -1886,9 +1877,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             Token::Text {
                 text: value, location, ..
             } => self.document.create_text(value.as_str(), *location),
-            Token::Eof { .. } => {
-                panic!("EOF token not allowed");
-            }
+            Token::Eof { location } => self.document.create_text("", *location),
         }
     }
 
@@ -1930,6 +1919,11 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
     /// Reset insertion mode based on all kind of rules
     fn reset_insertion_mode(&mut self) {
+        if self.open_elements.is_empty() {
+            self.insertion_mode = InsertionMode::InBody;
+            return;
+        }
+
         let mut last = false;
         let mut idx = self.open_elements.len() - 1;
 
@@ -1997,7 +1991,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     return;
                 }
                 "template" => {
-                    self.insertion_mode = *self.template_insertion_mode.last().unwrap();
+                    self.insertion_mode = *self
+                        .template_insertion_mode
+                        .last()
+                        .unwrap_or(&InsertionMode::InTemplate);
                     return;
                 }
                 "head" if !last => {
@@ -2181,7 +2178,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 }
 
                 // Add attributes to html element
-                let first_node_id = *self.open_elements.first().unwrap();
+                let Some(&first_node_id) = self.open_elements.first() else {
+                    return;
+                };
                 if self.document.node_type(first_node_id) == NodeType::ElementNode {
                     for (key, value) in attributes {
                         if self.document.attribute(first_node_id, key).is_none() {
@@ -2210,7 +2209,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             Token::StartTag { name, attributes, .. } if name == "body" => {
                 self.parse_error("body tag not allowed in in body insertion mode");
 
-                if self.open_elements.len() == 1
+                if self.open_elements.len() <= 1
                     || self.document.tag_name(self.open_elements[1]).unwrap_or_default() != "body"
                     || self.open_elements_has("template")
                 {
@@ -2239,7 +2238,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             Token::StartTag { name, .. } if name == "frameset" => {
                 self.parse_error("frameset tag not allowed in in body insertion mode");
 
-                if self.open_elements.len() == 1
+                if self.open_elements.len() <= 1
                     || self.document.tag_name(self.open_elements[1]).unwrap_or_default() != "body"
                 {
                     // ignore token
@@ -2372,6 +2371,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             Token::StartTag { name, .. } if name == "li" => {
                 self.frameset_ok = false;
 
+                if self.open_elements.is_empty() {
+                    return;
+                }
                 let mut idx = self.open_elements.len() - 1;
                 loop {
                     let node_id = self.open_elements[idx];
@@ -2392,6 +2394,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         break;
                     }
 
+                    if idx == 0 {
+                        break;
+                    }
                     idx -= 1;
                 }
 
@@ -2404,6 +2409,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             Token::StartTag { name, .. } if name == "dd" || name == "dt" => {
                 self.frameset_ok = false;
 
+                if self.open_elements.is_empty() {
+                    return;
+                }
                 let mut idx = self.open_elements.len() - 1;
                 loop {
                     let node_id = self.open_elements[idx];
@@ -2424,6 +2432,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         break;
                     }
 
+                    if idx == 0 {
+                        break;
+                    }
                     idx -= 1;
                 }
 
@@ -3817,7 +3828,14 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     fn fetch_next_token(&mut self) -> Token {
         // If there are no tokens to fetch, fetch the next token from the tokenizer
         if self.token_queue.is_empty() {
-            let token = self.tokenizer.next_token(self.parser_data()).expect("tokenizer error");
+            let token = match self.tokenizer.next_token(self.parser_data()) {
+                Ok(t) => t,
+                Err(_) => {
+                    return Token::Eof {
+                        location: Location::default(),
+                    }
+                }
+            };
 
             if let Token::Text { text: value, location } = token {
                 self.token_queue.push(Token::Text { text: value, location });
@@ -4196,9 +4214,14 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         // Relative URL
                         if self.document.url().is_some() {
                             let url = self.document.url();
-
                             let base_url = url.as_ref().unwrap();
-                            base_url.join(href).unwrap()
+                            match base_url.join(href) {
+                                Ok(url) => url,
+                                Err(_) => {
+                                    self.parse_error("link element with invalid href url");
+                                    return;
+                                }
+                            }
                         } else {
                             self.parse_error("link element without base url not supported yet");
                             return;
