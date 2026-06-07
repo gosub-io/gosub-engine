@@ -153,9 +153,12 @@ impl Node {
     pub fn is_inline_element(&self) -> bool {
         match &self.node_type {
             NodeType::Element(data) => match data.get_style(&StyleProperty::Display) {
-                // The CSS initial value for display is inline; treat unset as inline.
-                None => true,
                 Some(Value::Display(Display::Inline)) => true,
+                // When no display is explicitly set, use the HTML element's intrinsic type.
+                // CSS initial value is `inline`, but UA stylesheets set `block` for most
+                // HTML structural elements.  Defaulting unknown elements to inline here
+                // would incorrectly group <li>, <h2>, <div> etc. into inline flows.
+                None => is_intrinsically_inline(&data.tag_name),
                 _ => false,
             },
             _ => false,
@@ -212,4 +215,19 @@ impl Node {
             node_type: NodeType::Element(ElementData::new(tag_name, attributes, self_closing, style)),
         }
     }
+}
+
+/// Returns true if `tag` is an HTML element that is inline by spec when no CSS is applied.
+/// Block-level elements (`div`, `p`, `h1`–`h6`, `li`, `section`, etc.) return false so that
+/// missing `display` in NodeStyle (e.g. from a UA-stylesheet gap) does not accidentally put
+/// them into an inline formatting context.
+fn is_intrinsically_inline(tag: &str) -> bool {
+    matches!(
+        tag.to_ascii_lowercase().as_str(),
+        "a" | "abbr" | "acronym" | "b" | "bdo" | "big" | "br" | "button" | "cite"
+            | "code" | "dfn" | "em" | "i" | "img" | "input" | "kbd" | "label"
+            | "map" | "object" | "output" | "q" | "samp" | "select" | "small"
+            | "span" | "strong" | "sub" | "sup" | "textarea" | "time" | "tt"
+            | "u" | "var"
+    )
 }

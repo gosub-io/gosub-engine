@@ -20,6 +20,7 @@ use softbuffer::Surface;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
+use tokio::sync::watch;
 use url::Url;
 use uuid::uuid;
 use winit::application::ApplicationHandler;
@@ -52,6 +53,7 @@ struct BrowserApp {
     compositor: Arc<RwLock<DefaultCompositor>>,
     #[allow(dead_code)]
     proxy: EventLoopProxy<()>,
+    mouse_tx: watch::Sender<Option<(f32, f32)>>,
 
     window: Option<Arc<Window>>,
     surface: Option<Surface<Arc<Window>, Arc<Window>>>,
@@ -109,6 +111,7 @@ impl BrowserApp {
                     content_h,
                     handle,
                     &mut self.page_height,
+                    self.scroll,
                 );
             }
         }
@@ -122,11 +125,11 @@ impl BrowserApp {
     }
 
     fn to_css_x(&self, x: f64) -> f32 {
-        (x + self.scroll.0 as f64) as f32
+        x as f32
     }
 
     fn to_css_y(&self, y: f64) -> f32 {
-        (y - ADDRESS_BAR_HEIGHT as f64 + self.scroll.1 as f64) as f32
+        (y - ADDRESS_BAR_HEIGHT as f64) as f32
     }
 }
 
@@ -205,10 +208,7 @@ impl ApplicationHandler<()> for BrowserApp {
                 self.cursor = position;
                 if !self.is_in_address_bar(position.y) {
                     let (x, y) = (self.to_css_x(position.x), self.to_css_y(position.y));
-                    let tab = self.tab.clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab.send(TabCommand::MouseMove { x, y }).await;
-                    });
+                    let _ = self.mouse_tx.send(Some((x, y)));
                 }
             }
 
@@ -305,6 +305,7 @@ fn blit_to_buffer(
     content_h: u32,
     handle: ExternalHandle,
     page_height: &mut f32,
+    scroll: (f32, f32),
 ) {
     match handle {
         ExternalHandle::CpuPixelsOwned {
@@ -315,56 +316,72 @@ fn blit_to_buffer(
             ..
         } => {
             let copy_rows = height.min(content_h) as usize;
+            let cols = (width as usize).min(win_w as usize);
             for row in 0..copy_rows {
-                for col in 0..(width as usize).min(win_w as usize) {
+                let dst_base = (addr_h as usize + row) * win_w as usize;
+                for col in 0..cols {
                     let off = row * stride as usize + col * 4;
                     let b = pixels[off] as u32;
                     let g = pixels[off + 1] as u32;
                     let r = pixels[off + 2] as u32;
-                    let idx = (addr_h as usize + row) * win_w as usize + col;
-                    if idx < buf.len() {
-                        buf[idx] = (r << 16) | (g << 8) | b;
-                    }
+                    buf[dst_base + col] = (r << 16) | (g << 8) | b;
                 }
             }
         }
         ExternalHandle::TileCache {
             tiles,
             page_height: ph,
-            scroll_x,
-            scroll_y,
             dpr,
             ..
         } => {
             *page_height = ph;
             let d = dpr as usize;
-            let sx = scroll_x as usize * d;
-            let sy = scroll_y as usize * d;
+            // Use the locally-tracked scroll position so scrolling feels instant without
+            // waiting for the engine to acknowledge the scroll command.
+            let sx = scroll.0 as usize * d;
+            let sy = scroll.1 as usize * d;
             for tile in tiles.iter() {
-                let screen_x = (tile.page_x as usize * d).saturating_sub(sx);
-                let screen_y = (tile.page_y as usize * d).saturating_sub(sy);
+                let tile_px = tile.page_x as usize * d;
+                let tile_py = tile.page_y as usize * d;
                 let tw = tile.width as usize;
                 let th = tile.height as usize;
+
+                // Skip tiles entirely outside the viewport.
+                if tile_px + tw <= sx || tile_py + th <= sy {
+                    continue;
+                }
+
+                // First visible row/col within the tile (> 0 when tile is partially above/left).
+                let row_start = if tile_py < sy { sy - tile_py } else { 0 };
+                let col_start = if tile_px < sx { sx - tile_px } else { 0 };
+
+                // Screen position of the first visible pixel.
+                let screen_x = if tile_px >= sx { tile_px - sx } else { 0 };
+                let screen_y = if tile_py >= sy { tile_py - sy } else { 0 };
+
                 let tile_u32 =
                     unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
-                for row in 0..th {
-                    let dst_y = addr_h as usize + screen_y + row;
+
+                for row in row_start..th {
+                    let dst_y = addr_h as usize + screen_y + (row - row_start);
                     if dst_y >= (addr_h + content_h) as usize {
                         break;
                     }
-                    let cw = tw.min(win_w as usize - screen_x.min(win_w as usize));
+                    let visible_cols = tw - col_start;
+                    let avail_x = win_w as usize - screen_x.min(win_w as usize);
+                    let cw = visible_cols.min(avail_x);
                     if cw == 0 {
                         break;
                     }
-                    for col in 0..cw {
-                        let px = tile_u32[row * tw + col];
-                        let b = px & 0xFF;
-                        let g = (px >> 8) & 0xFF;
-                        let r = (px >> 16) & 0xFF;
-                        let idx = dst_y * win_w as usize + screen_x + col;
-                        if idx < buf.len() {
-                            buf[idx] = (r << 16) | (g << 8) | b;
-                        }
+                    // Skia tiles are BGRA8888; softbuffer wants 0x00RRGGBB.
+                    // BGRA as little-endian u32 = B|(G<<8)|(R<<16)|(A<<24).
+                    // 0x00RRGGBB                = B|(G<<8)|(R<<16) = px & 0x00FFFFFF.
+                    let row_off = row * tw + col_start;
+                    let src = &tile_u32[row_off..row_off + cw];
+                    let dst_base = dst_y * win_w as usize + screen_x;
+                    let dst = &mut buf[dst_base..dst_base + cw];
+                    for (d, &s) in dst.iter_mut().zip(src.iter()) {
+                        *d = s & 0x00_FF_FF_FF;
                     }
                 }
             }
@@ -524,6 +541,18 @@ fn main() {
         let _ = nav_tab.send(TabCommand::Navigate { url: nav_url }).await;
     });
 
+    let (mouse_tx, mut mouse_rx) = watch::channel::<Option<(f32, f32)>>(None);
+    let hover_tab = tab.clone();
+    TOKIO_RT.spawn(async move {
+        while mouse_rx.changed().await.is_ok() {
+            // Copy the value out before awaiting so the Ref guard is dropped.
+            let pos = *mouse_rx.borrow_and_update();
+            if let Some((x, y)) = pos {
+                let _ = hover_tab.send(TabCommand::MouseMove { x, y }).await;
+            }
+        }
+    });
+
     let mut app = BrowserApp {
         engine,
         zone,
@@ -531,6 +560,7 @@ fn main() {
         tab_id,
         compositor,
         proxy,
+        mouse_tx,
         window: None,
         surface: None,
         surface_size: (0, 0),
