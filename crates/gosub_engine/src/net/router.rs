@@ -1,7 +1,7 @@
-use crate::engine::pipeline::css::DummyStylesheet;
-use crate::engine::pipeline::font::DummyFont;
-use crate::engine::pipeline::js::DummyJsDocument;
-use crate::engine::pipeline::Hooks;
+use crate::engine::resource_pipeline::css::DummyStylesheet;
+use crate::engine::resource_pipeline::font::DummyFont;
+use crate::engine::resource_pipeline::js::DummyJsDocument;
+use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::PeekBuf;
 use crate::engine::UaPolicy;
 use crate::html::EngineDocument;
@@ -66,7 +66,7 @@ pub async fn route_response_for(
     request: FetchRequest,
     fetch_result: FetchResult,
     policy: &UaPolicy,
-    hooks: &mut Hooks,
+    hooks: &mut ResourcePipelines,
 ) -> anyhow::Result<RoutedOutcome> {
     // Fetch the metadata, peek buffer and content (type)
     let (meta, body_content, peek_buf) = match fetch_result {

@@ -2,7 +2,7 @@ use gosub_render_pipeline::common::media::{MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
 use resvg::usvg::Transform;
 use vello::kurbo::Affine;
-use vello::peniko::{Blob, ImageFormat};
+use vello::peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
 
 pub(crate) fn do_paint_svg(
     scene: &mut vello::Scene,
@@ -19,14 +19,14 @@ pub(crate) fn do_paint_svg(
     {
         let cached = media.svg.rendered.read();
         if cached.dimension == target_dim && !cached.data.is_empty() {
-            let data = Blob::from(cached.data.clone());
-            let vello_img = vello::peniko::Image::new(
-                data,
-                ImageFormat::Rgba8,
-                cached.dimension.width as u32,
-                cached.dimension.height as u32,
-            );
-            scene.draw_image(&vello_img, affine);
+            let image = ImageData {
+                data: Blob::from(cached.data.clone()),
+                format: ImageFormat::Rgba8,
+                alpha_type: ImageAlphaType::AlphaPremultiplied,
+                width: cached.dimension.width as u32,
+                height: cached.dimension.height as u32,
+            };
+            scene.draw_image(&image, affine);
             return;
         }
     }
@@ -56,13 +56,12 @@ pub(crate) fn do_paint_svg(
     cached.data = new_data;
     cached.dimension = target_dim;
 
-    let data = Blob::from(cached.data.clone());
-    let vello_img = vello::peniko::Image::new(
-        data,
-        ImageFormat::Rgba8,
-        cached.dimension.width as u32,
-        cached.dimension.height as u32,
-    );
-
-    scene.draw_image(&vello_img, affine);
+    let image = ImageData {
+        data: Blob::from(cached.data.clone()),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::AlphaPremultiplied,
+        width: cached.dimension.width as u32,
+        height: cached.dimension.height as u32,
+    };
+    scene.draw_image(&image, affine);
 }

@@ -198,6 +198,13 @@ pub trait RenderBackend: Send {
     fn snapshot(&self, surface: &mut dyn ErasedSurface, max_dim: u32) -> anyhow::Result<RgbaImage>;
 
     fn external_handle(&self, surface: &mut dyn ErasedSurface) -> anyhow::Result<ExternalHandle>;
+
+    /// Returns the shared wgpu resources (device, queue, renderer) when this is a Vello backend.
+    /// Returns `None` for all other backends.
+    #[cfg(feature = "backend_vello")]
+    fn wgpu_resources(&self) -> Option<std::sync::Arc<crate::render::backends::vello::WgpuResources>> {
+        None
+    }
 }
 
 /// Interface for compositors to receive frames from backends.
@@ -246,5 +253,10 @@ impl RenderBackend for RenderBackendRouter {
 
     fn external_handle(&self, surface: &mut dyn ErasedSurface) -> anyhow::Result<ExternalHandle> {
         self.current().external_handle(surface)
+    }
+
+    #[cfg(feature = "backend_vello")]
+    fn wgpu_resources(&self) -> Option<std::sync::Arc<crate::render::backends::vello::WgpuResources>> {
+        self.current().wgpu_resources()
     }
 }

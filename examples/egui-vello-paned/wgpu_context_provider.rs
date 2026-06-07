@@ -87,6 +87,14 @@ impl WgpuContextProvider for EguiWgpuContextProvider {
         &self.queue
     }
 
+    fn device_arc(&self) -> Arc<wgpu::Device> {
+        Arc::clone(&self.device)
+    }
+
+    fn queue_arc(&self) -> Arc<wgpu::Queue> {
+        Arc::clone(&self.queue)
+    }
+
     fn create_texture(&self, width: u32, height: u32, format: wgpu::TextureFormat) -> u64 {
         EguiWgpuContextProvider::create_texture(self, width, height, format)
     }

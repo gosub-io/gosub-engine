@@ -2,7 +2,7 @@
 
 SHELL=/usr/bin/env bash
 
-.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer help
+.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-audit ci-check help
 
 all: help
 
@@ -47,6 +47,12 @@ test-fmt: ## Check formatting
 test-check: ## Check all features compile against locked dependencies
 	source test-utils.sh ;\
 	run_section "Cargo check" cargo check --locked --all --all-features
+
+test-audit: ## Check dependencies for security vulnerabilities
+	source test-utils.sh ;\
+	run_section "Cargo audit" cargo audit
+
+ci-check: test-fmt test-clippy test-check test-unit test-audit ## Run all CI checks (fmt + clippy + check-features + unit + audit)
 
 test-smoke: ## CLI smoke tests
 	source test-utils.sh ;\

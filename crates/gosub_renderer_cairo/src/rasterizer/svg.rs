@@ -1,7 +1,7 @@
+use cairo::Context;
 use gosub_render_pipeline::common::media::{MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
 use gosub_render_pipeline::tiler::Tile;
-use gtk4::cairo::Context;
 use resvg::usvg::Transform;
 
 pub(crate) fn do_paint_svg(cr: &Context, tile: &Tile, rect: &Rectangle, media_id: MediaId, media_store: &MediaStore) {
@@ -15,9 +15,9 @@ pub(crate) fn do_paint_svg(cr: &Context, tile: &Tile, rect: &Rectangle, media_id
     {
         let cached = media.svg.rendered.read();
         if cached.dimension == target_dim && !cached.data.is_empty() {
-            let surface = match gtk4::cairo::ImageSurface::create_for_data(
+            let surface = match cairo::ImageSurface::create_for_data(
                 cached.data.clone(),
-                gtk4::cairo::Format::ARgb32,
+                cairo::Format::ARgb32,
                 cached.dimension.width as i32,
                 cached.dimension.height as i32,
                 cached.dimension.width as i32 * 4,
@@ -58,9 +58,9 @@ pub(crate) fn do_paint_svg(cr: &Context, tile: &Tile, rect: &Rectangle, media_id
     cached.data = new_data;
     cached.dimension = target_dim;
 
-    let surface = match gtk4::cairo::ImageSurface::create_for_data(
+    let surface = match cairo::ImageSurface::create_for_data(
         cached.data.clone(),
-        gtk4::cairo::Format::ARgb32,
+        cairo::Format::ARgb32,
         cached.dimension.width as i32,
         cached.dimension.height as i32,
         cached.dimension.width as i32 * 4,

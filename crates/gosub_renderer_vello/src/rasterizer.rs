@@ -4,42 +4,37 @@ use gosub_render_pipeline::common::texture::TextureId;
 use gosub_render_pipeline::common::TextureStore;
 use gosub_render_pipeline::painter::commands::PaintCommand;
 use gosub_render_pipeline::rasterizer::Rasterable;
+use gosub_render_pipeline::render::backends::vello::WgpuResources;
 use gosub_render_pipeline::tiler::{Tile, TileId};
-use std::cell::RefCell;
+use std::sync::Arc;
 use vello::kurbo::{Affine, Rect, Vec2};
-use vello::peniko::{Color, Mix};
-use vello::wgpu::{Device, Queue, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
-use vello::{AaConfig, Renderer, Scene};
+use vello::peniko::{Color, Fill};
+use vello::wgpu::{Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
+use vello::{AaConfig, RenderParams, Scene};
 
 mod brush;
 mod rectangle;
 mod svg;
 mod text;
 
-pub struct VelloRasterizer<'a> {
-    device: &'a Device,
-    queue: &'a Queue,
-    renderer: &'a RefCell<Renderer>,
+pub struct VelloRasterizer {
+    resources: Arc<WgpuResources>,
 }
 
-impl<'a> VelloRasterizer<'a> {
-    pub fn new(device: &'a Device, queue: &'a Queue, renderer: &'a RefCell<Renderer>) -> Self {
-        Self {
-            device,
-            queue,
-            renderer,
-        }
+impl VelloRasterizer {
+    pub fn new(resources: Arc<WgpuResources>) -> Self {
+        Self { resources }
     }
 }
 
-impl Rasterable for VelloRasterizer<'_> {
+impl Rasterable for VelloRasterizer {
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId> {
         let mut scene = Scene::new();
 
         let tile_size = Dimension::new(tile.rect.width, tile.rect.height);
 
         let clip = Rect::new(0.0, 0.0, tile_size.width, tile_size.height);
-        scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &clip);
+        scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &clip);
 
         let affine = Affine::translate(Vec2::new(-tile.rect.x, -tile.rect.y));
 
@@ -66,18 +61,21 @@ impl Rasterable for VelloRasterizer<'_> {
 
         scene.pop_layer();
 
-        let texture = create_offscreen_texture(self.device, tile_size.width as u32, tile_size.height as u32);
+        let device: &vello::wgpu::Device = &self.resources.device;
+        let queue: &vello::wgpu::Queue = &self.resources.queue;
 
-        let render_params = vello::RenderParams {
+        let texture = create_offscreen_texture(device, tile_size.width as u32, tile_size.height as u32);
+
+        let render_params = RenderParams {
             base_color: Color::new([0.0, 0.0, 0.0, 0.0]),
             width: tile.rect.width as u32,
             height: tile.rect.height as u32,
             antialiasing_method: AaConfig::Msaa16,
         };
 
-        if let Err(e) = self.renderer.borrow_mut().render_to_texture(
-            self.device,
-            self.queue,
+        if let Err(e) = self.resources.renderer.lock().render_to_texture(
+            device,
+            queue,
             &scene,
             &texture.create_view(&Default::default()),
             &render_params,
@@ -87,8 +85,8 @@ impl Rasterable for VelloRasterizer<'_> {
         }
 
         let texture_data = read_texture_to_image(
-            self.device,
-            self.queue,
+            device,
+            queue,
             &texture,
             tile_size.width as u32,
             tile_size.height as u32,
@@ -101,7 +99,7 @@ impl Rasterable for VelloRasterizer<'_> {
     }
 }
 
-fn create_offscreen_texture(device: &Device, width: u32, height: u32) -> Texture {
+fn create_offscreen_texture(device: &vello::wgpu::Device, width: u32, height: u32) -> Texture {
     device.create_texture(&TextureDescriptor {
         label: Some("Tile texture"),
         size: vello::wgpu::Extent3d {
@@ -119,8 +117,8 @@ fn create_offscreen_texture(device: &Device, width: u32, height: u32) -> Texture
 }
 
 fn read_texture_to_image(
-    device: &Device,
-    queue: &Queue,
+    device: &vello::wgpu::Device,
+    queue: &vello::wgpu::Queue,
     texture: &Texture,
     width: u32,
     height: u32,
@@ -142,9 +140,9 @@ fn read_texture_to_image(
     });
     encoder.copy_texture_to_buffer(
         texture.as_image_copy(),
-        vello::wgpu::ImageCopyBuffer {
+        vello::wgpu::TexelCopyBufferInfo {
             buffer: &buffer,
-            layout: vello::wgpu::ImageDataLayout {
+            layout: vello::wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(padded_bytes_per_row),
                 rows_per_image: Some(height),
@@ -163,7 +161,7 @@ fn read_texture_to_image(
     buffer_slice.map_async(vello::wgpu::MapMode::Read, move |result| {
         let _ = sender.send(result);
     });
-    device.poll(vello::wgpu::Maintain::Wait);
+    let _ = device.poll(vello::wgpu::PollType::wait_indefinitely());
     let Ok(Ok(())) = receiver.recv() else {
         log::error!("Failed to map texture buffer for reading");
         return None;

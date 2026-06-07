@@ -10,11 +10,12 @@ use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
 use gosub_render_pipeline::layouter::CanLayout;
 use gosub_render_pipeline::painter::Painter;
 use gosub_render_pipeline::rasterizer::Rasterable;
+use gosub_render_pipeline::render::backends::vello::WgpuResources;
 use gosub_render_pipeline::rendertree_builder::RenderTree;
 use gosub_render_pipeline::tiler::{TileList, TileState};
 use gosub_renderer_vello::compositor::{VelloCompositor, VelloCompositorConfig};
 use gosub_renderer_vello::VelloRasterizer;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::cell::RefCell;
 use std::fmt::Formatter;
 use std::rc::Rc;
@@ -223,9 +224,13 @@ impl ApplicationHandler for App<'_> {
                     }
                 }
 
-                let Ok(surface_texture) = surface.surface.get_current_texture() else {
-                    log::error!("Failed to get current texture");
-                    return;
+                let surface_texture = match surface.surface.get_current_texture() {
+                    vello::wgpu::CurrentSurfaceTexture::Success(t)
+                    | vello::wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
+                    _ => {
+                        log::error!("Failed to get current texture");
+                        return;
+                    }
                 };
 
                 let render_params = RenderParams {
@@ -244,7 +249,13 @@ impl ApplicationHandler for App<'_> {
                     return;
                 };
                 let mut renderer = binding.borrow_mut();
-                let _ = renderer.render_to_surface(device, queue, &scene, &surface_texture, &render_params);
+                let _ = renderer.render_to_texture(
+                    device,
+                    queue,
+                    &scene,
+                    &surface_texture.texture.create_view(&Default::default()),
+                    &render_params,
+                );
 
                 surface_texture.present();
             }
@@ -356,10 +367,10 @@ fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> 
     let renderer = Renderer::new(
         &dev_handle.device,
         RendererOptions {
-            surface_format: Some(surface.format),
             use_cpu: false,
             antialiasing_support: AaSupport::all(),
             num_init_threads: None,
+            pipeline_cache: None,
         },
     )
     .map_err(|e| anyhow::anyhow!("Failed to create Vello renderer: {:?}", e))?;
@@ -408,12 +419,15 @@ fn do_paint(layer_id: LayerId, browser_state: &Arc<RwLock<BrowserState>>) {
 fn do_rasterize(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    renderer: Rc<RefCell<Renderer>>,
+    _renderer: Rc<RefCell<Renderer>>,
     layer_id: LayerId,
     browser_state: &Arc<RwLock<BrowserState>>,
     texture_store: &Arc<RwLock<TextureStore>>,
     media_store: &Arc<RwLock<MediaStore>>,
 ) {
+    // Build a temporary WgpuResources for the rasterizer. Device and Queue are Clone
+    // in wgpu 29 (they hold an Arc internally), so cloning is cheap.
+    #[allow(clippy::arc_with_non_send_sync)]
     let state = browser_state.read();
     let mut ts = texture_store.write();
     let ms = media_store.read();
@@ -440,7 +454,27 @@ fn do_rasterize(
             continue;
         };
 
-        let rasterizer = VelloRasterizer::new(device, queue, &renderer);
+        let rasterizer_renderer = match Renderer::new(
+            device,
+            RendererOptions {
+                use_cpu: false,
+                antialiasing_support: AaSupport::all(),
+                num_init_threads: None,
+                pipeline_cache: None,
+            },
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                log::error!("rasterizer Renderer::new failed: {e:?}");
+                return;
+            }
+        };
+        let resources = Arc::new(WgpuResources {
+            device: Arc::new(device.clone()),
+            queue: Arc::new(queue.clone()),
+            renderer: Mutex::new(rasterizer_renderer),
+        });
+        let rasterizer = VelloRasterizer::new(resources);
         match rasterizer.rasterize(tile, &mut ts, &ms) {
             Some(texture_id) => {
                 tile.texture_id = Some(texture_id);

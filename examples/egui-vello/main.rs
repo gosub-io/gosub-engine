@@ -64,6 +64,14 @@ impl WgpuContextProvider for EguiContextProvider {
         &self.queue
     }
 
+    fn device_arc(&self) -> Arc<wgpu::Device> {
+        Arc::clone(&self.device)
+    }
+
+    fn queue_arc(&self) -> Arc<wgpu::Queue> {
+        Arc::clone(&self.queue)
+    }
+
     fn create_texture(&self, width: u32, height: u32, format: wgpu::TextureFormat) -> u64 {
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("gosub-vello-texture"),
@@ -410,7 +418,11 @@ impl eframe::App for BrowserApp {
 }
 
 fn main() -> Result<(), eframe::Error> {
-    simple_logger::init_with_env().unwrap_or_default();
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap_or_default();
 
     let initial_url = {
         let raw = std::env::args()
