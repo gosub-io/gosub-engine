@@ -318,6 +318,18 @@ impl TaffyLayouter {
         let my_content_width = el.box_model.content_box.width;
         let child_ids = el.children.clone();
 
+        // Inline elements (those placed in an anonymous flex container by their parent) do not
+        // establish a new containing block. Their children should inherit the enclosing block's
+        // content width so that Skia uses the same wrap boundary that Parley used during layout.
+        // Without this, Skia receives the inline element's shrunk natural width and wraps text
+        // that Parley measured as a single line, causing height mismatches and overlapping content.
+        let is_inline_node = self.anon_container_map.contains_key(&layout_node_id);
+        let content_width_for_children = if is_inline_node {
+            parent_content_width
+        } else {
+            my_content_width
+        };
+
         // Absolute position of this node's content area — used as the base offset for direct children.
         let children_offset = Coordinate::new(offset.x + layout.location.x as f64, offset.y + layout.location.y as f64);
 
@@ -339,7 +351,7 @@ impl TaffyLayouter {
                 layout_tree,
                 child_id,
                 Coordinate::new(children_offset.x + anon_offset.x, children_offset.y + anon_offset.y),
-                my_content_width,
+                content_width_for_children,
             );
         }
     }
@@ -402,6 +414,10 @@ impl TaffyLayouter {
             flex_direction: FlexDirection::Row,
             flex_wrap: FlexWrap::Wrap,
             align_self: Some(AlignSelf::FlexStart),
+            // FlexStart ensures multi-row intrinsic height = sum of all row heights.
+            // Taffy's default (None = Stretch) fails to include wrapped rows in the
+            // container's auto height, causing rows beyond the first to overflow.
+            align_content: Some(AlignContent::FlexStart),
             gap: Size {
                 width: LengthPercentage::length(0.0),
                 height: LengthPercentage::length(0.0),

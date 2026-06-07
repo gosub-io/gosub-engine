@@ -704,10 +704,11 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn as_number(&self) -> Option<f32> {
-        if let CssValue::Number(num) = &self {
-            Some(*num)
-        } else {
-            None
+        match self {
+            CssValue::Number(num) => Some(*num),
+            // Bare `0` (no unit) is a valid zero value for any numeric property.
+            CssValue::Zero => Some(0.0),
+            _ => None,
         }
     }
 

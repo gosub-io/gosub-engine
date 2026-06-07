@@ -80,7 +80,12 @@ impl CssTaffyConverter {
         ts.gap = self.get_size_lp(StyleProperty::Gap, ts.gap);
         ts.align_items = self.get_align_items(StyleProperty::AlignItems, ts.align_items);
         ts.align_self = self.get_align_self(StyleProperty::AlignSelf, ts.align_self);
-        ts.align_content = self.get_align_content(StyleProperty::AlignContent, ts.align_content);
+        // Default align-content to FlexStart rather than Taffy's None (= Stretch).
+        // With None, Taffy's flex-wrap height calculation only counts the first row when
+        // the container has height:auto — subsequent wrapped rows overflow without expanding
+        // the container.  FlexStart packs all rows tightly and always produces a correct
+        // intrinsic height.  CSS override via align-content still takes full effect.
+        ts.align_content = self.get_align_content(StyleProperty::AlignContent, Some(AlignContent::FlexStart));
         ts.justify_items = self.get_align_items(StyleProperty::JustifyItems, ts.justify_items);
         ts.justify_self = self.get_align_self(StyleProperty::JustifySelf, ts.justify_self);
         ts.justify_content = self.get_align_content(StyleProperty::JustifyContent, ts.justify_content);

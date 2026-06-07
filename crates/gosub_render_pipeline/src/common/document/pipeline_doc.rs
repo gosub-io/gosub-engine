@@ -45,6 +45,10 @@ pub trait PipelineDocument: Send + Sync {
     /// not cache styles.
     fn clear_style_cache(&self) {}
 
+    /// Discard cached computed styles for specific nodes only. More efficient than
+    /// `clear_style_cache` for hover repaints where only a few elements changed.
+    fn invalidate_style_for_nodes(&self, _ids: &[NodeId]) {}
+
     /// Returns the computed value for `prop` on node `id`:
     ///  1. own value if set,
     ///  2. parent's computed value if the property is inherited,
@@ -286,6 +290,13 @@ where
 
     fn clear_style_cache(&self) {
         self.style_cache.lock().clear();
+    }
+
+    fn invalidate_style_for_nodes(&self, ids: &[NodeId]) {
+        let mut cache = self.style_cache.lock();
+        for id in ids {
+            cache.remove(id);
+        }
     }
 
     fn html_node_id(&self) -> Option<NodeId> {
