@@ -269,8 +269,7 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
             _ => {}
         },
         SyntaxComponent::Definition { .. } => {
-            //dbg!(&component);
-            todo!("Definition not implemented yet");
+            return no_match(input);
         }
         SyntaxComponent::Builtin { datatype, .. } => match datatype.as_str() {
             "percentage" => {
