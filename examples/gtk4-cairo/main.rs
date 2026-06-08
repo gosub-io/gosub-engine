@@ -602,7 +602,7 @@ fn main() {
 
         let window = ApplicationWindow::builder()
             .application(app)
-            .title("Gosub Pipeline Browser")
+            .title("Gosub Browser — GTK4 + Cairo")
             .default_width(1024)
             .default_height(800)
             .child(&vbox)
@@ -637,46 +637,64 @@ fn main() {
 
 /// Composite a TileDrawState at the given scroll position into `cr`.
 fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawState, scroll_x: f32, scroll_y: f32) {
+    let dpr_i = state.dpr as i32;
     let dpr_f = state.dpr as f64;
-    cr.set_source_rgb(1.0, 1.0, 1.0);
-    cr.rectangle(0.0, 0.0, w as f64, h as f64);
-    cr.fill().unwrap_or_default();
-    for tile in state.tiles.iter() {
-        let screen_x = (tile.page_x - scroll_x) as f64;
-        let screen_y = (tile.page_y - scroll_y) as f64;
-        let tile_css_w = tile.width as f64 / dpr_f;
-        let tile_css_h = tile.height as f64 / dpr_f;
-        // Cull tiles fully outside the viewport.
-        if screen_x + tile_css_w <= 0.0 {
-            continue;
-        }
-        if screen_y + tile_css_h <= 0.0 {
-            continue;
-        }
-        if screen_x >= state.viewport_width as f64 {
-            continue;
-        }
-        if screen_y >= state.viewport_height as f64 {
-            continue;
+
+    let w_phys = w * dpr_i;
+    let h_phys = h * dpr_i;
+
+    // CPU-blit tiles into a single image buffer, then paint it once.
+    // This avoids per-tile Cairo compositing (which can produce 1-pixel seams at
+    // tile boundaries due to bilinear filtering / AA at the source surface edges).
+    let Ok(mut dst) = gtk4::cairo::ImageSurface::create(gtk4::cairo::Format::ARgb32, w_phys, h_phys) else { return; };
+    let stride = dst.stride() as usize;
+
+    {
+        let Ok(mut data) = dst.data() else { return; };
+
+        // White background (ARGB32 premultiplied little-endian = 0xFFFF_FFFF).
+        for b in data.chunks_exact_mut(4) {
+            b[0] = 0xFF; b[1] = 0xFF; b[2] = 0xFF; b[3] = 0xFF;
         }
 
-        // SAFETY: `tile.data` is Arc-owned and lives for the duration of this draw call.
-        // Cairo reads (never writes) source surface data.
-        let surface = unsafe {
-            gtk4::cairo::ImageSurface::create_for_data_unsafe(
-                tile.data.as_ptr() as *mut u8,
-                gtk4::cairo::Format::ARgb32,
-                tile.width as i32,
-                tile.height as i32,
-                (tile.width * 4) as i32,
-            )
-        };
-        if let Ok(surface) = surface {
-            surface.set_device_scale(dpr_f, dpr_f);
-            cr.set_source_surface(&surface, screen_x, screen_y).unwrap_or_default();
-            cr.paint().unwrap_or_default();
+        let sx = (scroll_x * state.dpr as f32).round() as i64;
+        let sy = (scroll_y * state.dpr as f32).round() as i64;
+
+        for tile in state.tiles.iter() {
+            let px = (tile.page_x * state.dpr as f32).round() as i64 - sx;
+            let py = (tile.page_y * state.dpr as f32).round() as i64 - sy;
+            let tw = tile.width as i64;
+            let th = tile.height as i64;
+
+            if px >= w_phys as i64 || py >= h_phys as i64 { continue; }
+            if px + tw <= 0 || py + th <= 0 { continue; }
+
+            let tile_col0 = (-px).max(0) as usize;
+            let tile_row0 = (-py).max(0) as usize;
+            let dst_x    = px.max(0) as usize;
+            let dst_y0   = py.max(0) as usize;
+            let tw_usize = tw as usize;
+            let th_usize = th as usize;
+
+            for tile_row in tile_row0..th_usize {
+                let dst_y = dst_y0 + (tile_row - tile_row0);
+                if dst_y >= h_phys as usize { break; }
+                let copy_w = (tw_usize - tile_col0).min(w_phys as usize - dst_x);
+                if copy_w == 0 { break; }
+                let src_off = (tile_row * tw_usize + tile_col0) * 4;
+                let dst_off = dst_y * stride + dst_x * 4;
+                data[dst_off..dst_off + copy_w * 4]
+                    .copy_from_slice(&tile.data[src_off..src_off + copy_w * 4]);
+            }
         }
     }
+
+    // Apply device scale so GTK4 maps 1 CSS pixel → dpr physical pixels.
+    dst.set_device_scale(dpr_f, dpr_f);
+
+    cr.set_source_surface(&dst, 0.0, 0.0).unwrap_or_default();
+    cr.source().set_filter(gtk4::cairo::Filter::Nearest);
+    cr.paint().unwrap_or_default();
 }
 
 /// Draw a light-grey placeholder while the first frame hasn't arrived yet.

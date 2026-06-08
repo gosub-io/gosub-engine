@@ -17,7 +17,6 @@ members = [
     "examples/egui-cairo",
     "examples/egui-skia",
     "examples/egui-vello",
-    "examples/egui-vello-paned",
     "examples/gtk4-cairo",
     "examples/gtk4-skia",
     "examples/gtk4-skia-gpu",

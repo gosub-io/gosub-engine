@@ -131,11 +131,16 @@ struct BrowserApp {
 
     url_input: String,
     status_url: String,
-    /// Cached egui texture id for the current Vello frame.
+    /// CPU texture for TileCache frames (pipeline+vello path).
+    cpu_texture: Option<egui::TextureHandle>,
+    /// GPU texture id for WgpuTextureId frames (non-pipeline vello path).
     egui_texture: Option<(u64, egui::TextureId)>,
     last_panel_size: egui::Vec2,
     ui_rx: std::sync::mpsc::Receiver<UiEvent>,
     is_loading: bool,
+    scroll_x: f32,
+    scroll_y: f32,
+    page_height: f32,
 }
 
 impl BrowserApp {
@@ -229,10 +234,14 @@ impl BrowserApp {
             context,
             url_input: initial_url,
             status_url: String::new(),
+            cpu_texture: None,
             egui_texture: None,
             last_panel_size: egui::Vec2::ZERO,
             ui_rx,
             is_loading: true,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
+            page_height: 0.0,
         })
     }
 
@@ -244,6 +253,8 @@ impl BrowserApp {
         }
         let Ok(_) = Url::parse(&s) else { return };
         self.is_loading = true;
+        self.scroll_x = 0.0;
+        self.scroll_y = 0.0;
         let tab = self.tab.clone();
         TOKIO_RT.spawn(async move {
             let _ = tab.send(TabCommand::Navigate { url: s }).await;
@@ -251,42 +262,104 @@ impl BrowserApp {
         });
     }
 
-    /// Register or refresh the egui texture from the latest Vello frame.
-    fn refresh_texture(&mut self, frame: &mut eframe::Frame) {
+    /// Register or refresh the display texture from the latest engine frame.
+    /// Handles both TileCache (pipeline+vello CPU path) and WgpuTextureId (raw vello GPU path).
+    fn refresh_texture(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let Some(handle) = self.compositor.read().frame_for(self.tab_id) else {
             return;
         };
-        let ExternalHandle::WgpuTextureId { id, frame_id, .. } = handle else {
-            return;
-        };
 
-        let needs_update = self
-            .egui_texture
-            .as_ref()
-            .map(|(fid, _)| *fid != frame_id)
-            .unwrap_or(true);
+        match handle {
+            ExternalHandle::TileCache {
+                tiles,
+                dpr,
+                viewport_width,
+                viewport_height,
+                page_height,
+                ..
+            } => {
+                self.page_height = page_height;
 
-        if !needs_update {
-            return;
+                let dpr_f = dpr as f32;
+                let w = (viewport_width * dpr) as usize;
+                let h = (viewport_height * dpr) as usize;
+                if w == 0 || h == 0 {
+                    return;
+                }
+                let sx = (self.scroll_x * dpr_f) as i64;
+                let sy = (self.scroll_y * dpr_f) as i64;
+                let mut buf = vec![0x00FF_FFFFu32; w * h];
+
+                for tile in tiles.iter() {
+                    let px = (tile.page_x * dpr_f) as i64;
+                    let py = (tile.page_y * dpr_f) as i64;
+                    let screen_x = px - sx;
+                    let screen_y = py - sy;
+                    let tw = tile.width as i64;
+                    let th = tile.height as i64;
+                    if screen_x >= w as i64 || screen_y >= h as i64 { continue; }
+                    if screen_x + tw <= 0 || screen_y + th <= 0 { continue; }
+                    let tile_start_col = (-screen_x).max(0) as usize;
+                    let tile_start_row = (-screen_y).max(0) as usize;
+                    let dst_x = screen_x.max(0) as usize;
+                    let dst_y0 = screen_y.max(0) as usize;
+                    let tw = tw as usize;
+                    let th = th as usize;
+                    let tile_u32 = unsafe {
+                        std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4)
+                    };
+                    for tile_row in tile_start_row..th {
+                        let dst_y = dst_y0 + (tile_row - tile_start_row);
+                        if dst_y >= h { break; }
+                        let copy_w = (tw - tile_start_col).min(w - dst_x);
+                        if copy_w == 0 { break; }
+                        let src_off = tile_row * tw + tile_start_col;
+                        let dst_off = dst_y * w + dst_x;
+                        buf[dst_off..dst_off + copy_w]
+                            .copy_from_slice(&tile_u32[src_off..src_off + copy_w]);
+                    }
+                }
+
+                // Vello tiles are Rgba8Unorm (byte order R, G, B, A) — no channel swap needed.
+                let mut rgba = Vec::with_capacity(w * h * 4);
+                for &px in &buf {
+                    let r = (px & 0xFF) as u8;
+                    let g = ((px >> 8) & 0xFF) as u8;
+                    let b = ((px >> 16) & 0xFF) as u8;
+                    rgba.extend_from_slice(&[r, g, b, 255]);
+                }
+
+                let img = egui::ColorImage::from_rgba_unmultiplied([w, h], &rgba);
+                match &mut self.cpu_texture {
+                    Some(t) => t.set(img, egui::TextureOptions::LINEAR),
+                    None => self.cpu_texture = Some(ctx.load_texture("browser", img, egui::TextureOptions::LINEAR)),
+                }
+            }
+
+            ExternalHandle::WgpuTextureId { id, frame_id, .. } => {
+                let needs_update = self
+                    .egui_texture
+                    .as_ref()
+                    .map(|(fid, _)| *fid != frame_id)
+                    .unwrap_or(true);
+                if !needs_update {
+                    return;
+                }
+                let Some(wgpu_state) = frame.wgpu_render_state() else { return };
+                let Some((_, view)) = self.context.get_texture(id) else { return };
+                if let Some((_, old)) = self.egui_texture.take() {
+                    wgpu_state.renderer.write().free_texture(&old);
+                }
+                let new_tex = wgpu_state.renderer.write().register_native_texture(
+                    &self.context.device,
+                    &view,
+                    eframe::wgpu::FilterMode::Linear,
+                );
+                self.egui_texture = Some((frame_id, new_tex));
+            }
+
+            _ => {}
         }
-
-        let Some(wgpu_state) = frame.wgpu_render_state() else {
-            return;
-        };
-        let Some((_, view)) = self.context.get_texture(id) else {
-            return;
-        };
-
-        if let Some((_, old)) = self.egui_texture.take() {
-            wgpu_state.renderer.write().free_texture(&old);
-        }
-
-        let new_tex = wgpu_state.renderer.write().register_native_texture(
-            &self.context.device,
-            &view,
-            eframe::wgpu::FilterMode::Linear,
-        );
-        self.egui_texture = Some((frame_id, new_tex));
     }
 }
 
@@ -304,7 +377,21 @@ impl eframe::App for BrowserApp {
             }
         }
 
-        self.refresh_texture(frame);
+        // Update local scroll synchronously so refresh_texture composites at the new position.
+        let scroll_delta = ctx.input(|i| i.smooth_scroll_delta);
+        if scroll_delta != egui::Vec2::ZERO {
+            let dx = -scroll_delta.x;
+            let dy = -scroll_delta.y;
+            let max_y = (self.page_height - self.last_panel_size.y).max(0.0);
+            self.scroll_x = (self.scroll_x + dx).max(0.0);
+            self.scroll_y = (self.scroll_y + dy).clamp(0.0, max_y);
+            let tab = self.tab.clone();
+            TOKIO_RT.spawn(async move {
+                let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
+            });
+        }
+
+        self.refresh_texture(&ctx, frame);
 
         // Address bar
         egui::Panel::top("addr")
@@ -354,26 +441,13 @@ impl eframe::App for BrowserApp {
                 });
             }
 
-            // Scroll
-            let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
-            if scroll_delta != egui::Vec2::ZERO {
-                let tab = self.tab.clone();
-                let dx = -scroll_delta.x;
-                let dy = -scroll_delta.y;
-                TOKIO_RT.spawn(async move {
-                    let _ = tab
-                        .send(TabCommand::MouseScroll {
-                            delta_x: dx,
-                            delta_y: dy,
-                        })
-                        .await;
-                });
-            }
+            // Prefer CPU tile-cache texture (pipeline+vello path), fall back to GPU texture.
+            let tex_id = self.cpu_texture.as_ref().map(|t| t.id())
+                .or_else(|| self.egui_texture.as_ref().map(|(_, id)| *id));
 
-            if let Some((_, tex_id)) = self.egui_texture {
+            if let Some(tex_id) = tex_id {
                 let (rect, response) = ui.allocate_exact_size(panel_size, egui::Sense::click());
 
-                // Paint the native wgpu texture directly.
                 ui.painter().image(
                     tex_id,
                     rect,

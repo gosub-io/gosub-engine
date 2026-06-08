@@ -380,8 +380,6 @@ fn blit_handle_to_buffer(
     handle: ExternalHandle,
     page_height: &mut f32,
 ) {
-    let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed) as usize;
-
     match handle {
         ExternalHandle::CpuPixelsOwned {
             width,
@@ -406,42 +404,59 @@ fn blit_handle_to_buffer(
         }
         ExternalHandle::TileCache {
             tiles,
+            dpr: tile_dpr,
             page_height: ph,
             scroll_x,
             scroll_y,
             ..
         } => {
             *page_height = ph;
-            let sx = scroll_x as usize * dpr;
-            let sy = scroll_y as usize * dpr;
+            let dpr_f = tile_dpr as f32;
+            let sx = (scroll_x * dpr_f).round() as i64;
+            let sy = (scroll_y * dpr_f).round() as i64;
 
             for tile in tiles.iter() {
-                let px = tile.page_x as usize * dpr;
-                let py = tile.page_y as usize * dpr;
-                let screen_x = px.saturating_sub(sx);
-                let screen_y = py.saturating_sub(sy);
-                let tw = tile.width as usize;
-                let th = tile.height as usize;
-                let tile_u32 =
-                    unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
-                for row in 0..th {
-                    let dst_y = addr_h as usize + screen_y + row;
-                    if dst_y >= (addr_h + content_h) as usize {
+                // Signed physical position of tile relative to content area top-left.
+                let px = (tile.page_x * dpr_f).round() as i64 - sx;
+                let py = (tile.page_y * dpr_f).round() as i64 - sy;
+                let tw = tile.width as i64;
+                let th = tile.height as i64;
+                let cw_i = win_w as i64;
+                let ch_i = content_h as i64;
+
+                // Skip tiles completely outside the content area.
+                if px >= cw_i || py >= ch_i || px + tw <= 0 || py + th <= 0 {
+                    continue;
+                }
+
+                // How many leading tile columns/rows are off-screen to the left/top.
+                let tile_col0 = (-px).max(0) as usize;
+                let tile_row0 = (-py).max(0) as usize;
+                let dst_x = px.max(0) as usize;
+                let dst_y0 = py.max(0) as usize;
+                let tw_usize = tw as usize;
+                let th_usize = th as usize;
+
+                // Cairo ARGB32 LE: [B, G, R, A] in bytes → u32 = A<<24|R<<16|G<<8|B.
+                // softbuffer wants 0x00RRGGBB → mask off the high (alpha) byte.
+                let tile_u32 = unsafe {
+                    std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4)
+                };
+
+                for tile_row in tile_row0..th_usize {
+                    let dst_y = dst_y0 + (tile_row - tile_row0);
+                    if dst_y >= ch_i as usize {
                         break;
                     }
-                    let cw = tw.min(win_w as usize - screen_x.min(win_w as usize));
-                    if cw == 0 {
+                    let copy_w = (tw_usize - tile_col0).min(cw_i as usize - dst_x);
+                    if copy_w == 0 {
                         break;
                     }
-                    for col in 0..cw {
-                        let src = tile_u32[row * tw + col];
-                        let b = src & 0xFF;
-                        let g = (src >> 8) & 0xFF;
-                        let r = (src >> 16) & 0xFF;
-                        let dst_idx = dst_y * win_w as usize + screen_x + col;
-                        if dst_idx < buf.len() {
-                            buf[dst_idx] = (r << 16) | (g << 8) | b;
-                        }
+                    // dst_y is relative to the content area; add addr_h for the absolute row.
+                    let buf_row = (addr_h as usize + dst_y) * win_w as usize + dst_x;
+                    let src_row = tile_row * tw_usize + tile_col0;
+                    for col in 0..copy_w {
+                        buf[buf_row + col] = tile_u32[src_row + col] & 0x00FF_FFFF;
                     }
                 }
             }
