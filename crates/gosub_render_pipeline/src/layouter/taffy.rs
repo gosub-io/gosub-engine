@@ -599,9 +599,9 @@ impl TaffyLayouter {
         match &dom_node.node_type {
             // Node is an element node (like a div, span, etc.)
             NodeType::Element(data) => {
-                // Create the taffy style from our CSS and push it into the stack
-                let conv = CssTaffyConverter::new(&data.styles);
-                taffy_style = conv.convert(dom_node.node_id, false);
+                // Create the taffy style by reading CSS properties through the pipeline document.
+                let conv = CssTaffyConverter::new(dom_node.node_id, &*layout_tree.render_tree.doc);
+                taffy_style = conv.convert(false);
 
                 // Check if element type is an image, if so, set the taffy context
                 if data.tag_name.eq_ignore_ascii_case("img") {

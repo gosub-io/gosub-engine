@@ -1,4 +1,3 @@
-use crate::common::document::document::Document;
 use crate::common::document::node::{AttrMap, ElementData, Node, NodeType};
 use crate::common::document::style::{
     intern, BorderStyle, Display, FontWeight, NodeStyle, StyleProperty, TextAlign, TextWrap, Unit, Value,
@@ -12,6 +11,170 @@ use gosub_shared::node::NodeId;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+// ── Bridge: CssProperty → Value ──────────────────────────────────────────────
+
+/// Convert a single `CssProperty` value into the internal `Value` representation.
+/// Returns `None` when the property carries no usable value (e.g. `CssValue::None`).
+fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) -> Option<Value> {
+    match prop {
+        // ── Color properties ───────────────────────────────────────────────
+        StyleProperty::Color
+        | StyleProperty::BackgroundColor
+        | StyleProperty::BorderTopColor
+        | StyleProperty::BorderRightColor
+        | StyleProperty::BorderBottomColor
+        | StyleProperty::BorderLeftColor => {
+            if let Some(s) = p.as_string() {
+                if let Some((r, g, b, a)) = css_system_color(s) {
+                    return Some(Value::Color(r, g, b, a));
+                }
+            }
+            // parse_color returns 0..255 range — matches Value::Color(u8, u8, u8, u8)
+            let (r, g, b, a) = p.parse_color()?;
+            Some(Value::Color(r as u8, g as u8, b as u8, a as u8))
+        }
+
+        // ── Display ────────────────────────────────────────────────────────
+        StyleProperty::Display => {
+            let s = p.as_string()?;
+            let d = match s {
+                "block" => Display::Block,
+                "inline" => Display::Inline,
+                "inline-block" => Display::InlineBlock,
+                "none" => Display::None,
+                "flex" => Display::Flex,
+                "inline-flex" => Display::InlineFlex,
+                "grid" => Display::Grid,
+                "inline-grid" => Display::InlineGrid,
+                "table" => Display::Table,
+                "table-caption" => Display::TableCaption,
+                "table-cell" => Display::TableCell,
+                "table-footer-group" => Display::TableFooterGroup,
+                "table-header-group" => Display::TableHeaderGroup,
+                "table-row" => Display::TableRow,
+                "table-row-group" => Display::TableRowGroup,
+                _ => Display::Block,
+            };
+            Some(Value::Display(d))
+        }
+
+        // ── FontWeight ─────────────────────────────────────────────────────
+        StyleProperty::FontWeight => {
+            let fw = if let Some(n) = p.as_number() {
+                FontWeight::Number(n)
+            } else {
+                match p.as_string()? {
+                    "bold" => FontWeight::Bold,
+                    "bolder" => FontWeight::Bolder,
+                    "lighter" => FontWeight::Lighter,
+                    _ => FontWeight::Normal,
+                }
+            };
+            Some(Value::FontWeight(fw))
+        }
+
+        // ── TextAlign ──────────────────────────────────────────────────────
+        StyleProperty::TextAlign => {
+            let ta = match p.as_string()? {
+                "left" => TextAlign::Left,
+                "right" => TextAlign::Right,
+                "center" => TextAlign::Center,
+                "justify" => TextAlign::Justify,
+                "start" => TextAlign::Start,
+                "end" => TextAlign::End,
+                "match-parent" => TextAlign::MatchParent,
+                "initial" => TextAlign::Initial,
+                "inherit" => TextAlign::Inherit,
+                "revert" => TextAlign::Revert,
+                "unset" => TextAlign::Unset,
+                _ => TextAlign::Left,
+            };
+            Some(Value::TextAlign(ta))
+        }
+
+        // ── TextWrap ───────────────────────────────────────────────────────
+        StyleProperty::TextWrap => {
+            let tw = match p.as_string()? {
+                "nowrap" => TextWrap::NoWrap,
+                "balance" => TextWrap::Balance,
+                "pretty" => TextWrap::Pretty,
+                "stable" => TextWrap::Stable,
+                "initial" => TextWrap::Initial,
+                "inherit" => TextWrap::Inherit,
+                "revert" => TextWrap::Revert,
+                "revert-layer" => TextWrap::RevertLayer,
+                "unset" => TextWrap::Unset,
+                _ => TextWrap::Wrap,
+            };
+            Some(Value::TextWrap(tw))
+        }
+
+        // ── Border styles ──────────────────────────────────────────────────
+        StyleProperty::BorderTopStyle
+        | StyleProperty::BorderRightStyle
+        | StyleProperty::BorderBottomStyle
+        | StyleProperty::BorderLeftStyle => {
+            let s = p.as_string()?;
+            Some(Value::BorderStyle(str_to_border_style(s)))
+        }
+
+        // ── Numeric properties ─────────────────────────────────────────────
+        StyleProperty::FlexGrow | StyleProperty::FlexShrink | StyleProperty::AspectRatio | StyleProperty::ScrollbarWidth => {
+            Some(Value::Number(p.as_number()?))
+        }
+
+        // ── line-height: unitless number is a multiplier, not pixels ───────
+        StyleProperty::LineHeight => {
+            if p.as_unit().is_some() {
+                Some(Value::Unit(p.unit_to_px(), Unit::Px))
+            } else if let Some(n) = p.as_number() {
+                Some(Value::Number(n))
+            } else {
+                Some(Value::Keyword(intern(p.as_string()?)))
+            }
+        }
+
+        // ── font-family: single string or comma-separated list ─────────────
+        StyleProperty::FontFamily => {
+            if let Some(s) = p.as_string() {
+                return Some(Value::Keyword(intern(s)));
+            }
+            if let Some(list) = p.as_list() {
+                let names: String = list
+                    .iter()
+                    .filter(|v| !v.is_comma())
+                    .filter_map(|v| v.as_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if !names.is_empty() {
+                    return Some(Value::Keyword(intern(&names)));
+                }
+            }
+            None
+        }
+
+        // ── Default: unit-based or keyword ────────────────────────────────
+        _ => {
+            if p.as_unit().is_some() {
+                let px = match p.as_unit() {
+                    Some((v, "ch")) => v * 16.0 * 0.45,
+                    Some((v, "ex")) => v * 16.0 * 0.50,
+                    Some((v, "ic")) => v * 16.0,
+                    Some((v, "lh")) => v * 16.0 * 1.40,
+                    _ => p.unit_to_px(),
+                };
+                Some(Value::Unit(px, Unit::Px))
+            } else if let Some(pct) = p.as_percentage() {
+                Some(Value::Unit(pct, Unit::Percent))
+            } else if let Some(n) = p.as_number() {
+                Some(Value::Unit(n, Unit::Px))
+            } else {
+                Some(Value::Keyword(intern(p.as_string()?)))
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineNodeKind {
@@ -99,143 +262,75 @@ pub trait PipelineDocument: Send + Sync {
     }
 }
 
-// ── impl for the simple JSON-based Document ───────────────────────────────────
-
-impl PipelineDocument for Document {
-    fn root(&self) -> Option<NodeId> {
-        self.root_id
-    }
-
-    fn children(&self, id: NodeId) -> Vec<NodeId> {
-        self.arena.get(&id).map(|n| n.children.clone()).unwrap_or_default()
-    }
-
-    fn node_kind(&self, id: NodeId) -> PipelineNodeKind {
-        match self.arena.get(&id) {
-            Some(node) => match &node.node_type {
-                NodeType::Text(..) => PipelineNodeKind::Text,
-                NodeType::Comment(..) => PipelineNodeKind::Comment,
-                NodeType::Element(..) => PipelineNodeKind::Element,
-            },
-            None => {
-                log::warn!("node_kind: node {:?} not found, defaulting to Element", id);
-                PipelineNodeKind::Element
-            }
-        }
-    }
-
-    fn tag_name(&self, id: NodeId) -> Option<String> {
-        self.arena.get(&id).and_then(|node| match &node.node_type {
-            NodeType::Element(data) => Some(data.tag_name.clone()),
-            _ => None,
-        })
-    }
-
-    fn is_display_none(&self, id: NodeId) -> bool {
-        self.arena
-            .get(&id)
-            .map(|node| match &node.node_type {
-                NodeType::Element(data) => {
-                    matches!(
-                        data.get_style(&StyleProperty::Display),
-                        Some(Value::Display(Display::None))
-                    )
-                }
-                _ => false,
-            })
-            .unwrap_or(false)
-    }
-
-    fn parent(&self, id: NodeId) -> Option<NodeId> {
-        self.arena.get(&id).and_then(|n| n.parent_id)
-    }
-
-    fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value> {
-        self.arena.get(&id).and_then(|node| match &node.node_type {
-            NodeType::Element(data) => data.get_style(prop).cloned(),
-            _ => None,
-        })
-    }
-
-    fn html_node_id(&self) -> Option<NodeId> {
-        self.html_node_id
-    }
-
-    fn body_node_id(&self) -> Option<NodeId> {
-        self.body_node_id
-    }
-
-    fn base_url(&self) -> String {
-        self.base_url.clone()
-    }
-
-    fn get_node_by_id(&self, id: NodeId) -> Option<Node> {
-        self.arena.get(&id).cloned()
-    }
-
-    fn inner_html(&self, id: NodeId) -> String {
-        self.inner_html(id)
-    }
-}
-
 // ── GosubDocumentAdapter ──────────────────────────────────────────────────────
 
 /// Adapts any `gosub_interface::document::Document<C>` into a `PipelineDocument`.
 pub struct GosubDocumentAdapter<C>
 where
     C: HasDocument,
+    <C::CssSystem as CssSystem>::PropertyMap: Send + Sync,
 {
     pub doc: Arc<C::Document>,
-    /// Per-node own-style cache. Populated lazily; valid for one pipeline run.
-    style_cache: Mutex<HashMap<NodeId, NodeStyle>>,
+    /// Per-node computed-style cache (from CSS selector matching). Populated lazily.
+    style_cache: Mutex<HashMap<NodeId, Arc<<C::CssSystem as CssSystem>::PropertyMap>>>,
+    /// Per-node inline-style cache (from the `style` attribute, highest specificity).
+    inline_style_cache: Mutex<HashMap<NodeId, NodeStyle>>,
 }
 
 impl<C> GosubDocumentAdapter<C>
 where
     C: HasDocument,
+    <C::CssSystem as CssSystem>::PropertyMap: Send + Sync,
 {
     pub fn new(doc: Arc<C::Document>) -> Self {
         Self {
             doc,
             style_cache: Mutex::new(HashMap::new()),
+            inline_style_cache: Mutex::new(HashMap::new()),
         }
     }
 
-    fn cached_styles(&self, id: NodeId) -> NodeStyle {
-        if let Some(cached) = self.style_cache.lock().get(&id) {
-            return cached.clone();
+    /// Returns the cached `PropertyMap` for `id`, computing and caching it on first access.
+    fn cached_styles(&self, id: NodeId) -> Arc<<C::CssSystem as CssSystem>::PropertyMap> {
+        {
+            if let Some(arc) = self.style_cache.lock().get(&id) {
+                return arc.clone();
+            }
         }
-        let style = self.compute_styles(id);
-        self.style_cache.lock().insert(id, style.clone());
-        style
+        let (prop_map, inline_ns) = self.compute_styles(id);
+        let arc = Arc::new(prop_map);
+        self.style_cache.lock().insert(id, arc.clone());
+        self.inline_style_cache.lock().insert(id, inline_ns);
+        arc
     }
 
-    fn compute_styles(&self, id: NodeId) -> NodeStyle {
-        // CSS selectors cannot target text nodes — only elements. Skip the full
-        // stylesheet scan for text nodes; they inherit everything from their parent.
+    fn compute_styles(
+        &self,
+        id: NodeId,
+    ) -> (<C::CssSystem as CssSystem>::PropertyMap, NodeStyle) {
+        // CSS selectors cannot target text nodes — only elements.
         if self.doc.node_type(id) == GosubNodeType::TextNode {
-            return NodeStyle::new();
+            return (Default::default(), NodeStyle::new());
         }
         let sheets = self.doc.stylesheets();
-        let Some(mut prop_map) = C::CssSystem::properties_from_node::<C>(&*self.doc, id, sheets) else {
-            return NodeStyle::new();
-        };
+        let mut prop_map = C::CssSystem::properties_from_node::<C>(&*self.doc, id, sheets)
+            .unwrap_or_default();
         for (_, prop) in prop_map.iter_mut() {
             prop.compute_value();
         }
-        let mut style = build_node_style::<C::CssSystem>(&prop_map);
 
-        // Inline `style` attribute has highest specificity — overlay it last.
-        if let Some(attrs) = self.doc.attributes(id) {
+        // Inline `style` attribute has highest specificity — store separately.
+        let inline_ns = if let Some(attrs) = self.doc.attributes(id) {
             if let Some(style_attr) = attrs.get("style") {
-                let inline = crate::common::document::parser::parse_inline_style_attr(style_attr);
-                for (prop, val) in inline.iter() {
-                    style.set(prop, val.clone());
-                }
+                crate::common::document::inline_style::parse_inline_style_attr(style_attr)
+            } else {
+                NodeStyle::new()
             }
-        }
+        } else {
+            NodeStyle::new()
+        };
 
-        style
+        (prop_map, inline_ns)
     }
 
     fn find_child_by_tag(&self, parent: NodeId, tag: &str) -> Option<NodeId> {
@@ -251,6 +346,7 @@ impl<C> PipelineDocument for GosubDocumentAdapter<C>
 where
     C: HasDocument + Send + Sync + 'static,
     C::Document: Send + Sync,
+    <C::CssSystem as CssSystem>::PropertyMap: Send + Sync,
 {
     fn root(&self) -> Option<NodeId> {
         self.html_node_id().or_else(|| Some(self.doc.root()))
@@ -285,17 +381,32 @@ where
     }
 
     fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value> {
-        self.cached_styles(id).get_own(prop).cloned()
+        let arc = self.cached_styles(id);
+
+        // Inline styles (from `style` attribute) have highest specificity.
+        if let Some(inline) = self.inline_style_cache.lock().get(&id) {
+            if let Some(v) = inline.get_own(prop) {
+                return Some(v.clone());
+            }
+        }
+
+        // Computed styles via bridge: CssProperty → Value.
+        let css_name = prop.css_name();
+        let p = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), css_name)?;
+        css_property_to_value::<C::CssSystem>(p, prop)
     }
 
     fn clear_style_cache(&self) {
         self.style_cache.lock().clear();
+        self.inline_style_cache.lock().clear();
     }
 
     fn invalidate_style_for_nodes(&self, ids: &[NodeId]) {
         let mut cache = self.style_cache.lock();
+        let mut inline_cache = self.inline_style_cache.lock();
         for id in ids {
             cache.remove(id);
+            inline_cache.remove(id);
         }
     }
 
@@ -339,8 +450,9 @@ where
                         attr_map.set(k, v);
                     }
                 }
-                let styles = self.cached_styles(id);
-                let element_data = ElementData::new(tag_name, Some(attr_map), false, Some(styles));
+                // Styles are accessed via `doc.get_own_style()` rather than stored in
+                // ElementData — CssTaffyConverter uses the PipelineDocument interface directly.
+                let element_data = ElementData::new(tag_name, Some(attr_map), false, None);
                 NodeType::Element(element_data)
             }
             _ => return None,
@@ -355,7 +467,7 @@ where
     }
 }
 
-// ── build_node_style — converts CssPropertyMap into NodeStyle ─────────────────
+// ── Helpers used by the bridge ────────────────────────────────────────────────
 
 fn str_to_border_style(s: &str) -> BorderStyle {
     match s {
@@ -370,377 +482,6 @@ fn str_to_border_style(s: &str) -> BorderStyle {
         "outset" => BorderStyle::Outset,
         _ => BorderStyle::None,
     }
-}
-
-fn build_node_style<S: CssSystem>(prop_map: &S::PropertyMap) -> NodeStyle {
-    let mut style = NodeStyle::new();
-
-    // --- border-radius shorthand expansion (before individual corners so they can override) ---
-    // CSS: 1 value → all corners; 2 → TL+BR / TR+BL; 3 → TL / TR+BL / BR; 4 → TL TR BR BL
-    if let Some(br) = prop_map.get("border-radius") {
-        let corners: [StyleProperty; 4] = [
-            StyleProperty::BorderTopLeftRadius,
-            StyleProperty::BorderTopRightRadius,
-            StyleProperty::BorderBottomRightRadius,
-            StyleProperty::BorderBottomLeftRadius,
-        ];
-
-        if br.as_unit().is_some() {
-            // Single value: all four corners the same.
-            // Use unit_to_px() so that rem/em values are converted — otherwise
-            // `border-radius: 0.25rem` would be stored as 0.25 and treated as
-            // 0.25 px (invisible) when get_style_f32 ignores the unit.
-            let px = br.unit_to_px();
-            if px > 0.0 {
-                let val = Value::Unit(px, Unit::Px);
-                for c in &corners {
-                    style.set(c.clone(), val.clone());
-                }
-            }
-        } else if let Some(list) = br.as_list() {
-            // Extract numeric values from the list, converting all units to px.
-            let vals: Vec<Value> = list
-                .iter()
-                .filter_map(|cv| {
-                    if cv.as_unit().is_some() {
-                        let px = cv.unit_to_px();
-                        Some(Value::Unit(px, Unit::Px))
-                    } else if let Some(v) = cv.as_number() {
-                        Some(Value::Unit(v, Unit::Px))
-                    } else {
-                        cv.as_percentage().map(|v| Value::Unit(v, Unit::Percent))
-                    }
-                })
-                .collect();
-
-            // Apply the CSS border-radius shorthand expansion pattern
-            let expanded: [Value; 4] = match vals.len() {
-                2 => [vals[0].clone(), vals[1].clone(), vals[0].clone(), vals[1].clone()],
-                3 => [vals[0].clone(), vals[1].clone(), vals[2].clone(), vals[1].clone()],
-                4.. => [vals[0].clone(), vals[1].clone(), vals[2].clone(), vals[3].clone()],
-                _ => {
-                    let v = vals.first().cloned().unwrap_or(Value::Unit(0.0, Unit::Px));
-                    [v.clone(), v.clone(), v.clone(), v]
-                }
-            };
-            for (c, v) in corners.iter().zip(expanded.iter()) {
-                style.set(c.clone(), v.clone());
-            }
-        }
-    }
-
-    // --- Unit-based properties ---
-    let unit_props: &[(&str, StyleProperty)] = &[
-        ("font-size", StyleProperty::FontSize),
-        ("width", StyleProperty::Width),
-        ("height", StyleProperty::Height),
-        ("margin-top", StyleProperty::MarginTop),
-        ("margin-right", StyleProperty::MarginRight),
-        ("margin-bottom", StyleProperty::MarginBottom),
-        ("margin-left", StyleProperty::MarginLeft),
-        ("padding-top", StyleProperty::PaddingTop),
-        ("padding-right", StyleProperty::PaddingRight),
-        ("padding-bottom", StyleProperty::PaddingBottom),
-        ("padding-left", StyleProperty::PaddingLeft),
-        ("border-top-width", StyleProperty::BorderTopWidth),
-        ("border-right-width", StyleProperty::BorderRightWidth),
-        ("border-bottom-width", StyleProperty::BorderBottomWidth),
-        ("border-left-width", StyleProperty::BorderLeftWidth),
-        // Logical margin aliases — used by some frameworks instead of physical sides
-        ("margin-block-start", StyleProperty::MarginTop),
-        ("margin-block-end", StyleProperty::MarginBottom),
-        ("margin-inline-start", StyleProperty::MarginLeft),
-        ("margin-inline-end", StyleProperty::MarginRight),
-        ("padding-block-start", StyleProperty::PaddingTop),
-        ("padding-block-end", StyleProperty::PaddingBottom),
-        ("padding-inline-start", StyleProperty::PaddingLeft),
-        ("padding-inline-end", StyleProperty::PaddingRight),
-        ("min-width", StyleProperty::MinWidth),
-        ("min-height", StyleProperty::MinHeight),
-        ("max-width", StyleProperty::MaxWidth),
-        ("max-height", StyleProperty::MaxHeight),
-        ("gap", StyleProperty::Gap),
-        ("column-gap", StyleProperty::Gap), // column-gap alone maps to horizontal gap
-        ("row-gap", StyleProperty::Gap),    // row-gap alone maps to vertical gap
-        ("border-top-left-radius", StyleProperty::BorderTopLeftRadius),
-        ("border-top-right-radius", StyleProperty::BorderTopRightRadius),
-        ("border-bottom-left-radius", StyleProperty::BorderBottomLeftRadius),
-        ("border-bottom-right-radius", StyleProperty::BorderBottomRightRadius),
-        ("flex-basis", StyleProperty::FlexBasis),
-        ("inset-block-start", StyleProperty::InsetBlockStart),
-        ("inset-block-end", StyleProperty::InsetBlockEnd),
-        ("inset-inline-start", StyleProperty::InsetInlineStart),
-        ("inset-inline-end", StyleProperty::InsetInlineEnd),
-    ];
-    // Pre-compute the element's font-size so ch/ex units can use it below.
-    // unit_to_px() resolves em/rem with 16px base, giving a close enough value.
-    let font_size_for_ch = prop_map
-        .get("font-size")
-        .filter(|fp| fp.as_unit().is_some())
-        .map(|fp| fp.unit_to_px())
-        .unwrap_or(16.0_f32);
-
-    for (css_name, prop) in unit_props {
-        if let Some(p) = prop_map.get(css_name) {
-            if p.as_unit().is_some() {
-                // Convert em/rem to px now so downstream code (get_style_f32) can
-                // treat all Unit values as pixels without knowing the unit.
-                // Also handle font-relative units that unit_to_px() ignores:
-                //   ch  ≈ 0.45 × font-size  (width of "0" in the current font)
-                //   ex  ≈ 0.50 × font-size  (x-height)
-                //   ic  ≈ 1.00 × font-size  (CJK ideograph width)
-                //   lh  ≈ 1.40 × font-size  (line-height)
-                let px = match p.as_unit() {
-                    Some((v, "ch")) => v * font_size_for_ch * 0.45,
-                    Some((v, "ex")) => v * font_size_for_ch * 0.50,
-                    Some((v, "ic")) => v * font_size_for_ch,
-                    Some((v, "lh")) => v * font_size_for_ch * 1.40,
-                    _ => p.unit_to_px(),
-                };
-                style.set(prop.clone(), Value::Unit(px, Unit::Px));
-            } else if let Some(pct) = p.as_percentage() {
-                style.set(prop.clone(), Value::Unit(pct, Unit::Percent));
-            } else if let Some(val) = p.as_number() {
-                style.set(prop.clone(), Value::Unit(val, Unit::Px));
-            } else if let Some(s) = p.as_string() {
-                style.set(prop.clone(), Value::Keyword(intern(s)));
-            }
-        }
-    }
-
-    // --- line-height: unitless number is a font-size multiplier, not pixels ---
-    if let Some(p) = prop_map.get("line-height") {
-        if p.as_unit().is_some() {
-            style.set(StyleProperty::LineHeight, Value::Unit(p.unit_to_px(), Unit::Px));
-        } else if let Some(val) = p.as_number() {
-            style.set(StyleProperty::LineHeight, Value::Number(val));
-        } else if let Some(s) = p.as_string() {
-            style.set(StyleProperty::LineHeight, Value::Keyword(intern(s)));
-        }
-    }
-
-    // --- Color properties ---
-    let color_props: &[(&str, StyleProperty)] = &[
-        ("color", StyleProperty::Color),
-        ("background-color", StyleProperty::BackgroundColor),
-        ("background", StyleProperty::BackgroundColor),
-        ("border-top-color", StyleProperty::BorderTopColor),
-        ("border-right-color", StyleProperty::BorderRightColor),
-        ("border-bottom-color", StyleProperty::BorderBottomColor),
-        ("border-left-color", StyleProperty::BorderLeftColor),
-    ];
-    for (css_name, prop) in color_props {
-        if let Some(p) = prop_map.get(css_name) {
-            // CSS system color keywords (e.g. "Mark", "Field") aren't standard named colors —
-            // RgbColor::from falls back to black for unknown strings. Map them to sensible
-            // sRGB approximations before attempting normal color parsing.
-            if let Some(s) = p.as_string() {
-                if let Some((r, g, b, a)) = css_system_color(s) {
-                    style.set(prop.clone(), Value::Color(r, g, b, a));
-                    continue;
-                }
-            }
-            if let Some((r, g, b, a)) = p.parse_color() {
-                style.set(prop.clone(), Value::Color(r as u8, g as u8, b as u8, a as u8));
-            }
-        }
-    }
-
-    // --- Display ---
-    if let Some(p) = prop_map.get("display") {
-        if let Some(s) = p.as_string() {
-            let display = match s {
-                "block" => Display::Block,
-                "inline" => Display::Inline,
-                "inline-block" => Display::InlineBlock,
-                "none" => Display::None,
-                "flex" => Display::Flex,
-                "inline-flex" => Display::InlineFlex,
-                "grid" => Display::Grid,
-                "inline-grid" => Display::InlineGrid,
-                "table" => Display::Table,
-                "table-caption" => Display::TableCaption,
-                "table-cell" => Display::TableCell,
-                "table-footer-group" => Display::TableFooterGroup,
-                "table-header-group" => Display::TableHeaderGroup,
-                "table-row" => Display::TableRow,
-                "table-row-group" => Display::TableRowGroup,
-                _ => Display::Block,
-            };
-            style.set(StyleProperty::Display, Value::Display(display));
-        }
-    }
-
-    // --- FontStyle ---
-    if let Some(p) = prop_map.get("font-style") {
-        if let Some(s) = p.as_string() {
-            style.set(StyleProperty::FontStyle, Value::Keyword(intern(s)));
-        }
-    }
-
-    // --- FontWeight ---
-    if let Some(p) = prop_map.get("font-weight") {
-        let fw = if let Some(n) = p.as_number() {
-            FontWeight::Number(n)
-        } else if let Some(s) = p.as_string() {
-            match s {
-                "bold" => FontWeight::Bold,
-                "bolder" => FontWeight::Bolder,
-                "lighter" => FontWeight::Lighter,
-                _ => FontWeight::Normal,
-            }
-        } else {
-            FontWeight::Normal
-        };
-        style.set(StyleProperty::FontWeight, Value::FontWeight(fw));
-    }
-
-    // --- TextAlign ---
-    if let Some(p) = prop_map.get("text-align") {
-        if let Some(s) = p.as_string() {
-            let ta = match s {
-                "left" => TextAlign::Left,
-                "right" => TextAlign::Right,
-                "center" => TextAlign::Center,
-                "justify" => TextAlign::Justify,
-                "start" => TextAlign::Start,
-                "end" => TextAlign::End,
-                "match-parent" => TextAlign::MatchParent,
-                "initial" => TextAlign::Initial,
-                "inherit" => TextAlign::Inherit,
-                "revert" => TextAlign::Revert,
-                "unset" => TextAlign::Unset,
-                _ => TextAlign::Left,
-            };
-            style.set(StyleProperty::TextAlign, Value::TextAlign(ta));
-        }
-    }
-
-    // --- TextWrap ---
-    if let Some(p) = prop_map.get("text-wrap") {
-        if let Some(s) = p.as_string() {
-            let tw = match s {
-                "nowrap" => TextWrap::NoWrap,
-                "balance" => TextWrap::Balance,
-                "pretty" => TextWrap::Pretty,
-                "stable" => TextWrap::Stable,
-                "initial" => TextWrap::Initial,
-                "inherit" => TextWrap::Inherit,
-                "revert" => TextWrap::Revert,
-                "revert-layer" => TextWrap::RevertLayer,
-                "unset" => TextWrap::Unset,
-                _ => TextWrap::Wrap,
-            };
-            style.set(StyleProperty::TextWrap, Value::TextWrap(tw));
-        }
-    }
-
-    // --- Border styles ---
-    let border_style_props: &[(&str, StyleProperty)] = &[
-        ("border-top-style", StyleProperty::BorderTopStyle),
-        ("border-right-style", StyleProperty::BorderRightStyle),
-        ("border-bottom-style", StyleProperty::BorderBottomStyle),
-        ("border-left-style", StyleProperty::BorderLeftStyle),
-    ];
-    for (css_name, prop) in border_style_props {
-        if let Some(p) = prop_map.get(css_name) {
-            if let Some(s) = p.as_string() {
-                style.set(prop.clone(), Value::BorderStyle(str_to_border_style(s)));
-            }
-        }
-    }
-
-    // --- Numeric properties ---
-    let num_props: &[(&str, StyleProperty)] = &[
-        ("flex-grow", StyleProperty::FlexGrow),
-        ("flex-shrink", StyleProperty::FlexShrink),
-        ("aspect-ratio", StyleProperty::AspectRatio),
-        ("scrollbar-width", StyleProperty::ScrollbarWidth),
-    ];
-    for (css_name, prop) in num_props {
-        if let Some(p) = prop_map.get(css_name) {
-            if let Some(n) = p.as_number() {
-                style.set(prop.clone(), Value::Number(n));
-            }
-        }
-    }
-
-    // --- font-family: stored as List([String("Arial"), Comma, String("sans-serif")]) ---
-    // We reconstruct the CSS font-family stack string so that downstream code (parley's
-    // FontFamily::Source) can parse it with FontFamilyName::parse_css_list().
-    if let Some(p) = prop_map.get("font-family") {
-        if let Some(s) = p.as_string() {
-            // Single family: font-family: Arial
-            style.set(StyleProperty::FontFamily, Value::Keyword(intern(s)));
-        } else if let Some(list) = p.as_list() {
-            // Multi-family list: font-family: "Arial", sans-serif
-            // Build "Arial, sans-serif" — parley will parse this as a CSS fallback stack.
-            let names: String = list
-                .iter()
-                .filter(|v| !v.is_comma())
-                .filter_map(|v| v.as_string())
-                .collect::<Vec<_>>()
-                .join(", ");
-            if !names.is_empty() {
-                style.set(StyleProperty::FontFamily, Value::Keyword(intern(&names)));
-            }
-        }
-    }
-
-    // --- Keyword properties ---
-    let kw_props: &[(&str, StyleProperty)] = &[
-        ("position", StyleProperty::Position),
-        ("flex-direction", StyleProperty::FlexDirection),
-        ("flex-wrap", StyleProperty::FlexWrap),
-        ("align-items", StyleProperty::AlignItems),
-        ("align-self", StyleProperty::AlignSelf),
-        ("align-content", StyleProperty::AlignContent),
-        ("justify-items", StyleProperty::JustifyItems),
-        ("justify-self", StyleProperty::JustifySelf),
-        ("justify-content", StyleProperty::JustifyContent),
-        ("overflow-x", StyleProperty::OverflowX),
-        ("overflow-y", StyleProperty::OverflowY),
-        ("box-sizing", StyleProperty::BoxSizing),
-        ("grid-auto-flow", StyleProperty::GridAutoFlow),
-        ("grid-row", StyleProperty::GridRow),
-        ("grid-column", StyleProperty::GridColumn),
-        ("grid-template-rows", StyleProperty::GridTemplateRows),
-        ("grid-template-columns", StyleProperty::GridTemplateColumns),
-        ("grid-auto-rows", StyleProperty::GridAutoRows),
-        ("grid-auto-columns", StyleProperty::GridAutoColumns),
-        ("white-space", StyleProperty::WhiteSpace),
-        ("text-decoration-line", StyleProperty::TextDecorationLine),
-    ];
-    for (css_name, prop) in kw_props {
-        if let Some(p) = prop_map.get(css_name) {
-            if let Some(s) = p.as_string() {
-                style.set(prop.clone(), Value::Keyword(intern(s)));
-            }
-        }
-    }
-
-    // --- text-decoration shorthand → text-decoration-line ---
-    // `text-decoration` can contain a space-separated list of values (e.g. "underline line-through").
-    // We extract the relevant decoration keywords and store them as a single consolidated keyword.
-    if let Some(p) = prop_map.get("text-decoration") {
-        let raw = format!("{p}");
-        let has_underline = raw.contains("underline");
-        let has_line_through = raw.contains("line-through");
-        let kw = if has_underline && has_line_through {
-            "underline line-through"
-        } else if has_underline {
-            "underline"
-        } else if has_line_through {
-            "line-through"
-        } else {
-            "none"
-        };
-        if kw != "none" {
-            style.set(StyleProperty::TextDecorationLine, Value::Keyword(intern(kw)));
-        }
-    }
-
-    style
 }
 
 /// Maps CSS system color keywords to (r, g, b, a) sRGB values so they render as something
@@ -770,3 +511,4 @@ fn css_system_color(name: &str) -> Option<(u8, u8, u8, u8)> {
         _ => None,
     }
 }
+
