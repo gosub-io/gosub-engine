@@ -8,6 +8,7 @@ description = "Taffy layouter for Gosub"
 
 [dependencies]
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
+gosub_lattice = { version = "0.1.0", registry = "gosub", path = "../gosub_lattice" }
 parking_lot = "0.12"
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface" }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }

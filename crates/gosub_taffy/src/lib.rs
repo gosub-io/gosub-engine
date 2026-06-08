@@ -16,6 +16,8 @@ use gosub_interface::layout::{Layout as TLayout, LayoutCache, LayoutNode, Layout
 use gosub_shared::geo::{Point, Rect, Size, SizeU32};
 use gosub_shared::types::Result;
 
+use gosub_lattice;
+
 use crate::calc::CalcExpr;
 use crate::compute::inline::compute_inline_layout;
 use crate::style::get_style_from_node;
@@ -24,6 +26,7 @@ use crate::text::TextLayout;
 pub mod calc;
 mod compute;
 pub mod style;
+mod table;
 mod text;
 
 /// Our layout implementation is based on Taffy properties.
@@ -373,9 +376,34 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocum
             }
 
             // let has_children = tree.0.child_count(node_id) > 0; //TODO: this isn't optimal, since we are now requesting the same node twice (up in get_cache and here)
-            let style = tree.get_taffy_style(node_id);
 
-            // @TODO: somehow we should implement table layout here as well. This could be doable with a Grid layout aparently.
+            // Table layout is handled by gosub_lattice, not Taffy.
+            if matches!(
+                tree.tree.get_cache(node_id).map(|c| c.display),
+                Some(Display::Table)
+            ) {
+                let available_width = match inputs.available_space.width {
+                    AvailableSpace::Definite(w) => w,
+                    AvailableSpace::MinContent | AvailableSpace::MaxContent => {
+                        inputs.known_dimensions.width.unwrap_or(0.0)
+                    }
+                };
+                let available_height = match inputs.available_space.height {
+                    AvailableSpace::Definite(h) => Some(h),
+                    _ => inputs.known_dimensions.height,
+                };
+                match gosub_lattice::compute_table_layout(tree, node_id, available_width, available_height) {
+                    Ok((w, h)) => {
+                        let sz = taffy::Size { width: w, height: h };
+                        return LayoutOutput::from_sizes(sz, sz);
+                    }
+                    Err(e) => {
+                        log::error!("table layout failed for node {:?}: {e}", node_id);
+                    }
+                }
+            }
+
+            let style = tree.get_taffy_style(node_id);
 
             match style.display {
                 TaffyDisplay::None => compute_hidden_layout(tree, node_id_taffy),

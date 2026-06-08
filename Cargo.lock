@@ -3314,6 +3314,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub_lattice"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_shared",
+ "log",
+]
+
+[[package]]
 name = "gosub_net"
 version = "0.1.1"
 dependencies = [
@@ -3468,6 +3477,7 @@ dependencies = [
  "anyhow",
  "gosub_fontmanager",
  "gosub_interface",
+ "gosub_lattice",
  "gosub_shared",
  "log",
  "parking_lot",
