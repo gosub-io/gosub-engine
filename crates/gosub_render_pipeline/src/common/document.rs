@@ -1,6 +1,4 @@
-#[allow(clippy::module_inception)]
-pub mod document;
+pub mod inline_style;
 pub mod node;
-pub mod parser;
 pub mod pipeline_doc;
 pub mod style;

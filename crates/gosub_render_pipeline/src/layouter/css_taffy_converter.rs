@@ -1,6 +1,7 @@
 use crate::common::document::node::NodeId;
+use crate::common::document::pipeline_doc::PipelineDocument;
 use crate::common::document::style::{
-    lookup, Display as CssDisplay, NodeStyle, StyleProperty, TextAlign as CssTextAlign, Unit as CssUnit, Value,
+    lookup, Display as CssDisplay, StyleProperty, TextAlign as CssTextAlign, Unit as CssUnit, Value,
 };
 use taffy::prelude::{
     minmax, span, FromFr, FromLength, FromPercent, MaxTrackSizingFunction, MinTrackSizingFunction, TaffyAuto,
@@ -12,39 +13,45 @@ use taffy::{
     Rect, Size, Style, TextAlign, TrackSizingFunction,
 };
 
-/// This struct convert CSS stylesheets into taffy style structure.
-pub struct CssTaffyConverter {
-    data: NodeStyle,
+/// Converts CSS properties from a `PipelineDocument` node into a Taffy `Style`.
+pub struct CssTaffyConverter<'a> {
+    node_id: NodeId,
+    doc: &'a dyn PipelineDocument,
 }
 
-impl CssTaffyConverter {
-    pub fn new(data: &NodeStyle) -> Self {
-        Self { data: data.clone() }
+impl<'a> CssTaffyConverter<'a> {
+    pub fn new(node_id: NodeId, doc: &'a dyn PipelineDocument) -> Self {
+        Self { node_id, doc }
+    }
+
+    fn get_own(&self, prop: &StyleProperty) -> Option<Value> {
+        self.doc.get_own_style(self.node_id, prop)
     }
 
     /// Returns this element's own font-size in px, or 16px if not set.
     fn font_size_px(&self) -> f32 {
-        match self.data.get_own(&StyleProperty::FontSize) {
-            Some(Value::Unit(v, CssUnit::Px)) => *v,
+        match self.get_own(&StyleProperty::FontSize) {
+            Some(Value::Unit(v, CssUnit::Px)) => v,
             _ => 16.0,
         }
     }
 
     fn get_f32(&self, prop: StyleProperty, default: f32) -> f32 {
-        match self.data.get_own(&prop) {
-            Some(Value::Number(num)) => *num,
+        match self.get_own(&prop) {
+            Some(Value::Number(num)) => num,
             _ => default,
         }
     }
 
     fn get_f32_opt(&self, prop: StyleProperty, default: Option<f32>) -> Option<f32> {
-        match self.data.get_own(&prop) {
-            Some(Value::Number(num)) => Some(*num),
+        match self.get_own(&prop) {
+            Some(Value::Number(num)) => Some(num),
             _ => default,
         }
     }
 
-    pub fn convert(&self, node_id: NodeId, is_inline: bool) -> Style {
+    pub fn convert(&self, is_inline: bool) -> Style {
+        let _ = is_inline; // parameter kept for API compatibility; inline wrapping handled by caller
         let mut ts = Style::default();
 
         ts.display = self.get_display(ts.display);
@@ -81,10 +88,6 @@ impl CssTaffyConverter {
         ts.align_items = self.get_align_items(StyleProperty::AlignItems, ts.align_items);
         ts.align_self = self.get_align_self(StyleProperty::AlignSelf, ts.align_self);
         // Default align-content to FlexStart rather than Taffy's None (= Stretch).
-        // With None, Taffy's flex-wrap height calculation only counts the first row when
-        // the container has height:auto — subsequent wrapped rows overflow without expanding
-        // the container.  FlexStart packs all rows tightly and always produces a correct
-        // intrinsic height.  CSS override via align-content still takes full effect.
         ts.align_content = self.get_align_content(StyleProperty::AlignContent, Some(AlignContent::FlexStart));
         ts.justify_items = self.get_align_items(StyleProperty::JustifyItems, ts.justify_items);
         ts.justify_self = self.get_align_self(StyleProperty::JustifySelf, ts.justify_self);
@@ -103,8 +106,8 @@ impl CssTaffyConverter {
         ts.grid_row = self.get_grid_line(StyleProperty::GridRow, ts.grid_row);
         ts.grid_column = self.get_grid_line(StyleProperty::GridColumn, ts.grid_column);
 
-        // If we have an inline element, set the correct properties for emulating inlining the element with taffy
-        match self.data.get_own(&StyleProperty::Display) {
+        // Adjust display for table and inline elements.
+        match self.get_own(&StyleProperty::Display) {
             Some(Value::Display(CssDisplay::Table)) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Column;
@@ -142,8 +145,6 @@ impl CssTaffyConverter {
                 ts.align_items = Some(AlignItems::Baseline);
             }
             // inline-flex / inline-grid: internally flex/grid, but participates inline.
-            // The element itself is already placed as inline by the parent's inline-group
-            // logic; here we just ensure the internal layout uses the right algorithm.
             Some(Value::Display(CssDisplay::InlineFlex)) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Row;
@@ -158,8 +159,8 @@ impl CssTaffyConverter {
     }
 
     fn get_flex_wrap(&self, default: FlexWrap) -> FlexWrap {
-        match self.data.get_own(&StyleProperty::FlexWrap) {
-            Some(Value::Keyword(id)) => match lookup(*id).as_str() {
+        match self.get_own(&StyleProperty::FlexWrap) {
+            Some(Value::Keyword(id)) => match lookup(id).as_str() {
                 "nowrap" => FlexWrap::NoWrap,
                 "wrap" => FlexWrap::Wrap,
                 "wrap-reverse" => FlexWrap::WrapReverse,
@@ -170,20 +171,20 @@ impl CssTaffyConverter {
     }
 
     fn get_flex_basis(&self, default: Dimension) -> Dimension {
-        match self.data.get_own(&StyleProperty::FlexBasis) {
+        match self.get_own(&StyleProperty::FlexBasis) {
             Some(Value::Unit(val, unit)) => match unit {
-                CssUnit::Percent => Dimension::percent(*val / 100.0),
-                _ => Dimension::from_length(*val),
+                CssUnit::Percent => Dimension::percent(val / 100.0),
+                _ => Dimension::from_length(val),
             },
-            Some(Value::Number(val)) => Dimension::from_length(*val),
-            Some(Value::Keyword(id)) if lookup(*id) == "auto" => Dimension::auto(),
+            Some(Value::Number(val)) => Dimension::from_length(val),
+            Some(Value::Keyword(id)) if lookup(id) == "auto" => Dimension::auto(),
             _ => default,
         }
     }
 
     fn get_flex_direction(&self, default: FlexDirection) -> FlexDirection {
-        match self.data.get_own(&StyleProperty::FlexDirection) {
-            Some(Value::Keyword(id)) => match lookup(*id).as_str() {
+        match self.get_own(&StyleProperty::FlexDirection) {
+            Some(Value::Keyword(id)) => match lookup(id).as_str() {
                 "row" => FlexDirection::Row,
                 "row-reverse" => FlexDirection::RowReverse,
                 "column" => FlexDirection::Column,
@@ -195,7 +196,7 @@ impl CssTaffyConverter {
     }
 
     fn get_display(&self, default: Display) -> Display {
-        match self.data.get_own(&StyleProperty::Display) {
+        match self.get_own(&StyleProperty::Display) {
             Some(Value::Display(val)) => match val {
                 CssDisplay::Block => Display::Block,
                 CssDisplay::InlineBlock => Display::Block, // We override this later
@@ -212,8 +213,8 @@ impl CssTaffyConverter {
     }
 
     fn get_position(&self, default: Position) -> Position {
-        match self.data.get_own(&StyleProperty::Position) {
-            Some(Value::Keyword(id)) => match lookup(*id).as_str() {
+        match self.get_own(&StyleProperty::Position) {
+            Some(Value::Keyword(id)) => match lookup(id).as_str() {
                 "relative" => Position::Relative,
                 "absolute" => Position::Absolute,
                 "static" => Position::Relative,
@@ -226,57 +227,57 @@ impl CssTaffyConverter {
     }
 
     fn get_lpa(&self, prop: StyleProperty, default: LengthPercentageAuto) -> LengthPercentageAuto {
-        match self.data.get_own(&prop) {
+        match self.get_own(&prop) {
             Some(Value::Unit(value, unit)) => match unit {
-                CssUnit::Px => LengthPercentageAuto::length(*value),
-                CssUnit::Percent => LengthPercentageAuto::percent(*value / 100.0),
-                CssUnit::Em | CssUnit::Rem => LengthPercentageAuto::length(*value * self.font_size_px()),
+                CssUnit::Px => LengthPercentageAuto::length(value),
+                CssUnit::Percent => LengthPercentageAuto::percent(value / 100.0),
+                CssUnit::Em | CssUnit::Rem => LengthPercentageAuto::length(value * self.font_size_px()),
             },
-            Some(Value::Number(value)) => LengthPercentageAuto::length(*value),
-            Some(Value::Keyword(id)) if lookup(*id) == "auto" => LengthPercentageAuto::auto(),
+            Some(Value::Number(value)) => LengthPercentageAuto::length(value),
+            Some(Value::Keyword(id)) if lookup(id) == "auto" => LengthPercentageAuto::auto(),
             _ => default,
         }
     }
 
     fn get_lp(&self, prop: StyleProperty, default: LengthPercentage) -> LengthPercentage {
-        match self.data.get_own(&prop) {
+        match self.get_own(&prop) {
             Some(Value::Unit(value, unit)) => match unit {
-                CssUnit::Px => LengthPercentage::length(*value),
-                CssUnit::Percent => LengthPercentage::percent(*value / 100.0),
-                CssUnit::Em | CssUnit::Rem => LengthPercentage::length(*value * self.font_size_px()),
+                CssUnit::Px => LengthPercentage::length(value),
+                CssUnit::Percent => LengthPercentage::percent(value / 100.0),
+                CssUnit::Em | CssUnit::Rem => LengthPercentage::length(value * self.font_size_px()),
             },
-            Some(Value::Number(value)) => LengthPercentage::length(*value),
+            Some(Value::Number(value)) => LengthPercentage::length(value),
             _ => default,
         }
     }
 
     fn get_dimension(&self, prop: StyleProperty, default: Dimension) -> Dimension {
-        match self.data.get_own(&prop) {
+        match self.get_own(&prop) {
             Some(Value::Unit(value, unit)) => match unit {
-                CssUnit::Px => Dimension::from_length(*value),
-                CssUnit::Percent => Dimension::percent(*value / 100.0),
-                CssUnit::Em | CssUnit::Rem => Dimension::from_length(*value * self.font_size_px()),
+                CssUnit::Px => Dimension::from_length(value),
+                CssUnit::Percent => Dimension::percent(value / 100.0),
+                CssUnit::Em | CssUnit::Rem => Dimension::from_length(value * self.font_size_px()),
             },
-            Some(Value::Number(value)) => Dimension::from_length(*value),
+            Some(Value::Number(value)) => Dimension::from_length(value),
             _ => default,
         }
     }
 
     fn get_size_lp(&self, prop: StyleProperty, default: Size<LengthPercentage>) -> Size<LengthPercentage> {
-        match self.data.get_own(&prop) {
+        match self.get_own(&prop) {
             Some(Value::Unit(value, unit)) => match unit {
-                CssUnit::Px => Size::length(*value),
-                CssUnit::Percent => Size::percent(*value / 100.0),
-                CssUnit::Em | CssUnit::Rem => Size::length(*value * self.font_size_px()),
+                CssUnit::Px => Size::length(value),
+                CssUnit::Percent => Size::percent(value / 100.0),
+                CssUnit::Em | CssUnit::Rem => Size::length(value * self.font_size_px()),
             },
-            Some(Value::Number(value)) => Size::length(*value),
+            Some(Value::Number(value)) => Size::length(value),
             _ => default,
         }
     }
 
     fn get_align_items(&self, prop: StyleProperty, default: Option<AlignItems>) -> Option<AlignItems> {
-        match self.data.get_own(&prop) {
-            Some(Value::Keyword(id)) => match lookup(*id).as_str() {
+        match self.get_own(&prop) {
+            Some(Value::Keyword(id)) => match lookup(id).as_str() {
                 "start" => Some(AlignItems::Start),
                 "end" => Some(AlignItems::End),
                 "flex-start" => Some(AlignItems::FlexStart),
@@ -291,8 +292,8 @@ impl CssTaffyConverter {
     }
 
     fn get_align_self(&self, prop: StyleProperty, default: Option<AlignSelf>) -> Option<AlignSelf> {
-        match self.data.get_own(&prop) {
-            Some(Value::Keyword(id)) => match lookup(*id).as_str() {
+        match self.get_own(&prop) {
+            Some(Value::Keyword(id)) => match lookup(id).as_str() {
                 "auto" => None,
                 "start" => Some(AlignSelf::Start),
                 "end" => Some(AlignSelf::End),
@@ -308,8 +309,8 @@ impl CssTaffyConverter {
     }
 
     fn get_align_content(&self, prop: StyleProperty, default: Option<AlignContent>) -> Option<AlignContent> {
-        match self.data.get_own(&prop) {
-            Some(Value::Keyword(id)) => match lookup(*id).as_str() {
+        match self.get_own(&prop) {
+            Some(Value::Keyword(id)) => match lookup(id).as_str() {
                 "normal" => default,
                 "start" => Some(AlignContent::Start),
                 "end" => Some(AlignContent::End),
@@ -327,7 +328,7 @@ impl CssTaffyConverter {
     }
 
     fn get_text_align(&self, default: TextAlign) -> TextAlign {
-        match self.data.get_own(&StyleProperty::TextAlign) {
+        match self.get_own(&StyleProperty::TextAlign) {
             Some(Value::TextAlign(val)) => match val {
                 CssTextAlign::Center => TextAlign::LegacyCenter,
                 CssTextAlign::Start => TextAlign::LegacyLeft,
@@ -348,8 +349,8 @@ impl CssTaffyConverter {
     }
 
     fn get_overflow(&self, prop: StyleProperty, default: Overflow) -> Overflow {
-        match self.data.get_own(&prop) {
-            Some(Value::Keyword(id)) => match lookup(*id).as_str() {
+        match self.get_own(&prop) {
+            Some(Value::Keyword(id)) => match lookup(id).as_str() {
                 "visible" => Overflow::Visible,
                 "hidden" => Overflow::Hidden,
                 "scroll" => Overflow::Scroll,
@@ -361,8 +362,8 @@ impl CssTaffyConverter {
     }
 
     fn get_box_sizing(&self, default: BoxSizing) -> BoxSizing {
-        match self.data.get_own(&StyleProperty::BoxSizing) {
-            Some(Value::Keyword(id)) => match lookup(*id).as_str() {
+        match self.get_own(&StyleProperty::BoxSizing) {
+            Some(Value::Keyword(id)) => match lookup(id).as_str() {
                 "content-box" => BoxSizing::ContentBox,
                 "border-box" => BoxSizing::BorderBox,
                 _ => default,
@@ -376,9 +377,9 @@ impl CssTaffyConverter {
         prop: StyleProperty,
         default: Vec<GridTemplateComponent<String>>,
     ) -> Vec<GridTemplateComponent<String>> {
-        match self.data.get_own(&prop) {
+        match self.get_own(&prop) {
             Some(Value::Keyword(id)) => {
-                let s = lookup(*id);
+                let s = lookup(id);
                 match s.as_str() {
                     "none" | "" => Vec::new(),
                     _ => parse_grid_template(s.as_str()).unwrap_or(default),
@@ -389,8 +390,8 @@ impl CssTaffyConverter {
     }
 
     fn get_grid_auto_flow(&self, default: GridAutoFlow) -> GridAutoFlow {
-        match self.data.get_own(&StyleProperty::GridAutoFlow) {
-            Some(Value::Keyword(id)) => match lookup(*id).as_str() {
+        match self.get_own(&StyleProperty::GridAutoFlow) {
+            Some(Value::Keyword(id)) => match lookup(id).as_str() {
                 "row" => GridAutoFlow::Row,
                 "column" => GridAutoFlow::Column,
                 "row dense" => GridAutoFlow::RowDense,
@@ -402,13 +403,13 @@ impl CssTaffyConverter {
     }
 
     fn get_grid_line(&self, prop: StyleProperty, default: Line<GridPlacement>) -> Line<GridPlacement> {
-        match self.data.get_own(&prop) {
+        match self.get_own(&prop) {
             Some(Value::Keyword(id)) => {
-                let s = lookup(*id);
+                let s = lookup(id);
                 parse_grid_placement(s.as_str()).unwrap_or(default)
             }
             Some(Value::Number(n)) => Line {
-                start: GridPlacement::from_line_index(*n as i16),
+                start: GridPlacement::from_line_index(n as i16),
                 end: GridPlacement::Auto,
             },
             _ => default,
@@ -416,9 +417,9 @@ impl CssTaffyConverter {
     }
 
     fn get_grid_auto(&self, prop: StyleProperty, default: Vec<TrackSizingFunction>) -> Vec<TrackSizingFunction> {
-        match self.data.get_own(&prop) {
+        match self.get_own(&prop) {
             Some(Value::Keyword(id)) => {
-                let s = lookup(*id);
+                let s = lookup(id);
                 match s.as_str() {
                     "auto" | "none" | "" => Vec::new(),
                     _ => parse_grid_template(s.as_str())

@@ -5,11 +5,6 @@ edition = "2021"
 description = "Cairo rasterizer and compositor backend for the Gosub render pipeline"
 license = "MIT"
 
-[[bin]]
-name = "pipeline-cairo"
-path = "src/bin/pipeline-cairo.rs"
-required-features = ["text_pango"]
-
 [dependencies]
 gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline", features = ["backend_cairo"] }
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
