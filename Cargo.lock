@@ -2140,30 +2140,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "example-egui-vello-paned"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "eframe",
- "egui",
- "gosub_engine",
- "gosub_render_pipeline",
- "gosub_shared",
- "log",
- "once_cell",
- "parking_lot",
- "simple_logger",
- "tokio",
- "tracing",
- "tracing-log",
- "tracing-subscriber",
- "url",
- "uuid",
- "vello",
- "wgpu",
-]
-
-[[package]]
 name = "example-gtk4-cairo"
 version = "0.1.0"
 dependencies = [

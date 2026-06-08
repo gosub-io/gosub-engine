@@ -52,6 +52,9 @@ struct BrowserApp {
     last_panel_size: egui::Vec2,
     ui_rx: std::sync::mpsc::Receiver<UiEvent>,
     is_loading: bool,
+    scroll_x: f32,
+    scroll_y: f32,
+    page_height: f32,
 }
 
 impl BrowserApp {
@@ -144,6 +147,9 @@ impl BrowserApp {
             last_panel_size: egui::Vec2::ZERO,
             ui_rx,
             is_loading: true,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
+            page_height: 0.0,
         }
     }
 
@@ -155,6 +161,8 @@ impl BrowserApp {
         }
         let Ok(_) = Url::parse(&s) else { return };
         self.is_loading = true;
+        self.scroll_x = 0.0;
+        self.scroll_y = 0.0;
         let tab = self.tab.clone();
         TOKIO_RT.spawn(async move {
             let _ = tab.send(TabCommand::Navigate { url: s }).await;
@@ -183,39 +191,47 @@ impl BrowserApp {
                 dpr,
                 viewport_width,
                 viewport_height,
-                scroll_x,
-                scroll_y,
+                page_height,
                 ..
             } => {
-                let dpr = dpr as usize;
-                let w = viewport_width as usize * dpr;
-                let h = viewport_height as usize * dpr;
+                self.page_height = page_height;
+
+                let dpr_f = dpr as f32;
+                let w = (viewport_width * dpr) as usize;
+                let h = (viewport_height * dpr) as usize;
                 if w == 0 || h == 0 {
                     return;
                 }
-                let sx = scroll_x as usize * dpr;
-                let sy = scroll_y as usize * dpr;
+                // Physical-pixel scroll offset using local state (no async roundtrip).
+                let sx = (self.scroll_x * dpr_f) as i64;
+                let sy = (self.scroll_y * dpr_f) as i64;
                 let mut buf = vec![0x00FF_FFFFu32; w * h];
                 for tile in tiles.iter() {
-                    let px = tile.page_x as usize * dpr;
-                    let py = tile.page_y as usize * dpr;
-                    let screen_x = px.saturating_sub(sx);
-                    let screen_y = py.saturating_sub(sy);
-                    let tw = tile.width as usize;
-                    let th = tile.height as usize;
+                    let px = (tile.page_x * dpr_f) as i64;
+                    let py = (tile.page_y * dpr_f) as i64;
+                    let screen_x = px - sx;
+                    let screen_y = py - sy;
+                    let tw = tile.width as i64;
+                    let th = tile.height as i64;
+                    if screen_x >= w as i64 || screen_y >= h as i64 { continue; }
+                    if screen_x + tw <= 0 || screen_y + th <= 0 { continue; }
+                    let tile_start_col = (-screen_x).max(0) as usize;
+                    let tile_start_row = (-screen_y).max(0) as usize;
+                    let dst_x = screen_x.max(0) as usize;
+                    let dst_y0 = screen_y.max(0) as usize;
+                    let tw = tw as usize;
+                    let th = th as usize;
                     let tile_u32 =
                         unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
-                    for row in 0..th {
-                        let dst_y = screen_y + row;
-                        if dst_y >= h {
-                            break;
-                        }
-                        let cw = tw.min(w.saturating_sub(screen_x));
-                        if cw == 0 {
-                            break;
-                        }
-                        buf[dst_y * w + screen_x..dst_y * w + screen_x + cw]
-                            .copy_from_slice(&tile_u32[row * tw..row * tw + cw]);
+                    for tile_row in tile_start_row..th {
+                        let dst_y = dst_y0 + (tile_row - tile_start_row);
+                        if dst_y >= h { break; }
+                        let copy_w = (tw - tile_start_col).min(w - dst_x);
+                        if copy_w == 0 { break; }
+                        let src_off = tile_row * tw + tile_start_col;
+                        let dst_off = dst_y * w + dst_x;
+                        buf[dst_off..dst_off + copy_w]
+                            .copy_from_slice(&tile_u32[src_off..src_off + copy_w]);
                     }
                 }
                 let mut rgba = Vec::with_capacity(w * h * 4);
@@ -282,6 +298,20 @@ impl eframe::App for BrowserApp {
             }
         }
 
+        // Update local scroll synchronously so refresh_texture composites at the new position.
+        let scroll_delta = ctx.input(|i| i.smooth_scroll_delta);
+        if scroll_delta != egui::Vec2::ZERO {
+            let dx = -scroll_delta.x;
+            let dy = -scroll_delta.y;
+            let max_y = (self.page_height - self.last_panel_size.y).max(0.0);
+            self.scroll_x = (self.scroll_x + dx).max(0.0);
+            self.scroll_y = (self.scroll_y + dy).clamp(0.0, max_y);
+            let tab = self.tab.clone();
+            TOKIO_RT.spawn(async move {
+                let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
+            });
+        }
+
         self.refresh_texture(&ctx);
 
         egui::Panel::top("addr")
@@ -323,20 +353,6 @@ impl eframe::App for BrowserApp {
                             y: 0,
                             width: w,
                             height: h,
-                        })
-                        .await;
-                });
-            }
-
-            let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
-            if scroll_delta != egui::Vec2::ZERO {
-                let tab = self.tab.clone();
-                let (dx, dy) = (-scroll_delta.x, -scroll_delta.y);
-                TOKIO_RT.spawn(async move {
-                    let _ = tab
-                        .send(TabCommand::MouseScroll {
-                            delta_x: dx,
-                            delta_y: dy,
                         })
                         .await;
                 });

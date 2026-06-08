@@ -20,9 +20,9 @@ pub(crate) fn do_paint_text(
 
     cr.save()?;
 
+    // Translate so the tile origin maps to the surface origin.
+    // No explicit clip — the surface boundary clips hard at pixel edges.
     cr.translate(-tile.rect.x, -tile.rect.y);
-    cr.rectangle(tile.rect.x, tile.rect.y, tile.rect.width, tile.rect.height);
-    cr.clip();
 
     // Round to integer CSS-pixel boundaries before placing; device_scale handles DPR mapping.
     let x = cmd.rect.x.round();
