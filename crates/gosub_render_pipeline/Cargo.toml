@@ -27,6 +27,7 @@ parley = "0.9.0"
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
 gosub_interface = { version = "0.1.2", path = "../gosub_interface", registry = "gosub" }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
+gosub_lattice = { version = "0.1.0", path = "../gosub_lattice", registry = "gosub" }
 
 # backend_cairo optional deps
 cairo-rs = { version = "0.22", optional = true }
