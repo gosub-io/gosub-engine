@@ -392,8 +392,45 @@ where
 
         // Computed styles via bridge: CssProperty → Value.
         let css_name = prop.css_name();
-        let p = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), css_name)?;
-        css_property_to_value::<C::CssSystem>(p, prop)
+
+        // For `text-decoration-line`, check the `text-decoration` shorthand FIRST when it
+        // is `none`.  The CSS shorthand `text-decoration: none` clears all decorations, but
+        // because the definitions JSON has empty expanded_properties for the shorthand, it is
+        // stored under the key "text-decoration" while the UA stylesheet's
+        // `a { text-decoration-line: underline }` is stored under "text-decoration-line".
+        // Without this early check the UA longhand would win over the author shorthand.
+        if matches!(prop, StyleProperty::TextDecorationLine) {
+            if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), "text-decoration") {
+                // `none` is represented as CssValue::None, not CssValue::String("none").
+                if p.is_none() {
+                    return Some(Value::Keyword(intern("none")));
+                }
+                if let Some(s) = p.as_string() {
+                    if s == "none" || s == "initial" || s == "unset" {
+                        return Some(Value::Keyword(intern("none")));
+                    }
+                    if s.contains("underline") {
+                        return Some(Value::Keyword(intern("underline")));
+                    }
+                    if s.contains("line-through") {
+                        return Some(Value::Keyword(intern("line-through")));
+                    }
+                }
+            }
+        }
+
+        if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), css_name) {
+            if let Some(v) = css_property_to_value::<C::CssSystem>(p, prop) {
+                return Some(v);
+            }
+        }
+
+        // HTML presentation attributes (bgcolor, width, …) as lowest-specificity fallback.
+        if let Some(attrs) = self.doc.attributes(id) {
+            return crate::common::document::inline_style::html_presentation_attr(attrs, prop);
+        }
+
+        None
     }
 
     fn clear_style_cache(&self) {
