@@ -140,8 +140,11 @@ impl Css3<'_> {
                 }
 
                 if value.eq_ignore_ascii_case("u+") {
-                    // unicode
-                    todo!("unicode");
+                    // unicode range not yet implemented
+                    Err(CssError::with_location(
+                        "unicode range values not yet implemented",
+                        self.tokenizer.current_location(),
+                    ))
                 } else {
                     let node = Node::new(NodeType::Ident { value }, t.location);
                     Ok(Some(node))

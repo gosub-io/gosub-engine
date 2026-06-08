@@ -2,7 +2,7 @@
 
 SHELL=/usr/bin/env bash
 
-.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-audit ci-check help
+.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-audit ci-check fuzz-css3 help
 
 all: help
 
@@ -70,6 +70,9 @@ fuzz-html5: ## Run html5 parser fuzzer (cargo-fuzz, requires nightly)
 
 fuzz-html5-tokenizer: ## Run html5 tokenizer fuzzer (cargo-fuzz, requires nightly)
 	cd crates/gosub_html5 && cargo +nightly fuzz run tokenizer -- -dict=fuzz/html.dict
+
+fuzz-css3: ## Run CSS3 parser fuzzer (cargo-fuzz, requires nightly)
+	cd crates/gosub_css3 && cargo +nightly fuzz run css3_parser -- -dict=fuzz/css3.dict
 
 help: ## Display available commands
 	echo "Available make commands:"

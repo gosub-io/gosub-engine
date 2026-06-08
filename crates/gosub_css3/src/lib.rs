@@ -39,6 +39,8 @@ pub struct Css3<'stream> {
     origin: CssOrigin,
     /// Source of the stream (filename, url, etc.)
     source: String,
+    /// Current function nesting depth; capped to prevent stack overflow on adversarial input.
+    function_depth: usize,
 }
 
 impl<'stream> Css3<'stream> {
@@ -50,6 +52,7 @@ impl<'stream> Css3<'stream> {
             config,
             origin,
             source: source.to_string(),
+            function_depth: 0,
         }
     }
 

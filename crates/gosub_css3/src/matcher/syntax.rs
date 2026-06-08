@@ -672,8 +672,8 @@ fn parse_unit_range(input: &str) -> IResult<&str, NumberOrInfinity> {
             CssValue::Unit(v, _) => v as i64,
             CssValue::Zero => 0,
             CssValue::Number(v) => v as i64,
-            v => {
-                panic!("Invalid value: {v:?}");
+            _ => {
+                return Err(Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Verify)));
             }
         };
 
@@ -682,7 +682,7 @@ fn parse_unit_range(input: &str) -> IResult<&str, NumberOrInfinity> {
         return Ok((out.0, val));
     }
 
-    todo!("parse_unit_rang is not implemented for non-values")
+    Err(Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Verify)))
 }
 
 /// Parses a range for a type definition  (ie: the square bracket part of: <function [1, 10]>)
