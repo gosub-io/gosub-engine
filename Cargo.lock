@@ -3366,6 +3366,7 @@ dependencies = [
  "gosub_fontmanager",
  "gosub_html5",
  "gosub_interface",
+ "gosub_lattice",
  "gosub_net",
  "gosub_shared",
  "hashbrown 0.17.1",

@@ -1,5 +1,6 @@
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
 use crate::common::document::style::{lookup, FontWeight, StyleProperty, TextAlign, Unit, Value};
+use crate::layouter::table::post_process_tables;
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
 use crate::common::geo::Coordinate;
@@ -52,6 +53,9 @@ pub struct TaffyLayouter {
     /// (MinContent, MaxContent, actual width). Caching by (text, font, max_width)
     /// eliminates the redundant Parley shaping calls.
     measure_cache: HashMap<MeasureKey, Size<f32>>,
+    /// Reverse index: DOM node ID → layout element ID.
+    /// Built during generate_taffy_element and used by the table post-processing pass.
+    dom_to_layout_mapping: HashMap<DomNodeId, LayoutElementId>,
 }
 
 /// Context structures to pass to taffy measure functions so we can calculate the size of the text or images.
@@ -124,6 +128,7 @@ impl TaffyLayouter {
             media_store: MediaStore::new(),
             font_system,
             measure_cache: HashMap::new(),
+            dom_to_layout_mapping: HashMap::new(),
         }
     }
 
@@ -273,6 +278,7 @@ impl CanLayout for TaffyLayouter {
         let root_id = layout_tree.root_id;
         let root_width = layout_tree.root_dimension.width;
         self.populate_boxmodel(&mut layout_tree, root_id, Coordinate::ZERO, root_width);
+        post_process_tables(&mut layout_tree, &self.dom_to_layout_mapping);
 
         // get dimension of the root node
         if let Some(root) = layout_tree.get_node_by_id(root_id) {
@@ -369,6 +375,7 @@ impl TaffyLayouter {
         self.root_id = TaffyNodeId::new(0); // Will be filled in later
         self.layout_taffy_mapping.clear();
         self.anon_container_map.clear();
+        self.dom_to_layout_mapping.clear();
 
         let mut layout_tree = LayoutTree {
             render_tree,
@@ -586,6 +593,7 @@ impl TaffyLayouter {
         // Create a mapping between the layout element id and the taffy node id. We need this to generate
         // the boxmodel at a later time in this pipeline stage.
         self.layout_taffy_mapping.insert(layout_element_id, leaf_id);
+        self.dom_to_layout_mapping.insert(dom_node.node_id, layout_element_id);
 
         Some((layout_element_id, leaf_id))
     }
