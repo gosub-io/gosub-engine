@@ -112,7 +112,95 @@ fn match_selector_part<C: HasDocument>(
                 MatcherType::SubstringMatch => got_attr_value.contains(wanted_attr_value),
             }
         }
-        CssSelectorPart::PseudoClass(name) => name == "hover" && doc.is_hovered(current_id),
+        CssSelectorPart::PseudoClass(name) => match name.as_ref() {
+            "hover" => doc.is_hovered(current_id),
+            // Link pseudo-classes: match any element with an href attribute.
+            // We have no browsing history, so treat everything as unvisited
+            // (`:link` matches, `:visited` does not).
+            "link" | "any-link" | "-webkit-any-link" => {
+                doc.node_type(current_id) == NodeType::ElementNode
+                    && doc.tag_name(current_id).is_some_and(|t| matches!(t.as_ref(), "a" | "area" | "link"))
+                    && doc.attribute(current_id, "href").is_some()
+            }
+            "visited" => false,
+            // Structural pseudo-classes
+            "first-child" => {
+                if let Some(parent_id) = doc.parent(current_id) {
+                    let siblings = doc.children(parent_id);
+                    siblings.first().is_some_and(|&id| id == current_id)
+                } else {
+                    false
+                }
+            }
+            "last-child" => {
+                if let Some(parent_id) = doc.parent(current_id) {
+                    let siblings = doc.children(parent_id);
+                    siblings.last().is_some_and(|&id| id == current_id)
+                } else {
+                    false
+                }
+            }
+            "first-of-type" => {
+                let tag = doc.tag_name(current_id);
+                if let (Some(parent_id), Some(tag)) = (doc.parent(current_id), tag) {
+                    doc.children(parent_id)
+                        .iter()
+                        .filter(|&&id| doc.tag_name(id).as_deref() == Some(&tag))
+                        .next()
+                        .is_some_and(|&id| id == current_id)
+                } else {
+                    false
+                }
+            }
+            "last-of-type" => {
+                let tag = doc.tag_name(current_id);
+                if let (Some(parent_id), Some(tag)) = (doc.parent(current_id), tag) {
+                    doc.children(parent_id)
+                        .iter()
+                        .filter(|&&id| doc.tag_name(id).as_deref() == Some(&tag))
+                        .last()
+                        .is_some_and(|&id| id == current_id)
+                } else {
+                    false
+                }
+            }
+            "only-child" => {
+                if let Some(parent_id) = doc.parent(current_id) {
+                    let elem_siblings: Vec<_> = doc.children(parent_id)
+                        .iter()
+                        .filter(|&&id| doc.node_type(id) == NodeType::ElementNode)
+                        .copied()
+                        .collect();
+                    elem_siblings.len() == 1 && elem_siblings[0] == current_id
+                } else {
+                    false
+                }
+            }
+            "only-of-type" => {
+                let tag = doc.tag_name(current_id);
+                if let (Some(parent_id), Some(tag)) = (doc.parent(current_id), tag) {
+                    doc.children(parent_id)
+                        .iter()
+                        .filter(|&&id| doc.tag_name(id).as_deref() == Some(&tag))
+                        .count() == 1
+                } else {
+                    false
+                }
+            }
+            "root" => doc.parent(current_id).is_none() && doc.node_type(current_id) == NodeType::ElementNode,
+            "checked" => doc.attribute(current_id, "checked").is_some(),
+            "disabled" => doc.attribute(current_id, "disabled").is_some(),
+            "enabled" => doc.attribute(current_id, "disabled").is_none()
+                && doc.node_type(current_id) == NodeType::ElementNode,
+            "read-only" => doc.attribute(current_id, "readonly").is_some(),
+            "read-write" => doc.attribute(current_id, "readonly").is_none()
+                && doc.attribute(current_id, "disabled").is_none()
+                && doc.node_type(current_id) == NodeType::ElementNode,
+            "focus" | "focus-visible" | "focus-within" => false,
+            "active" => false,
+            // Unknown / unimplemented pseudo-classes never match.
+            _ => false,
+        },
         CssSelectorPart::PseudoElement(_name) => {
             // @Todo: implement pseudo elements
             false

@@ -2,6 +2,7 @@ use crate::common::document::style::{
     intern, BorderStyle, Display, FontWeight, NodeStyle, StyleProperty, TextAlign, TextWrap, Unit, Value,
 };
 use cow_utils::CowUtils;
+use std::collections::HashMap;
 
 /// Parses a CSS inline `style` attribute value (e.g. `"color: red; width: 100px"`)
 /// into a `NodeStyle`.
@@ -440,5 +441,28 @@ fn parse_font_weight(value: &str) -> Value {
                 Value::Keyword(intern(value))
             }
         }
+    }
+}
+
+/// Map HTML presentation attributes (e.g. `bgcolor`, `width`) to CSS `Value`s.
+/// These have lower specificity than any real CSS rule and are only consulted
+/// when neither the `style` attribute nor the stylesheet provides a value.
+pub fn html_presentation_attr(attrs: &HashMap<String, String>, prop: &StyleProperty) -> Option<Value> {
+    match prop {
+        StyleProperty::BackgroundColor => {
+            let v = attrs.get("bgcolor")?;
+            let color = parse_named_color(v.trim());
+            if matches!(color, Value::Color(..)) { Some(color) } else { None }
+        }
+        StyleProperty::Width => {
+            let v = attrs.get("width")?;
+            let v = v.trim();
+            if let Some(pct) = v.strip_suffix('%') {
+                pct.trim().parse::<f32>().ok().map(|n| Value::Unit(n, Unit::Percent))
+            } else {
+                v.parse::<f32>().ok().map(|n| Value::Unit(n, Unit::Px))
+            }
+        }
+        _ => None,
     }
 }

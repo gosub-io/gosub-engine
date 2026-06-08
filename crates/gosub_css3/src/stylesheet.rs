@@ -427,12 +427,23 @@ impl CssValue {
 
     #[must_use]
     pub fn unit_to_px(&self) -> f32 {
-        //TODO: Implement the rest of the units
         match self {
             CssValue::Unit(val, unit) => match unit.as_str() {
                 "px" => *val,
                 "em" => *val * 16.0,
                 "rem" => *val * 16.0,
+                // Absolute physical units — 1in = 96px
+                "pt" => *val * (96.0 / 72.0),
+                "pc" => *val * (96.0 / 6.0),
+                "in" => *val * 96.0,
+                "cm" => *val * (96.0 / 2.54),
+                "mm" => *val * (96.0 / 25.4),
+                "q"  => *val * (96.0 / 101.6),
+                // Viewport units — fixed-size fallback (1280×800)
+                "vw" | "svw" | "lvw" | "dvw" => *val * 12.8,
+                "vh" | "svh" | "lvh" | "dvh" => *val * 8.0,
+                "vmin" => *val * 8.0,
+                "vmax" => *val * 12.8,
                 _ => *val,
             },
             CssValue::String(value) => {

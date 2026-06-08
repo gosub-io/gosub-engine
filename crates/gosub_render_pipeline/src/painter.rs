@@ -2,7 +2,7 @@ pub mod commands;
 
 use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
-use crate::common::document::style::{BorderStyle as CssBorderStyle, StyleProperty, Value};
+use crate::common::document::style::{BorderStyle as CssBorderStyle, Display, StyleProperty, Value};
 use crate::layering::layer::LayerList;
 use crate::layouter::{ElementContext, LayoutElementNode};
 use crate::painter::commands::border::{Border, BorderStyle};
@@ -56,6 +56,10 @@ impl Painter {
             WireframeState::None => {
                 commands.extend(self.generate_element_commands(layout_element, dom_node_id));
             }
+        }
+
+        if state.debug_table_cells {
+            commands.extend(self.generate_table_debug_commands(layout_element, dom_node_id));
         }
 
         commands
@@ -114,6 +118,29 @@ impl Painter {
         commands.push(PaintCommand::rectangle(r));
 
         commands
+    }
+
+    /// Overlays a colored 1px border for table-related display roles (debug only).
+    fn generate_table_debug_commands(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Vec<PaintCommand> {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let color = match doc.get_own_style(dom_node_id, &StyleProperty::Display) {
+            Some(Value::Display(Display::Table)) => Color::from_rgb8(255, 0, 0),
+            Some(Value::Display(Display::TableCell)) => Color::from_rgb8(0, 180, 0),
+            Some(Value::Display(Display::TableRow)) => Color::from_rgb8(0, 0, 255),
+            Some(Value::Display(Display::TableRowGroup))
+            | Some(Value::Display(Display::TableHeaderGroup))
+            | Some(Value::Display(Display::TableFooterGroup)) => Color::from_rgb8(160, 0, 200),
+            Some(Value::Display(Display::TableCaption)) => Color::from_rgb8(255, 140, 0),
+            _ => return Vec::new(),
+        };
+        let border = Border::new(1.0, BorderStyle::Solid, [
+            Brush::Solid(color.clone()),
+            Brush::Solid(color.clone()),
+            Brush::Solid(color.clone()),
+            Brush::Solid(color),
+        ]);
+        let r = Rectangle::new(layout_element.box_model.border_box).with_border(border);
+        vec![PaintCommand::rectangle(r)]
     }
 
     /// Generates the paint commands for the given layout element

@@ -4,16 +4,17 @@ use crate::TableTree;
 
 /// Compute column widths for a table with `n_cols` columns.
 ///
-/// **Phase 1 — fixed layout only.**
-///
 /// Algorithm:
 /// 1. The available space is `table_width` minus the horizontal border-spacing
 ///    gutters (one between each pair of columns plus the outer two).
-/// 2. We scan the first non-empty row across all provided grids (header first,
-///    then body, then footer).  For each single-column cell in that row, if
-///    it has an explicit `width` in pixels, that width is assigned to its column.
-/// 3. Remaining space is distributed equally among columns without an explicit
-///    width.
+/// 2. Scan the first non-empty row across all provided grids (header first,
+///    then body, then footer).  For each single-column cell in that row:
+///    - If it has an explicit CSS `width` in px or %, assign that to its column.
+///    - Record its pre-pass natural width (from `cell_content_width`) for use
+///      in step 3.
+/// 3. Remaining space is distributed to auto columns proportionally to their
+///    natural content width. Falls back to equal distribution if no content
+///    width information is available.
 pub fn compute_column_widths<T: TableTree>(
     tree: &T,
     n_cols: usize,
@@ -30,17 +31,27 @@ pub fn compute_column_widths<T: TableTree>(
     let available = (table_width - spacing_total).max(0.0);
 
     let mut explicit: Vec<Option<f32>> = vec![None; n_cols];
+    let mut natural: Vec<f32> = vec![0.0; n_cols];
 
-    // Find the first row that contains at least one cell.
+    // Scan the first non-empty row for explicit widths and natural content widths.
     'outer: for grid in grids {
         for row_idx in 0..grid.n_rows {
             let mut found_any = false;
             for cell in grid.cells_in_row(row_idx) {
                 found_any = true;
-                // Only single-column cells determine column widths in fixed layout.
-                if cell.colspan == 1 && explicit[cell.col].is_none() {
-                    if let CssLength::Px(px) = tree.css_length(cell.node, CssProp::Width) {
-                        explicit[cell.col] = Some(px);
+                if cell.colspan == 1 {
+                    if explicit[cell.col].is_none() {
+                        match tree.css_length(cell.node, CssProp::Width) {
+                            CssLength::Px(px) => explicit[cell.col] = Some(px),
+                            CssLength::Percent(p) => {
+                                explicit[cell.col] = Some(p / 100.0 * table_width)
+                            }
+                            _ => {}
+                        }
+                    }
+                    let cw = tree.cell_content_width(cell.node);
+                    if cw > natural[cell.col] {
+                        natural[cell.col] = cw;
                     }
                 }
             }
@@ -51,13 +62,56 @@ pub fn compute_column_widths<T: TableTree>(
     }
 
     let fixed_total: f32 = explicit.iter().filter_map(|&w| w).sum();
-    let auto_count = explicit.iter().filter(|w| w.is_none()).count();
     let remaining = (available - fixed_total).max(0.0);
-    let auto_width = if auto_count > 0 {
-        remaining / auto_count as f32
-    } else {
-        0.0
-    };
 
-    explicit.iter().map(|w| w.unwrap_or(auto_width)).collect()
+    let auto_cols: Vec<usize> = (0..n_cols).filter(|&c| explicit[c].is_none()).collect();
+    if !auto_cols.is_empty() {
+        let total_natural: f32 = auto_cols.iter().map(|&c| natural[c]).sum();
+        if total_natural > 0.0 {
+            // Threshold-based distribution:
+            //   - Narrow auto columns (intrinsic < 50 px) are structural (rank
+            //     numbers, vote buttons) — give them their natural width with a
+            //     14 px floor so they stay visible.
+            //   - Wide auto columns are content columns — they share whatever
+            //     space remains after the narrow columns have taken their share.
+            //     Multiple content columns share proportionally to their natural
+            //     widths; if there are none, fall through to equal distribution.
+            const NARROW_THRESHOLD: f32 = 50.0;
+            const NARROW_FLOOR: f32 = 14.0;
+
+            let narrow_total: f32 = auto_cols.iter()
+                .filter(|&&c| natural[c] < NARROW_THRESHOLD)
+                .map(|&c| natural[c].max(NARROW_FLOOR))
+                .sum();
+
+            let content_natural_total: f32 = auto_cols.iter()
+                .filter(|&&c| natural[c] >= NARROW_THRESHOLD)
+                .map(|&c| natural[c])
+                .sum();
+
+            if content_natural_total > 0.0 {
+                let content_remaining = (remaining - narrow_total).max(0.0);
+                for &col in &auto_cols {
+                    if natural[col] < NARROW_THRESHOLD {
+                        explicit[col] = Some(natural[col].max(NARROW_FLOOR));
+                    } else {
+                        explicit[col] = Some(content_remaining * natural[col] / content_natural_total);
+                    }
+                }
+            } else {
+                // All auto columns are narrow — distribute remaining proportionally.
+                for &col in &auto_cols {
+                    explicit[col] = Some(remaining * natural[col] / total_natural);
+                }
+            }
+        } else {
+            // No content width data (mock trees) — fall back to equal distribution.
+            let equal = remaining / auto_cols.len() as f32;
+            for &col in &auto_cols {
+                explicit[col] = Some(equal);
+            }
+        }
+    }
+
+    explicit.iter().map(|w| w.unwrap_or(0.0)).collect()
 }
