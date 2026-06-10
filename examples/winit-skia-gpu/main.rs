@@ -100,6 +100,7 @@ struct BrowserApp {
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
+    #[allow(dead_code)]
     proxy: EventLoopProxy<()>,
 
     window: Option<Arc<Window>>,

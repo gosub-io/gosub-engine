@@ -14,7 +14,6 @@ use gosub_render_pipeline::render::backends::vello::WgpuResources;
 use gosub_render_pipeline::rendertree_builder::RenderTree;
 use gosub_render_pipeline::tiler::{TileList, TileState};
 use gosub_renderer_vello::compositor::{VelloCompositor, VelloCompositorConfig};
-use gosub_render_pipeline::render::backends::vello::WgpuResources;
 use gosub_renderer_vello::VelloRasterizer;
 use parking_lot::{Mutex, RwLock};
 use std::cell::RefCell;
