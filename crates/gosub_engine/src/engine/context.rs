@@ -1084,6 +1084,7 @@ fn pipeline_build_cache(
             use gosub_render_pipeline::common::media::MediaStore;
             use gosub_render_pipeline::common::texture_store::TextureStore;
             use gosub_render_pipeline::rasterizer::Rasterable;
+            use gosub_render_pipeline::tiler::TileId;
             use rayon::prelude::*;
 
             let t = Instant::now();
@@ -1502,6 +1503,7 @@ fn pipeline_hover_repaint(
             use gosub_render_pipeline::common::media::MediaStore;
             use gosub_render_pipeline::common::texture_store::TextureStore;
             use gosub_render_pipeline::rasterizer::Rasterable;
+            use gosub_render_pipeline::tiler::TileId;
             use rayon::prelude::*;
 
             let t = Instant::now();
