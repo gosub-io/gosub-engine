@@ -1,5 +1,5 @@
 use crate::grid::SectionGrid;
-use crate::types::{CssProp, CssLength};
+use crate::types::{CssLength, CssProp};
 use crate::TableTree;
 
 /// Compute column widths for a table with `n_cols` columns.
@@ -43,9 +43,7 @@ pub fn compute_column_widths<T: TableTree>(
                     if explicit[cell.col].is_none() {
                         match tree.css_length(cell.node, CssProp::Width) {
                             CssLength::Px(px) => explicit[cell.col] = Some(px),
-                            CssLength::Percent(p) => {
-                                explicit[cell.col] = Some(p / 100.0 * table_width)
-                            }
+                            CssLength::Percent(p) => explicit[cell.col] = Some(p / 100.0 * table_width),
                             _ => {}
                         }
                     }
@@ -79,12 +77,14 @@ pub fn compute_column_widths<T: TableTree>(
             const NARROW_THRESHOLD: f32 = 50.0;
             const NARROW_FLOOR: f32 = 14.0;
 
-            let narrow_total: f32 = auto_cols.iter()
+            let narrow_total: f32 = auto_cols
+                .iter()
                 .filter(|&&c| natural[c] < NARROW_THRESHOLD)
                 .map(|&c| natural[c].max(NARROW_FLOOR))
                 .sum();
 
-            let content_natural_total: f32 = auto_cols.iter()
+            let content_natural_total: f32 = auto_cols
+                .iter()
                 .filter(|&&c| natural[c] >= NARROW_THRESHOLD)
                 .map(|&c| natural[c])
                 .sum();

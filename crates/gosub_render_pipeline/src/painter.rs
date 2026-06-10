@@ -121,7 +121,11 @@ impl Painter {
     }
 
     /// Overlays a colored 1px border for table-related display roles (debug only).
-    fn generate_table_debug_commands(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Vec<PaintCommand> {
+    fn generate_table_debug_commands(
+        &self,
+        layout_element: &LayoutElementNode,
+        dom_node_id: NodeId,
+    ) -> Vec<PaintCommand> {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let color = match doc.get_own_style(dom_node_id, &StyleProperty::Display) {
             Some(Value::Display(Display::Table)) => Color::from_rgb8(255, 0, 0),
@@ -133,12 +137,16 @@ impl Painter {
             Some(Value::Display(Display::TableCaption)) => Color::from_rgb8(255, 140, 0),
             _ => return Vec::new(),
         };
-        let border = Border::new(1.0, BorderStyle::Solid, [
-            Brush::Solid(color.clone()),
-            Brush::Solid(color.clone()),
-            Brush::Solid(color.clone()),
-            Brush::Solid(color),
-        ]);
+        let border = Border::new(
+            1.0,
+            BorderStyle::Solid,
+            [
+                Brush::Solid(color.clone()),
+                Brush::Solid(color.clone()),
+                Brush::Solid(color.clone()),
+                Brush::Solid(color),
+            ],
+        );
         let r = Rectangle::new(layout_element.box_model.border_box).with_border(border);
         vec![PaintCommand::rectangle(r)]
     }

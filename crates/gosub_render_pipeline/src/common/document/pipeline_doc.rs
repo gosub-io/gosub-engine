@@ -120,9 +120,10 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
         }
 
         // ── Numeric properties ─────────────────────────────────────────────
-        StyleProperty::FlexGrow | StyleProperty::FlexShrink | StyleProperty::AspectRatio | StyleProperty::ScrollbarWidth => {
-            Some(Value::Number(p.as_number()?))
-        }
+        StyleProperty::FlexGrow
+        | StyleProperty::FlexShrink
+        | StyleProperty::AspectRatio
+        | StyleProperty::ScrollbarWidth => Some(Value::Number(p.as_number()?)),
 
         // ── line-height: unitless number is a multiplier, not pixels ───────
         StyleProperty::LineHeight => {
@@ -304,17 +305,13 @@ where
         arc
     }
 
-    fn compute_styles(
-        &self,
-        id: NodeId,
-    ) -> (<C::CssSystem as CssSystem>::PropertyMap, NodeStyle) {
+    fn compute_styles(&self, id: NodeId) -> (<C::CssSystem as CssSystem>::PropertyMap, NodeStyle) {
         // CSS selectors cannot target text nodes — only elements.
         if self.doc.node_type(id) == GosubNodeType::TextNode {
             return (Default::default(), NodeStyle::new());
         }
         let sheets = self.doc.stylesheets();
-        let mut prop_map = C::CssSystem::properties_from_node::<C>(&*self.doc, id, sheets)
-            .unwrap_or_default();
+        let mut prop_map = C::CssSystem::properties_from_node::<C>(&*self.doc, id, sheets).unwrap_or_default();
         for (_, prop) in prop_map.iter_mut() {
             prop.compute_value();
         }
@@ -548,4 +545,3 @@ fn css_system_color(name: &str) -> Option<(u8, u8, u8, u8)> {
         _ => None,
     }
 }
-

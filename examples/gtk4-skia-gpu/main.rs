@@ -60,7 +60,9 @@ fn get_bound_fbo() -> u32 {
         fn glGetIntegerv(pname: u32, data: *mut i32);
     }
     let mut fbo = 0i32;
-    unsafe { glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &mut fbo) };
+    unsafe {
+        glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &mut fbo)
+    };
     fbo as u32
 }
 
@@ -190,12 +192,7 @@ fn main() {
                     format: 0x8058, // GL_RGBA8
                     protected: skia_safe::gpu::Protected::No,
                 };
-                let target = skia_safe::gpu::backend_render_targets::make_gl(
-                    (phys_w, phys_h),
-                    None,
-                    8,
-                    fb_info,
-                );
+                let target = skia_safe::gpu::backend_render_targets::make_gl((phys_w, phys_h), None, 8, fb_info);
                 let Some(mut surface) = skia_safe::gpu::surfaces::wrap_backend_render_target(
                     dc,
                     &target,
@@ -222,8 +219,12 @@ fn main() {
                         let tw = tile.width as i32;
                         let th = tile.height as i32;
 
-                        if px >= phys_w || py >= phys_h { continue; }
-                        if px + tw <= 0 || py + th <= 0 { continue; }
+                        if px >= phys_w || py >= phys_h {
+                            continue;
+                        }
+                        if px + tw <= 0 || py + th <= 0 {
+                            continue;
+                        }
 
                         // Tile data is BGRA premultiplied (same as Cairo ARGB32 LE).
                         let info = skia_safe::ImageInfo::new(
@@ -236,11 +237,9 @@ fn main() {
                         if tile.data.len() < th as usize * stride {
                             continue;
                         }
-                        if let Some(image) = skia_safe::images::raster_from_data(
-                            &info,
-                            skia_safe::Data::new_copy(&tile.data),
-                            stride,
-                        ) {
+                        if let Some(image) =
+                            skia_safe::images::raster_from_data(&info, skia_safe::Data::new_copy(&tile.data), stride)
+                        {
                             canvas.draw_image(&image, (px as f32, py as f32), None);
                         }
                     }
@@ -294,7 +293,12 @@ fn main() {
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
                     let _ = tab
-                        .send(TabCommand::SetViewport { x: 0, y: 0, width: w as u32, height: h as u32 })
+                        .send(TabCommand::SetViewport {
+                            x: 0,
+                            y: 0,
+                            width: w as u32,
+                            height: h as u32,
+                        })
                         .await;
                 });
             }
@@ -321,7 +325,12 @@ fn main() {
                 local_scroll.set(((px + dx).max(0.0), (py + dy).clamp(0.0, max_y)));
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseScroll {
+                            delta_x: dx,
+                            delta_y: dy,
+                        })
+                        .await;
                 });
                 glib::Propagation::Stop
             }
@@ -336,7 +345,12 @@ fn main() {
             move |_, x, y| {
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseMove { x: x as f32, y: y as f32 }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseMove {
+                            x: x as f32,
+                            y: y as f32,
+                        })
+                        .await;
                 });
             }
         });

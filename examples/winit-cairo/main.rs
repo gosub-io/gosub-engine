@@ -439,9 +439,8 @@ fn blit_handle_to_buffer(
 
                 // Cairo ARGB32 LE: [B, G, R, A] in bytes → u32 = A<<24|R<<16|G<<8|B.
                 // softbuffer wants 0x00RRGGBB → mask off the high (alpha) byte.
-                let tile_u32 = unsafe {
-                    std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4)
-                };
+                let tile_u32 =
+                    unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
 
                 for tile_row in tile_row0..th_usize {
                     let dst_y = dst_y0 + (tile_row - tile_row0);

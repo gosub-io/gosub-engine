@@ -1,5 +1,5 @@
 use crate::grid::SectionGrid;
-use crate::types::{BoxEdges, CssProp, CssLength};
+use crate::types::{BoxEdges, CssLength, CssProp};
 use crate::TableTree;
 
 /// Compute the height of each row in a section.
@@ -13,11 +13,7 @@ use crate::TableTree;
 ///
 /// Cells with `rowspan > 1` are skipped here; their height distribution across
 /// multiple rows is a Phase 2 concern.
-pub fn compute_row_heights<T: TableTree>(
-    tree: &mut T,
-    grid: &SectionGrid<T::NodeId>,
-    col_widths: &[f32],
-) -> Vec<f32> {
+pub fn compute_row_heights<T: TableTree>(tree: &mut T, grid: &SectionGrid<T::NodeId>, col_widths: &[f32]) -> Vec<f32> {
     let mut heights = vec![0.0_f32; grid.n_rows];
 
     for cell in grid.cells() {
@@ -25,7 +21,7 @@ pub fn compute_row_heights<T: TableTree>(
             continue;
         }
 
-        let border  = read_border(tree, cell.node);
+        let border = read_border(tree, cell.node);
         let padding = read_padding(tree, cell.node);
 
         // Inner width available to the cell's children.
@@ -61,18 +57,18 @@ pub fn compute_row_heights<T: TableTree>(
 
 pub(crate) fn read_border<T: TableTree>(tree: &T, node: T::NodeId) -> BoxEdges {
     BoxEdges {
-        top:    tree.css_length(node, CssProp::BorderTopWidth).px_or(0.0),
-        right:  tree.css_length(node, CssProp::BorderRightWidth).px_or(0.0),
+        top: tree.css_length(node, CssProp::BorderTopWidth).px_or(0.0),
+        right: tree.css_length(node, CssProp::BorderRightWidth).px_or(0.0),
         bottom: tree.css_length(node, CssProp::BorderBottomWidth).px_or(0.0),
-        left:   tree.css_length(node, CssProp::BorderLeftWidth).px_or(0.0),
+        left: tree.css_length(node, CssProp::BorderLeftWidth).px_or(0.0),
     }
 }
 
 pub(crate) fn read_padding<T: TableTree>(tree: &T, node: T::NodeId) -> BoxEdges {
     BoxEdges {
-        top:    tree.css_length(node, CssProp::PaddingTop).px_or(0.0),
-        right:  tree.css_length(node, CssProp::PaddingRight).px_or(0.0),
+        top: tree.css_length(node, CssProp::PaddingTop).px_or(0.0),
+        right: tree.css_length(node, CssProp::PaddingRight).px_or(0.0),
         bottom: tree.css_length(node, CssProp::PaddingBottom).px_or(0.0),
-        left:   tree.css_length(node, CssProp::PaddingLeft).px_or(0.0),
+        left: tree.css_length(node, CssProp::PaddingLeft).px_or(0.0),
     }
 }

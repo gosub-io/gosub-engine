@@ -3,9 +3,9 @@ use gosub_shared::geo::{Point, Size};
 
 use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
 use crate::model::{build_model, RowGroup};
+use crate::sizing::columns::compute_column_widths;
 use crate::sizing::rows::{compute_row_heights, read_border, read_padding};
-use crate::sizing::{columns::compute_column_widths};
-use crate::types::{CellLayout, CssProp, CssLength};
+use crate::types::{CellLayout, CssLength, CssProp};
 use crate::TableTree;
 
 /// Entry point for the CSS table layout algorithm.
@@ -35,11 +35,8 @@ pub fn compute_table_layout<T: TableTree>(
         .map(|g| build_section_grid(&g.rows))
         .collect();
 
-    let body_grids: Vec<SectionGrid<T::NodeId>> = model
-        .row_groups
-        .iter()
-        .map(|g| build_section_grid(&g.rows))
-        .collect();
+    let body_grids: Vec<SectionGrid<T::NodeId>> =
+        model.row_groups.iter().map(|g| build_section_grid(&g.rows)).collect();
 
     let footer_grids: Vec<SectionGrid<T::NodeId>> = model
         .footer_groups
@@ -80,8 +77,7 @@ pub fn compute_table_layout<T: TableTree>(
         .chain(footer_grids.iter())
         .collect();
 
-    let col_widths =
-        compute_column_widths(tree, n_cols, table_width, spacing_x, &all_grids);
+    let col_widths = compute_column_widths(tree, n_cols, table_width, spacing_x, &all_grids);
 
     // Precompute cumulative column x-offsets (relative to the row's left edge).
     // col_x[i] = x of the left edge of column i (within a row).
@@ -118,11 +114,11 @@ pub fn compute_table_layout<T: TableTree>(
     //    relative to the table.  Each row is positioned relative to its group.
     //    Each cell is positioned relative to its row.
     // -----------------------------------------------------------------------
-    let inner_width = col_widths.iter().sum::<f32>()
-        + (n_cols as f32 + 1.0) * spacing_x;
+    let inner_width = col_widths.iter().sum::<f32>() + (n_cols as f32 + 1.0) * spacing_x;
 
     let mut group_y = spacing_y; // Y offset of the next group, relative to the table
 
+    #[allow(clippy::type_complexity)]
     let section_data: &[(&[RowGroup<T::NodeId>], &[SectionGrid<T::NodeId>], &[Vec<f32>])] = &[
         (&model.header_groups, &header_grids, &header_heights),
         (&model.row_groups, &body_grids, &body_heights),

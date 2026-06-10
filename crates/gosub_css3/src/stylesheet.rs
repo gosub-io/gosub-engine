@@ -1,5 +1,4 @@
 use core::fmt::Debug;
-use cow_utils::CowUtils;
 use core::slice;
 use cow_utils::CowUtils;
 use gosub_interface::css3::CssOrigin;
@@ -438,7 +437,7 @@ impl CssValue {
                 "in" => *val * 96.0,
                 "cm" => *val * (96.0 / 2.54),
                 "mm" => *val * (96.0 / 25.4),
-                "q"  => *val * (96.0 / 101.6),
+                "q" => *val * (96.0 / 101.6),
                 // Viewport units — fixed-size fallback (1280×800)
                 "vw" | "svw" | "lvw" | "dvw" => *val * 12.8,
                 "vh" | "svh" | "lvh" | "dvh" => *val * 8.0,

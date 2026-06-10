@@ -1,6 +1,5 @@
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
 use crate::common::document::style::{lookup, FontWeight, StyleProperty, TextAlign, Unit, Value};
-use crate::layouter::table::post_process_tables;
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
 use crate::common::geo::Coordinate;
@@ -8,6 +7,7 @@ use crate::common::media::MediaStore;
 use crate::common::media::{Media, MediaId, MediaType};
 use crate::layouter::box_model::Edges;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
+use crate::layouter::table::post_process_tables;
 use crate::layouter::text::get_text_layout;
 use crate::layouter::{
     box_model, CanLayout, ElementContext, ElementContextImage, ElementContextSvg, ElementContextText, LayoutElementId,

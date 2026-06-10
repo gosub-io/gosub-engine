@@ -92,8 +92,8 @@ pub fn build_section_grid<N: Copy>(rows: &[TableRow<N>]) -> SectionGrid<N> {
             grow_slots(&mut slot_remaining, col + colspan);
 
             // Mark each slot the cell occupies.
-            for c in col..col + colspan {
-                slot_remaining[c] = rowspan;
+            for slot in slot_remaining.iter_mut().skip(col).take(colspan) {
+                *slot = rowspan;
             }
 
             cells.push(PlacedCell {
@@ -154,7 +154,11 @@ mod tests {
                 .iter()
                 .map(|&(colspan, rowspan)| {
                     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-                    SourceCell { node: id, colspan, rowspan }
+                    SourceCell {
+                        node: id,
+                        colspan,
+                        rowspan,
+                    }
                 })
                 .collect(),
         }

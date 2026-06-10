@@ -3,13 +3,11 @@ pub mod grid;
 pub mod mock;
 pub mod model;
 pub mod sizing;
-pub mod types;
 mod tests;
+pub mod types;
 
 pub use compute::compute_table_layout;
-pub use types::{
-    BorderCollapse, BoxEdges, CellLayout, CssProp, CssLength, TableRole, TableSizing,
-};
+pub use types::{BorderCollapse, BoxEdges, CellLayout, CssLength, CssProp, TableRole, TableSizing};
 
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -52,7 +50,7 @@ pub trait TableTree {
     /// measured by the layout engine in a prior pass (e.g. Taffy).  Used to
     /// distribute auto column widths proportionally to content width rather
     /// than equally.  Return `0.0` for mock/test trees.
-    fn cell_content_width(&self, id: Self::NodeId) -> f32 {
+    fn cell_content_width(&self, _id: Self::NodeId) -> f32 {
         0.0
     }
 }

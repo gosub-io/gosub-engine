@@ -452,7 +452,11 @@ pub fn html_presentation_attr(attrs: &HashMap<String, String>, prop: &StylePrope
         StyleProperty::BackgroundColor => {
             let v = attrs.get("bgcolor")?;
             let color = parse_named_color(v.trim());
-            if matches!(color, Value::Color(..)) { Some(color) } else { None }
+            if matches!(color, Value::Color(..)) {
+                Some(color)
+            } else {
+                None
+            }
         }
         StyleProperty::Width => {
             let v = attrs.get("width")?;
