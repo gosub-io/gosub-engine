@@ -50,7 +50,7 @@ impl StorageAdapter for SqliteStorageAdapter {
         let mut statement = db_lock.prepare(query)?;
         statement.execute(named_params! {
             ":key": key,
-            ":value": value.to_string(),
+            ":value": format!("{value}"),
         })?;
         Ok(())
     }

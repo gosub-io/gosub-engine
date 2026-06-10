@@ -1,3 +1,4 @@
+use crate::cookies::SameSiteContext;
 use crate::engine::errors::NavigationError;
 use crate::engine::events::{EngineEvent, NavigationEvent, TabInternalCommand};
 use crate::engine::resource_pipeline::ResourcePipelines;
@@ -17,7 +18,7 @@ use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
 use gosub_render_pipeline::render::backend::{ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
 use gosub_render_pipeline::render::{DevicePixelRatio, Viewport};
-use http::Method;
+use http::{HeaderMap, Method};
 use std::sync::Arc;
 use tokio::select;
 use tokio::sync::{mpsc, oneshot};
@@ -529,13 +530,26 @@ impl TabWorker {
             },
         });
 
+        // Attach cookies for the navigation request.
+        let mut fetch_headers = HeaderMap::new();
+        if let Some(cookie_str) =
+            self.services
+                .cookie_jar
+                .read()
+                .get_request_cookies(&url, Some(&url), SameSiteContext::SameSite)
+        {
+            if let Ok(val) = cookie_str.parse() {
+                fetch_headers.insert(http::header::COOKIE, val);
+            }
+        }
+
         let req = FetchRequest {
             reference: RequestReference::Navigation(nav_id),
             req_id: RequestId::new(),
             key_data: FetchKeyData {
                 url: url.clone(),
                 method: Method::GET,
-                headers: Default::default(),
+                headers: fetch_headers,
             },
             priority: Priority::High,
             kind: ResourceKind::Document,
@@ -551,6 +565,7 @@ impl TabWorker {
         let zone_id = self.zone_id;
         let io_tx = self.zone_context.io_tx.clone();
         let event_tx = self.zone_context.event_tx.clone();
+        let cookie_jar = self.services.cookie_jar.clone();
 
         let span = tracing::info_span!(
             "tab_nav",
@@ -600,6 +615,13 @@ impl TabWorker {
                     }
                 }
             };
+
+            // Store Set-Cookie headers from the navigation response.
+            if let Some(meta) = fetch_result.meta() {
+                cookie_jar
+                    .write()
+                    .store_response_cookies(&meta.final_url, &meta.headers, Some(&url));
+            }
 
             let ua_policy = UaPolicy {
                 enable_sniffing: false,
@@ -710,6 +732,7 @@ impl TabWorker {
     }
 
     /// Do a draw tick. This will be called based on the FPS that is requested
+    #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
         // Skip rendering when nothing has changed to avoid burning CPU at the tick rate.
         if !self.runtime.dirty {
@@ -757,7 +780,11 @@ impl TabWorker {
         }
 
         // Vello: same TileCache path as Skia. Extract wgpu resources from the backend on first use.
-        #[cfg(all(feature = "pipeline", feature = "backend_vello"))]
+        #[cfg(all(
+            feature = "pipeline",
+            feature = "backend_vello",
+            not(any(feature = "backend_cairo", feature = "backend_skia"))
+        ))]
         {
             if self.context.vello_resources.is_none() {
                 self.context.vello_resources = self.zone_context.render_backend.wgpu_resources();

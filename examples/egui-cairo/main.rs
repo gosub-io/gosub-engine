@@ -411,7 +411,11 @@ impl eframe::App for BrowserApp {
 }
 
 fn main() -> Result<(), eframe::Error> {
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap_or_default();
 
     // Cairo/Pango need GTK4 initialised for font rendering. No GTK window is created.
     gosub_engine::init_gtk_resources();

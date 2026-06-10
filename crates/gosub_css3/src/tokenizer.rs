@@ -295,7 +295,7 @@ impl<'stream> Tokenizer<'stream> {
     /// Looks ahead at the next token with offset. So lookahead(1) will look at the next character
     /// that will be consumed with `consume()`
     pub fn lookahead(&mut self, offset: usize) -> Token {
-        while (self.tokens.len() - 1) < (self.token_position + offset) {
+        while self.tokens.len() < (self.token_position + offset + 1) {
             let token = self.consume_token();
             self.tokens.push(token);
         }
@@ -617,7 +617,7 @@ impl<'stream> Tokenizer<'stream> {
             value.push_str(&self.consume_digits());
         }
 
-        value.parse().expect("failed to parse number")
+        value.parse().unwrap_or(0.0)
     }
 
     /// 4.3.4. [Consume an ident-like token](https://www.w3.org/TR/css-syntax-3/#consume-ident-like-token)

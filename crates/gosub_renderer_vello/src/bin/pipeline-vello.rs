@@ -10,6 +10,7 @@ use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
 use gosub_render_pipeline::layouter::CanLayout;
 use gosub_render_pipeline::painter::Painter;
 use gosub_render_pipeline::rasterizer::Rasterable;
+use gosub_render_pipeline::render::backends::vello::WgpuResources;
 use gosub_render_pipeline::rendertree_builder::RenderTree;
 use gosub_render_pipeline::tiler::{TileList, TileState};
 use gosub_renderer_vello::compositor::{VelloCompositor, VelloCompositorConfig};
@@ -225,8 +226,12 @@ impl ApplicationHandler for App<'_> {
                 }
 
                 let surface_texture = match surface.surface.get_current_texture() {
-                    vello::wgpu::CurrentSurfaceTexture::Success(t) | vello::wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
-                    _ => { log::error!("Failed to get current texture"); return; }
+                    vello::wgpu::CurrentSurfaceTexture::Success(t)
+                    | vello::wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
+                    _ => {
+                        log::error!("Failed to get current texture");
+                        return;
+                    }
                 };
 
                 let render_params = RenderParams {
@@ -245,7 +250,13 @@ impl ApplicationHandler for App<'_> {
                     return;
                 };
                 let mut renderer = binding.borrow_mut();
-                let _ = renderer.render_to_texture(device, queue, &scene, &surface_texture.texture.create_view(&Default::default()), &render_params);
+                let _ = renderer.render_to_texture(
+                    device,
+                    queue,
+                    &scene,
+                    &surface_texture.texture.create_view(&Default::default()),
+                    &render_params,
+                );
 
                 surface_texture.present();
             }
@@ -409,7 +420,7 @@ fn do_paint(layer_id: LayerId, browser_state: &Arc<RwLock<BrowserState>>) {
 fn do_rasterize(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    renderer: Rc<RefCell<Renderer>>,
+    _renderer: Rc<RefCell<Renderer>>,
     layer_id: LayerId,
     browser_state: &Arc<RwLock<BrowserState>>,
     texture_store: &Arc<RwLock<TextureStore>>,
@@ -444,12 +455,21 @@ fn do_rasterize(
             continue;
         };
 
-        let rasterizer_renderer = Renderer::new(device, RendererOptions {
-            use_cpu: false,
-            antialiasing_support: AaSupport::all(),
-            num_init_threads: None,
-            pipeline_cache: None,
-        }).unwrap_or_else(|e| panic!("rasterizer Renderer::new failed: {e:?}"));
+        let rasterizer_renderer = match Renderer::new(
+            device,
+            RendererOptions {
+                use_cpu: false,
+                antialiasing_support: AaSupport::all(),
+                num_init_threads: None,
+                pipeline_cache: None,
+            },
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                log::error!("rasterizer Renderer::new failed: {e:?}");
+                return;
+            }
+        };
         let resources = Arc::new(WgpuResources {
             device: Arc::new(device.clone()),
             queue: Arc::new(queue.clone()),

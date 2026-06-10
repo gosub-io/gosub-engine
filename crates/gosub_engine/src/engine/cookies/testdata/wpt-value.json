@@ -1,0 +1,116 @@
+[
+  {
+    "_license": "BSD-3-Clause",
+    "_license_url": "https://github.com/web-platform-tests/wpt/blob/master/LICENSE",
+    "_source_url": "https://github.com/web-platform-tests/wpt/tree/master/cookies/value",
+    "_skipped": "Tests 7,8,10,28 omitted: nameless cookies (no '=') require browser quirk; tests 11,12 omitted: 4 KB size limit not enforced; test 13 omitted: newline in header value rejected by HTTP layer",
+    "source": "cookies/value/value.html",
+    "tests": [
+      {
+        "name": "Set value containing a comma",
+        "cookies": ["test=1, baz=qux"],
+        "expected": "test=1, baz=qux"
+      },
+      {
+        "name": "Set quoted value containing a comma",
+        "cookies": ["test=\"2, baz=qux\""],
+        "expected": "test=\"2, baz=qux\""
+      },
+      {
+        "name": "Ignore values after semicolon",
+        "cookies": ["test=\"3zz;pp\" ; ;"],
+        "expected": "test=\"3zz"
+      },
+      {
+        "name": "Ignore whitespace at the end of value",
+        "cookies": ["test=\"4zz ;"],
+        "expected": "test=\"4zz"
+      },
+      {
+        "name": "Set value including quotes and whitespace up until semicolon",
+        "cookies": ["test=\"5zzz \"   \"ppp\"  ;"],
+        "expected": "test=\"5zzz \"   \"ppp\""
+      },
+      {
+        "name": "Set value with a single quote excluding whitespace",
+        "cookies": ["test=6A\"B ;"],
+        "expected": "test=6A\"B"
+      },
+      {
+        "name": "Set value with unbalanced leading quote",
+        "cookies": ["test=\"9"],
+        "expected": "test=\"9"
+      },
+      {
+        "name": "Set cookie ignoring whitespace after value endquote",
+        "cookies": ["test=\"14 \"   ;"],
+        "expected": "test=\"14 \""
+      },
+      {
+        "name": "Ignore whitespace and ; after value",
+        "cookies": ["test=15    ;"],
+        "expected": "test=15"
+      },
+      {
+        "name": "Ignore whitespace preceding value",
+        "cookies": ["test=  16"],
+        "expected": "test=16"
+      },
+      {
+        "name": "Set cookie with quotes in value",
+        "cookies": ["test=\"17\""],
+        "expected": "test=\"17\""
+      },
+      {
+        "name": "Set cookie keeping whitespace inside quoted value",
+        "cookies": ["test=\"  18 \""],
+        "expected": "test=\"  18 \""
+      },
+      {
+        "name": "Set cookie value ignoring characters after semicolon",
+        "cookies": ["test=\"19;wow\""],
+        "expected": "test=\"19"
+      },
+      {
+        "name": "Set cookie with another = inside quoted value",
+        "cookies": ["test=\"20=20\""],
+        "expected": "test=\"20=20\""
+      },
+      {
+        "name": "Set cookie ignoring whitespace surrounding value and characters after first semicolon",
+        "cookies": ["test\t=\t21\t \t;\tttt"],
+        "expected": "test=21"
+      },
+      {
+        "name": "Set valueless cookie, given Set-Cookie: test22=",
+        "cookies": ["testA=22", "test22=", "testB=22"],
+        "expected": "testA=22; test22=; testB=22"
+      },
+      {
+        "name": "URL-encoded cookie value is not decoded",
+        "cookies": ["test=%32%33"],
+        "expected": "test=%32%33"
+      },
+      {
+        "name": "Set cookie with value set to =",
+        "cookies": ["test24=="],
+        "expected": "test24=="
+      },
+      {
+        "name": "Set cookie with one = inside an unquoted value",
+        "cookies": ["test=25=25"],
+        "expected": "test=25=25"
+      },
+      {
+        "name": "Set cookie with two = inside an unquoted value",
+        "cookies": ["test=26=26=26"],
+        "expected": "test=26=26=26"
+      },
+      {
+        "name": "Set cookie with a space character in the value",
+        "cookies": ["test=27 test"],
+        "expected": "test=27 test"
+      }
+    ]
+  }
+]

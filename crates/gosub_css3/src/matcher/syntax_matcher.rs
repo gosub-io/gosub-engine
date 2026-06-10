@@ -246,9 +246,7 @@ fn match_component_group<'a>(
                 GroupCombinators::ExactlyOne => match_group_exactly_one(input, components, shorthand_resolver),
             }
         }
-        e => {
-            panic!("Unknown syntax component group: {e:?}");
-        }
+        _ => no_match(input),
     }
 }
 
@@ -271,8 +269,7 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
             _ => {}
         },
         SyntaxComponent::Definition { .. } => {
-            //dbg!(&component);
-            todo!("Definition not implemented yet");
+            return no_match(input);
         }
         SyntaxComponent::Builtin { datatype, .. } => match datatype.as_str() {
             "percentage" => {

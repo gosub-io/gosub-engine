@@ -1,8 +1,8 @@
 .SILENT:
 
-SHELL=/usr/bin/env bash -O globstar
+SHELL=/usr/bin/env bash
 
-.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke help
+.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-audit ci-check fuzz-css3 help
 
 all: help
 
@@ -48,6 +48,12 @@ test-check: ## Check all features compile against locked dependencies
 	source test-utils.sh ;\
 	run_section "Cargo check" cargo check --locked --all --all-features
 
+test-audit: ## Check dependencies for security vulnerabilities
+	source test-utils.sh ;\
+	run_section "Cargo audit" cargo audit
+
+ci-check: test-fmt test-clippy test-check test-unit test-audit ## Run all CI checks (fmt + clippy + check-features + unit + audit)
+
 test-smoke: ## CLI smoke tests
 	source test-utils.sh ;\
 	run_section "CLI smoke tests" bash -c '\
@@ -58,6 +64,15 @@ test-smoke: ## CLI smoke tests
 		cargo run --example html5-parser >/dev/null && \
 		cargo run --example pipeline-test \
 	'
+
+fuzz-html5: ## Run html5 parser fuzzer (cargo-fuzz, requires nightly)
+	cd crates/gosub_html5 && cargo +nightly fuzz run html5_parser -- -dict=fuzz/html.dict
+
+fuzz-html5-tokenizer: ## Run html5 tokenizer fuzzer (cargo-fuzz, requires nightly)
+	cd crates/gosub_html5 && cargo +nightly fuzz run tokenizer -- -dict=fuzz/html.dict
+
+fuzz-css3: ## Run CSS3 parser fuzzer (cargo-fuzz, requires nightly)
+	cd crates/gosub_css3 && cargo +nightly fuzz run css3_parser -- -dict=fuzz/css3.dict
 
 help: ## Display available commands
 	echo "Available make commands:"

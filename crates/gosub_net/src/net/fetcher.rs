@@ -424,6 +424,7 @@ async fn perform_streaming(
         req.key_data.url.clone(),
         cancel.clone(),
         observer.clone(),
+        Some(&req.key_data.headers),
     )
     .await?;
 
@@ -458,6 +459,7 @@ async fn perform_buffered(
         req.max_bytes,
         cfg.read_idle_timeout,
         cfg.total_body_timeout,
+        Some(&req.key_data.headers),
     )
     .await?;
 
@@ -489,7 +491,15 @@ pub fn spawn_fetch_task(
         }
         let _cleanup = Cleanup(Some(on_finish));
 
-        let top = match fetch_response_top(client.clone(), url.clone(), cancel_parent.clone(), observer.clone()).await {
+        let top = match fetch_response_top(
+            client.clone(),
+            url.clone(),
+            cancel_parent.clone(),
+            observer.clone(),
+            Some(&req.key_data.headers),
+        )
+        .await
+        {
             Ok(top) => top,
             Err(e) => {
                 let _ = entry.waiter.finish(FetchResult::Error(e)).await;

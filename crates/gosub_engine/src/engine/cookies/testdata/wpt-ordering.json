@@ -1,0 +1,63 @@
+[
+  {
+    "_license": "BSD-3-Clause",
+    "_license_url": "https://github.com/web-platform-tests/wpt/blob/master/LICENSE",
+    "_source_url": "https://github.com/web-platform-tests/wpt/tree/master/cookies/ordering",
+    "source": "cookies/ordering/resources/ordering-child.sub.html",
+    "description": "RFC 6265bis §5.5: cookies sorted by path length descending, ties by creation time ascending",
+    "tests": [
+      {
+        "name": "Cookies with longer path attribute values are ordered before shorter ones",
+        "set_from": "https://example.com/cookies/ordering/resources/ordering-child.html",
+        "send_to": "https://example.com/cookies/attributes/resources/path/one.html",
+        "cookies": [
+          "testA=1",
+          "testB=1; path=/cookies",
+          "testC=1; path=/",
+          "testD=1; path=/cooking",
+          "testE=1; domain=.example.com; path=/",
+          "testF=1; domain=.example.com; path=/cookies/attributes"
+        ],
+        "expected": "testF=1; testB=1; testC=1; testE=1"
+      },
+      {
+        "name": "Cookies with longer path attribute values are ordered before shorter ones (2)",
+        "set_from": "https://example.com/cookies/ordering/resources/ordering-child.html",
+        "send_to": "https://example.com/cookies/attributes/resources/path/one.html",
+        "cookies": [
+          "testA=2",
+          "testB=2; path=/cookies/attributes/resources",
+          "testC=2; path=/",
+          "testD=2; path=/cooking",
+          "testE=2; domain=.example.com",
+          "testF=2; domain=.example.com; path=/cookies/attributes",
+          "testG=2; domain=.example.com; path=/cookies/attributes/resources/path",
+          "testH=2; path=/cookies"
+        ],
+        "expected": "testG=2; testB=2; testF=2; testH=2; testC=2"
+      },
+      {
+        "name": "Cookies with longer paths are listed before cookies with shorter paths",
+        "set_from": "https://example.com/cookies/attributes/resources/path/setup.html",
+        "send_to": "https://example.com/cookies/attributes/resources/path/one.html",
+        "cookies": [
+          "testA=3; path=/cookies/attributes/resources/path",
+          "testB=3; path=/cookies/attributes/resources/path/one.html",
+          "testC=3; path=/cookies/attributes"
+        ],
+        "expected": "testB=3; testA=3; testC=3"
+      },
+      {
+        "name": "For equal length paths, list the cookie with an earlier creation time first",
+        "set_from": "https://example.com/cookies/attributes/resources/path/setup.html",
+        "send_to": "https://example.com/cookies/attributes/resources/path/one.html",
+        "cookies": [
+          "testZ=4; path=/cookies",
+          "testB=4; path=/cookies/attributes/resources/path",
+          "testA=4; path=/cookies"
+        ],
+        "expected": "testB=4; testZ=4; testA=4"
+      }
+    ]
+  }
+]

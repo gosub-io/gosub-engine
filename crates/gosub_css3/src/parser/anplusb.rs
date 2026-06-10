@@ -9,7 +9,7 @@ impl Css3<'_> {
 
         let value = value.to_string();
 
-        if unit.chars().nth(0).unwrap().to_lowercase().to_string() != "n" {
+        if !unit.starts_with(|c: char| c.to_lowercase().next() == Some('n')) {
             return Err(CssError::with_location(
                 format!("Expected n, found {unit}").as_str(),
                 self.tokenizer.current_location(),

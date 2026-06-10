@@ -76,9 +76,10 @@ impl BrowserApp {
                     Ok(ev) => {
                         let out = match ev {
                             EngineEvent::LocationChanged { url, .. } => Some(UiEvent::LocationChanged { url }),
-                            EngineEvent::Navigation { event: NavigationEvent::Started { .. }, .. } => {
-                                Some(UiEvent::NavigationStarted)
-                            }
+                            EngineEvent::Navigation {
+                                event: NavigationEvent::Started { .. },
+                                ..
+                            } => Some(UiEvent::NavigationStarted),
                             EngineEvent::Navigation {
                                 event: NavigationEvent::Finished { .. } | NavigationEvent::Failed { .. },
                                 ..
@@ -114,7 +115,11 @@ impl BrowserApp {
 
         let tab = TOKIO_RT
             .block_on(zone.create_tab(
-                TabDefaults { url: None, title: Some("Gosub".to_string()), viewport: None },
+                TabDefaults {
+                    url: None,
+                    title: Some("Gosub".to_string()),
+                    viewport: None,
+                },
                 None,
             ))
             .expect("create_tab");
@@ -158,18 +163,36 @@ impl BrowserApp {
     }
 
     fn refresh_texture(&mut self, ctx: &egui::Context) {
-        let Some(handle) = self.compositor.read().frame_for(self.tab_id) else { return };
+        let Some(handle) = self.compositor.read().frame_for(self.tab_id) else {
+            return;
+        };
 
         let (w, h, rgba) = match handle {
-            ExternalHandle::CpuPixelsOwned { width, height, stride, pixels, .. } => {
+            ExternalHandle::CpuPixelsOwned {
+                width,
+                height,
+                stride,
+                pixels,
+                ..
+            } => {
                 let rgba = bgra_premul_to_rgba8(&pixels, width as usize, height as usize, stride as usize);
                 (width as usize, height as usize, rgba)
             }
-            ExternalHandle::TileCache { tiles, dpr, viewport_width, viewport_height, scroll_x, scroll_y, .. } => {
+            ExternalHandle::TileCache {
+                tiles,
+                dpr,
+                viewport_width,
+                viewport_height,
+                scroll_x,
+                scroll_y,
+                ..
+            } => {
                 let dpr = dpr as usize;
                 let w = viewport_width as usize * dpr;
                 let h = viewport_height as usize * dpr;
-                if w == 0 || h == 0 { return; }
+                if w == 0 || h == 0 {
+                    return;
+                }
                 let sx = scroll_x as usize * dpr;
                 let sy = scroll_y as usize * dpr;
                 let mut buf = vec![0x00FF_FFFFu32; w * h];
@@ -180,14 +203,17 @@ impl BrowserApp {
                     let screen_y = py.saturating_sub(sy);
                     let tw = tile.width as usize;
                     let th = tile.height as usize;
-                    let tile_u32 = unsafe {
-                        std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4)
-                    };
+                    let tile_u32 =
+                        unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
                     for row in 0..th {
                         let dst_y = screen_y + row;
-                        if dst_y >= h { break; }
+                        if dst_y >= h {
+                            break;
+                        }
                         let cw = tw.min(w.saturating_sub(screen_x));
-                        if cw == 0 { break; }
+                        if cw == 0 {
+                            break;
+                        }
                         buf[dst_y * w + screen_x..dst_y * w + screen_x + cw]
                             .copy_from_slice(&tile_u32[row * tw..row * tw + cw]);
                     }
@@ -204,11 +230,15 @@ impl BrowserApp {
             _ => return,
         };
 
-        if w == 0 || h == 0 { return; }
+        if w == 0 || h == 0 {
+            return;
+        }
         let img = egui::ColorImage::from_rgba_unmultiplied([w, h], &rgba);
         match &mut self.texture {
             Some(t) => t.set(img, egui::TextureOptions::LINEAR),
-            None => { self.texture = Some(ctx.load_texture("browser", img, egui::TextureOptions::LINEAR)); }
+            None => {
+                self.texture = Some(ctx.load_texture("browser", img, egui::TextureOptions::LINEAR));
+            }
         }
     }
 }
@@ -258,7 +288,9 @@ impl eframe::App for BrowserApp {
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(8, 6)))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if self.is_loading { ui.spinner(); }
+                    if self.is_loading {
+                        ui.spinner();
+                    }
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut self.url_input)
                             .desired_width(f32::INFINITY)
@@ -285,7 +317,14 @@ impl eframe::App for BrowserApp {
                 let tab = self.tab.clone();
                 let (w, h) = (panel_size.x as u32, panel_size.y as u32);
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::SetViewport { x: 0, y: 0, width: w, height: h }).await;
+                    let _ = tab
+                        .send(TabCommand::SetViewport {
+                            x: 0,
+                            y: 0,
+                            width: w,
+                            height: h,
+                        })
+                        .await;
                 });
             }
 
@@ -294,7 +333,12 @@ impl eframe::App for BrowserApp {
                 let tab = self.tab.clone();
                 let (dx, dy) = (-scroll_delta.x, -scroll_delta.y);
                 TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
+                    let _ = tab
+                        .send(TabCommand::MouseScroll {
+                            delta_x: dx,
+                            delta_y: dy,
+                        })
+                        .await;
                 });
             }
 
@@ -316,10 +360,13 @@ impl eframe::App for BrowserApp {
                         let rel = pos - response.rect.min;
                         let tab = self.tab.clone();
                         TOKIO_RT.spawn(async move {
-                            let _ = tab.send(TabCommand::MouseDown {
-                                x: rel.x, y: rel.y,
-                                button: gosub_engine::events::MouseButton::Left,
-                            }).await;
+                            let _ = tab
+                                .send(TabCommand::MouseDown {
+                                    x: rel.x,
+                                    y: rel.y,
+                                    button: gosub_engine::events::MouseButton::Left,
+                                })
+                                .await;
                         });
                     }
                 }
@@ -333,11 +380,21 @@ impl eframe::App for BrowserApp {
 }
 
 fn main() -> Result<(), eframe::Error> {
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Warn).env().init().unwrap_or_default();
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap_or_default();
 
     let initial_url = {
-        let raw = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".to_string());
-        if raw.contains("://") { raw } else { format!("https://{raw}") }
+        let raw = std::env::args()
+            .nth(1)
+            .unwrap_or_else(|| "https://example.com".to_string());
+        if raw.contains("://") {
+            raw
+        } else {
+            format!("https://{raw}")
+        }
     };
 
     let options = eframe::NativeOptions {
