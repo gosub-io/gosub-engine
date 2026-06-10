@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   check-author:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout base repo (for AUTHORS file)
         uses: actions/checkout@v6
