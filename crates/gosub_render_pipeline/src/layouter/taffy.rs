@@ -600,10 +600,7 @@ impl TaffyLayouter {
                             let dimension = if is_placeholder {
                                 geo::Dimension::new(32.0, 32.0)
                             } else {
-                                geo::Dimension::new(
-                                    media_image.image.width() as f64,
-                                    media_image.image.height() as f64,
-                                )
+                                geo::Dimension::new(media_image.image.width() as f64, media_image.image.height() as f64)
                             };
                             Some(TaffyContext::image(src.as_str(), media_id, dimension, dom_node.node_id))
                         }
