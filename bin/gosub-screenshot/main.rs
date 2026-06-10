@@ -1,9 +1,8 @@
 //! Headless screenshot tool: loads a URL through the full gosub_pipeline render system and
 //! saves the result as a PNG without opening a window.
 //!
-//! No display server required — uses Cairo in software rendering mode.
+//! Uses Vello (wgpu) for rasterization — no libcairo dependency, works on Linux/Mac/Windows.
 
-use cairo::{Context, Format, ImageSurface};
 use clap::Parser;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
@@ -11,16 +10,19 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::ExternalHandle;
-use gosub_render_pipeline::render::backends::cairo::CairoBackend;
+use gosub_render_pipeline::render::backends::vello::{VelloBackend, WgpuContextProvider};
 use gosub_render_pipeline::render::DefaultCompositor;
 use image::ColorType;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::{Builder, Runtime};
 use url::Url;
 use uuid::uuid;
+use vello::wgpu;
 
 const BUILD_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
@@ -51,7 +53,7 @@ struct Args {
 }
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
-/// Maximum page height to capture, in CSS pixels. Prevents out-of-memory on huge pages.
+/// Maximum page height to capture, in CSS pixels.
 const MAX_PAGE_HEIGHT: u32 = 16384;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
@@ -62,6 +64,78 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
         .build()
         .expect("tokio runtime")
 });
+
+// ── Headless wgpu context ─────────────────────────────────────────────────────
+
+struct HeadlessWgpuContext {
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
+    textures: RwLock<HashMap<u64, (wgpu::Texture, wgpu::TextureView)>>,
+    next_id: AtomicU64,
+}
+
+impl HeadlessWgpuContext {
+    fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+        Self {
+            device,
+            queue,
+            textures: RwLock::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+        }
+    }
+}
+
+impl WgpuContextProvider for HeadlessWgpuContext {
+    fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    fn device_arc(&self) -> Arc<wgpu::Device> {
+        Arc::clone(&self.device)
+    }
+
+    fn queue_arc(&self) -> Arc<wgpu::Queue> {
+        Arc::clone(&self.queue)
+    }
+
+    fn create_texture(&self, width: u32, height: u32, format: wgpu::TextureFormat) -> u64 {
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("gosub-headless-texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        self.textures.write().insert(id, (texture, view));
+        id
+    }
+
+    fn get_texture(&self, id: u64) -> Option<(wgpu::Texture, wgpu::TextureView)> {
+        self.textures.read().get(&id).map(|(t, v)| (t.clone(), v.clone()))
+    }
+
+    fn remove_texture(&self, id: u64) {
+        self.textures.write().remove(&id);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 fn main() {
     simple_logger::SimpleLogger::new()
@@ -83,6 +157,26 @@ fn main() {
 
     let url = Url::parse(&url_str).expect("invalid URL");
 
+    // ── Initialise headless wgpu ──────────────────────────────────────────────
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let adapter = TOKIO_RT
+        .block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            compatible_surface: None,
+            power_preference: wgpu::PowerPreference::default(),
+            force_fallback_adapter: false,
+        }))
+        .expect("no wgpu adapter available — check GPU drivers or Vulkan/Metal/DX12 support");
+    let (device, queue) = TOKIO_RT
+        .block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+        .expect("wgpu device creation failed");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+
+    eprintln!("wgpu adapter: {}", adapter.get_info().name);
+
+    let ctx = Arc::new(HeadlessWgpuContext::new(device, queue));
+    let backend = VelloBackend::new(ctx).expect("VelloBackend init failed");
+
     let _rt_guard = TOKIO_RT.enter();
 
     // Redraw notifications: engine → main thread.
@@ -92,7 +186,6 @@ fn main() {
         let _ = tx_redraw.send(());
     })));
 
-    let backend = CairoBackend::new();
     let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
     let _join = engine.start().expect("engine start");
     let mut event_rx = engine.subscribe_events();
@@ -126,8 +219,6 @@ fn main() {
     let tab_id: TabId = tab.tab_id;
 
     // Use a tall initial viewport so the full page is laid out and rasterized.
-    // After the first render we trigger a 1-pixel scroll to get a TileCache handle
-    // which carries page_height — then we composite only the real content rows.
     let tab_nav = tab.clone();
     TOKIO_RT.spawn(async move {
         let _ = tab_nav
@@ -143,19 +234,14 @@ fn main() {
     });
 
     let nav_deadline = Instant::now() + Duration::from_secs(args.nav_timeout);
-    // Render deadline is set once navigation completes; its budget starts then.
     let render_budget = Duration::from_secs(args.render_timeout);
     let mut render_deadline: Option<Instant> = None;
-
-    eprintln!("Loading {url_str} (viewport width={viewport_w})…");
-
-    // ── Phase 1: wait for navigation to complete + first full render ──────────────
-    // Two separate budgets: nav_timeout for downloading the page, render_timeout for
-    // the CPU-bound pipeline (layout + rasterization). Complex pages can take tens of
-    // seconds in the pipeline even after HTML arrives.
     let mut nav_done = false;
     let mut first_render_done = false;
 
+    eprintln!("Loading {url_str} (viewport width={viewport_w})…");
+
+    // ── Phase 1: wait for navigation + first full render ─────────────────────
     loop {
         let now = Instant::now();
         if !nav_done && now >= nav_deadline {
@@ -205,19 +291,13 @@ fn main() {
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    // Seed tile_cache_handle / cpu_frame from the Phase 1 frame. The rasterizer may
-    // already have submitted a TileCache (e.g. gosub_renderer_cairo), so we don't
-    // need Phase 2 to produce one from scratch. Phase 2 can still upgrade it with
-    // a post-scroll frame that carries the final page_height.
-    let phase1_frame = compositor.read().frame_for(tab_id);
-    let (mut tile_cache_handle, mut cpu_frame): (Option<ExternalHandle>, Option<ExternalHandle>) = match phase1_frame {
-        Some(h @ ExternalHandle::TileCache { .. }) => (Some(h), None),
-        Some(h @ ExternalHandle::CpuPixelsOwned { .. }) => (None, Some(h)),
-        _ => (None, None),
+    let phase1_handle = compositor.read().frame_for(tab_id);
+    let mut tile_cache_handle: Option<ExternalHandle> = match phase1_handle {
+        Some(h @ ExternalHandle::TileCache { .. }) => Some(h),
+        _ => None,
     };
 
-    // ── Phase 2: trigger a 1px scroll to get TileCache which carries page_height ──
-    // The pipeline already has cached tiles; the scroll just swaps the handle type.
+    // ── Phase 2: trigger a 1px scroll to obtain TileCache with page_height ───
     let tab_scroll = tab.clone();
     TOKIO_RT.spawn(async move {
         let _ = tab_scroll
@@ -229,15 +309,10 @@ fn main() {
     });
 
     let deadline2 = Instant::now() + Duration::from_secs(5);
-
     while Instant::now() < deadline2 {
         while rx_redraw.try_recv().is_ok() {
-            if let Some(handle) = compositor.read().frame_for(tab_id) {
-                match &handle {
-                    ExternalHandle::TileCache { .. } => tile_cache_handle = Some(handle),
-                    ExternalHandle::CpuPixelsOwned { .. } => cpu_frame = Some(handle),
-                    _ => {}
-                }
+            if let Some(ExternalHandle::TileCache { .. }) = compositor.read().frame_for(tab_id) {
+                tile_cache_handle = compositor.read().frame_for(tab_id);
             }
         }
         if tile_cache_handle.is_some() {
@@ -246,130 +321,60 @@ fn main() {
         std::thread::sleep(Duration::from_millis(20));
     }
 
-    // ── Phase 3: composite tiles into a full-page PNG ────────────────────────────
-    let (tiles, dpr, page_height_f) = match tile_cache_handle {
-        Some(ExternalHandle::TileCache {
-            tiles,
-            dpr,
-            page_height,
-            ..
-        }) => (tiles, dpr, page_height),
+    // ── Phase 3: composite tiles into a full-page PNG ────────────────────────
+    let (tiles, page_height_f) = match tile_cache_handle {
+        Some(ExternalHandle::TileCache { tiles, page_height, .. }) => (tiles, page_height),
         _ => {
-            // TileCache unavailable (e.g. Cairo backend, or page too short to scroll).
-            // Use the best CPU-pixels frame captured during Phase 1/2.
-            eprintln!("TileCache not available; falling back to composited frame.");
-            let handle = cpu_frame.unwrap_or_else(|| {
-                eprintln!("No rendered frame available.");
-                std::process::exit(1);
-            });
-            match handle {
-                ExternalHandle::CpuPixelsOwned {
-                    width,
-                    height,
-                    stride,
-                    pixels,
-                    ..
-                } => {
-                    let actual_h = crop_height(&pixels, width, height, stride as usize);
-                    eprintln!("Saving {}x{} (cropped from {})", width, actual_h, height);
-                    save_argb32_as_png(&pixels, width, actual_h, stride as usize, &output);
-                    return;
-                }
-                _ => {
-                    eprintln!("Unexpected handle type");
-                    std::process::exit(1);
-                }
-            }
+            eprintln!("No TileCache frame available — nothing was rendered.");
+            std::process::exit(1);
         }
     };
 
+    let page_w = viewport_w;
     let page_h = (page_height_f.ceil() as u32).clamp(1, MAX_PAGE_HEIGHT);
-    let dpr_f = dpr as f64;
 
     eprintln!(
-        "Page size: {}×{} CSS px (DPR {}). Compositing {} tile(s)…",
-        viewport_w,
+        "Page size: {}×{} px. Compositing {} tile(s)…",
+        page_w,
         page_h,
-        dpr,
         tiles.len()
     );
 
-    // Composite all tiles at their page-coordinate positions onto a surface covering
-    // the full page (scroll offset = 0).
-    let surface = ImageSurface::create(Format::ARgb32, viewport_w as i32, page_h as i32).expect("ImageSurface create");
-    let cr = Context::new(&surface).expect("Cairo context");
-
-    cr.set_source_rgb(1.0, 1.0, 1.0);
-    cr.rectangle(0.0, 0.0, viewport_w as f64, page_h as f64);
-    cr.fill().unwrap_or_default();
+    // Fill with opaque white, then alpha-blend each tile (premultiplied RGBA8 from Vello).
+    let mut pixels = vec![255u8; (page_w * page_h * 4) as usize];
 
     for tile in tiles.iter() {
-        // SAFETY: tile.data is Arc-owned and lives for this compositing call.
-        #[allow(unsafe_code)]
-        let tile_surface = unsafe {
-            ImageSurface::create_for_data_unsafe(
-                tile.data.as_ptr() as *mut u8,
-                Format::ARgb32,
-                tile.width as i32,
-                tile.height as i32,
-                (tile.width * 4) as i32,
-            )
-        };
-        if let Ok(ts) = tile_surface {
-            ts.set_device_scale(dpr_f, dpr_f);
-            cr.set_source_surface(&ts, tile.page_x as f64, tile.page_y as f64)
-                .unwrap_or_default();
-            cr.paint().unwrap_or_default();
+        let tx = tile.page_x as u32;
+        let ty = tile.page_y as u32;
+        if tx >= page_w || ty >= page_h {
+            continue;
         }
-    }
-    drop(cr);
-    surface.flush();
+        let tw = tile.width.min(page_w - tx) as usize;
+        let th = tile.height.min(page_h - ty) as usize;
+        let data = &tile.data;
 
-    let mut surface = surface;
-    let stride = surface.stride() as usize;
-    let raw = surface.data().expect("surface data");
-    save_argb32_as_png(&raw, viewport_w, page_h, stride, &output);
-}
+        for row in 0..th {
+            for col in 0..tw {
+                let src_off = (row * tile.width as usize + col) * 4;
+                let dst_off = ((ty as usize + row) * page_w as usize + (tx as usize + col)) * 4;
 
-/// Detect the last row that contains non-white pixels (for fallback cropping).
-fn crop_height(pixels: &[u8], width: u32, height: u32, stride: usize) -> u32 {
-    for row in (0..height as usize).rev() {
-        for col in 0..width as usize {
-            let off = row * stride + col * 4;
-            let b = pixels[off];
-            let g = pixels[off + 1];
-            let r = pixels[off + 2];
-            if r != 255 || g != 255 || b != 255 {
-                return (row + 1) as u32;
+                let r = data[src_off];
+                let g = data[src_off + 1];
+                let b = data[src_off + 2];
+                let a = data[src_off + 3];
+
+                // Premultiplied blend over opaque white background.
+                // With premul: result = src_rgb + (1 - src_a) * bg_rgb
+                // bg is white (255), so: result = src_rgb + (255 - src_a)
+                let inv_a = 255u32 - a as u32;
+                pixels[dst_off] = (r as u32 + inv_a).min(255) as u8;
+                pixels[dst_off + 1] = (g as u32 + inv_a).min(255) as u8;
+                pixels[dst_off + 2] = (b as u32 + inv_a).min(255) as u8;
+                // dst alpha stays 255 (opaque output)
             }
         }
     }
-    height
-}
 
-/// Convert ARgb32 (premultiplied, LE: B G R A bytes) → RGBA8 straight-alpha and save as PNG.
-fn save_argb32_as_png(pixels: &[u8], width: u32, height: u32, stride: usize, path: &str) {
-    let mut rgba: Vec<u8> = Vec::with_capacity((width * height * 4) as usize);
-    for row in 0..height as usize {
-        for col in 0..width as usize {
-            let off = row * stride + col * 4;
-            let b = pixels[off];
-            let g = pixels[off + 1];
-            let r = pixels[off + 2];
-            let a = pixels[off + 3];
-            if a == 0 {
-                rgba.extend_from_slice(&[0, 0, 0, 0]);
-            } else if a == 255 {
-                rgba.extend_from_slice(&[r, g, b, 255]);
-            } else {
-                let af = a as f32 / 255.0;
-                rgba.push((r as f32 / af).min(255.0).round() as u8);
-                rgba.push((g as f32 / af).min(255.0).round() as u8);
-                rgba.push((b as f32 / af).min(255.0).round() as u8);
-                rgba.push(a);
-            }
-        }
-    }
-    image::save_buffer(path, &rgba, width, height, ColorType::Rgba8).expect("save PNG");
-    eprintln!("Saved {path} ({}×{})", width, height);
+    image::save_buffer(&output, &pixels, page_w, page_h, ColorType::Rgba8).expect("save PNG");
+    eprintln!("Saved {output} ({}×{})", page_w, page_h);
 }

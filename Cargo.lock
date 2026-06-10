@@ -3042,7 +3042,6 @@ name = "gosub-screenshot"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cairo-rs",
  "clap",
  "gosub_engine",
  "gosub_render_pipeline",
@@ -3054,6 +3053,7 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+ "vello",
 ]
 
 [[package]]
