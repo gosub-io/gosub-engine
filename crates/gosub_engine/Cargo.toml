@@ -72,7 +72,7 @@ indicatif = "0.18.0"
 tokio-stream = { version = "0.1.17", features = ["sync"] }
 futures-core = "0.3.31"
 mime = "0.3.17"
-chrono = "0.4.42"
+chrono = "0.4.45"
 regex = "1.11.1"
 mimetype-detector = "0.2.2"
 image = "0.25.8"
