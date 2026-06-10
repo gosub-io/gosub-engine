@@ -21,7 +21,6 @@ use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::backends::skia::SkiaBackend;
 use gosub_render_pipeline::render::DefaultCompositor;
-use gosub_render_pipeline::render::render_list::DisplayItem;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, Entry, GLArea, Label, Orientation};
