@@ -137,6 +137,7 @@ pub struct LayoutElementNode {
     pub context: ElementContext,
 }
 
+#[derive(Clone)]
 pub struct LayoutTree {
     /// Wrapped render tree
     pub render_tree: RenderTree,

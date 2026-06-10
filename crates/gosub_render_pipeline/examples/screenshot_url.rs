@@ -235,7 +235,7 @@ fn render_box_cairo(
         return;
     }
 
-    let has_bg = bg.map_or(false, |c| c[3] > 0);
+    let has_bg = bg.is_some_and(|c| c[3] > 0);
     let is_rounded = r_tl > 0.0 || r_tr > 0.0 || r_br > 0.0 || r_bl > 0.0;
     // Any side with a non-zero width and non-transparent colour counts as a border.
     let has_any_border = border_widths

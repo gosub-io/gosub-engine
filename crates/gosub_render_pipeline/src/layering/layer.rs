@@ -81,6 +81,17 @@ impl std::fmt::Debug for LayerList {
     }
 }
 
+impl Clone for LayerList {
+    fn clone(&self) -> Self {
+        Self {
+            layout_tree: Arc::clone(&self.layout_tree),
+            layer_ids: RwLock::new(self.layer_ids.read().clone()),
+            layers: RwLock::new(self.layers.read().clone()),
+            next_layer_id: RwLock::new(*self.next_layer_id.read()),
+        }
+    }
+}
+
 impl LayerList {
     pub fn new(layout_tree: LayoutTree) -> LayerList {
         let mut layer_list = LayerList {
