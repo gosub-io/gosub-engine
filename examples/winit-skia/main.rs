@@ -352,12 +352,12 @@ fn blit_to_buffer(
                 }
 
                 // First visible row/col within the tile (> 0 when tile is partially above/left).
-                let row_start = if tile_py < sy { sy - tile_py } else { 0 };
-                let col_start = if tile_px < sx { sx - tile_px } else { 0 };
+                let row_start = sy.saturating_sub(tile_py);
+                let col_start = sx.saturating_sub(tile_px);
 
                 // Screen position of the first visible pixel.
-                let screen_x = if tile_px >= sx { tile_px - sx } else { 0 };
-                let screen_y = if tile_py >= sy { tile_py - sy } else { 0 };
+                let screen_x = tile_px.saturating_sub(sx);
+                let screen_y = tile_py.saturating_sub(sy);
 
                 let tile_u32 =
                     unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };

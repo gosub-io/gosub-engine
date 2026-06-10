@@ -443,7 +443,13 @@ impl BrowsingContext {
             log::warn!("[hover] hover_dirty → dispatching paint-only repaint (stages 4–6)");
             // Paint-only repaint: reuse the cached layout tree, skip stages 1–2.
             if let Some(old_cache) = self.pipeline_cache.take() {
-                let PipelineCache { layer_list, page_height, tile_pixel_cache: prev_tile_cache, tiles: prev_baked_tiles, .. } = old_cache;
+                let PipelineCache {
+                    layer_list,
+                    page_height,
+                    tile_pixel_cache: prev_tile_cache,
+                    tiles: prev_baked_tiles,
+                    ..
+                } = old_cache;
                 self.pipeline_cache = Some(pipeline_hover_repaint(
                     layer_list,
                     page_height,
@@ -1309,6 +1315,7 @@ fn pipeline_build_cache(
 /// All other tiles are carried over from `prev_baked_tiles` unchanged — no CSS
 /// re-evaluation, no re-rasterization.
 #[cfg(feature = "pipeline")]
+#[allow(clippy::too_many_arguments)]
 fn pipeline_hover_repaint(
     layer_list: Arc<gosub_render_pipeline::layering::layer::LayerList>,
     page_height: f64,
@@ -1350,7 +1357,7 @@ fn pipeline_hover_repaint(
     // Key: (page_x bits, page_y bits) — deterministic since tile positions don't change.
     let mut prev_by_pos: std::collections::HashMap<(u64, u64), BakedTile> = prev_baked_tiles
         .into_iter()
-        .map(|t| ((t.page_x.to_bits() as u64, t.page_y.to_bits() as u64), t))
+        .map(|t| ((t.page_x.to_bits(), t.page_y.to_bits()), t))
         .collect();
 
     // Compute the union bounding box of old and new hovered elements.  Tiles that
@@ -1390,7 +1397,7 @@ fn pipeline_hover_repaint(
                 && tile_rect.y + tile_rect.height > hover_rect.y;
             if !overlaps {
                 tile.state = TileState::Clean;
-                let key = (tile_rect.x.to_bits() as u64, tile_rect.y.to_bits() as u64);
+                let key = (tile_rect.x.to_bits(), tile_rect.y.to_bits());
                 if let Some(baked) = prev_by_pos.remove(&key) {
                     clean_baked.push(baked);
                 }
@@ -1405,13 +1412,24 @@ fn pipeline_hover_repaint(
         // No hover element visible — reuse all previous baked tiles unchanged.
         let all_tiles: Vec<BakedTile> = prev_by_pos.into_values().collect();
         let cached_tiles = Arc::new(
-            all_tiles.iter().map(|t| CachedTile {
-                page_x: t.page_x as f32, page_y: t.page_y as f32,
-                width: t.width, height: t.height,
-                data: Arc::clone(&t.data),
-            }).collect::<Vec<_>>(),
+            all_tiles
+                .iter()
+                .map(|t| CachedTile {
+                    page_x: t.page_x as f32,
+                    page_y: t.page_y as f32,
+                    width: t.width,
+                    height: t.height,
+                    data: Arc::clone(&t.data),
+                })
+                .collect::<Vec<_>>(),
         );
-        return PipelineCache { tiles: all_tiles, page_height, cached_tiles, layer_list, tile_pixel_cache: prev_tile_cache };
+        return PipelineCache {
+            tiles: all_tiles,
+            page_height,
+            cached_tiles,
+            layer_list,
+            tile_pixel_cache: prev_tile_cache,
+        };
     }
 
     // Stage 5: paint ONLY dirty (hover-affected) tiles.
@@ -1446,8 +1464,14 @@ fn pipeline_hover_repaint(
                         cmds += c.len();
                         tiled_element.paint_commands = c;
                     }
-                    log::info!("[pipeline] hover s5 tile ({:.0},{:.0}) elems={} cmds={} in {:.1}ms",
-                        tile.rect.x, tile.rect.y, elem_count, cmds, t_tile.elapsed().as_secs_f64()*1000.0);
+                    log::info!(
+                        "[pipeline] hover s5 tile ({:.0},{:.0}) elems={} cmds={} in {:.1}ms",
+                        tile.rect.x,
+                        tile.rect.y,
+                        elem_count,
+                        cmds,
+                        t_tile.elapsed().as_secs_f64() * 1000.0
+                    );
                     painted_tiles += 1;
                     total_elements_painted += elem_count;
                     let _ = cmds;
@@ -1484,7 +1508,12 @@ fn pipeline_hover_repaint(
                 .flat_map(|&layer_id| tile_list.get_intersecting_tiles(layer_id, full_page_rect))
                 .filter(|&id| tile_list.arena.get(&id).map_or(false, |t| t.state == TileState::Dirty))
                 .collect();
-            log::info!("[pipeline] hover s6 dirty_ids: {:.1}ms ({} dirty, {} layers)", t_dirty.elapsed().as_secs_f64()*1000.0, dirty_ids.len(), layer_ids.len());
+            log::info!(
+                "[pipeline] hover s6 dirty_ids: {:.1}ms ({} dirty, {} layers)",
+                t_dirty.elapsed().as_secs_f64() * 1000.0,
+                dirty_ids.len(),
+                layer_ids.len()
+            );
 
             type CacheEntry = (TileCacheKey, (u32, u32, Arc<Vec<u8>>));
             let results: Vec<(TileId, Option<BakedTile>, Option<CacheEntry>)> = dirty_ids
@@ -1549,8 +1578,14 @@ fn pipeline_hover_repaint(
             }
             timing_stop!(ts6);
             log::warn!(
-                concat!("[pipeline] hover stage 6 rasterize ", $label, " {:>6.1}ms  ({} rasterized, {} hits)"),
-                t.elapsed().as_secs_f64() * 1000.0, rasterized, cache_hits
+                concat!(
+                    "[pipeline] hover stage 6 rasterize ",
+                    $label,
+                    " {:>6.1}ms  ({} rasterized, {} hits)"
+                ),
+                t.elapsed().as_secs_f64() * 1000.0,
+                rasterized,
+                cache_hits
             );
             (tiles, new_tile_cache)
         }};
@@ -1651,7 +1686,13 @@ fn pipeline_hover_repaint(
             .collect::<Vec<_>>(),
     );
 
-    PipelineCache { tiles: all_baked_tiles, page_height, cached_tiles, layer_list, tile_pixel_cache: new_tile_cache }
+    PipelineCache {
+        tiles: all_baked_tiles,
+        page_height,
+        cached_tiles,
+        layer_list,
+        tile_pixel_cache: new_tile_cache,
+    }
 }
 
 /// Stage 7: composite visible tiles from the cache into `rl`.

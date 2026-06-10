@@ -1,5 +1,6 @@
 use crate::common::document::document::Document;
 use crate::common::document::style::{Display, NodeStyle, StyleProperty, Value};
+use cow_utils::CowUtils;
 use std::collections::HashMap;
 
 pub use gosub_shared::node::NodeId;
@@ -223,11 +224,38 @@ impl Node {
 /// them into an inline formatting context.
 fn is_intrinsically_inline(tag: &str) -> bool {
     matches!(
-        tag.to_ascii_lowercase().as_str(),
-        "a" | "abbr" | "acronym" | "b" | "bdo" | "big" | "br" | "button" | "cite"
-            | "code" | "dfn" | "em" | "i" | "img" | "input" | "kbd" | "label"
-            | "map" | "object" | "output" | "q" | "samp" | "select" | "small"
-            | "span" | "strong" | "sub" | "sup" | "textarea" | "time" | "tt"
-            | "u" | "var"
+        tag.cow_to_ascii_lowercase().as_ref(),
+        "a" | "abbr"
+            | "acronym"
+            | "b"
+            | "bdo"
+            | "big"
+            | "br"
+            | "button"
+            | "cite"
+            | "code"
+            | "dfn"
+            | "em"
+            | "i"
+            | "img"
+            | "input"
+            | "kbd"
+            | "label"
+            | "map"
+            | "object"
+            | "output"
+            | "q"
+            | "samp"
+            | "select"
+            | "small"
+            | "span"
+            | "strong"
+            | "sub"
+            | "sup"
+            | "textarea"
+            | "time"
+            | "tt"
+            | "u"
+            | "var"
     )
 }
