@@ -100,16 +100,28 @@ impl HoverFingerprints {
                             let mut specific = false;
                             for p in &compound {
                                 match p {
-                                    CssSelectorPart::Type(t) => { fp.types.insert(t.clone()); specific = true; }
-                                    CssSelectorPart::Class(c) => { fp.classes.insert(c.clone()); specific = true; }
-                                    CssSelectorPart::Id(id) => { fp.ids.insert(id.clone()); specific = true; }
+                                    CssSelectorPart::Type(t) => {
+                                        fp.types.insert(t.clone());
+                                        specific = true;
+                                    }
+                                    CssSelectorPart::Class(c) => {
+                                        fp.classes.insert(c.clone());
+                                        specific = true;
+                                    }
+                                    CssSelectorPart::Id(id) => {
+                                        fp.ids.insert(id.clone());
+                                        specific = true;
+                                    }
                                     _ => {}
                                 }
                             }
                             if !specific {
                                 // Bare :hover or *:hover — everything is sensitive.
                                 fp.has_universal = true;
-                                log::info!("[hover] fingerprints: universal :hover (from {} stylesheet(s))", sheet_count);
+                                log::info!(
+                                    "[hover] fingerprints: universal :hover (from {} stylesheet(s))",
+                                    sheet_count
+                                );
                                 return fp;
                             }
                         }
@@ -129,6 +141,7 @@ impl HoverFingerprints {
         fp
     }
 
+    #[allow(dead_code)]
     fn is_empty(&self) -> bool {
         !self.has_universal && self.types.is_empty() && self.classes.is_empty() && self.ids.is_empty()
     }
@@ -426,7 +439,12 @@ impl BrowsingContext {
             log::warn!("[hover] hover_dirty → dispatching paint-only repaint (stages 4–6)");
             // Paint-only repaint: reuse the cached layout tree, skip stages 1–2.
             if let Some(old_cache) = self.pipeline_cache.take() {
-                let PipelineCache { layer_list, page_height, tile_pixel_cache: prev_tile_cache, .. } = old_cache;
+                let PipelineCache {
+                    layer_list,
+                    page_height,
+                    tile_pixel_cache: prev_tile_cache,
+                    ..
+                } = old_cache;
                 self.pipeline_cache = Some(pipeline_hover_repaint(
                     layer_list,
                     page_height,
@@ -580,13 +598,16 @@ impl BrowsingContext {
         let page_x = vp_x + self.scroll_x;
         let page_y = vp_y + self.scroll_y;
 
-
         let (new_leaf, new_lei) = self.pipeline_cache.as_ref().map_or((None, None), |cache| {
             let _t = gosub_shared::timing_guard!("hover.hit_test");
             let Some(lei) = cache.layer_list.find_element_at(page_x, page_y) else {
                 return (None, None);
             };
-            let dom_node_id = cache.layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id);
+            let dom_node_id = cache
+                .layer_list
+                .layout_tree
+                .get_node_by_id(lei)
+                .map(|el| el.dom_node_id);
             (dom_node_id, Some(lei))
         });
 
@@ -1365,18 +1386,27 @@ fn pipeline_hover_repaint(
                     };
                     let key = tile_cache_key(tile);
                     if let Some(&(w, h, ref data)) = prev_tile_cache.get(&key) {
-                        return (tile_id, Some(BakedTile {
-                            page_x: tile.rect.x, page_y: tile.rect.y,
-                            width: w, height: h, data: Arc::clone(data),
-                        }), None);
+                        return (
+                            tile_id,
+                            Some(BakedTile {
+                                page_x: tile.rect.x,
+                                page_y: tile.rect.y,
+                                width: w,
+                                height: h,
+                                data: Arc::clone(data),
+                            }),
+                            None,
+                        );
                     }
                     let mut local_store = TextureStore::new();
                     let baked = rasterizer
                         .rasterize(tile, &mut local_store, &media_store)
                         .and_then(|tid| local_store.get(tid))
                         .map(|tex| BakedTile {
-                            page_x: tile.rect.x, page_y: tile.rect.y,
-                            width: tex.width as u32, height: tex.height as u32,
+                            page_x: tile.rect.x,
+                            page_y: tile.rect.y,
+                            width: tex.width as u32,
+                            height: tex.height as u32,
                             data: Arc::clone(&tex.data),
                         });
                     let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, Arc::clone(&b.data))));
@@ -1394,18 +1424,30 @@ fn pipeline_hover_repaint(
                     match baked {
                         Some(b) => {
                             tile.state = TileState::Clean;
-                            if let Some(e) = cache_entry { new_tile_cache.insert(e.0, e.1); rasterized += 1; }
-                            else { cache_hits += 1; }
+                            if let Some(e) = cache_entry {
+                                new_tile_cache.insert(e.0, e.1);
+                                rasterized += 1;
+                            } else {
+                                cache_hits += 1;
+                            }
                             tiles.push(b);
                         }
-                        None => { tile.state = TileState::Empty; }
+                        None => {
+                            tile.state = TileState::Empty;
+                        }
                     }
                 }
             }
             timing_stop!(ts6);
             log::info!(
-                concat!("[pipeline] hover stage 6 rasterize ", $label, " {:>6.1}ms  ({} rasterized, {} hits)"),
-                t.elapsed().as_secs_f64() * 1000.0, rasterized, cache_hits
+                concat!(
+                    "[pipeline] hover stage 6 rasterize ",
+                    $label,
+                    " {:>6.1}ms  ({} rasterized, {} hits)"
+                ),
+                t.elapsed().as_secs_f64() * 1000.0,
+                rasterized,
+                cache_hits
             );
             (tiles, new_tile_cache)
         }};
@@ -1459,8 +1501,10 @@ fn pipeline_hover_repaint(
                 if let (Some(tid), true) = (tile.texture_id, tile.state == TileState::Clean) {
                     if let Some(tex) = texture_store.get(tid) {
                         tiles.push(BakedTile {
-                            page_x: tile.rect.x, page_y: tile.rect.y,
-                            width: tex.width as u32, height: tex.height as u32,
+                            page_x: tile.rect.x,
+                            page_y: tile.rect.y,
+                            width: tex.width as u32,
+                            height: tex.height as u32,
                             data: Arc::clone(&tex.data),
                         });
                     }
@@ -1468,13 +1512,18 @@ fn pipeline_hover_repaint(
             }
         }
         timing_stop!(ts6);
-        log::info!("[pipeline] hover stage 6 rasterize (vello): {:>6.1}ms", t.elapsed().as_secs_f64() * 1000.0);
+        log::info!(
+            "[pipeline] hover stage 6 rasterize (vello): {:>6.1}ms",
+            t.elapsed().as_secs_f64() * 1000.0
+        );
         (tiles, std::collections::HashMap::new())
     };
 
     #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
-    let (baked_tiles, new_tile_cache): (Vec<BakedTile>, std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)>) =
-        (Vec::new(), std::collections::HashMap::new());
+    let (baked_tiles, new_tile_cache): (
+        Vec<BakedTile>,
+        std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)>,
+    ) = (Vec::new(), std::collections::HashMap::new());
 
     log::info!(
         "[pipeline] hover repaint total: {:.1}ms  ({} baked tiles)",
@@ -1486,13 +1535,22 @@ fn pipeline_hover_repaint(
         baked_tiles
             .iter()
             .map(|t| gosub_render_pipeline::render::backend::CachedTile {
-                page_x: t.page_x as f32, page_y: t.page_y as f32,
-                width: t.width, height: t.height, data: Arc::clone(&t.data),
+                page_x: t.page_x as f32,
+                page_y: t.page_y as f32,
+                width: t.width,
+                height: t.height,
+                data: Arc::clone(&t.data),
             })
             .collect::<Vec<_>>(),
     );
 
-    PipelineCache { tiles: baked_tiles, page_height, cached_tiles, layer_list, tile_pixel_cache: new_tile_cache }
+    PipelineCache {
+        tiles: baked_tiles,
+        page_height,
+        cached_tiles,
+        layer_list,
+        tile_pixel_cache: new_tile_cache,
+    }
 }
 
 /// Stage 7: composite visible tiles from the cache into `rl`.

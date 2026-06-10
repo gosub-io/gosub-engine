@@ -28,7 +28,6 @@ const DEFAULT_FONT_FAMILY: &str = "sans-serif";
 // Floats are stored as their bit pattern so the tuple is Hash + Eq.
 type MeasureKey = (String, String, u32, u32, i32, u32);
 
-
 /// Layouter structure that uses taffy as layout engine
 pub struct TaffyLayouter {
     /// Generated taffy tree
@@ -562,7 +561,6 @@ impl TaffyLayouter {
     /// Extracts taffy variables based the DOM node. It will generate the taffy style based on the node CSS properties,
     /// any context that might be needed (images, svg, text).
     fn extract_taffy_data(&self, layout_tree: &LayoutTree, dom_node: &Node) -> Option<(Option<TaffyContext>, Style)> {
-
         let mut taffy_context = None;
         let mut taffy_style = Style::default();
 
