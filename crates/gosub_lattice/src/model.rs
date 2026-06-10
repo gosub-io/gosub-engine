@@ -1,4 +1,4 @@
-use crate::types::{BorderCollapse, CssProp, CssLength, TableRole, TableSizing};
+use crate::types::{BorderCollapse, CssLength, CssProp, TableRole, TableSizing};
 use crate::TableTree;
 
 /// Fully parsed table structure, typed by section kind.
@@ -93,9 +93,7 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
                 row.cells.push(build_source_cell(tree, child));
             }
             // Column, Other — not direct children of the table box
-            TableRole::Table
-            | TableRole::Column
-            | TableRole::Other => {}
+            TableRole::Table | TableRole::Column | TableRole::Other => {}
         }
     }
 
@@ -103,7 +101,10 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
 }
 
 fn build_col_group<T: TableTree>(tree: &T, node: T::NodeId) -> ColGroup<T::NodeId> {
-    let mut group = ColGroup { node, columns: Vec::new() };
+    let mut group = ColGroup {
+        node,
+        columns: Vec::new(),
+    };
     for child in tree.children(node) {
         if tree.table_role(child) == TableRole::Column {
             group.columns.push(child);
@@ -113,7 +114,10 @@ fn build_col_group<T: TableTree>(tree: &T, node: T::NodeId) -> ColGroup<T::NodeI
 }
 
 fn build_row_group<T: TableTree>(tree: &T, node: T::NodeId) -> RowGroup<T::NodeId> {
-    let mut group = RowGroup { node: Some(node), rows: Vec::new() };
+    let mut group = RowGroup {
+        node: Some(node),
+        rows: Vec::new(),
+    };
     for child in tree.children(node) {
         match tree.table_role(child) {
             TableRole::Row => group.rows.push(build_row(tree, child)),
@@ -129,7 +133,10 @@ fn build_row_group<T: TableTree>(tree: &T, node: T::NodeId) -> RowGroup<T::NodeI
 }
 
 fn build_row<T: TableTree>(tree: &T, node: T::NodeId) -> TableRow<T::NodeId> {
-    let mut row = TableRow { node: Some(node), cells: Vec::new() };
+    let mut row = TableRow {
+        node: Some(node),
+        cells: Vec::new(),
+    };
     for child in tree.children(node) {
         if tree.table_role(child) == TableRole::Cell {
             row.cells.push(build_source_cell(tree, child));
@@ -147,27 +154,33 @@ fn build_source_cell<T: TableTree>(tree: &T, node: T::NodeId) -> SourceCell<T::N
 /// Returns the last anonymous body group, creating one if needed.
 fn anon_body_group<N>(groups: &mut Vec<RowGroup<N>>) -> &mut RowGroup<N> {
     if groups.last().map(|g| g.node.is_none()).unwrap_or(false) {
-        groups.last_mut().expect("existence confirmed above")
+        groups.last_mut().unwrap_or_else(|| unreachable!())
     } else {
-        groups.push(RowGroup { node: None, rows: Vec::new() });
-        groups.last_mut().expect("just pushed")
+        groups.push(RowGroup {
+            node: None,
+            rows: Vec::new(),
+        });
+        groups.last_mut().unwrap_or_else(|| unreachable!())
     }
 }
 
 /// Returns the last anonymous row in `rows`, creating one if needed.
 fn anon_row<N>(rows: &mut Vec<TableRow<N>>) -> &mut TableRow<N> {
     if rows.last().map(|r| r.node.is_none()).unwrap_or(false) {
-        rows.last_mut().expect("existence confirmed above")
+        rows.last_mut().unwrap_or_else(|| unreachable!())
     } else {
-        rows.push(TableRow { node: None, cells: Vec::new() });
-        rows.last_mut().expect("just pushed")
+        rows.push(TableRow {
+            node: None,
+            cells: Vec::new(),
+        });
+        rows.last_mut().unwrap_or_else(|| unreachable!())
     }
 }
 
 fn parse_table_sizing<T: TableTree>(tree: &T, node: T::NodeId) -> TableSizing {
     match tree.css_length(node, CssProp::TableLayout) {
         // We use Px(1.0) as "fixed" sentinel — implementors should use this convention.
-        CssLength::Px(v) if v == 1.0 => TableSizing::Fixed,
+        CssLength::Px(1.0) => TableSizing::Fixed,
         _ => TableSizing::Auto,
     }
 }
@@ -175,7 +188,7 @@ fn parse_table_sizing<T: TableTree>(tree: &T, node: T::NodeId) -> TableSizing {
 fn parse_border_collapse<T: TableTree>(tree: &T, node: T::NodeId) -> BorderCollapse {
     match tree.css_length(node, CssProp::BorderCollapse) {
         // Px(1.0) = collapse sentinel
-        CssLength::Px(v) if v == 1.0 => BorderCollapse::Collapse,
+        CssLength::Px(1.0) => BorderCollapse::Collapse,
         _ => BorderCollapse::Separate,
     }
 }

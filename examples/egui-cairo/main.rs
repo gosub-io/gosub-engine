@@ -230,8 +230,12 @@ impl BrowserApp {
                     let tw = tile.width as i64;
                     let th = tile.height as i64;
                     // Cull tiles fully outside the viewport.
-                    if screen_x >= w as i64 || screen_y >= h as i64 { continue; }
-                    if screen_x + tw <= 0 || screen_y + th <= 0 { continue; }
+                    if screen_x >= w as i64 || screen_y >= h as i64 {
+                        continue;
+                    }
+                    if screen_x + tw <= 0 || screen_y + th <= 0 {
+                        continue;
+                    }
                     // When a tile starts before the viewport edge, skip the off-screen rows/cols.
                     let tile_start_col = (-screen_x).max(0) as usize;
                     let tile_start_row = (-screen_y).max(0) as usize;
@@ -243,13 +247,16 @@ impl BrowserApp {
                         unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
                     for tile_row in tile_start_row..th {
                         let dst_y = dst_y0 + (tile_row - tile_start_row);
-                        if dst_y >= h { break; }
+                        if dst_y >= h {
+                            break;
+                        }
                         let copy_w = (tw - tile_start_col).min(w - dst_x);
-                        if copy_w == 0 { break; }
+                        if copy_w == 0 {
+                            break;
+                        }
                         let src_off = tile_row * tw + tile_start_col;
                         let dst_off = dst_y * w + dst_x;
-                        buf[dst_off..dst_off + copy_w]
-                            .copy_from_slice(&tile_u32[src_off..src_off + copy_w]);
+                        buf[dst_off..dst_off + copy_w].copy_from_slice(&tile_u32[src_off..src_off + copy_w]);
                     }
                 }
 
@@ -333,7 +340,12 @@ impl eframe::App for BrowserApp {
             self.scroll_y = (self.scroll_y + dy).clamp(0.0, max_y);
             let tab = self.tab.clone();
             TOKIO_RT.spawn(async move {
-                let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
+                let _ = tab
+                    .send(TabCommand::MouseScroll {
+                        delta_x: dx,
+                        delta_y: dy,
+                    })
+                    .await;
             });
         }
 

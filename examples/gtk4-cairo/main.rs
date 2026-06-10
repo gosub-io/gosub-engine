@@ -646,15 +646,22 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
     // CPU-blit tiles into a single image buffer, then paint it once.
     // This avoids per-tile Cairo compositing (which can produce 1-pixel seams at
     // tile boundaries due to bilinear filtering / AA at the source surface edges).
-    let Ok(mut dst) = gtk4::cairo::ImageSurface::create(gtk4::cairo::Format::ARgb32, w_phys, h_phys) else { return; };
+    let Ok(mut dst) = gtk4::cairo::ImageSurface::create(gtk4::cairo::Format::ARgb32, w_phys, h_phys) else {
+        return;
+    };
     let stride = dst.stride() as usize;
 
     {
-        let Ok(mut data) = dst.data() else { return; };
+        let Ok(mut data) = dst.data() else {
+            return;
+        };
 
         // White background (ARGB32 premultiplied little-endian = 0xFFFF_FFFF).
         for b in data.chunks_exact_mut(4) {
-            b[0] = 0xFF; b[1] = 0xFF; b[2] = 0xFF; b[3] = 0xFF;
+            b[0] = 0xFF;
+            b[1] = 0xFF;
+            b[2] = 0xFF;
+            b[3] = 0xFF;
         }
 
         let sx = (scroll_x * state.dpr as f32).round() as i64;
@@ -666,25 +673,32 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
             let tw = tile.width as i64;
             let th = tile.height as i64;
 
-            if px >= w_phys as i64 || py >= h_phys as i64 { continue; }
-            if px + tw <= 0 || py + th <= 0 { continue; }
+            if px >= w_phys as i64 || py >= h_phys as i64 {
+                continue;
+            }
+            if px + tw <= 0 || py + th <= 0 {
+                continue;
+            }
 
             let tile_col0 = (-px).max(0) as usize;
             let tile_row0 = (-py).max(0) as usize;
-            let dst_x    = px.max(0) as usize;
-            let dst_y0   = py.max(0) as usize;
+            let dst_x = px.max(0) as usize;
+            let dst_y0 = py.max(0) as usize;
             let tw_usize = tw as usize;
             let th_usize = th as usize;
 
             for tile_row in tile_row0..th_usize {
                 let dst_y = dst_y0 + (tile_row - tile_row0);
-                if dst_y >= h_phys as usize { break; }
+                if dst_y >= h_phys as usize {
+                    break;
+                }
                 let copy_w = (tw_usize - tile_col0).min(w_phys as usize - dst_x);
-                if copy_w == 0 { break; }
+                if copy_w == 0 {
+                    break;
+                }
                 let src_off = (tile_row * tw_usize + tile_col0) * 4;
                 let dst_off = dst_y * stride + dst_x * 4;
-                data[dst_off..dst_off + copy_w * 4]
-                    .copy_from_slice(&tile.data[src_off..src_off + copy_w * 4]);
+                data[dst_off..dst_off + copy_w * 4].copy_from_slice(&tile.data[src_off..src_off + copy_w * 4]);
             }
         }
     }

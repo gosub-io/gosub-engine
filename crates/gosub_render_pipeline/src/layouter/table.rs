@@ -120,12 +120,7 @@ fn translate_box_model(bm: &mut BoxModel, offset: Coordinate) {
 }
 
 fn cell_layout_to_box_model(layout: &CellLayout, abs: Coordinate) -> BoxModel {
-    let border_box = Rect::new(
-        abs.x,
-        abs.y,
-        layout.size.width as f64,
-        layout.size.height as f64,
-    );
+    let border_box = Rect::new(abs.x, abs.y, layout.size.width as f64, layout.size.height as f64);
     BoxModel::new(
         border_box,
         Edges {
@@ -155,10 +150,7 @@ fn cell_layout_to_box_model(layout: &CellLayout, abs: Coordinate) -> BoxModel {
 /// Text leaf nodes carry the Parley-measured line width (e.g. "1." → ~20 px),
 /// which is much narrower than the equal-distributed Taffy cell width.
 /// This lets `compute_column_widths` keep narrow structural columns narrow.
-fn intrinsic_content_width(
-    el: &LayoutElementNode,
-    arena: &HashMap<LayoutElementId, LayoutElementNode>,
-) -> f32 {
+fn intrinsic_content_width(el: &LayoutElementNode, arena: &HashMap<LayoutElementId, LayoutElementNode>) -> f32 {
     match &el.context {
         ElementContext::Text(_) => el.box_model.content_box.width as f32,
         ElementContext::Image(ctx) => ctx.dimension.width as f32,
@@ -265,10 +257,7 @@ impl TableTree for PipelineTableTree<'_> {
 
 /// Post-process all `display: table` nodes in the layout tree after the
 /// Taffy first pass. Correct positions are written back via `gosub_lattice`.
-pub fn post_process_tables(
-    layout_tree: &mut LayoutTree,
-    dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
-) {
+pub fn post_process_tables(layout_tree: &mut LayoutTree, dom_to_layout: &HashMap<DomNodeId, LayoutElementId>) {
     // Clone the doc Arc up front so we don't hold a borrow on layout_tree
     // when we later pass it mutably to PipelineTableTree.
     let doc: Arc<dyn PipelineDocument> = Arc::clone(&layout_tree.render_tree.doc);

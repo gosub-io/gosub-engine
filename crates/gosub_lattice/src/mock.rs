@@ -6,9 +6,9 @@
 use std::collections::HashMap;
 
 use crate::compute::compute_table_layout;
-use crate::model::{build_model, RowGroup};
 use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
-use crate::types::{CellLayout, CssProp, CssLength, TableRole};
+use crate::model::{build_model, RowGroup};
+use crate::types::{CellLayout, CssLength, CssProp, TableRole};
 use crate::TableTree;
 
 // ---------------------------------------------------------------------------
@@ -44,12 +44,30 @@ impl MockCell {
         }
     }
 
-    pub fn colspan(mut self, n: usize) -> Self { self.colspan = n; self }
-    pub fn rowspan(mut self, n: usize) -> Self { self.rowspan = n; self }
-    pub fn width(mut self, w: f32) -> Self { self.width = Some(w); self }
-    pub fn height(mut self, h: f32) -> Self { self.height = Some(h); self }
-    pub fn border(mut self, b: f32) -> Self { self.border = b; self }
-    pub fn padding(mut self, p: f32) -> Self { self.padding = p; self }
+    pub fn colspan(mut self, n: usize) -> Self {
+        self.colspan = n;
+        self
+    }
+    pub fn rowspan(mut self, n: usize) -> Self {
+        self.rowspan = n;
+        self
+    }
+    pub fn width(mut self, w: f32) -> Self {
+        self.width = Some(w);
+        self
+    }
+    pub fn height(mut self, h: f32) -> Self {
+        self.height = Some(h);
+        self
+    }
+    pub fn border(mut self, b: f32) -> Self {
+        self.border = b;
+        self
+    }
+    pub fn padding(mut self, p: f32) -> Self {
+        self.padding = p;
+        self
+    }
 }
 
 /// Shorthand: `cell("label")`.
@@ -219,6 +237,7 @@ impl MockTree {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn alloc(
         &mut self,
         role: TableRole,
@@ -281,17 +300,11 @@ impl TableTree for MockTree {
     type NodeId = u32;
 
     fn children(&self, id: u32) -> Vec<u32> {
-        self.nodes
-            .get(&id)
-            .map(|n| n.children.clone())
-            .unwrap_or_default()
+        self.nodes.get(&id).map(|n| n.children.clone()).unwrap_or_default()
     }
 
     fn table_role(&self, id: u32) -> TableRole {
-        self.nodes
-            .get(&id)
-            .map(|n| n.role)
-            .unwrap_or(TableRole::Other)
+        self.nodes.get(&id).map(|n| n.role).unwrap_or(TableRole::Other)
     }
 
     fn css_length(&self, id: u32, prop: CssProp) -> CssLength {
@@ -305,10 +318,9 @@ impl TableTree for MockTree {
             | CssProp::BorderRightWidth
             | CssProp::BorderBottomWidth
             | CssProp::BorderLeftWidth => CssLength::Px(node.border),
-            CssProp::PaddingTop
-            | CssProp::PaddingRight
-            | CssProp::PaddingBottom
-            | CssProp::PaddingLeft => CssLength::Px(node.padding),
+            CssProp::PaddingTop | CssProp::PaddingRight | CssProp::PaddingBottom | CssProp::PaddingLeft => {
+                CssLength::Px(node.padding)
+            }
             CssProp::BorderSpacingX => CssLength::Px(self.border_spacing_x),
             CssProp::BorderSpacingY => CssLength::Px(self.border_spacing_y),
             _ => CssLength::Auto,
@@ -352,11 +364,7 @@ pub fn render_tree(tree: &MockTree, root: u32) -> String {
         .iter()
         .map(|g| build_section_grid(&g.rows))
         .collect();
-    let body_grids: Vec<SectionGrid<u32>> = model
-        .row_groups
-        .iter()
-        .map(|g| build_section_grid(&g.rows))
-        .collect();
+    let body_grids: Vec<SectionGrid<u32>> = model.row_groups.iter().map(|g| build_section_grid(&g.rows)).collect();
     let footer_grids: Vec<SectionGrid<u32>> = model
         .footer_groups
         .iter()
@@ -402,10 +410,11 @@ pub fn render_tree(tree: &MockTree, root: u32) -> String {
 
     let mut out = String::new();
 
+    #[allow(clippy::type_complexity)]
     let sections: &[(&[RowGroup<u32>], &[SectionGrid<u32>], SectionKind)] = &[
         (&model.header_groups, &header_grids, SectionKind::Header),
-        (&model.row_groups,    &body_grids,   SectionKind::Body),
-        (&model.footer_groups, &footer_grids,  SectionKind::Footer),
+        (&model.row_groups, &body_grids, SectionKind::Body),
+        (&model.footer_groups, &footer_grids, SectionKind::Footer),
     ];
 
     // Draw the very first top border once, then each row only draws its bottom.
@@ -450,7 +459,11 @@ pub fn render_tree(tree: &MockTree, root: u32) -> String {
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
-enum SectionKind { Header, Body, Footer }
+enum SectionKind {
+    Header,
+    Body,
+    Footer,
+}
 
 /// Draw a horizontal border line, correctly handling both colspan (no `+` inside
 /// a spanning cell horizontally) and rowspan (no `---` where a cell continues
@@ -462,8 +475,8 @@ fn h_border(
     col_char_w: &[usize],
     n_cols: usize,
     fill: char,
-    col_spanned: &[bool],   // rowspan through this boundary, per column
-    colspan_row: usize,     // row index to read colspan info from
+    col_spanned: &[bool], // rowspan through this boundary, per column
+    colspan_row: usize,   // row index to read colspan info from
     grid: &SectionGrid<u32>,
 ) -> String {
     // Which columns have NO internal right wall due to colspan.
@@ -479,12 +492,16 @@ fn h_border(
     // Junction character between column `left` and column `right` (right = left+1).
     // Also used for the leftmost (+0) and rightmost (+n_cols) junctions.
     let junction = |pos: usize| -> char {
-        let left_spanned  = pos > 0     && col_spanned.get(pos - 1).copied().unwrap_or(false);
+        let left_spanned = pos > 0 && col_spanned.get(pos - 1).copied().unwrap_or(false);
         let right_spanned = pos < n_cols && col_spanned.get(pos).copied().unwrap_or(false);
 
         if pos == 0 {
             // Leftmost edge
-            if right_spanned { '|' } else { '+' }
+            if right_spanned {
+                '|'
+            } else {
+                '+'
+            }
         } else if pos == n_cols {
             // Rightmost edge — always a real corner
             '+'
@@ -493,7 +510,11 @@ fn h_border(
             '|'
         } else if no_right_wall.get(pos - 1).copied().unwrap_or(false) {
             // Inside a colspan — suppress the junction
-            if left_spanned || right_spanned { ' ' } else { fill }
+            if left_spanned || right_spanned {
+                ' '
+            } else {
+                fill
+            }
         } else {
             '+'
         }
@@ -503,8 +524,12 @@ fn h_border(
     s.push(junction(0));
     for col in 0..n_cols {
         let w = col_char_w.get(col).copied().unwrap_or(5);
-        let f = if col_spanned.get(col).copied().unwrap_or(false) { ' ' } else { fill };
-        s.extend(std::iter::repeat(f).take(w));
+        let f = if col_spanned.get(col).copied().unwrap_or(false) {
+            ' '
+        } else {
+            fill
+        };
+        s.extend(std::iter::repeat_n(f, w));
         s.push(junction(col + 1));
     }
     s
@@ -531,12 +556,8 @@ fn content_row(
         if let Some(placed) = cell_at.get(&col) {
             let colspan = placed.colspan;
             // Total character width = sum of column widths + internal '|'s consumed.
-            let inner_w: usize = col_char_w
-                .get(col..col + colspan)
-                .unwrap_or(&[])
-                .iter()
-                .sum::<usize>()
-                + colspan.saturating_sub(1);
+            let inner_w: usize =
+                col_char_w.get(col..col + colspan).unwrap_or(&[]).iter().sum::<usize>() + colspan.saturating_sub(1);
             let label = tree.label(placed.node).unwrap_or("");
             s.push_str(&pad_center(label, inner_w));
             s.push('|');
@@ -545,7 +566,7 @@ fn content_row(
             // Column occupied by a rowspan cell that started in an earlier row.
             // Show as blank — the cell's wall on the right is `|` as usual.
             let w = col_char_w.get(col).copied().unwrap_or(5);
-            s.extend(std::iter::repeat(' ').take(w));
+            s.extend(std::iter::repeat_n(' ', w));
             s.push('|');
             col += 1;
         }

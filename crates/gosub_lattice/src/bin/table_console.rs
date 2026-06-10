@@ -23,9 +23,7 @@ fn main() {
     let out = MockTable::new(60.0)
         .header_row(vec![cell("Name"), cell("Info")])
         .body_row(vec![cell("Alice"), cell("Amsterdam")])
-        .body_row(vec![
-            cell("Bob — long name that spans both columns").colspan(2),
-        ])
+        .body_row(vec![cell("Bob — long name that spans both columns").colspan(2)])
         .body_row(vec![cell("Carol"), cell("Brussels")])
         .render();
     println!("{out}");
@@ -62,11 +60,7 @@ fn main() {
     println!("=== thead + rowspan in tbody + tfoot ===");
     let out = MockTable::new(60.0)
         .header_row(vec![cell("Col A"), cell("Col B"), cell("Col C")])
-        .body_row(vec![
-            cell("Spans 2 rows").rowspan(2),
-            cell("B1"),
-            cell("C1"),
-        ])
+        .body_row(vec![cell("Spans 2 rows").rowspan(2), cell("B1"), cell("C1")])
         .body_row(vec![cell("B2"), cell("C2")]) // col 0 spanned
         .body_row(vec![cell("A3"), cell("B3"), cell("C3")])
         .footer_row(vec![cell("Footer").colspan(3)])

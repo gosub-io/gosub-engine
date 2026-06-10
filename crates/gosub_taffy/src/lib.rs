@@ -16,8 +16,6 @@ use gosub_interface::layout::{Layout as TLayout, LayoutCache, LayoutNode, Layout
 use gosub_shared::geo::{Point, Rect, Size, SizeU32};
 use gosub_shared::types::Result;
 
-use gosub_lattice;
-
 use crate::calc::CalcExpr;
 use crate::compute::inline::compute_inline_layout;
 use crate::style::get_style_from_node;
@@ -378,10 +376,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocum
             // let has_children = tree.0.child_count(node_id) > 0; //TODO: this isn't optimal, since we are now requesting the same node twice (up in get_cache and here)
 
             // Table layout is handled by gosub_lattice, not Taffy.
-            if matches!(
-                tree.tree.get_cache(node_id).map(|c| c.display),
-                Some(Display::Table)
-            ) {
+            if matches!(tree.tree.get_cache(node_id).map(|c| c.display), Some(Display::Table)) {
                 let available_width = match inputs.available_space.width {
                     AvailableSpace::Definite(w) => w,
                     AvailableSpace::MinContent | AvailableSpace::MaxContent => {

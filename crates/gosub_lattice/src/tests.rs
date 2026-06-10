@@ -42,8 +42,7 @@ mod layout_tests {
             ])
             .into_tree();
 
-        let (w, h) = compute_table_layout(&mut tree, root, 100.0, None)
-            .expect("layout must succeed");
+        let (w, h) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout must succeed");
 
         // Table size
         assert_approx!(w, 100.0, "table width");
@@ -157,9 +156,7 @@ mod layout_tests {
                 cell("Span").rowspan(2).padding(0.0),
                 cell("R0C1").height(20.0).padding(0.0),
             ])
-            .body_row(vec![
-                cell("R1C1").height(30.0).padding(0.0),
-            ])
+            .body_row(vec![cell("R1C1").height(30.0).padding(0.0)])
             .into_tree();
 
         compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
@@ -185,9 +182,7 @@ mod layout_tests {
                 cell("A").height(10.0).padding(0.0),
                 cell("B").height(10.0).padding(0.0),
             ])
-            .body_row(vec![
-                cell("Wide").colspan(2).height(10.0).padding(0.0),
-            ])
+            .body_row(vec![cell("Wide").colspan(2).height(10.0).padding(0.0)])
             .into_tree();
 
         compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
@@ -213,8 +208,7 @@ mod layout_tests {
             .footer_row(vec![cell("F").height(10.0).padding(0.0)])
             .into_tree();
 
-        let (_, total_h) = compute_table_layout(&mut tree, root, 100.0, None)
-            .expect("layout");
+        let (_, total_h) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
 
         assert_approx!(total_h, 30.0, "three sections of 10px each");
 
@@ -245,12 +239,7 @@ mod layout_tests {
         // The CellLayout.border and .padding fields should reflect those values.
         let (mut tree, root) = MockTable::new(100.0)
             .spacing(0.0, 0.0)
-            .body_row(vec![
-                cell("Bordered")
-                    .height(20.0)
-                    .border(1.0)
-                    .padding(2.0),
-            ])
+            .body_row(vec![cell("Bordered").height(20.0).border(1.0).padding(2.0)])
             .into_tree();
 
         compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
@@ -270,8 +259,7 @@ mod layout_tests {
     #[test]
     fn empty_table_returns_zero() {
         let (mut tree, root) = MockTable::new(100.0).into_tree();
-        let (w, h) = compute_table_layout(&mut tree, root, 100.0, None)
-            .expect("empty table must not fail");
+        let (w, h) = compute_table_layout(&mut tree, root, 100.0, None).expect("empty table must not fail");
         assert_approx!(w, 0.0, "empty table width");
         assert_approx!(h, 0.0, "empty table height");
     }

@@ -297,26 +297,32 @@ impl BrowserApp {
                     let screen_y = py - sy;
                     let tw = tile.width as i64;
                     let th = tile.height as i64;
-                    if screen_x >= w as i64 || screen_y >= h as i64 { continue; }
-                    if screen_x + tw <= 0 || screen_y + th <= 0 { continue; }
+                    if screen_x >= w as i64 || screen_y >= h as i64 {
+                        continue;
+                    }
+                    if screen_x + tw <= 0 || screen_y + th <= 0 {
+                        continue;
+                    }
                     let tile_start_col = (-screen_x).max(0) as usize;
                     let tile_start_row = (-screen_y).max(0) as usize;
                     let dst_x = screen_x.max(0) as usize;
                     let dst_y0 = screen_y.max(0) as usize;
                     let tw = tw as usize;
                     let th = th as usize;
-                    let tile_u32 = unsafe {
-                        std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4)
-                    };
+                    let tile_u32 =
+                        unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
                     for tile_row in tile_start_row..th {
                         let dst_y = dst_y0 + (tile_row - tile_start_row);
-                        if dst_y >= h { break; }
+                        if dst_y >= h {
+                            break;
+                        }
                         let copy_w = (tw - tile_start_col).min(w - dst_x);
-                        if copy_w == 0 { break; }
+                        if copy_w == 0 {
+                            break;
+                        }
                         let src_off = tile_row * tw + tile_start_col;
                         let dst_off = dst_y * w + dst_x;
-                        buf[dst_off..dst_off + copy_w]
-                            .copy_from_slice(&tile_u32[src_off..src_off + copy_w]);
+                        buf[dst_off..dst_off + copy_w].copy_from_slice(&tile_u32[src_off..src_off + copy_w]);
                     }
                 }
 
@@ -345,8 +351,12 @@ impl BrowserApp {
                 if !needs_update {
                     return;
                 }
-                let Some(wgpu_state) = frame.wgpu_render_state() else { return };
-                let Some((_, view)) = self.context.get_texture(id) else { return };
+                let Some(wgpu_state) = frame.wgpu_render_state() else {
+                    return;
+                };
+                let Some((_, view)) = self.context.get_texture(id) else {
+                    return;
+                };
                 if let Some((_, old)) = self.egui_texture.take() {
                     wgpu_state.renderer.write().free_texture(&old);
                 }
@@ -387,7 +397,12 @@ impl eframe::App for BrowserApp {
             self.scroll_y = (self.scroll_y + dy).clamp(0.0, max_y);
             let tab = self.tab.clone();
             TOKIO_RT.spawn(async move {
-                let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
+                let _ = tab
+                    .send(TabCommand::MouseScroll {
+                        delta_x: dx,
+                        delta_y: dy,
+                    })
+                    .await;
             });
         }
 
@@ -442,7 +457,10 @@ impl eframe::App for BrowserApp {
             }
 
             // Prefer CPU tile-cache texture (pipeline+vello path), fall back to GPU texture.
-            let tex_id = self.cpu_texture.as_ref().map(|t| t.id())
+            let tex_id = self
+                .cpu_texture
+                .as_ref()
+                .map(|t| t.id())
                 .or_else(|| self.egui_texture.as_ref().map(|(_, id)| *id));
 
             if let Some(tex_id) = tex_id {

@@ -86,7 +86,11 @@ impl WgpuContextProvider for WinitWgpuContextProvider {
     fn create_texture(&self, width: u32, height: u32, format: wgpu::TextureFormat) -> u64 {
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("gosub-vello-texture"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -104,10 +108,7 @@ impl WgpuContextProvider for WinitWgpuContextProvider {
     }
 
     fn get_texture(&self, id: u64) -> Option<(wgpu::Texture, wgpu::TextureView)> {
-        self.textures
-            .read()
-            .get(&id)
-            .map(|(t, v)| (t.clone(), v.clone()))
+        self.textures.read().get(&id).map(|(t, v)| (t.clone(), v.clone()))
     }
 
     fn remove_texture(&self, id: u64) {
@@ -383,13 +384,11 @@ impl ApplicationHandler<()> for BrowserApp {
         // This is the key step: without a surface hint, wgpu may return an adapter
         // that can't render to the Wayland/X11 surface, causing `get_current_texture`
         // to silently fail every frame and the window to never become visible.
-        let adapter = match TOKIO_RT.block_on(self.instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
-                compatible_surface: Some(&surface),
-                power_preference: wgpu::PowerPreference::default(),
-                force_fallback_adapter: false,
-            },
-        )) {
+        let adapter = match TOKIO_RT.block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
+            compatible_surface: Some(&surface),
+            power_preference: wgpu::PowerPreference::default(),
+            force_fallback_adapter: false,
+        })) {
             Ok(a) => a,
             Err(e) => {
                 log::error!("no wgpu adapter compatible with surface: {e}");
@@ -397,9 +396,7 @@ impl ApplicationHandler<()> for BrowserApp {
             }
         };
 
-        let (device, queue) = match TOKIO_RT.block_on(
-            adapter.request_device(&wgpu::DeviceDescriptor::default()),
-        ) {
+        let (device, queue) = match TOKIO_RT.block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) {
             Ok(dq) => dq,
             Err(e) => {
                 log::error!("wgpu device: {e}");
@@ -441,7 +438,14 @@ impl ApplicationHandler<()> for BrowserApp {
             ..Default::default()
         });
 
-        let gpu = GpuState { window, surface, config, pipeline, bg_layout, sampler };
+        let gpu = GpuState {
+            window,
+            surface,
+            config,
+            pipeline,
+            bg_layout,
+            sampler,
+        };
 
         // ── 5. Build VelloBackend and engine ──────────────────────────────────
         let context = Arc::new(WinitWgpuContextProvider::new(device.clone(), queue.clone()));
@@ -547,7 +551,12 @@ impl ApplicationHandler<()> for BrowserApp {
                     let tab = rt.tab.clone();
                     TOKIO_RT.spawn(async move {
                         let _ = tab
-                            .send(TabCommand::SetViewport { x: 0, y: 0, width, height })
+                            .send(TabCommand::SetViewport {
+                                x: 0,
+                                y: 0,
+                                width,
+                                height,
+                            })
                             .await;
                     });
                 }
@@ -578,7 +587,11 @@ impl ApplicationHandler<()> for BrowserApp {
                     let tab = rt.tab.clone();
                     TOKIO_RT.spawn(async move {
                         let _ = tab
-                            .send(TabCommand::MouseDown { x, y, button: MouseButton::Left })
+                            .send(TabCommand::MouseDown {
+                                x,
+                                y,
+                                button: MouseButton::Left,
+                            })
                             .await;
                     });
                 }
@@ -596,7 +609,10 @@ impl ApplicationHandler<()> for BrowserApp {
                     let tab = rt.tab.clone();
                     TOKIO_RT.spawn(async move {
                         let _ = tab
-                            .send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy })
+                            .send(TabCommand::MouseScroll {
+                                delta_x: dx,
+                                delta_y: dy,
+                            })
                             .await;
                     });
                 }
