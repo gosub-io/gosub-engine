@@ -1,9 +1,12 @@
-use std::any::Any;
+use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
-use gosub_interface::font_system::{FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, ShapedGlyph, ShapedRun, ShapedText};
+use gosub_interface::font_system::{
+    FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, ShapedGlyph, ShapedRun, ShapedText,
+};
 use parley::fontique::{Attributes, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache};
 use parley::style::{FontStyle as ParleyStyle, FontWeight as ParleyWeight};
 use parley::{Alignment, AlignmentOptions, FontContext, LayoutContext, PositionedLayoutItem};
+use std::any::Any;
 
 /// A [`FontSystem`] implementation backed by Parley + Fontique.
 ///
@@ -74,11 +77,7 @@ impl FontSystem for ParleyFontSystem {
     }
 
     fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
-        let families: Vec<QueryFamily> = query
-            .families
-            .iter()
-            .map(|&name| css_family_to_query(name))
-            .collect();
+        let families: Vec<QueryFamily> = query.families.iter().map(|&name| css_family_to_query(name)).collect();
 
         let attrs = Attributes::new(
             stretch_to_width(query.stretch),
@@ -101,9 +100,7 @@ impl FontSystem for ParleyFontSystem {
             let family = col_clone
                 .family(fam_id)
                 .map(|f| f.name().to_string())
-                .unwrap_or_else(|| {
-                    query.families.first().copied().unwrap_or("sans-serif").to_string()
-                });
+                .unwrap_or_else(|| query.families.first().copied().unwrap_or("sans-serif").to_string());
 
             found = Some(ResolvedFont {
                 family,
@@ -168,7 +165,7 @@ impl FontSystem for ParleyFontSystem {
                             let x = run_x + pen_x + g.x;
                             let y = pen_y + baseline + g.y;
                             pen_x += g.advance;
-                            ShapedGlyph { id: g.id as u32, x, y }
+                            ShapedGlyph { id: g.id, x, y }
                         })
                         .collect();
 
@@ -234,7 +231,7 @@ impl FontSystem for ParleyFontSystem {
 // ---------------------------------------------------------------------------
 
 fn css_family_to_query(name: &str) -> QueryFamily<'_> {
-    match name.to_ascii_lowercase().as_str() {
+    match name.cow_to_lowercase().as_ref() {
         "sans-serif" => GenericFamily::SansSerif.into(),
         "serif" => GenericFamily::Serif.into(),
         "monospace" | "monospaced" => GenericFamily::Monospace.into(),

@@ -1,4 +1,4 @@
-use crate::font::pango::{PangoFontSystem, to_pango_weight};
+use crate::font::pango::{to_pango_weight, PangoFontSystem};
 use crate::rasterizer::brush::set_brush;
 use cairo::{Antialias, Context, Error, Filter, FontOptions, Format, HintMetrics, HintStyle, ImageSurface};
 use gosub_render_pipeline::common::media::MediaStore;
@@ -35,7 +35,12 @@ pub(crate) fn do_paint_text(
     Ok(())
 }
 
-fn create_text_layout(cmd: &Text, media_store: &MediaStore, dpr: i32, font_system: &PangoFontSystem) -> Result<ImageSurface, Error> {
+fn create_text_layout(
+    cmd: &Text,
+    media_store: &MediaStore,
+    dpr: i32,
+    font_system: &PangoFontSystem,
+) -> Result<ImageSurface, Error> {
     // Physical pixel width = CSS width × DPR.
     let taffy_width = (cmd.rect.width.ceil() as i32 * dpr).max(1);
 
@@ -80,19 +85,35 @@ fn create_text_layout(cmd: &Text, media_store: &MediaStore, dpr: i32, font_syste
     Ok(surface)
 }
 
-fn build_pango_layout_unconstrained(cr: &Context, cmd: &Text, dpr: i32, font_system: &PangoFontSystem) -> pangocairo::pango::Layout {
+fn build_pango_layout_unconstrained(
+    cr: &Context,
+    cmd: &Text,
+    dpr: i32,
+    font_system: &PangoFontSystem,
+) -> pangocairo::pango::Layout {
     let layout = build_pango_layout_inner(cr, cmd, dpr, font_system);
     layout.set_width(-1);
     layout
 }
 
-fn build_pango_layout(cr: &Context, cmd: &Text, width: i32, dpr: i32, font_system: &PangoFontSystem) -> pangocairo::pango::Layout {
+fn build_pango_layout(
+    cr: &Context,
+    cmd: &Text,
+    width: i32,
+    dpr: i32,
+    font_system: &PangoFontSystem,
+) -> pangocairo::pango::Layout {
     let layout = build_pango_layout_inner(cr, cmd, dpr, font_system);
     layout.set_width(width * SCALE);
     layout
 }
 
-fn build_pango_layout_inner(cr: &Context, cmd: &Text, dpr: i32, font_system: &PangoFontSystem) -> pangocairo::pango::Layout {
+fn build_pango_layout_inner(
+    cr: &Context,
+    cmd: &Text,
+    dpr: i32,
+    font_system: &PangoFontSystem,
+) -> pangocairo::pango::Layout {
     if let Ok(mut font_opts) = FontOptions::new() {
         font_opts.set_antialias(Antialias::Gray);
         font_opts.set_hint_style(HintStyle::Full);

@@ -103,9 +103,7 @@ pub struct TextRenderer {
 
 impl TextRenderer {
     pub fn new() -> Self {
-        Self {
-            cache: HashMap::new(),
-        }
+        Self { cache: HashMap::new() }
     }
 
     #[allow(unused)]

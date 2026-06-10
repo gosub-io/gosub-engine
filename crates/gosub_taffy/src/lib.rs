@@ -1,7 +1,7 @@
+use parking_lot::Mutex;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::vec::IntoIter;
-use parking_lot::Mutex;
 use taffy::{
     compute_block_layout, compute_cached_layout, compute_flexbox_layout, compute_grid_layout, compute_hidden_layout,
     compute_root_layout, AvailableSpace, Cache as TaffyCache, CacheTree, Display as TaffyDisplay,

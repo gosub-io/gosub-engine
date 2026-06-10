@@ -1,6 +1,6 @@
+use parking_lot::Mutex;
 use std::any::Any;
 use std::sync::Arc;
-use parking_lot::Mutex;
 
 use crate::font::{FontBlob, FontError, FontStyle};
 

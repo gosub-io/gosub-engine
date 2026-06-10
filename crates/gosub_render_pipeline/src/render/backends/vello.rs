@@ -156,7 +156,16 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                         align: 0,
                     };
 
-                    text_renderer.draw(font_manager, font_cache, font_cx, &mut scene, &key, x, y, (*color).into());
+                    text_renderer.draw(
+                        font_manager,
+                        font_cache,
+                        font_cx,
+                        &mut scene,
+                        &key,
+                        x,
+                        y,
+                        (*color).into(),
+                    );
                 }
                 DisplayItem::Blit { x, y, w, h, data } => {
                     // Cairo emits premultiplied ARgb32; in-memory bytes are [B, G, R, A] on
