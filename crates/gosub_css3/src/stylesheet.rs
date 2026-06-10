@@ -1,5 +1,6 @@
 use core::fmt::Debug;
 use core::slice;
+use cow_utils::CowUtils;
 use gosub_interface::css3::CssOrigin;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::errors::CssError;
@@ -594,7 +595,11 @@ fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
 
     // Helper to resolve an L (lightness) argument: percentage 0-100 → 0.0-1.0, decimal as-is.
     let resolve_l = |raw: f32, is_pct: bool| -> f32 {
-        if is_pct { raw / 100.0 } else { raw }
+        if is_pct {
+            raw / 100.0
+        } else {
+            raw
+        }
     };
 
     // Detect whether each positional arg was given as a percentage.
@@ -608,34 +613,70 @@ fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
         })
         .collect();
 
-    match name.to_ascii_lowercase().as_str() {
+    match name.cow_to_ascii_lowercase().as_ref() {
         "oklch" if nums.len() >= 3 => {
             let l = resolve_l(nums[0], *is_pct.first().unwrap_or(&false));
             // Chroma: percentage 0-100 maps to ~0-0.4 max chroma.
-            let c = if *is_pct.get(1).unwrap_or(&false) { nums[1] / 100.0 * 0.4 } else { nums[1] };
+            let c = if *is_pct.get(1).unwrap_or(&false) {
+                nums[1] / 100.0 * 0.4
+            } else {
+                nums[1]
+            };
             let h = nums[2];
-            let alpha = nums.get(3).copied().map(|a| {
-                if *is_pct.get(3).unwrap_or(&false) { a / 100.0 * 255.0 } else { a * 255.0 }
-            }).unwrap_or(255.0);
+            let alpha = nums
+                .get(3)
+                .copied()
+                .map(|a| {
+                    if *is_pct.get(3).unwrap_or(&false) {
+                        a / 100.0 * 255.0
+                    } else {
+                        a * 255.0
+                    }
+                })
+                .unwrap_or(255.0);
             let (r, g, b) = oklch_to_srgb(l, c, h);
             Some(RgbColor::new(r, g, b, alpha))
         }
         "oklab" if nums.len() >= 3 => {
             let l = resolve_l(nums[0], *is_pct.first().unwrap_or(&false));
-            let a_ok = if *is_pct.get(1).unwrap_or(&false) { nums[1] / 100.0 * 0.4 } else { nums[1] };
-            let b_ok = if *is_pct.get(2).unwrap_or(&false) { nums[2] / 100.0 * 0.4 } else { nums[2] };
-            let alpha = nums.get(3).copied().map(|a| {
-                if *is_pct.get(3).unwrap_or(&false) { a / 100.0 * 255.0 } else { a * 255.0 }
-            }).unwrap_or(255.0);
+            let a_ok = if *is_pct.get(1).unwrap_or(&false) {
+                nums[1] / 100.0 * 0.4
+            } else {
+                nums[1]
+            };
+            let b_ok = if *is_pct.get(2).unwrap_or(&false) {
+                nums[2] / 100.0 * 0.4
+            } else {
+                nums[2]
+            };
+            let alpha = nums
+                .get(3)
+                .copied()
+                .map(|a| {
+                    if *is_pct.get(3).unwrap_or(&false) {
+                        a / 100.0 * 255.0
+                    } else {
+                        a * 255.0
+                    }
+                })
+                .unwrap_or(255.0);
             let (r, g, b) = oklab_to_srgb(l, a_ok, b_ok);
             Some(RgbColor::new(r, g, b, alpha))
         }
         // color(srgb R G B) or color(display-p3 R G B) — treat as linear/sRGB for now.
         "color" if nums.len() >= 3 => {
             // First element of args is the color space name (a String), skip it.
-            let alpha = nums.get(3).copied().map(|a| {
-                if *is_pct.get(3).unwrap_or(&false) { a / 100.0 * 255.0 } else { a * 255.0 }
-            }).unwrap_or(255.0);
+            let alpha = nums
+                .get(3)
+                .copied()
+                .map(|a| {
+                    if *is_pct.get(3).unwrap_or(&false) {
+                        a / 100.0 * 255.0
+                    } else {
+                        a * 255.0
+                    }
+                })
+                .unwrap_or(255.0);
             Some(RgbColor::new(nums[0] * 255.0, nums[1] * 255.0, nums[2] * 255.0, alpha))
         }
         _ => None,
