@@ -312,7 +312,10 @@ pub fn resolve_functions<C: HasDocument>(
     }
 
     if let CssValue::List(list) = value {
-        let resolved = list.iter().map(|val| resolve::<C>(val, doc, id, custom_props)).collect();
+        let resolved = list
+            .iter()
+            .map(|val| resolve::<C>(val, doc, id, custom_props))
+            .collect();
         CssValue::List(resolved)
     } else {
         resolve::<C>(value, doc, id, custom_props)

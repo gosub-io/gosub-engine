@@ -13,14 +13,6 @@ gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline", features 
 winit = "0.30.12"
 softbuffer = "0.4"
 skia-safe = { version = "0.87.0", features = ["gl"] }
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-skia-safe = { version = "0.87.0", features = ["egl"] }
-gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline", features = ["backend_skia_egl"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-skia-safe = { version = "0.87.0", features = ["metal"] }
-gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline", features = ["backend_skia_metal"] }
 glutin = "0.32"
 glutin-winit = "0.5"
 raw-window-handle = "0.6"
@@ -32,3 +24,11 @@ uuid = { version = "1", features = ["v4", "macro-diagnostics"] }
 anyhow = "1.0"
 log = "0.4"
 simple_logger = "5.0"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+skia-safe = { version = "0.87.0", features = ["egl"] }
+gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline", features = ["backend_skia_egl"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+skia-safe = { version = "0.87.0", features = ["metal"] }
+gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline", features = ["backend_skia_metal"] }

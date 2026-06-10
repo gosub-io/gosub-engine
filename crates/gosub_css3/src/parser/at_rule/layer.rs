@@ -1,7 +1,7 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
-use gosub_shared::errors::{CssError, CssResult};
+use gosub_shared::errors::CssResult;
 
 impl Css3<'_> {
     // Parse a single layer name, which is <ident> ('.' <ident>)*
@@ -46,10 +46,7 @@ impl Css3<'_> {
         // Anonymous @layer { } has an empty prelude; stop before '{' or ';'
         while !self.tokenizer.eof() {
             let la = self.tokenizer.lookahead(0);
-            if matches!(
-                la.token_type,
-                TokenType::LCurly | TokenType::Semicolon | TokenType::Eof
-            ) {
+            if matches!(la.token_type, TokenType::LCurly | TokenType::Semicolon | TokenType::Eof) {
                 break;
             }
 
