@@ -98,9 +98,7 @@ fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
                     NodeType::IdSelector { value } => CssSelectorPart::Id(value.clone()),
                     NodeType::TypeSelector { value, .. } if value == "*" => CssSelectorPart::Universal,
                     NodeType::PseudoClassSelector { value, .. } => CssSelectorPart::PseudoClass(value.to_string()),
-                    NodeType::PseudoElementSelector { value, .. } => {
-                        CssSelectorPart::PseudoElement(value.to_string())
-                    }
+                    NodeType::PseudoElementSelector { value, .. } => CssSelectorPart::PseudoElement(value.to_string()),
                     NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value.clone()),
                     NodeType::AttributeSelector {
                         name,
@@ -209,7 +207,11 @@ fn collect_rules(nodes: &[CssNode], rules: &mut Vec<CssRule>) -> CssResult<()> {
                     rules.push(rule);
                 }
             }
-            NodeType::AtRule { name, block: Some(block), .. } if name.eq_ignore_ascii_case("layer") => {
+            NodeType::AtRule {
+                name,
+                block: Some(block),
+                ..
+            } if name.eq_ignore_ascii_case("layer") => {
                 collect_rules(block.as_block(), rules)?;
             }
             _ => {}
@@ -260,9 +262,18 @@ mod tests {
         .unwrap();
 
         assert_eq!(stylesheet.rules.len(), 3);
-        assert_eq!(stylesheet.rules[0].selectors[0].parts[0][0], CssSelectorPart::Type("h1".into()));
-        assert_eq!(stylesheet.rules[1].selectors[0].parts[0][0], CssSelectorPart::Type("h2".into()));
-        assert_eq!(stylesheet.rules[2].selectors[0].parts[0][0], CssSelectorPart::Type("h3".into()));
+        assert_eq!(
+            stylesheet.rules[0].selectors[0].parts[0][0],
+            CssSelectorPart::Type("h1".into())
+        );
+        assert_eq!(
+            stylesheet.rules[1].selectors[0].parts[0][0],
+            CssSelectorPart::Type("h2".into())
+        );
+        assert_eq!(
+            stylesheet.rules[2].selectors[0].parts[0][0],
+            CssSelectorPart::Type("h3".into())
+        );
     }
 
     #[test]
