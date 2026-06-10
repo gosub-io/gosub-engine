@@ -348,12 +348,7 @@ impl TileList {
                         state: TileState::Dirty,
                         elements: Vec::new(),
                         texture_id: None,
-                        rect: Rect::new(
-                            x as f64 * tile_w,
-                            y as f64 * tile_h,
-                            tile_w,
-                            tile_h,
-                        ),
+                        rect: Rect::new(x as f64 * tile_w, y as f64 * tile_h, tile_w, tile_h),
                         bgcolor,
                     };
 

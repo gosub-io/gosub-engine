@@ -6,7 +6,8 @@ use gosub_shared::types::Result;
 use std::collections::HashMap;
 use url::Url;
 
-pub const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 GoSub/0.1";
+pub const USER_AGENT: &str =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 GoSub/0.1";
 
 /// Perform a simple one-shot GET request and return the body as bytes.
 /// Handles http, https, and file:// URLs.
@@ -19,7 +20,10 @@ pub async fn simple_get(url: &Url) -> Result<Bytes> {
             Ok(Bytes::from(std::fs::read(path)?))
         }
         "http" | "https" => {
-            let client = reqwest::Client::builder().use_rustls_tls().user_agent(USER_AGENT).build()?;
+            let client = reqwest::Client::builder()
+                .use_rustls_tls()
+                .user_agent(USER_AGENT)
+                .build()?;
             let resp = client.get(url.as_str()).send().await?;
             let status = resp.status();
             if !status.is_success() {

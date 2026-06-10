@@ -210,12 +210,11 @@ fn main() {
     // need Phase 2 to produce one from scratch. Phase 2 can still upgrade it with
     // a post-scroll frame that carries the final page_height.
     let phase1_frame = compositor.read().frame_for(tab_id);
-    let (mut tile_cache_handle, mut cpu_frame): (Option<ExternalHandle>, Option<ExternalHandle>) =
-        match phase1_frame {
-            Some(h @ ExternalHandle::TileCache { .. }) => (Some(h), None),
-            Some(h @ ExternalHandle::CpuPixelsOwned { .. }) => (None, Some(h)),
-            _ => (None, None),
-        };
+    let (mut tile_cache_handle, mut cpu_frame): (Option<ExternalHandle>, Option<ExternalHandle>) = match phase1_frame {
+        Some(h @ ExternalHandle::TileCache { .. }) => (Some(h), None),
+        Some(h @ ExternalHandle::CpuPixelsOwned { .. }) => (None, Some(h)),
+        _ => (None, None),
+    };
 
     // ── Phase 2: trigger a 1px scroll to get TileCache which carries page_height ──
     // The pipeline already has cached tiles; the scroll just swaps the handle type.
