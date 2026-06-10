@@ -5,6 +5,7 @@ use parley::{Alignment, AlignmentOptions, FontContext, FontFamily, Layout, Layou
 ///
 /// A local `LayoutContext` is created per call — it is pure scratch space
 /// (the expensive state lives in `font_cx`) so allocation cost is negligible.
+#[allow(clippy::too_many_arguments)]
 pub fn get_parley_layout(
     text: &str,
     font_family: &str,
