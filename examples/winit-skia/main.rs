@@ -413,8 +413,10 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
 
     thread_local! { static FONT_MGR: FontMgr = FontMgr::new(); }
     let typeface = FONT_MGR.with(|fm| {
-        fm.legacy_make_typeface(None, FontStyle::normal())
-            .unwrap_or_else(|| fm.legacy_make_typeface("sans-serif", FontStyle::normal()).expect("no typeface"))
+        fm.legacy_make_typeface(None, FontStyle::normal()).unwrap_or_else(|| {
+            fm.legacy_make_typeface("sans-serif", FontStyle::normal())
+                .expect("no typeface")
+        })
     });
     let font = Font::new(typeface, 14.0);
     let mut text_paint = Paint::new(Color4f::new(0.0, 0.0, 0.0, 1.0), None);

@@ -56,10 +56,19 @@ impl RenderBackend for SkiaBackend {
                         paint.set_anti_alias(true);
                         canvas.draw_rect(Rect::new(*x, *y, x + w, y + h), &paint);
                     }
-                    DisplayItem::TextRun { x, y, text, size, color, .. } => {
+                    DisplayItem::TextRun {
+                        x,
+                        y,
+                        text,
+                        size,
+                        color,
+                        ..
+                    } => {
                         let typeface = FONT_MGR.with(|fm| {
-                            fm.legacy_make_typeface(None, FontStyle::normal())
-                                .unwrap_or_else(|| fm.legacy_make_typeface("sans-serif", FontStyle::normal()).expect("no typeface"))
+                            fm.legacy_make_typeface(None, FontStyle::normal()).unwrap_or_else(|| {
+                                fm.legacy_make_typeface("sans-serif", FontStyle::normal())
+                                    .expect("no typeface")
+                            })
                         });
                         let font = Font::new(typeface, *size);
                         let mut paint = Paint::new(to_color4f(color), None);

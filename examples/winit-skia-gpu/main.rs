@@ -435,8 +435,10 @@ fn draw_address_bar(canvas: &skia_safe::Canvas, win_w: u32, h: i32, url: &str, f
 
     thread_local! { static FONT_MGR: FontMgr = FontMgr::new(); }
     let typeface = FONT_MGR.with(|fm| {
-        fm.legacy_make_typeface(None, FontStyle::normal())
-            .unwrap_or_else(|| fm.legacy_make_typeface("sans-serif", FontStyle::normal()).expect("typeface"))
+        fm.legacy_make_typeface(None, FontStyle::normal()).unwrap_or_else(|| {
+            fm.legacy_make_typeface("sans-serif", FontStyle::normal())
+                .expect("typeface")
+        })
     });
     let font = Font::new(typeface, 14.0);
     paint.set_color4f(Color4f::new(0.0, 0.0, 0.0, 1.0), None);

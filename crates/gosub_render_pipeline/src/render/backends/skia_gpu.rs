@@ -1,9 +1,12 @@
-use crate::render::backend::{ErasedSurface, ExternalHandle, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
+use crate::render::backend::{
+    ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
+};
 use crate::render::render_context::RenderContext;
 use crate::render::render_list::{Color, DisplayItem};
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
-use skia_safe::Color4f;
+use skia_safe::gpu::DirectContext;
+use skia_safe::{Color4f, Font, FontMgr, FontStyle, ImageInfo, Paint, Rect};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -23,12 +26,14 @@ pub trait GlContextProvider: Send + Sync {
 ///
 /// SAFETY: `GlContextProvider::make_current()` is called before every GPU operation,
 /// ensuring the GL context is current on whichever thread the engine uses.
-struct SendDirectContext(DirectContext);
+struct SendDirectContext(#[allow(dead_code)] DirectContext);
 unsafe impl Send for SendDirectContext {}
 unsafe impl Sync for SendDirectContext {}
 
 pub struct SkiaGpuBackend<C: GlContextProvider> {
+    #[allow(dead_code)]
     context: Arc<C>,
+    #[allow(dead_code)]
     direct_context: Mutex<SendDirectContext>,
 }
 
@@ -36,12 +41,10 @@ impl<C: GlContextProvider> SkiaGpuBackend<C> {
     pub fn new(context: Arc<C>) -> Result<Self> {
         context.make_current();
 
-        let interface = skia_safe::gpu::gl::Interface::new_load_with(|name| {
-            context.get_proc_address(name)
-        })
-        .ok_or_else(|| anyhow!("Failed to create Skia GL interface — no GL functions found"))?;
+        let interface = skia_safe::gpu::gl::Interface::new_load_with(|name| context.get_proc_address(name))
+            .ok_or_else(|| anyhow!("Failed to create Skia GL interface — no GL functions found"))?;
 
-        let direct_context = DirectContext::new_gl(interface, None)
+        let direct_context = skia_safe::gpu::direct_contexts::make_gl(interface, None)
             .ok_or_else(|| anyhow!("Failed to create Skia GL DirectContext — GL context must be current"))?;
 
         Ok(Self {
@@ -78,9 +81,9 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
 
         // Tile data from SkiaRasterizer is already on CPU; composite into a CPU raster
         // surface to avoid GL-context thread-affinity issues with the GPU path.
-        let Some(mut cpu_surface) = skia_safe::surfaces::raster_n32_premul(
-            skia_safe::ISize::new(s.size.width as i32, s.size.height as i32),
-        ) else {
+        let Some(mut cpu_surface) =
+            skia_safe::surfaces::raster_n32_premul(skia_safe::ISize::new(s.size.width as i32, s.size.height as i32))
+        else {
             return Err(anyhow!("SkiaGpuBackend: failed to create CPU raster surface"));
         };
 
@@ -100,10 +103,19 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
                         paint.set_anti_alias(true);
                         canvas.draw_rect(Rect::new(*x, *y, x + w, y + h), &paint);
                     }
-                    DisplayItem::TextRun { x, y, text, size, color, .. } => {
+                    DisplayItem::TextRun {
+                        x,
+                        y,
+                        text,
+                        size,
+                        color,
+                        ..
+                    } => {
                         let typeface = FONT_MGR.with(|fm| {
-                            fm.legacy_make_typeface(None, FontStyle::normal())
-                                .unwrap_or_else(|| fm.legacy_make_typeface("sans-serif", FontStyle::normal()).expect("no typeface"))
+                            fm.legacy_make_typeface(None, FontStyle::normal()).unwrap_or_else(|| {
+                                fm.legacy_make_typeface("sans-serif", FontStyle::normal())
+                                    .expect("no typeface")
+                            })
                         });
                         let font = Font::new(typeface, *size);
                         let mut paint = Paint::new(to_color4f(color), None);
@@ -122,11 +134,9 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
                             skia_safe::AlphaType::Premul,
                             None,
                         );
-                        if let Some(image) = skia_safe::images::raster_from_data(
-                            &info,
-                            skia_safe::Data::new_copy(data),
-                            stride,
-                        ) {
+                        if let Some(image) =
+                            skia_safe::images::raster_from_data(&info, skia_safe::Data::new_copy(data), stride)
+                        {
                             canvas.draw_image(&image, (*x, *y), None);
                         }
                     }
@@ -155,7 +165,7 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
             s.pixels.clone(),
             s.size.width,
             s.size.height,
-            (s.size.width * 4) as u32,
+            s.size.width * 4,
             PixelFormat::PreMulArgb32,
         ))
     }
@@ -196,14 +206,25 @@ pub struct SkiaGpuSurface {
 
 impl SkiaGpuSurface {
     fn new(size: SurfaceSize, present: PresentMode) -> Self {
-        Self { size, pixels: Vec::new(), present, frame_id: 0 }
+        Self {
+            size,
+            pixels: Vec::new(),
+            present,
+            frame_id: 0,
+        }
     }
 }
 
 impl ErasedSurface for SkiaGpuSurface {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
-    fn size(&self) -> SurfaceSize { self.size }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn size(&self) -> SurfaceSize {
+        self.size
+    }
 }
 
 #[inline]
