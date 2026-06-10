@@ -197,6 +197,7 @@ mod rendertree_from_engine {
     // -----------------------------------------------------------------------
     // Helper: DFS to find the first element whose `class` attribute matches.
     // -----------------------------------------------------------------------
+    #[allow(dead_code)]
     fn find_node_by_class_dfs(
         doc: &DocumentImpl<Config>,
         node: gosub_shared::node::NodeId,

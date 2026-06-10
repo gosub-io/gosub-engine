@@ -20,6 +20,7 @@ use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::{HasCssSystem, HasDocument};
 use gosub_interface::css3::CssSystem as _;
+use gosub_interface::document::Document;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 
 use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
@@ -76,11 +77,7 @@ fn load_fixtures() -> Vec<Fixture> {
 
     let mut fixtures: Vec<Fixture> = candidates
         .iter()
-        .filter_map(|(name, path)| {
-            std::fs::read_to_string(path)
-                .ok()
-                .map(|html| Fixture { name, html })
-        })
+        .filter_map(|(name, path)| std::fs::read_to_string(path).ok().map(|html| Fixture { name, html }))
         .collect();
 
     // Always include a small synthetic document so there is something to run even
@@ -161,8 +158,7 @@ fn run_pipeline_once(html: &str) -> StageTimes {
     let mut tile_list = TileList::new(
         // LayerList::new takes ownership, so we clone the Arc-wrapped version
         // via the field; the TileList keeps its own Arc<LayerList>.
-        Arc::try_unwrap(Arc::clone(&layer_list_arc))
-            .unwrap_or_else(|arc| (*arc).clone()),
+        Arc::try_unwrap(Arc::clone(&layer_list_arc)).unwrap_or_else(|arc| (*arc).clone()),
         Dimension::new(256.0, 256.0),
     );
     tile_list.generate();
@@ -206,17 +202,6 @@ fn run_pipeline_once(html: &str) -> StageTimes {
     }
 }
 
-// ── LayerList Clone ────────────────────────────────────────────────────────
-// TileList::new takes ownership of a LayerList. Since LayerList wraps an Arc<LayoutTree>
-// internally, a clone is cheap for the tree data but rebuilds the layer HashMap.
-impl Clone for gosub_render_pipeline::layering::layer::LayerList {
-    fn clone(&self) -> Self {
-        // LayerList::new re-derives layers from the LayoutTree, which is the same
-        // operation that would happen on a real page load.
-        Self::new((*self.layout_tree).clone())
-    }
-}
-
 // ── Main ───────────────────────────────────────────────────────────────────
 
 fn main() {
@@ -232,11 +217,17 @@ fn main() {
 
     println!("Gosub render pipeline benchmark");
     println!("  iterations : {iterations}");
-    println!("  fixtures   : {}", fixtures.iter().map(|f| f.name).collect::<Vec<_>>().join(", "));
+    println!(
+        "  fixtures   : {}",
+        fixtures.iter().map(|f| f.name).collect::<Vec<_>>().join(", ")
+    );
     println!();
 
     for fixture in &fixtures {
-        println!("── {} ─────────────────────────────────────────────────────", fixture.name);
+        println!(
+            "── {} ─────────────────────────────────────────────────────",
+            fixture.name
+        );
 
         // Warm up — one throw-away run to avoid cold-cache skew.
         let _ = run_pipeline_once(&fixture.html);
