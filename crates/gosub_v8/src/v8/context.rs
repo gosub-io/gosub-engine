@@ -145,7 +145,9 @@ impl WebContext for V8Context {
 
         let try_catch = &mut TryCatch::new(s);
 
-        let code = v8::String::new(try_catch, code).unwrap();
+        let Some(code) = v8::String::new(try_catch, code) else {
+            return Err(anyhow::anyhow!("Failed to allocate V8 string for script source"));
+        };
 
         let script = v8::Script::compile(try_catch, code, None);
 

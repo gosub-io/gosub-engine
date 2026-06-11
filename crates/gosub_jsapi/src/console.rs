@@ -156,17 +156,14 @@ impl Console {
         self.printer.print(LogLevel::Dir, &[&item], options);
     }
 
-    pub fn dirxml(&self, _data: &[&dyn fmt::Display]) {
-        todo!()
+    /// Displays the data at "dir" level. An interactive XML/HTML tree view is not supported.
+    pub fn dirxml(&mut self, data: &[&dyn fmt::Display]) {
+        self.printer.print(LogLevel::Dir, data, &[]);
     }
 
     /// Create a counter named "label"
     pub fn count(&mut self, label: &str) {
-        let mut cnt = 1;
-        if self.count_map.contains_key(label) {
-            cnt = self.count_map.get(label).unwrap() + 1;
-        }
-
+        let cnt = self.count_map.get(label).map_or(1, |c| c + 1);
         self.count_map.insert(label.to_owned(), cnt);
 
         let concat = format!("{}: {}", label.to_owned(), cnt);
@@ -260,12 +257,13 @@ impl Console {
             Err(_) => 0,
         };
 
-        let concat = format!(
-            "{}: {}ms{}",
-            label.to_owned(),
-            cur - self.timer_map.get(label).unwrap().start,
-            message
-        );
+        let Some(timer) = self.timer_map.get(label) else {
+            self.printer
+                .print(LogLevel::Warn, &[&format!("Timer '{label}' does not exist")], &[]);
+            return;
+        };
+
+        let concat = format!("{}: {}ms{}", label.to_owned(), cur - timer.start, message);
         self.printer.print(LogLevel::TimeLog, &[&concat], &[]);
     }
 
@@ -276,11 +274,13 @@ impl Console {
             Err(_) => 0,
         };
 
-        let concat = format!(
-            "{}: {}ms",
-            label.to_owned(),
-            end - self.timer_map.get(label).unwrap().start
-        );
+        let Some(timer) = self.timer_map.get(label) else {
+            self.printer
+                .print(LogLevel::Warn, &[&format!("Timer '{label}' does not exist")], &[]);
+            return;
+        };
+
+        let concat = format!("{}: {}ms", label.to_owned(), end - timer.start);
         self.printer.print(LogLevel::TimeEnd, &[&concat], &[]);
     }
 

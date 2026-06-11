@@ -17,3 +17,13 @@ cow-utils = { workspace = true }
 
 [lib]
 proc-macro = true
+
+# Proc-macro crate: panicking IS the conventional error path (it surfaces as a
+# compile error at the macro call site), so the panic-family lints stay off.
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"

@@ -178,7 +178,10 @@ impl WebArray for V8Array {
     fn as_vec(&self) -> Vec<<Self::RT as WebRuntime>::Value> {
         let mut vec = Vec::with_capacity(self.len());
         for i in 0..self.len() {
-            vec.push(self.get(i).unwrap());
+            match self.get(i) {
+                Ok(value) => vec.push(value),
+                Err(e) => log::warn!("Failed to get array element {i}: {e}"),
+            }
         }
         vec
     }

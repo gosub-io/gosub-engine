@@ -136,6 +136,9 @@ pub struct Cache {
     calc_storage: Vec<Box<CalcExpr>>,
 }
 
+// SAFETY: the raw pointers in `style` only ever point into `calc_storage`, which is
+// owned by (and moves with) this same struct.
+#[allow(unsafe_code)]
 unsafe impl Send for Cache {}
 
 impl Deref for Cache {
@@ -279,58 +282,49 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutDocument<'_, C> {
             self.update_style(node_id);
         }
 
+        #[allow(clippy::expect_used)]
+        // PANIC-SAFE: update_style() above created the cache entry for this node
         let cache = self
             .tree
             .get_cache(node_id)
-            .expect("Cache not found, why again does taffy don't use optionals?");
+            .expect("cache entry created by update_style");
 
         &cache.style
     }
 
     /// Force the taffy style from the cache. Do not care about dirty styles
     fn get_taffy_style_no_update(&self, node_id: <C::LayoutTree as LayoutTree<C>>::NodeId) -> &Style {
-        if let Some(cache) = self.tree.get_cache(node_id) {
-            return &cache.style;
-        }
-        panic!(
-            "Cache not found, why again does taffy don't use optionals? (node: {})",
-            node_id.into()
-        );
+        #[allow(clippy::expect_used)]
+        // PANIC-SAFE: every node in the layout tree gets a cache entry when its style is computed
+        let cache = self.tree.get_cache(node_id).expect("node has a computed style cache");
+
+        &cache.style
     }
 }
 
 impl<C: HasLayouter<Layouter = TaffyLayouter>> CacheTree for LayoutDocument<'_, C> {
     fn cache_get(&self, node_id: TaffyId, input: &LayoutInput) -> Option<LayoutOutput> {
         let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into());
-        let cache = &self
-            .tree
-            .get_cache(node_id)
-            .expect("Cache not found, why again does taffy don't use optionals?")
-            .taffy;
-
-        cache.get(input)
+        self.tree.get_cache(node_id)?.taffy.get(input)
     }
 
     fn cache_store(&mut self, node_id: TaffyId, input: &LayoutInput, layout_output: LayoutOutput) {
         let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into());
-        let cache = &mut self
-            .tree
-            .get_cache_mut(node_id)
-            .expect("Cache not found, why again does taffy don't use optionals?")
-            .taffy;
+        let Some(cache) = self.tree.get_cache_mut(node_id) else {
+            log::warn!("Layout cache missing for node {}; dropping cache store", node_id.into());
+            return;
+        };
 
-        cache.store(input, layout_output);
+        cache.taffy.store(input, layout_output);
     }
 
     fn cache_clear(&mut self, node_id: TaffyId) {
         let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into());
-        let cache = &mut self
-            .tree
-            .get_cache_mut(node_id)
-            .expect("Cache not found, why again does taffy don't use optionals?")
-            .taffy;
+        let Some(cache) = self.tree.get_cache_mut(node_id) else {
+            return;
+        };
 
-        cache.clear();
+        cache.taffy.clear();
     }
 }
 
