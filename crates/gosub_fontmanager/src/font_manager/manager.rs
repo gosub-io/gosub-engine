@@ -31,7 +31,13 @@ impl FontManager {
     #[must_use]
     pub fn new() -> Self {
         let source = font_kit::source::SystemSource::new();
-        let handles = source.all_fonts().unwrap();
+        let handles = match source.all_fonts() {
+            Ok(handles) => handles,
+            Err(e) => {
+                log::error!("Failed to enumerate system fonts: {e}");
+                Vec::new()
+            }
+        };
 
         let mut seen_paths: HashSet<PathBuf> = HashSet::new();
 
@@ -89,7 +95,7 @@ impl TFontManager for FontManager {
 }
 
 fn handle_to_info(seen_paths: &mut HashSet<PathBuf>, handle: &Handle) -> Result<FontInfo, anyhow::Error> {
-    let font = handle.load().unwrap();
+    let font = handle.load()?;
 
     let family = font.family_name();
     let props = font.properties();

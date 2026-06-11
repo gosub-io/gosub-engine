@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use gosub_interface::font::FontStyle;
 use std::sync::Arc;
 use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};

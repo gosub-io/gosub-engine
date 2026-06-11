@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use gosub_interface::font::{FontInfo, FontManager, FontStyle};
 use gtk4::pango::FontDescription;
 use gtk4::prelude::{

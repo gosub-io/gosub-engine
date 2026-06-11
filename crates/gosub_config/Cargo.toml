@@ -25,3 +25,5 @@ rusqlite = "0.39.0"
 
 [dev-dependencies]
 testing_logger = "0.1.1"
+[lints]
+workspace = true

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use anyhow::anyhow;
 use freetype::Library;
 use gosub_fontmanager::FontManager;

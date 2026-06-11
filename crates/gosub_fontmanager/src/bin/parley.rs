@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use gosub_fontmanager::FontManager;
 use gosub_interface::font::FontStyle;
 use image::codecs::png::PngEncoder;
@@ -256,7 +257,7 @@ fn render_glyph(
                 }
             }
         }
-        Content::SubpixelMask => unimplemented!(),
+        Content::SubpixelMask => panic!("SubpixelMask rendering not implemented"),
         Content::Color => {
             let row_size = glyph_width as usize * 4;
             for (pixel_y, row) in rendered_glyph.data.chunks_exact(row_size).enumerate() {

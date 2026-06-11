@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use cow_utils::CowUtils;
 use gosub_fontmanager::FontManager;
 use prettytable::{Attr, Cell, Row, Table};
