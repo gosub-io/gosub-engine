@@ -5,9 +5,6 @@
 //!
 //! The allocation benchmarks use a custom global allocator defined in this file
 //! (applies only to this benchmark binary).
-//!
-//! Each input is also parsed with html5ever (Servo's parser, building an RcDom)
-//! as an external reference point; those benchmarks carry an `_html5ever` suffix.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, unsafe_code)]
 
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -268,15 +265,6 @@ fn parse_html(html: &str) {
     let _doc = html_compile::<Config>(black_box(html));
 }
 
-/// Reference parse using html5ever + RcDom, the closest spec-compliant
-/// equivalent of `html_compile` (full tree construction into a real DOM).
-fn parse_html5ever(html: &str) {
-    use html5ever::tendril::TendrilSink as _;
-    let dom = html5ever::parse_document(markup5ever_rcdom::RcDom::default(), html5ever::ParseOpts::default())
-        .one(black_box(html));
-    let _ = black_box(dom);
-}
-
 fn load_all_fixtures() -> Vec<tree_construction::fixture::FixtureFile> {
     tree_construction::fixture::read_fixtures(None).expect("failed to load fixtures")
 }
@@ -312,9 +300,6 @@ fn bench_cpu(c: &mut Criterion) {
     group.bench_function("large_doc", |b| {
         b.iter(|| parse_html(&large_html));
     });
-    group.bench_function("large_doc_html5ever", |b| {
-        b.iter(|| parse_html5ever(&large_html));
-    });
 
     group.sample_size(30).measurement_time(Duration::from_secs(10));
     group.throughput(Throughput::Elements(fixture_count as u64));
@@ -327,9 +312,6 @@ fn bench_cpu(c: &mut Criterion) {
     group.bench_function("whatwg_spec", |b| {
         b.iter(|| parse_html(&whatwg));
     });
-    group.bench_function("whatwg_spec_html5ever", |b| {
-        b.iter(|| parse_html5ever(&whatwg));
-    });
 
     // Full ~15.5 MB spec: one parse is in the seconds range, so keep the sample
     // count at criterion's minimum and give the group enough measurement time.
@@ -337,9 +319,6 @@ fn bench_cpu(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(whatwg_full.len() as u64));
     group.bench_function("whatwg_full", |b| {
         b.iter(|| parse_html(&whatwg_full));
-    });
-    group.bench_function("whatwg_full_html5ever", |b| {
-        b.iter(|| parse_html5ever(&whatwg_full));
     });
 
     group.finish();
@@ -360,9 +339,6 @@ fn bench_alloc_ops(c: &mut Criterion<AllocOps>) {
     group.bench_function("large_doc", |b| {
         b.iter(|| parse_html(&large_html));
     });
-    group.bench_function("large_doc_html5ever", |b| {
-        b.iter(|| parse_html5ever(&large_html));
-    });
     group.sample_size(20).measurement_time(Duration::from_secs(10));
     group.bench_function("all_fixtures", |b| {
         b.iter(|| parse_all_fixtures(&fixtures));
@@ -371,16 +347,10 @@ fn bench_alloc_ops(c: &mut Criterion<AllocOps>) {
     group.bench_function("whatwg_spec", |b| {
         b.iter(|| parse_html(&whatwg));
     });
-    group.bench_function("whatwg_spec_html5ever", |b| {
-        b.iter(|| parse_html5ever(&whatwg));
-    });
 
     group.sample_size(10).measurement_time(Duration::from_secs(60));
     group.bench_function("whatwg_full", |b| {
         b.iter(|| parse_html(&whatwg_full));
-    });
-    group.bench_function("whatwg_full_html5ever", |b| {
-        b.iter(|| parse_html5ever(&whatwg_full));
     });
 
     group.finish();
@@ -401,9 +371,6 @@ fn bench_alloc_bytes(c: &mut Criterion<AllocBytes>) {
     group.bench_function("large_doc", |b| {
         b.iter(|| parse_html(&large_html));
     });
-    group.bench_function("large_doc_html5ever", |b| {
-        b.iter(|| parse_html5ever(&large_html));
-    });
     group.sample_size(20).measurement_time(Duration::from_secs(10));
     group.bench_function("all_fixtures", |b| {
         b.iter(|| parse_all_fixtures(&fixtures));
@@ -412,16 +379,10 @@ fn bench_alloc_bytes(c: &mut Criterion<AllocBytes>) {
     group.bench_function("whatwg_spec", |b| {
         b.iter(|| parse_html(&whatwg));
     });
-    group.bench_function("whatwg_spec_html5ever", |b| {
-        b.iter(|| parse_html5ever(&whatwg));
-    });
 
     group.sample_size(10).measurement_time(Duration::from_secs(60));
     group.bench_function("whatwg_full", |b| {
         b.iter(|| parse_html(&whatwg_full));
-    });
-    group.bench_function("whatwg_full_html5ever", |b| {
-        b.iter(|| parse_html5ever(&whatwg_full));
     });
 
     group.finish();
