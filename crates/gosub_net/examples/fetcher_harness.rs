@@ -287,7 +287,7 @@ async fn scenario_priority(server: &MockServer) {
     };
     let (fetcher, shutdown) = make_fetcher(config);
 
-    let completion_order: Arc<std::sync::Mutex<Vec<&'static str>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let completion_order: Arc<parking_lot::Mutex<Vec<&'static str>>> = Arc::new(parking_lot::Mutex::new(Vec::new()));
 
     // Submit in reverse priority order so the scheduler's weighting is exercised.
     let priorities = [
@@ -304,14 +304,14 @@ async fn scenario_priority(server: &MockServer) {
         let order = completion_order.clone();
         handles.push(tokio::spawn(async move {
             let r = fetch(&f, url, prio, None).await;
-            order.lock().unwrap().push(label);
+            order.lock().push(label);
             r
         }));
     }
 
     futures_util::future::join_all(handles).await;
 
-    let order = completion_order.lock().unwrap().clone();
+    let order = completion_order.lock().clone();
     println!("  Completion order: {:?}", order);
 
     // With a single slot and weighted round-robin (8:4:2:1), High should
