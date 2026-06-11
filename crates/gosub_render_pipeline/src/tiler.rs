@@ -4,8 +4,7 @@ use crate::common::document::style::{StyleProperty, Value};
 use crate::common::geo::{Coordinate, Dimension, Rect};
 use crate::common::texture::TextureId;
 use crate::layering::layer::{LayerId, LayerList};
-use crate::layouter::{LayoutElementId, LayoutElementNode};
-use crate::painter::commands::color::Color;
+use crate::layouter::LayoutElementId;
 use crate::painter::commands::PaintCommand;
 use parking_lot::RwLock;
 use rstar::primitives::GeomWithData;
@@ -283,8 +282,7 @@ impl TileList {
         let max_rows = (page_h / tile_h).ceil() as usize;
 
         // Detect canvas color. We paint the whole canvas with the background color from either the html or body nodes.
-        let mut bgcolor = None;
-        bgcolor = get_background_color_from_node(
+        let mut bgcolor = get_background_color_from_node(
             self.layer_list.layout_tree.render_tree.doc.html_node_id(),
             self.layer_list.layout_tree.render_tree.doc.as_ref(),
         );

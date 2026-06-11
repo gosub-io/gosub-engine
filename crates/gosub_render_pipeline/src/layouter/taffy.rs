@@ -179,7 +179,7 @@ impl CanLayout for TaffyLayouter {
         // Compute the layout with a measure function
         if let Err(e) = self
             .tree
-            .compute_layout_with_measure(self.root_id, size, |v_kd, v_as, v_ni, v_nc, v_s| {
+            .compute_layout_with_measure(self.root_id, size, |v_kd, v_as, _v_ni, v_nc, _v_s| {
                 // If taffy already knows both dimensions, no measurement needed.
                 if let (Some(w), Some(h)) = (v_kd.width, v_kd.height) {
                     return Size { width: w, height: h };
@@ -852,12 +852,6 @@ fn to_element_context(taffy_context: Option<&TaffyContext>) -> ElementContext {
         ),
         None => ElementContext::None,
     }
-}
-
-#[inline(always)]
-fn dpi(value: f64) -> f64 {
-    let dpi_scale_factor = 3.0;
-    value * dpi_scale_factor
 }
 
 /// Converts a taffy layout to our own BoxModel structure

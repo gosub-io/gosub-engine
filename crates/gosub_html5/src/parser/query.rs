@@ -20,59 +20,56 @@ pub struct Query {
     pub(crate) search_type: SearchType,
 }
 
+impl Default for Query {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Query {
-    #[allow(dead_code)]
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             conditions: Vec::new(),
             search_type: SearchType::Uninitialized,
         }
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn equals_tag(mut self, tag_name: &str) -> Self {
+    pub fn equals_tag(mut self, tag_name: &str) -> Self {
         self.conditions.push(Condition::EqualsTag(tag_name.to_owned()));
         self
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn equals_id(mut self, id: &str) -> Self {
+    pub fn equals_id(mut self, id: &str) -> Self {
         self.conditions.push(Condition::EqualsId(id.to_owned()));
         self
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn contains_class(mut self, class: &str) -> Self {
+    pub fn contains_class(mut self, class: &str) -> Self {
         self.conditions.push(Condition::ContainsClass(class.to_owned()));
         self
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn contains_attribute(mut self, attribute: &str) -> Self {
+    pub fn contains_attribute(mut self, attribute: &str) -> Self {
         self.conditions.push(Condition::ContainsAttribute(attribute.to_owned()));
         self
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn contains_child_tag(mut self, child_tag: &str) -> Self {
+    pub fn contains_child_tag(mut self, child_tag: &str) -> Self {
         self.conditions.push(Condition::ContainsChildTag(child_tag.to_owned()));
         self
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn has_parent_tag(mut self, parent_tag: &str) -> Self {
+    pub fn has_parent_tag(mut self, parent_tag: &str) -> Self {
         self.conditions.push(Condition::HasParentTag(parent_tag.to_owned()));
         self
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn find_first(mut self) -> Self {
+    pub fn find_first(mut self) -> Self {
         self.search_type = SearchType::FindFirst;
         self
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn find_all(mut self) -> Self {
+    pub fn find_all(mut self) -> Self {
         self.search_type = SearchType::FindAll;
         self
     }

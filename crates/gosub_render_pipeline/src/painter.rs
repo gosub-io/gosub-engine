@@ -11,9 +11,7 @@ use crate::painter::commands::color::Color;
 use crate::painter::commands::rectangle::{Radius, Rectangle};
 use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
-use crate::tiler::{Tile, TiledLayoutElement};
-use rand::Rng;
-use std::ops::AddAssign;
+use crate::tiler::TiledLayoutElement;
 use std::sync::Arc;
 
 /// Painter works with the layout tree and generates paint commands for the renderer. It does not

@@ -367,7 +367,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocum
             if let Some(node) = tree.tree.get_node_mut(node_id) {
                 // If we are an inline parent, we should compute the inline layout
                 if node.is_anon_inline_parent() {
-                    println!("Node: {node_id:?} is inline parent");
+                    log::trace!("Node: {node_id:?} is inline parent");
                     // Any text nodes are always inline, so they are handled in this function
                     return compute_inline_layout(tree, node_id, inputs);
                 }

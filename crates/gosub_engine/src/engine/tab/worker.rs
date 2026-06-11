@@ -17,7 +17,7 @@ use crate::util::spawn_named;
 use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
 use gosub_render_pipeline::render::backend::{ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
-use gosub_render_pipeline::render::{DevicePixelRatio, Viewport};
+use gosub_render_pipeline::render::Viewport;
 use http::{HeaderMap, Method};
 use std::sync::Arc;
 use tokio::select;
@@ -99,23 +99,13 @@ pub struct TabWorker {
     // Thumbnail image of the tab in case the tab is not visible
     pub thumbnail: Option<RgbaImage>,
     // Surface on which the browsing context can render the tab
-    #[allow(unused)]
     surface: Option<Box<dyn ErasedSurface + Send>>,
     // // Size of the surface (does not have to match viewport)
     // surface_size: SurfaceSize,
     // Present mode for the surface?
-    #[allow(unused)]
     present_mode: PresentMode,
-    /// Device Pixel Ratio
-    #[allow(unused)]
-    dpr: DevicePixelRatio,
-    /// The viewport that was committed for the in-flight/last render
-    #[allow(unused)]
-    committed_viewport: Viewport,
     /// The newest viewport requested by the tab, which may differ from the committed one.
     desired_viewport: Viewport,
-    /// Set when a resize arrives while rendering. Causes an immediate re-render after finishing the current rendering.
-    dirty_after_inflight: bool,
     /// Current scroll offset in CSS pixels (updated by MouseScroll).
     scroll_x: i32,
     scroll_y: i32,
@@ -164,10 +154,7 @@ impl TabWorker {
             thumbnail: None,
             surface: None,
             present_mode: PresentMode::Fifo,
-            dpr: DevicePixelRatio(1.0),
-            committed_viewport: Default::default(),
             desired_viewport: Default::default(),
-            dirty_after_inflight: false,
             scroll_x: 0,
             scroll_y: 0,
             runtime: TabRuntime::default(),
@@ -672,21 +659,21 @@ impl TabWorker {
                     });
                 }
                 Ok(RoutedOutcome::ViewerRendered(_doc)) => {
-                    println!("Tab[{:?}] RoutedOutcome::ViewerRendered", tab_id);
+                    log::warn!("Tab[{:?}] viewer rendering not supported yet", tab_id);
                     let _ = tx_done.send(NavigationResult::Err {
                         nav_id,
                         error: NavigationError::Other(anyhow!("Viewer rendering not supported yet")),
                     });
                 }
                 Ok(RoutedOutcome::DownloadStarted(_doc)) => {
-                    println!("Tab[{:?}] RoutedOutcome::DownloadStarted", tab_id);
+                    log::warn!("Tab[{:?}] downloads not supported yet", tab_id);
                     let _ = tx_done.send(NavigationResult::Err {
                         nav_id,
                         error: NavigationError::Other(anyhow!("Download not supported yet")),
                     });
                 }
                 Ok(RoutedOutcome::DownloadFinished(_doc)) => {
-                    println!("Tab[{:?}] RoutedOutcome::DownloadFinished", tab_id);
+                    log::warn!("Tab[{:?}] downloads not supported yet", tab_id);
                     let _ = tx_done.send(NavigationResult::Err {
                         nav_id,
                         error: NavigationError::Other(anyhow!("Download not supported yet")),
@@ -694,22 +681,22 @@ impl TabWorker {
                 }
                 Ok(RoutedOutcome::CssLoaded(_doc)) => {
                     // CSS loaded, but we don't do anything special here
-                    println!("Tab[{:?}] RoutedOutcome::CssLoaded", tab_id);
+                    log::trace!("Tab[{:?}] RoutedOutcome::CssLoaded", tab_id);
                 }
                 Ok(RoutedOutcome::ScriptExecuted(_doc)) => {
                     // JS executed, but we don't do anything special here
-                    println!("Tab[{:?}] RoutedOutcome::ScriptExecuted", tab_id);
+                    log::trace!("Tab[{:?}] RoutedOutcome::ScriptExecuted", tab_id);
                 }
                 Ok(RoutedOutcome::ImageDecoded(_doc)) => {
                     // Image decoded, but we don't do anything special here
-                    println!("Tab[{:?}] RoutedOutcome::ImageDecoded", tab_id);
+                    log::trace!("Tab[{:?}] RoutedOutcome::ImageDecoded", tab_id);
                 }
                 Ok(RoutedOutcome::FontLoaded(_doc)) => {
                     // Font loaded, but we don't do anything special here
-                    println!("Tab[{:?}] RoutedOutcome::FontLoaded", tab_id);
+                    log::trace!("Tab[{:?}] RoutedOutcome::FontLoaded", tab_id);
                 }
                 Ok(RoutedOutcome::Blocked(reason)) => {
-                    println!("Tab[{:?}] RoutedOutcome::Blocked", tab_id);
+                    log::debug!("Tab[{:?}] RoutedOutcome::Blocked", tab_id);
 
                     let final_url = match fetch_result.meta() {
                         Some(meta) => meta.final_url.clone(),
@@ -918,15 +905,7 @@ impl TabWorker {
             return;
         }
         self.desired_viewport = vp;
-
-        if matches!(self.state, TabState::Rendering(_)) {
-            // A render is already in flight; mark dirty so we re-render once it finishes.
-            self.dirty_after_inflight = true;
-        } else {
-            // Start rendering with the new viewport
-            self.state = TabState::PendingRendering(self.desired_viewport)
-        }
-
+        self.state = TabState::PendingRendering(self.desired_viewport);
         self.runtime.dirty = true;
     }
 
@@ -943,12 +922,15 @@ impl TabWorker {
 
     /// Dispatch a storage event to same-origin documents in this tab (placeholder).
     /// Intended for HTML5 storage event semantics.
-    #[allow(unused)]
+    #[allow(dead_code)] // placeholder API, not wired into the storage layer yet
     pub(crate) fn dispatch_storage_events(&mut self, origin: &url::Origin, include_iframes: bool, ev: &StorageEvent) {
-        println!("Tab {:?} dispatch_storage_events called", self.tab_id);
-        dbg!(&origin);
-        dbg!(&include_iframes);
-        dbg!(&ev);
+        log::trace!(
+            "Tab[{:?}] dispatch_storage_events: origin={:?} include_iframes={} ev={:?}",
+            self.tab_id,
+            origin,
+            include_iframes,
+            ev
+        );
 
         // Pseudocode stuff. need to fill in what it actually needs to do
         // for doc in self.iter_documents(include_iframes) {
@@ -969,24 +951,9 @@ impl TabWorker {
     }
 
     /// Ensure the tab has a surface of the given size, creating it if necessary.
-    #[allow(unused)]
-    fn ensure_surface(
-        &mut self,
-        backend: Arc<dyn RenderBackend + Send + Sync>,
-        size: SurfaceSize,
-    ) -> anyhow::Result<()> {
-        if let Some(ref surf) = self.surface {
-            if surf.size() == size {
-                return Ok(());
-            }
-        }
-        self.surface = Some(backend.create_surface(size, self.present_mode)?);
-        Ok(())
-    }
-
-    /// Like `ensure_surface` but returns `true` when the surface was (re)created, meaning
-    /// previously rendered pixels are gone and a full re-render is required even when the
-    /// scene epoch hasn't changed.
+    /// Returns `true` when the surface was (re)created, meaning previously rendered
+    /// pixels are gone and a full re-render is required even when the scene epoch
+    /// hasn't changed.
     fn ensure_surface_tracked(
         &mut self,
         backend: Arc<dyn RenderBackend + Send + Sync>,
@@ -999,30 +966,6 @@ impl TabWorker {
         }
         self.surface = Some(backend.create_surface(size, self.present_mode)?);
         Ok(true)
-    }
-
-    #[allow(unused)]
-    fn begin_render(&mut self, render_backend: Arc<dyn RenderBackend + Send + Sync>) -> anyhow::Result<()> {
-        if self.committed_viewport != self.desired_viewport {
-            self.committed_viewport = self.desired_viewport;
-
-            let surf_sz = self.committed_viewport.to_surface_size(self.dpr);
-            self.ensure_surface(render_backend, surf_sz)?;
-            self.context.set_viewport(self.committed_viewport);
-        }
-
-        Ok(())
-    }
-
-    #[allow(unused)]
-    fn end_render(&mut self) {
-        if self.dirty_after_inflight {
-            self.dirty_after_inflight = false;
-            self.state = TabState::PendingRendering(self.desired_viewport);
-            self.runtime.dirty = true;
-        } else {
-            self.state = TabState::Idle;
-        }
     }
 
     /// Cancel the current navigation (if any)

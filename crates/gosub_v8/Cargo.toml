@@ -7,6 +7,7 @@ license = "MIT"
 description = "V8 bindings for Gosub"
 
 [dependencies]
+log = "0.4"
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 gosub_webexecutor = { version = "0.1.1", registry = "gosub", path = "../gosub_webexecutor" }
 thiserror = "2.0.18"

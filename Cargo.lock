@@ -3482,6 +3482,7 @@ dependencies = [
  "gosub_shared",
  "gosub_webexecutor",
  "gosub_webinterop",
+ "log",
  "serde_json",
  "thiserror 2.0.18",
  "v8",
