@@ -6,47 +6,47 @@ license = "MIT"
 autobins = false
 
 [dependencies]
-taffy = { version = "0.10", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size", "calc"] }
-log = "0.4.29"
-image = { version = "0.25.10", features = ["png"] }
-rand = "0.10.1"
+taffy = { workspace = true, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size", "calc"] }
+log = { workspace = true }
+image = { workspace = true, features = ["png"] }
+rand = { workspace = true }
 sha2 = "0.10.8"
-serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.150"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 csscolorparser = "0.8.3"
-regex = "1.11.1"
+regex = { workspace = true }
 rstar = "0.12.2"
 gosub_net = { version = "0.1.1", path = "../gosub_net", registry = "gosub" }
-url = "2.5.8"
-resvg = "0.47.0"
-bytes = "1.10.1"
+url = { workspace = true }
+resvg = { workspace = true }
+bytes = { workspace = true }
 file_type = { version = "0.8.1", features = ["httpd"] }
-anyhow = "1.0.102"
-cow-utils = "0.1"
-parking_lot = "0.12"
-parley = "0.9.0"
+anyhow = { workspace = true }
+cow-utils = { workspace = true }
+parking_lot = { workspace = true }
+parley = { workspace = true, default-features = true }
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
 gosub_interface = { version = "0.1.2", path = "../gosub_interface", registry = "gosub" }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 gosub_lattice = { version = "0.1.0", path = "../gosub_lattice", registry = "gosub" }
 
 # backend_cairo optional deps
-cairo-rs = { version = "0.22", optional = true }
-pangocairo = { version = "0.22", optional = true }
+cairo-rs = { workspace = true, optional = true }
+pangocairo = { workspace = true, optional = true }
 
 # backend_vello optional deps
-vello = { version = "0.8.0", optional = true }
-wgpu = { version = "29.0.0", optional = true }
+vello = { workspace = true, optional = true }
+wgpu = { workspace = true, optional = true }
 fontique = { version = "0.10.0", optional = true }
 hashbrown = { version = "0.17.1", optional = true }
 skrifa = { version = "0.42.1", optional = true }
 
 # backend_skia / backend_skia_gl optional deps
-skia-safe = { version = "0.97.2", optional = true }
+skia-safe = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-gdk4-wayland = { version = "0.11", optional = true, features = ["wayland_crate"] }
-gdk4-x11 = { version = "0.11", optional = true }
+gdk4-wayland = { workspace = true, features = ["wayland_crate"], optional = true }
+gdk4-x11 = { workspace = true, optional = true }
 
 [[example]]
 name = "screenshot_url"
@@ -55,7 +55,7 @@ required-features = ["backend_cairo"]
 [dev-dependencies]
 gosub_html5 = { path = "../gosub_html5", registry = "gosub" }
 gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
-url = "2"
+url = { workspace = true }
 
 [features]
 backend_cairo = ["dep:cairo-rs", "dep:pangocairo"]

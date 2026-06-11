@@ -10,8 +10,8 @@ description = "SVG rendering for Gosub"
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
 gosub_html5 = { version = "0.1.1", registry = "gosub", path = "../gosub_html5" }
-resvg = "0.47.0"
-anyhow = "1.0.102"
+resvg = { workspace = true }
+anyhow = { workspace = true }
 
 [lints]
 workspace = true
