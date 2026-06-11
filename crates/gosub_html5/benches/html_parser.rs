@@ -19,6 +19,7 @@ use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_html5::{html_compile, testing::tree_construction};
 use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
+use std::time::Duration;
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -145,7 +146,7 @@ fn generate_large_html() -> String {
     html.push_str("<title>Parser Benchmark Document</title>\n");
     html.push_str("</head>\n<body>\n");
 
-    for section in 0..100_u32 {
+    for section in 0..15_u32 {
         html.push_str(&format!(
             "<section id=\"s{section}\" class=\"content section\" data-index=\"{section}\" aria-label=\"Section {section}\">\n"
         ));
@@ -223,17 +224,33 @@ fn generate_large_html() -> String {
 
 // ── Real-world HTML inputs ────────────────────────────────────────────────────
 
-/// Loads the WHATWG HTML Living Standard from `resources/whatwg.html.gz` in the
-/// workspace root. Decompressed once at benchmark startup and reused across all
-/// iterations (~8 MB uncompressed).
+/// How many bytes of the WHATWG spec to feed the parser per benchmark iteration.
+/// The full file is ~8 MB; at 512 KB one parse takes ~milliseconds even on the
+/// unoptimised parser, giving criterion enough samples to produce stable numbers.
+/// Raise this constant once the clone-heavy hot paths are fixed.
+const WHATWG_BENCH_BYTES: usize = 512 * 1024;
+
+/// Loads and truncates the WHATWG HTML Living Standard from
+/// `resources/whatwg.html.gz` in the workspace root.
+/// Decompressed once at startup; truncated at the last `>` before
+/// `WHATWG_BENCH_BYTES` so we never cut inside a tag.
 fn load_whatwg_spec() -> String {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../resources/whatwg.html.gz");
-    let file = std::fs::File::open(&path)
-        .unwrap_or_else(|e| panic!("failed to open {}: {e}", path.display()));
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../resources/whatwg.html.gz");
+    let file = std::fs::File::open(&path).unwrap_or_else(|e| panic!("failed to open {}: {e}", path.display()));
     let mut decoder = flate2::read::GzDecoder::new(file);
     let mut html = String::new();
-    decoder.read_to_string(&mut html).expect("failed to decompress whatwg.html.gz");
+    decoder
+        .read_to_string(&mut html)
+        .expect("failed to decompress whatwg.html.gz");
+
+    if html.len() > WHATWG_BENCH_BYTES {
+        // Truncate at the last `>` before the byte limit so we don't cut mid-tag.
+        let cut = html[..WHATWG_BENCH_BYTES]
+            .rfind('>')
+            .map(|i| i + 1)
+            .unwrap_or(WHATWG_BENCH_BYTES);
+        html.truncate(cut);
+    }
     html
 }
 
@@ -268,19 +285,23 @@ fn bench_cpu(c: &mut Criterion) {
     let whatwg = load_whatwg_spec();
 
     let mut group = c.benchmark_group("parser/cpu");
-    group.significance_level(0.05).sample_size(50);
+    group.significance_level(0.05).warm_up_time(Duration::from_secs(2));
 
+    // large_doc and whatwg_spec are slow on the unoptimised parser; keep
+    // sample_size small so the full bench run stays under ~2 minutes.
+    group.sample_size(10).measurement_time(Duration::from_secs(30));
     group.throughput(Throughput::Bytes(large_html.len() as u64));
     group.bench_function("large_doc", |b| {
         b.iter(|| parse_html(&large_html));
     });
 
+    group.sample_size(30).measurement_time(Duration::from_secs(10));
     group.throughput(Throughput::Elements(fixture_count as u64));
     group.bench_function("all_fixtures", |b| {
         b.iter(|| parse_all_fixtures(&fixtures));
     });
 
-    group.sample_size(20);
+    group.sample_size(10).measurement_time(Duration::from_secs(30));
     group.throughput(Throughput::Bytes(whatwg.len() as u64));
     group.bench_function("whatwg_spec", |b| {
         b.iter(|| parse_html(&whatwg));
@@ -297,14 +318,17 @@ fn bench_alloc_ops(c: &mut Criterion<AllocOps>) {
     let whatwg = load_whatwg_spec();
 
     let mut group = c.benchmark_group("parser/alloc-ops");
-    group.significance_level(0.05).sample_size(20);
+    group.significance_level(0.05).warm_up_time(Duration::from_secs(1));
 
+    group.sample_size(10).measurement_time(Duration::from_secs(30));
     group.bench_function("large_doc", |b| {
         b.iter(|| parse_html(&large_html));
     });
+    group.sample_size(20).measurement_time(Duration::from_secs(10));
     group.bench_function("all_fixtures", |b| {
         b.iter(|| parse_all_fixtures(&fixtures));
     });
+    group.sample_size(10).measurement_time(Duration::from_secs(30));
     group.bench_function("whatwg_spec", |b| {
         b.iter(|| parse_html(&whatwg));
     });
@@ -320,14 +344,17 @@ fn bench_alloc_bytes(c: &mut Criterion<AllocBytes>) {
     let whatwg = load_whatwg_spec();
 
     let mut group = c.benchmark_group("parser/alloc-bytes");
-    group.significance_level(0.05).sample_size(20);
+    group.significance_level(0.05).warm_up_time(Duration::from_secs(1));
 
+    group.sample_size(10).measurement_time(Duration::from_secs(30));
     group.bench_function("large_doc", |b| {
         b.iter(|| parse_html(&large_html));
     });
+    group.sample_size(20).measurement_time(Duration::from_secs(10));
     group.bench_function("all_fixtures", |b| {
         b.iter(|| parse_all_fixtures(&fixtures));
     });
+    group.sample_size(10).measurement_time(Duration::from_secs(30));
     group.bench_function("whatwg_spec", |b| {
         b.iter(|| parse_html(&whatwg));
     });
