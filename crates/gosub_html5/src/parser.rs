@@ -480,8 +480,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             self.display_debug_info();
         }
 
-        let result = Ok(self.error_logger.borrow().get_errors().clone());
-        result
+        Ok(self.error_logger.borrow().get_errors())
     }
 
     // Process token in foreign content (svg, mathml)

@@ -25,6 +25,9 @@ pub struct DocumentImpl<C: HasDocument> {
     pub url: Option<Url>,
     pub(crate) arena: NodeArena,
     named_id_elements: HashMap<String, NodeId>,
+    /// Reverse index of `named_id_elements`: which ids each node is registered under.
+    /// Kept in sync so unregistering a node does not require scanning the whole map.
+    named_ids_by_node: HashMap<NodeId, Vec<String>>,
     pub doctype: DocumentType,
     pub quirks_mode: QuirksMode,
     pub stylesheets: Vec<<C::CssSystem as CssSystem>::Stylesheet>,
@@ -50,6 +53,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             url,
             arena: NodeArena::new(),
             named_id_elements: HashMap::new(),
+            named_ids_by_node: HashMap::new(),
             doctype: document_type,
             quirks_mode: QuirksMode::NoQuirks,
             stylesheets: Vec::new(),
@@ -201,6 +205,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         if is_element && name == "id" && is_valid_id_attribute_value(value) {
             if let Entry::Vacant(e) = self.named_id_elements.entry(value.to_string()) {
                 e.insert(id);
+                self.named_ids_by_node.entry(id).or_default().push(value.to_string());
             }
         }
     }
@@ -385,10 +390,15 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             if is_valid_id_attribute_value(id_value) {
                 if let Entry::Vacant(e) = self.named_id_elements.entry(id_value.clone()) {
                     e.insert(node.id());
+                    self.named_ids_by_node.entry(node.id()).or_default().push(id_value.clone());
                 }
             }
-        } else {
-            self.named_id_elements.retain(|_, id| *id != node.id());
+        } else if let Some(ids) = self.named_ids_by_node.remove(&node.id()) {
+            // The node lost its id attribute: unregister every id it was registered under.
+            // (Inserts are vacant-only, so each of these keys is guaranteed to map to this node.)
+            for id_value in ids {
+                self.named_id_elements.remove(&id_value);
+            }
         }
     }
 
