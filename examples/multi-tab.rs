@@ -86,7 +86,7 @@ async fn main() -> Result<(), EngineError> {
 
     // Set up a render backend. In this example we use the NullBackend which does not render
     // anything.
-    let backend = gosub_render_pipeline::render::backends::null::NullBackend::new().expect("null backend");
+    let backend = gosub_render_pipeline::render::backends::null::NullBackend::new();
 
     // Instantiate and start the engine
     let mut engine = GosubEngine::new(

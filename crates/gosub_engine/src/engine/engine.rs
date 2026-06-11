@@ -77,7 +77,7 @@ pub struct EngineContext {
 impl Default for EngineContext {
     fn default() -> Self {
         Self {
-            render_backend: Arc::new(gosub_render_pipeline::render::backends::null::NullBackend::new().unwrap()),
+            render_backend: Arc::new(gosub_render_pipeline::render::backends::null::NullBackend::new()),
             compositor: Arc::new(RwLock::new(DefaultCompositor::new(|| {}))),
             event_tx: broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY).0,
             config: Arc::new(EngineConfig::default()),
@@ -98,7 +98,7 @@ impl GosubEngine {
     /// # use parking_lot::RwLock;
     /// # use gosub_render_pipeline::render::backends::null::NullBackend;
     /// # use gosub_render_pipeline::render::DefaultCompositor;
-    /// let backend = NullBackend::new().unwrap();
+    /// let backend = NullBackend::new();
     /// let compositor = DefaultCompositor::default();
     /// let engine = ge::GosubEngine::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
     /// ```

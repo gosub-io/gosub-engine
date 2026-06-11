@@ -67,3 +67,17 @@ backend_skia_metal = ["backend_skia"]
 parley_layout = []
 wayland = ["gdk4-wayland"]
 x11 = ["gdk4-x11"]
+
+# Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
+# the FFI surface handles (cairo, skia-gpu) need unsafe Send/Sync impls, which are
+# allowed per-site with a justification.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

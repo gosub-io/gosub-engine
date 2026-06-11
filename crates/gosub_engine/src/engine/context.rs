@@ -962,7 +962,10 @@ fn pipeline_build_cache(
     let ts1 = timing_start!("pipeline.render_tree");
     let adapter = GosubDocumentAdapter::<HtmlEngineConfig>::new(doc);
     let mut render_tree = RenderTree::new(Arc::new(adapter));
-    render_tree.parse();
+    if let Err(e) = render_tree.parse() {
+        // The layouter tolerates a tree without a root; the frame degrades to empty.
+        log::error!("Failed to build render tree: {e}");
+    }
     timing_stop!(ts1);
     log::info!(
         "[pipeline] stage 1 render-tree:  {:>6.1}ms  ({} nodes)",

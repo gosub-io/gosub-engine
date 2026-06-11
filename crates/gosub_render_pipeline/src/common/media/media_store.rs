@@ -42,6 +42,10 @@ pub struct MediaStore {
     pub cache: RwLock<HashMap<Sha256Hash, MediaId>>,
     /// Next media ID (atomic to prevent allocation races)
     next_id: AtomicU64,
+    /// Compiled-in placeholder returned when an SVG is missing or failed to load
+    default_svg: Arc<Media>,
+    /// Compiled-in placeholder returned when an image is missing or failed to load
+    default_image: Arc<Media>,
 }
 
 impl Default for MediaStore {
@@ -56,30 +60,29 @@ impl MediaStore {
     }
 
     pub fn new() -> MediaStore {
-        let store = MediaStore {
-            entries: RwLock::new(HashMap::new()),
-            cache: RwLock::new(HashMap::new()),
-            next_id: AtomicU64::new(FIRST_FREE_IMAGE_ID),
-        };
-
-        // Add "default svg" to the store.
+        #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in asset, exercised by every pipeline test
         let default_svg_tree =
             usvg::Tree::from_data(DEFAULT_SVG_DATA, &svg_options()).expect("Failed to load default svg");
-        let mut entries = store.entries.write();
-        let media = Media::svg("gosub://default/svg", Svg::new(default_svg_tree));
-        entries.insert(DEFAULT_SVG_ID, Arc::new(media));
-        drop(entries);
+        let default_svg = Arc::new(Media::svg("gosub://default/svg", Svg::new(default_svg_tree)));
 
-        // Add "default image" to the store.
-        let default_image = image::load_from_memory(DEFAULT_IMAGE_DATA)
+        #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in asset, exercised by every pipeline test
+        let default_image_data = image::load_from_memory(DEFAULT_IMAGE_DATA)
             .expect("Failed to load default image")
             .to_rgba8();
-        let mut entries = store.entries.write();
-        let media = Media::image("gosub://default/image", default_image);
-        entries.insert(DEFAULT_IMAGE_ID, Arc::new(media));
-        drop(entries);
+        let default_image = Arc::new(Media::image("gosub://default/image", default_image_data));
 
-        store
+        let entries = HashMap::from([
+            (DEFAULT_SVG_ID, Arc::clone(&default_svg)),
+            (DEFAULT_IMAGE_ID, Arc::clone(&default_image)),
+        ]);
+
+        MediaStore {
+            entries: RwLock::new(entries),
+            cache: RwLock::new(HashMap::new()),
+            next_id: AtomicU64::new(FIRST_FREE_IMAGE_ID),
+            default_svg,
+            default_image,
+        }
     }
 
     /// Load the given media from src into the media store, and return the media ID. Will also store the media(id) in cache
@@ -267,17 +270,9 @@ impl MediaStore {
 
     /// Returns the default media resource for the given media type
     fn default_media(&self, media_type: MediaType) -> Arc<Media> {
-        let entries = self.entries.read();
-
         match media_type {
-            MediaType::Svg => entries
-                .get(&DEFAULT_SVG_ID)
-                .expect("default SVG must be present — inserted in MediaStore::new()")
-                .clone(),
-            MediaType::Image => entries
-                .get(&DEFAULT_IMAGE_ID)
-                .expect("default image must be present — inserted in MediaStore::new()")
-                .clone(),
+            MediaType::Svg => Arc::clone(&self.default_svg),
+            MediaType::Image => Arc::clone(&self.default_image),
         }
     }
 
@@ -299,21 +294,11 @@ impl MediaStore {
         let raw_bytes = bytes::Bytes::from(response.body);
         let detected_file_type = detect_file_type(&raw_bytes);
 
-        if detected_content_type.is_none() && detected_file_type.is_none() {
-            anyhow::bail!("Failed to detect media type");
-        }
-
-        if detected_content_type == detected_file_type {
-            return Ok((detected_content_type.unwrap(), raw_bytes));
-        }
-
-        // Seems that content type and file binaries are not matching. We will trust the file binary
-        // over the content type.
-        if let Some(file_type) = detected_file_type {
-            Ok((file_type, raw_bytes))
-        } else {
-            // Seems we cannot detect the file type from the binary. We will trust the content type
-            Ok((detected_content_type.unwrap(), raw_bytes))
+        // When the declared content type and the file bytes disagree, trust the bytes.
+        match (detected_file_type, detected_content_type) {
+            (Some(file_type), _) => Ok((file_type, raw_bytes)),
+            (None, Some(content_type)) => Ok((content_type, raw_bytes)),
+            (None, None) => anyhow::bail!("Failed to detect media type"),
         }
     }
 }

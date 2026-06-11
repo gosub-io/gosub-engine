@@ -437,7 +437,9 @@ impl TaffyLayouter {
         }) else {
             return;
         };
-        self.tree.add_child(leaf_id, taffy_container_id).unwrap();
+        if let Err(e) = self.tree.add_child(leaf_id, taffy_container_id) {
+            log::warn!("Failed to add anonymous container to taffy tree: {:?}", e);
+        }
 
         // and add all the inline elements to the anonymous element
         for (inline_layout_element_id, inline_taffy_node_id) in current_inline_group {
@@ -534,7 +536,9 @@ impl TaffyLayouter {
                         }
                     }
                 }
-                self.tree.add_child(leaf_id, child_taffy_id).unwrap();
+                if let Err(e) = self.tree.add_child(leaf_id, child_taffy_id) {
+                    log::warn!("Failed to add child to taffy tree: {:?}", e);
+                }
                 element_node.children.push(child_layout_element_id);
                 continue;
             }
@@ -575,7 +579,9 @@ impl TaffyLayouter {
             current_inline_group = Vec::new();
             trailing_ws_count = 0;
 
-            self.tree.add_child(leaf_id, child_taffy_id).unwrap();
+            if let Err(e) = self.tree.add_child(leaf_id, child_taffy_id) {
+                log::warn!("Failed to add child to taffy tree: {:?}", e);
+            }
             element_node.children.push(child_layout_element_id);
         }
 

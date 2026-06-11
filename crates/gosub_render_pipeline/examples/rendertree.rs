@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 /// Fetch a URL, parse it through gosub's HTML5+CSS3 pipeline, build a
 /// RenderTree, and print it to stdout.
 ///
@@ -64,7 +65,7 @@ fn main() {
     eprintln!("Building render tree…");
     let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
     let mut rt = RenderTree::new(Arc::new(adapter));
-    rt.parse();
+    rt.parse().expect("failed to build render tree");
 
     println!();
     println!("Render tree for: {url}");

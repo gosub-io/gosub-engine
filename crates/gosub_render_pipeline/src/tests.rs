@@ -37,7 +37,7 @@ mod rendertree_from_engine {
 
         let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
         let mut rt = RenderTree::new(Arc::new(adapter));
-        rt.parse();
+        rt.parse().expect("failed to build render tree");
         rt
     }
 

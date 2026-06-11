@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 /// Pipeline benchmark — runs stages 1-5 against several HTML fixtures and prints
 /// per-stage timing with mean ± stddev across N iterations.
 ///
@@ -136,7 +137,7 @@ fn run_pipeline_once(html: &str, layouter: &mut TaffyLayouter) -> StageTimes {
     let t = Instant::now();
     let adapter = GosubDocumentAdapter::<Config>::new(Arc::clone(&doc_arc));
     let mut render_tree = RenderTree::new(Arc::new(adapter));
-    render_tree.parse();
+    render_tree.parse().expect("failed to build render tree");
     let render_tree_time = t.elapsed();
 
     // Stage 2: layout

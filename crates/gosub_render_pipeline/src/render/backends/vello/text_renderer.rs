@@ -191,18 +191,25 @@ impl TextRenderer {
         // Resolve font
         let (vello_font, _resolved_name) = match fc.fetch(&key.font_name) {
             Some(f) => (f.0.clone(), f.1),
-            None => {
-                let (vf, rn) = fm
-                    .resolve_ui_font(Some(&key.font_name), fontique::Attributes::default())
-                    .expect("resolve font");
-                fc.insert(&key.font_name, rn.as_str(), vf.clone());
-                (vf, rn)
-            }
+            None => match fm.resolve_ui_font(Some(&key.font_name), fontique::Attributes::default()) {
+                Ok((vf, rn)) => {
+                    fc.insert(&key.font_name, rn.as_str(), vf.clone());
+                    (vf, rn)
+                }
+                Err(e) => {
+                    // No font, no glyphs: drop this text run but keep rendering the frame.
+                    log::warn!("Failed to resolve font '{}': {e}", key.font_name);
+                    return Arc::from(Vec::new());
+                }
+            },
         };
 
         #[cfg(not(feature = "parley_layout"))]
         {
-            let font_ref = to_font_ref(&vello_font).unwrap();
+            let Some(font_ref) = to_font_ref(&vello_font) else {
+                log::warn!("Could not read font data for '{}'; dropping text run", key.font_name);
+                return Arc::from(Vec::new());
+            };
             let axes = font_ref.axes();
             let font_size = skrifa::instance::Size::new(key.font_size as f32);
             let var_loc = axes.location(std::iter::empty::<(&str, f32)>());

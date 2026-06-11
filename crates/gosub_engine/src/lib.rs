@@ -38,7 +38,7 @@
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
 //!     // 1) Engine + backend
-//!     let backend = NullBackend::new().expect("null renderer cannot be created (!?)");
+//!     let backend = NullBackend::new();
 //!     let compositor = DefaultCompositor::default();
 //!     let mut engine_handle = GosubEngine::new(
 //!         Some(EngineConfig::default()),
