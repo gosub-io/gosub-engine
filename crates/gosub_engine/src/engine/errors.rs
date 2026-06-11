@@ -58,9 +58,6 @@ pub enum EngineError {
     #[error("Task init failed: {0}")]
     TaskInitFailed(#[source] anyhow::Error),
 
-    #[error("poisoned")]
-    Poisoned,
-
     #[error("Failed to create tab: {0}")]
     CreateTab(#[source] anyhow::Error),
 
