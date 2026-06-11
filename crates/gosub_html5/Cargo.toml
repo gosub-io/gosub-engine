@@ -30,6 +30,8 @@ gosub_net = { version = "0.1.1", registry = "gosub", path = "../gosub_net" }
 test-case = { workspace = true }
 criterion = { workspace = true, features = ["html_reports"] }
 flate2 = "1"
+html5ever = "0.39"
+markup5ever_rcdom = "0.39"
 
 
 [features]
