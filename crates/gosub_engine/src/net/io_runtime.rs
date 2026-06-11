@@ -6,6 +6,7 @@ use crate::net::req_ref_tracker::RequestRefTracker;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
 use crate::util::spawn_named;
 use crate::zone::ZoneId;
+use crate::EngineError;
 use dashmap::DashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
@@ -92,9 +93,9 @@ impl IoRouter {
         }
     }
 
-    pub fn get_or_spawn_zone_fetcher(&self, zone_id: ZoneId) -> Arc<Fetcher> {
+    pub fn get_or_spawn_zone_fetcher(&self, zone_id: ZoneId) -> Result<Arc<Fetcher>, EngineError> {
         if let Some(f) = self.zones.get(&zone_id) {
-            return f.fetcher.clone();
+            return Ok(f.fetcher.clone());
         }
 
         let zone_shutdown = CancellationToken::new();
@@ -104,7 +105,8 @@ impl IoRouter {
             request_reference_map: self.engine_ctx.request_reference_map.clone(),
             request_ref_tracker: Arc::new(RequestRefTracker::new()),
         });
-        let f = Arc::new(Fetcher::new(self.cfg.clone(), engine_ctx).expect("reqwest client build failed"));
+        let f =
+            Arc::new(Fetcher::new(self.cfg.clone(), engine_ctx).map_err(|e| EngineError::NetworkError(e.to_string()))?);
 
         let f_run = f.clone();
         let cancel = zone_shutdown.clone();
@@ -122,7 +124,7 @@ impl IoRouter {
             },
         );
 
-        f
+        Ok(f)
     }
 
     #[instrument(
@@ -219,12 +221,17 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                 maybe_req = rx_submit.recv() => {
                     match maybe_req {
                         Some(IoCommand::Fetch { zone_id, req, handle, reply_tx }) => {
-                            let fetcher = router.get_or_spawn_zone_fetcher(zone_id);
-                            fetcher.submit(req, handle, reply_tx).await;
+                            // The I/O thread must keep running; drop the request on fetcher failure.
+                            match router.get_or_spawn_zone_fetcher(zone_id) {
+                                Ok(fetcher) => fetcher.submit(req, handle, reply_tx).await,
+                                Err(e) => log::error!("Failed to create fetcher for zone {zone_id}: {e}"),
+                            }
                         }
                         Some(IoCommand::Decision { zone_id, token, action }) => {
-                            let fetcher = router.get_or_spawn_zone_fetcher(zone_id);
-                            fetcher.fulfill(token, action).await;
+                            match router.get_or_spawn_zone_fetcher(zone_id) {
+                                Ok(fetcher) => fetcher.fulfill(token, action).await,
+                                Err(e) => log::error!("Failed to create fetcher for zone {zone_id}: {e}"),
+                            }
                         }
                         Some(IoCommand::ShutdownZone { zone_id, reply_tx }) => {
                             let _ = router.shutdown_zone(zone_id).await;
@@ -323,7 +330,7 @@ mod tests {
         let z = ZoneId::new();
 
         // Lazily create fetcher for zone z
-        let f = router.get_or_spawn_zone_fetcher(z);
+        let f = router.get_or_spawn_zone_fetcher(z).unwrap();
         assert!(Arc::strong_count(&f) >= 1, "fetcher Arc should be alive");
 
         // Shut down zone z; should return true (existed)
@@ -342,15 +349,15 @@ mod tests {
         let z2 = ZoneId::new();
 
         // Spawn both zones
-        let _f1 = router.get_or_spawn_zone_fetcher(z1);
-        let f2 = router.get_or_spawn_zone_fetcher(z2);
+        let _f1 = router.get_or_spawn_zone_fetcher(z1).unwrap();
+        let f2 = router.get_or_spawn_zone_fetcher(z2).unwrap();
 
         // Shut down z1 only
         let stopped = router.shutdown_zone(z1).await;
         assert!(stopped, "z1 should have been stopped");
 
         // z2 should still have a running fetcher; get_or_spawn must return the same Arc ptr
-        let f2_again = router.get_or_spawn_zone_fetcher(z2);
+        let f2_again = router.get_or_spawn_zone_fetcher(z2).unwrap();
         assert!(Arc::ptr_eq(&f2, &f2_again), "z2 fetcher must remain the same instance");
 
         // Clean up remaining zones to avoid leaking tasks in test

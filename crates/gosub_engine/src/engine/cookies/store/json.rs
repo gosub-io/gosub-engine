@@ -20,19 +20,18 @@
 //! - `persist_zone_from_snapshot` and `remove_zone` **read then rewrite** the entire
 //!   JSON file. For large datasets, consider an SQLite-backed store.
 //! - File writes are not atomic.
-//! - Several helpers use `expect(...)` and will **panic** on I/O/serialization errors.
+//! - Persistence is best-effort: I/O and serialization errors are logged, never panicked on.
 //!
 //! ### Example
 //! ```ignore,no_run
-//! let store = JsonCookieStore::new("cookies.json".into());
+//! let store = JsonCookieStore::new("cookies.json".into())?;
 //!
 //! // New zones will receive a PersistentCookieJar minted by this store.
 //! let zone_id = engine.zone().cookie_store(store).create()?;
 //! ```
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::Read;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -41,6 +40,7 @@ use crate::engine::cookies::persistent_cookie_jar::PersistentCookieJar;
 use crate::engine::cookies::store::CookieStore;
 use crate::engine::cookies::{CookieJarHandle, CookieStoreHandle};
 use crate::engine::zone::ZoneId;
+use crate::EngineError;
 use serde::{Deserialize, Serialize};
 
 /// On-disk representation of all zones' cookie jars.
@@ -74,15 +74,16 @@ impl JsonCookieStore {
     ///
     /// If the file does not exist, an empty structure is written to disk.
     ///
-    /// # Panics
-    /// Panics if the initial write of an empty file fails.
-    pub fn new(path: PathBuf) -> Arc<Self> {
+    /// # Errors
+    /// Returns [`EngineError::CookieStore`] if the initial write of an empty file fails.
+    pub fn new(path: PathBuf) -> Result<Arc<Self>, EngineError> {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
         if !path.exists() {
             let empty = CookieStoreFile { zones: HashMap::new() };
-            fs::write(&path, serde_json::to_vec(&empty).unwrap()).expect("Failed to create cookie store file");
+            let bytes = serde_json::to_vec(&empty).map_err(|e| EngineError::CookieStore(e.into()))?;
+            fs::write(&path, bytes).map_err(|e| EngineError::CookieStore(e.into()))?;
         }
 
         let store = Arc::new(Self {
@@ -92,34 +93,45 @@ impl JsonCookieStore {
         });
 
         *store.store_self.write() = Some(CookieStoreHandle::from(store.clone()));
-        store
+        Ok(store)
     }
 
     /// Loads and deserializes the full cookie store file.
     ///
-    /// Returns an empty structure if deserialization fails.
-    ///
-    /// # Panics
-    /// Panics if the file cannot be opened or read.
+    /// Returns an empty structure if the file cannot be read or deserialized
+    /// (the error is logged).
     fn load_file(&self) -> CookieStoreFile {
-        let mut file = File::open(&self.path).expect("Failed to open cookie store file");
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)
-            .expect("Failed to read cookie store file");
+        let contents = match fs::read_to_string(&self.path) {
+            Ok(contents) => contents,
+            Err(e) => {
+                log::error!("Failed to read cookie store file {:?}: {e}", self.path);
+                return CookieStoreFile { zones: HashMap::new() };
+            }
+        };
 
         serde_json::from_str(&contents).unwrap_or_else(|_| CookieStoreFile { zones: HashMap::new() })
     }
 
     /// Serializes and writes the full cookie store file (pretty-printed).
     ///
-    /// # Panics
-    /// Panics if serialization or writing fails.
+    /// Best-effort: serialization or I/O errors are logged and the write is skipped.
     fn save_file(&self, store_file: &CookieStoreFile) {
-        let contents = serde_json::to_vec_pretty(store_file).expect("Failed to serialize cookies");
+        let contents = match serde_json::to_vec_pretty(store_file) {
+            Ok(contents) => contents,
+            Err(e) => {
+                log::error!("Failed to serialize cookies: {e}");
+                return;
+            }
+        };
         // atomic-ish: write to tmp then rename
         let tmp = self.path.with_extension("json.tmp");
-        fs::write(&tmp, &contents).expect("Failed to write temp cookie store file");
-        fs::rename(&tmp, &self.path).expect("Failed to replace cookie store file");
+        if let Err(e) = fs::write(&tmp, &contents) {
+            log::error!("Failed to write temp cookie store file {tmp:?}: {e}");
+            return;
+        }
+        if let Err(e) = fs::rename(&tmp, &self.path) {
+            log::error!("Failed to replace cookie store file {:?}: {e}", self.path);
+        }
     }
 }
 
@@ -146,12 +158,13 @@ impl CookieStore for JsonCookieStore {
         let jar = file.zones.remove(&zone_id).unwrap_or_default();
         let arc_jar: CookieJarHandle = jar.into(); // assuming you have From<DefaultCookieJar> for CookieJarHandle
 
-        let store = self
-            .store_self
-            .read()
-            .as_ref()
-            .expect("store_self not initialized")
-            .clone();
+        let store = match self.store_self.read().as_ref() {
+            Some(store) => store.clone(),
+            None => {
+                log::error!("store_self not initialized; cannot provision cookie jar");
+                return None;
+            }
+        };
 
         // Wrap in PersistentCookieJar and then into a CookieJarHandle
         let persistent = PersistentCookieJar::new(zone_id, arc_jar.clone(), store);
@@ -161,23 +174,17 @@ impl CookieStore for JsonCookieStore {
         Some(handle)
     }
 
-    /// Persists a snapshot of `zone_id`'s jar to disk.
+    /// Persists a snapshot of `zone_id`'s jar to disk (best-effort).
     ///
     /// Called by [`PersistentCookieJar`] after each mutation. This method reads
     /// the current file, updates/replaces the zone entry, and writes the file back.
-    ///
-    /// # Panics
-    /// Panics on I/O/serialization errors.
     fn persist_zone_from_snapshot(&self, zone_id: ZoneId, snapshot: &DefaultCookieJar) {
         let mut store_file = self.load_file();
         store_file.zones.insert(zone_id, snapshot.clone());
         self.save_file(&store_file);
     }
 
-    /// Removes `zone_id` from both the in-memory cache and the on-disk file.
-    ///
-    /// # Panics
-    /// Panics on I/O/serialization errors while updating the file.
+    /// Removes `zone_id` from both the in-memory cache and the on-disk file (best-effort).
     fn remove_zone(&self, zone_id: ZoneId) {
         self.jars.write().remove(&zone_id);
 
@@ -186,13 +193,10 @@ impl CookieStore for JsonCookieStore {
         self.save_file(&file);
     }
 
-    /// Persists **all** in-memory jars to disk by snapshotting them.
+    /// Persists **all** in-memory jars to disk by snapshotting them (best-effort).
     ///
     /// Only jars of type [`PersistentCookieJar`] that wrap a [`DefaultCookieJar`]
     /// are snapshotted here. This avoids double-wrapping and keeps the format stable.
-    ///
-    /// # Panics
-    /// Panics on I/O/serialization errors while writing the file.
     fn persist_all(&self) {
         let jars = self.jars.read();
 
@@ -215,6 +219,8 @@ impl CookieStore for JsonCookieStore {
 mod tests {
     use super::*;
     use http::HeaderMap;
+    use std::fs::File;
+    use std::io::Read;
     use tempfile::tempdir;
     use url::Url;
 
@@ -233,7 +239,7 @@ mod tests {
     fn jar_for_memoizes_and_wraps_persistent() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("cookies.json");
-        let store = JsonCookieStore::new(path);
+        let store = JsonCookieStore::new(path).unwrap();
 
         let z = ZoneId::new();
         let a = store.jar_for(z).unwrap();
@@ -248,7 +254,7 @@ mod tests {
     fn persist_all_writes_file_and_reload_restores_jar() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("cookies.json");
-        let store = JsonCookieStore::new(path.clone());
+        let store = JsonCookieStore::new(path.clone()).unwrap();
 
         let zone = ZoneId::new();
         let handle = store.jar_for(zone).unwrap();
@@ -281,7 +287,7 @@ mod tests {
         );
 
         // New store instance should load the jar from disk
-        let store2 = JsonCookieStore::new(path.clone());
+        let store2 = JsonCookieStore::new(path.clone()).unwrap();
         let h2 = store2.jar_for(zone).unwrap();
 
         // Ensure it’s again a persistent wrapper
@@ -292,7 +298,7 @@ mod tests {
     fn remove_zone_evicts_cache_and_file() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("cookies.json");
-        let store = JsonCookieStore::new(path.clone());
+        let store = JsonCookieStore::new(path.clone()).unwrap();
 
         let z1 = ZoneId::new();
         let z2 = ZoneId::new();

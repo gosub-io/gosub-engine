@@ -189,7 +189,6 @@ impl GosubEngine {
         let mut cmd_rx = self.cmd_rx.take()?;
 
         Some(async move {
-            #[allow(clippy::never_loop)]
             while let Some(cmd) = cmd_rx.recv().await {
                 match cmd {
                     EngineCommand::Shutdown { reply } => {
@@ -198,7 +197,7 @@ impl GosubEngine {
                         break;
                     }
                     _ => {
-                        unimplemented!("unhandled engine command: {:?}", cmd);
+                        log::warn!("Unhandled engine command: {:?}", cmd);
                     }
                 }
             }
@@ -263,8 +262,8 @@ impl GosubEngine {
         zone_id: Option<ZoneId>,
     ) -> Result<Zone, EngineError> {
         let zone = match zone_id {
-            Some(zone_id) => Zone::new_with_id(zone_id, config, services, self.context.clone()),
-            None => Zone::new(config, services, self.context.clone()),
+            Some(zone_id) => Zone::new_with_id(zone_id, config, services, self.context.clone())?,
+            None => Zone::new(config, services, self.context.clone())?,
         };
 
         let zone_id = zone.id;

@@ -181,25 +181,30 @@ fn unquote(s: &str) -> &str {
     }
 }
 
+/// Compile a literal regex pattern.
+fn re(pattern: &str) -> Regex {
+    #[allow(clippy::unwrap_used)] // PANIC-SAFE: all callers pass literal patterns, exercised by tests
+    Regex::new(pattern).unwrap()
+}
+
 static RE_LINK_STYLESHEET: Lazy<Regex> = Lazy::new(|| {
     // allow "..." or '...' or unquoted; capture into the *same* group `href`
-    Regex::new(
-        r#"(?is)<\s*link\b[^>]*\brel\s*=\s*(?:"stylesheet"|'stylesheet')[^>]*\bhref\s*=\s*(?P<href>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#
-    ).unwrap()
+    re(
+        r#"(?is)<\s*link\b[^>]*\brel\s*=\s*(?:"stylesheet"|'stylesheet')[^>]*\bhref\s*=\s*(?P<href>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#,
+    )
 });
 
 static RE_SCRIPT_SRC: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?is)<\s*script\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#).unwrap());
+    Lazy::new(|| re(r#"(?is)<\s*script\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#));
 
-static RE_ASYNC_ATTR: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\basync\b"#).unwrap());
+static RE_ASYNC_ATTR: Lazy<Regex> = Lazy::new(|| re(r#"\basync\b"#));
 
-static RE_DEFER_ATTR: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\bdefer\b"#).unwrap());
+static RE_DEFER_ATTR: Lazy<Regex> = Lazy::new(|| re(r#"\bdefer\b"#));
 
 static RE_IMG_SRC: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?is)<\s*img\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#).unwrap());
+    Lazy::new(|| re(r#"(?is)<\s*img\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#));
 
-static RE_TITLE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?is)<\s*title\s*>\s*(?P<title>.*?)\s*<\s*/\s*title\s*>"#).unwrap());
+static RE_TITLE: Lazy<Regex> = Lazy::new(|| re(r#"(?is)<\s*title\s*>\s*(?P<title>.*?)\s*<\s*/\s*title\s*>"#));
 
 fn discover_title(html: &str) -> Option<String> {
     RE_TITLE
@@ -327,7 +332,6 @@ mod tests {
 
         // Ensure we discovered 3 resources with resolved URLs
         assert_eq!(hints.len(), 3);
-        dbg!(&hints);
         assert!(hints
             .iter()
             .any(|h| h.kind == ResourceKind::Stylesheet && h.url.as_str() == "https://example.com/style.css"));

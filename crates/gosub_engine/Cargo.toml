@@ -103,3 +103,6 @@ metrics = []
 
 wayland = ["gdk4-wayland"]
 x11 = ["gdk4-x11"]
+
+[lints]
+workspace = true

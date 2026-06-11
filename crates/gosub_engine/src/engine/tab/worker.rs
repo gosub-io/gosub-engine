@@ -28,6 +28,12 @@ use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+/// Fallback URL used when a navigation has no usable URL.
+fn about_blank() -> Url {
+    #[allow(clippy::unwrap_used)] // PANIC-SAFE: literal URL
+    Url::parse("about:blank").unwrap()
+}
+
 #[derive(Debug)]
 pub enum NavigationResult {
     Ok {
@@ -292,7 +298,7 @@ impl TabWorker {
                     .as_ref()
                     .map(|a| a.url.clone())
                     .or_else(|| self.pending_url.clone())
-                    .unwrap_or_else(|| Url::parse("about:blank").unwrap());
+                    .unwrap_or_else(about_blank);
 
                 self.send_event(EngineEvent::Navigation {
                     tab_id: self.tab_id,
@@ -649,7 +655,7 @@ impl TabWorker {
             match outcome {
                 Ok(RoutedOutcome::MainDocument(doc)) => {
                     use gosub_interface::document::Document as _;
-                    let final_url = doc.url().unwrap_or_else(|| Url::parse("about:blank").unwrap());
+                    let final_url = doc.url().unwrap_or_else(about_blank);
                     let title = crate::html::document_title(&doc);
                     let _ = tx_done.send(NavigationResult::Ok {
                         nav_id,

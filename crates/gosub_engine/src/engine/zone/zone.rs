@@ -197,7 +197,7 @@ impl Zone {
         services: ZoneServices,
         // Event channel to send events back to the UI
         engine_context: Arc<EngineContext>,
-    ) -> Self {
+    ) -> Result<Self, EngineError> {
         // We generate the color by using the zone id as a seed
         let mut rng = StdRng::seed_from_u64(zone_id.0.as_u64_pair().0);
         let random_color = [
@@ -211,7 +211,7 @@ impl Zone {
         let event_tx = engine_context.event_tx.clone();
         let io_tx = {
             let guard = engine_context.io_tx.read();
-            guard.as_ref().cloned().expect("I/O thread not running")
+            guard.as_ref().cloned().ok_or(EngineError::IoNotStarted)?
         };
         let request_reference_map = engine_context.request_reference_map.clone();
         let compositor = engine_context.compositor.clone();
@@ -247,11 +247,15 @@ impl Zone {
         };
 
         _ = zone.spawn_storage_events_to_engine();
-        zone
+        Ok(zone)
     }
 
     /// Creates a new zone with a random ID and the provided configuration
-    pub fn new(config: ZoneConfig, services: ZoneServices, engine_context: Arc<EngineContext>) -> Self {
+    pub fn new(
+        config: ZoneConfig,
+        services: ZoneServices,
+        engine_context: Arc<EngineContext>,
+    ) -> Result<Self, EngineError> {
         Self::new_with_id(ZoneId::new(), config, services, engine_context)
     }
 

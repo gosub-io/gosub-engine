@@ -651,21 +651,18 @@ impl BrowsingContext {
         self.hover_layout_element = new_lei;
 
         // Build hover fingerprints lazily on first use after a document load.
-        if self.hover_fingerprints.is_none() {
-            self.hover_fingerprints = Some(
-                self.document
-                    .as_ref()
-                    .map(|doc| HoverFingerprints::build(doc))
-                    .unwrap_or_else(HoverFingerprints::empty),
-            );
-        }
+        let fps = self.hover_fingerprints.get_or_insert_with(|| {
+            self.document
+                .as_ref()
+                .map(|doc| HoverFingerprints::build(doc))
+                .unwrap_or_else(HoverFingerprints::empty)
+        });
 
         log::debug!("[hover] leaf → {:?}  lei={:?}", new_leaf, new_lei);
 
         // Walk the ancestor chain once for both link detection and fingerprint matching.
         // Terminate early once both are found.
         let (link_url, new_sensitive) = {
-            let fps = self.hover_fingerprints.as_ref().unwrap();
             let mut link: Option<String> = None;
             let mut sensitive = false;
 
