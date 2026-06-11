@@ -53,10 +53,8 @@ impl NavInflightMap {
             return (rx, handle);
         }
 
-        // Create a new fetch
         let (handle, rx, _new) = fetch_inflight.join_or_start(&req, wants_stream);
 
-        // Insert or update the entry
         self.map.insert(
             nav_key,
             NavInflightEntry {

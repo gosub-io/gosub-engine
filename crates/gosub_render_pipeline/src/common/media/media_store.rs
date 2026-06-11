@@ -89,7 +89,6 @@ impl MediaStore {
     /// type is returned and the failure is cached so subsequent calls with the same URL skip the
     /// network entirely.
     pub fn load_media(&self, src: &str) -> anyhow::Result<MediaId> {
-        // Check if the media from src is already loaded into the cache. If so, return that
         let h = hash_from_string(src);
         let cache = self.cache.read();
         if let Some(media_id) = cache.get(&h) {

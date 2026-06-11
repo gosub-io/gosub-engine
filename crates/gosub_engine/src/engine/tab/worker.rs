@@ -920,7 +920,7 @@ impl TabWorker {
         self.desired_viewport = vp;
 
         if matches!(self.state, TabState::Rendering(_)) {
-            // We are currently rending, so we can cancel the current rendering
+            // A render is already in flight; mark dirty so we re-render once it finishes.
             self.dirty_after_inflight = true;
         } else {
             // Start rendering with the new viewport

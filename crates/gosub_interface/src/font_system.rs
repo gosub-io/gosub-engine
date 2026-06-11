@@ -4,9 +4,7 @@ use std::sync::Arc;
 
 use crate::font::{FontBlob, FontError, FontStyle};
 
-// ---------------------------------------------------------------------------
 // Value types
-// ---------------------------------------------------------------------------
 
 /// CSS font-weight (100–900). Common constants provided for convenience.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -87,9 +85,7 @@ pub struct ResolvedFont {
     pub blob: FontBlob,
 }
 
-// ---------------------------------------------------------------------------
 // Shaping output
-// ---------------------------------------------------------------------------
 
 /// A single positioned glyph.
 ///
@@ -143,9 +139,7 @@ impl ShapedText {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Core trait
-// ---------------------------------------------------------------------------
 
 /// A swappable font back-end.
 ///
@@ -198,9 +192,7 @@ pub trait FontSystem: Send + Sync + 'static {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Config integration
-// ---------------------------------------------------------------------------
 
 /// Marker trait: a config type `C` that carries a `FontSystem`.
 ///

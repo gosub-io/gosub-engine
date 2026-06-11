@@ -41,9 +41,7 @@ mod rendertree_from_engine {
         rt
     }
 
-    // -----------------------------------------------------------------------
     // Basic sanity: a minimal document produces a non-empty tree
-    // -----------------------------------------------------------------------
 
     #[test]
     fn minimal_document_has_root() {
@@ -52,9 +50,7 @@ mod rendertree_from_engine {
         assert!(rt.count_elements() > 0, "render tree must not be empty");
     }
 
-    // -----------------------------------------------------------------------
     // display:none must filter the node and its subtree out of the render tree
-    // -----------------------------------------------------------------------
 
     #[test]
     fn display_none_element_is_excluded() {
@@ -94,9 +90,7 @@ mod rendertree_from_engine {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Invisible structural elements (head, script, style) must be excluded
-    // -----------------------------------------------------------------------
 
     #[test]
     fn head_and_script_are_excluded() {
@@ -125,9 +119,7 @@ mod rendertree_from_engine {
         }
     }
 
-    // -----------------------------------------------------------------------
     // CSS width/height values flow through to the StylePropertyList
-    // -----------------------------------------------------------------------
 
     #[test]
     fn css_dimensions_are_extracted() {
@@ -170,9 +162,7 @@ mod rendertree_from_engine {
         );
     }
 
-    // -----------------------------------------------------------------------
     // html_node_id / body_node_id resolve to the correct elements
-    // -----------------------------------------------------------------------
 
     #[test]
     fn html_and_body_node_ids_are_found() {
@@ -194,9 +184,7 @@ mod rendertree_from_engine {
         assert_eq!(adapter.tag_name(body_id.unwrap()), Some("body".to_string()));
     }
 
-    // -----------------------------------------------------------------------
     // Helper: DFS to find the first element whose `class` attribute matches.
-    // -----------------------------------------------------------------------
     #[allow(dead_code)]
     fn find_node_by_class_dfs(
         doc: &DocumentImpl<Config>,
@@ -216,9 +204,7 @@ mod rendertree_from_engine {
         None
     }
 
-    // -----------------------------------------------------------------------
     // Helper: DFS to find the first element whose `id` attribute matches.
-    // -----------------------------------------------------------------------
     fn find_node_by_id_attr(
         doc: &DocumentImpl<Config>,
         node: gosub_shared::node::NodeId,

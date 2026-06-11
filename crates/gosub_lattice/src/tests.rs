@@ -24,9 +24,7 @@ mod layout_tests {
         };
     }
 
-    // -----------------------------------------------------------------------
     // 1. Basic geometry: 2×2 body-only table, no spacing, no border/padding
-    // -----------------------------------------------------------------------
     #[test]
     fn basic_2x2_positions() {
         // 100px wide, 2 equal auto columns = 50px each, two rows with explicit heights.
@@ -84,9 +82,7 @@ mod layout_tests {
         assert_approx!(ld.size.height, 15.0, "D height = row height");
     }
 
-    // -----------------------------------------------------------------------
     // 2. Border-spacing shifts column x-offsets
-    // -----------------------------------------------------------------------
     #[test]
     fn spacing_shifts_cell_x() {
         // spacing_x=4: gutters are 4px on each side and between columns.
@@ -112,9 +108,7 @@ mod layout_tests {
         assert_approx!(lr.size.width, 44.0, "right cell width");
     }
 
-    // -----------------------------------------------------------------------
     // 3. Explicit column width + auto remainder
-    // -----------------------------------------------------------------------
     #[test]
     fn explicit_column_width() {
         // First row: cell with explicit width=30px.
@@ -140,9 +134,7 @@ mod layout_tests {
         assert_approx!(l1.position.x, 30.0, "col1 x");
     }
 
-    // -----------------------------------------------------------------------
     // 4. Rowspan: cell spans 2 rows, gets combined height
-    // -----------------------------------------------------------------------
     #[test]
     fn rowspan_cell_height() {
         // Row0: spanning cell (rowspan=2) + regular cell h=20
@@ -169,9 +161,7 @@ mod layout_tests {
         assert_approx!(span_layout.position.x, 0.0, "span at col 0");
     }
 
-    // -----------------------------------------------------------------------
     // 5. Colspan: cell spans 2 columns, gets combined width
-    // -----------------------------------------------------------------------
     #[test]
     fn colspan_cell_width() {
         // Row0: header has 2 cells → 2 columns each 50px
@@ -194,9 +184,7 @@ mod layout_tests {
         assert_approx!(wide.position.x, 0.0, "colspan cell starts at col 0");
     }
 
-    // -----------------------------------------------------------------------
     // 6. thead + tbody + tfoot: sections stack vertically
-    // -----------------------------------------------------------------------
     #[test]
     fn thead_tbody_tfoot_stack() {
         // Each section has 1 row with 1 cell of height=10.
@@ -230,9 +218,7 @@ mod layout_tests {
         assert_approx!(g2.position.y, 20.0, "footer group y");
     }
 
-    // -----------------------------------------------------------------------
     // 7. Border + padding widen the effective cell box
-    // -----------------------------------------------------------------------
     #[test]
     fn border_and_padding_in_cell_layout() {
         // Cell with border=1, padding=2 on every side.
@@ -253,9 +239,7 @@ mod layout_tests {
         assert_approx!(l.padding.bottom, 2.0, "padding bottom");
     }
 
-    // -----------------------------------------------------------------------
     // 8. Empty table returns (0, 0) without panicking
-    // -----------------------------------------------------------------------
     #[test]
     fn empty_table_returns_zero() {
         let (mut tree, root) = MockTable::new(100.0).into_tree();

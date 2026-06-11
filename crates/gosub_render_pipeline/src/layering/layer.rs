@@ -136,7 +136,7 @@ impl LayerList {
         None
     }
 
-    // Create a new layer to the list at the given order
+    /// Creates a new layer at the given order and returns its id.
     pub fn new_layer(&self, order: isize) -> LayerId {
         let layer = Layer::new(self.next_layer_id(), order);
         let layer_id = layer.layer_id;

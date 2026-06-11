@@ -274,9 +274,7 @@ mod tests {
         })
     }
 
-    // -----------------------------
     // IoHandle-level tests
-    // -----------------------------
 
     /// IO thread boots and can be globally shut down cleanly.
     #[tokio::test(flavor = "current_thread")]
@@ -313,9 +311,7 @@ mod tests {
             .expect("global shutdown timed out");
     }
 
-    // -----------------------------
     // Router-level tests (spawn/shutdown per-zone without network)
-    // -----------------------------
 
     /// Spawns a per-zone fetcher on first use and shuts it down cleanly.
     #[tokio::test(flavor = "current_thread")]

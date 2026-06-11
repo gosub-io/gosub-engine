@@ -51,9 +51,7 @@ pub fn compute_row_heights<T: TableTree>(tree: &mut T, grid: &SectionGrid<T::Nod
     heights
 }
 
-// ---------------------------------------------------------------------------
 // Helpers shared with compute.rs
-// ---------------------------------------------------------------------------
 
 pub(crate) fn read_border<T: TableTree>(tree: &T, node: T::NodeId) -> BoxEdges {
     BoxEdges {

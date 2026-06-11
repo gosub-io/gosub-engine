@@ -529,5 +529,5 @@ async fn main() {
     scenario_cancellation(&server).await;
     scenario_errors(&server).await;
 
-    println!("\n✓ All scenarios passed");
+    println!("\nAll scenarios passed");
 }

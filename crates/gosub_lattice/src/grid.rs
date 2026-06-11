@@ -112,9 +112,7 @@ pub fn build_section_grid<N: Copy>(rows: &[TableRow<N>]) -> SectionGrid<N> {
     SectionGrid { cells, n_cols, n_rows }
 }
 
-// ---------------------------------------------------------------------------
 // Internal helpers
-// ---------------------------------------------------------------------------
 
 fn decrement_slots(slots: &mut [usize]) {
     for s in slots.iter_mut() {
@@ -136,9 +134,7 @@ fn grow_slots(slots: &mut Vec<usize>, min_len: usize) {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
