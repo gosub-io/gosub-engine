@@ -251,7 +251,9 @@ fn load_whatwg_spec() -> String {
             .unwrap_or(WHATWG_BENCH_BYTES);
         html.truncate(cut);
     }
-    html
+    // Neuter external resource URLs: the parser fetches stylesheets synchronously
+    // during parsing, and a CPU benchmark must not depend on the network.
+    html.replace("https://resources.whatwg.org/", "bench://resources.whatwg.org/")
 }
 
 // ── Benchmark helpers ─────────────────────────────────────────────────────────

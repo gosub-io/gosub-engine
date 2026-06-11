@@ -382,6 +382,32 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         self.on_document_node_mutation_update_named_id(node);
     }
 
+    /// Same as [`Self::on_document_node_mutation_update_named_id`], but looks the node up in the
+    /// arena by id so callers that mutate nodes in place don't need a cloned `NodeImpl`.
+    fn on_document_node_mutation_by_id(&mut self, node_id: NodeId) {
+        let id_attr = match self.arena.node_ref(node_id).and_then(NodeImpl::get_element_data) {
+            Some(data) => data.attributes.get("id").cloned(),
+            None => return, // not an element
+        };
+        match id_attr {
+            Some(id_value) => {
+                if is_valid_id_attribute_value(&id_value) {
+                    if let Entry::Vacant(e) = self.named_id_elements.entry(id_value.clone()) {
+                        e.insert(node_id);
+                        self.named_ids_by_node.entry(node_id).or_default().push(id_value);
+                    }
+                }
+            }
+            None => {
+                if let Some(ids) = self.named_ids_by_node.remove(&node_id) {
+                    for id_value in ids {
+                        self.named_id_elements.remove(&id_value);
+                    }
+                }
+            }
+        }
+    }
+
     fn on_document_node_mutation_update_named_id(&mut self, node: &NodeImpl) {
         let Some(element_data) = node.get_element_data() else {
             return;
@@ -447,28 +473,23 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if parent_id == node_id || self.has_node_id_recursive(node_id, parent_id) {
             return;
         }
-        if let Some(parent_node) = self.arena.node(parent_id) {
-            let mut parent_node = parent_node;
+        if let Some(parent_node) = self.arena.node_ref_mut(parent_id) {
             match position {
-                Some(position) => {
-                    if position > parent_node.children().len() {
-                        parent_node.push(node_id);
-                    } else {
-                        parent_node.insert(node_id, position);
-                    }
+                Some(position) if position <= parent_node.children().len() => {
+                    parent_node.insert(node_id, position);
                 }
-                None => {
+                _ => {
                     parent_node.push(node_id);
                 }
             }
-            self.update_node(parent_node);
+            self.on_document_node_mutation_by_id(parent_id);
         }
-        let Some(mut node) = self.arena.node(node_id) else {
+        let Some(node) = self.arena.node_ref_mut(node_id) else {
             log::warn!("attach_node: node {node_id} not found in arena");
             return;
         };
         node.parent = Some(parent_id);
-        self.update_node(node);
+        self.on_document_node_mutation_by_id(node_id);
     }
 
     pub fn detach_node(&mut self, node_id: NodeId) {
@@ -476,16 +497,14 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             return;
         };
         if let Some(parent_id) = parent {
-            if let Some(parent_node) = self.node_by_id(parent_id) {
-                let mut parent_node = parent_node.clone();
+            if let Some(parent_node) = self.arena.node_ref_mut(parent_id) {
                 parent_node.remove(node_id);
-                self.update_node(parent_node);
+                self.on_document_node_mutation_by_id(parent_id);
             }
 
-            if let Some(node) = self.node_by_id(node_id) {
-                let mut node = node.clone();
+            if let Some(node) = self.arena.node_ref_mut(node_id) {
                 node.set_parent(None);
-                self.update_node(node);
+                self.on_document_node_mutation_by_id(node_id);
             }
         }
     }
@@ -523,14 +542,13 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     pub fn delete_node_by_id(&mut self, node_id: NodeId) {
-        let Some(node) = self.arena.node(node_id) else {
+        let Some(parent) = self.arena.node_ref(node_id).map(NodeImpl::parent_id) else {
             return;
         };
-        if let Some(parent_id) = node.parent_id() {
-            if let Some(parent) = self.node_by_id(parent_id) {
-                let mut parent = parent.clone();
-                parent.remove(node_id);
-                self.update_node(parent);
+        if let Some(parent_id) = parent {
+            if let Some(parent_node) = self.arena.node_ref_mut(parent_id) {
+                parent_node.remove(node_id);
+                self.on_document_node_mutation_by_id(parent_id);
             }
         }
         self.arena.delete_node(node_id);

@@ -33,9 +33,14 @@ fn main() {
     let mut html = String::new();
     decoder.read_to_string(&mut html).expect("failed to decompress");
 
+    // Neuter external resource URLs so the parser doesn't do real network fetches
+    // (sync stylesheet loading) while we measure parse time.
+    let html = html.replace("https://resources.whatwg.org/", "bench://resources.whatwg.org/");
+
     println!("whatwg spec: {} bytes", html.len());
 
-    for run in 1..=3 {
+    let runs: u32 = std::env::args().nth(1).and_then(|a| a.parse().ok()).unwrap_or(3);
+    for run in 1..=runs {
         let start = Instant::now();
         let doc = html_compile::<Config>(&html);
         let elapsed = start.elapsed();
