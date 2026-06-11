@@ -284,7 +284,7 @@ fn parse_unit(input: &str) -> IResult<&str, SyntaxComponent> {
     let (input, value) = float(input)?;
     let (input, suffix) = opt(alpha1).parse(input)?;
 
-    if suffix.is_none() {
+    let Some(suffix) = suffix else {
         return if value == 0.0 {
             // 0 is a special case as it doesn't need a unit
             Ok((
@@ -297,12 +297,12 @@ fn parse_unit(input: &str) -> IResult<&str, SyntaxComponent> {
         } else {
             Err(Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Alpha)))
         };
-    }
+    };
 
     Ok((
         input,
         SyntaxComponent::Value {
-            value: CssValue::Unit(value, suffix.unwrap().to_string()),
+            value: CssValue::Unit(value, suffix.to_string()),
             multipliers: vec![SyntaxComponentMultiplier::Once],
         },
     ))
@@ -512,13 +512,11 @@ fn juxtaposition_or_separated_list(input: &str) -> IResult<&str, Vec<SyntaxCompo
         // Check for a separator
         let result = juxtaseparator(next_input);
 
-        // If errored, we return what we've got
-        if result.is_err() {
-            return Ok((next_input, elements));
-        }
-
+        // If errored, we return what we've got.
         // If found, the sep boolean determines if we are done or not.
-        let (next_input, sep) = result.unwrap();
+        let Ok((next_input, sep)) = result else {
+            return Ok((next_input, elements));
+        };
         if !sep {
             return Ok((next_input, elements));
         }
@@ -560,7 +558,7 @@ fn parse_unit_inner(input: &str) -> IResult<&str, SyntaxComponent> {
     let (input, _) = multispace0(input)?;
     let (input, suffixes) = opt(separated_list0(ws(tag("|")), alpha1)).parse(input)?;
 
-    if suffixes.is_none() {
+    let Some(suffixes) = suffixes else {
         // No suffixes, just a range
         return Ok((
             input,
@@ -571,10 +569,10 @@ fn parse_unit_inner(input: &str) -> IResult<&str, SyntaxComponent> {
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             },
         ));
-    }
+    };
 
     // Convert the suffixes to a vector of strings
-    let suffixes: Vec<String> = suffixes.unwrap().iter().map(|s| (*s).to_string()).collect();
+    let suffixes: Vec<String> = suffixes.iter().map(|s| (*s).to_string()).collect();
     Ok((
         input,
         SyntaxComponent::Unit {

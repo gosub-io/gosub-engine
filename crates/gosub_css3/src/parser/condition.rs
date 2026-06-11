@@ -39,14 +39,14 @@ impl Css3<'_> {
                         }
                     };
 
-                    if term.is_err() {
+                    let Ok(term) = term else {
                         self.consume(TokenType::RParen)?;
                         let res = self.parse_condition(kind.clone())?;
                         self.consume(TokenType::LParen)?;
                         return Ok(res);
-                    }
+                    };
 
-                    list.push(term.unwrap());
+                    list.push(term);
                 }
                 TokenType::Function(_) => {
                     let term = self.parse_feature_function(kind.clone())?;

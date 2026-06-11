@@ -20,6 +20,9 @@ pub mod errors;
 mod functions;
 #[allow(dead_code)]
 pub mod matcher;
+// The as_* accessors panic by contract when called on the wrong node type;
+// callers are expected to check the matching is_* predicate first.
+#[allow(clippy::panic)]
 pub mod node;
 pub mod parser;
 pub mod stylesheet;
@@ -119,6 +122,7 @@ pub fn load_default_useragent_stylesheet() -> CssStylesheet {
     };
 
     let css_data = include_str!("../resources/useragent.css");
+    #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in stylesheet, exercised by every parser test
     Css3::parse_str(css_data, config, CssOrigin::UserAgent, url).expect("Could not parse useragent stylesheet")
 }
 

@@ -249,13 +249,11 @@ impl CssDefinitions {
             return;
         }
 
-        if !self.properties.contains_key(name) {
+        // Resolve the element
+        let Some(mut element) = self.properties.get(name).cloned() else {
             // Property not found to resolve
             return;
-        }
-
-        // Resolve the element
-        let mut element = self.properties.get_mut(name).unwrap().clone();
+        };
         let mut resolved_components = vec![];
         for component in &element.syntax.components {
             let component = self.resolve_component(component, name);
@@ -329,7 +327,11 @@ impl CssDefinitions {
                     };
                 }
 
-                panic!("Unknown datatype encountered: {datatype:?}");
+                #[allow(clippy::panic)]
+                // PANIC-SAFE: datatypes come from the compiled-in definitions; the test suite resolves them all
+                {
+                    panic!("Unknown datatype encountered: {datatype:?}");
+                }
             }
             SyntaxComponent::Group {
                 components,
@@ -379,11 +381,13 @@ pub static CSS_PROPERTIES: LazyLock<indexmap::IndexMap<String, PropertyDefinitio
 pub const DEFINITIONS_VALUES: &str = include_str!("../../resources/definitions/definitions_values.json");
 pub const DEFINITIONS_PROPERTIES: &str = include_str!("../../resources/definitions/definitions_properties.json");
 
+#[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in definitions file, validated by the test suite
 fn get_values<M: Map<String, SyntaxDefinition>>() -> M {
     let json: serde_json::Value = serde_json::from_str(DEFINITIONS_VALUES).expect("JSON was not well-formatted");
     parse_syntax_file(json)
 }
 
+#[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in definitions file, validated by the test suite
 fn get_properties<M: Map<String, PropertyDefinition>>() -> M {
     let json: serde_json::Value = serde_json::from_str(DEFINITIONS_PROPERTIES).expect("JSON was not well-formatted");
     parse_property_file(json)
@@ -455,6 +459,7 @@ impl<K: Eq + Hash, V> Map<K, V> for indexmap::IndexMap<K, V> {
 }
 
 /// Parses a syntax JSON import file
+#[allow(clippy::unwrap_used)] // PANIC-SAFE: parses the compiled-in definitions; validated by the test suite
 fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) -> M {
     let mut syntaxes = M::new();
 
@@ -517,6 +522,7 @@ fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) 
 }
 
 /// Parses the JSON input into a CSS property definitions structure
+#[allow(clippy::unwrap_used, clippy::panic)] // PANIC-SAFE: parses the compiled-in definitions; validated by the test suite
 fn parse_property_file<M: Map<String, PropertyDefinition>>(json: serde_json::Value) -> M {
     let mut properties = M::new();
 

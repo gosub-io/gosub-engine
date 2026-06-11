@@ -62,37 +62,31 @@ impl From<&str> for RgbColor {
         }
         if value.starts_with("rgb(") {
             // Rgb function
-            let rgb = Rgb::from_str(value);
-            if rgb.is_err() {
+            let Ok(rgb) = Rgb::from_str(value) else {
                 return RgbColor::default();
-            }
-            let rgb = rgb.unwrap();
+            };
             return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
         }
         if value.starts_with("rgba(") {
             // Rgba function — alpha from colors_transform is in 0..1 range; scale to 0..255
-            let rgb = Rgb::from_str(value);
-            if rgb.is_err() {
+            let Ok(rgb) = Rgb::from_str(value) else {
                 return RgbColor::default();
-            }
-            let rgb = rgb.unwrap();
+            };
             return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha() * 255.0);
         }
         if value.starts_with("hsl(") {
-            let hsl = Hsl::from_str(value);
-            if hsl.is_err() {
+            let Ok(hsl) = Hsl::from_str(value) else {
                 return RgbColor::default();
-            }
-            let rgb: Rgb = hsl.unwrap().to_rgb();
+            };
+            let rgb: Rgb = hsl.to_rgb();
             return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
         }
         if value.starts_with("hsla(") {
             // hsla() — alpha from colors_transform is in 0..1 range; scale to 0..255
-            let hsl = Hsl::from_str(value);
-            if hsl.is_err() {
+            let Ok(hsl) = Hsl::from_str(value) else {
                 return RgbColor::default();
-            }
-            let rgb: Rgb = hsl.unwrap().to_rgb();
+            };
+            let rgb: Rgb = hsl.to_rgb();
             return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha() * 255.0);
         }
 
@@ -307,7 +301,6 @@ fn parse_hex(value: &str) -> RgbColor {
 fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<i32> {
     const HEX_RADIX: u32 = 16;
     const LINES_TO_SKIP: usize = 1;
-    const EXPECT_MESSAGE: &str = "is_hex has failed us";
     // Get the individual chars from the hex then convert from hex -> decimal
     match hex_size {
         // if each hex char is only 1 char long
@@ -315,7 +308,7 @@ fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<
             hex_value
                 .chars()
                 .skip(LINES_TO_SKIP) // Skip the # at the front
-                .map(|char| i32::from_str_radix(char.to_string().as_str(), HEX_RADIX).expect(EXPECT_MESSAGE)) // Can parse with an unwrap because is_hex made sure it's digits
+                .map(|char| i32::from_str_radix(char.to_string().as_str(), HEX_RADIX).unwrap_or(0)) // is_hex() above guarantees digits
                 .collect::<Vec<i32>>()
         }
         // if each hex char is 2 char long
@@ -331,7 +324,7 @@ fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<
 
             hex_vec
                 .iter()
-                .map(|str| i32::from_str_radix(str, HEX_RADIX).expect(EXPECT_MESSAGE))
+                .map(|str| i32::from_str_radix(str, HEX_RADIX).unwrap_or(0))
                 .collect::<Vec<i32>>()
         }
         _ => {

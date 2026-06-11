@@ -43,17 +43,20 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
         NodeType::Rule { prelude, block } => {
             writeln!(f, "{prefix}[Rule]")?;
             // writeln!(f, "{}  - prelude: ", prefix)?;
-            inner_walk(prelude.as_ref().unwrap(), depth + 1, f)?;
-            // writeln!(f, "{}  - block: ", prefix)?;
-            inner_walk(block.as_ref().unwrap(), depth + 1, f)?;
+            if let Some(prelude) = prelude {
+                inner_walk(prelude, depth + 1, f)?;
+            }
+            if let Some(block) = block {
+                inner_walk(block, depth + 1, f)?;
+            }
         }
         NodeType::AtRule { name, prelude, block } => {
             writeln!(f, "{prefix}[AtRule] name: {name}")?;
-            if prelude.is_some() {
-                inner_walk(prelude.as_ref().unwrap(), depth + 1, f)?;
+            if let Some(prelude) = prelude {
+                inner_walk(prelude, depth + 1, f)?;
             }
-            if block.is_some() {
-                inner_walk(block.as_ref().unwrap(), depth + 1, f)?;
+            if let Some(block) = block {
+                inner_walk(block, depth + 1, f)?;
             }
         }
         NodeType::Declaration {
@@ -105,8 +108,8 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
                 f,
                 "{prefix}[AttributeSelector] name: {name} value: {value} flags: {flags}"
             )?;
-            if matcher.is_some() {
-                inner_walk(matcher.as_ref().unwrap(), depth + 1, f)?;
+            if let Some(matcher) = matcher {
+                inner_walk(matcher, depth + 1, f)?;
             }
         }
         NodeType::ClassSelector { value } => {
@@ -140,8 +143,8 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
             condition,
         } => {
             writeln!(f, "{prefix}[MediaQuery] modifier: {modifier} media_type: {media_type}")?;
-            if condition.is_some() {
-                inner_walk(condition.as_ref().unwrap(), depth + 1, f)?;
+            if let Some(condition) = condition {
+                inner_walk(condition, depth + 1, f)?;
             }
         }
         NodeType::MediaQueryList { media_queries } => {
@@ -158,8 +161,8 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
         }
         NodeType::Feature { kind, name, value } => {
             writeln!(f, "{prefix}[Feature] kind: {kind:?} name: {name}")?;
-            if value.is_some() {
-                inner_walk(value.as_ref().unwrap(), depth + 1, f)?;
+            if let Some(value) = value {
+                inner_walk(value, depth + 1, f)?;
             }
         }
         NodeType::Hash { value } => {
@@ -192,8 +195,8 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
         NodeType::Nth { nth, selector } => {
             writeln!(f, "{prefix}[Nth]")?;
             inner_walk(nth, depth + 1, f)?;
-            if selector.is_some() {
-                inner_walk(selector.as_ref().unwrap(), depth + 1, f)?;
+            if let Some(selector) = selector {
+                inner_walk(selector, depth + 1, f)?;
             }
         }
         NodeType::AnPlusB { a, b } => {
@@ -223,11 +226,11 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
         }
         NodeType::Scope { root, limit } => {
             writeln!(f, "{prefix}[Scope]")?;
-            if root.is_some() {
-                inner_walk(root.as_ref().unwrap(), depth + 1, f)?;
+            if let Some(root) = root {
+                inner_walk(root, depth + 1, f)?;
             }
-            if limit.is_some() {
-                inner_walk(limit.as_ref().unwrap(), depth + 1, f)?;
+            if let Some(limit) = limit {
+                inner_walk(limit, depth + 1, f)?;
             }
         }
         NodeType::LayerList { layers } => {
@@ -261,11 +264,11 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
             inner_walk(left, depth + 1, f)?;
             inner_walk(left_comparison, depth + 1, f)?;
             inner_walk(middle, depth + 1, f)?;
-            if right_comparison.is_some() {
-                inner_walk(right_comparison.as_ref().unwrap(), depth + 1, f)?;
+            if let Some(right_comparison) = right_comparison {
+                inner_walk(right_comparison, depth + 1, f)?;
             }
-            if right.is_some() {
-                inner_walk(right.as_ref().unwrap(), depth + 1, f)?;
+            if let Some(right) = right {
+                inner_walk(right, depth + 1, f)?;
             }
         }
     }

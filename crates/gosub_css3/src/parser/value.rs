@@ -25,11 +25,9 @@ impl Css3<'_> {
                 }
             }
 
-            let child = self.parse_value()?;
-            if child.is_none() {
+            let Some(child) = self.parse_value()? else {
                 break;
-            }
-            let child = child.unwrap();
+            };
             children.push(child);
         }
 

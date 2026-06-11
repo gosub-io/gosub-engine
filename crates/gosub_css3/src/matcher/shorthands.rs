@@ -575,9 +575,7 @@ impl CssDefinitions {
             }
         }
 
-        if syntax.components.len() == 1 {
-            let component = syntax.components.first().unwrap();
-
+        if let [component] = syntax.components.as_slice() {
             match component {
                 SyntaxComponent::Definition { datatype, .. } => {
                     if let Some(d) = self.syntax.get(datatype) {
@@ -731,8 +729,6 @@ mod tests {
                 current_info: None
             }
         );
-
-        dbg!(fix_list);
     }
 
     #[test]
@@ -752,11 +748,7 @@ mod tests {
             &mut fix_list,
         ));
 
-        dbg!(&fix_list);
-
         fix_list.resolve_nested(definitions);
-
-        dbg!(&fix_list);
 
         fix_list = FixList::new();
 
@@ -764,8 +756,6 @@ mod tests {
             &[str!("solid"), CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 0.0))],
             &mut fix_list,
         ));
-
-        dbg!(fix_list);
 
         fix_list = FixList::new();
 
@@ -777,7 +767,5 @@ mod tests {
             ],
             &mut fix_list,
         ));
-
-        dbg!(fix_list);
     }
 }
