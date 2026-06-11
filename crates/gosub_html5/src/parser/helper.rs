@@ -128,6 +128,15 @@ impl<C: HasDocument> Html5Parser<'_, C> {
     }
 
     pub fn insert_text_helper(&mut self, position: InsertionPositionMode<NodeId>, token: &Token) {
+        // Text content to append when merging into an adjacent text node. For text tokens
+        // this borrows the token's text directly instead of going through Display.
+        fn token_text(token: &Token) -> std::borrow::Cow<'_, str> {
+            match token {
+                Token::Text { text, .. } => std::borrow::Cow::Borrowed(text.as_str()),
+                _ => std::borrow::Cow::Owned(token.to_string()),
+            }
+        }
+
         match position {
             InsertionPositionMode::Sibling { parent_id, before_id } => {
                 let children: Vec<NodeId> = self.document.children(parent_id).to_vec();
@@ -141,7 +150,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                         let last_node_id = children[index - 1];
                         if self.document.text_value(last_node_id).is_some() {
                             let cur = self.document.text_value(last_node_id).unwrap_or_default().to_owned();
-                            self.document.set_text_value(last_node_id, &(cur + &token.to_string()));
+                            self.document.set_text_value(last_node_id, &(cur + &token_text(token)));
                             return;
                         }
                         let node_id = self.create_node(token, HTML_NAMESPACE);
@@ -154,7 +163,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 if let Some(last_node_id) = last_child_id {
                     if self.document.text_value(last_node_id).is_some() {
                         let cur = self.document.text_value(last_node_id).unwrap_or_default().to_owned();
-                        self.document.set_text_value(last_node_id, &(cur + &token.to_string()));
+                        self.document.set_text_value(last_node_id, &(cur + &token_text(token)));
                         return;
                     }
                 }
