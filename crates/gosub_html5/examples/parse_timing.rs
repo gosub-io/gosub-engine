@@ -35,6 +35,7 @@ fn main() {
 
     // Neuter external resource URLs so the parser doesn't do real network fetches
     // (sync stylesheet loading) while we measure parse time.
+    #[allow(clippy::disallowed_methods)] // str::replace: one-time setup, not a hot path
     let html = html.replace("https://resources.whatwg.org/", "bench://resources.whatwg.org/");
 
     println!("whatwg spec: {} bytes", html.len());

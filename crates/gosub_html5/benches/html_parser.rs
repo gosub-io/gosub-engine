@@ -253,6 +253,7 @@ fn load_whatwg_spec() -> String {
     }
     // Neuter external resource URLs: the parser fetches stylesheets synchronously
     // during parsing, and a CPU benchmark must not depend on the network.
+    #[allow(clippy::disallowed_methods)] // str::replace: one-time setup, not a hot path
     html.replace("https://resources.whatwg.org/", "bench://resources.whatwg.org/")
 }
 

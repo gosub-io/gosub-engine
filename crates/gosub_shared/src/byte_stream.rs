@@ -117,6 +117,8 @@ pub struct ByteStream {
     char_byte_offsets: Vec<usize>,
     /// char_pos of the first character on each line (index 0 = line 1)
     line_starts: Vec<usize>,
+    /// Cached index into `line_starts` from the last `location()` call (lookup hint)
+    last_line_idx: std::cell::Cell<usize>,
     /// Current position in the decoded chars array
     char_pos: usize,
     /// True when the stream is closed (no more data will be added)
@@ -279,9 +281,17 @@ impl Stream for ByteStream {
     }
 
     fn location(&self) -> Location {
-        // Binary search for the last line that starts at or before char_pos.
-        // line_starts[0] = 0, so partition_point always returns >= 1.
-        let idx = self.line_starts.partition_point(|&s| s <= self.char_pos) - 1;
+        // Find the last line that starts at or before char_pos. The stream advances
+        // mostly monotonically, so start from the cached line index of the previous
+        // call and walk from there — amortized O(1) instead of a binary search per call.
+        let mut idx = self.last_line_idx.get().min(self.line_starts.len() - 1);
+        while idx > 0 && self.line_starts[idx] > self.char_pos {
+            idx -= 1;
+        }
+        while idx + 1 < self.line_starts.len() && self.line_starts[idx + 1] <= self.char_pos {
+            idx += 1;
+        }
+        self.last_line_idx.set(idx);
         Location {
             line: idx + 1,
             column: self.char_pos - self.line_starts[idx] + 1,
@@ -304,6 +314,7 @@ impl ByteStream {
             chars: Vec::new(),
             char_byte_offsets: Vec::new(),
             line_starts: vec![0],
+            last_line_idx: std::cell::Cell::new(0),
             closed: false,
             encoding,
         }

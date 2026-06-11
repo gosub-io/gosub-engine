@@ -583,7 +583,8 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         false
     }
 
-    pub fn nodes(&self) -> &HashMap<NodeId, NodeImpl> {
+    /// Iterate over all registered nodes with their ids.
+    pub fn nodes(&self) -> impl Iterator<Item = (NodeId, &NodeImpl)> {
         self.arena.nodes()
     }
 
