@@ -2021,7 +2021,9 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::CharacterReferenceInAttributeValue => {
-                    panic!("state {:?} not implemented", self.state);
+                    // Character references in attribute values are handled inline by the
+                    // attribute-value states; nothing ever transitions into this state.
+                    unreachable!("state {:?} is never entered", self.state);
                 }
             }
         }
@@ -2193,7 +2195,10 @@ impl<'stream> Tokenizer<'stream> {
 
     /// Set `is_closing_tag` in current token
     fn set_is_closing_in_current_token(&mut self, is_closing: bool) {
-        match &mut self.current_token.as_mut().unwrap() {
+        let Some(token) = self.current_token.as_mut() else {
+            return;
+        };
+        match token {
             Token::EndTag { .. } => {
                 self.stream_prev();
                 self.parse_error(ParserError::EndTagWithTrailingSolidus, self.get_location());
@@ -2208,7 +2213,7 @@ impl<'stream> Tokenizer<'stream> {
 
     /// Set `force_quirk` mode in current token
     fn set_quirks_mode(&mut self, quirky: bool) {
-        if let Token::DocType { force_quirks, .. } = &mut self.current_token.as_mut().unwrap() {
+        if let Some(Token::DocType { force_quirks, .. }) = self.current_token.as_mut() {
             *force_quirks = quirky;
         }
     }
@@ -2216,7 +2221,7 @@ impl<'stream> Tokenizer<'stream> {
     /// Adds a new attribute to the current token
     #[allow(dead_code)]
     fn set_add_attribute_to_current_token(&mut self, name: &str, value: &str) {
-        if let Token::StartTag { attributes, .. } = &mut self.current_token.as_mut().unwrap() {
+        if let Some(Token::StartTag { attributes, .. }) = self.current_token.as_mut() {
             attributes.insert(name.into(), value.into());
         }
 
@@ -2226,7 +2231,10 @@ impl<'stream> Tokenizer<'stream> {
     /// Sets the given name into the current token
     #[allow(dead_code)]
     fn set_name_in_current_token(&mut self, new_name: String) -> Result<()> {
-        match &mut self.current_token.as_mut().expect("current token") {
+        let Some(token) = self.current_token.as_mut() else {
+            return Err(Error::Parse("trying to set the name without a current token".into()).into());
+        };
+        match token {
             Token::StartTag { name, .. } | Token::EndTag { name, .. } => {
                 *name = new_name;
             }
@@ -2254,14 +2262,14 @@ impl<'stream> Tokenizer<'stream> {
 
     /// This method will add current generated attributes to the current (start) token if needed.
     fn add_stored_attributes_to_current_token(&mut self) {
-        if self.current_token.is_none() {
-            return;
-        }
         if self.current_attrs.is_empty() {
             return;
         }
+        let Some(token) = self.current_token.as_mut() else {
+            return;
+        };
 
-        match self.current_token.as_mut().expect("current token") {
+        match token {
             Token::EndTag { .. } => {
                 // Error is one char before this one. Unread, fetch location and read again
                 self.stream_prev();

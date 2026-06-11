@@ -378,10 +378,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     fn on_document_node_mutation_update_named_id(&mut self, node: &NodeImpl) {
-        if !node.is_element_node() {
+        let Some(element_data) = node.get_element_data() else {
             return;
-        }
-        let element_data = node.get_element_data().unwrap();
+        };
         if let Some(id_value) = element_data.attributes.get("id") {
             if is_valid_id_attribute_value(id_value) {
                 if let Entry::Vacant(e) = self.named_id_elements.entry(id_value.clone()) {
@@ -410,6 +409,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
 
     /// Returns the root node reference
     pub fn get_root(&self) -> &NodeImpl {
+        #[allow(clippy::expect_used)] // PANIC-SAFE: the root node is created in Document::new()
         self.arena.node_ref(NodeId::root()).expect("Root node not found")
     }
 
@@ -417,8 +417,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     pub fn register_node(&mut self, mut node: NodeImpl) -> NodeId {
         let node_id = self.arena.get_next_id();
         node.set_id(node_id);
-        if node.is_element_node() {
-            let element_data = node.get_element_data_mut().unwrap();
+        if let Some(element_data) = node.get_element_data_mut() {
             element_data.node_id = Some(node_id);
         }
         self.on_document_node_mutation(&node);
@@ -454,21 +453,30 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             }
             self.update_node(parent_node);
         }
-        let mut node = self.arena.node(node_id).unwrap();
+        let Some(mut node) = self.arena.node(node_id) else {
+            log::warn!("attach_node: node {node_id} not found in arena");
+            return;
+        };
         node.parent = Some(parent_id);
         self.update_node(node);
     }
 
     pub fn detach_node(&mut self, node_id: NodeId) {
-        let parent = self.node_by_id(node_id).expect("node not found").parent_id();
+        let Some(parent) = self.node_by_id(node_id).map(NodeImpl::parent_id) else {
+            return;
+        };
         if let Some(parent_id) = parent {
-            let mut parent_node = self.node_by_id(parent_id).expect("parent node not found").clone();
-            parent_node.remove(node_id);
-            self.update_node(parent_node);
+            if let Some(parent_node) = self.node_by_id(parent_id) {
+                let mut parent_node = parent_node.clone();
+                parent_node.remove(node_id);
+                self.update_node(parent_node);
+            }
 
-            let mut node = self.node_by_id(node_id).expect("node not found").clone();
-            node.set_parent(None);
-            self.update_node(node);
+            if let Some(node) = self.node_by_id(node_id) {
+                let mut node = node.clone();
+                node.set_parent(None);
+                self.update_node(node);
+            }
         }
     }
 
@@ -479,7 +487,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if !node.registered {
             return;
         }
-        if node.parent.is_some() && node.parent.unwrap() == parent_id {
+        if node.parent == Some(parent_id) {
             return;
         }
         self.detach_node(node_id);
@@ -505,12 +513,15 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     pub fn delete_node_by_id(&mut self, node_id: NodeId) {
-        let node = self.arena.node(node_id).unwrap();
-        let parent_id = node.parent_id();
-        if let Some(parent_id) = parent_id {
-            let mut parent = self.node_by_id(parent_id).unwrap().clone();
-            parent.remove(node_id);
-            self.update_node(parent);
+        let Some(node) = self.arena.node(node_id) else {
+            return;
+        };
+        if let Some(parent_id) = node.parent_id() {
+            if let Some(parent) = self.node_by_id(parent_id) {
+                let mut parent = parent.clone();
+                parent.remove(node_id);
+                self.update_node(parent);
+            }
         }
         self.arena.delete_node(node_id);
     }
@@ -637,7 +648,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
 
         let len = node.children.len();
         for (i, child_id) in node.children.iter().enumerate() {
-            let child_node = self.node_by_id(*child_id).expect("Child not found");
+            let Some(child_node) = self.node_by_id(*child_id) else {
+                continue;
+            };
             self.print_tree(child_node, buffer.clone(), i == len - 1, f);
         }
     }
@@ -705,7 +718,9 @@ fn internal_visit<C: HasDocument<Document = DocumentImpl<C>>>(
 ) {
     visitor.document_enter(node);
     for &child_id in node.children() {
-        let child = doc.node_by_id(child_id).unwrap();
+        let Some(child) = doc.node_by_id(child_id) else {
+            continue;
+        };
         internal_visit(doc, child, visitor);
     }
     visitor.document_leave(node);

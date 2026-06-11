@@ -10,6 +10,9 @@ pub mod dom;
 pub mod errors;
 pub mod node;
 pub mod parser;
+// Test-fixture harness for the WHATWG html5lib test suites; panicking on a
+// malformed fixture is the desired behavior there, as in any test code.
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 pub mod testing;
 pub mod tokenizer;
 #[allow(dead_code)]
