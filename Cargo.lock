@@ -3263,6 +3263,7 @@ version = "0.1.1"
 dependencies = [
  "cow-utils",
  "criterion",
+ "flate2",
  "gosub_css3",
  "gosub_interface",
  "gosub_net",

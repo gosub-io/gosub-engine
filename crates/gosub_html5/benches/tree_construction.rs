@@ -25,9 +25,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Tree construction");
     group.significance_level(0.1).sample_size(500);
 
-    // Careful about reading files inside the closure
-    let filenames = Some(&["tests1.dat"][..]);
-    let fixtures = tree_construction::fixture::read_fixtures(filenames).expect("problem loading fixtures");
+    let fixtures = tree_construction::fixture::read_fixtures(None).expect("problem loading fixtures");
 
     let mut harness = Harness::new();
 
