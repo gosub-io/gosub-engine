@@ -60,9 +60,9 @@ pub struct Tokenizer<'tokens> {
 }
 
 impl Tokenizer<'_> {
-    pub(crate) fn insert_tokens_at_queue_start(&mut self, first_tokens: &[Token]) {
-        let mut new_queue = first_tokens.to_owned();
-        new_queue.extend(self.token_queue.iter().cloned());
+    pub(crate) fn insert_tokens_at_queue_start(&mut self, first_tokens: Vec<Token>) {
+        let mut new_queue = first_tokens;
+        new_queue.append(&mut self.token_queue);
 
         self.token_queue = new_queue;
     }
@@ -72,13 +72,13 @@ impl Tokenizer<'_> {
 /// by the tokenizer in certain cases. See <https://github.com/gosub-browser/gosub-engine/issues/230> for
 /// more information and how we should refactor this properly.
 pub struct ParserData {
-    pub adjusted_node_namespace: String,
+    pub adjusted_node_namespace: std::borrow::Cow<'static, str>,
 }
 
 impl Default for ParserData {
     fn default() -> Self {
         Self {
-            adjusted_node_namespace: HTML_NAMESPACE.to_string(),
+            adjusted_node_namespace: std::borrow::Cow::Borrowed(HTML_NAMESPACE),
         }
     }
 }
@@ -103,7 +103,7 @@ impl Default for Options {
 /// Convert a character to lower case value (assumes character is in A-Z range)
 macro_rules! to_lowercase {
     ($c:expr) => {
-        $c.to_lowercase().next().unwrap()
+        $c.to_ascii_lowercase()
     };
 }
 
@@ -2125,19 +2125,16 @@ impl<'stream> Tokenizer<'stream> {
     fn emit_token(&mut self, token: Token) {
         // Save the start token name if we are pushing it. This helps us in detecting matching tags.
         if let Token::StartTag { name, .. } = &token {
-            self.last_start_token = String::from(name);
+            self.last_start_token.clear();
+            self.last_start_token.push_str(name);
         }
 
         // If there is any consumed data, emit this first as a text token
         if self.has_consumed_data() {
-            let value = self.get_consumed_str().to_string();
-
             self.token_queue.push(Token::Text {
-                text: value.to_string(),
+                text: std::mem::take(&mut self.consumed),
                 location: self.last_token_location,
             });
-
-            self.clear_consume_buffer();
         }
 
         self.token_queue.push(token);
@@ -2181,11 +2178,6 @@ impl<'stream> Tokenizer<'stream> {
     #[must_use]
     pub fn has_consumed_data(&self) -> bool {
         !self.consumed.is_empty()
-    }
-
-    /// Clears the current consume buffer
-    pub(crate) fn clear_consume_buffer(&mut self) {
-        self.consumed.clear();
     }
 
     /// Creates a parser log error message
@@ -2252,12 +2244,14 @@ impl<'stream> Tokenizer<'stream> {
     /// Saves the current attribute name and value onto the `current_attrs` stack, if there is anything to store
     fn store_and_clear_current_attribute(&mut self) {
         if !self.current_attr_name.is_empty() && !self.current_attrs.contains_key(&self.current_attr_name) {
-            self.current_attrs
-                .insert(self.current_attr_name.clone(), self.current_attr_value.clone());
+            self.current_attrs.insert(
+                std::mem::take(&mut self.current_attr_name),
+                std::mem::take(&mut self.current_attr_value),
+            );
+        } else {
+            self.current_attr_name.clear();
+            self.current_attr_value.clear();
         }
-
-        self.current_attr_name = String::new();
-        self.current_attr_value = String::new();
     }
 
     /// This method will add current generated attributes to the current (start) token if needed.
@@ -2277,10 +2271,7 @@ impl<'stream> Tokenizer<'stream> {
                 self.stream_next_n(1);
             }
             Token::StartTag { attributes, .. } => {
-                for (key, value) in &self.current_attrs {
-                    attributes.insert(key.clone(), value.clone());
-                }
-                self.current_attrs = HashMap::new();
+                attributes.extend(std::mem::take(&mut self.current_attrs));
             }
             _ => {}
         }

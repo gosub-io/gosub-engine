@@ -1,5 +1,6 @@
 use core::cell::RefCell;
 use core::option::Option::Some;
+use std::borrow::Cow;
 use std::collections::HashMap;
 #[cfg(all(feature = "debug_parser", test))]
 use std::io::Write;
@@ -178,8 +179,6 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     insertion_point: Option<usize>,
     /// Ignore when next token is LF
     ignore_lf: bool,
-    /// Sometimes tokens needs to be split up (and it seems the tokenizer cannot do this?)
-    token_queue: Vec<Token>,
     /// When true, the parser is finished and should not consume more tokens (there aren't any)
     parser_finished: bool,
     /// Context node id for fragment parsing
@@ -302,7 +301,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             parser_pause_flag: false,
             insertion_point: None,
             ignore_lf: false,
-            token_queue: vec![],
             parser_finished: false,
             context_node_id: None,
         }
@@ -341,7 +339,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             parser_pause_flag: false,
             insertion_point: None,
             ignore_lf: false,
-            token_queue: vec![],
             parser_finished: false,
             context_node_id: None,
         }
@@ -496,7 +493,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         match &current_token {
             Token::Text { text: value, .. } if current_token.is_mixed() => {
                 let tokens = self.split_mixed_token(value);
-                self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                self.tokenizer.insert_tokens_at_queue_start(tokens);
                 return;
             }
             Token::Text { .. } if current_token.is_null() => {
@@ -699,7 +696,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 match &current_token {
                     Token::Text { text: value, .. } if current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
                         return;
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
@@ -777,7 +774,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     }
                     Token::Text { text: value, .. } if current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
                         return;
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
@@ -820,7 +817,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 match &current_token {
                     Token::Text { text: value, .. } if current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
                         return;
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
@@ -887,7 +884,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     }
                     Token::Text { text: value, .. } if current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
                         return;
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
@@ -937,7 +934,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 match &current_token {
                     Token::Text { text: value, .. } if current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
                         return;
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
@@ -1085,7 +1082,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 match &current_token {
                     Token::Text { text: value, .. } if current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
                     Token::Text { .. } if current_token.is_null() => {
                         self.parse_error("null character not allowed in in table text insertion mode");
@@ -1196,7 +1193,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 match &current_token {
                     Token::Text { text: value, .. } if current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
                         self.insert_text_element(&current_token);
@@ -1533,7 +1530,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 match &current_token {
                     Token::Text { text: value, .. } if current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
                         self.handle_in_body(&current_token);
@@ -1572,7 +1569,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 match &current_token {
                     Token::Text { text: value, .. } if current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
                         self.insert_text_element(&current_token);
@@ -1632,7 +1629,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 match &current_token {
                     Token::Text { text: value, .. } if current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
                         self.insert_text_element(&current_token);
@@ -1671,7 +1668,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 }
                 Token::Text { text: value, .. } if current_token.is_mixed() => {
                     let tokens = self.split_mixed_token(value);
-                    self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                    self.tokenizer.insert_tokens_at_queue_start(tokens);
                 }
                 Token::Text { .. } if current_token.is_empty_or_white() => {
                     self.handle_in_body(&current_token);
@@ -1698,7 +1695,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     }
                     Token::Text { text: value, .. } if current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
                     Token::Text { .. } if current_token.is_empty_or_white() => {
                         self.handle_in_body(&current_token);
@@ -2149,7 +2146,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         match token {
             Token::Text { text: value, .. } if token.is_mixed_null() => {
                 let tokens = self.split_mixed_token_null(value);
-                self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                self.tokenizer.insert_tokens_at_queue_start(tokens);
             }
             Token::Text { .. } if token.is_null() => {
                 self.parse_error("null character not allowed in in body insertion mode");
@@ -2967,7 +2964,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         match token {
             Token::Text { text: value, .. } if token.is_mixed() => {
                 let tokens = self.split_mixed_token(value);
-                self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                self.tokenizer.insert_tokens_at_queue_start(tokens);
                 return;
             }
             Token::Text { .. } if token.is_empty_or_white() => {
@@ -3365,7 +3362,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         match token {
             Token::Text { text: value, .. } if token.is_mixed() => {
                 let tokens = self.split_mixed_token(value);
-                self.tokenizer.insert_tokens_at_queue_start(&tokens);
+                self.tokenizer.insert_tokens_at_queue_start(tokens);
             }
             Token::Text { .. } if token.is_null() => {
                 self.parse_error("null character not allowed in in select insertion mode");
@@ -3802,14 +3799,18 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
     fn parser_data(&self) -> ParserData {
         if self.open_elements.is_empty() {
-            return ParserData {
-                adjusted_node_namespace: HTML_NAMESPACE.to_string(),
-            };
+            return ParserData::default();
         }
 
         let acn_id = self.get_adjusted_current_node_id();
+        let namespace = match self.document.namespace(acn_id).unwrap_or(HTML_NAMESPACE) {
+            HTML_NAMESPACE => Cow::Borrowed(HTML_NAMESPACE),
+            MATHML_NAMESPACE => Cow::Borrowed(MATHML_NAMESPACE),
+            SVG_NAMESPACE => Cow::Borrowed(SVG_NAMESPACE),
+            other => Cow::Owned(other.to_string()),
+        };
         ParserData {
-            adjusted_node_namespace: self.document.namespace(acn_id).unwrap_or(HTML_NAMESPACE).to_string(),
+            adjusted_node_namespace: namespace,
         }
     }
 
@@ -3817,35 +3818,12 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// it starts with one or more whitespaces, the token is split into 2 tokens: the whitespace part
     /// and the remainder.
     fn fetch_next_token(&mut self) -> Token {
-        // If there are no tokens to fetch, fetch the next token from the tokenizer
-        if self.token_queue.is_empty() {
-            let token = match self.tokenizer.next_token(self.parser_data()) {
-                Ok(t) => t,
-                Err(_) => {
-                    return Token::Eof {
-                        location: Location::default(),
-                    }
-                }
-            };
-
-            if let Token::Text { text: value, location } = token {
-                self.token_queue.push(Token::Text { text: value, location });
-                // for c in value.chars() {
-                //     self.token_queue.push(Token::Text(c.to_string()));
-                // }
-            } else {
-                // Simply return the token
-                return token;
-            }
-        }
-
-        if self.token_queue.is_empty() {
-            // Cannot happen: the branch above either queued a token or returned early.
-            return Token::Eof {
+        match self.tokenizer.next_token(self.parser_data()) {
+            Ok(token) => token,
+            Err(_) => Token::Eof {
                 location: Location::default(),
-            };
+            },
         }
-        self.token_queue.remove(0)
     }
 
     /// Returns the NodeId of the adjusted current node.
