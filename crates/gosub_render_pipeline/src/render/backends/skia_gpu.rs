@@ -125,12 +125,14 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
                         paint.set_anti_alias(true);
                         canvas.draw_str(text.as_str(), (*x, *y), &font, &paint);
                     }
-                    DisplayItem::Blit { x, y, w, h, data } => {
+                    DisplayItem::Blit { x, y, w, h, data, format } => {
                         let stride = (*w * 4) as usize;
                         if data.len() < *h as usize * stride {
                             log::warn!("SkiaGpuBackend: Blit data too short");
                             continue;
                         }
+                        // BGRA8888 wants [B, G, R, A]; convert (no-op when already in that order).
+                        let data = format.to_argb32(data);
                         let info = ImageInfo::new(
                             (*w as i32, *h as i32),
                             skia_safe::ColorType::BGRA8888,
@@ -138,7 +140,7 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
                             None,
                         );
                         if let Some(image) =
-                            skia_safe::images::raster_from_data(&info, skia_safe::Data::new_copy(data), stride)
+                            skia_safe::images::raster_from_data(&info, skia_safe::Data::new_copy(&data), stride)
                         {
                             canvas.draw_image(&image, (*x, *y), None);
                         }

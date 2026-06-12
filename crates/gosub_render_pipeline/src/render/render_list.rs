@@ -166,7 +166,7 @@ pub enum DisplayItem {
         max_width: Option<f32>,
     },
 
-    /// Blit a rasterized tile at `(x, y)`. Pixels are premultiplied ARgb32;
+    /// Blit a rasterized tile at `(x, y)`. Pixels are premultiplied;
     /// stride = `w * 4` bytes. Produced by the pipeline rasterizer.
     Blit {
         /// Top-left x position in page coordinates.
@@ -177,8 +177,10 @@ pub enum DisplayItem {
         w: u32,
         /// Tile height in pixels.
         h: u32,
-        /// Raw ARgb32 pixel data (length = `h * w * 4`). Arc-shared from the rasterizer output.
+        /// Raw premultiplied pixel data (length = `h * w * 4`). Arc-shared from the rasterizer output.
         data: std::sync::Arc<Vec<u8>>,
+        /// In-memory byte order of `data`, set by the rasterizer that produced it.
+        format: crate::render::backend::PixelFormat,
     },
 }
 

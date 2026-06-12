@@ -33,4 +33,6 @@ pub struct Texture {
     pub width: usize,
     pub height: usize,
     pub data: std::sync::Arc<Vec<u8>>,
+    /// In-memory byte order of `data`, set by the rasterizer that produced it.
+    pub format: crate::render::backend::PixelFormat,
 }

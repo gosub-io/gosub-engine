@@ -167,16 +167,11 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                         (*color).into(),
                     );
                 }
-                DisplayItem::Blit { x, y, w, h, data } => {
-                    // Cairo emits premultiplied ARgb32; in-memory bytes are [B, G, R, A] on
-                    // little-endian. peniko ImageFormat::Rgba8 expects [R, G, B, A], so swap.
-                    let mut rgba = vec![0u8; data.len()];
-                    for (dst, src) in rgba.chunks_exact_mut(4).zip(data.chunks_exact(4)) {
-                        dst[0] = src[2];
-                        dst[1] = src[1];
-                        dst[2] = src[0];
-                        dst[3] = src[3];
-                    }
+                DisplayItem::Blit { x, y, w, h, data, format } => {
+                    // peniko ImageFormat::Rgba8 expects [R, G, B, A]. The tile may be premultiplied
+                    // ARGB32 (Cairo/Skia, [B, G, R, A]) or already RGBA (Vello); `to_rgba` swaps only
+                    // when needed, so colors are correct regardless of which rasterizer produced it.
+                    let rgba = format.to_rgba(data).into_owned();
                     let blob = vello::peniko::Blob::<u8>::new(Arc::new(rgba));
                     let image = ImageData {
                         data: blob,

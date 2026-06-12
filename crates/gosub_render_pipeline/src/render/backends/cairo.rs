@@ -82,7 +82,7 @@ impl RenderBackend for CairoBackend {
                         cr.move_to(*x as f64, *y as f64);
                         _ = cr.show_text(text);
                     }
-                    DisplayItem::Blit { x, y, w, h, data } => {
+                    DisplayItem::Blit { x, y, w, h, data, format } => {
                         let stride = (*w * 4) as i32;
                         let expected_len = (*h as usize) * (stride as usize);
                         if data.len() < expected_len {
@@ -93,8 +93,11 @@ impl RenderBackend for CairoBackend {
                             );
                             continue;
                         }
-                        // SAFETY: `data` is borrowed from the cached RenderList for the
-                        // duration of this closure; Cairo reads (never writes) source data.
+                        // Cairo's ARgb32 wants [B, G, R, A]; convert (no-op when the tile is already
+                        // in that order) so colors are correct whatever rasterizer produced the tile.
+                        let data = format.to_argb32(data);
+                        // SAFETY: `data` is borrowed for the duration of this closure;
+                        // Cairo reads (never writes) source data.
                         let img_surface = unsafe {
                             cairo::ImageSurface::create_for_data_unsafe(
                                 data.as_ptr() as *mut u8,

@@ -340,7 +340,7 @@ fn main() {
         tiles.len()
     );
 
-    // Fill with opaque white, then alpha-blend each tile (premultiplied RGBA8 from Vello).
+    // Fill with opaque white, then alpha-blend each tile (premultiplied).
     let mut pixels = vec![255u8; (page_w * page_h * 4) as usize];
 
     for tile in tiles.iter() {
@@ -351,7 +351,11 @@ fn main() {
         }
         let tw = tile.width.min(page_w - tx) as usize;
         let th = tile.height.min(page_h - ty) as usize;
-        let data = &tile.data;
+        // Normalize to [R, G, B, A] regardless of which rasterizer produced the tile.
+        // Under `cargo build --all`, Cargo feature unification can select the Cairo
+        // rasterizer (ARGB32 / [B, G, R, A]) even though this binary asks for Vello;
+        // honoring the tagged format keeps colors correct either way.
+        let data = tile.format.to_rgba(&tile.data);
 
         for row in 0..th {
             for col in 0..tw {

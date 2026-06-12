@@ -47,8 +47,11 @@ pub fn compose_layer(scene: &mut vello::Scene, layer_id: LayerId, state: &Browse
             continue;
         };
 
+        // peniko ImageFormat::Rgba8 expects [R, G, B, A]; convert from the tile's tagged
+        // byte order (no-op when the rasterizer already produced RGBA).
+        let rgba = texture.format.to_rgba(&texture.data).into_owned();
         let surface = ImageData {
-            data: Blob::from(texture.data.as_ref().clone()),
+            data: Blob::from(rgba),
             format: ImageFormat::Rgba8,
             alpha_type: ImageAlphaType::AlphaPremultiplied,
             width: texture.width as u32,

@@ -81,7 +81,12 @@ impl Rasterable for SkiaRasterizer {
         };
         let pixels = bytes.to_vec();
 
-        let texture_id = texture_store.add(width as usize, height as usize, pixels);
+        let texture_id = texture_store.add(
+            width as usize,
+            height as usize,
+            pixels,
+            gosub_render_pipeline::render::backend::PixelFormat::PreMulArgb32,
+        );
 
         Some(texture_id)
     }

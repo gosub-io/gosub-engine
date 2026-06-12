@@ -309,8 +309,11 @@ impl BrowserApp {
                     let dst_y0 = screen_y.max(0) as usize;
                     let tw = tw as usize;
                     let th = th as usize;
+                    // Normalize to [R, G, B, A] regardless of which rasterizer produced the tile
+                    // (Cargo feature unification may select Cairo's ARGB32 over Vello's RGBA).
+                    let tile_data = tile.format.to_rgba(&tile.data);
                     let tile_u32 =
-                        unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
+                        unsafe { std::slice::from_raw_parts(tile_data.as_ptr() as *const u32, tile_data.len() / 4) };
                     for tile_row in tile_start_row..th {
                         let dst_y = dst_y0 + (tile_row - tile_start_row);
                         if dst_y >= h {
@@ -326,7 +329,7 @@ impl BrowserApp {
                     }
                 }
 
-                // Vello tiles are Rgba8Unorm (byte order R, G, B, A) — no channel swap needed.
+                // `buf` now holds [R, G, B, A] bytes (normalized per-tile above).
                 let mut rgba = Vec::with_capacity(w * h * 4);
                 for &px in &buf {
                     let r = (px & 0xFF) as u8;

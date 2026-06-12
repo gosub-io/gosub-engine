@@ -48,10 +48,51 @@ pub enum PresentMode {
     Immediate,
 }
 
-#[derive(Clone, Copy, Debug)]
+/// In-memory byte order of a rasterized tile / pixel buffer.
+///
+/// Both variants are premultiplied; they differ only in channel byte order, so
+/// converting between them is a red/blue swap. A buffer is tagged with its format
+/// at the point of production (the rasterizer) so consumers never have to assume an
+/// order based on which backend feature happens to be compiled in. This matters
+/// because Cargo feature unification (e.g. `cargo build --all`) can enable several
+/// `backend_*` features at once, leaving a single rasterizer to win — its output
+/// must be self-describing or colors silently swap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PixelFormat {
+    /// Little-endian premultiplied ARGB32 — bytes are `[B, G, R, A]`. Produced by
+    /// the Cairo and Skia rasterizers (Cairo `Format::ARgb32`, Skia n32).
     PreMulArgb32,
+    /// Premultiplied RGBA8 — bytes are `[R, G, B, A]`. Produced by the Vello rasterizer.
     Rgba8,
+}
+
+impl PixelFormat {
+    /// Returns `data` with bytes in `[R, G, B, A]` order, copying (and swapping R/B)
+    /// only when the source is not already RGBA.
+    pub fn to_rgba<'a>(self, data: &'a [u8]) -> std::borrow::Cow<'a, [u8]> {
+        match self {
+            PixelFormat::Rgba8 => std::borrow::Cow::Borrowed(data),
+            PixelFormat::PreMulArgb32 => std::borrow::Cow::Owned(swap_rb(data)),
+        }
+    }
+
+    /// Returns `data` with bytes in `[B, G, R, A]` order (little-endian ARGB32),
+    /// copying (and swapping R/B) only when the source is not already in that order.
+    pub fn to_argb32<'a>(self, data: &'a [u8]) -> std::borrow::Cow<'a, [u8]> {
+        match self {
+            PixelFormat::PreMulArgb32 => std::borrow::Cow::Borrowed(data),
+            PixelFormat::Rgba8 => std::borrow::Cow::Owned(swap_rb(data)),
+        }
+    }
+}
+
+/// Swap the red and blue channels of a tightly-packed 4-bytes-per-pixel buffer.
+fn swap_rb(data: &[u8]) -> Vec<u8> {
+    let mut out = data.to_vec();
+    for px in out.chunks_exact_mut(4) {
+        px.swap(0, 2);
+    }
+    out
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -72,6 +113,8 @@ pub struct CachedTile {
     pub width: u32,
     pub height: u32,
     pub data: Arc<Vec<u8>>,
+    /// In-memory byte order of `data`, set by the rasterizer that produced it.
+    pub format: PixelFormat,
 }
 
 /// Safety: `ExternalHandle` can be sent between threads, but not shared.

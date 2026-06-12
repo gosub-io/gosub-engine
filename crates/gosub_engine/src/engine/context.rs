@@ -181,6 +181,8 @@ struct BakedTile {
     width: u32,
     height: u32,
     data: Arc<Vec<u8>>,
+    /// In-memory byte order of `data`, set by the rasterizer that produced it.
+    format: gosub_render_pipeline::render::backend::PixelFormat,
 }
 
 /// Key that uniquely identifies a tile's content for cache lookup.
@@ -1084,8 +1086,12 @@ fn pipeline_build_cache(
             use gosub_render_pipeline::common::media::MediaStore;
             use gosub_render_pipeline::common::texture_store::TextureStore;
             use gosub_render_pipeline::rasterizer::Rasterable;
+            use gosub_render_pipeline::render::backend::PixelFormat;
             use gosub_render_pipeline::tiler::TileId;
             use rayon::prelude::*;
+
+            // Cairo and Skia both emit premultiplied ARGB32 (BGRA byte order).
+            let tile_format = PixelFormat::PreMulArgb32;
 
             let t = Instant::now();
             let ts6 = timing_start!("pipeline.rasterize");
@@ -1121,6 +1127,7 @@ fn pipeline_build_cache(
                             width: w,
                             height: h,
                             data: Arc::clone(data),
+                            format: tile_format,
                         };
                         return (tile_id, Some(baked), None);
                     }
@@ -1136,6 +1143,7 @@ fn pipeline_build_cache(
                             width: tex.width as u32,
                             height: tex.height as u32,
                             data: Arc::clone(&tex.data),
+                            format: tex.format,
                         });
 
                     let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, Arc::clone(&b.data))));
@@ -1253,6 +1261,7 @@ fn pipeline_build_cache(
                             width: tex.width as u32,
                             height: tex.height as u32,
                             data: Arc::clone(&tex.data),
+                            format: tex.format,
                         });
                     }
                 }
@@ -1304,6 +1313,7 @@ fn pipeline_build_cache(
                 width: t.width,
                 height: t.height,
                 data: Arc::clone(&t.data),
+                format: t.format,
             })
             .collect::<Vec<_>>(),
     );
@@ -1427,6 +1437,7 @@ fn pipeline_hover_repaint(
                     width: t.width,
                     height: t.height,
                     data: Arc::clone(&t.data),
+                    format: t.format,
                 })
                 .collect::<Vec<_>>(),
         );
@@ -1503,8 +1514,12 @@ fn pipeline_hover_repaint(
             use gosub_render_pipeline::common::media::MediaStore;
             use gosub_render_pipeline::common::texture_store::TextureStore;
             use gosub_render_pipeline::rasterizer::Rasterable;
+            use gosub_render_pipeline::render::backend::PixelFormat;
             use gosub_render_pipeline::tiler::TileId;
             use rayon::prelude::*;
+
+            // Cairo and Skia both emit premultiplied ARGB32 (BGRA byte order).
+            let tile_format = PixelFormat::PreMulArgb32;
 
             let t = Instant::now();
             let ts6 = timing_start!("pipeline.hover.rasterize");
@@ -1541,6 +1556,7 @@ fn pipeline_hover_repaint(
                                 width: w,
                                 height: h,
                                 data: Arc::clone(data),
+                                format: tile_format,
                             }),
                             None,
                         );
@@ -1555,6 +1571,7 @@ fn pipeline_hover_repaint(
                             width: tex.width as u32,
                             height: tex.height as u32,
                             data: Arc::clone(&tex.data),
+                            format: tex.format,
                         });
                     let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, Arc::clone(&b.data))));
                     (tile_id, baked, cache_entry)
@@ -1653,6 +1670,7 @@ fn pipeline_hover_repaint(
                             width: tex.width as u32,
                             height: tex.height as u32,
                             data: Arc::clone(&tex.data),
+                            format: tex.format,
                         });
                     }
                 }
@@ -1691,6 +1709,7 @@ fn pipeline_hover_repaint(
                 width: t.width,
                 height: t.height,
                 data: Arc::clone(&t.data),
+                format: t.format,
             })
             .collect::<Vec<_>>(),
     );
@@ -1735,6 +1754,7 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
             w: tile.width,
             h: tile.height,
             data: Arc::clone(&tile.data),
+            format: tile.format,
         });
         blits += 1;
     }
