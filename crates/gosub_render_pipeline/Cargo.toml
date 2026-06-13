@@ -5,7 +5,7 @@ edition = "2021"
 autobins = false
 
 [dependencies]
-taffy = { version = "0.10", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size", "calc"] }
+taffy = { version = "0.11", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size", "calc"] }
 log = "0.4.29"
 image = "0.25.10"
 rand = "0.10.1"
