@@ -28,7 +28,11 @@ pub(crate) fn do_paint_text(
     let x = cmd.rect.x.round();
     let y = cmd.rect.y.round();
     cr.set_source_surface(&surface, x, y)?;
-    cr.source().set_filter(Filter::Fast);
+    // Use a quality filter rather than nearest-neighbour: when the glyph surface is not
+    // placed on an exact integer-pixel boundary (e.g. fractional display scaling), nearest
+    // sampling resamples the grayscale-AA coverage and shreds the glyph edges. `Good`
+    // collapses to an exact copy when the blit *is* 1:1 aligned, so there is no cost there.
+    cr.source().set_filter(Filter::Good);
     cr.paint()?;
     cr.restore()?;
 
@@ -122,7 +126,10 @@ fn build_pango_layout_inner(
 ) -> pangocairo::pango::Layout {
     if let Ok(mut font_opts) = FontOptions::new() {
         font_opts.set_antialias(Antialias::Gray);
-        font_opts.set_hint_style(HintStyle::Full);
+        // Slight hinting matches browser rendering more closely than Full: it nudges stems
+        // toward the pixel grid for crispness without the heavy snapping that distorts glyph
+        // shapes and produces uneven stroke weights at small sizes.
+        font_opts.set_hint_style(HintStyle::Slight);
         font_opts.set_hint_metrics(HintMetrics::On);
         cr.set_font_options(&font_opts);
     }

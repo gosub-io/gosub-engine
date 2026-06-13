@@ -10,7 +10,8 @@ path = "main.rs"
 [dependencies]
 gosub_engine = { path = "../../crates/gosub_engine", features = ["gtk4", "backend_cairo_pango", "sqlite_cookie_store"] }
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline", features = ["backend_cairo"] }
-gtk4 = { workspace = true }
+# v4_12 enables GdkSurface::scale() for true fractional display-scale detection.
+gtk4 = { workspace = true, features = ["v4_12"] }
 once_cell = { workspace = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
