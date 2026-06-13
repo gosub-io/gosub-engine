@@ -23,7 +23,7 @@ pollster = "0.4.0"
 winit = "0.30.12"
 
 parley = { version = "0.3.0", optional = true }
-skia-safe = { version = "0.87.0", features = ["textlayout"], optional = true }
+skia-safe = { version = "0.97.2", features = ["textlayout"], optional = true }
 
 [features]
 default = ["text_parley"]
