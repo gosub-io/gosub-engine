@@ -45,6 +45,9 @@ fn main() {
         let start = Instant::now();
         let doc = html_compile::<Config>(&html);
         let elapsed = start.elapsed();
-        println!("run {run}: parsed in {elapsed:?} ({} nodes)", std::hint::black_box(&doc).node_count());
+        println!(
+            "run {run}: parsed in {elapsed:?} ({} nodes)",
+            std::hint::black_box(&doc).node_count()
+        );
     }
 }

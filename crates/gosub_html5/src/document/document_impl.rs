@@ -416,7 +416,10 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             if is_valid_id_attribute_value(id_value) {
                 if let Entry::Vacant(e) = self.named_id_elements.entry(id_value.clone()) {
                     e.insert(node.id());
-                    self.named_ids_by_node.entry(node.id()).or_default().push(id_value.clone());
+                    self.named_ids_by_node
+                        .entry(node.id())
+                        .or_default()
+                        .push(id_value.clone());
                 }
             }
         } else if let Some(ids) = self.named_ids_by_node.remove(&node.id()) {
