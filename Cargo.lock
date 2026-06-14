@@ -3387,6 +3387,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub_renderer_dynamic"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_render_pipeline",
+ "gosub_renderer_cairo",
+ "gosub_renderer_skia",
+ "gosub_renderer_vello",
+ "parking_lot",
+]
+
+[[package]]
 name = "gosub_renderer_skia"
 version = "0.1.0"
 dependencies = [

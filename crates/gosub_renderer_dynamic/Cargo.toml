@@ -1,0 +1,25 @@
+[package]
+name = "gosub_renderer_dynamic"
+version = "0.1.0"
+edition = "2021"
+description = "Runtime-selectable render backend that bundles several Gosub render backends behind one RenderBackend"
+license = "MIT"
+
+[dependencies]
+gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline" }
+parking_lot = { workspace = true }
+anyhow = { workspace = true }
+
+# The concrete backends this dynamic backend can load. Each is opt-in: a host enables only
+# the backends it can actually construct on its platform.
+gosub_renderer_cairo = { version = "0.1.0", path = "../gosub_renderer_cairo", optional = true }
+gosub_renderer_skia = { version = "0.1.0", path = "../gosub_renderer_skia", optional = true }
+gosub_renderer_vello = { version = "0.1.0", path = "../gosub_renderer_vello", optional = true }
+
+[features]
+cairo = ["dep:gosub_renderer_cairo"]
+skia = ["dep:gosub_renderer_skia"]
+vello = ["dep:gosub_renderer_vello"]
+
+[lints]
+workspace = true
