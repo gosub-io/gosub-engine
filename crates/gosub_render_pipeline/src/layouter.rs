@@ -141,6 +141,17 @@ pub struct LayoutElementNode {
     pub box_model: BoxModel,
     /// Element context. Used by different parts of the render engine
     pub context: ElementContext,
+    /// The element's CSS `background-image`, resolved and loaded into the media store during
+    /// layout. `None` when the element has no background image. Carries the media kind so the
+    /// painter can pick raster (`Brush::image`) vs SVG (`PaintCommand::svg`) rendering.
+    pub background_media: Option<BackgroundMedia>,
+}
+
+/// A resolved CSS `background-image` together with its media kind.
+#[derive(Debug, Clone, Copy)]
+pub enum BackgroundMedia {
+    Image(MediaId),
+    Svg(MediaId),
 }
 
 #[derive(Clone)]

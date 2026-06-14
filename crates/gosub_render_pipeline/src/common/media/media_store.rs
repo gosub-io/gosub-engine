@@ -305,7 +305,19 @@ impl MediaStore {
 
 fn detect_file_type(data: &Bytes) -> Option<MediaType> {
     let ft = FileType::from_bytes(data);
-    ft_detect(ft)
+    if let Some(media_type) = ft_detect(ft) {
+        return Some(media_type);
+    }
+
+    // The `file_type` crate misses some raster magic numbers — notably GIF, which it reports
+    // as `application/octet-stream`. Fall back to the `image` crate's own format sniffing,
+    // which reliably recognises GIF/PNG/JPEG/WebP/etc. SVG is handled above (it's XML text,
+    // not something `image` decodes), so this only ever adds raster formats.
+    if image::guess_format(data).is_ok() {
+        return Some(MediaType::Image);
+    }
+
+    None
 }
 
 fn detect_content_type(content_type: &str) -> Option<MediaType> {
@@ -314,6 +326,77 @@ fn detect_content_type(content_type: &str) -> Option<MediaType> {
         return None;
     }
     ft_detect(ft[0])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
+    use std::io::Cursor;
+
+    /// Encode a small solid image into `format`, returning the raw bytes.
+    fn encode(format: ImageFormat) -> Vec<u8> {
+        let rgba = DynamicImage::ImageRgba8(RgbaImage::from_pixel(8, 4, Rgba([200, 100, 50, 255])));
+        let mut buf = Cursor::new(Vec::new());
+        match format {
+            // JPEG has no alpha channel, so encode from an RGB view.
+            ImageFormat::Jpeg => DynamicImage::ImageRgb8(rgba.to_rgb8())
+                .write_to(&mut buf, format)
+                .expect("encode jpeg"),
+            _ => rgba.write_to(&mut buf, format).expect("encode image"),
+        }
+        buf.into_inner()
+    }
+
+    /// The byte-sniffing detector must classify PNG/JPEG/GIF as raster images. If this
+    /// returns `None`, `fetch_resource` would bail and the image silently becomes the
+    /// broken-image placeholder.
+    #[test]
+    fn detects_raster_formats_from_bytes() {
+        for format in [ImageFormat::Png, ImageFormat::Jpeg, ImageFormat::Gif] {
+            let bytes = Bytes::from(encode(format));
+            assert_eq!(
+                detect_file_type(&bytes),
+                Some(MediaType::Image),
+                "{format:?} bytes were not detected as a raster image"
+            );
+        }
+    }
+
+    /// Content-type header detection must also recognise the common raster mime types.
+    #[test]
+    fn detects_raster_formats_from_content_type() {
+        for ct in ["image/gif", "image/png", "image/jpeg"] {
+            assert_eq!(
+                detect_content_type(ct),
+                Some(MediaType::Image),
+                "content-type {ct} was not detected as a raster image"
+            );
+        }
+    }
+
+    /// Each of PNG/JPEG/GIF must decode through `load_media_from_data` and land in the
+    /// store with its real dimensions — not collapse to the fallback placeholder.
+    #[test]
+    fn decodes_png_jpeg_gif() {
+        for format in [ImageFormat::Png, ImageFormat::Jpeg, ImageFormat::Gif] {
+            let store = MediaStore::new();
+            let bytes = encode(format);
+
+            let media_id = store
+                .load_media_from_data(MediaType::Image, &bytes)
+                .unwrap_or_else(|e| panic!("{format:?} failed to load: {e}"));
+
+            assert!(
+                !store.is_placeholder(media_id),
+                "{format:?} fell back to the placeholder instead of decoding"
+            );
+
+            let img = store.get_image(media_id);
+            assert_eq!(img.image.width(), 8, "{format:?} width");
+            assert_eq!(img.image.height(), 4, "{format:?} height");
+        }
+    }
 }
 
 fn ft_detect(ft: &FileType) -> Option<MediaType> {

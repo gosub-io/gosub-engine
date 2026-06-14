@@ -106,22 +106,44 @@ impl CssSystem for Css3System {
                                 // `margin: 0 auto` expansion (starting at multi=1 instead of 0).
                                 fix_list.reset_multiplier(&declaration.property);
                                 if !definition.matches_and_shorthands(match_value, &mut fix_list) {
-                                    // Special-case: `background: <color>` — the full shorthand
-                                    // syntax requires comma-separated layers and the simple
-                                    // single-color form fails the complex syntax. Treat it as
-                                    // `background-color: <color>` which the consumer expects.
+                                    // Special-case: the full `background` shorthand grammar
+                                    // (comma-separated `<bg-layer>` lists) is stricter than the
+                                    // matcher supports, so common forms like
+                                    // `background: url(x) no-repeat` or `background: #fff` fail
+                                    // validation and would be dropped entirely. Recover the parts
+                                    // the consumer understands — `background-image` (a `url()`)
+                                    // and `background-color` (a color) — and emit them as the
+                                    // corresponding longhands. Position/repeat/size are still
+                                    // ignored.
                                     if declaration.property == "background" {
-                                        if let CssValue::Color(_) = &value {
+                                        let mut recovered = false;
+                                        if let Some(url_value) = find_background_url(&value) {
+                                            add_property_to_map(
+                                                &mut css_map_entry,
+                                                sheet,
+                                                specificity,
+                                                &CssDeclaration {
+                                                    property: "background-image".to_string(),
+                                                    value: url_value,
+                                                    important: declaration.important,
+                                                },
+                                            );
+                                            recovered = true;
+                                        }
+                                        if let Some(color_value) = find_background_color(&value) {
                                             add_property_to_map(
                                                 &mut css_map_entry,
                                                 sheet,
                                                 specificity,
                                                 &CssDeclaration {
                                                     property: "background-color".to_string(),
-                                                    value,
+                                                    value: color_value,
                                                     important: declaration.important,
                                                 },
                                             );
+                                            recovered = true;
+                                        }
+                                        if recovered {
                                             continue;
                                         }
                                     }
@@ -290,6 +312,26 @@ fn collect_custom_props<C: HasDocument<CssSystem = Css3System>>(
         }
     }
     custom_props
+}
+
+/// Recursively find the first `url(...)` function inside a (possibly nested/list) CSS value.
+/// Used to recover `background-image` from a `background` shorthand that fails strict matching.
+fn find_background_url(value: &CssValue) -> Option<CssValue> {
+    match value {
+        CssValue::Function(name, _) if name.eq_ignore_ascii_case("url") => Some(value.clone()),
+        CssValue::List(list) => list.iter().find_map(find_background_url),
+        _ => None,
+    }
+}
+
+/// Recursively find the first color inside a (possibly nested/list) CSS value.
+/// Used to recover `background-color` from a `background` shorthand.
+fn find_background_color(value: &CssValue) -> Option<CssValue> {
+    match value {
+        CssValue::Color(_) => Some(value.clone()),
+        CssValue::List(list) => list.iter().find_map(find_background_color),
+        _ => None,
+    }
 }
 
 pub fn resolve_functions<C: HasDocument>(

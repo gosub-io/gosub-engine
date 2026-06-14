@@ -204,6 +204,55 @@ mod rendertree_from_engine {
         None
     }
 
+    // background-image must be readable from a stylesheet `background` shorthand (the HN
+    // `.votearrow` case), from the `background-image` longhand, and from an inline style.
+    #[test]
+    fn background_image_is_read_from_css() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{lookup, StyleProperty, Value};
+
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    .votearrow { background: url(grayarrow.gif) no-repeat; }
+                    #longhand  { background-image: url("pic.png"); }
+                </style>
+            </head>
+            <body>
+                <div class="votearrow">up</div>
+                <div id="longhand">x</div>
+                <div id="inline" style="background-image: url(inline.gif)">y</div>
+                <div id="plain">z</div>
+            </body>
+            </html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let url_of = |id| match adapter.get_style(id, &StyleProperty::BackgroundImage) {
+            Value::Keyword(k) => lookup(k),
+            other => panic!("expected keyword url, got {other:?}"),
+        };
+
+        let longhand = find_node_by_id_attr(&adapter.doc, root, "longhand").expect("find #longhand");
+        assert_eq!(url_of(longhand), "pic.png", "longhand url not read");
+
+        let votearrow = find_node_by_class_dfs(&adapter.doc, root, "votearrow").expect("find .votearrow");
+        assert_eq!(url_of(votearrow), "grayarrow.gif", "shorthand url not read");
+
+        let inline = find_node_by_id_attr(&adapter.doc, root, "inline").expect("find #inline");
+        assert_eq!(url_of(inline), "inline.gif", "inline url not read");
+
+        // An element without a background-image gets the initial value `none`.
+        let plain = find_node_by_id_attr(&adapter.doc, root, "plain").expect("find #plain");
+        assert_eq!(url_of(plain), "none", "plain element should be `none`");
+    }
+
     // Helper: DFS to find the first element whose `id` attribute matches.
     fn find_node_by_id_attr(
         doc: &DocumentImpl<Config>,
