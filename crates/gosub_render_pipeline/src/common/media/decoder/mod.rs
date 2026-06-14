@@ -72,6 +72,19 @@ impl DecodedImage {
     }
 }
 
+impl From<image::RgbaImage> for DecodedImage {
+    /// An `image::RgbaImage` is by construction tightly-packed `width * height * 4` RGBA, so
+    /// this conversion is infallible (no length check needed).
+    fn from(img: image::RgbaImage) -> Self {
+        let (width, height) = img.dimensions();
+        Self {
+            width,
+            height,
+            pixels: PixelBuffer::Rgba8(img.into_raw()),
+        }
+    }
+}
+
 impl fmt::Debug for DecodedImage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DecodedImage")

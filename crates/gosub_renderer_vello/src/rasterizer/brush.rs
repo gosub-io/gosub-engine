@@ -13,7 +13,7 @@ pub fn set_brush(brush: &Brush, _rect: Rect, media_store: &MediaStore) -> VelloB
         Brush::Image(media_id) => {
             let media = media_store.get_image(*media_id);
             let image_data = ImageData {
-                data: Blob::<u8>::from(media.image.as_raw().clone()),
+                data: Blob::<u8>::from(media.image.as_raw().to_vec()),
                 format: ImageFormat::Rgba8,
                 alpha_type: ImageAlphaType::AlphaPremultiplied,
                 width: media.image.width(),

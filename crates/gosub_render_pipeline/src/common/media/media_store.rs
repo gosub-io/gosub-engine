@@ -69,7 +69,7 @@ impl MediaStore {
         let default_image_data = image::load_from_memory(DEFAULT_IMAGE_DATA)
             .expect("Failed to load default image")
             .to_rgba8();
-        let default_image = Arc::new(Media::image("gosub://default/image", default_image_data));
+        let default_image = Arc::new(Media::image("gosub://default/image", default_image_data.into()));
 
         let entries = HashMap::from([
             (DEFAULT_SVG_ID, Arc::clone(&default_svg)),
@@ -160,7 +160,7 @@ impl MediaStore {
                     }
                 };
 
-                let media = Media::image("gosub://data/image", img.to_rgba8());
+                let media = Media::image("gosub://data/image", img.to_rgba8().into());
                 let media_id = self.allocate_media_id();
 
                 let mut entries = self.entries.write();
@@ -202,7 +202,7 @@ impl MediaStore {
                     }
                 };
 
-                Media::image(src, img.to_rgba8())
+                Media::image(src, img.to_rgba8().into())
             }
         };
 

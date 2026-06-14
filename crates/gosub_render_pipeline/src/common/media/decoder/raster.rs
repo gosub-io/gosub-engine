@@ -1,4 +1,4 @@
-use super::{DecodedImage, DecodedMedia, ImageDecodeError, MediaDecoder};
+use super::{DecodedMedia, ImageDecodeError, MediaDecoder};
 
 /// Decodes every raster format the `image` crate is compiled with (PNG/JPEG/GIF today; more
 /// when extra `image` features are enabled). The actual format is sniffed by the `image`
@@ -34,8 +34,6 @@ impl MediaDecoder for RasterDecoder {
         let img = image::load_from_memory(bytes)
             .map_err(|e| ImageDecodeError::Decode(e.to_string()))?
             .to_rgba8();
-        let (width, height) = img.dimensions();
-        let decoded = DecodedImage::new_rgba8(width, height, img.into_raw())?;
-        Ok(DecodedMedia::Raster(decoded))
+        Ok(DecodedMedia::Raster(img.into()))
     }
 }
