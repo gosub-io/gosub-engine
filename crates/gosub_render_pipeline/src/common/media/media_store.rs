@@ -328,6 +328,25 @@ fn detect_content_type(content_type: &str) -> Option<MediaType> {
     ft_detect(ft[0])
 }
 
+fn ft_detect(ft: &FileType) -> Option<MediaType> {
+    // Scan *all* media types before deciding. The `file_type` crate lists several aliases
+    // for SVG (e.g. `["image/SVG", "image/svg+xml"]`); a naive first-match-wins loop trips
+    // the generic `image/` branch on the non-standard `image/SVG` alias and misclassifies
+    // SVG as a raster image. So look for any SVG marker first, and only fall back to a
+    // generic raster image if none is found. Comparisons are case-insensitive.
+    let mut is_raster_image = false;
+    for &mt in ft.media_types().iter() {
+        if mt.eq_ignore_ascii_case("image/svg+xml") || mt.eq_ignore_ascii_case("image/svg") {
+            return Some(MediaType::Svg);
+        }
+        if mt.len() >= 6 && mt[..6].eq_ignore_ascii_case("image/") {
+            is_raster_image = true;
+        }
+    }
+
+    is_raster_image.then_some(MediaType::Image)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,23 +416,4 @@ mod tests {
             assert_eq!(img.image.height(), 4, "{format:?} height");
         }
     }
-}
-
-fn ft_detect(ft: &FileType) -> Option<MediaType> {
-    // Scan *all* media types before deciding. The `file_type` crate lists several aliases
-    // for SVG (e.g. `["image/SVG", "image/svg+xml"]`); a naive first-match-wins loop trips
-    // the generic `image/` branch on the non-standard `image/SVG` alias and misclassifies
-    // SVG as a raster image. So look for any SVG marker first, and only fall back to a
-    // generic raster image if none is found. Comparisons are case-insensitive.
-    let mut is_raster_image = false;
-    for &mt in ft.media_types().iter() {
-        if mt.eq_ignore_ascii_case("image/svg+xml") || mt.eq_ignore_ascii_case("image/svg") {
-            return Some(MediaType::Svg);
-        }
-        if mt.len() >= 6 && mt[..6].eq_ignore_ascii_case("image/") {
-            is_raster_image = true;
-        }
-    }
-
-    is_raster_image.then_some(MediaType::Image)
 }
