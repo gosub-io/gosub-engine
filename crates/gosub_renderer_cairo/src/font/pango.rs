@@ -90,7 +90,7 @@ static PANGO_FONT_SYSTEM: OnceLock<Arc<PangoFontSystem>> = OnceLock::new();
 
 /// Initialise the singleton from the GTK main thread.
 ///
-/// Called once at startup (e.g. from `gosub_engine::init_gtk_resources()`).
+/// Called once at startup (e.g. from `crate::init_gtk_resources()`).
 /// Subsequent calls are silently ignored.
 pub fn init() {
     PANGO_FONT_SYSTEM.get_or_init(|| {
@@ -123,7 +123,7 @@ pub fn to_pango_weight(weight: usize) -> Weight {
     }
 }
 
-// Backward-compat shim used by gosub_engine::init_gtk_resources
+// Backward-compat shim used by crate::init_gtk_resources
 
 /// Deprecated entry point kept for ABI compatibility.
 /// Prefer calling [`init`] directly.

@@ -8,7 +8,7 @@ name = "gtk4-skia"
 path = "main.rs"
 
 [dependencies]
-gosub_engine = { path = "../../crates/gosub_engine", features = ["gtk4", "backend_skia", "sqlite_cookie_store"] }
+gosub_engine = { path = "../../crates/gosub_engine", features = ["backend_skia", "sqlite_cookie_store"] }
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
 gosub_renderer_skia = { path = "../../crates/gosub_renderer_skia" }
 gtk4 = { workspace = true }

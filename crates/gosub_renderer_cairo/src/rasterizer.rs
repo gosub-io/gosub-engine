@@ -16,7 +16,7 @@ mod rectangle;
 mod svg;
 mod text;
 
-use crate::backend::DEVICE_PIXEL_RATIO;
+use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 
 pub struct CairoRasterizer {
     #[cfg(feature = "text_pango")]
@@ -32,8 +32,8 @@ impl Default for CairoRasterizer {
 impl CairoRasterizer {
     /// Create a rasterizer using the process-wide font system singleton.
     ///
-    /// The singleton is populated by [`gosub_engine::init_gtk_resources`] (or
-    /// `gosub_renderer_cairo::font::pango::init()`) from the GTK main thread.
+    /// The singleton is populated by [`crate::init_gtk_resources`] (or
+    /// [`crate::font::pango::init`]) from the GTK main thread.
     /// If it has not been initialised yet the singleton is created without
     /// system-ui font resolution; `"sans"` is used as the fallback in that case.
     pub fn new() -> Self {

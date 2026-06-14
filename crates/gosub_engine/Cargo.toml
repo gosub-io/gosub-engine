@@ -45,9 +45,6 @@ tracing = { workspace = true }
 r2d2 = { version = "0.8", optional = true }
 r2d2_sqlite = { version = "0.33", optional = true, features = ["bundled"] }
 
-gtk4 = { workspace = true, optional = true }
-cairo-rs = { workspace = true, optional = true }
-
 wgpu = { workspace = true, optional = true }
 
 winit = { workspace = true, optional = true }
@@ -88,10 +85,9 @@ gdk4-x11 = { workspace = true, optional = true }
 default = ["sqlite_cookie_store", "parley_layout"]
 ui_eframe = ["dep:eframe", "dep:egui"]
 winit = ["dep:winit", "dep:wgpu"]
-gtk4 = ["dep:gtk4", "dep:cairo-rs"]
 sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
 backend_cairo = ["dep:gosub_renderer_cairo"]
-backend_cairo_pango = ["backend_cairo", "dep:gtk4", "gosub_renderer_cairo/text_pango"]
+backend_cairo_pango = ["backend_cairo", "gosub_renderer_cairo/text_pango"]
 backend_vello = ["dep:gosub_renderer_vello"]
 backend_skia = ["dep:gosub_renderer_skia"]
 parley_layout = []

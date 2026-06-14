@@ -84,8 +84,6 @@ fn main() {
     app.connect_activate(move |app| {
         let _rt_guard = TOKIO_RT.enter();
 
-        gosub_engine::init_gtk_resources().expect("failed to init GTK resources");
-
         let (tx_redraw, mut rx_redraw) = mpsc::unbounded_channel::<()>();
 
         let compositor = Arc::new(RwLock::new(DefaultCompositor::new({

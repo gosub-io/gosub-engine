@@ -65,10 +65,6 @@ fn main() {
     app.connect_activate(move |app| {
         let _rt_guard = TOKIO_RT.enter();
 
-        // Cache GSettings-derived values while still on the GTK main thread so the
-        // background rasterizer threads never need to touch GTK globals.
-        gosub_engine::init_gtk_resources().expect("failed to init GTK resources");
-
         // Channel from engine → GTK: request a redraw
         let (tx_redraw, mut rx_redraw) = mpsc::unbounded_channel::<()>();
 

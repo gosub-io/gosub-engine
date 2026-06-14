@@ -13,4 +13,4 @@ pub use backend::{
 pub use compositor::DefaultCompositor;
 pub use render_context::RenderContext;
 pub use render_list::{Color, DisplayItem, RenderList};
-pub use viewport::{DevicePixelRatio, Viewport};
+pub use viewport::{DevicePixelRatio, Viewport, DEVICE_PIXEL_RATIO};

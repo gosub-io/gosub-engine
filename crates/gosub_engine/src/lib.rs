@@ -155,19 +155,3 @@ pub mod config {
     };
 }
 
-/// Initialize GTK and Cairo/Pango resources that must be called on the main thread before
-/// any background rendering begins. Required when using `backend_cairo_pango` outside a
-/// GTK window (e.g. egui, winit, headless). GTK4-window apps may skip this — GTK is
-/// already initialized by their `Application`. On headless systems set GDK_BACKEND=offscreen.
-///
-/// # Errors
-/// Returns an error if GTK cannot be initialized (e.g. no display available).
-pub fn init_gtk_resources() -> gosub_shared::types::Result<()> {
-    #[cfg(feature = "backend_cairo_pango")]
-    {
-        gtk4::init()
-            .map_err(|e| anyhow::anyhow!("GTK init failed — on headless systems set GDK_BACKEND=offscreen: {e}"))?;
-        gosub_renderer_cairo::font::pango::init();
-    }
-    Ok(())
-}

@@ -12,7 +12,8 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
-use gosub_renderer_cairo::{CairoBackend, DEVICE_PIXEL_RATIO};
+use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
+use gosub_renderer_cairo::CairoBackend;
 use gosub_render_pipeline::render::DefaultCompositor;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
@@ -562,7 +563,7 @@ fn main() {
         .unwrap_or_default();
 
     // Cairo/Pango need GTK4 initialised. No GTK window is created.
-    gosub_engine::init_gtk_resources().expect("failed to init GTK resources");
+    gosub_renderer_cairo::init_gtk_resources().expect("failed to init GTK resources");
 
     let initial_url = {
         let raw = std::env::args()

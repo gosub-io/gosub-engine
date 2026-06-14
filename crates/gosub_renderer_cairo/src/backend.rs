@@ -4,11 +4,8 @@ use gosub_render_pipeline::render::backend::{
 };
 use gosub_render_pipeline::render::render_context::RenderContext;
 use gosub_render_pipeline::render::render_list::DisplayItem;
+use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use std::any::Any;
-
-/// Device-pixel ratio shared between the GTK display thread and the render backends.
-/// Set once from `area.scale_factor()` before any rendering begins.
-pub static DEVICE_PIXEL_RATIO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
 /// Cairo backend for rendering using gtk4/cairo graphics library.
 #[derive(Default)]
