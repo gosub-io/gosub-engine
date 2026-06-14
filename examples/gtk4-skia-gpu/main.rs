@@ -19,7 +19,7 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
-use gosub_render_pipeline::render::backends::skia::SkiaBackend;
+use gosub_renderer_skia::SkiaBackend;
 use gosub_render_pipeline::render::DefaultCompositor;
 use gtk4::glib;
 use gtk4::prelude::*;

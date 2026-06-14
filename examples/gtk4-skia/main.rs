@@ -79,7 +79,7 @@ fn main() {
             }
         })));
 
-        let backend = gosub_render_pipeline::render::backends::skia::SkiaBackend::new();
+        let backend = gosub_renderer_skia::SkiaBackend::new();
         let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
         let event_rx = engine.subscribe_events();

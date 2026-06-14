@@ -48,8 +48,6 @@ r2d2_sqlite = { version = "0.33", optional = true, features = ["bundled"] }
 gtk4 = { workspace = true, optional = true }
 cairo-rs = { workspace = true, optional = true }
 
-skia-safe = { workspace = true, optional = true }
-
 vello = { workspace = true, optional = true }
 wgpu = { workspace = true, optional = true }
 
@@ -96,7 +94,7 @@ sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
 backend_cairo = ["dep:gosub_renderer_cairo"]
 backend_cairo_pango = ["backend_cairo", "dep:gtk4", "gosub_renderer_cairo/text_pango"]
 backend_vello = ["dep:vello", "dep:wgpu", "dep:gosub_renderer_vello", "gosub_render_pipeline/backend_vello"]
-backend_skia = ["dep:skia-safe", "dep:gosub_renderer_skia", "gosub_render_pipeline/backend_skia"]
+backend_skia = ["dep:gosub_renderer_skia"]
 parley_layout = []
 metrics = []
 

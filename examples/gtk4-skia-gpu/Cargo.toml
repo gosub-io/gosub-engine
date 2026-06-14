@@ -9,7 +9,8 @@ path = "main.rs"
 
 [dependencies]
 gosub_engine = { path = "../../crates/gosub_engine", features = ["gtk4", "backend_skia", "sqlite_cookie_store"] }
-gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline", features = ["backend_skia_gl"] }
+gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
+gosub_renderer_skia = { path = "../../crates/gosub_renderer_skia" }
 gtk4 = { workspace = true }
 skia-safe = { workspace = true, features = ["gl"] }
 once_cell = { workspace = true }
@@ -23,4 +24,3 @@ simple_logger = { workspace = true }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 skia-safe = { workspace = true, features = ["egl"] }
-gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline", features = ["backend_skia_egl"] }
