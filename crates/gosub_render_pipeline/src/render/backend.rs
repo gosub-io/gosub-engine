@@ -307,6 +307,25 @@ pub trait RenderBackend: Send {
     fn wgpu_resources(&self) -> Option<std::sync::Arc<dyn std::any::Any + Send + Sync>> {
         None
     }
+
+    /// Builds the per-tile rasterizer this backend pairs with. The engine calls this once
+    /// (instead of hard-coding a concrete rasterizer per `cfg`) and drives it per
+    /// [`Self::raster_strategy`]. Defaults to a no-op rasterizer.
+    fn create_rasterizer(&self) -> Box<dyn crate::rasterizer::Rasterable + Send + Sync> {
+        Box::new(crate::rasterizer::NullRasterizer)
+    }
+
+    /// How the engine should drive [`Self::create_rasterizer`] over the tile set.
+    /// Defaults to [`RasterStrategy::None`] (no rasterization).
+    fn raster_strategy(&self) -> crate::rasterizer::RasterStrategy {
+        crate::rasterizer::RasterStrategy::None
+    }
+
+    /// The device-pixel ratio this backend rasterizes at. Backends that rasterize at physical
+    /// pixels (Cairo) override this; CSS-pixel backends (Skia, Vello) and the null backend use 1.
+    fn device_pixel_ratio(&self) -> u32 {
+        1
+    }
 }
 
 /// Interface for compositors to receive frames from backends.
@@ -359,6 +378,18 @@ impl RenderBackend for RenderBackendRouter {
 
     fn wgpu_resources(&self) -> Option<std::sync::Arc<dyn std::any::Any + Send + Sync>> {
         self.current().wgpu_resources()
+    }
+
+    fn create_rasterizer(&self) -> Box<dyn crate::rasterizer::Rasterable + Send + Sync> {
+        self.current().create_rasterizer()
+    }
+
+    fn raster_strategy(&self) -> crate::rasterizer::RasterStrategy {
+        self.current().raster_strategy()
+    }
+
+    fn device_pixel_ratio(&self) -> u32 {
+        self.current().device_pixel_ratio()
     }
 }
 

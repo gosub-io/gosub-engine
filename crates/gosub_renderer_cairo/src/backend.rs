@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use gosub_render_pipeline::render::backend::{
     ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
 };
+use gosub_render_pipeline::rasterizer::{Rasterable, RasterStrategy};
 use gosub_render_pipeline::render::render_context::RenderContext;
 use gosub_render_pipeline::render::render_list::DisplayItem;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
@@ -173,6 +174,18 @@ impl RenderBackend for CairoBackend {
             pixels: s.pixels.to_vec(),
             format: PixelFormat::PreMulArgb32,
         })
+    }
+
+    fn create_rasterizer(&self) -> Box<dyn Rasterable + Send + Sync> {
+        Box::new(crate::CairoRasterizer::new())
+    }
+
+    fn raster_strategy(&self) -> RasterStrategy {
+        RasterStrategy::ParallelCached
+    }
+
+    fn device_pixel_ratio(&self) -> u32 {
+        DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 

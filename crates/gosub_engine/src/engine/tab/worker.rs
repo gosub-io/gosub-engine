@@ -16,6 +16,7 @@ use crate::tab::{TabId, TabSink};
 use crate::util::spawn_named;
 use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
+use gosub_render_pipeline::rasterizer::RasterStrategy;
 use gosub_render_pipeline::render::backend::{ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
 use gosub_render_pipeline::render::Viewport;
 use http::{HeaderMap, Method};
@@ -361,16 +362,8 @@ impl TabWorker {
 
                 // Submit the scroll frame immediately — don't wait for the next timer tick.
                 // Eliminates up to 33ms of latency at 30fps per scroll event.
-                #[cfg(any(feature = "backend_cairo", feature = "backend_skia"))]
-                {
-                    #[cfg(feature = "backend_cairo")]
-                    let dpr = {
-                        use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
-                        DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed)
-                    };
-                    #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
-                    let dpr: u32 = 1;
-
+                if self.zone_context.render_backend.raster_strategy() != RasterStrategy::None {
+                    let dpr = self.zone_context.render_backend.device_pixel_ratio();
                     if let Some(handle) = self.context.take_scroll_handle(dpr) {
                         self.runtime.committed_scene_epoch = self.context.scene_epoch();
                         self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
@@ -741,25 +734,25 @@ impl TabWorker {
         }
         self.runtime.dirty = false;
 
-        // TileCache path — used by both Cairo and Skia.
+        let render_backend = self.zone_context.render_backend.clone();
+
+        // Install the active backend's rasterizer once (replaces the former per-backend cfg
+        // selection and the Vello-specific wgpu_resources extraction).
+        if !self.context.has_rasterizer() {
+            self.context
+                .set_rasterizer(render_backend.create_rasterizer(), render_backend.raster_strategy());
+        }
+
+        // TileCache path — used by every rasterizing backend (Cairo, Skia, Vello).
         //
-        // Neither backend needs the display-list render pipeline: tiles are rasterized
-        // during stages 1-6 and the host composites them directly.  Cairo additionally
-        // gets a scroll-only fast path that skips stages 1-6 entirely when only the
-        // scroll offset changed.
+        // These backends don't need the display-list render pipeline: tiles are rasterized
+        // during stages 1-6 and the host composites them directly. A scroll-only fast path
+        // skips stages 1-6 when only the offset changed.
         //
-        // DPR: Cairo rasterizes at physical pixels (DPR > 1 on HiDPI), so it reads the
-        // DEVICE_PIXEL_RATIO atomic set by the GTK display thread.  Skia rasterizes at
-        // CSS pixels (DPR = 1) — no physical scaling in the rasterizer.
-        #[cfg(any(feature = "backend_cairo", feature = "backend_skia"))]
-        {
-            #[cfg(feature = "backend_cairo")]
-            let dpr = {
-                use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
-                DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed)
-            };
-            #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
-            let dpr: u32 = 1;
+        // DPR comes from the backend: Cairo rasterizes at physical pixels (DPR > 1 on HiDPI);
+        // Skia and Vello rasterize at CSS pixels (DPR = 1).
+        if render_backend.raster_strategy() != RasterStrategy::None {
+            let dpr = render_backend.device_pixel_ratio();
 
             // Scroll-only fast path: tiles are still valid, only the offset changed.
             if let Some(handle) = self.context.take_scroll_handle(dpr) {
@@ -780,40 +773,7 @@ impl TabWorker {
             return Ok(());
         }
 
-        // Vello: same TileCache path as Skia. Extract wgpu resources from the backend on first use.
-        #[cfg(all(
-            feature = "backend_vello",
-            not(any(feature = "backend_cairo", feature = "backend_skia"))
-        ))]
-        {
-            if self.context.vello_resources.is_none() {
-                // wgpu_resources() is type-erased (the pipeline is renderer-agnostic); downcast
-                // back to the Vello backend's concrete resource type.
-                self.context.vello_resources = self
-                    .zone_context
-                    .render_backend
-                    .wgpu_resources()
-                    .and_then(|h| h.downcast::<gosub_renderer_vello::WgpuResources>().ok());
-            }
-
-            if let Some(handle) = self.context.take_scroll_handle(1) {
-                self.runtime.committed_scene_epoch = self.context.scene_epoch();
-                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
-                return Ok(());
-            }
-
-            self.context.set_viewport(self.desired_viewport);
-            self.context.rebuild_pipeline_cache_if_needed();
-            let scene_epoch = self.context.scene_epoch();
-            if let Some(handle) = self.context.tile_cache_handle(1) {
-                self.runtime.committed_scene_epoch = scene_epoch;
-                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
-            }
-            self.sink.inc_frame();
-            return Ok(());
-        }
-
-        let render_backend = self.zone_context.render_backend.clone();
+        // Null backend (no rasterizer): fall through to the display-list render path below.
 
         // Ensure we have a surface of the right size to draw on.
         // Track whether the surface was recreated (meaning pixels are blank and must be re-rendered).

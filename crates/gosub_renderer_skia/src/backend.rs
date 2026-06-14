@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use gosub_render_pipeline::render::backend::{
     ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
 };
+use gosub_render_pipeline::rasterizer::{Rasterable, RasterStrategy};
 use gosub_render_pipeline::render::render_context::RenderContext;
 use gosub_render_pipeline::render::render_list::DisplayItem;
 use skia_safe::{Color4f, Font, FontMgr, FontStyle, Paint, Rect};
@@ -150,6 +151,14 @@ impl RenderBackend for SkiaBackend {
             pixels: s.pixels.clone(),
             format: PixelFormat::PreMulArgb32,
         })
+    }
+
+    fn create_rasterizer(&self) -> Box<dyn Rasterable + Send + Sync> {
+        Box::new(crate::SkiaRasterizer::new(1.0))
+    }
+
+    fn raster_strategy(&self) -> RasterStrategy {
+        RasterStrategy::ParallelCached
     }
 }
 
