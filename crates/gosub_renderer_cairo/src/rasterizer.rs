@@ -16,7 +16,7 @@ mod rectangle;
 mod svg;
 mod text;
 
-pub use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
+use crate::backend::DEVICE_PIXEL_RATIO;
 
 pub struct CairoRasterizer {
     #[cfg(feature = "text_pango")]

@@ -29,10 +29,6 @@ gosub_interface = { version = "0.1.2", path = "../gosub_interface", registry = "
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 gosub_lattice = { version = "0.1.0", path = "../gosub_lattice", registry = "gosub" }
 
-# backend_cairo optional deps
-cairo-rs = { workspace = true, optional = true }
-pangocairo = { workspace = true, optional = true }
-
 # backend_vello optional deps
 vello = { workspace = true, optional = true }
 wgpu = { workspace = true, optional = true }
@@ -47,17 +43,12 @@ skia-safe = { workspace = true, optional = true }
 gdk4-wayland = { workspace = true, features = ["wayland_crate"], optional = true }
 gdk4-x11 = { workspace = true, optional = true }
 
-[[example]]
-name = "screenshot_url"
-required-features = ["backend_cairo"]
-
 [dev-dependencies]
 gosub_html5 = { path = "../gosub_html5", registry = "gosub" }
 gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
 url = { workspace = true }
 
 [features]
-backend_cairo = ["dep:cairo-rs", "dep:pangocairo"]
 backend_vello = ["dep:vello", "dep:wgpu", "dep:fontique", "dep:hashbrown", "dep:skrifa"]
 backend_skia = ["dep:skia-safe"]
 backend_skia_gl    = ["backend_skia", "skia-safe/gl"]

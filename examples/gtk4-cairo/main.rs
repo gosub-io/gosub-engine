@@ -13,7 +13,7 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, CachedTile, ExternalHandle};
-use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
+use gosub_renderer_cairo::DEVICE_PIXEL_RATIO;
 use gosub_render_pipeline::render::DefaultCompositor;
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -83,7 +83,7 @@ fn main() {
             }
         })));
 
-        let backend = gosub_render_pipeline::render::backends::cairo::CairoBackend::new();
+        let backend = gosub_renderer_cairo::CairoBackend::new();
         let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
         let event_rx = engine.subscribe_events();

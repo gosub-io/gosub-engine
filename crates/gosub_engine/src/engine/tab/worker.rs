@@ -365,7 +365,7 @@ impl TabWorker {
                 {
                     #[cfg(feature = "backend_cairo")]
                     let dpr = {
-                        use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
+                        use gosub_renderer_cairo::DEVICE_PIXEL_RATIO;
                         DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed)
                     };
                     #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
@@ -755,7 +755,7 @@ impl TabWorker {
         {
             #[cfg(feature = "backend_cairo")]
             let dpr = {
-                use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
+                use gosub_renderer_cairo::DEVICE_PIXEL_RATIO;
                 DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed)
             };
             #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]

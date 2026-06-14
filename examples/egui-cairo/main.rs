@@ -12,7 +12,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
-use gosub_render_pipeline::render::backends::cairo::{CairoBackend, DEVICE_PIXEL_RATIO};
+use gosub_renderer_cairo::{CairoBackend, DEVICE_PIXEL_RATIO};
 use gosub_render_pipeline::render::DefaultCompositor;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;

@@ -1,9 +1,9 @@
-use crate::render::backend::{
+use anyhow::{anyhow, Result};
+use gosub_render_pipeline::render::backend::{
     ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
 };
-use crate::render::render_context::RenderContext;
-use crate::render::render_list::DisplayItem;
-use anyhow::{anyhow, Result};
+use gosub_render_pipeline::render::render_context::RenderContext;
+use gosub_render_pipeline::render::render_list::DisplayItem;
 use std::any::Any;
 
 /// Device-pixel ratio shared between the GTK display thread and the render backends.

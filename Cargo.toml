@@ -211,7 +211,7 @@ gosub_fontmanager = { version = "0.1.0", path = "./crates/gosub_fontmanager", re
 [target.'cfg(unix)'.dev-dependencies]
 gtk4 = { workspace = true }
 gosub_engine = { path = "./crates/gosub_engine", features = ["gtk4", "backend_cairo"] }
-gosub_render_pipeline = { path = "./crates/gosub_render_pipeline", features = ["backend_cairo"] }
+gosub_render_pipeline = { path = "./crates/gosub_render_pipeline" }
 
 [patch.crates-io]
 vello = { git = "https://github.com/linebender/vello", rev = "1b24e77ba4e01d12f5db86a9b1b5f2cf828a6a33" }
