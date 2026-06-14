@@ -167,7 +167,14 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                         (*color).into(),
                     );
                 }
-                DisplayItem::Blit { x, y, w, h, data, format } => {
+                DisplayItem::Blit {
+                    x,
+                    y,
+                    w,
+                    h,
+                    data,
+                    format,
+                } => {
                     // peniko ImageFormat::Rgba8 expects [R, G, B, A]. The tile may be premultiplied
                     // ARGB32 (Cairo/Skia, [B, G, R, A]) or already RGBA (Vello); `to_rgba` swaps only
                     // when needed, so colors are correct regardless of which rasterizer produced it.

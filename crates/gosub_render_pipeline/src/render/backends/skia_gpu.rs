@@ -125,7 +125,14 @@ impl<C: GlContextProvider + Send + Sync + 'static> RenderBackend for SkiaGpuBack
                         paint.set_anti_alias(true);
                         canvas.draw_str(text.as_str(), (*x, *y), &font, &paint);
                     }
-                    DisplayItem::Blit { x, y, w, h, data, format } => {
+                    DisplayItem::Blit {
+                        x,
+                        y,
+                        w,
+                        h,
+                        data,
+                        format,
+                    } => {
                         let stride = (*w * 4) as usize;
                         if data.len() < *h as usize * stride {
                             log::warn!("SkiaGpuBackend: Blit data too short");

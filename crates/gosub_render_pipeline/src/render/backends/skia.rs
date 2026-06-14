@@ -76,7 +76,14 @@ impl RenderBackend for SkiaBackend {
                         paint.set_anti_alias(true);
                         canvas.draw_str(text.as_str(), (*x, *y), &font, &paint);
                     }
-                    DisplayItem::Blit { x, y, w, h, data, format } => {
+                    DisplayItem::Blit {
+                        x,
+                        y,
+                        w,
+                        h,
+                        data,
+                        format,
+                    } => {
                         let stride = (*w * 4) as usize;
                         let expected = *h as usize * stride;
                         if data.len() < expected {

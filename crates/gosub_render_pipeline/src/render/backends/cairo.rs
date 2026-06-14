@@ -82,7 +82,14 @@ impl RenderBackend for CairoBackend {
                         cr.move_to(*x as f64, *y as f64);
                         _ = cr.show_text(text);
                     }
-                    DisplayItem::Blit { x, y, w, h, data, format } => {
+                    DisplayItem::Blit {
+                        x,
+                        y,
+                        w,
+                        h,
+                        data,
+                        format,
+                    } => {
                         let stride = (*w * 4) as i32;
                         let expected_len = (*h as usize) * (stride as usize);
                         if data.len() < expected_len {
