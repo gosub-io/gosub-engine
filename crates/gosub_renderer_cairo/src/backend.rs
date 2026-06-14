@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use gosub_render_pipeline::rasterizer::{RasterStrategy, Rasterable};
+use gosub_render_pipeline::rasterizer::{erase_rasterizer, RasterStrategy};
 use gosub_render_pipeline::render::backend::{
     ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
 };
@@ -176,8 +176,8 @@ impl RenderBackend for CairoBackend {
         })
     }
 
-    fn create_rasterizer(&self) -> Box<dyn Rasterable + Send + Sync> {
-        Box::new(crate::CairoRasterizer::new())
+    fn create_rasterizer(&self) -> Box<dyn Any + Send + Sync> {
+        erase_rasterizer(Box::new(crate::CairoRasterizer::new()))
     }
 
     fn raster_strategy(&self) -> RasterStrategy {

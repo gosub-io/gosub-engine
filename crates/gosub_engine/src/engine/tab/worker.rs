@@ -739,8 +739,13 @@ impl TabWorker {
         // Install the active backend's rasterizer once (replaces the former per-backend cfg
         // selection and the Vello-specific wgpu_resources extraction).
         if !self.context.has_rasterizer() {
-            self.context
-                .set_rasterizer(render_backend.create_rasterizer(), render_backend.raster_strategy());
+            // `create_rasterizer` is type-erased (the backend trait lives in `gosub_interface`,
+            // which can't name the pipeline's `Rasterable`); recover it here.
+            if let Some(rasterizer) =
+                gosub_render_pipeline::rasterizer::downcast_rasterizer(render_backend.create_rasterizer())
+            {
+                self.context.set_rasterizer(rasterizer, render_backend.raster_strategy());
+            }
         }
 
         // TileCache path — used by every rasterizing backend (Cairo, Skia, Vello).

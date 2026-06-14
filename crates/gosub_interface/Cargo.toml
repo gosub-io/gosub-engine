@@ -9,8 +9,20 @@ license = "MIT"
 [dependencies]
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
 gosub_net = { version = "0.1.1", path = "../gosub_net", registry = "gosub" }
+anyhow = { workspace = true }
 parking_lot = { workspace = true }
 url = { workspace = true }
 
-[lints]
-workspace = true
+# Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
+# ExternalHandle carries raw GPU/surface handles and needs unsafe Send/Sync impls,
+# which are allowed per-site with a justification.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
