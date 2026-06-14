@@ -317,14 +317,21 @@ fn detect_content_type(content_type: &str) -> Option<MediaType> {
 }
 
 fn ft_detect(ft: &FileType) -> Option<MediaType> {
+    // Scan *all* media types before deciding. The `file_type` crate lists several aliases
+    // for SVG (e.g. `["image/SVG", "image/svg+xml"]`); a naive first-match-wins loop trips
+    // the generic `image/` branch on the non-standard `image/SVG` alias and misclassifies
+    // SVG as a raster image. So look for any SVG marker first, and only fall back to a
+    // generic raster image if none is found. Comparisons are case-insensitive.
+    let mut is_raster_image = false;
     for &mt in ft.media_types().iter() {
-        if mt == "image/svg+xml" {
+        let mt = mt.to_ascii_lowercase();
+        if mt == "image/svg+xml" || mt == "image/svg" {
             return Some(MediaType::Svg);
         }
         if mt.starts_with("image/") {
-            return Some(MediaType::Image);
+            is_raster_image = true;
         }
     }
 
-    None
+    is_raster_image.then_some(MediaType::Image)
 }
