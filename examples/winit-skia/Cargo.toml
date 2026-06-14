@@ -8,7 +8,7 @@ name = "winit-skia"
 path = "main.rs"
 
 [dependencies]
-gosub_engine = { path = "../../crates/gosub_engine", features = ["winit", "backend_skia"] }
+gosub_engine = { path = "../../crates/gosub_engine", features = ["winit"] }
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
 gosub_renderer_skia = { path = "../../crates/gosub_renderer_skia" }
 winit = { workspace = true }

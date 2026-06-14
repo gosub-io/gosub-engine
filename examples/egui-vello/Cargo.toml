@@ -8,7 +8,7 @@ name = "egui-vello"
 path = "main.rs"
 
 [dependencies]
-gosub_engine = { path = "../../crates/gosub_engine", features = ["ui_eframe", "backend_vello"] }
+gosub_engine = { path = "../../crates/gosub_engine", features = ["ui_eframe"] }
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
 gosub_renderer_vello = { path = "../../crates/gosub_renderer_vello" }
 eframe = { workspace = true, features = ["wgpu"] }

@@ -8,7 +8,7 @@ name = "egui-cairo"
 path = "main.rs"
 
 [dependencies]
-gosub_engine = { path = "../../crates/gosub_engine", features = ["ui_eframe", "backend_cairo_pango", "sqlite_cookie_store"] }
+gosub_engine = { path = "../../crates/gosub_engine", features = ["ui_eframe", "sqlite_cookie_store"] }
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
 gosub_renderer_cairo = { path = "../../crates/gosub_renderer_cairo" }
 eframe = { workspace = true, features = ["wgpu"] }
