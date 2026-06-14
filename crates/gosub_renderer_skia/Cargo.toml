@@ -12,7 +12,7 @@ log = "0.4.29"
 anyhow = "1.0"
 parking_lot = "0.12"
 
-skia-safe = { version = "0.87.0", features = ["textlayout"] }
+skia-safe = { version = "0.97.2", features = ["textlayout"] }
 
 [lints]
 workspace = true
