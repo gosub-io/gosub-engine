@@ -77,7 +77,6 @@ impl HoverFingerprints {
     /// Scan all stylesheets in `doc` and collect the hover-subject fingerprints.
     fn build(doc: &EngineDocument) -> Self {
         let mut fp = Self::empty();
-        let sheet_count = doc.stylesheets().len();
 
         for sheet in doc.stylesheets() {
             for rule in &sheet.rules {
@@ -118,10 +117,6 @@ impl HoverFingerprints {
                             if !specific {
                                 // Bare :hover or *:hover — everything is sensitive.
                                 fp.has_universal = true;
-                                log::info!(
-                                    "[hover] fingerprints: universal :hover (from {} stylesheet(s))",
-                                    sheet_count
-                                );
                                 return fp;
                             }
                         }
@@ -130,14 +125,6 @@ impl HoverFingerprints {
             }
         }
 
-        log::info!(
-            "[hover] fingerprints built from {} stylesheet(s): types={:?}  classes={:?}  ids={:?}  universal={}",
-            sheet_count,
-            fp.types.iter().collect::<Vec<_>>(),
-            fp.classes.iter().collect::<Vec<_>>(),
-            fp.ids.iter().collect::<Vec<_>>(),
-            fp.has_universal,
-        );
         fp
     }
 
@@ -281,6 +268,12 @@ pub struct BrowsingContext {
     /// Set by the tab worker when the engine is initialised with a VelloBackend.
     #[cfg(feature = "backend_vello")]
     pub vello_resources: Option<std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>>,
+
+    /// Media store shared between the layout and rasterization stages. The layouter loads
+    /// images/SVGs into it by id; the rasterizer resolves the same ids back. It persists
+    /// across renders so paint-only repaints (e.g. hover) still find previously loaded media.
+    #[cfg(feature = "pipeline")]
+    media_store: std::sync::Arc<gosub_render_pipeline::common::media::MediaStore>,
 }
 
 impl BrowsingContext {
@@ -321,6 +314,8 @@ impl BrowsingContext {
             hover_link_url: None,
             #[cfg(feature = "backend_vello")]
             vello_resources: None,
+            #[cfg(feature = "pipeline")]
+            media_store: std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
         }
     }
 
@@ -436,6 +431,7 @@ impl BrowsingContext {
                     #[cfg(feature = "backend_vello")]
                     self.vello_resources.clone(),
                     prev_tile_cache,
+                    self.media_store.clone(),
                 ));
             }
             self.render_dirty = false;
@@ -444,7 +440,6 @@ impl BrowsingContext {
             self.style_dirty = false;
             self.layout_dirty = false;
         } else if self.hover_dirty {
-            log::warn!("[hover] hover_dirty → dispatching paint-only repaint (stages 4–6)");
             // Paint-only repaint: reuse the cached layout tree, skip stages 1–2.
             if let Some(old_cache) = self.pipeline_cache.take() {
                 let PipelineCache {
@@ -465,6 +460,7 @@ impl BrowsingContext {
                     #[cfg(feature = "backend_vello")]
                     self.vello_resources.clone(),
                     prev_tile_cache,
+                    self.media_store.clone(),
                 ));
             } else {
                 // No cached layout yet — fall back to a full rebuild.
@@ -475,6 +471,7 @@ impl BrowsingContext {
                         #[cfg(feature = "backend_vello")]
                         self.vello_resources.clone(),
                         std::collections::HashMap::new(),
+                        self.media_store.clone(),
                     ));
                 }
             }
@@ -506,6 +503,7 @@ impl BrowsingContext {
                         #[cfg(feature = "backend_vello")]
                         self.vello_resources.clone(),
                         prev_tile_cache,
+                        self.media_store.clone(),
                     ));
                 }
                 self.render_dirty = false;
@@ -660,8 +658,6 @@ impl BrowsingContext {
                 .unwrap_or_else(HoverFingerprints::empty)
         });
 
-        log::debug!("[hover] leaf → {:?}  lei={:?}", new_leaf, new_lei);
-
         // Walk the ancestor chain once for both link detection and fingerprint matching.
         // Terminate early once both are found.
         let (link_url, new_sensitive) = {
@@ -699,10 +695,6 @@ impl BrowsingContext {
         // the hover chain. If neither the old nor new chain touches a :hover rule, skip it.
         let visual_dirty = self.hover_chain_sensitive || new_sensitive;
         self.hover_chain_sensitive = new_sensitive;
-
-        log::debug!(
-            "[hover] visual_dirty={visual_dirty}  url_changed={url_changed}  new_sensitive={new_sensitive}  url={link_url:?}"
-        );
 
         if visual_dirty {
             if let Some(doc) = &self.document {
@@ -935,6 +927,7 @@ fn pipeline_build_cache(
         std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
     >,
     prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>,
+    media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
 ) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
@@ -946,18 +939,10 @@ fn pipeline_build_cache(
     use gosub_render_pipeline::rendertree_builder::RenderTree;
     use gosub_render_pipeline::tiler::{TileList, TileState};
     use gosub_shared::{timing_start, timing_stop};
-    use std::time::Instant;
 
-    log::info!(
-        "[pipeline] build cache (viewport {}x{})",
-        viewport.width,
-        viewport.height
-    );
-    let t_total = Instant::now();
     let ts_total = timing_start!("pipeline.total");
 
     // Stage 1: render tree
-    let t = Instant::now();
     let ts1 = timing_start!("pipeline.render_tree");
     let adapter = GosubDocumentAdapter::<HtmlEngineConfig>::new(doc);
     let mut render_tree = RenderTree::new(Arc::new(adapter));
@@ -966,11 +951,6 @@ fn pipeline_build_cache(
         log::error!("Failed to build render tree: {e}");
     }
     timing_stop!(ts1);
-    log::info!(
-        "[pipeline] stage 1 render-tree:  {:>6.1}ms  ({} nodes)",
-        t.elapsed().as_secs_f64() * 1000.0,
-        render_tree.arena.len()
-    );
 
     let vp_dim = if viewport.width > 0 && viewport.height > 0 {
         Some(PipelineDimension::new(viewport.width as f64, viewport.height as f64))
@@ -979,44 +959,26 @@ fn pipeline_build_cache(
     };
 
     // Stage 2: layout
-    let t = Instant::now();
     let ts2 = timing_start!("pipeline.layout");
     let mut layouter = TaffyLayouter::new();
+    // Share the persistent media store so resources loaded during layout are visible to the
+    // rasterizer (which resolves them by id). Otherwise every image renders as a placeholder.
+    layouter.set_media_store(Arc::clone(&media_store));
     let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
     timing_stop!(ts2);
     let page_height = layout_tree.root_dimension.height;
-    log::info!(
-        "[pipeline] stage 2 layout:        {:>6.1}ms  (root {}x{:.0})",
-        t.elapsed().as_secs_f64() * 1000.0,
-        layout_tree.root_dimension.width,
-        page_height
-    );
 
     // Stage 3: layering
-    let t = Instant::now();
     let ts3 = timing_start!("pipeline.layering");
     let layer_list = LayerList::new(layout_tree);
-    let layer_count = layer_list.layer_ids.read().len();
     timing_stop!(ts3);
-    log::info!(
-        "[pipeline] stage 3 layering:      {:>6.1}ms  ({} layers)",
-        t.elapsed().as_secs_f64() * 1000.0,
-        layer_count
-    );
 
     // Stage 4: tiling
-    let t = Instant::now();
     let ts4 = timing_start!("pipeline.tiling");
     let mut tile_list = TileList::new(layer_list, PipelineDimension::new(256.0, 256.0));
     let saved_layer_list = Arc::clone(&tile_list.layer_list);
     tile_list.generate();
-    let total_tiles = tile_list.arena.len();
     timing_stop!(ts4);
-    log::info!(
-        "[pipeline] stage 4 tiling:        {:>6.1}ms  ({} tiles total)",
-        t.elapsed().as_secs_f64() * 1000.0,
-        total_tiles
-    );
 
     // Stage 5: paint all tiles for the full page so that scrolling reveals pre-rendered
     // content. We use the full page_height rather than capping to viewport.height; the
@@ -1024,7 +986,6 @@ fn pipeline_build_cache(
     // are transferred. Memory is bounded by tile count: at 256×256×4B per tile, a 6 000 px
     // page × 1 280 px wide = ~120 tiles × 256 KB each ≈ 30 MB, which is acceptable.
     let render_height = page_height;
-    let t = Instant::now();
     let ts5 = timing_start!("pipeline.painting");
     let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, render_height.max(1.0));
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
@@ -1040,32 +1001,19 @@ fn pipeline_build_cache(
         dpi_scale_factor: 1.0,
     };
     let painter = Painter::new(tile_list.layer_list.clone());
-    let mut painted_tiles = 0usize;
-    let mut painted_commands = 0usize;
     for &layer_id in &layer_ids {
         let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
         for tile_id in tile_ids {
             if let Some(tile) = tile_list.get_tile_mut(tile_id) {
                 if tile.state == TileState::Dirty {
-                    let mut cmd_count = 0usize;
                     for tiled_element in &mut tile.elements {
-                        let cmds = painter.paint(tiled_element, &paint_state);
-                        cmd_count += cmds.len();
-                        tiled_element.paint_commands = cmds;
+                        tiled_element.paint_commands = painter.paint(tiled_element, &paint_state);
                     }
-                    painted_tiles += 1;
-                    painted_commands += cmd_count;
                 }
             }
         }
     }
     timing_stop!(ts5);
-    log::info!(
-        "[pipeline] stage 5 painting:      {:>6.1}ms  ({} tiles painted, {} commands total)",
-        t.elapsed().as_secs_f64() * 1000.0,
-        painted_tiles,
-        painted_commands
-    );
 
     // Stage 6: rasterize ALL tiles → collect into BakedTile vec.
     //
@@ -1083,7 +1031,6 @@ fn pipeline_build_cache(
     #[cfg(any(feature = "backend_cairo", feature = "backend_skia"))]
     macro_rules! rasterize_parallel {
         ($rasterizer:expr, $label:literal) => {{
-            use gosub_render_pipeline::common::media::MediaStore;
             use gosub_render_pipeline::common::texture_store::TextureStore;
             use gosub_render_pipeline::rasterizer::Rasterable;
             use gosub_render_pipeline::render::backend::PixelFormat;
@@ -1093,9 +1040,9 @@ fn pipeline_build_cache(
             // Cairo and Skia both emit premultiplied ARGB32 (BGRA byte order).
             let tile_format = PixelFormat::PreMulArgb32;
 
-            let t = Instant::now();
             let ts6 = timing_start!("pipeline.rasterize");
-            let media_store = MediaStore::new();
+            // `media_store` (the shared store populated during layout) comes from the enclosing
+            // function; rasterize() resolves image/SVG ids against it. &Arc derefs to &MediaStore.
             let rasterizer = $rasterizer;
 
             // Phase 1: collect IDs of dirty tiles across all layers.
@@ -1152,9 +1099,6 @@ fn pipeline_build_cache(
                 .collect();
 
             // Phase 3: update tile states, gather BakedTiles, and build the new tile cache.
-            let mut rasterized = 0usize;
-            let mut cache_hits = 0usize;
-            let mut empty = 0usize;
             let mut tiles: Vec<BakedTile> = Vec::with_capacity(results.len());
             let mut new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)> =
                 std::collections::HashMap::with_capacity(results.len());
@@ -1166,32 +1110,17 @@ fn pipeline_build_cache(
                             tile.state = TileState::Clean;
                             if let Some(entry) = cache_entry {
                                 new_tile_cache.insert(entry.0, entry.1);
-                                rasterized += 1;
-                            } else {
-                                cache_hits += 1;
                             }
                             tiles.push(b);
                         }
                         None => {
                             tile.state = TileState::Empty;
-                            empty += 1;
                         }
                     }
                 }
             }
 
             timing_stop!(ts6);
-            log::info!(
-                concat!(
-                    "[pipeline] stage 6 rasterize ",
-                    $label,
-                    " {:>6.1}ms  ({} rasterized, {} hits, {} empty)"
-                ),
-                t.elapsed().as_secs_f64() * 1000.0,
-                rasterized,
-                cache_hits,
-                empty
-            );
             (tiles, new_tile_cache)
         }};
     }
@@ -1217,16 +1146,13 @@ fn pipeline_build_cache(
         // prev_tile_cache is used by the cairo/skia parallel rasterizer; vello doesn't
         // implement the dirty-tile cache yet, so acknowledge the parameter here.
         let _ = &prev_tile_cache;
-        use gosub_render_pipeline::common::media::MediaStore;
         use gosub_render_pipeline::common::texture_store::TextureStore;
         use gosub_render_pipeline::rasterizer::Rasterable;
         use gosub_renderer_vello::VelloRasterizer;
 
-        let t = Instant::now();
         let ts6 = timing_start!("pipeline.rasterize");
-        let media_store = MediaStore::new();
+        // Shared store populated during layout (see pipeline_build_cache `media_store` param).
         let mut texture_store = TextureStore::new();
-        let mut rasterized = 0usize;
         let mut empty = 0usize;
 
         let tiles = if let Some(ref resources) = _vello_resources {
@@ -1240,7 +1166,6 @@ fn pipeline_build_cache(
                                 Some(texture_id) => {
                                     tile.texture_id = Some(texture_id);
                                     tile.state = TileState::Clean;
-                                    rasterized += 1;
                                 }
                                 None => {
                                     tile.state = TileState::Empty;
@@ -1273,12 +1198,6 @@ fn pipeline_build_cache(
         };
 
         timing_stop!(ts6);
-        log::info!(
-            "[pipeline] stage 6 rasterize (vello): {:>6.1}ms  ({} clean, {} empty)",
-            t.elapsed().as_secs_f64() * 1000.0,
-            rasterized,
-            empty
-        );
         tiles
     };
     // Vello uses sequential rasterization; dirty-tile cache not yet implemented.
@@ -1297,11 +1216,6 @@ fn pipeline_build_cache(
         std::collections::HashMap::new();
 
     timing_stop!(ts_total);
-    log::info!(
-        "[pipeline] total (build cache): {:.1}ms  ({} baked tiles)",
-        t_total.elapsed().as_secs_f64() * 1000.0,
-        baked_tiles.len()
-    );
 
     // Pre-build the CachedTile list for zero-copy scroll handles.
     let cached_tiles = Arc::new(
@@ -1345,29 +1259,20 @@ fn pipeline_hover_repaint(
         std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
     >,
     prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>,
+    media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
 ) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
     use gosub_render_pipeline::painter::Painter;
     use gosub_render_pipeline::tiler::{TileList, TileState};
     use gosub_shared::{timing_start, timing_stop};
-    use std::time::Instant;
-
-    log::info!("[pipeline] hover repaint (skipping stages 1–2)");
-    let t_total = Instant::now();
 
     // Stage 4: tiling — reuse existing LayerList, no layout work.
-    let t = Instant::now();
     let ts4 = timing_start!("pipeline.hover.tiling");
     let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(256.0, 256.0));
     tile_list.generate();
     let total_tiles = tile_list.arena.len();
     timing_stop!(ts4);
-    log::warn!(
-        "[pipeline] hover stage 4 tiling: {:>6.1}ms  ({} tiles)",
-        t.elapsed().as_secs_f64() * 1000.0,
-        total_tiles
-    );
 
     // Build a position-keyed lookup of previous baked tiles so non-hover tiles can be
     // carried over without any CSS re-evaluation or rasterization.
@@ -1452,7 +1357,6 @@ fn pipeline_hover_repaint(
 
     // Stage 5: paint ONLY dirty (hover-affected) tiles.
     let render_height = page_height;
-    let t = Instant::now();
     let ts5 = timing_start!("pipeline.hover.painting");
     let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, render_height.max(1.0));
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
@@ -1468,50 +1372,24 @@ fn pipeline_hover_repaint(
         dpi_scale_factor: 1.0,
     };
     let painter = Painter::new(tile_list.layer_list.clone());
-    let mut painted_tiles = 0usize;
-    let mut total_elements_painted = 0usize;
     for &layer_id in &layer_ids {
         let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
         for tile_id in tile_ids {
             if let Some(tile) = tile_list.get_tile_mut(tile_id) {
                 if tile.state == TileState::Dirty {
-                    let elem_count = tile.elements.len();
-                    let t_tile = Instant::now();
-                    let mut cmds = 0usize;
                     for tiled_element in &mut tile.elements {
-                        let c = painter.paint(tiled_element, &paint_state);
-                        cmds += c.len();
-                        tiled_element.paint_commands = c;
+                        tiled_element.paint_commands = painter.paint(tiled_element, &paint_state);
                     }
-                    log::info!(
-                        "[pipeline] hover s5 tile ({:.0},{:.0}) elems={} cmds={} in {:.1}ms",
-                        tile.rect.x,
-                        tile.rect.y,
-                        elem_count,
-                        cmds,
-                        t_tile.elapsed().as_secs_f64() * 1000.0
-                    );
-                    painted_tiles += 1;
-                    total_elements_painted += elem_count;
-                    let _ = cmds;
                 }
             }
         }
     }
     timing_stop!(ts5);
-    log::warn!(
-        "[pipeline] hover stage 5 painting: {:>6.1}ms  ({} dirty tiles / {} elems painted, {} clean reused)",
-        t.elapsed().as_secs_f64() * 1000.0,
-        painted_tiles,
-        total_elements_painted,
-        clean_baked.len()
-    );
 
     // Stage 6: rasterize (parallel for Cairo/Skia, using the tile-pixel cache).
     #[cfg(any(feature = "backend_cairo", feature = "backend_skia"))]
     macro_rules! rasterize_parallel {
         ($rasterizer:expr, $label:literal) => {{
-            use gosub_render_pipeline::common::media::MediaStore;
             use gosub_render_pipeline::common::texture_store::TextureStore;
             use gosub_render_pipeline::rasterizer::Rasterable;
             use gosub_render_pipeline::render::backend::PixelFormat;
@@ -1521,23 +1399,16 @@ fn pipeline_hover_repaint(
             // Cairo and Skia both emit premultiplied ARGB32 (BGRA byte order).
             let tile_format = PixelFormat::PreMulArgb32;
 
-            let t = Instant::now();
             let ts6 = timing_start!("pipeline.hover.rasterize");
-            let media_store = MediaStore::new();
+            // `media_store` is the shared store passed into pipeline_hover_repaint. It still
+            // holds media loaded by the last full layout. &Arc derefs to &MediaStore.
             let rasterizer = $rasterizer;
 
-            let t_dirty = Instant::now();
             let dirty_ids: Vec<TileId> = layer_ids
                 .iter()
                 .flat_map(|&layer_id| tile_list.get_intersecting_tiles(layer_id, full_page_rect))
                 .filter(|&id| tile_list.arena.get(&id).map_or(false, |t| t.state == TileState::Dirty))
                 .collect();
-            log::info!(
-                "[pipeline] hover s6 dirty_ids: {:.1}ms ({} dirty, {} layers)",
-                t_dirty.elapsed().as_secs_f64() * 1000.0,
-                dirty_ids.len(),
-                layer_ids.len()
-            );
 
             type CacheEntry = (TileCacheKey, (u32, u32, bytes::Bytes));
             let results: Vec<(TileId, Option<BakedTile>, Option<CacheEntry>)> = dirty_ids
@@ -1578,8 +1449,6 @@ fn pipeline_hover_repaint(
                 })
                 .collect();
 
-            let mut rasterized = 0usize;
-            let mut cache_hits = 0usize;
             let mut tiles: Vec<BakedTile> = Vec::with_capacity(results.len());
             let mut new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)> =
                 std::collections::HashMap::with_capacity(results.len());
@@ -1590,9 +1459,6 @@ fn pipeline_hover_repaint(
                             tile.state = TileState::Clean;
                             if let Some(e) = cache_entry {
                                 new_tile_cache.insert(e.0, e.1);
-                                rasterized += 1;
-                            } else {
-                                cache_hits += 1;
                             }
                             tiles.push(b);
                         }
@@ -1603,16 +1469,6 @@ fn pipeline_hover_repaint(
                 }
             }
             timing_stop!(ts6);
-            log::warn!(
-                concat!(
-                    "[pipeline] hover stage 6 rasterize ",
-                    $label,
-                    " {:>6.1}ms  ({} rasterized, {} hits)"
-                ),
-                t.elapsed().as_secs_f64() * 1000.0,
-                rasterized,
-                cache_hits
-            );
             (tiles, new_tile_cache)
         }};
     }
@@ -1636,13 +1492,11 @@ fn pipeline_hover_repaint(
     ))]
     let (baked_tiles, new_tile_cache) = {
         // Vello: sequential rasterization, no tile-pixel cache yet.
-        use gosub_render_pipeline::common::media::MediaStore;
         use gosub_render_pipeline::common::texture_store::TextureStore;
         use gosub_render_pipeline::rasterizer::Rasterable;
         use gosub_renderer_vello::VelloRasterizer;
-        let t = Instant::now();
         let ts6 = timing_start!("pipeline.hover.rasterize");
-        let media_store = MediaStore::new();
+        // Shared store from pipeline_hover_repaint param (still holds last-layout media).
         let mut texture_store = TextureStore::new();
         let mut tiles: Vec<BakedTile> = Vec::new();
         if let Some(ref resources) = _vello_resources {
@@ -1677,10 +1531,6 @@ fn pipeline_hover_repaint(
             }
         }
         timing_stop!(ts6);
-        log::info!(
-            "[pipeline] hover stage 6 rasterize (vello): {:>6.1}ms",
-            t.elapsed().as_secs_f64() * 1000.0
-        );
         (tiles, std::collections::HashMap::new())
     };
 
@@ -1692,13 +1542,6 @@ fn pipeline_hover_repaint(
 
     // Merge: newly rasterized hover tiles + clean tiles carried from previous render.
     let all_baked_tiles: Vec<BakedTile> = baked_tiles.into_iter().chain(clean_baked).collect();
-
-    log::warn!(
-        "[pipeline] hover repaint total: {:.1}ms  ({} total tiles, {} dirty+rasterized)",
-        t_total.elapsed().as_secs_f64() * 1000.0,
-        all_baked_tiles.len(),
-        painted_tiles,
-    );
 
     let cached_tiles = Arc::new(
         all_baked_tiles
@@ -1731,7 +1574,6 @@ fn pipeline_hover_repaint(
 fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w: f64, vp_h: f64, rl: &mut RenderList) {
     use gosub_shared::{timing_start, timing_stop};
     let ts7 = timing_start!("pipeline.composite");
-    let mut blits = 0usize;
 
     for tile in &cache.tiles {
         // Cull tiles fully outside the viewport.
@@ -1756,9 +1598,7 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
             data: tile.data.clone(),
             format: tile.format,
         });
-        blits += 1;
     }
 
     timing_stop!(ts7);
-    log::debug!("[pipeline] stage 7 composite: {} blit items", blits);
 }

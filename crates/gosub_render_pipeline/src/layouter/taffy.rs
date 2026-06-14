@@ -43,8 +43,9 @@ pub struct TaffyLayouter {
     /// populate_boxmodel uses this to add the container's taffy-computed offset to the offset
     /// it passes down to the child, which would otherwise be missing from the calculation.
     anon_container_map: HashMap<LayoutElementId, TaffyNodeId>,
-    /// Media store for loading images/SVGs during layout
-    media_store: MediaStore,
+    /// Media store for loading images/SVGs during layout. Shared (Arc) so the media loaded
+    /// here is visible to the rasterization stage, which looks resources up by the same id.
+    media_store: Arc<MediaStore>,
     /// Shared font system used for text measurement. Locking once per measurement
     /// call avoids keeping the guard alive across the full layout pass, which lets
     /// other threads (e.g. the rasterizer) access the font collection between calls.
@@ -93,12 +94,12 @@ impl TaffyContext {
         })
     }
 
-    fn svg(src: &str, media_id: MediaId, node_id: DomNodeId) -> TaffyContext {
+    fn svg(src: &str, media_id: MediaId, dimension: geo::Dimension, node_id: DomNodeId) -> TaffyContext {
         TaffyContext::Svg(ElementContextSvg {
             node_id,
             src: src.to_string(),
             media_id,
-            dimension: geo::Dimension::ZERO,
+            dimension,
         })
     }
 }
@@ -125,7 +126,7 @@ impl TaffyLayouter {
             root_id: TaffyNodeId::new(0),
             layout_taffy_mapping: HashMap::new(),
             anon_container_map: HashMap::new(),
-            media_store: MediaStore::new(),
+            media_store: Arc::new(MediaStore::new()),
             font_system,
             measure_cache: HashMap::new(),
             dom_to_layout_mapping: HashMap::new(),
@@ -135,6 +136,18 @@ impl TaffyLayouter {
     /// Expose the font system so callers can share it with other components.
     pub fn font_system(&self) -> Arc<Mutex<ParleyFontSystem>> {
         Arc::clone(&self.font_system)
+    }
+
+    /// Share an external media store with this layouter. Resources loaded during layout are
+    /// stored here; passing the same store to the rasterizer lets it resolve those resources
+    /// by id. Without this they live in two separate stores and images render as placeholders.
+    pub fn set_media_store(&mut self, media_store: Arc<MediaStore>) {
+        self.media_store = media_store;
+    }
+
+    /// The media store shared by this layouter (see [`set_media_store`](Self::set_media_store)).
+    pub fn media_store(&self) -> Arc<MediaStore> {
+        Arc::clone(&self.media_store)
     }
 
     pub fn print_tree(&mut self) {
@@ -261,6 +274,12 @@ impl CanLayout for TaffyLayouter {
                     Some(TaffyContext::Image(image_ctx)) => Size {
                         width: image_ctx.dimension.width as f32,
                         height: image_ctx.dimension.height as f32,
+                    },
+                    // SVG-backed <img> elements carry their intrinsic size the same way.
+                    // Without this arm they measured as 0×0 and collapsed (e.g. the HN logo).
+                    Some(TaffyContext::Svg(svg_ctx)) => Size {
+                        width: svg_ctx.dimension.width as f32,
+                        height: svg_ctx.dimension.height as f32,
                     },
                     _ => Size::ZERO,
                 }
@@ -637,7 +656,17 @@ impl TaffyLayouter {
                     // occupies, so display quality is unaffected.
                     let is_placeholder = self.media_store.is_placeholder(media_id);
                     taffy_context = match media.borrow() {
-                        Media::Svg(_) => Some(TaffyContext::svg(src.as_str(), media_id, dom_node.node_id)),
+                        Media::Svg(media_svg) => {
+                            // Use the SVG's intrinsic size so the element gets a non-zero box.
+                            // A failed/placeholder load uses the same small fixed size as images.
+                            let dimension = if is_placeholder {
+                                geo::Dimension::new(32.0, 32.0)
+                            } else {
+                                let size = media_svg.svg.tree.size();
+                                geo::Dimension::new(size.width() as f64, size.height() as f64)
+                            };
+                            Some(TaffyContext::svg(src.as_str(), media_id, dimension, dom_node.node_id))
+                        }
                         Media::Image(media_image) => {
                             let dimension = if is_placeholder {
                                 geo::Dimension::new(32.0, 32.0)
@@ -656,7 +685,16 @@ impl TaffyLayouter {
                         .load_media_from_data(MediaType::Svg, inner_html.into_bytes().as_slice())
                     {
                         Ok(media_id) => {
-                            taffy_context = Some(TaffyContext::svg("gosub://internal", media_id, dom_node.node_id));
+                            let media = self.media_store.get(media_id, MediaType::Svg);
+                            let dimension = match media.borrow() {
+                                Media::Svg(media_svg) => {
+                                    let size = media_svg.svg.tree.size();
+                                    geo::Dimension::new(size.width() as f64, size.height() as f64)
+                                }
+                                _ => geo::Dimension::ZERO,
+                            };
+                            taffy_context =
+                                Some(TaffyContext::svg("gosub://internal", media_id, dimension, dom_node.node_id));
                         }
                         Err(e) => {
                             log::warn!("Could not load SVG media: {:?}", e);
