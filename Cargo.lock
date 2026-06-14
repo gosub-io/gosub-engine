@@ -2571,6 +2571,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "fontique"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "274fa4f0f0a926ae182c7c076c078cce8a38471d15e61a102a02cac984be9813"
+dependencies = [
+ "hashbrown 0.17.1",
+ "linebender_resource_handle",
+ "memmap2",
+ "objc2 0.6.4",
+ "objc2-core-foundation",
+ "objc2-core-text",
+ "objc2-foundation 0.3.2",
+ "parlance",
+ "read-fonts 0.39.2",
+ "roxmltree 0.21.1",
+ "smallvec",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+ "yeslogic-fontconfig-sys",
+]
+
+[[package]]
 name = "foreign-types"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3395,7 +3417,7 @@ dependencies = [
  "cow-utils",
  "csscolorparser",
  "file_type",
- "fontique 0.9.0",
+ "fontique 0.10.0",
  "gdk4-wayland",
  "gdk4-x11",
  "gosub_css3",
