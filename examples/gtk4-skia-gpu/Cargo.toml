@@ -24,7 +24,3 @@ simple_logger = { workspace = true }
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 skia-safe = { workspace = true, features = ["egl"] }
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline", features = ["backend_skia_egl"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-skia-safe = { workspace = true, features = ["metal"] }
-gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline", features = ["backend_skia_metal"] }
