@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
+use gosub_render_pipeline::rasterizer::{RasterStrategy, Rasterable};
 use gosub_render_pipeline::render::backend::{
     ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
 };
-use gosub_render_pipeline::rasterizer::{Rasterable, RasterStrategy};
 use gosub_render_pipeline::render::render_context::RenderContext;
 use gosub_render_pipeline::render::render_list::DisplayItem;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;

@@ -71,7 +71,10 @@ impl DynamicRenderBackend {
     #[inline]
     fn active_backend(&self) -> BoxedBackend {
         let kind = *self.active.read();
-        self.backends.get(&kind).cloned().unwrap_or_else(|| Arc::clone(&self.null))
+        self.backends
+            .get(&kind)
+            .cloned()
+            .unwrap_or_else(|| Arc::clone(&self.null))
     }
 }
 
@@ -139,13 +142,19 @@ impl DynamicRenderBackendBuilder {
     /// Registers a Cairo backend.
     #[cfg(feature = "cairo")]
     pub fn with_cairo(self) -> Self {
-        self.register(RenderBackendKind::Cairo, Arc::new(gosub_renderer_cairo::CairoBackend::new()))
+        self.register(
+            RenderBackendKind::Cairo,
+            Arc::new(gosub_renderer_cairo::CairoBackend::new()),
+        )
     }
 
     /// Registers a Skia (CPU) backend.
     #[cfg(feature = "skia")]
     pub fn with_skia(self) -> Self {
-        self.register(RenderBackendKind::Skia, Arc::new(gosub_renderer_skia::SkiaBackend::new()))
+        self.register(
+            RenderBackendKind::Skia,
+            Arc::new(gosub_renderer_skia::SkiaBackend::new()),
+        )
     }
 
     /// Constructs and registers a Vello backend from the host's wgpu context provider.

@@ -2,14 +2,14 @@ use crate::backend::font_cache::FontCache;
 use crate::backend::font_manager::FontManager;
 use crate::backend::text_renderer::{TextKey, TextRenderer};
 use anyhow::{anyhow, Result};
-use gosub_render_pipeline::rasterizer::{Rasterable, RasterStrategy};
+use gosub_fontmanager::ParleyFontSystem;
+use gosub_render_pipeline::rasterizer::{RasterStrategy, Rasterable};
 use gosub_render_pipeline::render::backend::GpuPixelFormat;
 use gosub_render_pipeline::render::backend::{
     ErasedSurface, ExternalHandle, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
 };
 use gosub_render_pipeline::render::render_context::RenderContext;
 use gosub_render_pipeline::render::render_list::DisplayItem;
-use gosub_fontmanager::ParleyFontSystem;
 use parking_lot::Mutex;
 use parley::FontContext;
 use std::any::Any;

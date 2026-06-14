@@ -154,4 +154,3 @@ pub mod config {
         CookiePartitioning, GpuOptions, LogLevel, ProxyConfig, RedirectPolicy, SandboxMode, TlsConfig,
     };
 }
-

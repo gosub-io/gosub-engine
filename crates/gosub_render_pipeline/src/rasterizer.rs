@@ -25,7 +25,12 @@ pub enum RasterStrategy {
 pub struct NullRasterizer;
 
 impl Rasterable for NullRasterizer {
-    fn rasterize(&self, _tile: &Tile, _texture_store: &mut TextureStore, _media_store: &MediaStore) -> Option<TextureId> {
+    fn rasterize(
+        &self,
+        _tile: &Tile,
+        _texture_store: &mut TextureStore,
+        _media_store: &MediaStore,
+    ) -> Option<TextureId> {
         None
     }
 }

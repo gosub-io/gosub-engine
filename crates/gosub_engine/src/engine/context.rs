@@ -36,7 +36,7 @@
 
 use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::EngineDocument;
-use gosub_render_pipeline::rasterizer::{Rasterable, RasterStrategy};
+use gosub_render_pipeline::rasterizer::{RasterStrategy, Rasterable};
 use gosub_render_pipeline::render::{Color, DisplayItem, RenderContext, RenderList, Viewport};
 use std::sync::Arc;
 use url::Url;
