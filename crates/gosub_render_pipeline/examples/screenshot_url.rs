@@ -2,7 +2,10 @@
 /// Fetch a URL, run it through the gosub pipeline, and save the result as a PNG.
 ///
 /// Elements are painted with their CSS background-color. Text nodes are rendered
-/// using Pango so actual glyphs appear in the output.
+/// using Pango so actual glyphs appear in the output. Inline `<img>`/`<svg>` and CSS
+/// `background-image` are decoded via the pipeline's media store and blitted (raster scaled,
+/// SVG rasterized). Background placement is approximated as centered-contain — exact
+/// `background-size: cover`/`repeat` is not reproduced by this example.
 ///
 /// Usage: cargo run --example screenshot_url -p gosub_render_pipeline --features backend_cairo -- <url> [width] [height]
 ///   cargo run --example screenshot_url -p gosub_render_pipeline --features backend_cairo -- https://example.com
@@ -23,8 +26,9 @@ use url::Url;
 use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
 use gosub_render_pipeline::common::document::style::{StyleProperty, Value};
 use gosub_render_pipeline::common::geo::Dimension;
+use gosub_render_pipeline::common::media::DecodedImage;
 use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
-use gosub_render_pipeline::layouter::{CanLayout, ElementContext};
+use gosub_render_pipeline::layouter::{BackgroundMedia, CanLayout, ElementContext};
 use gosub_render_pipeline::rendertree_builder::RenderTree;
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -90,6 +94,8 @@ fn main() {
     let mut layouter = TaffyLayouter::new();
     let layout_tree = layouter.layout(render_tree, Some(Dimension::new(width as f64, 1_000_000.0)), 1.0);
     eprintln!("  {} layout nodes computed", layout_tree.arena.len());
+    // Media (images/SVGs) referenced by the page were decoded into this store during layout.
+    let media_store = layouter.media_store();
 
     // Derive the actual page height from the root element's computed size.
     let height = (layout_tree.root_dimension.height.ceil() as u32).max(1);
@@ -181,7 +187,62 @@ fn main() {
                     );
                 }
             }
-            ElementContext::Image(_) | ElementContext::Svg(_) => {}
+            ElementContext::Image(ctx) => {
+                // Replaced <img>: the content box already holds the final display size, so scale
+                // the decoded raster to fit it.
+                let bb = &el.box_model.content_box;
+                let media = media_store.get_image(ctx.media_id);
+                blit_image_contain(
+                    &mut img,
+                    bb.x as f32,
+                    bb.y as f32,
+                    bb.width as f32,
+                    bb.height as f32,
+                    &media.image,
+                );
+            }
+            ElementContext::Svg(ctx) => {
+                let bb = &el.box_model.content_box;
+                let media = media_store.get_svg(ctx.media_id);
+                blit_svg_contain(
+                    &mut img,
+                    bb.x as f32,
+                    bb.y as f32,
+                    bb.width as f32,
+                    bb.height as f32,
+                    &media.svg.tree,
+                );
+            }
+        }
+
+        // CSS background-image (resolved into the media store during layout). Painted after the
+        // element's own background-color/border and before its children, so it sits behind content.
+        if let Some(bg) = el.background_media {
+            let bb = &el.box_model.border_box;
+            match bg {
+                BackgroundMedia::Image(media_id) => {
+                    let media = media_store.get_image(media_id);
+                    blit_image_contain(
+                        &mut img,
+                        bb.x as f32,
+                        bb.y as f32,
+                        bb.width as f32,
+                        bb.height as f32,
+                        &media.image,
+                    );
+                }
+                BackgroundMedia::Svg(media_id) => {
+                    let media = media_store.get_svg(media_id);
+                    blit_svg_contain(
+                        &mut img,
+                        bb.x as f32,
+                        bb.y as f32,
+                        bb.width as f32,
+                        bb.height as f32,
+                        &media.svg.tree,
+                    );
+                }
+            }
         }
 
         for &child_id in el.children.iter().rev() {
@@ -207,6 +268,108 @@ fn fetch_html(url: &str) -> anyhow::Result<String> {
     let parsed = url::Url::parse(url)?;
     let response = gosub_net::net::simple::sync_fetch(&parsed)?;
     Ok(String::from_utf8_lossy(&response.body).into_owned())
+}
+
+// ── Image rendering (raster + SVG) ───────────────────────────────────────────
+
+/// Src-over composite a straight-alpha RGBA `src` onto the opaque `img` at `(dst_x, dst_y)`.
+fn composite(img: &mut RgbaImage, dst_x: i64, dst_y: i64, src: &RgbaImage) {
+    for sy in 0..src.height() {
+        let py = dst_y + sy as i64;
+        if py < 0 || py >= img.height() as i64 {
+            continue;
+        }
+        for sx in 0..src.width() {
+            let px = dst_x + sx as i64;
+            if px < 0 || px >= img.width() as i64 {
+                continue;
+            }
+            let Rgba([sr, sg, sb, sa]) = *src.get_pixel(sx, sy);
+            if sa == 0 {
+                continue;
+            }
+            let fa = sa as f32 / 255.0;
+            let Rgba([dr, dg, db, _]) = *img.get_pixel(px as u32, py as u32);
+            img.put_pixel(
+                px as u32,
+                py as u32,
+                Rgba([
+                    (sr as f32 * fa + dr as f32 * (1.0 - fa)) as u8,
+                    (sg as f32 * fa + dg as f32 * (1.0 - fa)) as u8,
+                    (sb as f32 * fa + db as f32 * (1.0 - fa)) as u8,
+                    255,
+                ]),
+            );
+        }
+    }
+}
+
+/// Scale `src` to fit within `w`×`h` preserving aspect ratio (`contain`), then composite it
+/// centered at `(x, y)`.
+fn blit_rgba_contain(img: &mut RgbaImage, x: f32, y: f32, w: f32, h: f32, src: &RgbaImage) {
+    if w <= 0.0 || h <= 0.0 || src.width() == 0 || src.height() == 0 {
+        return;
+    }
+    let scale = (w / src.width() as f32).min(h / src.height() as f32);
+    let tw = ((src.width() as f32 * scale).round() as u32).max(1);
+    let th = ((src.height() as f32 * scale).round() as u32).max(1);
+    let resized = image::imageops::resize(src, tw, th, image::imageops::FilterType::Triangle);
+    let ox = (x + (w - tw as f32) / 2.0).round() as i64;
+    let oy = (y + (h - th as f32) / 2.0).round() as i64;
+    composite(img, ox, oy, &resized);
+}
+
+/// Blit a decoded raster image into the box at `(x, y, w, h)` as centered-contain.
+fn blit_image_contain(img: &mut RgbaImage, x: f32, y: f32, w: f32, h: f32, decoded: &DecodedImage) {
+    let Some(src) = ImageBuffer::from_raw(decoded.width(), decoded.height(), decoded.as_raw().to_vec()) else {
+        return;
+    };
+    blit_rgba_contain(img, x, y, w, h, &src);
+}
+
+/// Rasterize an SVG tree to fit within the box (centered-contain) and blit it.
+fn blit_svg_contain(img: &mut RgbaImage, x: f32, y: f32, w: f32, h: f32, tree: &resvg::usvg::Tree) {
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let size = tree.size();
+    let (sw, sh) = (size.width(), size.height());
+    if sw <= 0.0 || sh <= 0.0 {
+        return;
+    }
+    // Rasterize at the contained pixel size so the SVG stays crisp (no post-scale blur).
+    let scale = (w / sw).min(h / sh);
+    let tw = ((sw * scale).round() as u32).max(1);
+    let th = ((sh * scale).round() as u32).max(1);
+    let Some(mut pixmap) = resvg::tiny_skia::Pixmap::new(tw, th) else {
+        return;
+    };
+    resvg::render(
+        tree,
+        resvg::tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+
+    // tiny_skia stores premultiplied alpha; un-premultiply into straight-alpha RGBA.
+    let mut src = RgbaImage::new(tw, th);
+    for (i, px) in pixmap.pixels().iter().enumerate() {
+        let a = px.alpha();
+        let (r, g, b) = if a == 0 {
+            (0, 0, 0)
+        } else {
+            let inv = 255.0 / a as f32;
+            (
+                (px.red() as f32 * inv).round().min(255.0) as u8,
+                (px.green() as f32 * inv).round().min(255.0) as u8,
+                (px.blue() as f32 * inv).round().min(255.0) as u8,
+            )
+        };
+        src.put_pixel(i as u32 % tw, i as u32 / tw, Rgba([r, g, b, a]));
+    }
+
+    let ox = (x + (w - tw as f32) / 2.0).round() as i64;
+    let oy = (y + (h - th as f32) / 2.0).round() as i64;
+    composite(img, ox, oy, &src);
 }
 
 // ── Box rendering (background + border + rounded corners) ────────────────────

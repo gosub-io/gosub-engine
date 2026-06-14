@@ -885,27 +885,21 @@ impl TaffyLayouter {
 
 // Convert a URI to an absolute URL based on the base URL if this is needed
 fn to_absolute_url(uri: &str, base_uri: &str) -> String {
-    if uri.starts_with("http://") || uri.starts_with("https://") || uri.starts_with("file://") {
-        return uri.to_string();
+    // Already-absolute references (http(s)://, file://, data:, blob:, …) are returned as-is.
+    if let Ok(parsed) = url::Url::parse(uri) {
+        return parsed.to_string();
     }
 
-    // Protocol-relative URL (e.g. "//cdn.example.com/img.png"): inherit the scheme from base_uri.
-    if uri.starts_with("//") {
-        let scheme = base_uri.split("://").next().unwrap_or("https");
-        return format!("{}:{}", scheme, uri);
+    // Otherwise resolve the relative reference against the document base URL using proper URL
+    // join semantics: this replaces the base's last path segment (so `assets/x.png` against
+    // `http://h/page.html` becomes `http://h/assets/x.png`, not `.../page.html/assets/x.png`),
+    // handles leading-slash absolute paths and protocol-relative `//host/...` references, and
+    // collapses `.`/`..`.
+    match url::Url::parse(base_uri).and_then(|base| base.join(uri)) {
+        Ok(joined) => joined.to_string(),
+        // Base URL unusable (e.g. empty for an inline document) — fall back to the raw reference.
+        Err(_) => uri.to_string(),
     }
-
-    // Relative path: prepend the base URL, avoiding double slashes at the join point.
-    if base_uri.ends_with('/') && uri.starts_with('/') {
-        return format!("{}{}", base_uri, &uri[1..]);
-    }
-
-    // Neither has a /
-    if !base_uri.ends_with('/') && !uri.starts_with('/') {
-        return format!("{}/{}", base_uri, uri);
-    }
-
-    format!("{}{}", base_uri, uri)
 }
 
 /// Convert a taffy context to an element context. Optionally, these two structures should be merged
@@ -964,4 +958,45 @@ pub fn taffy_layout_to_boxmodel(layout: &Layout, offset: Coordinate) -> box_mode
             left: layout.margin.left as f64,
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::to_absolute_url;
+
+    #[test]
+    fn relative_ref_replaces_base_last_segment() {
+        // A relative reference resolves against the document, *replacing* the page file —
+        // not appended after it (the bug this guards against).
+        assert_eq!(
+            to_absolute_url("assets/photo.jpg", "http://localhost:8765/image-test.html"),
+            "http://localhost:8765/assets/photo.jpg"
+        );
+        assert_eq!(
+            to_absolute_url("../up.png", "http://h/a/b/page.html"),
+            "http://h/a/up.png"
+        );
+    }
+
+    #[test]
+    fn root_relative_and_protocol_relative() {
+        assert_eq!(
+            to_absolute_url("/img/y.png", "http://localhost:8765/deep/page.html"),
+            "http://localhost:8765/img/y.png"
+        );
+        assert_eq!(
+            to_absolute_url("//cdn.example.com/x.png", "https://site.test/page.html"),
+            "https://cdn.example.com/x.png"
+        );
+    }
+
+    #[test]
+    fn absolute_and_data_uris_pass_through() {
+        assert_eq!(
+            to_absolute_url("https://other.test/a.png", "http://h/page.html"),
+            "https://other.test/a.png"
+        );
+        let data = "data:image/png;base64,iVBORw0KGgo=";
+        assert!(to_absolute_url(data, "http://h/page.html").starts_with("data:image/png;base64,"));
+    }
 }
