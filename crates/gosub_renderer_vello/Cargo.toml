@@ -6,7 +6,7 @@ description = "Vello rasterizer and compositor backend for the Gosub render pipe
 license = "MIT"
 
 [dependencies]
-gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline", features = ["backend_vello"] }
+gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline" }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
 resvg = { workspace = true }
@@ -14,18 +14,23 @@ log = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
 
+# VelloBackend (compositor + text pipeline) deps, formerly under the pipeline's backend_vello feature.
 vello = { workspace = true }
 pollster = { workspace = true }
 winit = { workspace = true }
+parley = { workspace = true, features = ["std"] }
+fontique = "0.9.0"
+skrifa = "0.42.1"
 
-parley = { workspace = true, features = ["std"], optional = true }
 skia-safe = { workspace = true, features = ["textlayout"], optional = true }
 
 [features]
 default = ["text_parley"]
-text_parley = ["dep:parley"]
+text_parley = []
 text_skia = ["dep:skia-safe"]
 text_pango = []
+# Selects the Parley shaping path in the VelloBackend text renderer (skrifa fallback when off).
+parley_layout = []
 
 [lints]
 workspace = true

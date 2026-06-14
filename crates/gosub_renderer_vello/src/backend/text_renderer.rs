@@ -9,8 +9,8 @@
 //! Caching avoids repeating the (relatively expensive) shaping step when you
 //! draw the same text+font+size/wrap/alignment multiple times.
 
-use crate::render::backends::vello::font_cache::FontCache;
-use crate::render::backends::vello::font_manager::FontManager;
+use crate::backend::font_cache::FontCache;
+use crate::backend::font_manager::FontManager;
 #[cfg(not(feature = "parley_layout"))]
 use parley::FontData as Font;
 #[cfg(feature = "parley_layout")]

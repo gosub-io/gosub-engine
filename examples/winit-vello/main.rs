@@ -16,7 +16,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::ExternalHandle;
-use gosub_render_pipeline::render::backends::vello::{VelloBackend, WgpuContextProvider};
+use gosub_renderer_vello::{VelloBackend, WgpuContextProvider};
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;

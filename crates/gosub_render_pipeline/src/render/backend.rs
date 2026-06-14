@@ -299,10 +299,12 @@ pub trait RenderBackend: Send {
 
     fn external_handle(&self, surface: &mut dyn ErasedSurface) -> anyhow::Result<ExternalHandle>;
 
-    /// Returns the shared wgpu resources (device, queue, renderer) when this is a Vello backend.
-    /// Returns `None` for all other backends.
-    #[cfg(feature = "backend_vello")]
-    fn wgpu_resources(&self) -> Option<std::sync::Arc<crate::render::backends::vello::WgpuResources>> {
+    /// Returns the backend's shared GPU resources, type-erased, when it has any
+    /// (e.g. a Vello backend's wgpu device/queue/renderer). Returns `None` otherwise.
+    ///
+    /// The concrete type lives in the backend's own crate (the pipeline is renderer-agnostic),
+    /// so callers downcast the `Any` to the expected resource type.
+    fn wgpu_resources(&self) -> Option<std::sync::Arc<dyn std::any::Any + Send + Sync>> {
         None
     }
 }
@@ -355,8 +357,7 @@ impl RenderBackend for RenderBackendRouter {
         self.current().external_handle(surface)
     }
 
-    #[cfg(feature = "backend_vello")]
-    fn wgpu_resources(&self) -> Option<std::sync::Arc<crate::render::backends::vello::WgpuResources>> {
+    fn wgpu_resources(&self) -> Option<std::sync::Arc<dyn std::any::Any + Send + Sync>> {
         self.current().wgpu_resources()
     }
 }

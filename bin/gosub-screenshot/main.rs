@@ -10,7 +10,7 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::ExternalHandle;
-use gosub_render_pipeline::render::backends::vello::{VelloBackend, WgpuContextProvider};
+use gosub_renderer_vello::{VelloBackend, WgpuContextProvider};
 use gosub_render_pipeline::render::DefaultCompositor;
 use image::ColorType;
 use once_cell::sync::Lazy;

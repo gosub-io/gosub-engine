@@ -787,7 +787,13 @@ impl TabWorker {
         ))]
         {
             if self.context.vello_resources.is_none() {
-                self.context.vello_resources = self.zone_context.render_backend.wgpu_resources();
+                // wgpu_resources() is type-erased (the pipeline is renderer-agnostic); downcast
+                // back to the Vello backend's concrete resource type.
+                self.context.vello_resources = self
+                    .zone_context
+                    .render_backend
+                    .wgpu_resources()
+                    .and_then(|h| h.downcast::<gosub_renderer_vello::WgpuResources>().ok());
             }
 
             if let Some(handle) = self.context.take_scroll_handle(1) {
