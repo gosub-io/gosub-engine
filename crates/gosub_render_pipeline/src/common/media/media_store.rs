@@ -324,11 +324,10 @@ fn ft_detect(ft: &FileType) -> Option<MediaType> {
     // generic raster image if none is found. Comparisons are case-insensitive.
     let mut is_raster_image = false;
     for &mt in ft.media_types().iter() {
-        let mt = mt.to_ascii_lowercase();
-        if mt == "image/svg+xml" || mt == "image/svg" {
+        if mt.eq_ignore_ascii_case("image/svg+xml") || mt.eq_ignore_ascii_case("image/svg") {
             return Some(MediaType::Svg);
         }
-        if mt.starts_with("image/") {
+        if mt.len() >= 6 && mt[..6].eq_ignore_ascii_case("image/") {
             is_raster_image = true;
         }
     }

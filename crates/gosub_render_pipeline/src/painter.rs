@@ -256,10 +256,7 @@ impl Painter {
         let radius_top_left = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopLeftRadius);
         let radius_top_right = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopRightRadius);
 
-        if radius_bottom_left != 0.0
-            || radius_bottom_right != 0.0
-            || radius_top_left != 0.0
-            || radius_top_right != 0.0
+        if radius_bottom_left != 0.0 || radius_bottom_right != 0.0 || radius_top_left != 0.0 || radius_top_right != 0.0
         {
             r = r.with_radius_tlrb(
                 Radius::new(radius_top_left as f64),

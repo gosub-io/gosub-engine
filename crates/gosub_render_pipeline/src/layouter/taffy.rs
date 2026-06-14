@@ -693,8 +693,12 @@ impl TaffyLayouter {
                                 }
                                 _ => geo::Dimension::ZERO,
                             };
-                            taffy_context =
-                                Some(TaffyContext::svg("gosub://internal", media_id, dimension, dom_node.node_id));
+                            taffy_context = Some(TaffyContext::svg(
+                                "gosub://internal",
+                                media_id,
+                                dimension,
+                                dom_node.node_id,
+                            ));
                         }
                         Err(e) => {
                             log::warn!("Could not load SVG media: {:?}", e);
