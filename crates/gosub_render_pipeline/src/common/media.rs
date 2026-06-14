@@ -1,9 +1,15 @@
+mod decoder;
 mod image;
 mod svg;
 
 #[allow(clippy::module_inception)]
 mod media;
 mod media_store;
+
+pub use decoder::{
+    DecodedImage, DecodedMedia, ImageDecodeError, MediaDecoder, MediaDecoderRegistry, PixelBuffer, RasterDecoder,
+    SvgDecoder,
+};
 
 pub use media::Media;
 pub use media::MediaId;

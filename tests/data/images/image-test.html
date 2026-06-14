@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gosub image decoding test</title>
+<style>
+  :root { --gap: 16px; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    font-family: DejaVu Sans, Arial, sans-serif;
+    color: #1a1a1a;
+    /* checkerboard so transparent images reveal their alpha */
+    background-color: #fafafa;
+    background-image:
+      linear-gradient(45deg, #e6e6e6 25%, transparent 25%),
+      linear-gradient(-45deg, #e6e6e6 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #e6e6e6 75%),
+      linear-gradient(-45deg, transparent 75%, #e6e6e6 75%);
+    background-size: 24px 24px;
+    background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+  }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 24px; color: #555; }
+  h2 { font-size: 18px; margin: 32px 0 12px; border-bottom: 2px solid #ddd; padding-bottom: 4px; }
+
+  .grid { display: flex; flex-wrap: wrap; gap: var(--gap); }
+  figure {
+    margin: 0; background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 10px; width: 220px;
+  }
+  figure img { display: block; width: 100%; height: auto; background: #fff; }
+  figcaption { font-size: 13px; margin-top: 8px; color: #333; }
+  figcaption b { display: block; font-size: 14px; }
+  code { font-family: DejaVu Sans Mono, monospace; font-size: 12px; color: #06c; }
+
+  /* fixed-size boxes for sizing / background tests */
+  .box {
+    width: 220px; height: 165px; border: 1px solid #ddd; border-radius: 8px;
+    color: #fff; font-weight: bold; padding: 8px; text-shadow: 0 1px 2px #0008;
+  }
+  .bg-png    { background: url(assets/logo.png)     no-repeat center / contain; }
+  .bg-jpg    { background: url(assets/photo.jpg)    no-repeat center / cover; }
+  .bg-gif    { background: url(assets/sprite.gif)   no-repeat center / contain; }
+  .bg-webp   { background: url(assets/picture.webp) no-repeat center / cover; }
+  .bg-svg    { background: url(assets/vector.svg)   no-repeat center / contain; }
+
+  .repeat-png { width: 460px; height: 160px; background: url(assets/tile.png) repeat; border: 1px solid #ddd; border-radius: 8px; }
+  .repeat-svg { width: 460px; height: 160px; background: url(assets/tile.svg) repeat; border: 1px solid #ddd; border-radius: 8px; }
+
+  .cover   { width: 460px; height: 160px; background: url(assets/wide.jpg) no-repeat center / cover;   border-radius: 8px; }
+  .contain { width: 460px; height: 160px; background: url(assets/wide.jpg) no-repeat center / contain #222; border-radius: 8px; }
+
+  .sizes { display: flex; align-items: flex-end; gap: var(--gap); flex-wrap: wrap; }
+  .sizes img { background: #fff; border: 1px solid #ddd; }
+</style>
+</head>
+<body>
+  <h1>Gosub image decoding &amp; rendering test</h1>
+  <p class="lead">Each format below should render identically and show its name. The page background is a
+  CSS checkerboard so transparent areas (PNG circle, GIF corner) reveal the pattern underneath.</p>
+
+  <!-- 1. Inline <img> for every format -->
+  <h2>1. Inline &lt;img&gt; — one per format</h2>
+  <div class="grid">
+    <figure><img src="assets/photo.jpg"    alt="JPEG"><figcaption><b>JPEG</b><code>assets/photo.jpg</code> — lossy, no alpha</figcaption></figure>
+    <figure><img src="assets/logo.png"     alt="PNG"> <figcaption><b>PNG</b><code>assets/logo.png</code> — RGBA, transparent circle</figcaption></figure>
+    <figure><img src="assets/sprite.gif"   alt="GIF"> <figcaption><b>GIF</b><code>assets/sprite.gif</code> — palette + transparent corner</figcaption></figure>
+    <figure><img src="assets/vector.svg"   alt="SVG"> <figcaption><b>SVG</b><code>assets/vector.svg</code> — vector</figcaption></figure>
+    <figure><img src="assets/picture.webp" alt="WebP"><figcaption><b>WebP</b><code>assets/picture.webp</code> — lossy</figcaption></figure>
+  </div>
+
+  <!-- 2. CSS background-image per format -->
+  <h2>2. CSS <code>background-image</code> — one per format</h2>
+  <div class="grid">
+    <div class="box bg-jpg">JPEG bg (cover)</div>
+    <div class="box bg-png">PNG bg (contain)</div>
+    <div class="box bg-gif">GIF bg (contain)</div>
+    <div class="box bg-svg">SVG bg (contain)</div>
+    <div class="box bg-webp">WebP bg (cover)</div>
+  </div>
+
+  <!-- 3. background-repeat (tiling) -->
+  <h2>3. <code>background-repeat</code> — tiling a small image</h2>
+  <div class="grid">
+    <div class="repeat-png" title="tile.png repeated"></div>
+    <div class="repeat-svg" title="tile.svg repeated"></div>
+  </div>
+
+  <!-- 4. background-size cover vs contain -->
+  <h2>4. <code>background-size</code> — cover vs contain (wide.jpg, 800×200)</h2>
+  <div class="grid">
+    <div class="cover"></div>
+    <div class="contain"></div>
+  </div>
+
+  <!-- 5. intrinsic sizing / scaling of a single image -->
+  <h2>5. Scaling — same SVG &amp; PNG at several widths</h2>
+  <div class="sizes">
+    <img src="assets/vector.svg" width="64"  alt="svg 64">
+    <img src="assets/vector.svg" width="128" alt="svg 128">
+    <img src="assets/vector.svg" width="256" alt="svg 256">
+    <img src="assets/logo.png"   width="64"  alt="png 64">
+    <img src="assets/logo.png"   width="128" alt="png 128">
+  </div>
+
+  <!-- 6. edge cases -->
+  <h2>6. Edge cases</h2>
+  <div class="grid">
+    <figure>
+      <img src="assets/does-not-exist.png" alt="broken image — should show alt text / placeholder" width="200" height="120">
+      <figcaption><b>Missing image</b> — broken/placeholder handling</figcaption>
+    </figure>
+    <figure>
+      <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" width="200" height="120" alt="1x1 data-URI PNG scaled up" style="image-rendering: pixelated; background:#3a7;">
+      <figcaption><b>Data-URI PNG</b> — 1×1 blue pixel scaled to 200×120</figcaption>
+    </figure>
+  </div>
+</body>
+</html>
