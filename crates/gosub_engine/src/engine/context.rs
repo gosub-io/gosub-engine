@@ -40,25 +40,17 @@ use gosub_render_pipeline::render::{Color, DisplayItem, RenderContext, RenderLis
 use std::sync::Arc;
 use url::Url;
 
-#[cfg(feature = "pipeline")]
 use crate::html::HtmlEngineConfig;
-#[cfg(feature = "pipeline")]
 use gosub_css3::stylesheet::CssSelectorPart;
-#[cfg(feature = "pipeline")]
 use gosub_interface::document::Document as _;
-#[cfg(feature = "pipeline")]
 use gosub_render_pipeline::layering::layer::LayerList;
-#[cfg(feature = "pipeline")]
 use gosub_render_pipeline::layouter::LayoutElementId;
-#[cfg(feature = "pipeline")]
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
-#[cfg(feature = "pipeline")]
 use gosub_shared::node::NodeId;
 
 /// Fingerprints of nodes that are the subject of a `:hover` CSS rule.
 /// Built once per document load; used to skip style recalcs when hover moves
 /// between elements that have no `:hover` rules.
-#[cfg(feature = "pipeline")]
 #[derive(Default)]
 struct HoverFingerprints {
     /// True when a bare `:hover` or `*:hover` rule exists — every node is sensitive.
@@ -68,7 +60,6 @@ struct HoverFingerprints {
     ids: std::collections::HashSet<String>,
 }
 
-#[cfg(feature = "pipeline")]
 impl HoverFingerprints {
     fn empty() -> Self {
         Self::default()
@@ -161,7 +152,6 @@ impl HoverFingerprints {
 // }
 
 /// A single rasterized tile with its page-coordinate position, ready to blit.
-#[cfg(feature = "pipeline")]
 struct BakedTile {
     page_x: f64,
     page_y: f64,
@@ -174,11 +164,9 @@ struct BakedTile {
 
 /// Key that uniquely identifies a tile's content for cache lookup.
 /// Format: (page_x bits, page_y bits, layer_id, paint-command hash).
-#[cfg(feature = "pipeline")]
 type TileCacheKey = (u64, u64, u64, u64);
 
 /// Cached output of stages 1–6 for the whole page. Re-used on every scroll tick.
-#[cfg(feature = "pipeline")]
 struct PipelineCache {
     tiles: Vec<BakedTile>,
     page_height: f64,
@@ -235,33 +223,24 @@ pub struct BrowsingContext {
     scroll_dirty: bool,
 
     /// Cached rasterized tiles for the full page. Valid until render_dirty is set.
-    #[cfg(feature = "pipeline")]
     pipeline_cache: Option<PipelineCache>,
     /// Set when only hover state changed — triggers a paint-only repaint (stages 4–6),
     /// skipping the expensive render-tree rebuild (stage 1) and layout (stage 2).
-    #[cfg(feature = "pipeline")]
     hover_dirty: bool,
     /// The DOM node currently under the pointer (for :hover matching).
-    #[cfg(feature = "pipeline")]
     hover_leaf: Option<NodeId>,
     /// Layout element ID from the PREVIOUS hover update (needed to find which tile to repaint).
-    #[cfg(feature = "pipeline")]
     hover_old_lei: Option<LayoutElementId>,
     /// DOM nodes whose hover state changed in the last update (old chain ∪ new chain).
     /// Only these nodes need their cached CSS invalidated; everything else in the tile stays cached.
-    #[cfg(feature = "pipeline")]
     hover_dirty_nodes: Vec<NodeId>,
     /// The layout element currently under the pointer, used for bounding-box pre-check.
-    #[cfg(feature = "pipeline")]
     hover_layout_element: Option<LayoutElementId>,
     /// Cached :hover fingerprints for the current document; rebuilt on document change.
-    #[cfg(feature = "pipeline")]
     hover_fingerprints: Option<HoverFingerprints>,
     /// True when the last hover chain contained a fingerprint-sensitive node.
-    #[cfg(feature = "pipeline")]
     hover_chain_sensitive: bool,
     /// The href of the link currently under the pointer, if any.
-    #[cfg(feature = "pipeline")]
     pub hover_link_url: Option<String>,
 
     /// Shared wgpu resources for the Vello rasterizer (device, queue, renderer).
@@ -272,7 +251,6 @@ pub struct BrowsingContext {
     /// Media store shared between the layout and rasterization stages. The layouter loads
     /// images/SVGs into it by id; the rasterizer resolves the same ids back. It persists
     /// across renders so paint-only repaints (e.g. hover) still find previously loaded media.
-    #[cfg(feature = "pipeline")]
     media_store: std::sync::Arc<gosub_render_pipeline::common::media::MediaStore>,
 }
 
@@ -294,27 +272,17 @@ impl BrowsingContext {
             scroll_x: 0.0,
             scroll_y: 0.0,
             scroll_dirty: false,
-            #[cfg(feature = "pipeline")]
             pipeline_cache: None,
-            #[cfg(feature = "pipeline")]
             hover_dirty: false,
-            #[cfg(feature = "pipeline")]
             hover_leaf: None,
-            #[cfg(feature = "pipeline")]
             hover_old_lei: None,
-            #[cfg(feature = "pipeline")]
             hover_dirty_nodes: Vec::new(),
-            #[cfg(feature = "pipeline")]
             hover_layout_element: None,
-            #[cfg(feature = "pipeline")]
             hover_fingerprints: None,
-            #[cfg(feature = "pipeline")]
             hover_chain_sensitive: false,
-            #[cfg(feature = "pipeline")]
             hover_link_url: None,
             #[cfg(feature = "backend_vello")]
             vello_resources: None,
-            #[cfg(feature = "pipeline")]
             media_store: std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
         }
     }
@@ -337,7 +305,6 @@ impl BrowsingContext {
         self.style_dirty = true;
         self.layout_dirty = true;
         self.invalidate_render();
-        #[cfg(feature = "pipeline")]
         {
             self.pipeline_cache = None;
             self.hover_dirty = false;
@@ -356,7 +323,6 @@ impl BrowsingContext {
             self.viewport.height = vp.height;
             self.layout_dirty = true;
             self.invalidate_render();
-            #[cfg(feature = "pipeline")]
             {
                 self.pipeline_cache = None;
             }
@@ -367,14 +333,11 @@ impl BrowsingContext {
     /// The next composite will shift tiles by (x, y).
     pub fn set_scroll(&mut self, x: f64, y: f64) {
         let x = x.max(0.0);
-        #[cfg(feature = "pipeline")]
         let max_y = self
             .pipeline_cache
             .as_ref()
             .map(|c| (c.page_height - self.viewport.height as f64).max(0.0))
             .unwrap_or(f64::MAX);
-        #[cfg(not(feature = "pipeline"))]
-        let max_y = f64::MAX;
         let y = y.max(0.0).min(max_y);
         if (self.scroll_x - x).abs() < 0.5 && (self.scroll_y - y).abs() < 0.5 {
             return;
@@ -413,7 +376,6 @@ impl BrowsingContext {
     /// Rebuild stages 1-6 (pipeline cache) if content has changed, without building a display
     /// list. Used by TileCache backends (Cairo, Skia, Vello) which composite tiles directly
     /// on the host thread and never consume the render list.
-    #[cfg(feature = "pipeline")]
     pub fn rebuild_pipeline_cache_if_needed(&mut self) {
         if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty {
             return;
@@ -488,7 +450,6 @@ impl BrowsingContext {
             return;
         }
 
-        #[cfg(feature = "pipeline")]
         {
             if self.render_dirty {
                 if let Some(doc) = &self.document {
@@ -530,18 +491,6 @@ impl BrowsingContext {
             self.render_list = rl;
         }
 
-        #[cfg(not(feature = "pipeline"))]
-        {
-            let mut rl = RenderList::default();
-            if self.document.is_none() {
-                rl.items.push(DisplayItem::Clear {
-                    color: Color::new(0.6, 0.6, 0.6, 1.0),
-                });
-            }
-            self.render_list = rl;
-            self.render_dirty = false;
-        }
-
         self.scroll_dirty = false;
         self.scene_epoch = self.scene_epoch.wrapping_add(1);
     }
@@ -551,7 +500,6 @@ impl BrowsingContext {
     /// render pipeline entirely. Returns `None` when a full render is needed.
     ///
     /// Calling this consumes the scroll-dirty flag and advances the scene epoch.
-    #[cfg(feature = "pipeline")]
     pub fn take_scroll_handle(&mut self, dpr: u32) -> Option<ExternalHandle> {
         if !self.scroll_dirty || self.render_dirty || self.hover_dirty {
             return None;
@@ -574,7 +522,6 @@ impl BrowsingContext {
     /// Returns a `TileCache` handle from the current pipeline cache regardless of dirty flags.
     /// Used by backends (e.g. Skia) that bypass the display-list render pipeline entirely
     /// and composite tiles directly on the host thread.
-    #[cfg(feature = "pipeline")]
     pub fn tile_cache_handle(&self, dpr: u32) -> Option<ExternalHandle> {
         let cache = self.pipeline_cache.as_ref()?;
         Some(ExternalHandle::TileCache {
@@ -590,10 +537,7 @@ impl BrowsingContext {
 
     /// Returns the full page height from the last pipeline cache (0 if not yet rendered).
     pub fn page_height(&self) -> f64 {
-        #[cfg(feature = "pipeline")]
-        return self.pipeline_cache.as_ref().map(|c| c.page_height).unwrap_or(0.0);
-        #[cfg(not(feature = "pipeline"))]
-        return 0.0;
+        self.pipeline_cache.as_ref().map(|c| c.page_height).unwrap_or(0.0)
     }
 
     /// Hit-test at viewport coordinates `(vp_x, vp_y)` and update hover state.
@@ -602,7 +546,6 @@ impl BrowsingContext {
     /// - `visual_dirty`: a node with a `:hover` CSS rule entered or left the hover chain → needs repaint.
     /// - `url_changed`: the link URL under the cursor changed → caller should emit a `HoverUrl` event.
     /// - `link_url`: the href of the nearest `<a>` ancestor, if any.
-    #[cfg(feature = "pipeline")]
     pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> (bool, bool, Option<String>) {
         let _t_total = gosub_shared::timing_guard!("hover.total");
 
@@ -919,7 +862,6 @@ fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
 ///
 /// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
 /// re-running layout or rasterization.
-#[cfg(feature = "pipeline")]
 fn pipeline_build_cache(
     doc: Arc<EngineDocument>,
     viewport: &Viewport,
@@ -1212,8 +1154,11 @@ fn pipeline_build_cache(
     #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
     let baked_tiles: Vec<BakedTile> = Vec::new();
     #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
-    let new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)> =
-        std::collections::HashMap::new();
+    let new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)> = {
+        // No backend selected: rasterization is skipped, so the dirty-tile cache is unused.
+        let _ = &prev_tile_cache;
+        std::collections::HashMap::new()
+    };
 
     timing_stop!(ts_total);
 
@@ -1245,7 +1190,6 @@ fn pipeline_build_cache(
 /// `LayerList`, and only repaint tiles that intersect the old or new hovered element.
 /// All other tiles are carried over from `prev_baked_tiles` unchanged — no CSS
 /// re-evaluation, no re-rasterization.
-#[cfg(feature = "pipeline")]
 #[allow(clippy::too_many_arguments)]
 fn pipeline_hover_repaint(
     layer_list: Arc<gosub_render_pipeline::layering::layer::LayerList>,
@@ -1538,7 +1482,11 @@ fn pipeline_hover_repaint(
     let (baked_tiles, new_tile_cache): (
         Vec<BakedTile>,
         std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>,
-    ) = (Vec::new(), std::collections::HashMap::new());
+    ) = {
+        // No backend selected: rasterization is skipped, so the shared media store is unused.
+        let _ = &media_store;
+        (Vec::new(), std::collections::HashMap::new())
+    };
 
     // Merge: newly rasterized hover tiles + clean tiles carried from previous render.
     let all_baked_tiles: Vec<BakedTile> = baked_tiles.into_iter().chain(clean_baked).collect();
@@ -1570,7 +1518,6 @@ fn pipeline_hover_repaint(
 ///
 /// Selects tiles that intersect `(scroll_x, scroll_y, vp_w, vp_h)` and blits them at
 /// screen-relative positions. This is the only work done on every scroll tick.
-#[cfg(feature = "pipeline")]
 fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w: f64, vp_h: f64, rl: &mut RenderList) {
     use gosub_shared::{timing_start, timing_stop};
     let ts7 = timing_start!("pipeline.composite");
