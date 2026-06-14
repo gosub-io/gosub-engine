@@ -1,31 +1,11 @@
 use crate::common::hash::{hash_from_data, hash_from_string, Sha256Hash};
-use crate::common::media::Svg;
-use crate::common::media::{Media, MediaId, MediaImage, MediaSvg, MediaType};
+use crate::common::media::{DecodedMedia, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg};
 use bytes::Bytes;
-use file_type::FileType;
 use parking_lot::RwLock;
-use resvg::usvg;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use url::Url;
-
-/// Return `usvg::Options` backed by a shared fontdb that has system fonts loaded.
-///
-/// The database is built once the first time this is called and then reused,
-/// so system font discovery only happens once per process.
-fn svg_options() -> usvg::Options<'static> {
-    static FONTDB: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
-    let fontdb = Arc::clone(FONTDB.get_or_init(|| {
-        let mut db = usvg::fontdb::Database::new();
-        db.load_system_fonts();
-        Arc::new(db)
-    }));
-    usvg::Options {
-        fontdb,
-        ..Default::default()
-    }
-}
 
 const DEFAULT_SVG_ID: MediaId = MediaId::new(0);
 const DEFAULT_IMAGE_ID: MediaId = MediaId::new(1);
@@ -46,6 +26,8 @@ pub struct MediaStore {
     default_svg: Arc<Media>,
     /// Compiled-in placeholder returned when an image is missing or failed to load
     default_image: Arc<Media>,
+    /// Pluggable decoders that turn raw bytes into [`Media`]
+    decoders: MediaDecoderRegistry,
 }
 
 impl Default for MediaStore {
@@ -60,16 +42,25 @@ impl MediaStore {
     }
 
     pub fn new() -> MediaStore {
-        #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in asset, exercised by every pipeline test
-        let default_svg_tree =
-            usvg::Tree::from_data(DEFAULT_SVG_DATA, &svg_options()).expect("Failed to load default svg");
-        let default_svg = Arc::new(Media::svg("gosub://default/svg", Svg::new(default_svg_tree)));
+        let decoders = MediaDecoderRegistry::with_defaults();
 
         #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in asset, exercised by every pipeline test
-        let default_image_data = image::load_from_memory(DEFAULT_IMAGE_DATA)
-            .expect("Failed to load default image")
-            .to_rgba8();
-        let default_image = Arc::new(Media::image("gosub://default/image", default_image_data.into()));
+        let default_svg = match decoders
+            .decode(Some("image/svg+xml"), DEFAULT_SVG_DATA)
+            .expect("Failed to decode default svg")
+        {
+            DecodedMedia::Vector(tree) => Arc::new(Media::svg("gosub://default/svg", Svg::new(*tree))),
+            DecodedMedia::Raster(_) => unreachable!("default svg decoded as a raster image"),
+        };
+
+        #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in asset, exercised by every pipeline test
+        let default_image = match decoders
+            .decode(None, DEFAULT_IMAGE_DATA)
+            .expect("Failed to decode default image")
+        {
+            DecodedMedia::Raster(img) => Arc::new(Media::image("gosub://default/image", img)),
+            DecodedMedia::Vector(_) => unreachable!("default image decoded as an svg"),
+        };
 
         let entries = HashMap::from([
             (DEFAULT_SVG_ID, Arc::clone(&default_svg)),
@@ -82,6 +73,17 @@ impl MediaStore {
             next_id: AtomicU64::new(FIRST_FREE_IMAGE_ID),
             default_svg,
             default_image,
+            decoders,
+        }
+    }
+
+    /// Decode `data` (with an optional MIME hint) through the registry and wrap the result in a
+    /// [`Media`]. Shared by the data, source and inline decode paths.
+    fn decode_media(&self, src: &str, mime: Option<&str>, data: &[u8]) -> anyhow::Result<Media> {
+        match self.decoders.decode(mime, data) {
+            Ok(DecodedMedia::Raster(img)) => Ok(Media::image(src, img)),
+            Ok(DecodedMedia::Vector(tree)) => Ok(Media::svg(src, Svg::new(*tree))),
+            Err(e) => Err(anyhow::anyhow!("Failed to decode media from '{}': {}", src, e)),
         }
     }
 
@@ -124,92 +126,38 @@ impl MediaStore {
 
     pub fn load_media_from_data(&self, media_type: MediaType, data: &[u8]) -> anyhow::Result<MediaId> {
         let h = hash_from_data(data);
-        let cache = self.cache.read();
-        if let Some(media_id) = cache.get(&h) {
-            log::debug!("Loading cached media from data");
-            return Ok(*media_id);
+        {
+            let cache = self.cache.read();
+            if let Some(media_id) = cache.get(&h) {
+                log::debug!("Loading cached media from data");
+                return Ok(*media_id);
+            }
         }
-        drop(cache);
 
-        let media_id = match media_type {
-            MediaType::Svg => {
-                let svg_tree = match usvg::Tree::from_data(data, &svg_options()) {
-                    Ok(tree) => tree,
-                    Err(_) => {
-                        return Err(anyhow::anyhow!("Failed to parse SVG data"));
-                    }
-                };
-
-                let media = Media::svg("gosub://data/svg", Svg::new(svg_tree));
-                let media_id = self.allocate_media_id();
-
-                let mut entries = self.entries.write();
-                entries.insert(media_id, Arc::new(media));
-                drop(entries);
-
-                let mut cache = self.cache.write();
-                cache.insert(h, media_id);
-
-                media_id
-            }
-            MediaType::Image => {
-                let img = match image::load_from_memory(data) {
-                    Ok(img) => img,
-                    Err(_) => {
-                        return Err(anyhow::anyhow!("Failed to parse image data"));
-                    }
-                };
-
-                let media = Media::image("gosub://data/image", img.to_rgba8().into());
-                let media_id = self.allocate_media_id();
-
-                let mut entries = self.entries.write();
-                entries.insert(media_id, Arc::new(media));
-                drop(entries);
-
-                let mut cache = self.cache.write();
-                cache.insert(h, media_id);
-
-                media_id
-            }
+        // The caller knows the kind of media, so pass it as a MIME hint. The registry still
+        // re-sniffs the actual format from the bytes, so the hint only steers the raster-vs-vector
+        // choice; raster data is detected by its magic bytes.
+        let mime = match media_type {
+            MediaType::Svg => Some("image/svg+xml"),
+            MediaType::Image => None,
         };
+        let media = self.decode_media("gosub://data", mime, data)?;
+
+        let media_id = self.allocate_media_id();
+        self.entries.write().insert(media_id, Arc::new(media));
+        self.cache.write().insert(h, media_id);
 
         Ok(media_id)
     }
 
     fn load_media_from_source(&self, src: &str) -> anyhow::Result<MediaId> {
         log::debug!("Loading non-cached media from path: {}", src);
-        let Ok((media_type, raw_data)) = self.fetch_resource(src) else {
-            anyhow::bail!("Failed to fetch resource");
-        };
+        let (content_type, raw_data) = self.fetch_resource(src)?;
 
-        let media = match media_type {
-            MediaType::Svg => {
-                let svg_tree = match usvg::Tree::from_data(&raw_data, &svg_options()) {
-                    Ok(tree) => tree,
-                    Err(_) => {
-                        return Err(anyhow::anyhow!("Failed to parse SVG data"));
-                    }
-                };
-
-                Media::svg(src, Svg::new(svg_tree))
-            }
-            MediaType::Image => {
-                let img = match image::load_from_memory(&raw_data) {
-                    Ok(img) => img,
-                    Err(_) => {
-                        return Err(anyhow::anyhow!("Failed to parse image data"));
-                    }
-                };
-
-                Media::image(src, img.to_rgba8().into())
-            }
-        };
+        let media = self.decode_media(src, content_type.as_deref(), &raw_data)?;
 
         let media_id = self.allocate_media_id();
-
-        let mut entries = self.entries.write();
-        entries.insert(media_id, Arc::new(media));
+        self.entries.write().insert(media_id, Arc::new(media));
 
         Ok(media_id)
     }
@@ -276,9 +224,11 @@ impl MediaStore {
         }
     }
 
-    /// Fetch resource from the web (or local file system, depending on the src) and returns the media type and raw
-    /// bytes. This is blocking.
-    fn fetch_resource(&self, src: &str) -> anyhow::Result<(MediaType, bytes::Bytes)> {
+    /// Fetch a resource from the web (or local file system, depending on the src) and return the
+    /// raw `Content-Type` header (if any) together with the body bytes. Format classification is
+    /// left to the decoder registry, which treats the content type as a hint and falls back to
+    /// magic-byte sniffing. This is blocking.
+    fn fetch_resource(&self, src: &str) -> anyhow::Result<(Option<String>, Bytes)> {
         let url = Url::parse(src)?;
         let response = gosub_net::net::simple::sync_fetch(&url)?;
 
@@ -286,65 +236,11 @@ impl MediaStore {
             anyhow::bail!("HTTP {} fetching resource", response.status);
         }
 
-        // Detect through content type
-        let detected_content_type =
-            detect_content_type(response.headers.get("content-type").map(String::as_str).unwrap_or(""));
+        let content_type = response.headers.get("content-type").cloned();
+        let raw_bytes = Bytes::from(response.body);
 
-        // Detect through content bytes
-        let raw_bytes = bytes::Bytes::from(response.body);
-        let detected_file_type = detect_file_type(&raw_bytes);
-
-        // When the declared content type and the file bytes disagree, trust the bytes.
-        match (detected_file_type, detected_content_type) {
-            (Some(file_type), _) => Ok((file_type, raw_bytes)),
-            (None, Some(content_type)) => Ok((content_type, raw_bytes)),
-            (None, None) => anyhow::bail!("Failed to detect media type"),
-        }
+        Ok((content_type, raw_bytes))
     }
-}
-
-fn detect_file_type(data: &Bytes) -> Option<MediaType> {
-    let ft = FileType::from_bytes(data);
-    if let Some(media_type) = ft_detect(ft) {
-        return Some(media_type);
-    }
-
-    // The `file_type` crate misses some raster magic numbers — notably GIF, which it reports
-    // as `application/octet-stream`. Fall back to the `image` crate's own format sniffing,
-    // which reliably recognises GIF/PNG/JPEG/WebP/etc. SVG is handled above (it's XML text,
-    // not something `image` decodes), so this only ever adds raster formats.
-    if image::guess_format(data).is_ok() {
-        return Some(MediaType::Image);
-    }
-
-    None
-}
-
-fn detect_content_type(content_type: &str) -> Option<MediaType> {
-    let ft = FileType::from_media_type(content_type);
-    if ft.is_empty() {
-        return None;
-    }
-    ft_detect(ft[0])
-}
-
-fn ft_detect(ft: &FileType) -> Option<MediaType> {
-    // Scan *all* media types before deciding. The `file_type` crate lists several aliases
-    // for SVG (e.g. `["image/SVG", "image/svg+xml"]`); a naive first-match-wins loop trips
-    // the generic `image/` branch on the non-standard `image/SVG` alias and misclassifies
-    // SVG as a raster image. So look for any SVG marker first, and only fall back to a
-    // generic raster image if none is found. Comparisons are case-insensitive.
-    let mut is_raster_image = false;
-    for &mt in ft.media_types().iter() {
-        if mt.eq_ignore_ascii_case("image/svg+xml") || mt.eq_ignore_ascii_case("image/svg") {
-            return Some(MediaType::Svg);
-        }
-        if mt.len() >= 6 && mt[..6].eq_ignore_ascii_case("image/") {
-            is_raster_image = true;
-        }
-    }
-
-    is_raster_image.then_some(MediaType::Image)
 }
 
 #[cfg(test)]
@@ -365,33 +261,6 @@ mod tests {
             _ => rgba.write_to(&mut buf, format).expect("encode image"),
         }
         buf.into_inner()
-    }
-
-    /// The byte-sniffing detector must classify PNG/JPEG/GIF as raster images. If this
-    /// returns `None`, `fetch_resource` would bail and the image silently becomes the
-    /// broken-image placeholder.
-    #[test]
-    fn detects_raster_formats_from_bytes() {
-        for format in [ImageFormat::Png, ImageFormat::Jpeg, ImageFormat::Gif] {
-            let bytes = Bytes::from(encode(format));
-            assert_eq!(
-                detect_file_type(&bytes),
-                Some(MediaType::Image),
-                "{format:?} bytes were not detected as a raster image"
-            );
-        }
-    }
-
-    /// Content-type header detection must also recognise the common raster mime types.
-    #[test]
-    fn detects_raster_formats_from_content_type() {
-        for ct in ["image/gif", "image/png", "image/jpeg"] {
-            assert_eq!(
-                detect_content_type(ct),
-                Some(MediaType::Image),
-                "content-type {ct} was not detected as a raster image"
-            );
-        }
     }
 
     /// Each of PNG/JPEG/GIF must decode through `load_media_from_data` and land in the
@@ -415,5 +284,22 @@ mod tests {
             assert_eq!(img.image.width(), 8, "{format:?} width");
             assert_eq!(img.image.height(), 4, "{format:?} height");
         }
+    }
+
+    /// SVG data must decode through `load_media_from_data` into a retained SVG (not the
+    /// placeholder), so it can be re-rasterized at any size.
+    #[test]
+    fn decodes_svg_from_data() {
+        let store = MediaStore::new();
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="blue"/></svg>"#;
+
+        let media_id = store
+            .load_media_from_data(MediaType::Svg, svg)
+            .unwrap_or_else(|e| panic!("svg failed to load: {e}"));
+
+        assert!(!store.is_placeholder(media_id), "svg fell back to the placeholder");
+        let svg = store.get_svg(media_id);
+        let size = svg.svg.tree.size();
+        assert_eq!((size.width() as u32, size.height() as u32), (20, 10));
     }
 }

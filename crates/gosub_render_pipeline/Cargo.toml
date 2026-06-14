@@ -20,7 +20,6 @@ gosub_net = { version = "0.1.1", path = "../gosub_net", registry = "gosub" }
 url = { workspace = true }
 resvg = { workspace = true }
 bytes = { workspace = true }
-file_type = { version = "0.8.1", features = ["httpd"] }
 anyhow = { workspace = true }
 cow-utils = { workspace = true }
 parking_lot = { workspace = true }
