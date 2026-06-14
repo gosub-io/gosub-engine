@@ -35,6 +35,33 @@ impl<'a> PipelineTableTree<'a> {
         }
     }
 
+    /// Sum of the border-box heights of the nested tables directly contained in a cell (not
+    /// counting tables nested deeper inside those). Zero if the cell holds no table. This lets
+    /// a table cell grow to contain a nested table whose height lattice computes in a later pass.
+    fn nested_table_height(&self, cell_layout_id: LayoutElementId) -> f32 {
+        let Some(el) = self.layout_tree.arena.get(&cell_layout_id) else {
+            return 0.0;
+        };
+        let mut total = 0.0;
+        for &child_id in &el.children {
+            let Some(child) = self.layout_tree.arena.get(&child_id) else {
+                continue;
+            };
+            let is_table = matches!(
+                self.doc.get_own_style(child.dom_node_id, &StyleProperty::Display),
+                Some(Value::Display(Display::Table))
+            );
+            if is_table {
+                // Self-contained nested table — stop here, don't double-count its inner tables.
+                total += child.box_model.border_box.height as f32;
+            } else {
+                // The table may be wrapped (e.g. in an anonymous box); keep descending.
+                total += self.nested_table_height(child_id);
+            }
+        }
+        total
+    }
+
     /// Convert pending relative positions to absolute `BoxModel`s in the arena.
     /// Must be called after `compute_table_layout` returns.
     pub fn apply_positions(&mut self, table_dom_id: DomNodeId) {
@@ -153,8 +180,10 @@ fn cell_layout_to_box_model(layout: &CellLayout, abs: Coordinate) -> BoxModel {
 fn intrinsic_content_width(el: &LayoutElementNode, arena: &HashMap<LayoutElementId, LayoutElementNode>) -> f32 {
     match &el.context {
         ElementContext::Text(_) => el.box_model.content_box.width as f32,
-        ElementContext::Image(ctx) => ctx.dimension.width as f32,
-        ElementContext::Svg(ctx) => ctx.dimension.width as f32,
+        // Replaced elements: use the laid-out border-box width so the column is wide enough for
+        // the image *including its own CSS border* (the bare `dimension` omits it). Images are
+        // never stretched to the cell width, so the border box is the true intrinsic width.
+        ElementContext::Image(_) | ElementContext::Svg(_) => el.box_model.border_box.width as f32,
         ElementContext::None => el
             .children
             .iter()
@@ -239,7 +268,11 @@ impl TableTree for PipelineTableTree<'_> {
         // than 0 and covers the most common case (single column of text).
         if let Some(&layout_id) = self.dom_to_layout.get(&id) {
             if let Some(element) = self.layout_tree.arena.get(&layout_id) {
-                return element.box_model.content_box.height as f32;
+                let taffy_h = element.box_model.content_box.height as f32;
+                // A cell containing a nested table must be at least as tall as that table.
+                // The nested table's real height is only known after lattice lays it out, so
+                // the second (bottom-up) pass in `post_process_tables` propagates it up here.
+                return taffy_h.max(self.nested_table_height(layout_id));
             }
         }
         0.0
@@ -248,7 +281,10 @@ impl TableTree for PipelineTableTree<'_> {
     fn cell_content_width(&self, id: DomNodeId) -> f32 {
         if let Some(&layout_id) = self.dom_to_layout.get(&id) {
             if let Some(element) = self.layout_tree.arena.get(&layout_id) {
-                return intrinsic_content_width(element, &self.layout_tree.arena);
+                // Include the cell's own horizontal padding so the column is wide enough to hold
+                // the content *and* its padding (e.g. HN's logo cell: 20px image + 4px padding-right).
+                let pad = (element.box_model.padding.left + element.box_model.padding.right) as f32;
+                return intrinsic_content_width(element, &self.layout_tree.arena) + pad;
             }
         }
         0.0
@@ -273,58 +309,68 @@ pub fn post_process_tables(layout_tree: &mut LayoutTree, dom_to_layout: &HashMap
 
     log::info!("lattice: post_process_tables found {} table node(s)", table_nodes.len());
 
-    for (table_dom_id, table_layout_id) in table_nodes {
-        // Use the parent element's content width as available_width. For nested
-        // tables the parent is a table cell whose box model was already updated
-        // by the outer table's apply_positions call, giving us the correct width.
-        // Fall back to the table's own Taffy-computed width for root-level tables.
-        let available_width = doc
-            .parent(table_dom_id)
-            .and_then(|p| dom_to_layout.get(&p))
-            .and_then(|&pid| layout_tree.arena.get(&pid))
-            .map(|el| el.box_model.content_box.width as f32)
-            .unwrap_or_else(|| {
-                layout_tree
-                    .arena
-                    .get(&table_layout_id)
-                    .map(|e| e.box_model.content_box.width as f32)
-                    .unwrap_or(0.0)
-            });
+    // Two passes. Pass 1 is pre-order (outer→inner): it establishes column widths, which flow
+    // top-down (a nested table reads its width from its already-sized parent cell). Pass 2 is
+    // post-order (inner→outer): each table is re-laid-out *after* the tables nested inside its
+    // cells, so an outer cell's height now reflects its nested table's true height — height
+    // flows bottom-up. A single reverse pass propagates through any table-nesting depth.
+    for pass in 0..2 {
+        let order: Vec<(DomNodeId, LayoutElementId)> = if pass == 0 {
+            table_nodes.clone()
+        } else {
+            table_nodes.iter().rev().copied().collect()
+        };
+        for (table_dom_id, table_layout_id) in order {
+            lay_out_one_table(&*doc, layout_tree, dom_to_layout, table_dom_id, table_layout_id);
+        }
+    }
+}
 
-        log::info!(
-            "lattice: computing layout for table node {:?}, available_width={}",
-            table_dom_id,
-            available_width
-        );
+/// Run lattice for a single table node and write the computed cell positions and the table's
+/// own size back into the layout tree.
+fn lay_out_one_table(
+    doc: &dyn PipelineDocument,
+    layout_tree: &mut LayoutTree,
+    dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
+    table_dom_id: DomNodeId,
+    table_layout_id: LayoutElementId,
+) {
+    // Use the parent element's content width as available_width. For nested
+    // tables the parent is a table cell whose box model was already updated
+    // by the outer table's apply_positions call, giving us the correct width.
+    // Fall back to the table's own Taffy-computed width for root-level tables.
+    let available_width = doc
+        .parent(table_dom_id)
+        .and_then(|p| dom_to_layout.get(&p))
+        .and_then(|&pid| layout_tree.arena.get(&pid))
+        .map(|el| el.box_model.content_box.width as f32)
+        .unwrap_or_else(|| {
+            layout_tree
+                .arena
+                .get(&table_layout_id)
+                .map(|e| e.box_model.content_box.width as f32)
+                .unwrap_or(0.0)
+        });
 
-        // &*doc borrows from our local Arc, not from layout_tree — no conflict.
-        let mut tree = PipelineTableTree::new(&*doc, layout_tree, dom_to_layout);
+    let mut tree = PipelineTableTree::new(doc, layout_tree, dom_to_layout);
 
-        match gosub_lattice::compute_table_layout(&mut tree, table_dom_id, available_width, None) {
-            Ok((table_width, table_height)) => {
-                log::info!(
-                    "lattice: table node {:?} → {}×{}px, pending={}",
-                    table_dom_id,
-                    table_width,
-                    table_height,
-                    tree.pending.len()
+    match gosub_lattice::compute_table_layout(&mut tree, table_dom_id, available_width, None) {
+        Ok((table_width, table_height)) => {
+            tree.apply_positions(table_dom_id);
+            // Write back both dimensions so deeply-nested tables can read the
+            // correct width from this table's box model via their parent lookup.
+            if let Some(el) = layout_tree.arena.get_mut(&table_layout_id) {
+                let bb = el.box_model.border_box;
+                el.box_model = BoxModel::new(
+                    Rect::new(bb.x, bb.y, table_width as f64, table_height as f64),
+                    el.box_model.padding,
+                    el.box_model.border,
+                    el.box_model.margin,
                 );
-                tree.apply_positions(table_dom_id);
-                // Write back both dimensions so deeply-nested tables can read the
-                // correct width from this table's box model via their parent lookup.
-                if let Some(el) = layout_tree.arena.get_mut(&table_layout_id) {
-                    let bb = el.box_model.border_box;
-                    el.box_model = BoxModel::new(
-                        Rect::new(bb.x, bb.y, table_width as f64, table_height as f64),
-                        el.box_model.padding,
-                        el.box_model.border,
-                        el.box_model.margin,
-                    );
-                }
             }
-            Err(e) => {
-                log::warn!("lattice: table layout failed for node {:?}: {:?}", table_dom_id, e);
-            }
+        }
+        Err(e) => {
+            log::warn!("lattice: table layout failed for node {:?}: {:?}", table_dom_id, e);
         }
     }
 }

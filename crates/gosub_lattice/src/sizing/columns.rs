@@ -40,14 +40,17 @@ pub fn compute_column_widths<T: TableTree>(
             for cell in grid.cells_in_row(row_idx) {
                 found_any = true;
                 if cell.colspan == 1 {
+                    let cw = tree.cell_content_width(cell.node);
                     if explicit[cell.col].is_none() {
+                        // A specified width cannot shrink a cell below its content's min-width
+                        // (CSS: used width = max(specified, min-content)). Without this, e.g. a
+                        // `width:18px` cell holding a 20px image clips it and eats the padding.
                         match tree.css_length(cell.node, CssProp::Width) {
-                            CssLength::Px(px) => explicit[cell.col] = Some(px),
-                            CssLength::Percent(p) => explicit[cell.col] = Some(p / 100.0 * table_width),
+                            CssLength::Px(px) => explicit[cell.col] = Some(px.max(cw)),
+                            CssLength::Percent(p) => explicit[cell.col] = Some((p / 100.0 * table_width).max(cw)),
                             _ => {}
                         }
                     }
-                    let cw = tree.cell_content_width(cell.node);
                     if cw > natural[cell.col] {
                         natural[cell.col] = cw;
                     }
