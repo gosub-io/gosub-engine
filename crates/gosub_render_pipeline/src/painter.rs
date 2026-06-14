@@ -164,91 +164,112 @@ impl Painter {
                 commands.push(PaintCommand::text(t));
             }
             ElementContext::Svg(svg_ctx) => {
-                let brush = Brush::solid(Color::from_rgb8(130, 130, 130));
-                let r = Rectangle::new(layout_element.box_model.border_box).with_background(brush);
-                commands.push(PaintCommand::svg(svg_ctx.media_id, r));
+                let border_box = layout_element.box_model.border_box;
+                commands.push(PaintCommand::svg(svg_ctx.media_id, Rectangle::new(border_box)));
+                // The SVG painter doesn't draw the element's CSS border/radius, so emit it as a
+                // separate border-only rectangle painted on top of the icon (e.g. the HN logo's
+                // `border:1px white solid`).
+                if self.has_border(dom_node_id) {
+                    let r = self.decorate_with_border_and_radius(dom_node_id, Rectangle::new(border_box));
+                    commands.push(PaintCommand::rectangle(r));
+                }
             }
             ElementContext::Image(image_ctx) => {
                 let brush = Brush::image(image_ctx.media_id);
                 let r = Rectangle::new(layout_element.box_model.border_box).with_background(brush);
+                let r = self.decorate_with_border_and_radius(dom_node_id, r);
                 commands.push(PaintCommand::rectangle(r));
             }
             ElementContext::None => {
-                let doc = &self.layer_list.layout_tree.render_tree.doc;
                 let brush = self.get_brush(
                     dom_node_id,
                     &StyleProperty::BackgroundColor,
                     Brush::solid(Color::TRANSPARENT),
                 );
-                let mut r = Rectangle::new(layout_element.box_model.border_box).with_background(brush);
-
-                // Get border
-                let border_top_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopWidth);
-                let border_right_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderRightWidth);
-                let border_bottom_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomWidth);
-                let border_left_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderLeftWidth);
-
-                if border_top_width != 0.0
-                    || border_right_width != 0.0
-                    || border_bottom_width != 0.0
-                    || border_left_width != 0.0
-                {
-                    let border_top_color =
-                        self.get_brush(dom_node_id, &StyleProperty::BorderTopColor, Brush::solid(Color::BLACK));
-                    let border_right_color = self.get_brush(
-                        dom_node_id,
-                        &StyleProperty::BorderRightColor,
-                        Brush::solid(Color::BLACK),
-                    );
-                    let border_bottom_color = self.get_brush(
-                        dom_node_id,
-                        &StyleProperty::BorderBottomColor,
-                        Brush::solid(Color::BLACK),
-                    );
-                    let border_left_color =
-                        self.get_brush(dom_node_id, &StyleProperty::BorderLeftColor, Brush::solid(Color::BLACK));
-
-                    let border_style = match doc.get_style(dom_node_id, &StyleProperty::BorderTopStyle) {
-                        Value::BorderStyle(s) => css_border_style_to_paint(&s),
-                        _ => BorderStyle::Solid,
-                    };
-                    let border = Border::new(
-                        border_top_width,
-                        border_style,
-                        [
-                            border_top_color,
-                            border_right_color,
-                            border_bottom_color,
-                            border_left_color,
-                        ],
-                    );
-                    r = r.with_border(border);
-                }
-
-                // Get radius
-                let radius_bottom_left = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomLeftRadius);
-                let radius_bottom_right = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomRightRadius);
-                let radius_top_left = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopLeftRadius);
-                let radius_top_right = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopRightRadius);
-
-                if radius_bottom_left != 0.0
-                    || radius_bottom_right != 0.0
-                    || radius_top_left != 0.0
-                    || radius_top_right != 0.0
-                {
-                    r = r.with_radius_tlrb(
-                        Radius::new(radius_top_left as f64),
-                        Radius::new(radius_top_right as f64),
-                        Radius::new(radius_bottom_right as f64),
-                        Radius::new(radius_bottom_left as f64),
-                    );
-                }
-
+                let r = Rectangle::new(layout_element.box_model.border_box).with_background(brush);
+                let r = self.decorate_with_border_and_radius(dom_node_id, r);
                 commands.push(PaintCommand::rectangle(r));
             }
         }
 
         commands
+    }
+
+    /// Returns true when the element has a non-zero border on any edge.
+    fn has_border(&self, dom_node_id: NodeId) -> bool {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopWidth) != 0.0
+            || doc.get_style_f32(dom_node_id, &StyleProperty::BorderRightWidth) != 0.0
+            || doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomWidth) != 0.0
+            || doc.get_style_f32(dom_node_id, &StyleProperty::BorderLeftWidth) != 0.0
+    }
+
+    /// Apply the element's computed CSS border and border-radius to `r`. Shared by block,
+    /// image and SVG elements so replaced elements (`<img>`) get their borders too.
+    fn decorate_with_border_and_radius(&self, dom_node_id: NodeId, mut r: Rectangle) -> Rectangle {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+
+        let border_top_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopWidth);
+        let border_right_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderRightWidth);
+        let border_bottom_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomWidth);
+        let border_left_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderLeftWidth);
+
+        if border_top_width != 0.0
+            || border_right_width != 0.0
+            || border_bottom_width != 0.0
+            || border_left_width != 0.0
+        {
+            let border_top_color =
+                self.get_brush(dom_node_id, &StyleProperty::BorderTopColor, Brush::solid(Color::BLACK));
+            let border_right_color = self.get_brush(
+                dom_node_id,
+                &StyleProperty::BorderRightColor,
+                Brush::solid(Color::BLACK),
+            );
+            let border_bottom_color = self.get_brush(
+                dom_node_id,
+                &StyleProperty::BorderBottomColor,
+                Brush::solid(Color::BLACK),
+            );
+            let border_left_color =
+                self.get_brush(dom_node_id, &StyleProperty::BorderLeftColor, Brush::solid(Color::BLACK));
+
+            let border_style = match doc.get_style(dom_node_id, &StyleProperty::BorderTopStyle) {
+                Value::BorderStyle(s) => css_border_style_to_paint(&s),
+                _ => BorderStyle::Solid,
+            };
+            let border = Border::new(
+                border_top_width,
+                border_style,
+                [
+                    border_top_color,
+                    border_right_color,
+                    border_bottom_color,
+                    border_left_color,
+                ],
+            );
+            r = r.with_border(border);
+        }
+
+        let radius_bottom_left = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomLeftRadius);
+        let radius_bottom_right = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomRightRadius);
+        let radius_top_left = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopLeftRadius);
+        let radius_top_right = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopRightRadius);
+
+        if radius_bottom_left != 0.0
+            || radius_bottom_right != 0.0
+            || radius_top_left != 0.0
+            || radius_top_right != 0.0
+        {
+            r = r.with_radius_tlrb(
+                Radius::new(radius_top_left as f64),
+                Radius::new(radius_top_right as f64),
+                Radius::new(radius_bottom_right as f64),
+                Radius::new(radius_bottom_left as f64),
+            );
+        }
+
+        r
     }
 }
 
