@@ -15,6 +15,7 @@ use crate::layouter::{
 };
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
+use gosub_interface::font_system::FontSystem;
 use parking_lot::{Mutex, RwLock};
 use std::borrow::Borrow;
 use std::collections::HashMap;
@@ -49,7 +50,10 @@ pub struct TaffyLayouter {
     /// Shared font system used for text measurement. Locking once per measurement
     /// call avoids keeping the guard alive across the full layout pass, which lets
     /// other threads (e.g. the rasterizer) access the font collection between calls.
-    font_system: Arc<Mutex<ParleyFontSystem>>,
+    ///
+    /// `dyn FontSystem` so the same instance can be shared with the rasterizer (and
+    /// swapped for a non-Parley implementation). Measurement goes through the trait.
+    font_system: Arc<Mutex<dyn FontSystem>>,
     /// Memoized text measurements. Taffy calls the measure function 2-4× per node
     /// (MinContent, MaxContent, actual width). Caching by (text, font, max_width)
     /// eliminates the redundant Parley shaping calls.
@@ -120,7 +124,7 @@ impl TaffyLayouter {
     }
 
     /// Create a layouter that shares an existing font system.
-    pub fn with_font_system(font_system: Arc<Mutex<ParleyFontSystem>>) -> Self {
+    pub fn with_font_system(font_system: Arc<Mutex<dyn FontSystem>>) -> Self {
         Self {
             tree: TaffyTree::new(),
             root_id: TaffyNodeId::new(0),
@@ -134,7 +138,7 @@ impl TaffyLayouter {
     }
 
     /// Expose the font system so callers can share it with other components.
-    pub fn font_system(&self) -> Arc<Mutex<ParleyFontSystem>> {
+    pub fn font_system(&self) -> Arc<Mutex<dyn FontSystem>> {
         Arc::clone(&self.font_system)
     }
 

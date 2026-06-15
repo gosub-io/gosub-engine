@@ -181,8 +181,22 @@ impl FontSystem for ParleyFontSystem {
                         .collect();
 
                     if !glyphs.is_empty() {
+                        // Use the run's *actual* font: parley may substitute a fallback for
+                        // glyphs the requested family lacks (emoji, CJK, …), and the glyph ids
+                        // index into that fallback font — so drawing must use it, not the
+                        // originally requested `font`.
+                        let prun = run.run();
+                        let run_font = prun.font();
+                        let (data_arc, _) = run_font.data.clone().into_raw_parts();
+                        let run_resolved = ResolvedFont {
+                            family: font.family.clone(),
+                            style: font.style,
+                            weight: font.weight,
+                            stretch: font.stretch,
+                            blob: FontBlob::new(data_arc, run_font.index),
+                        };
                         runs.push(ShapedRun {
-                            font: font.clone(),
+                            font: run_resolved,
                             font_size: size,
                             glyphs,
                         });

@@ -1,4 +1,5 @@
 use gosub_fontmanager::ParleyFontSystem;
+use gosub_interface::font_system::FontSystem;
 use gosub_render_pipeline::common::geo::Dimension;
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::common::texture::TextureId;
@@ -42,14 +43,15 @@ impl VelloRasterizer {
     pub fn with_font_system(resources: Arc<WgpuResources>, font_system: Arc<Mutex<ParleyFontSystem>>) -> Self {
         Self { resources, font_system }
     }
-
-    /// Expose the font system so callers can share it with the layout engine.
-    pub fn font_system(&self) -> Arc<Mutex<ParleyFontSystem>> {
-        Arc::clone(&self.font_system)
-    }
 }
 
 impl Rasterable for VelloRasterizer {
+    /// Share this rasterizer's Parley font system (as `dyn FontSystem`) with the layouter so
+    /// layout and rendering measure/draw against the same font collection.
+    fn font_system(&self) -> Option<Arc<Mutex<dyn FontSystem>>> {
+        Some(Arc::clone(&self.font_system) as Arc<Mutex<dyn FontSystem>>)
+    }
+
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId> {
         let mut scene = Scene::new();
 

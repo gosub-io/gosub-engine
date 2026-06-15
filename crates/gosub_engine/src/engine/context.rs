@@ -900,7 +900,13 @@ fn pipeline_build_cache<C: EngineConfig>(
 
     // Stage 2: layout
     let ts2 = timing_start!("pipeline.layout");
-    let mut layouter = TaffyLayouter::new();
+    // Share the rasterizer's font system so layout and rendering measure/draw against the
+    // same font collection (and it's created once, not per layout pass). Backends without a
+    // FontSystem (null, Cairo/Pango) fall back to the layouter's own instance.
+    let mut layouter = match rasterizer.and_then(|r| r.font_system()) {
+        Some(font_system) => TaffyLayouter::with_font_system(font_system),
+        None => TaffyLayouter::new(),
+    };
     // Share the persistent media store so resources loaded during layout are visible to the
     // rasterizer (which resolves them by id). Otherwise every image renders as a placeholder.
     layouter.set_media_store(Arc::clone(&media_store));

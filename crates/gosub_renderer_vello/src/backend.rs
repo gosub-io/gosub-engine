@@ -248,7 +248,12 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
     }
 
     fn create_rasterizer(&self) -> Box<dyn Any + Send + Sync> {
-        erase_rasterizer(Box::new(crate::VelloRasterizer::new(Arc::clone(&self.resources))))
+        // Share the backend's font system so the rasterizer (and, in turn, the layouter)
+        // use the same font collection as this backend.
+        erase_rasterizer(Box::new(crate::VelloRasterizer::with_font_system(
+            Arc::clone(&self.resources),
+            Arc::clone(&self.font_system),
+        )))
     }
 
     fn raster_strategy(&self) -> RasterStrategy {
