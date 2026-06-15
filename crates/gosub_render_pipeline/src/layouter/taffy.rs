@@ -160,7 +160,8 @@ impl CanLayout for TaffyLayouter {
         &mut self,
         render_tree: RenderTree,
         viewport: Option<geo::Dimension>,
-        dpi_scale_factor: f32,
+        // DPI scaling is applied later in the pipeline; text is measured in CSS pixels.
+        _dpi_scale_factor: f32,
     ) -> LayoutTree {
         let Some(root_id) = render_tree.root_id else {
             log::error!("Render tree has no root node; was parse() called? Returning empty layout.");
@@ -224,19 +225,12 @@ impl CanLayout for TaffyLayouter {
                             return cached;
                         }
 
-                        // Acquire the font context for this measurement. The lock is
-                        // released immediately after the call so other callers
-                        // (e.g. the rasterizer) can interleave without contention.
+                        // Measure through the shared font system. The lock is released
+                        // immediately after the call so other callers (e.g. the
+                        // rasterizer) can interleave without contention.
                         let text_layout = {
                             let mut fs = font_system.lock();
-                            let font_cx = fs.font_cx_mut();
-                            get_text_layout(
-                                text_ctx.text.as_str(),
-                                &text_ctx.font_info,
-                                max_width,
-                                dpi_scale_factor,
-                                font_cx,
-                            )
+                            get_text_layout(text_ctx.text.as_str(), &text_ctx.font_info, max_width, &mut *fs)
                         };
                         match text_layout {
                             Ok(text_layout) => {

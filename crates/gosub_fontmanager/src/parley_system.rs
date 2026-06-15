@@ -116,12 +116,20 @@ impl FontSystem for ParleyFontSystem {
         found.ok_or_else(|| FontError::FontNotFound(query.families.join(", ")))
     }
 
-    fn shape(&mut self, text: &str, font: &ResolvedFont, size: f32, max_width: Option<f32>) -> ShapedText {
+    fn shape(
+        &mut self,
+        text: &str,
+        font: &ResolvedFont,
+        size: f32,
+        line_height: Option<f32>,
+        max_width: Option<f32>,
+        display_scale: f32,
+    ) -> ShapedText {
         if text.is_empty() {
             return ShapedText::empty();
         }
 
-        let mut builder = self.layout_cx.ranged_builder(&mut self.font_cx, text, 1.0, false);
+        let mut builder = self.layout_cx.ranged_builder(&mut self.font_cx, text, display_scale, false);
         builder.push_default(parley::StyleProperty::FontSize(size));
         builder.push_default(parley::StyleProperty::FontFamily(parley::FontFamily::Source(
             font.family.as_str().into(),
@@ -130,6 +138,9 @@ impl FontSystem for ParleyFontSystem {
             font.weight.0 as f32,
         )));
         builder.push_default(parley::StyleProperty::FontStyle(style_to_parley(font.style)));
+        if let Some(lh) = line_height {
+            builder.push_default(parley::StyleProperty::LineHeight(parley::LineHeight::Absolute(lh)));
+        }
         builder.push_default(parley::StyleProperty::Brush(()));
 
         let mut layout = builder.build(text);
@@ -191,12 +202,20 @@ impl FontSystem for ParleyFontSystem {
         }
     }
 
-    fn measure(&mut self, text: &str, font: &ResolvedFont, size: f32, max_width: Option<f32>) -> (f32, f32) {
+    fn measure(
+        &mut self,
+        text: &str,
+        font: &ResolvedFont,
+        size: f32,
+        line_height: Option<f32>,
+        max_width: Option<f32>,
+        display_scale: f32,
+    ) -> (f32, f32) {
         if text.is_empty() {
             return (0.0, 0.0);
         }
 
-        let mut builder = self.layout_cx.ranged_builder(&mut self.font_cx, text, 1.0, false);
+        let mut builder = self.layout_cx.ranged_builder(&mut self.font_cx, text, display_scale, false);
         builder.push_default(parley::StyleProperty::FontSize(size));
         builder.push_default(parley::StyleProperty::FontFamily(parley::FontFamily::Source(
             font.family.as_str().into(),
@@ -205,6 +224,9 @@ impl FontSystem for ParleyFontSystem {
             font.weight.0 as f32,
         )));
         builder.push_default(parley::StyleProperty::FontStyle(style_to_parley(font.style)));
+        if let Some(lh) = line_height {
+            builder.push_default(parley::StyleProperty::LineHeight(parley::LineHeight::Absolute(lh)));
+        }
         builder.push_default(parley::StyleProperty::Brush(()));
 
         let mut layout = builder.build(text);

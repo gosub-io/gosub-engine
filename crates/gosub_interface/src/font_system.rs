@@ -175,19 +175,38 @@ pub trait FontSystem: Send + Sync + 'static {
 
     /// Shape `text` with `font` at `size` pixels.
     ///
+    /// `line_height`: `Some(px)` forces an absolute CSS line box height; `None` uses the
+    /// font's natural line height (CSS `line-height: normal`).
     /// `max_width`: if `Some(w)`, soft-wrap lines at `w` pixels. `None` = single line.
+    /// `display_scale`: device-pixel scale factor (DPI). `1.0` = CSS pixels.
     ///
     /// Returns fully positioned glyphs. The returned `ShapedText` is cheaply cloneable
     /// (glyphs are usually stored in an `Arc<[ShapedGlyph]>` or `Vec`) so callers can
     /// cache it at the layout node level.
-    fn shape(&mut self, text: &str, font: &ResolvedFont, size: f32, max_width: Option<f32>) -> ShapedText;
+    fn shape(
+        &mut self,
+        text: &str,
+        font: &ResolvedFont,
+        size: f32,
+        line_height: Option<f32>,
+        max_width: Option<f32>,
+        display_scale: f32,
+    ) -> ShapedText;
 
     /// Return only the bounding box of `text` without glyph positions.
     ///
     /// The default implementation delegates to `shape()`. Override this when the
     /// back-end has a cheaper measurement path (e.g. `pango::Layout::pixel_size()`).
-    fn measure(&mut self, text: &str, font: &ResolvedFont, size: f32, max_width: Option<f32>) -> (f32, f32) {
-        let shaped = self.shape(text, font, size, max_width);
+    fn measure(
+        &mut self,
+        text: &str,
+        font: &ResolvedFont,
+        size: f32,
+        line_height: Option<f32>,
+        max_width: Option<f32>,
+        display_scale: f32,
+    ) -> (f32, f32) {
+        let shaped = self.shape(text, font, size, line_height, max_width, display_scale);
         (shaped.width, shaped.height)
     }
 }
