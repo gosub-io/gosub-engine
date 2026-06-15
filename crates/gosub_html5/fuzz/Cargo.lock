@@ -563,6 +563,7 @@ dependencies = [
  "log",
  "nom",
  "nom_locate",
+ "parking_lot",
  "phf",
  "regex",
  "serde",
@@ -575,6 +576,7 @@ dependencies = [
 name = "gosub_interface"
 version = "0.1.2"
 dependencies = [
+ "anyhow",
  "gosub_net",
  "gosub_shared",
  "parking_lot",

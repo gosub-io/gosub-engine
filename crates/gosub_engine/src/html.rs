@@ -9,7 +9,8 @@ pub use parser::{DocumentError, DummyDocument, DummyHtml5Config, ResourceHint};
 
 use gosub_css3::system::Css3System;
 use gosub_html5::document::document_impl::DocumentImpl;
-use gosub_interface::config::{HasCssSystem, HasDocument};
+use gosub_html5::parser::Html5Parser;
+use gosub_interface::config::ModuleConfiguration;
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
@@ -17,17 +18,15 @@ use gosub_shared::node::NodeId;
 /// Concrete type-system configuration that wires together the gosub_html5 document
 /// implementation with the gosub_css3 style system.
 ///
-/// This is the `C: HasDocument` type parameter used throughout the engine wherever
+/// This is the `C: ModuleConfiguration` type parameter used throughout the engine wherever
 /// a concrete document + CSS pairing is required (parsing, pipeline, rendering).
 #[derive(Clone, Debug, PartialEq)]
 pub struct HtmlEngineConfig;
 
-impl HasCssSystem for HtmlEngineConfig {
+impl ModuleConfiguration for HtmlEngineConfig {
     type CssSystem = Css3System;
-}
-
-impl HasDocument for HtmlEngineConfig {
     type Document = DocumentImpl<Self>;
+    type HtmlParser = Html5Parser<'static, Self>;
 }
 
 /// The real parsed document type used by the engine.

@@ -18,7 +18,7 @@ use gosub_css3::system::Css3System;
 use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_html5::{html_compile, testing::tree_construction};
-use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
+use gosub_interface::config::ModuleConfiguration;
 use std::time::Duration;
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -26,13 +26,9 @@ use std::time::Duration;
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
 
-impl HasCssSystem for Config {
+impl ModuleConfiguration for Config {
     type CssSystem = Css3System;
-}
-impl HasDocument for Config {
     type Document = DocumentImpl<Self>;
-}
-impl HasHtmlParser for Config {
     type HtmlParser = Html5Parser<'static, Self>;
 }
 

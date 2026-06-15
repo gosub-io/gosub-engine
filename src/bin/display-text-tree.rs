@@ -6,7 +6,7 @@ use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_shared::types::Result;
 use std::process::exit;
 
-use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
+use gosub_interface::config::{HasDocument, ModuleConfiguration};
 use gosub_interface::document::Document;
 use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
@@ -14,14 +14,9 @@ use gosub_shared::node::NodeId;
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
 
-impl HasCssSystem for Config {
+impl ModuleConfiguration for Config {
     type CssSystem = Css3System;
-}
-impl HasDocument for Config {
     type Document = DocumentImpl<Self>;
-}
-
-impl HasHtmlParser for Config {
     type HtmlParser = Html5Parser<'static, Self>;
 }
 
