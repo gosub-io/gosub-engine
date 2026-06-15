@@ -33,7 +33,7 @@ async fn main() -> Result<(), EngineError> {
     //
     // EngineConfig lets you tune limits like max_zones; Default is fine to start.
     let backend = NullBackend::new();
-    let mut engine = GosubEngine::new(
+    let mut engine: GosubEngine = GosubEngine::new(
         Some(EngineConfig::default()),
         Arc::new(backend),
         Arc::new(RwLock::new(DefaultCompositor::default())),

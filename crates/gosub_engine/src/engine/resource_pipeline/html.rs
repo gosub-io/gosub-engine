@@ -1,5 +1,5 @@
 use crate::engine::types::{IoChannel, PeekBuf, RequestId};
-use crate::html::{parse_main_document_stream, EngineDocument, ResourceHint};
+use crate::html::{parse_main_document_stream, EngineConfig, EngineDocument, ResourceHint};
 use crate::net::types::{FetchHandle, FetchKeyData, FetchRequest, FetchResultMeta, Initiator};
 use crate::net::{submit_to_io, SharedBody};
 use crate::util::spawn_named;
@@ -17,7 +17,7 @@ use tokio::task::JoinHandle;
 use tokio_util::io::StreamReader;
 
 #[async_trait]
-pub trait HtmlPipeline {
+pub trait HtmlPipeline<C: EngineConfig> {
     async fn parse_stream(
         &mut self,
         request: FetchRequest,
@@ -25,7 +25,7 @@ pub trait HtmlPipeline {
         meta: FetchResultMeta,
         peek_buf: PeekBuf,
         body: Arc<SharedBody>,
-    ) -> anyhow::Result<EngineDocument>;
+    ) -> anyhow::Result<EngineDocument<C>>;
 
     async fn parse_bytes(
         &mut self,
@@ -33,7 +33,7 @@ pub trait HtmlPipeline {
         handle: FetchHandle,
         meta: FetchResultMeta,
         body: &[u8],
-    ) -> anyhow::Result<EngineDocument>;
+    ) -> anyhow::Result<EngineDocument<C>>;
 }
 
 pub struct HtmlPipelineImpl {
@@ -46,14 +46,15 @@ impl HtmlPipelineImpl {
         Self { io_tx, zone_id }
     }
 
-    async fn parse_with_reader<R>(
+    async fn parse_with_reader<C, R>(
         &mut self,
         request: FetchRequest,
         handle: FetchHandle,
         meta: FetchResultMeta,
         reader: R,
-    ) -> anyhow::Result<EngineDocument>
+    ) -> anyhow::Result<EngineDocument<C>>
     where
+        C: EngineConfig,
         R: AsyncRead + Unpin + Send + 'static,
     {
         let cfg = crate::html::DummyHtml5Config::default();
@@ -147,7 +148,7 @@ impl HtmlPipelineImpl {
 }
 
 #[async_trait]
-impl HtmlPipeline for HtmlPipelineImpl {
+impl<C: EngineConfig> HtmlPipeline<C> for HtmlPipelineImpl {
     async fn parse_stream(
         &mut self,
         request: FetchRequest,
@@ -155,9 +156,9 @@ impl HtmlPipeline for HtmlPipelineImpl {
         meta: FetchResultMeta,
         peek_buf: PeekBuf,
         shared: Arc<SharedBody>,
-    ) -> anyhow::Result<EngineDocument> {
+    ) -> anyhow::Result<EngineDocument<C>> {
         let reader = SharedBody::combined_reader(peek_buf, shared);
-        self.parse_with_reader(request, handle, meta, reader).await
+        self.parse_with_reader::<C, _>(request, handle, meta, reader).await
     }
 
     async fn parse_bytes(
@@ -166,17 +167,18 @@ impl HtmlPipeline for HtmlPipelineImpl {
         handle: FetchHandle,
         meta: FetchResultMeta,
         body: &[u8],
-    ) -> anyhow::Result<EngineDocument> {
+    ) -> anyhow::Result<EngineDocument<C>> {
         // parsing bytes is just creating a stream of those bytes and passing it to the stream reader
         let stream = stream::iter(vec![Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(body))]);
         let reader = StreamReader::new(stream);
-        self.parse_with_reader(request, handle, meta, reader).await
+        self.parse_with_reader::<C, _>(request, handle, meta, reader).await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::html::DefaultConfig;
     use crate::events::IoCommand;
     use crate::net::req_ref_tracker::RequestReference;
     use crate::net::types::{Priority, ResourceKind};
@@ -281,8 +283,7 @@ mod tests {
         let body = HTML_WITH_RESOURCES.as_bytes();
 
         // Act
-        let doc = pipeline
-            .parse_bytes(req, handle, meta, body)
+        let doc = HtmlPipeline::<DefaultConfig>::parse_bytes(&mut pipeline, req, handle, meta, body)
             .await
             .expect("parse_bytes should succeed");
 
@@ -309,7 +310,9 @@ mod tests {
         let body = HTML_WITH_RESOURCES.as_bytes();
 
         // Act
-        let _ = pipeline.parse_bytes(req, handle, meta, body).await.expect("parse ok");
+        let _ = HtmlPipeline::<DefaultConfig>::parse_bytes(&mut pipeline, req, handle, meta, body)
+            .await
+            .expect("parse ok");
 
         // Give the pipeline a tick to run the post-parse cancellation
         sleep(Duration::from_millis(10)).await;

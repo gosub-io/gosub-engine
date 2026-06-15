@@ -457,7 +457,7 @@ impl ApplicationHandler<()> for BrowserApp {
             }
         };
 
-        let mut engine = GosubEngine::new(None, Arc::new(backend), self.compositor.clone());
+        let mut engine: GosubEngine = GosubEngine::new(None, Arc::new(backend), self.compositor.clone());
         let _join = engine.start().expect("engine start");
 
         // Forward navigation events → proxy → request_redraw.

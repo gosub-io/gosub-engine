@@ -5,6 +5,7 @@ use crate::engine::events::EngineEvent;
 use crate::engine::storage::{StorageService, Subscription};
 use crate::engine::tab::TabId;
 use crate::engine::types::{EventChannel, IoChannel};
+use crate::html::EngineConfig;
 use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::storage::types::PartitionPolicy;
 use crate::tab::services::resolve_tab_services;
@@ -19,6 +20,7 @@ use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
+use std::marker::PhantomData;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -128,7 +130,7 @@ pub struct ZoneSink {
 
 /// This is the zone structure, which contains tabs and shared services. It is only known to the engine
 /// and can be controlled by the user via the engine API.
-pub struct Zone {
+pub struct Zone<C: EngineConfig = crate::html::DefaultConfig> {
     // Shared context from the engine
     pub engine_context: Arc<EngineContext>,
     // Shared context that is passed down to tabs
@@ -150,9 +152,12 @@ pub struct Zone {
     pub description: String,
     /// Tab color (RGBA)
     pub color: [u8; 4],
+    /// The engine config this zone spawns tabs for. Zero-sized; `C` is only used at the
+    /// tab-worker spawn point.
+    _config: PhantomData<C>,
 }
 
-impl Debug for Zone {
+impl<C: EngineConfig> Debug for Zone<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Zone")
             .field("id", &self.id)
@@ -186,7 +191,7 @@ pub struct SharedFlags {
     pub share_cookiejar: bool,
 }
 
-impl Zone {
+impl<C: EngineConfig> Zone<C> {
     /// Creates a new zone with a specific zone ID
     pub fn new_with_id(
         // Unique ID for the zone
@@ -244,6 +249,7 @@ impl Zone {
             description: "".to_string(),
             color: random_color,
             config,
+            _config: PhantomData,
         };
 
         _ = zone.spawn_storage_events_to_engine();
@@ -296,7 +302,7 @@ impl Zone {
         let tab_services = resolve_tab_services(self.id, &self.context.services, &overrides.unwrap_or_default());
 
         let (tab_handle, join_handle) =
-            create_tab_and_spawn(self.id, tab_services, self.context.clone()).map_err(EngineError::CreateTab)?;
+            create_tab_and_spawn::<C>(self.id, tab_services, self.context.clone()).map_err(EngineError::CreateTab)?;
         self.tabs.insert(
             tab_handle.tab_id,
             TabInfo {

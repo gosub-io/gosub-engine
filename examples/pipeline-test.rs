@@ -147,7 +147,7 @@ async fn main() -> Result<(), EngineError> {
 
     // Start engine.
     let backend = gosub_render_pipeline::render::backends::null::NullBackend::new();
-    let mut engine = GosubEngine::new(
+    let mut engine: GosubEngine = GosubEngine::new(
         Some(EngineConfig::builder().max_zones(1).build().expect("cfg")),
         Arc::new(backend),
         Arc::new(RwLock::new(DefaultCompositor::default())),

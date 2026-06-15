@@ -1,5 +1,5 @@
 use crate::config::HasDocument;
-use gosub_shared::async_executor::WasmNotSend;
+use gosub_shared::async_executor::{WasmNotSend, WasmNotSendSync};
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
 use gosub_shared::node::NodeId;
@@ -16,15 +16,34 @@ pub enum CssOrigin {
     User,
 }
 
+/// Hover-sensitivity fingerprints for a set of stylesheets.
+///
+/// Records which element types/classes/ids appear in a `:hover` compound selector, so the
+/// engine can skip style recalculation when the pointer moves between elements that no `:hover`
+/// rule targets. Computed by the [`CssSystem`] (via [`CssSystem::hover_fingerprints`]) because
+/// only the CSS implementation understands its own selector structure — the engine stays
+/// agnostic of how selectors are represented.
+#[derive(Default, Debug, Clone)]
+pub struct HoverFingerprints {
+    /// A bare `:hover` / `*:hover` rule exists — every node is hover-sensitive.
+    pub has_universal: bool,
+    /// Element type names that appear in a `:hover` compound.
+    pub types: std::collections::HashSet<String>,
+    /// Class names that appear in a `:hover` compound.
+    pub classes: std::collections::HashSet<String>,
+    /// Element ids that appear in a `:hover` compound.
+    pub ids: std::collections::HashSet<String>,
+}
+
 /// The `CssSystem` trait is a trait that defines all things CSS3 that are used by other non-css3 crates. This is the main trait that
 /// is used to parse CSS3 files. It contains sub elements like the Stylesheet trait that is used in for instance the Document trait.
 pub trait CssSystem: Clone + Debug + 'static {
-    type Stylesheet: CssStylesheet;
+    type Stylesheet: CssStylesheet + WasmNotSendSync;
 
-    type PropertyMap: CssPropertyMap<Self>;
+    type PropertyMap: CssPropertyMap<Self> + WasmNotSendSync;
 
-    type Property: CssProperty<Self>;
-    type Value: CssValue;
+    type Property: CssProperty<Self> + WasmNotSendSync;
+    type Value: CssValue + WasmNotSendSync;
 
     /// Parses a string into a CSS3 stylesheet
     fn parse_str(str: &str, config: ParserConfig, origin: CssOrigin, source_url: &str) -> CssResult<Self::Stylesheet>;
@@ -38,6 +57,11 @@ pub trait CssSystem: Clone + Debug + 'static {
     ) -> Option<Self::PropertyMap>;
 
     fn load_default_useragent_stylesheet() -> Self::Stylesheet;
+
+    /// Scan `sheets` and collect the [`HoverFingerprints`] — the element types/classes/ids that
+    /// are the subject of a `:hover` rule. Lets the engine cheaply decide whether a hover change
+    /// can affect styling without re-running selector matching.
+    fn hover_fingerprints(sheets: &[Self::Stylesheet]) -> HoverFingerprints;
 }
 
 pub trait CssStylesheet: PartialEq + Debug {

@@ -41,108 +41,38 @@ use gosub_render_pipeline::render::{Color, DisplayItem, RenderContext, RenderLis
 use std::sync::Arc;
 use url::Url;
 
-use crate::html::HtmlEngineConfig;
-use gosub_css3::stylesheet::CssSelectorPart;
+use crate::html::EngineConfig;
+use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
 use gosub_render_pipeline::layering::layer::LayerList;
 use gosub_render_pipeline::layouter::LayoutElementId;
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 use gosub_shared::node::NodeId;
 
-/// Fingerprints of nodes that are the subject of a `:hover` CSS rule.
-/// Built once per document load; used to skip style recalcs when hover moves
-/// between elements that have no `:hover` rules.
-#[derive(Default)]
-struct HoverFingerprints {
-    /// True when a bare `:hover` or `*:hover` rule exists — every node is sensitive.
-    has_universal: bool,
-    types: std::collections::HashSet<String>,
-    classes: std::collections::HashSet<String>,
-    ids: std::collections::HashSet<String>,
-}
-
-impl HoverFingerprints {
-    fn empty() -> Self {
-        Self::default()
+/// True if `node_id` could be affected by a `:hover` rule, per the [`HoverFingerprints`]
+/// computed by the CSS system. Uses only [`Document`] trait methods so it stays generic.
+fn hover_matches<C: EngineConfig>(fp: &HoverFingerprints, doc: &EngineDocument<C>, node_id: NodeId) -> bool {
+    if fp.has_universal {
+        return true;
     }
-
-    /// Scan all stylesheets in `doc` and collect the hover-subject fingerprints.
-    fn build(doc: &EngineDocument) -> Self {
-        let mut fp = Self::empty();
-
-        for sheet in doc.stylesheets() {
-            for rule in &sheet.rules {
-                for selector in &rule.selectors {
-                    for part_list in &selector.parts {
-                        // Split the part list into compounds (groups between Combinators).
-                        // :hover belongs to the compound it appears in; that compound's
-                        // Type/Class/Id parts are the hover-subject fingerprint.
-                        let mut compound: Vec<&CssSelectorPart> = Vec::new();
-                        for part in part_list {
-                            if matches!(part, CssSelectorPart::Combinator(_)) {
-                                compound.clear();
-                                continue;
-                            }
-                            compound.push(part);
-                            if !matches!(part, CssSelectorPart::PseudoClass(n) if n == "hover") {
-                                continue;
-                            }
-                            // Found :hover — classify this compound.
-                            let mut specific = false;
-                            for p in &compound {
-                                match p {
-                                    CssSelectorPart::Type(t) => {
-                                        fp.types.insert(t.clone());
-                                        specific = true;
-                                    }
-                                    CssSelectorPart::Class(c) => {
-                                        fp.classes.insert(c.clone());
-                                        specific = true;
-                                    }
-                                    CssSelectorPart::Id(id) => {
-                                        fp.ids.insert(id.clone());
-                                        specific = true;
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            if !specific {
-                                // Bare :hover or *:hover — everything is sensitive.
-                                fp.has_universal = true;
-                                return fp;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        fp
-    }
-
-    fn matches(&self, doc: &EngineDocument, node_id: NodeId) -> bool {
-        if self.has_universal {
+    if let Some(tag) = doc.tag_name(node_id) {
+        if fp.types.contains(tag) {
             return true;
         }
-        if let Some(tag) = doc.tag_name(node_id) {
-            if self.types.contains(tag) {
-                return true;
-            }
-        }
-        for cls in &self.classes {
-            if doc.has_class(node_id, cls) {
-                return true;
-            }
-        }
-        if !self.ids.is_empty() {
-            if let Some(id_attr) = doc.attribute(node_id, "id") {
-                if self.ids.contains(id_attr) {
-                    return true;
-                }
-            }
-        }
-        false
     }
+    for cls in &fp.classes {
+        if doc.has_class(node_id, cls) {
+            return true;
+        }
+    }
+    if !fp.ids.is_empty() {
+        if let Some(id_attr) = doc.attribute(node_id, "id") {
+            if fp.ids.contains(id_attr) {
+                return true;
+            }
+        }
+    }
+    false
 }
 // #[derive(Debug, thiserror::Error)]
 // pub enum LoadError {
@@ -190,13 +120,13 @@ struct PipelineCache {
 /// A BrowsingContext is a single instance of the engine that deals with a specific tab. Each tab
 /// has one BrowsingContext. These contexts though can use shared processes or threads, but not
 /// from other contexts, only from the main engine.
-pub struct BrowsingContext {
+pub struct BrowsingContext<C: EngineConfig = crate::html::DefaultConfig> {
     // /// Is there anything that needs to be rendered or redrawn?
     // dirty: DirtyFlags,
     /// Current URL being processed
     current_url: Option<Url>,
     /// Parsed DOM document
-    document: Option<Arc<EngineDocument>>,
+    document: Option<Arc<EngineDocument<C>>>,
     /// True when the tab has failed loading (mostly net issues)
     failed: bool,
 
@@ -259,9 +189,9 @@ pub struct BrowsingContext {
     media_store: std::sync::Arc<gosub_render_pipeline::common::media::MediaStore>,
 }
 
-impl BrowsingContext {
+impl<C: EngineConfig> BrowsingContext<C> {
     /// Creates a new runtime browsing context.
-    pub(crate) fn new() -> BrowsingContext {
+    pub(crate) fn new() -> BrowsingContext<C> {
         Self {
             current_url: None,
             document: None,
@@ -316,7 +246,7 @@ impl BrowsingContext {
     }
 
     /// Sets the parsed DOM document for the given tab.
-    pub fn set_document(&mut self, doc: Arc<EngineDocument>) {
+    pub fn set_document(&mut self, doc: Arc<EngineDocument<C>>) {
         self.document = Some(doc);
         self.dom_dirty = true;
         self.style_dirty = true;
@@ -614,8 +544,8 @@ impl BrowsingContext {
         let fps = self.hover_fingerprints.get_or_insert_with(|| {
             self.document
                 .as_ref()
-                .map(|doc| HoverFingerprints::build(doc))
-                .unwrap_or_else(HoverFingerprints::empty)
+                .map(|doc| <C::CssSystem as CssSystem>::hover_fingerprints(doc.stylesheets()))
+                .unwrap_or_default()
         });
 
         // Walk the ancestor chain once for both link detection and fingerprint matching.
@@ -628,7 +558,7 @@ impl BrowsingContext {
                 let _t = gosub_shared::timing_guard!("hover.ancestor_walk");
                 let mut id = leaf;
                 loop {
-                    if !sensitive && fps.matches(doc, id) {
+                    if !sensitive && hover_matches(fps, doc, id) {
                         sensitive = true;
                     }
                     if link.is_none() && doc.tag_name(id) == Some("a") {
@@ -686,7 +616,7 @@ impl BrowsingContext {
     }
 }
 
-impl RenderContext for BrowsingContext {
+impl<C: EngineConfig> RenderContext for BrowsingContext<C> {
     fn viewport(&self) -> &Viewport {
         &self.viewport
     }
@@ -931,8 +861,8 @@ fn rasterize_sequential(
 ///
 /// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
 /// re-running layout or rasterization.
-fn pipeline_build_cache(
-    doc: Arc<EngineDocument>,
+fn pipeline_build_cache<C: EngineConfig>(
+    doc: Arc<EngineDocument<C>>,
     viewport: &Viewport,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
@@ -954,7 +884,7 @@ fn pipeline_build_cache(
 
     // Stage 1: render tree
     let ts1 = timing_start!("pipeline.render_tree");
-    let adapter = GosubDocumentAdapter::<HtmlEngineConfig>::new(doc);
+    let adapter = GosubDocumentAdapter::<C>::new(doc);
     let mut render_tree = RenderTree::new(Arc::new(adapter));
     if let Err(e) = render_tree.parse() {
         // The layouter tolerates a tree without a root; the frame degrades to empty.

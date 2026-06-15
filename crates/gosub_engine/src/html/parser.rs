@@ -1,13 +1,12 @@
 use std::io;
 
-use crate::html::{EngineDocument, HtmlEngineConfig};
+use crate::html::{EngineConfig, EngineDocument};
 use crate::net::types::{Priority, ResourceKind};
 use crate::net::RequestDestination;
 use cow_utils::CowUtils;
-use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::parser::Html5Parser;
-use gosub_interface::css3::CssSystem as _;
+use gosub_interface::css3::CssSystem;
 use gosub_interface::document::Document as _;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use once_cell::sync::Lazy;
@@ -99,14 +98,15 @@ impl Default for DummyHtml5Config {
 /// - `cancel`: cancellation token (tab/nav cancellation).
 /// - `cfg`: buffer limit config.
 /// - `on_discover`: callback invoked for each sub-resource hint found.
-pub async fn parse_main_document_stream<R, F>(
+pub async fn parse_main_document_stream<C, R, F>(
     base_url: Url,
     mut reader: R,
     cancel: CancellationToken,
     cfg: DummyHtml5Config,
     mut on_discover: F,
-) -> Result<EngineDocument, DocumentError>
+) -> Result<EngineDocument<C>, DocumentError>
 where
+    C: EngineConfig,
     R: AsyncRead + Unpin + Send + 'static,
     F: FnMut(ResourceHint) + Send,
 {
@@ -163,9 +163,9 @@ where
     };
     let mut stream = ByteStream::new(encoding, None);
     stream.read_from_bytes(&buf)?;
-    let mut doc = DocumentBuilderImpl::new_document::<HtmlEngineConfig>(Some(base_url));
-    let _ = Html5Parser::<HtmlEngineConfig>::parse_document(&mut stream, &mut doc, None);
-    let ua = Css3System::load_default_useragent_stylesheet();
+    let mut doc = DocumentBuilderImpl::new_document::<C>(Some(base_url));
+    let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, None);
+    let ua = <C::CssSystem as CssSystem>::load_default_useragent_stylesheet();
     doc.add_stylesheet(ua);
 
     Ok(doc)
@@ -291,6 +291,7 @@ fn resolve(base: &Url, candidate: &str) -> Result<Url, url::ParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::html::DefaultConfig;
     use bytes::Bytes;
     use futures::stream;
     use tokio_util::io::StreamReader;
@@ -320,7 +321,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let mut hints = Vec::new();
 
-        parse_main_document_stream(
+        parse_main_document_stream::<DefaultConfig, _, _>(
             base.clone(),
             reader_from_str(html),
             cancel,
@@ -354,7 +355,9 @@ mod tests {
         let cancel = CancellationToken::new();
         cancel.cancel(); // cancel immediately
 
-        let res = parse_main_document_stream(base, reader, cancel, DummyHtml5Config::default(), |_h| {}).await;
+        let res =
+            parse_main_document_stream::<DefaultConfig, _, _>(base, reader, cancel, DummyHtml5Config::default(), |_h| {})
+                .await;
 
         match res {
             Err(DocumentError::Cancelled) => {}
@@ -369,7 +372,7 @@ mod tests {
         let cfg = DummyHtml5Config { max_bytes: 64 * 1024 }; // 64 KiB
 
         // Just verify truncated input still produces a valid document (no panic).
-        parse_main_document_stream(base, reader_from_str(&big), CancellationToken::new(), cfg, |_h| {})
+        parse_main_document_stream::<DefaultConfig, _, _>(base, reader_from_str(&big), CancellationToken::new(), cfg, |_h| {})
             .await
             .unwrap();
     }

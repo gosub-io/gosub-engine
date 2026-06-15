@@ -40,7 +40,7 @@
 //!     // 1) Engine + backend
 //!     let backend = NullBackend::new();
 //!     let compositor = DefaultCompositor::default();
-//!     let mut engine_handle = GosubEngine::new(
+//!     let mut engine_handle: GosubEngine = GosubEngine::new(
 //!         Some(EngineConfig::default()),
 //!         Arc::new(backend),
 //!         Arc::new(parking_lot::RwLock::new(compositor)),
@@ -115,6 +115,10 @@ pub mod html;
 pub mod metrics;
 
 pub use engine::{BrowsingContext, EngineError, GosubEngine};
+
+/// The engine's default [`ModuleConfiguration`](gosub_interface::config::ModuleConfiguration),
+/// used when `GosubEngine` is instantiated without a custom config.
+pub use html::DefaultConfig;
 
 pub use engine::types::Action;
 pub use engine::types::NavigationId;

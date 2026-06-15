@@ -528,7 +528,7 @@ fn main() {
     // Use a null render backend — TileCache frames are submitted directly by the engine
     // without going through a render backend's display-list pipeline.
     let backend = gosub_render_pipeline::render::backends::null::NullBackend::new();
-    let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
+    let mut engine: GosubEngine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
     let _join = engine.start().expect("engine start");
 
     let proxy_ev = proxy.clone();

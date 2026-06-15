@@ -26,7 +26,7 @@ pub use layouter::*;
 ///
 /// Additional components (font system, layouter, network stack, render backend, compositor) are
 /// added as associated types here as each is wired into the engine.
-pub trait ModuleConfiguration: Clone + Debug + PartialEq + 'static {
+pub trait ModuleConfiguration: Clone + Debug + PartialEq + Send + Sync + 'static {
     /// CSS parser and property system.
     type CssSystem: CssSystem;
 

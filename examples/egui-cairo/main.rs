@@ -69,7 +69,7 @@ impl BrowserApp {
         })));
 
         let backend = CairoBackend::new();
-        let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
+        let mut engine: GosubEngine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
 
         let (ui_tx, ui_rx) = std::sync::mpsc::channel::<UiEvent>();

@@ -590,7 +590,7 @@ fn main() {
     })));
 
     let backend = CairoBackend::new();
-    let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
+    let mut engine: GosubEngine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
     let _join = engine.start().expect("engine start");
 
     // Forward engine navigation events to update the window title.

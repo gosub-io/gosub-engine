@@ -6,7 +6,7 @@ use crate::matcher::styling::{match_selector, CssProperties, CssProperty, Declar
 use crate::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, Css3};
 use gosub_interface::config::HasDocument;
-use gosub_interface::css3::{CssOrigin, CssSystem};
+use gosub_interface::css3::{CssOrigin, CssSystem, HoverFingerprints};
 use gosub_interface::document::Document;
 use gosub_interface::node::NodeType;
 use gosub_shared::config::ParserConfig;
@@ -218,6 +218,61 @@ impl CssSystem for Css3System {
 
     fn load_default_useragent_stylesheet() -> Self::Stylesheet {
         load_default_useragent_stylesheet()
+    }
+
+    fn hover_fingerprints(sheets: &[Self::Stylesheet]) -> HoverFingerprints {
+        use crate::stylesheet::CssSelectorPart;
+
+        let mut fp = HoverFingerprints::default();
+
+        for sheet in sheets {
+            for rule in &sheet.rules {
+                for selector in &rule.selectors {
+                    for part_list in &selector.parts {
+                        // Split the part list into compounds (groups between Combinators).
+                        // :hover belongs to the compound it appears in; that compound's
+                        // Type/Class/Id parts are the hover-subject fingerprint.
+                        let mut compound: Vec<&CssSelectorPart> = Vec::new();
+                        for part in part_list {
+                            if matches!(part, CssSelectorPart::Combinator(_)) {
+                                compound.clear();
+                                continue;
+                            }
+                            compound.push(part);
+                            if !matches!(part, CssSelectorPart::PseudoClass(n) if n == "hover") {
+                                continue;
+                            }
+                            // Found :hover — classify this compound.
+                            let mut specific = false;
+                            for p in &compound {
+                                match p {
+                                    CssSelectorPart::Type(t) => {
+                                        fp.types.insert(t.clone());
+                                        specific = true;
+                                    }
+                                    CssSelectorPart::Class(c) => {
+                                        fp.classes.insert(c.clone());
+                                        specific = true;
+                                    }
+                                    CssSelectorPart::Id(id) => {
+                                        fp.ids.insert(id.clone());
+                                        specific = true;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            if !specific {
+                                // Bare :hover or *:hover — everything is sensitive.
+                                fp.has_universal = true;
+                                return fp;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        fp
     }
 }
 

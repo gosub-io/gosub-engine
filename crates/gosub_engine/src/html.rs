@@ -15,29 +15,41 @@ use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
 
-/// Concrete type-system configuration that wires together the gosub_html5 document
-/// implementation with the gosub_css3 style system.
+/// The engine's default [`ModuleConfiguration`], wiring the gosub_html5 document
+/// implementation together with the gosub_css3 style system.
 ///
-/// This is the `C: ModuleConfiguration` type parameter used throughout the engine wherever
-/// a concrete document + CSS pairing is required (parsing, pipeline, rendering).
+/// Embedders that don't supply their own config get this one: `GosubEngine` (and the
+/// rest of the engine) are generic over `C: ModuleConfiguration` and default to
+/// `DefaultConfig`.
 #[derive(Clone, Debug, PartialEq)]
-pub struct HtmlEngineConfig;
+pub struct DefaultConfig;
 
-impl ModuleConfiguration for HtmlEngineConfig {
+impl ModuleConfiguration for DefaultConfig {
     type CssSystem = Css3System;
     type Document = DocumentImpl<Self>;
     type HtmlParser = Html5Parser<'static, Self>;
 }
 
-/// The real parsed document type used by the engine.
-pub type EngineDocument = DocumentImpl<HtmlEngineConfig>;
+/// A [`ModuleConfiguration`] this engine can actually drive.
+///
+/// The engine is generic over `C: EngineConfig`. This is just `ModuleConfiguration` pinned so the
+/// config's `Document` is `DocumentImpl<Self>` — the HTML parser produces that concrete document
+/// type, so it is coupled to the parser rather than independently swappable (see the design doc:
+/// `Document` is internal plumbing). Stating it once here keeps the bound off every engine
+/// signature; engine code bounds on `C: EngineConfig` and the public `ModuleConfiguration` stays
+/// fully general.
+pub trait EngineConfig: ModuleConfiguration<Document = DocumentImpl<Self>> {}
+impl<C: ModuleConfiguration<Document = DocumentImpl<C>>> EngineConfig for C {}
+
+/// The parsed document type used by the engine for a given config (defaults to [`DefaultConfig`]).
+pub type EngineDocument<C = DefaultConfig> = DocumentImpl<C>;
 
 /// Extract the text content of the first `<title>` element in the document.
-pub fn document_title(doc: &EngineDocument) -> Option<String> {
+pub fn document_title<C: EngineConfig>(doc: &EngineDocument<C>) -> Option<String> {
     find_title(doc, doc.root())
 }
 
-fn find_title(doc: &EngineDocument, node_id: NodeId) -> Option<String> {
+fn find_title<C: EngineConfig>(doc: &EngineDocument<C>, node_id: NodeId) -> Option<String> {
     for &child in doc.children(node_id) {
         if doc.node_type(child) == NodeType::ElementNode {
             if doc

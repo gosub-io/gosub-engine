@@ -76,7 +76,7 @@ impl GosubBrowser {
 
         local.spawn_local(async move {
             let result = async move {
-                let mut engine = GosubEngine::new(None, backend_clone, compositor_clone);
+                let mut engine: GosubEngine = GosubEngine::new(None, backend_clone, compositor_clone);
                 engine.start().map_err(|e| e.to_string())?;
 
                 let services = ZoneServices {

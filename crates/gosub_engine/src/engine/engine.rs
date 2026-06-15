@@ -26,8 +26,10 @@ use crate::engine::DEFAULT_CHANNEL_CAPACITY;
 use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::net::{spawn_io_thread, FetcherConfig, IoHandle};
 use crate::util::spawn_named;
+use crate::html::EngineConfig as ModuleEngineConfig;
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineConfig, EngineError};
+use std::marker::PhantomData;
 use anyhow::Result;
 use gosub_render_pipeline::render::backend::{CompositorSink, RenderBackend};
 use gosub_render_pipeline::render::DefaultCompositor;
@@ -41,11 +43,14 @@ use tokio::time::timeout;
 use tracing::instrument;
 
 /// Main Gosub engine struct
-pub struct GosubEngine {
+pub struct GosubEngine<C: ModuleEngineConfig = crate::html::DefaultConfig> {
     /// Context is what can be shared downstream
     context: Arc<EngineContext>,
     /// Zones managed by this engine, indexed by [`ZoneId`].
     zones: HashMap<ZoneId, Arc<ZoneSink>>,
+    /// The module configuration this engine is built for. Zero-sized; `C` is resolved at
+    /// compile time and only used where tabs/documents are created.
+    _config: PhantomData<C>,
     /// Command sender used to send commands to the engine run loop.
     cmd_tx: mpsc::Sender<EngineCommand>,
     /// Command receiver (owned by the engine run loop).
@@ -87,7 +92,7 @@ impl Default for EngineContext {
     }
 }
 
-impl GosubEngine {
+impl<C: ModuleEngineConfig> GosubEngine<C> {
     /// Create a new engine.
     ///
     /// If `config` is `None`, [`EngineConfig::default`] is used.
@@ -100,7 +105,7 @@ impl GosubEngine {
     /// # use gosub_render_pipeline::render::DefaultCompositor;
     /// let backend = NullBackend::new();
     /// let compositor = DefaultCompositor::default();
-    /// let engine = ge::GosubEngine::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
+    /// let engine = ge::GosubEngine::<ge::DefaultConfig>::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
     /// ```
     pub fn new(
         config: Option<EngineConfig>,
@@ -129,6 +134,7 @@ impl GosubEngine {
             cmd_rx: Some(cmd_rx),
             io_handle: None,
             running: false,
+            _config: PhantomData,
         }
     }
 
@@ -260,7 +266,7 @@ impl GosubEngine {
         config: ZoneConfig,
         services: ZoneServices,
         zone_id: Option<ZoneId>,
-    ) -> Result<Zone, EngineError> {
+    ) -> Result<Zone<C>, EngineError> {
         let zone = match zone_id {
             Some(zone_id) => Zone::new_with_id(zone_id, config, services, self.context.clone())?,
             None => Zone::new(config, services, self.context.clone())?,
