@@ -1,6 +1,6 @@
 use crate::config::HasLayouter;
 use crate::css3::CssSystem;
-use crate::font::{FontBlob, HasFontManager};
+use crate::font::FontBlob;
 use gosub_shared::font::Glyph;
 use gosub_shared::geo::{Point, Rect, Size, SizeU32};
 use gosub_shared::types::Result;
@@ -71,7 +71,7 @@ pub trait LayoutTree<C: HasLayouter<LayoutTree = Self>>: Sized + Debug + 'static
 
 /// Main layout trait that will convert a `RenderTree` into a `LayoutTree` (or in our case, it will
 /// update the `LayoutTree` with new layout information)
-pub trait Layouter<C: HasLayouter + HasFontManager>: Sized + Clone + Send + 'static {
+pub trait Layouter<C: HasLayouter>: Sized + Clone + Send + 'static {
     type Cache: LayoutCache;
     type Layout: Layout + Send;
 

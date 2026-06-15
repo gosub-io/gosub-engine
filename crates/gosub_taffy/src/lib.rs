@@ -11,7 +11,6 @@ use taffy::{
 
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::config::HasLayouter;
-use gosub_interface::font::HasFontManager;
 use gosub_interface::layout::{Layout as TLayout, LayoutCache, LayoutNode, LayoutTree, Layouter};
 use gosub_shared::geo::{Point, Rect, Size, SizeU32};
 use gosub_shared::types::Result;
@@ -161,7 +160,7 @@ impl LayoutCache for Cache {
     }
 }
 
-impl<B: HasLayouter<Layouter = TaffyLayouter> + HasFontManager> Layouter<B> for TaffyLayouter {
+impl<B: HasLayouter<Layouter = TaffyLayouter>> Layouter<B> for TaffyLayouter {
     type Cache = Cache;
     type Layout = Layout;
     type TextLayout = TextLayout;

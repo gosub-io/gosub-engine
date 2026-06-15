@@ -1,6 +1,4 @@
-use parking_lot::RwLock;
 use std::fmt::{Debug, Formatter};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -55,34 +53,3 @@ impl std::fmt::Display for FontStyle {
     }
 }
 
-pub trait HasFontManager: Sized + Debug {
-    type FontManager: FontManager;
-}
-
-pub trait FontInfo: Sized + Clone + Debug + Send {
-    fn family(&self) -> &str;
-    fn style(&self) -> FontStyle;
-    fn weight(&self) -> i32;
-    fn stretch(&self) -> f32;
-    fn monospaced(&self) -> bool;
-    fn path(&self) -> Option<PathBuf>;
-    fn index(&self) -> Option<i32>;
-
-    fn new(family: &str) -> Result<Self, FontError>;
-    fn with_family(&self, family: &str) -> Self;
-    fn with_style(&self, style: FontStyle) -> Self;
-    fn with_weight(&self, weight: i32) -> Self;
-    fn with_stretch(&self, stretch: f32) -> Self;
-    fn with_monospaced(&self, monospaced: bool) -> Self;
-    fn with_path(&self, path: PathBuf, index: Option<i32>) -> Self;
-
-    /// Converts this font info to a font description usable by Pango
-    fn to_description(&self, size: f32) -> String;
-}
-
-pub trait FontManager: Sized + 'static {
-    type FontInfo: FontInfo;
-
-    fn instance() -> Arc<RwLock<Self>>;
-    fn find_font(&self, families: &[&str], style: FontStyle) -> Option<Self::FontInfo>;
-}
