@@ -18,7 +18,9 @@ use crate::util::spawn_named;
 use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
 use gosub_render_pipeline::rasterizer::RasterStrategy;
-use gosub_render_pipeline::render::backend::{ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
+use gosub_render_pipeline::render::backend::{
+    CompositorSink, ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
+};
 use gosub_render_pipeline::render::Viewport;
 use http::{HeaderMap, Method};
 use std::sync::Arc;
@@ -72,7 +74,7 @@ pub struct TabWorker<C: EngineConfig> {
     pub zone_id: ZoneId,
 
     /// Shared context from the tab
-    zone_context: Arc<ZoneContext>,
+    zone_context: Arc<ZoneContext<C>>,
     // Effective tab services that we can use
     services: EffectiveTabServices,
 
@@ -137,7 +139,7 @@ impl<C: EngineConfig> TabWorker<C> {
         tab_id: TabId,
         zone_id: ZoneId,
         services: EffectiveTabServices,
-        zone_context: Arc<ZoneContext>,
+        zone_context: Arc<ZoneContext<C>>,
         sink: Arc<TabSink>,
         cmd_rx: mpsc::Receiver<TabCommand>,
     ) -> Self {

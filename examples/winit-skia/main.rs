@@ -10,6 +10,7 @@ use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalSt
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
+use gosub_engine::DefaultConfig;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_renderer_skia::SkiaBackend;
@@ -45,9 +46,9 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 
 struct BrowserApp {
     #[allow(dead_code)]
-    engine: GosubEngine,
+    engine: GosubEngine<DefaultConfig<SkiaBackend>>,
     #[allow(dead_code)]
-    zone: Zone,
+    zone: Zone<DefaultConfig<SkiaBackend>>,
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
@@ -490,7 +491,7 @@ fn main() {
     })));
 
     let backend = SkiaBackend::new();
-    let mut engine: GosubEngine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
+    let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
     let _join = engine.start().expect("engine start");
 
     let proxy_ev = proxy.clone();

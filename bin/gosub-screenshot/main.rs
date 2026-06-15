@@ -9,6 +9,7 @@ use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalSt
 use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
+use gosub_engine::DefaultConfig;
 use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_renderer_vello::{VelloBackend, WgpuContextProvider};
@@ -186,7 +187,7 @@ fn main() {
         let _ = tx_redraw.send(());
     })));
 
-    let mut engine: GosubEngine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
+    let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
     let _join = engine.start().expect("engine start");
     let mut event_rx = engine.subscribe_events();
 

@@ -17,7 +17,7 @@ pub use gosub_shared::tab_id::TabId;
 pub fn create_tab<C: EngineConfig>(
     zone_id: ZoneId,
     services: EffectiveTabServices,
-    zone_context: Arc<ZoneContext>,
+    zone_context: Arc<ZoneContext<C>>,
 ) -> anyhow::Result<(TabHandle, TabWorker<C>)> {
     let (cmd_tx, cmd_rx) = mpsc::channel::<TabCommand>(DEFAULT_CHANNEL_CAPACITY);
     let tab_id = TabId::new();
@@ -33,7 +33,7 @@ pub fn create_tab<C: EngineConfig>(
 pub fn create_tab_and_spawn<C: EngineConfig>(
     zone_id: ZoneId,
     services: EffectiveTabServices,
-    zone_context: Arc<ZoneContext>,
+    zone_context: Arc<ZoneContext<C>>,
 ) -> anyhow::Result<(TabHandle, JoinHandle<()>)> {
     let (tab_handle, worker) = create_tab::<C>(zone_id, services, zone_context)?;
     let join_handle = worker.spawn_worker()?;

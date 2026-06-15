@@ -15,6 +15,7 @@ use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalSt
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
+use gosub_engine::DefaultConfig;
 use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use gosub_renderer_vello::{VelloBackend, WgpuContextProvider};
@@ -287,9 +288,9 @@ struct RuntimeState {
     gpu: GpuState,
     // These fields keep background tasks alive for the process lifetime.
     #[allow(dead_code)]
-    engine: GosubEngine,
+    engine: GosubEngine<DefaultConfig<VelloBackend<WinitWgpuContextProvider>>>,
     #[allow(dead_code)]
-    zone: Zone,
+    zone: Zone<DefaultConfig<VelloBackend<WinitWgpuContextProvider>>>,
     tab: TabHandle,
     tab_id: TabId,
 }
@@ -457,7 +458,7 @@ impl ApplicationHandler<()> for BrowserApp {
             }
         };
 
-        let mut engine: GosubEngine = GosubEngine::new(None, Arc::new(backend), self.compositor.clone());
+        let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), self.compositor.clone());
         let _join = engine.start().expect("engine start");
 
         // Forward navigation events → proxy → request_redraw.

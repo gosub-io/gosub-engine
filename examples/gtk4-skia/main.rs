@@ -11,6 +11,7 @@ use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalSt
 use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
+use gosub_engine::DefaultConfig;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gtk4::glib;
@@ -76,7 +77,7 @@ fn main() {
         })));
 
         let backend = gosub_renderer_skia::SkiaBackend::new();
-        let mut engine: GosubEngine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
+        let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
         let event_rx = engine.subscribe_events();
 

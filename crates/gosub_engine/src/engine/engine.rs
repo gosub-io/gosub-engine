@@ -28,11 +28,8 @@ use crate::net::{spawn_io_thread, FetcherConfig, IoHandle};
 use crate::util::spawn_named;
 use crate::html::EngineConfig as ModuleEngineConfig;
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
-use crate::{EngineConfig, EngineError};
-use std::marker::PhantomData;
+use crate::{EngineSettings, EngineError};
 use anyhow::Result;
-use gosub_render_pipeline::render::backend::{CompositorSink, RenderBackend};
-use gosub_render_pipeline::render::DefaultCompositor;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -46,11 +43,12 @@ use tracing::instrument;
 pub struct GosubEngine<C: ModuleEngineConfig = crate::html::DefaultConfig> {
     /// Context is what can be shared downstream
     context: Arc<EngineContext>,
+    /// Active render backend, concrete per the module config `C`.
+    render_backend: Arc<C::RenderBackend>,
+    /// Compositor sink that receives finished frames, concrete per the module config `C`.
+    compositor: Arc<RwLock<C::CompositorSink>>,
     /// Zones managed by this engine, indexed by [`ZoneId`].
     zones: HashMap<ZoneId, Arc<ZoneSink>>,
-    /// The module configuration this engine is built for. Zero-sized; `C` is resolved at
-    /// compile time and only used where tabs/documents are created.
-    _config: PhantomData<C>,
     /// Command sender used to send commands to the engine run loop.
     cmd_tx: mpsc::Sender<EngineCommand>,
     /// Command receiver (owned by the engine run loop).
@@ -62,17 +60,15 @@ pub struct GosubEngine<C: ModuleEngineConfig = crate::html::DefaultConfig> {
     io_handle: Option<IoHandle>,
 }
 
-// Engine context that is shared downwards to zones.
+// Engine context that is shared downwards to zones. Renderer-agnostic: the render backend and
+// compositor are concrete (per the module config) and live on `GosubEngine`/`ZoneContext`, so the
+// network I/O runtime can share this context without being generic.
 #[derive(Clone)]
 pub struct EngineContext {
-    /// Active render backend for the engine.
-    pub render_backend: Arc<dyn RenderBackend + Send + Sync>,
-    /// Compositor router sink to connect rendering output to the caller
-    pub compositor: Arc<RwLock<dyn CompositorSink + Send + Sync>>,
     /// Event sender
     pub event_tx: EventChannel,
     /// Global engine configuration
-    pub config: Arc<EngineConfig>,
+    pub config: Arc<EngineSettings>,
     /// I/O thread handle
     pub io_tx: Arc<RwLock<Option<IoChannel>>>,
     /// Map for requests to tabs
@@ -82,10 +78,8 @@ pub struct EngineContext {
 impl Default for EngineContext {
     fn default() -> Self {
         Self {
-            render_backend: Arc::new(gosub_render_pipeline::render::backends::null::NullBackend::new()),
-            compositor: Arc::new(RwLock::new(DefaultCompositor::new(|| {}))),
             event_tx: broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY).0,
-            config: Arc::new(EngineConfig::default()),
+            config: Arc::new(EngineSettings::default()),
             io_tx: Arc::new(RwLock::new(None)),
             request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
         }
@@ -95,7 +89,7 @@ impl Default for EngineContext {
 impl<C: ModuleEngineConfig> GosubEngine<C> {
     /// Create a new engine.
     ///
-    /// If `config` is `None`, [`EngineConfig::default`] is used.
+    /// If `config` is `None`, [`EngineSettings::default`] is used.
     ///
     /// ```
     /// # use gosub_engine as ge;
@@ -108,9 +102,9 @@ impl<C: ModuleEngineConfig> GosubEngine<C> {
     /// let engine = ge::GosubEngine::<ge::DefaultConfig>::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
     /// ```
     pub fn new(
-        config: Option<EngineConfig>,
-        backend: Arc<dyn RenderBackend + Send + Sync>,
-        compositor: Arc<RwLock<dyn CompositorSink + Send + Sync>>,
+        config: Option<EngineSettings>,
+        backend: Arc<C::RenderBackend>,
+        compositor: Arc<RwLock<C::CompositorSink>>,
     ) -> Self {
         let resolved_config = config.unwrap_or_default();
 
@@ -122,19 +116,18 @@ impl<C: ModuleEngineConfig> GosubEngine<C> {
 
         Self {
             context: Arc::new(EngineContext {
-                render_backend: backend,
-                compositor,
                 event_tx: event_tx.clone(),
                 config: Arc::new(resolved_config),
                 io_tx: Arc::new(RwLock::new(None)),
                 request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
             }),
+            render_backend: backend,
+            compositor,
             zones: HashMap::new(),
             cmd_tx,
             cmd_rx: Some(cmd_rx),
             io_handle: None,
             running: false,
-            _config: PhantomData,
         }
     }
 
@@ -169,13 +162,13 @@ impl<C: ModuleEngineConfig> GosubEngine<C> {
         self.context.event_tx.subscribe()
     }
 
-    pub fn backend(&self) -> Arc<dyn RenderBackend + Send + Sync> {
-        Arc::clone(&self.context.render_backend)
+    pub fn backend(&self) -> Arc<C::RenderBackend> {
+        Arc::clone(&self.render_backend)
     }
 
     /// Give this to zones/tabs when constructing them.
-    pub fn compositor(&self) -> Arc<RwLock<dyn CompositorSink + Send + Sync>> {
-        Arc::clone(&self.context.compositor)
+    pub fn compositor(&self) -> Arc<RwLock<C::CompositorSink>> {
+        Arc::clone(&self.compositor)
     }
 
     /// Get a clone of the engine’s command sender (mainly for testing or
@@ -268,8 +261,21 @@ impl<C: ModuleEngineConfig> GosubEngine<C> {
         zone_id: Option<ZoneId>,
     ) -> Result<Zone<C>, EngineError> {
         let zone = match zone_id {
-            Some(zone_id) => Zone::new_with_id(zone_id, config, services, self.context.clone())?,
-            None => Zone::new(config, services, self.context.clone())?,
+            Some(zone_id) => Zone::new_with_id(
+                zone_id,
+                config,
+                services,
+                self.context.clone(),
+                self.render_backend.clone(),
+                self.compositor.clone(),
+            )?,
+            None => Zone::new(
+                config,
+                services,
+                self.context.clone(),
+                self.render_backend.clone(),
+                self.compositor.clone(),
+            )?,
         };
 
         let zone_id = zone.id;

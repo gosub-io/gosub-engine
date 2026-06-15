@@ -11,6 +11,7 @@ use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalSt
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
+use gosub_engine::DefaultConfig;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
@@ -46,9 +47,9 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 struct BrowserApp {
     // Engine state — set up before the event loop starts.
     #[allow(dead_code)]
-    engine: GosubEngine,
+    engine: GosubEngine<DefaultConfig<CairoBackend>>,
     #[allow(dead_code)]
-    zone: Zone,
+    zone: Zone<DefaultConfig<CairoBackend>>,
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
@@ -71,8 +72,8 @@ struct BrowserApp {
 
 impl BrowserApp {
     fn new(
-        engine: GosubEngine,
-        zone: Zone,
+        engine: GosubEngine<DefaultConfig<CairoBackend>>,
+        zone: Zone<DefaultConfig<CairoBackend>>,
         tab: TabHandle,
         tab_id: TabId,
         compositor: Arc<RwLock<DefaultCompositor>>,
@@ -590,7 +591,7 @@ fn main() {
     })));
 
     let backend = CairoBackend::new();
-    let mut engine: GosubEngine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
+    let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
     let _join = engine.start().expect("engine start");
 
     // Forward engine navigation events to update the window title.

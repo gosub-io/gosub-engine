@@ -13,14 +13,12 @@ use crate::tab::{create_tab_and_spawn, TabDefaults, TabHandle, TabOverrides, Tab
 use crate::util::spawn_named;
 use crate::zone::ZoneConfig;
 use crate::EngineError;
-use gosub_render_pipeline::render::backend::{CompositorSink, RenderBackend};
 use parking_lot::RwLock;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
-use std::marker::PhantomData;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -102,7 +100,7 @@ pub struct ZoneServices {
 }
 
 /// Zone context we can share downwards to tabs
-pub struct ZoneContext {
+pub struct ZoneContext<C: EngineConfig = crate::html::DefaultConfig> {
     /// Zone services (storage, cookies, etc)
     pub(crate) services: ZoneServices,
     /// Subscription for session storage changes
@@ -116,10 +114,10 @@ pub struct ZoneContext {
     /// Map of request references to tab IDs, used to route network events back to the right tab
     pub(crate) request_reference_map: Arc<RwLock<RequestReferenceMap>>,
 
-    /// Compositor router to use for this zone
-    pub(crate) compositor: Arc<RwLock<dyn CompositorSink + Send + Sync>>,
-    /// Rendering backend to use for this zone
-    pub(crate) render_backend: Arc<dyn RenderBackend + Send + Sync>,
+    /// Compositor sink to use for this zone (concrete, per the module config).
+    pub(crate) compositor: Arc<RwLock<C::CompositorSink>>,
+    /// Rendering backend to use for this zone (concrete, per the module config).
+    pub(crate) render_backend: Arc<C::RenderBackend>,
 }
 
 // Things that are shared upwards to the engine
@@ -134,7 +132,7 @@ pub struct Zone<C: EngineConfig = crate::html::DefaultConfig> {
     // Shared context from the engine
     pub engine_context: Arc<EngineContext>,
     // Shared context that is passed down to tabs
-    pub context: Arc<ZoneContext>,
+    pub context: Arc<ZoneContext<C>>,
     // Shared state that can be read by anyone with a ZoneSink
     pub sink: Arc<ZoneSink>,
     // List of tabs
@@ -152,9 +150,6 @@ pub struct Zone<C: EngineConfig = crate::html::DefaultConfig> {
     pub description: String,
     /// Tab color (RGBA)
     pub color: [u8; 4],
-    /// The engine config this zone spawns tabs for. Zero-sized; `C` is only used at the
-    /// tab-worker spawn point.
-    _config: PhantomData<C>,
 }
 
 impl<C: EngineConfig> Debug for Zone<C> {
@@ -202,6 +197,9 @@ impl<C: EngineConfig> Zone<C> {
         services: ZoneServices,
         // Event channel to send events back to the UI
         engine_context: Arc<EngineContext>,
+        // Render backend / compositor for this engine's config (concrete)
+        render_backend: Arc<C::RenderBackend>,
+        compositor: Arc<RwLock<C::CompositorSink>>,
     ) -> Result<Self, EngineError> {
         // We generate the color by using the zone id as a seed
         let mut rng = StdRng::seed_from_u64(zone_id.0.as_u64_pair().0);
@@ -219,8 +217,6 @@ impl<C: EngineConfig> Zone<C> {
             guard.as_ref().cloned().ok_or(EngineError::IoNotStarted)?
         };
         let request_reference_map = engine_context.request_reference_map.clone();
-        let compositor = engine_context.compositor.clone();
-        let render_backend = engine_context.render_backend.clone();
 
         let zone = Self {
             engine_context,
@@ -249,7 +245,6 @@ impl<C: EngineConfig> Zone<C> {
             description: "".to_string(),
             color: random_color,
             config,
-            _config: PhantomData,
         };
 
         _ = zone.spawn_storage_events_to_engine();
@@ -261,8 +256,17 @@ impl<C: EngineConfig> Zone<C> {
         config: ZoneConfig,
         services: ZoneServices,
         engine_context: Arc<EngineContext>,
+        render_backend: Arc<C::RenderBackend>,
+        compositor: Arc<RwLock<C::CompositorSink>>,
     ) -> Result<Self, EngineError> {
-        Self::new_with_id(ZoneId::new(), config, services, engine_context)
+        Self::new_with_id(
+            ZoneId::new(),
+            config,
+            services,
+            engine_context,
+            render_backend,
+            compositor,
+        )
     }
 
     /// Sets the title of the zone

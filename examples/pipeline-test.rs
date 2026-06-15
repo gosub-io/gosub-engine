@@ -18,7 +18,7 @@ use gosub_engine::{
     cookies::DefaultCookieJar,
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::{ZoneConfig, ZoneServices},
-    Action, EngineConfig, EngineError, GosubEngine, NavigationId,
+    Action, DefaultConfig, EngineSettings, EngineError, GosubEngine, NavigationId,
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use parking_lot::RwLock;
@@ -147,8 +147,8 @@ async fn main() -> Result<(), EngineError> {
 
     // Start engine.
     let backend = gosub_render_pipeline::render::backends::null::NullBackend::new();
-    let mut engine: GosubEngine = GosubEngine::new(
-        Some(EngineConfig::builder().max_zones(1).build().expect("cfg")),
+    let mut engine = GosubEngine::<DefaultConfig<_>>::new(
+        Some(EngineSettings::builder().max_zones(1).build().expect("cfg")),
         Arc::new(backend),
         Arc::new(RwLock::new(DefaultCompositor::default())),
     );

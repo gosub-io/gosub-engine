@@ -10,6 +10,7 @@ use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalSt
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
+use gosub_engine::DefaultConfig;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use gosub_renderer_vello::{VelloBackend, WgpuContextProvider};
@@ -121,9 +122,9 @@ enum UiEvent {
 
 struct BrowserApp {
     #[allow(dead_code)]
-    engine: GosubEngine,
+    engine: GosubEngine<DefaultConfig<VelloBackend<EguiContextProvider>>>,
     #[allow(dead_code)]
-    zone: Zone,
+    zone: Zone<DefaultConfig<VelloBackend<EguiContextProvider>>>,
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
@@ -155,7 +156,7 @@ impl BrowserApp {
         let context = Arc::new(EguiContextProvider::from_eframe(cc)?);
         let backend = VelloBackend::new(context.clone()).ok()?;
 
-        let mut engine: GosubEngine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
+        let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
 
         let (ui_tx, ui_rx) = std::sync::mpsc::channel::<UiEvent>();

@@ -1,32 +1,32 @@
 //! Engine configuration.
 //!
-//! The [`EngineConfig`] struct defines global configuration for the
+//! The [`EngineSettings`] struct defines global configuration for the
 //! Gosub engine. It controls engine-wide resources, networking,
 //! rendering, scripting, and security policies. While [`ZoneConfig`]
-//! applies to a single zone, `EngineConfig` governs the entire engine
+//! applies to a single zone, `EngineSettings` governs the entire engine
 //! instance.
 //!
-//! Use [`EngineConfig::default()`] for sensible defaults, or
-//! [`EngineConfig::builder()`] for a fluent builder API with
+//! Use [`EngineSettings::default()`] for sensible defaults, or
+//! [`EngineSettings::builder()`] for a fluent builder API with
 //! validation.
 //!
 //! # Examples
 //!
 //! ## Default engine configuration
 //! ```rust
-//! use gosub_engine::EngineConfig;
+//! use gosub_engine::EngineSettings;
 //!
-//! let engine_cfg = EngineConfig::default();
+//! let engine_cfg = EngineSettings::default();
 //! assert_eq!(engine_cfg.max_zones, 8);
 //! ```
 //!
 //! ## Customized configuration with builder
 //! ```rust
 //! use std::time::Duration;
-//! use gosub_engine::EngineConfig;
+//! use gosub_engine::EngineSettings;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let cfg = EngineConfig::builder()
+//! let cfg = EngineSettings::builder()
 //!     .user_agent("Gosub/0.2 (+https://gosub.dev)")
 //!     .max_zones(12)
 //!     .connect_timeout(Duration::from_secs(5))
@@ -105,7 +105,7 @@
 //!
 //! # Errors
 //!
-//! Builder validation may return [`EngineConfigError`] if values are
+//! Builder validation may return [`EngineSettingsError`] if values are
 //! nonsensical (e.g. `max_zones == 0`, invalid MSAA samples, zero
 //! timeouts).
 //!
@@ -193,10 +193,10 @@ pub enum LogLevel {
 
 /// Overall engine configuration (engine-wide knobs).
 ///
-/// Use [`EngineConfig::default()`] for sensible defaults, or
-/// [`EngineConfig::builder()`] to customize with validation.
+/// Use [`EngineSettings::default()`] for sensible defaults, or
+/// [`EngineSettings::builder()`] to customize with validation.
 #[derive(Debug, Clone)]
-pub struct EngineConfig {
+pub struct EngineSettings {
     /// Maximum number of zones that can be created within this engine.
     pub max_zones: usize,
     /// Default zone configuration used when creating zones without an explicit config.
@@ -298,7 +298,7 @@ pub enum SandboxMode {
     Strict,
 }
 
-impl Default for EngineConfig {
+impl Default for EngineSettings {
     fn default() -> Self {
         Self {
             user_agent: "Gosub/0.1 (+https://gosub.dev)".to_owned(),
@@ -362,22 +362,22 @@ impl Default for EngineConfig {
     }
 }
 
-impl EngineConfig {
-    /// Start building an `EngineConfig` from defaults using a fluent builder.
-    pub fn builder() -> EngineConfigBuilder {
-        EngineConfigBuilder::default()
+impl EngineSettings {
+    /// Start building an `EngineSettings` from defaults using a fluent builder.
+    pub fn builder() -> EngineSettingsBuilder {
+        EngineSettingsBuilder::default()
     }
 }
 
-/// Fluent builder for [`EngineConfig`] with validation.
+/// Fluent builder for [`EngineSettings`] with validation.
 #[derive(Debug, Clone, Default)]
-pub struct EngineConfigBuilder {
-    inner: EngineConfig,
+pub struct EngineSettingsBuilder {
+    inner: EngineSettings,
 }
 
-impl EngineConfigBuilder {
+impl EngineSettingsBuilder {
     #[inline]
-    fn map(mut self, f: impl FnOnce(&mut EngineConfig)) -> Self {
+    fn map(mut self, f: impl FnOnce(&mut EngineSettings)) -> Self {
         f(&mut self.inner);
         self
     }
@@ -506,19 +506,19 @@ impl EngineConfigBuilder {
     }
 
     /// Apply multiple mutations in one go.
-    pub fn with(self, f: impl FnOnce(&mut EngineConfig)) -> Self {
+    pub fn with(self, f: impl FnOnce(&mut EngineSettings)) -> Self {
         self.map(f)
     }
 
-    /// Validate and build the final `EngineConfig`.
-    pub fn build(self) -> Result<EngineConfig, EngineConfigError> {
+    /// Validate and build the final `EngineSettings`.
+    pub fn build(self) -> Result<EngineSettings, EngineSettingsError> {
         validate(&self.inner)?;
         Ok(self.inner)
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum EngineConfigError {
+pub enum EngineSettingsError {
     ZeroZones,
     ZeroThreads(&'static str),
     InvalidConnectionsPerHost(u32),
@@ -527,9 +527,9 @@ pub enum EngineConfigError {
     NegativeBytes(&'static str), // (we still use u64, but keep for future signed fields)
 }
 
-impl fmt::Display for EngineConfigError {
+impl fmt::Display for EngineSettingsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use EngineConfigError::*;
+        use EngineSettingsError::*;
         match self {
             ZeroZones => write!(f, "max_zones must be at least 1"),
             ZeroThreads(who) => write!(f, "{who} must be at least 1"),
@@ -542,34 +542,34 @@ impl fmt::Display for EngineConfigError {
         }
     }
 }
-impl std::error::Error for EngineConfigError {}
+impl std::error::Error for EngineSettingsError {}
 
-fn validate(c: &EngineConfig) -> Result<(), EngineConfigError> {
+fn validate(c: &EngineSettings) -> Result<(), EngineSettingsError> {
     if c.max_zones == 0 {
-        return Err(EngineConfigError::ZeroZones);
+        return Err(EngineSettingsError::ZeroZones);
     }
     if c.worker_threads == 0 {
-        return Err(EngineConfigError::ZeroThreads("worker_threads"));
+        return Err(EngineSettingsError::ZeroThreads("worker_threads"));
     }
     if c.io_concurrency == 0 {
-        return Err(EngineConfigError::ZeroThreads("io_concurrency"));
+        return Err(EngineSettingsError::ZeroThreads("io_concurrency"));
     }
     if c.script_concurrency == 0 {
-        return Err(EngineConfigError::ZeroThreads("script_concurrency"));
+        return Err(EngineSettingsError::ZeroThreads("script_concurrency"));
     }
 
     if c.max_connections_per_host == 0 {
-        return Err(EngineConfigError::InvalidConnectionsPerHost(c.max_connections_per_host));
+        return Err(EngineSettingsError::InvalidConnectionsPerHost(c.max_connections_per_host));
     }
     if c.connect_timeout == Duration::from_millis(0) {
-        return Err(EngineConfigError::InvalidTimeout("connect_timeout", c.connect_timeout));
+        return Err(EngineSettingsError::InvalidTimeout("connect_timeout", c.connect_timeout));
     }
     if c.request_timeout == Duration::from_millis(0) {
-        return Err(EngineConfigError::InvalidTimeout("request_timeout", c.request_timeout));
+        return Err(EngineSettingsError::InvalidTimeout("request_timeout", c.request_timeout));
     }
     match c.gpu.msaa_samples {
         1 | 2 | 4 | 8 => {}
-        other => return Err(EngineConfigError::InvalidMsaa(other)),
+        other => return Err(EngineSettingsError::InvalidMsaa(other)),
     }
     // (bytes are u64 already; if you later switch to i64, keep NegativeBytes)
     Ok(())
