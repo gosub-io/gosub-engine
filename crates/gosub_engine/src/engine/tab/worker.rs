@@ -4,8 +4,8 @@ use crate::engine::events::{EngineEvent, NavigationEvent, TabInternalCommand};
 use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
-use crate::html::EngineConfig;
 use crate::events::{IoCommand, TabCommand};
+use crate::html::EngineConfig;
 use crate::net::req_ref_tracker::RequestReference;
 use crate::net::types::{FetchKeyData, FetchRequest, FetchResult, Initiator, NetError, Priority, ResourceKind};
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
@@ -747,7 +747,8 @@ impl<C: EngineConfig> TabWorker<C> {
             if let Some(rasterizer) =
                 gosub_render_pipeline::rasterizer::downcast_rasterizer(render_backend.create_rasterizer())
             {
-                self.context.set_rasterizer(rasterizer, render_backend.raster_strategy());
+                self.context
+                    .set_rasterizer(rasterizer, render_backend.raster_strategy());
             }
         }
 

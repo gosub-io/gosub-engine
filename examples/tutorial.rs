@@ -14,7 +14,7 @@ use gosub_engine::{
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     tab::{TabDefaults, TabHandle},
     zone::{ZoneConfig, ZoneServices},
-    Action, DefaultConfig, EngineSettings, EngineError, GosubEngine,
+    Action, DefaultConfig, EngineError, EngineSettings, GosubEngine,
 };
 use gosub_render_pipeline::render::{backends::null::NullBackend, DefaultCompositor, Viewport};
 use parking_lot::RwLock;

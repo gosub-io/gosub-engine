@@ -23,12 +23,12 @@
 use crate::engine::events::{EngineCommand, EngineEvent};
 use crate::engine::types::{EventChannel, IoChannel};
 use crate::engine::DEFAULT_CHANNEL_CAPACITY;
+use crate::html::EngineConfig as ModuleEngineConfig;
 use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::net::{spawn_io_thread, FetcherConfig, IoHandle};
 use crate::util::spawn_named;
-use crate::html::EngineConfig as ModuleEngineConfig;
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
-use crate::{EngineSettings, EngineError};
+use crate::{EngineError, EngineSettings};
 use anyhow::Result;
 use parking_lot::RwLock;
 use std::collections::HashMap;

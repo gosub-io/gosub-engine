@@ -178,8 +178,8 @@ impl<C: EngineConfig> HtmlPipeline<C> for HtmlPipelineImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::html::DefaultConfig;
     use crate::events::IoCommand;
+    use crate::html::DefaultConfig;
     use crate::net::req_ref_tracker::RequestReference;
     use crate::net::types::{Priority, ResourceKind};
     use crate::NavigationId;

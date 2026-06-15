@@ -559,13 +559,21 @@ fn validate(c: &EngineSettings) -> Result<(), EngineSettingsError> {
     }
 
     if c.max_connections_per_host == 0 {
-        return Err(EngineSettingsError::InvalidConnectionsPerHost(c.max_connections_per_host));
+        return Err(EngineSettingsError::InvalidConnectionsPerHost(
+            c.max_connections_per_host,
+        ));
     }
     if c.connect_timeout == Duration::from_millis(0) {
-        return Err(EngineSettingsError::InvalidTimeout("connect_timeout", c.connect_timeout));
+        return Err(EngineSettingsError::InvalidTimeout(
+            "connect_timeout",
+            c.connect_timeout,
+        ));
     }
     if c.request_timeout == Duration::from_millis(0) {
-        return Err(EngineSettingsError::InvalidTimeout("request_timeout", c.request_timeout));
+        return Err(EngineSettingsError::InvalidTimeout(
+            "request_timeout",
+            c.request_timeout,
+        ));
     }
     match c.gpu.msaa_samples {
         1 | 2 | 4 | 8 => {}

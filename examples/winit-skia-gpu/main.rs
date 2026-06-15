@@ -20,8 +20,8 @@ use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
-use gosub_engine::GosubEngine;
 use gosub_engine::DefaultConfig;
+use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use once_cell::sync::Lazy;

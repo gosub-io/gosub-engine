@@ -355,9 +355,14 @@ mod tests {
         let cancel = CancellationToken::new();
         cancel.cancel(); // cancel immediately
 
-        let res =
-            parse_main_document_stream::<DefaultConfig, _, _>(base, reader, cancel, DummyHtml5Config::default(), |_h| {})
-                .await;
+        let res = parse_main_document_stream::<DefaultConfig, _, _>(
+            base,
+            reader,
+            cancel,
+            DummyHtml5Config::default(),
+            |_h| {},
+        )
+        .await;
 
         match res {
             Err(DocumentError::Cancelled) => {}
@@ -372,9 +377,15 @@ mod tests {
         let cfg = DummyHtml5Config { max_bytes: 64 * 1024 }; // 64 KiB
 
         // Just verify truncated input still produces a valid document (no panic).
-        parse_main_document_stream::<DefaultConfig, _, _>(base, reader_from_str(&big), CancellationToken::new(), cfg, |_h| {})
-            .await
-            .unwrap();
+        parse_main_document_stream::<DefaultConfig, _, _>(
+            base,
+            reader_from_str(&big),
+            CancellationToken::new(),
+            cfg,
+            |_h| {},
+        )
+        .await
+        .unwrap();
     }
 
     #[test]

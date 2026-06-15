@@ -4,7 +4,7 @@ use gosub_engine::{
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::ZoneConfig,
     zone::ZoneServices,
-    DefaultConfig, EngineSettings, EngineError, GosubEngine,
+    DefaultConfig, EngineError, EngineSettings, GosubEngine,
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 
