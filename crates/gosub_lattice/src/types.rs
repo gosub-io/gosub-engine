@@ -1,4 +1,4 @@
-use gosub_shared::geo::{Point, Size};
+use crate::geo::{Point, Size};
 
 /// The CSS display role a node plays in the table layout algorithm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,5 +1,5 @@
+use crate::geo::{Point, Size};
 use anyhow::Result;
-use gosub_shared::geo::{Point, Size};
 
 use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
 use crate::model::{build_model, RowGroup};
