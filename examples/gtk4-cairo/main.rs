@@ -15,6 +15,8 @@ use gosub_engine::DefaultConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
+use gosub_renderer_cairo::PangoFontSystem;
+type Config = DefaultConfig<gosub_renderer_cairo::CairoBackend, PangoFontSystem>;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -85,7 +87,7 @@ fn main() {
         })));
 
         let backend = gosub_renderer_cairo::CairoBackend::new();
-        let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
+        let mut engine = GosubEngine::<Config>::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
         let event_rx = engine.subscribe_events();
 

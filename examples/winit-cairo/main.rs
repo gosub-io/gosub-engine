@@ -15,7 +15,8 @@ use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
-use gosub_renderer_cairo::CairoBackend;
+use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
+type Config = DefaultConfig<CairoBackend, PangoFontSystem>;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use softbuffer::Surface;
@@ -47,9 +48,9 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 struct BrowserApp {
     // Engine state — set up before the event loop starts.
     #[allow(dead_code)]
-    engine: GosubEngine<DefaultConfig<CairoBackend>>,
+    engine: GosubEngine<Config>,
     #[allow(dead_code)]
-    zone: Zone<DefaultConfig<CairoBackend>>,
+    zone: Zone<Config>,
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
@@ -72,8 +73,8 @@ struct BrowserApp {
 
 impl BrowserApp {
     fn new(
-        engine: GosubEngine<DefaultConfig<CairoBackend>>,
-        zone: Zone<DefaultConfig<CairoBackend>>,
+        engine: GosubEngine<Config>,
+        zone: Zone<Config>,
         tab: TabHandle,
         tab_id: TabId,
         compositor: Arc<RwLock<DefaultCompositor>>,
@@ -591,7 +592,7 @@ fn main() {
     })));
 
     let backend = CairoBackend::new();
-    let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
+    let mut engine = GosubEngine::<Config>::new(None, Arc::new(backend), compositor.clone());
     let _join = engine.start().expect("engine start");
 
     // Forward engine navigation events to update the window title.

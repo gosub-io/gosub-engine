@@ -22,35 +22,36 @@ use gosub_shared::node::NodeId;
 use std::marker::PhantomData;
 
 /// The engine's default config, wiring the gosub_html5 document implementation together with the
-/// gosub_css3 style system, and parameterized over the render backend `B` and compositor sink `S`.
+/// gosub_css3 style system, parameterized over the render backend `B`, font system `F`, and
+/// compositor sink `S` — in that order, so the rarely-changed compositor falls off as a default.
 ///
-/// Embedders that use the default parse stack only need to pick a backend:
-/// `GosubEngine::<DefaultConfig<CairoBackend>>::new(...)`. With no parameters, `DefaultConfig`
-/// is the headless `DefaultConfig<NullBackend, DefaultCompositor>`. Embedders that also want a
-/// custom CSS/DOM/parser stack implement [`ModuleConfiguration`] + [`EngineConfig`] on their own
-/// type instead.
+/// Embedders that use the default parse stack pick a backend (and optionally a font system):
+/// `DefaultConfig<CairoBackend, PangoFontSystem>`. With no parameters, `DefaultConfig` is the
+/// headless `DefaultConfig<NullBackend, ParleyFontSystem, DefaultCompositor>`. Embedders that also
+/// want a custom CSS/DOM/parser stack implement [`ModuleConfiguration`] + [`EngineConfig`] on their
+/// own type instead.
 #[allow(clippy::type_complexity)] // PhantomData marker carrying the three config type params
-pub struct DefaultConfig<B = NullBackend, S = DefaultCompositor, F = ParleyFontSystem>(PhantomData<fn() -> (B, S, F)>);
+pub struct DefaultConfig<B = NullBackend, F = ParleyFontSystem, S = DefaultCompositor>(PhantomData<fn() -> (B, F, S)>);
 
 // `DefaultConfig` is a zero-sized marker; its Clone/Debug/PartialEq are independent of `B`/`S`/`F`
 // (which are never instantiated), so we impl them by hand rather than deriving bounds on them.
-impl<B, S, F> Clone for DefaultConfig<B, S, F> {
+impl<B, F, S> Clone for DefaultConfig<B, F, S> {
     fn clone(&self) -> Self {
         Self(PhantomData)
     }
 }
-impl<B, S, F> std::fmt::Debug for DefaultConfig<B, S, F> {
+impl<B, F, S> std::fmt::Debug for DefaultConfig<B, F, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("DefaultConfig")
     }
 }
-impl<B, S, F> PartialEq for DefaultConfig<B, S, F> {
+impl<B, F, S> PartialEq for DefaultConfig<B, F, S> {
     fn eq(&self, _: &Self) -> bool {
         true
     }
 }
 
-impl<B, S, F> ModuleConfiguration for DefaultConfig<B, S, F>
+impl<B, F, S> ModuleConfiguration for DefaultConfig<B, F, S>
 where
     B: RenderBackend + Send + Sync + 'static,
     S: CompositorSink + 'static,
@@ -78,7 +79,7 @@ pub trait EngineConfig: ModuleConfiguration<Document = DocumentImpl<Self>> {
     type FontSystem: FontSystem + Default;
 }
 
-impl<B, S, F> EngineConfig for DefaultConfig<B, S, F>
+impl<B, F, S> EngineConfig for DefaultConfig<B, F, S>
 where
     B: RenderBackend + Send + Sync + 'static,
     S: CompositorSink + 'static,

@@ -15,7 +15,8 @@ use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
-use gosub_renderer_cairo::CairoBackend;
+use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
+type Config = DefaultConfig<CairoBackend, PangoFontSystem>;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -43,9 +44,9 @@ enum UiEvent {
 
 struct BrowserApp {
     #[allow(dead_code)]
-    engine: GosubEngine<DefaultConfig<CairoBackend>>,
+    engine: GosubEngine<Config>,
     #[allow(dead_code)]
-    zone: Zone<DefaultConfig<CairoBackend>>,
+    zone: Zone<Config>,
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
@@ -70,7 +71,7 @@ impl BrowserApp {
         })));
 
         let backend = CairoBackend::new();
-        let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
+        let mut engine = GosubEngine::<Config>::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
 
         let (ui_tx, ui_rx) = std::sync::mpsc::channel::<UiEvent>();

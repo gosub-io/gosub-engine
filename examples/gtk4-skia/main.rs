@@ -14,6 +14,8 @@ use gosub_engine::DefaultConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
+use gosub_renderer_skia::SkiaFontSystem;
+type Config = DefaultConfig<gosub_renderer_skia::SkiaBackend, SkiaFontSystem>;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, DrawingArea, Entry, Label, Orientation};
@@ -77,7 +79,7 @@ fn main() {
         })));
 
         let backend = gosub_renderer_skia::SkiaBackend::new();
-        let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
+        let mut engine = GosubEngine::<Config>::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
         let event_rx = engine.subscribe_events();
 
