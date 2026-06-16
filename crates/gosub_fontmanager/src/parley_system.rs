@@ -95,12 +95,16 @@ impl FontSystem for ParleyFontSystem {
             return (text.chars().count() as f32 * style.size * 0.5, style.size * 1.2);
         };
 
-        let mut builder = self.layout_cx.ranged_builder(&mut self.font_cx, text, style.display_scale, false);
+        let mut builder = self
+            .layout_cx
+            .ranged_builder(&mut self.font_cx, text, style.display_scale, false);
         builder.push_default(parley::StyleProperty::FontSize(style.size));
         builder.push_default(parley::StyleProperty::FontFamily(parley::FontFamily::Source(
             resolved.family.as_str().into(),
         )));
-        builder.push_default(parley::StyleProperty::FontWeight(ParleyWeight::new(style.weight.0 as f32)));
+        builder.push_default(parley::StyleProperty::FontWeight(ParleyWeight::new(
+            style.weight.0 as f32,
+        )));
         builder.push_default(parley::StyleProperty::FontStyle(style_to_parley(style.style)));
         if let Some(lh) = style.line_height {
             builder.push_default(parley::StyleProperty::LineHeight(parley::LineHeight::Absolute(lh)));
@@ -183,7 +187,9 @@ impl ParleyFontSystem {
             return ShapedText::empty();
         }
 
-        let mut builder = self.layout_cx.ranged_builder(&mut self.font_cx, text, display_scale, false);
+        let mut builder = self
+            .layout_cx
+            .ranged_builder(&mut self.font_cx, text, display_scale, false);
         builder.push_default(parley::StyleProperty::FontSize(size));
         builder.push_default(parley::StyleProperty::FontFamily(parley::FontFamily::Source(
             font.family.as_str().into(),
@@ -269,7 +275,6 @@ impl ParleyFontSystem {
             ascent: first_ascent,
         }
     }
-
 }
 
 // Conversion helpers

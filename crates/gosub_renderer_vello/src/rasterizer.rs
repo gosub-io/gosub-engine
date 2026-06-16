@@ -79,7 +79,9 @@ impl Rasterable for VelloRasterizer {
                     PaintCommand::Text(command) => {
                         if let Some(parley) = parley.as_deref_mut() {
                             let font_cx = parley.font_cx_mut();
-                            if let Err(e) = text::do_paint_text(&mut scene, command, tile_size, affine, media_store, font_cx) {
+                            if let Err(e) =
+                                text::do_paint_text(&mut scene, command, tile_size, affine, media_store, font_cx)
+                            {
                                 log::warn!("Failed to paint text: {:?}", e);
                             }
                         }

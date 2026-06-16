@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::html::{RenderConfiguration, EngineDocument};
+use crate::html::{EngineDocument, RenderConfiguration};
 use crate::net::types::{Priority, ResourceKind};
 use crate::net::RequestDestination;
 use cow_utils::CowUtils;

@@ -1,9 +1,9 @@
+use gosub_interface::font_system::FontSystem;
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::common::texture::TextureId;
 use gosub_render_pipeline::common::TextureStore;
 use gosub_render_pipeline::layering::layer::LayerId;
 use gosub_render_pipeline::painter::commands::PaintCommand;
-use gosub_interface::font_system::FontSystem;
 use gosub_render_pipeline::rasterizer::Rasterable;
 use gosub_render_pipeline::tiler::Tile;
 use parking_lot::Mutex;

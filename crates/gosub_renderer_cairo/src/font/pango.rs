@@ -99,7 +99,8 @@ impl PangoFontSystem {
         let mut font_desc = pango::FontDescription::new();
         font_desc.set_family(&family);
         // CSS px → pt (× 72/96), then to Pango units (× SCALE).
-        font_desc.set_size((style.size as f64 * style.display_scale as f64 * pango::SCALE as f64 * (72.0 / 96.0)) as i32);
+        font_desc
+            .set_size((style.size as f64 * style.display_scale as f64 * pango::SCALE as f64 * (72.0 / 96.0)) as i32);
         font_desc.set_weight(to_pango_weight(style.weight.0 as usize));
         if style.style != FontStyle::Normal {
             font_desc.set_style(pango::Style::Italic);

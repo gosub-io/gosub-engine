@@ -193,7 +193,11 @@ impl CosmicFontSystem {
                     });
                     i += 1;
                 }
-                raw.push(RawRun { id: fid, weight: fw, glyphs });
+                raw.push(RawRun {
+                    id: fid,
+                    weight: fw,
+                    glyphs,
+                });
             }
 
             height += run.line_height;
@@ -226,7 +230,6 @@ impl CosmicFontSystem {
             ascent,
         }
     }
-
 }
 
 // ── conversions: our neutral font-query types → cosmic-text/fontdb types ──
@@ -250,29 +253,6 @@ fn to_style(s: FontStyle) -> Style {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use gosub_interface::font_system::FontQuery;
-
-    #[test]
-    fn resolves_measures_and_shapes() {
-        let mut fs = CosmicFontSystem::new();
-        let query = FontQuery::new(&["sans-serif"]);
-        let resolved = fs.resolve(&query).expect("sans-serif should resolve (Roboto fallback)");
-
-        let mut style = TextStyle::new("sans-serif", 16.0);
-        style.line_height = Some(19.2);
-        let (w, h) = fs.measure("Hello", &style);
-        assert!(w > 0.0 && h > 0.0, "expected a non-zero measurement, got {w} x {h}");
-
-        let shaped = fs.shape("Hello", &resolved, 16.0, Some(19.2), None, 1.0);
-        assert!(!shaped.runs.is_empty(), "expected at least one shaped run");
-        let glyphs: usize = shaped.runs.iter().map(|r| r.glyphs.len()).sum();
-        assert!(glyphs >= 5, "expected >= 5 glyphs for \"Hello\", got {glyphs}");
-    }
-}
-
 fn to_stretch(s: FontStretch) -> Stretch {
     let r = s.0;
     if r <= 0.5625 {
@@ -293,5 +273,28 @@ fn to_stretch(s: FontStretch) -> Stretch {
         Stretch::ExtraExpanded
     } else {
         Stretch::UltraExpanded
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gosub_interface::font_system::FontQuery;
+
+    #[test]
+    fn resolves_measures_and_shapes() {
+        let mut fs = CosmicFontSystem::new();
+        let query = FontQuery::new(&["sans-serif"]);
+        let resolved = fs.resolve(&query).expect("sans-serif should resolve (Roboto fallback)");
+
+        let mut style = TextStyle::new("sans-serif", 16.0);
+        style.line_height = Some(19.2);
+        let (w, h) = fs.measure("Hello", &style);
+        assert!(w > 0.0 && h > 0.0, "expected a non-zero measurement, got {w} x {h}");
+
+        let shaped = fs.shape("Hello", &resolved, 16.0, Some(19.2), None, 1.0);
+        assert!(!shaped.runs.is_empty(), "expected at least one shaped run");
+        let glyphs: usize = shaped.runs.iter().map(|r| r.glyphs.len()).sum();
+        assert!(glyphs >= 5, "expected >= 5 glyphs for \"Hello\", got {glyphs}");
     }
 }

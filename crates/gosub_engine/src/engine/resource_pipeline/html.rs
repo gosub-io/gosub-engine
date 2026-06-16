@@ -1,5 +1,5 @@
 use crate::engine::types::{IoChannel, PeekBuf, RequestId};
-use crate::html::{parse_main_document_stream, RenderConfiguration, EngineDocument, ResourceHint};
+use crate::html::{parse_main_document_stream, EngineDocument, RenderConfiguration, ResourceHint};
 use crate::net::types::{FetchHandle, FetchKeyData, FetchRequest, FetchResultMeta, Initiator};
 use crate::net::{submit_to_io, SharedBody};
 use crate::util::spawn_named;

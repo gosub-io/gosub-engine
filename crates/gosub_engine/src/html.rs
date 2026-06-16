@@ -8,14 +8,14 @@ pub use parser::parse_main_document_stream;
 pub use parser::{DocumentError, DummyDocument, DummyHtml5Config, ResourceHint};
 
 use gosub_css3::system::Css3System;
+use gosub_fontmanager::ParleyFontSystem;
 use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::ModuleConfiguration;
 use gosub_interface::document::Document as _;
-use gosub_interface::node::NodeType;
 use gosub_interface::font_system::FontSystem;
+use gosub_interface::node::NodeType;
 use gosub_interface::render::backend::{CompositorSink, RenderBackend};
-use gosub_fontmanager::ParleyFontSystem;
 use gosub_render_pipeline::render::backends::null::NullBackend;
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_shared::node::NodeId;
@@ -31,7 +31,9 @@ use std::marker::PhantomData;
 /// want a custom CSS/DOM/parser stack implement [`ModuleConfiguration`] + [`RenderConfiguration`] on their
 /// own type instead.
 #[allow(clippy::type_complexity)] // PhantomData marker carrying the three config type params
-pub struct DefaultRenderConfig<B = NullBackend, F = ParleyFontSystem, S = DefaultCompositor>(PhantomData<fn() -> (B, F, S)>);
+pub struct DefaultRenderConfig<B = NullBackend, F = ParleyFontSystem, S = DefaultCompositor>(
+    PhantomData<fn() -> (B, F, S)>,
+);
 
 // `DefaultRenderConfig` is a zero-sized marker; its Clone/Debug/PartialEq are independent of `B`/`S`/`F`
 // (which are never instantiated), so we impl them by hand rather than deriving bounds on them.

@@ -1,11 +1,11 @@
 use cairo;
+use gosub_interface::font_system::FontSystem;
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::common::texture::TextureId;
 use gosub_render_pipeline::common::TextureStore;
 use gosub_render_pipeline::painter::commands::PaintCommand;
 use gosub_render_pipeline::rasterizer::Rasterable;
 use gosub_render_pipeline::tiler::Tile;
-use gosub_interface::font_system::FontSystem;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -95,14 +95,8 @@ impl Rasterable for CairoRasterizer {
                         }
                         PaintCommand::Text(command) => {
                             #[cfg(feature = "text_pango")]
-                            match text::pango::do_paint_text(
-                                &cr.clone(),
-                                tile,
-                                command,
-                                media_store,
-                                dpr,
-                                &self.pango,
-                            ) {
+                            match text::pango::do_paint_text(&cr.clone(), tile, command, media_store, dpr, &self.pango)
+                            {
                                 Ok(_) => {}
                                 Err(e) => {
                                     log::warn!("Failed to paint text: {:?}", e);

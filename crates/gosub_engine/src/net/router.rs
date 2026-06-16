@@ -4,7 +4,7 @@ use crate::engine::resource_pipeline::js::DummyJsDocument;
 use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::PeekBuf;
 use crate::engine::UaPolicy;
-use crate::html::{RenderConfiguration, EngineDocument};
+use crate::html::{EngineDocument, RenderConfiguration};
 use crate::net::decision::types::BlockReason;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
 use crate::net::{decide_handling, stream_to_bytes, HandlingDecision, RenderTarget, RequestDestination, SharedBody};
