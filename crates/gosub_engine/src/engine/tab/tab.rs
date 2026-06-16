@@ -1,6 +1,6 @@
 use crate::engine::DEFAULT_CHANNEL_CAPACITY;
 use crate::events::TabCommand;
-use crate::html::EngineConfig;
+use crate::html::RenderConfiguration;
 use crate::tab::services::EffectiveTabServices;
 use crate::tab::sink::TabSink;
 use crate::tab::worker::TabWorker;
@@ -14,7 +14,7 @@ pub use gosub_shared::tab_id::TabId;
 
 /// Create a new tab without spawning the run() function. This allows callers to place the worker in
 /// its own task or manage its lifecycle differently.
-pub fn create_tab<C: EngineConfig>(
+pub fn create_tab<C: RenderConfiguration>(
     zone_id: ZoneId,
     services: EffectiveTabServices,
     zone_context: Arc<ZoneContext<C>>,
@@ -30,7 +30,7 @@ pub fn create_tab<C: EngineConfig>(
 }
 
 /// Creates a new tab and spawns the worker on the current tokio runtime.
-pub fn create_tab_and_spawn<C: EngineConfig>(
+pub fn create_tab_and_spawn<C: RenderConfiguration>(
     zone_id: ZoneId,
     services: EffectiveTabServices,
     zone_context: Arc<ZoneContext<C>>,

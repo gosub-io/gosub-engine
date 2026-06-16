@@ -4,7 +4,7 @@ use crate::engine::resource_pipeline::js::DummyJsDocument;
 use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::PeekBuf;
 use crate::engine::UaPolicy;
-use crate::html::{EngineConfig, EngineDocument};
+use crate::html::{RenderConfiguration, EngineDocument};
 use crate::net::decision::types::BlockReason;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
 use crate::net::{decide_handling, stream_to_bytes, HandlingDecision, RenderTarget, RequestDestination, SharedBody};
@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 /// The outcome of routing a fetch result.
 #[derive(Debug)]
-pub enum RoutedOutcome<C: EngineConfig> {
+pub enum RoutedOutcome<C: RenderConfiguration> {
     /// The main document has been parsed and is ready.
     MainDocument(Arc<EngineDocument<C>>),
     /// The resource has been rendered in a viewer (text, image, pdf, etc.).
@@ -60,7 +60,7 @@ impl BodyContent {
 }
 
 /// Route a fetch result based on its destination and the UA policy.
-pub async fn route_response_for<C: EngineConfig>(
+pub async fn route_response_for<C: RenderConfiguration>(
     dest: RequestDestination,
     handle: FetchHandle,
     request: FetchRequest,

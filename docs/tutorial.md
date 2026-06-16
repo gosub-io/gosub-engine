@@ -74,12 +74,12 @@ tokio = { version = "1", features = ["full"] }
 
 ```rust
 use std::sync::{Arc, RwLock};
-use gosub_engine::{EngineConfig, GosubEngine};
+use gosub_engine::{EngineSettings, GosubEngine};
 use gosub_engine::render::{backends::null::NullBackend, DefaultCompositor};
 
 let backend = NullBackend::new().expect("null backend");
 let mut engine = GosubEngine::new(
-    Some(EngineConfig::default()),
+    Some(EngineSettings::default()),
     Arc::new(backend),
     Arc::new(RwLock::new(DefaultCompositor::default())),
 );

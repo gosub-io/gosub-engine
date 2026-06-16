@@ -11,12 +11,11 @@ use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
-use gosub_engine::DefaultConfig;
+use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_renderer_cairo::PangoFontSystem;
-type Config = DefaultConfig<gosub_renderer_cairo::CairoBackend, PangoFontSystem>;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -34,6 +33,8 @@ use uuid::uuid;
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000001");
 /// CSS pixels scrolled per raw GTK scroll unit.  Lower = more dampened.
 const SCROLL_MULTIPLIER: f32 = 12.5;
+
+type AppConfig = DefaultRenderConfig<gosub_renderer_cairo::CairoBackend, PangoFontSystem>;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
     Builder::new_multi_thread()
@@ -87,7 +88,7 @@ fn main() {
         })));
 
         let backend = gosub_renderer_cairo::CairoBackend::new();
-        let mut engine = GosubEngine::<Config>::new(None, Arc::new(backend), compositor.clone());
+        let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
         let event_rx = engine.subscribe_events();
 

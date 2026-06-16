@@ -8,7 +8,7 @@ use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
-use gosub_engine::DefaultConfig;
+use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::DefaultCompositor;
@@ -187,7 +187,7 @@ fn main() {
         let _ = tx_redraw.send(());
     })));
 
-    let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
+    let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(None, Arc::new(backend), compositor.clone());
     let _join = engine.start().expect("engine start");
     let mut event_rx = engine.subscribe_events();
 

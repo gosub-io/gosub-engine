@@ -4,7 +4,7 @@ use gosub_engine::events::TabCommand;
 use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
 use gosub_engine::tab::TabDefaults;
 use gosub_engine::zone::{ZoneConfig, ZoneServices};
-use gosub_engine::DefaultConfig;
+use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
@@ -77,7 +77,7 @@ impl GosubBrowser {
 
         local.spawn_local(async move {
             let result = async move {
-                let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, backend_clone, compositor_clone);
+                let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(None, backend_clone, compositor_clone);
                 engine.start().map_err(|e| e.to_string())?;
 
                 let services = ZoneServices {

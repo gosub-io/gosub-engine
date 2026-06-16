@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::html::{EngineConfig, EngineDocument};
+use crate::html::{RenderConfiguration, EngineDocument};
 use crate::net::types::{Priority, ResourceKind};
 use crate::net::RequestDestination;
 use cow_utils::CowUtils;
@@ -106,7 +106,7 @@ pub async fn parse_main_document_stream<C, R, F>(
     mut on_discover: F,
 ) -> Result<EngineDocument<C>, DocumentError>
 where
-    C: EngineConfig,
+    C: RenderConfiguration,
     R: AsyncRead + Unpin + Send + 'static,
     F: FnMut(ResourceHint) + Send,
 {
@@ -291,7 +291,7 @@ fn resolve(base: &Url, candidate: &str) -> Result<Url, url::ParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::html::DefaultConfig;
+    use crate::html::DefaultRenderConfig;
     use bytes::Bytes;
     use futures::stream;
     use tokio_util::io::StreamReader;
@@ -321,7 +321,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let mut hints = Vec::new();
 
-        parse_main_document_stream::<DefaultConfig, _, _>(
+        parse_main_document_stream::<DefaultRenderConfig, _, _>(
             base.clone(),
             reader_from_str(html),
             cancel,
@@ -355,7 +355,7 @@ mod tests {
         let cancel = CancellationToken::new();
         cancel.cancel(); // cancel immediately
 
-        let res = parse_main_document_stream::<DefaultConfig, _, _>(
+        let res = parse_main_document_stream::<DefaultRenderConfig, _, _>(
             base,
             reader,
             cancel,
@@ -377,7 +377,7 @@ mod tests {
         let cfg = DummyHtml5Config { max_bytes: 64 * 1024 }; // 64 KiB
 
         // Just verify truncated input still produces a valid document (no panic).
-        parse_main_document_stream::<DefaultConfig, _, _>(
+        parse_main_document_stream::<DefaultRenderConfig, _, _>(
             base,
             reader_from_str(&big),
             CancellationToken::new(),

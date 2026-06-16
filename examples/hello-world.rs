@@ -9,7 +9,7 @@ use gosub_engine::{
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::ZoneConfig,
     zone::ZoneServices,
-    Action, DefaultConfig, EngineError, EngineSettings, GosubEngine, NavigationId,
+    Action, DefaultRenderConfig, EngineError, EngineSettings, GosubEngine, NavigationId,
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use http::header;
@@ -65,7 +65,7 @@ async fn main() -> Result<(), EngineError> {
     let backend = gosub_render_pipeline::render::backends::null::NullBackend::new();
 
     // Instantiate and start the engine
-    let mut engine = GosubEngine::<DefaultConfig<_>>::new(
+    let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
         Some(engine_cfg),
         Arc::new(backend),
         Arc::new(RwLock::new(DefaultCompositor::default())),

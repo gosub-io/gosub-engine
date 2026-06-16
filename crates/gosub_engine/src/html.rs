@@ -26,32 +26,32 @@ use std::marker::PhantomData;
 /// compositor sink `S` — in that order, so the rarely-changed compositor falls off as a default.
 ///
 /// Embedders that use the default parse stack pick a backend (and optionally a font system):
-/// `DefaultConfig<CairoBackend, PangoFontSystem>`. With no parameters, `DefaultConfig` is the
-/// headless `DefaultConfig<NullBackend, ParleyFontSystem, DefaultCompositor>`. Embedders that also
-/// want a custom CSS/DOM/parser stack implement [`ModuleConfiguration`] + [`EngineConfig`] on their
+/// `DefaultRenderConfig<CairoBackend, PangoFontSystem>`. With no parameters, `DefaultRenderConfig` is the
+/// headless `DefaultRenderConfig<NullBackend, ParleyFontSystem, DefaultCompositor>`. Embedders that also
+/// want a custom CSS/DOM/parser stack implement [`ModuleConfiguration`] + [`RenderConfiguration`] on their
 /// own type instead.
 #[allow(clippy::type_complexity)] // PhantomData marker carrying the three config type params
-pub struct DefaultConfig<B = NullBackend, F = ParleyFontSystem, S = DefaultCompositor>(PhantomData<fn() -> (B, F, S)>);
+pub struct DefaultRenderConfig<B = NullBackend, F = ParleyFontSystem, S = DefaultCompositor>(PhantomData<fn() -> (B, F, S)>);
 
-// `DefaultConfig` is a zero-sized marker; its Clone/Debug/PartialEq are independent of `B`/`S`/`F`
+// `DefaultRenderConfig` is a zero-sized marker; its Clone/Debug/PartialEq are independent of `B`/`S`/`F`
 // (which are never instantiated), so we impl them by hand rather than deriving bounds on them.
-impl<B, F, S> Clone for DefaultConfig<B, F, S> {
+impl<B, F, S> Clone for DefaultRenderConfig<B, F, S> {
     fn clone(&self) -> Self {
         Self(PhantomData)
     }
 }
-impl<B, F, S> std::fmt::Debug for DefaultConfig<B, F, S> {
+impl<B, F, S> std::fmt::Debug for DefaultRenderConfig<B, F, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("DefaultConfig")
+        f.write_str("DefaultRenderConfig")
     }
 }
-impl<B, F, S> PartialEq for DefaultConfig<B, F, S> {
+impl<B, F, S> PartialEq for DefaultRenderConfig<B, F, S> {
     fn eq(&self, _: &Self) -> bool {
         true
     }
 }
 
-impl<B, F, S> ModuleConfiguration for DefaultConfig<B, F, S>
+impl<B, F, S> ModuleConfiguration for DefaultRenderConfig<B, F, S>
 where
     B: RenderBackend + Send + Sync + 'static,
     S: CompositorSink + 'static,
@@ -68,8 +68,8 @@ where
 /// `RenderBackend`/`CompositorSink` live here rather than on `ModuleConfiguration` so that
 /// parse-only configs (parser test harnesses, fuzz targets) — which never render and must not
 /// depend on the renderer crates — only implement `ModuleConfiguration`. Engine code bounds on
-/// `C: EngineConfig`; the public `ModuleConfiguration` stays render-agnostic.
-pub trait EngineConfig: ModuleConfiguration<Document = DocumentImpl<Self>> {
+/// `C: RenderConfiguration`; the public `ModuleConfiguration` stays render-agnostic.
+pub trait RenderConfiguration: ModuleConfiguration<Document = DocumentImpl<Self>> {
     /// Low-level render backend (Cairo, Skia, Vello, null, …).
     type RenderBackend: RenderBackend + Send + Sync;
     /// Receives finished frames from the render backend.
@@ -79,7 +79,7 @@ pub trait EngineConfig: ModuleConfiguration<Document = DocumentImpl<Self>> {
     type FontSystem: FontSystem + Default;
 }
 
-impl<B, F, S> EngineConfig for DefaultConfig<B, F, S>
+impl<B, F, S> RenderConfiguration for DefaultRenderConfig<B, F, S>
 where
     B: RenderBackend + Send + Sync + 'static,
     S: CompositorSink + 'static,
@@ -90,15 +90,15 @@ where
     type FontSystem = F;
 }
 
-/// The parsed document type used by the engine for a given config (defaults to [`DefaultConfig`]).
-pub type EngineDocument<C = DefaultConfig> = DocumentImpl<C>;
+/// The parsed document type used by the engine for a given config (defaults to [`DefaultRenderConfig`]).
+pub type EngineDocument<C = DefaultRenderConfig> = DocumentImpl<C>;
 
 /// Extract the text content of the first `<title>` element in the document.
-pub fn document_title<C: EngineConfig>(doc: &EngineDocument<C>) -> Option<String> {
+pub fn document_title<C: RenderConfiguration>(doc: &EngineDocument<C>) -> Option<String> {
     find_title(doc, doc.root())
 }
 
-fn find_title<C: EngineConfig>(doc: &EngineDocument<C>, node_id: NodeId) -> Option<String> {
+fn find_title<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) -> Option<String> {
     for &child in doc.children(node_id) {
         if doc.node_type(child) == NodeType::ElementNode {
             if doc

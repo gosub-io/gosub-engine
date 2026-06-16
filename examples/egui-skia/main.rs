@@ -9,12 +9,11 @@ use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
-use gosub_engine::DefaultConfig;
+use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
-type Config = DefaultConfig<SkiaBackend, SkiaFontSystem>;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -23,6 +22,8 @@ use url::Url;
 use uuid::uuid;
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000009");
+
+type AppConfig = DefaultRenderConfig<SkiaBackend, SkiaFontSystem>;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
     Builder::new_multi_thread()
@@ -42,9 +43,9 @@ enum UiEvent {
 
 struct BrowserApp {
     #[allow(dead_code)]
-    engine: GosubEngine<Config>,
+    engine: GosubEngine<AppConfig>,
     #[allow(dead_code)]
-    zone: Zone<Config>,
+    zone: Zone<AppConfig>,
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
@@ -69,7 +70,7 @@ impl BrowserApp {
         })));
 
         let backend = SkiaBackend::new();
-        let mut engine = GosubEngine::<Config>::new(None, Arc::new(backend), compositor.clone());
+        let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
 
         let (ui_tx, ui_rx) = std::sync::mpsc::channel::<UiEvent>();

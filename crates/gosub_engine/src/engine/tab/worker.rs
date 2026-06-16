@@ -5,7 +5,7 @@ use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
 use crate::events::{IoCommand, TabCommand};
-use crate::html::EngineConfig;
+use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReference;
 use crate::net::types::{FetchKeyData, FetchRequest, FetchResult, Initiator, NetError, Priority, ResourceKind};
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
@@ -39,7 +39,7 @@ fn about_blank() -> Url {
 }
 
 #[derive(Debug)]
-pub enum NavigationResult<C: EngineConfig> {
+pub enum NavigationResult<C: RenderConfiguration> {
     Ok {
         nav_id: NavigationId,
         final_url: Url,
@@ -59,7 +59,7 @@ struct ActiveNav {
     pub url: Url,
 }
 
-struct NavJoin<C: EngineConfig> {
+struct NavJoin<C: RenderConfiguration> {
     // nav_id: NavigationId,
     cancel: CancellationToken,
     // Wrapped in Option so the receiver can be extracted into `pending_nav_rx`
@@ -67,7 +67,7 @@ struct NavJoin<C: EngineConfig> {
     rx: Option<oneshot::Receiver<NavigationResult<C>>>,
 }
 
-pub struct TabWorker<C: EngineConfig> {
+pub struct TabWorker<C: RenderConfiguration> {
     /// ID of the tab
     pub tab_id: TabId,
     /// ID of the zone in which this tab resides
@@ -133,7 +133,7 @@ pub struct TabWorker<C: EngineConfig> {
     internal_rx: mpsc::Receiver<TabInternalCommand>,
 }
 
-impl<C: EngineConfig> TabWorker<C> {
+impl<C: RenderConfiguration> TabWorker<C> {
     /// Creates a new tab. Does NOT spawn the tab worker
     pub fn new(
         tab_id: TabId,

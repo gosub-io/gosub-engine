@@ -116,9 +116,12 @@ pub mod metrics;
 
 pub use engine::{BrowsingContext, EngineError, GosubEngine};
 
-/// The engine's default [`ModuleConfiguration`](gosub_interface::config::ModuleConfiguration),
-/// used when `GosubEngine` is instantiated without a custom config.
-pub use html::DefaultConfig;
+/// The engine's ready-made config: a marker that implements both
+/// [`ModuleConfiguration`](gosub_interface::config::ModuleConfiguration) (parse/style stack) and
+/// [`RenderConfiguration`](html::RenderConfiguration) (render components), parameterized over the
+/// render backend, font system, and compositor sink. Used when `GosubEngine` is instantiated
+/// without a custom config. See the crate-level "Configuration" section for how to pick a backend.
+pub use html::DefaultRenderConfig;
 
 pub use engine::types::Action;
 pub use engine::types::NavigationId;

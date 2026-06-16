@@ -41,7 +41,7 @@ use gosub_render_pipeline::render::{Color, DisplayItem, RenderContext, RenderLis
 use std::sync::Arc;
 use url::Url;
 
-use crate::html::EngineConfig;
+use crate::html::RenderConfiguration;
 use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
 use gosub_render_pipeline::layering::layer::LayerList;
@@ -51,7 +51,7 @@ use gosub_shared::node::NodeId;
 
 /// True if `node_id` could be affected by a `:hover` rule, per the [`HoverFingerprints`]
 /// computed by the CSS system. Uses only [`Document`] trait methods so it stays generic.
-fn hover_matches<C: EngineConfig>(fp: &HoverFingerprints, doc: &EngineDocument<C>, node_id: NodeId) -> bool {
+fn hover_matches<C: RenderConfiguration>(fp: &HoverFingerprints, doc: &EngineDocument<C>, node_id: NodeId) -> bool {
     if fp.has_universal {
         return true;
     }
@@ -120,7 +120,7 @@ struct PipelineCache {
 /// A BrowsingContext is a single instance of the engine that deals with a specific tab. Each tab
 /// has one BrowsingContext. These contexts though can use shared processes or threads, but not
 /// from other contexts, only from the main engine.
-pub struct BrowsingContext<C: EngineConfig = crate::html::DefaultConfig> {
+pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
     // /// Is there anything that needs to be rendered or redrawn?
     // dirty: DirtyFlags,
     /// Current URL being processed
@@ -189,7 +189,7 @@ pub struct BrowsingContext<C: EngineConfig = crate::html::DefaultConfig> {
     media_store: std::sync::Arc<gosub_render_pipeline::common::media::MediaStore>,
 }
 
-impl<C: EngineConfig> BrowsingContext<C> {
+impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Creates a new runtime browsing context.
     pub(crate) fn new() -> BrowsingContext<C> {
         Self {
@@ -616,7 +616,7 @@ impl<C: EngineConfig> BrowsingContext<C> {
     }
 }
 
-impl<C: EngineConfig> RenderContext for BrowsingContext<C> {
+impl<C: RenderConfiguration> RenderContext for BrowsingContext<C> {
     fn viewport(&self) -> &Viewport {
         &self.viewport
     }
@@ -861,7 +861,7 @@ fn rasterize_sequential(
 ///
 /// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
 /// re-running layout or rasterization.
-fn pipeline_build_cache<C: EngineConfig>(
+fn pipeline_build_cache<C: RenderConfiguration>(
     doc: Arc<EngineDocument<C>>,
     viewport: &Viewport,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,

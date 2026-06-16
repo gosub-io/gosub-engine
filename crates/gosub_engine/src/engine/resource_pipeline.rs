@@ -8,7 +8,7 @@ use crate::engine::resource_pipeline::html::{HtmlPipeline, HtmlPipelineImpl};
 use crate::engine::resource_pipeline::image::{ImagePipeline, ImagePipelineImpl};
 use crate::engine::resource_pipeline::js::{JsPipeline, JsPipelineImpl};
 use crate::engine::types::IoChannel;
-use crate::html::EngineConfig;
+use crate::html::RenderConfiguration;
 use crate::zone::ZoneId;
 
 pub mod css;
@@ -18,7 +18,7 @@ pub mod image;
 pub mod js;
 
 /// Resource pipeline entry points used by the router for each resource type.
-pub struct ResourcePipelines<C: EngineConfig> {
+pub struct ResourcePipelines<C: RenderConfiguration> {
     pub html: Box<dyn HtmlPipeline<C> + Send>,
     pub css: Box<dyn CssPipeline + Send>,
     pub js: Box<dyn JsPipeline + Send>,
@@ -29,7 +29,7 @@ pub struct ResourcePipelines<C: EngineConfig> {
     // pub external: &'a mut dyn ExternalOpener,
 }
 
-impl<C: EngineConfig> ResourcePipelines<C> {
+impl<C: RenderConfiguration> ResourcePipelines<C> {
     pub fn new(zone_id: ZoneId, io_tx: IoChannel) -> Self {
         Self {
             html: Box::new(HtmlPipelineImpl::new(zone_id, io_tx)),

@@ -1,5 +1,5 @@
 use crate::engine::types::{IoChannel, PeekBuf, RequestId};
-use crate::html::{parse_main_document_stream, EngineConfig, EngineDocument, ResourceHint};
+use crate::html::{parse_main_document_stream, RenderConfiguration, EngineDocument, ResourceHint};
 use crate::net::types::{FetchHandle, FetchKeyData, FetchRequest, FetchResultMeta, Initiator};
 use crate::net::{submit_to_io, SharedBody};
 use crate::util::spawn_named;
@@ -17,7 +17,7 @@ use tokio::task::JoinHandle;
 use tokio_util::io::StreamReader;
 
 #[async_trait]
-pub trait HtmlPipeline<C: EngineConfig> {
+pub trait HtmlPipeline<C: RenderConfiguration> {
     async fn parse_stream(
         &mut self,
         request: FetchRequest,
@@ -54,7 +54,7 @@ impl HtmlPipelineImpl {
         reader: R,
     ) -> anyhow::Result<EngineDocument<C>>
     where
-        C: EngineConfig,
+        C: RenderConfiguration,
         R: AsyncRead + Unpin + Send + 'static,
     {
         let cfg = crate::html::DummyHtml5Config::default();
@@ -148,7 +148,7 @@ impl HtmlPipelineImpl {
 }
 
 #[async_trait]
-impl<C: EngineConfig> HtmlPipeline<C> for HtmlPipelineImpl {
+impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl {
     async fn parse_stream(
         &mut self,
         request: FetchRequest,
@@ -179,7 +179,7 @@ impl<C: EngineConfig> HtmlPipeline<C> for HtmlPipelineImpl {
 mod tests {
     use super::*;
     use crate::events::IoCommand;
-    use crate::html::DefaultConfig;
+    use crate::html::DefaultRenderConfig;
     use crate::net::req_ref_tracker::RequestReference;
     use crate::net::types::{Priority, ResourceKind};
     use crate::NavigationId;
@@ -283,7 +283,7 @@ mod tests {
         let body = HTML_WITH_RESOURCES.as_bytes();
 
         // Act
-        let doc = HtmlPipeline::<DefaultConfig>::parse_bytes(&mut pipeline, req, handle, meta, body)
+        let doc = HtmlPipeline::<DefaultRenderConfig>::parse_bytes(&mut pipeline, req, handle, meta, body)
             .await
             .expect("parse_bytes should succeed");
 
@@ -310,7 +310,7 @@ mod tests {
         let body = HTML_WITH_RESOURCES.as_bytes();
 
         // Act
-        let _ = HtmlPipeline::<DefaultConfig>::parse_bytes(&mut pipeline, req, handle, meta, body)
+        let _ = HtmlPipeline::<DefaultRenderConfig>::parse_bytes(&mut pipeline, req, handle, meta, body)
             .await
             .expect("parse ok");
 

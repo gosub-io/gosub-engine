@@ -14,7 +14,7 @@ use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
-use gosub_engine::DefaultConfig;
+use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
@@ -37,6 +37,8 @@ use winit::window::{Window, WindowAttributes, WindowId};
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000007");
 const SCROLL_MULTIPLIER: f32 = 12.5;
+
+type AppConfig = DefaultRenderConfig<VelloBackend<WinitWgpuContextProvider>>;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
     Builder::new_multi_thread()
@@ -288,9 +290,9 @@ struct RuntimeState {
     gpu: GpuState,
     // These fields keep background tasks alive for the process lifetime.
     #[allow(dead_code)]
-    engine: GosubEngine<DefaultConfig<VelloBackend<WinitWgpuContextProvider>>>,
+    engine: GosubEngine<AppConfig>,
     #[allow(dead_code)]
-    zone: Zone<DefaultConfig<VelloBackend<WinitWgpuContextProvider>>>,
+    zone: Zone<AppConfig>,
     tab: TabHandle,
     tab_id: TabId,
 }
@@ -458,7 +460,7 @@ impl ApplicationHandler<()> for BrowserApp {
             }
         };
 
-        let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), self.compositor.clone());
+        let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(None, Arc::new(backend), self.compositor.clone());
         let _join = engine.start().expect("engine start");
 
         // Forward navigation events → proxy → request_redraw.

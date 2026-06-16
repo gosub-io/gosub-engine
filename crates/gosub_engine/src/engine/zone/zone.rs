@@ -5,7 +5,7 @@ use crate::engine::events::EngineEvent;
 use crate::engine::storage::{StorageService, Subscription};
 use crate::engine::tab::TabId;
 use crate::engine::types::{EventChannel, IoChannel};
-use crate::html::EngineConfig;
+use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::storage::types::PartitionPolicy;
 use crate::tab::services::resolve_tab_services;
@@ -100,7 +100,7 @@ pub struct ZoneServices {
 }
 
 /// Zone context we can share downwards to tabs
-pub struct ZoneContext<C: EngineConfig = crate::html::DefaultConfig> {
+pub struct ZoneContext<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
     /// Zone services (storage, cookies, etc)
     pub(crate) services: ZoneServices,
     /// Subscription for session storage changes
@@ -131,7 +131,7 @@ pub struct ZoneSink {
 
 /// This is the zone structure, which contains tabs and shared services. It is only known to the engine
 /// and can be controlled by the user via the engine API.
-pub struct Zone<C: EngineConfig = crate::html::DefaultConfig> {
+pub struct Zone<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
     // Shared context from the engine
     pub engine_context: Arc<EngineContext>,
     // Shared context that is passed down to tabs
@@ -155,7 +155,7 @@ pub struct Zone<C: EngineConfig = crate::html::DefaultConfig> {
     pub color: [u8; 4],
 }
 
-impl<C: EngineConfig> Debug for Zone<C> {
+impl<C: RenderConfiguration> Debug for Zone<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Zone")
             .field("id", &self.id)
@@ -189,7 +189,7 @@ pub struct SharedFlags {
     pub share_cookiejar: bool,
 }
 
-impl<C: EngineConfig> Zone<C> {
+impl<C: RenderConfiguration> Zone<C> {
     /// Creates a new zone with a specific zone ID
     pub fn new_with_id(
         // Unique ID for the zone

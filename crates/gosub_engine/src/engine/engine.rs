@@ -23,7 +23,7 @@
 use crate::engine::events::{EngineCommand, EngineEvent};
 use crate::engine::types::{EventChannel, IoChannel};
 use crate::engine::DEFAULT_CHANNEL_CAPACITY;
-use crate::html::EngineConfig as ModuleEngineConfig;
+use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::net::{spawn_io_thread, FetcherConfig, IoHandle};
 use crate::util::spawn_named;
@@ -40,7 +40,7 @@ use tokio::time::timeout;
 use tracing::instrument;
 
 /// Main Gosub engine struct
-pub struct GosubEngine<C: ModuleEngineConfig = crate::html::DefaultConfig> {
+pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
     /// Context is what can be shared downstream
     context: Arc<EngineContext>,
     /// Active render backend, concrete per the module config `C`.
@@ -89,7 +89,7 @@ impl Default for EngineContext {
     }
 }
 
-impl<C: ModuleEngineConfig> GosubEngine<C> {
+impl<C: RenderConfiguration> GosubEngine<C> {
     /// Create a new engine.
     ///
     /// If `config` is `None`, [`EngineSettings::default`] is used.
@@ -102,7 +102,7 @@ impl<C: ModuleEngineConfig> GosubEngine<C> {
     /// # use gosub_render_pipeline::render::DefaultCompositor;
     /// let backend = NullBackend::new();
     /// let compositor = DefaultCompositor::default();
-    /// let engine = ge::GosubEngine::<ge::DefaultConfig>::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
+    /// let engine = ge::GosubEngine::<ge::DefaultRenderConfig>::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
     /// ```
     pub fn new(
         config: Option<EngineSettings>,

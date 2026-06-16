@@ -9,7 +9,7 @@ use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
-use gosub_engine::DefaultConfig;
+use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
@@ -25,6 +25,8 @@ use uuid::uuid;
 use vello::wgpu;
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000008");
+
+type AppConfig = DefaultRenderConfig<VelloBackend<EguiContextProvider>>;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
     Builder::new_multi_thread()
@@ -122,9 +124,9 @@ enum UiEvent {
 
 struct BrowserApp {
     #[allow(dead_code)]
-    engine: GosubEngine<DefaultConfig<VelloBackend<EguiContextProvider>>>,
+    engine: GosubEngine<AppConfig>,
     #[allow(dead_code)]
-    zone: Zone<DefaultConfig<VelloBackend<EguiContextProvider>>>,
+    zone: Zone<AppConfig>,
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
@@ -156,7 +158,7 @@ impl BrowserApp {
         let context = Arc::new(EguiContextProvider::from_eframe(cc)?);
         let backend = VelloBackend::new(context.clone()).ok()?;
 
-        let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
+        let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
 
         let (ui_tx, ui_rx) = std::sync::mpsc::channel::<UiEvent>();
