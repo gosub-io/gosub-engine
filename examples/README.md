@@ -70,12 +70,31 @@ cargo run --example vello-renderer
 ```
 
 
+## Choosing a configuration
+
+`GosubEngine` is generic over a *configuration* type that names its pluggable components at
+compile time. You normally use `DefaultRenderConfig<Backend, FontSystem>` — the ready-made
+config that wires the standard gosub HTML/CSS stack and lets you pick the backend and font
+system. Every GUI example defines a one-line alias for its choice and reuses it everywhere:
+
+```rust
+// from winit-cairo
+type AppConfig = DefaultRenderConfig<CairoBackend, PangoFontSystem>;
+// ...then: GosubEngine::<AppConfig>::new(...)
+```
+
+The headless examples use the parameter-less `DefaultRenderConfig`, which defaults to
+`DefaultRenderConfig<NullBackend, ParleyFontSystem, DefaultCompositor>`. See the
+"Configuration" section of the `gosub_engine` crate docs for the full picture (including the
+`ModuleConfiguration` / `RenderConfiguration` trait split for parse-only vs. rendering setups).
+
 ## Writing your own example
 
 The shortest useful starting point is `hello-world.rs`. The pattern is:
 
-1. Pick a backend (`NullBackend` for headless, `CairoBackend` / Vello for GUI)
-2. Create `GosubEngine` with that backend
+1. Pick a backend + font system and alias it: `type AppConfig = DefaultRenderConfig<Backend, FontSystem>;`
+   (or just `DefaultRenderConfig` with no params for headless `NullBackend`)
+2. Create `GosubEngine::<AppConfig>` with that backend
 3. Call `engine.start()`
 4. Create a zone → create a tab → send `TabCommand::Navigate`
 5. Drive events in a `tokio::select!` loop
