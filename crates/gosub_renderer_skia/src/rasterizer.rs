@@ -3,9 +3,12 @@ use gosub_render_pipeline::common::texture::TextureId;
 use gosub_render_pipeline::common::TextureStore;
 use gosub_render_pipeline::layering::layer::LayerId;
 use gosub_render_pipeline::painter::commands::PaintCommand;
+use gosub_interface::font_system::FontSystem;
 use gosub_render_pipeline::rasterizer::Rasterable;
 use gosub_render_pipeline::tiler::Tile;
+use parking_lot::Mutex;
 use skia_safe::{Bitmap, Canvas, Matrix, Paint, Rect, SamplingOptions, TileMode};
+use std::sync::Arc;
 
 mod paint;
 mod rectangle;
@@ -14,15 +17,34 @@ mod text;
 
 pub struct SkiaRasterizer {
     dpi_scale_factor: f32,
+    /// The engine's shared font system, exposed to the layouter so it measures with the
+    /// configured instance. Skia draws text through `skia_safe`'s own text layout, so this is
+    /// not (yet) used for drawing.
+    font_system: Option<Arc<Mutex<dyn FontSystem>>>,
 }
 
 impl SkiaRasterizer {
     pub fn new(dpi_scale_factor: f32) -> Self {
-        Self { dpi_scale_factor }
+        Self {
+            dpi_scale_factor,
+            font_system: None,
+        }
+    }
+
+    /// Create a rasterizer that shares the engine's font system (used for measurement).
+    pub fn with_font_system(dpi_scale_factor: f32, font_system: Arc<Mutex<dyn FontSystem>>) -> Self {
+        Self {
+            dpi_scale_factor,
+            font_system: Some(font_system),
+        }
     }
 }
 
 impl Rasterable for SkiaRasterizer {
+    fn font_system(&self) -> Option<Arc<Mutex<dyn FontSystem>>> {
+        self.font_system.clone()
+    }
+
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, _media_store: &MediaStore) -> Option<TextureId> {
         let width = tile.rect.width as u32;
         let height = tile.rect.height as u32;

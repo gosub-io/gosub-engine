@@ -180,11 +180,10 @@ impl RenderBackend for CairoBackend {
         &self,
         font_system: std::sync::Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>>,
     ) -> Box<dyn Any + Send + Sync> {
-        // Cairo draws text through its own Pango font system; wiring the engine's configured font
-        // system into the Cairo draw path is a follow-up (measurement falls back to the layouter's
-        // own instance for this backend).
-        let _ = font_system;
-        erase_rasterizer(Box::new(crate::CairoRasterizer::new()))
+        // Share the engine's font system so the layouter measures with it. Cairo still draws text
+        // through its own Pango font system (using the config's font system for Cairo drawing is a
+        // follow-up).
+        erase_rasterizer(Box::new(crate::CairoRasterizer::with_font_system(font_system)))
     }
 
     fn raster_strategy(&self) -> RasterStrategy {

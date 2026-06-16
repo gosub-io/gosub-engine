@@ -5,7 +5,8 @@ use gosub_render_pipeline::common::TextureStore;
 use gosub_render_pipeline::painter::commands::PaintCommand;
 use gosub_render_pipeline::rasterizer::Rasterable;
 use gosub_render_pipeline::tiler::Tile;
-#[cfg(feature = "text_pango")]
+use gosub_interface::font_system::FontSystem;
+use parking_lot::Mutex;
 use std::sync::Arc;
 
 #[cfg(feature = "text_pango")]
@@ -19,8 +20,12 @@ mod text;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 
 pub struct CairoRasterizer {
+    /// The engine's shared font system, exposed to the layouter so it measures with the
+    /// configured instance. Cairo's own text drawing still goes through Pango (`pango` below).
+    config_font_system: Option<Arc<Mutex<dyn FontSystem>>>,
+    /// Pango font system used for the actual cairo text drawing.
     #[cfg(feature = "text_pango")]
-    font_system: Arc<PangoFontSystem>,
+    pango: Arc<PangoFontSystem>,
 }
 
 impl Default for CairoRasterizer {
@@ -30,37 +35,35 @@ impl Default for CairoRasterizer {
 }
 
 impl CairoRasterizer {
-    /// Create a rasterizer using the process-wide font system singleton.
+    /// Create a rasterizer using the process-wide Pango font system singleton, with no shared
+    /// engine font system (the layouter falls back to its own instance for measurement).
     ///
     /// The singleton is populated by [`crate::init_gtk_resources`] (or
     /// [`crate::font::pango::init`]) from the GTK main thread.
-    /// If it has not been initialised yet the singleton is created without
-    /// system-ui font resolution; `"sans"` is used as the fallback in that case.
     pub fn new() -> Self {
         Self {
+            config_font_system: None,
             #[cfg(feature = "text_pango")]
-            font_system: get_font_system(),
+            pango: get_font_system(),
         }
     }
 
-    /// Create a rasterizer with an explicitly provided font system.
-    ///
-    /// Use this when you want to share a pre-initialised `PangoFontSystem`
-    /// between multiple rasterizer instances, or in tests where you control
-    /// font resolution yourself.
-    #[cfg(feature = "text_pango")]
-    pub fn with_font_system(font_system: Arc<PangoFontSystem>) -> Self {
-        Self { font_system }
-    }
-
-    /// Expose the font system so callers can share it with other components.
-    #[cfg(feature = "text_pango")]
-    pub fn font_system(&self) -> Arc<PangoFontSystem> {
-        Arc::clone(&self.font_system)
+    /// Create a rasterizer that shares the engine's font system (used by the layouter for
+    /// measurement). Drawing still goes through the process-wide Pango singleton.
+    pub fn with_font_system(font_system: Arc<Mutex<dyn FontSystem>>) -> Self {
+        Self {
+            config_font_system: Some(font_system),
+            #[cfg(feature = "text_pango")]
+            pango: get_font_system(),
+        }
     }
 }
 
 impl Rasterable for CairoRasterizer {
+    fn font_system(&self) -> Option<Arc<Mutex<dyn FontSystem>>> {
+        self.config_font_system.clone()
+    }
+
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId> {
         let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed) as i32;
 
@@ -98,7 +101,7 @@ impl Rasterable for CairoRasterizer {
                                 command,
                                 media_store,
                                 dpr,
-                                &self.font_system,
+                                &self.pango,
                             ) {
                                 Ok(_) => {}
                                 Err(e) => {
