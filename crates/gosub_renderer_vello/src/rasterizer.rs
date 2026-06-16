@@ -23,33 +23,29 @@ mod text;
 
 pub struct VelloRasterizer {
     resources: Arc<WgpuResources>,
-    font_system: Arc<Mutex<ParleyFontSystem>>,
+    /// The engine's shared font system. Vello draws glyphs through Parley, so it downcasts this to
+    /// `ParleyFontSystem` at draw time; a non-Parley font system means text simply isn't rendered
+    /// (that backend↔font-system pairing doesn't make sense).
+    font_system: Arc<Mutex<dyn FontSystem>>,
 }
 
 impl VelloRasterizer {
-    /// Create a rasterizer with its own font system.
-    ///
-    /// To share the font collection with `TaffyLayouter` (so layout and rendering
-    /// use identical font data), use [`VelloRasterizer::with_font_system`] instead
-    /// and pass the same `Arc` to both.
+    /// Create a rasterizer with its own Parley font system.
     pub fn new(resources: Arc<WgpuResources>) -> Self {
-        Self {
-            resources,
-            font_system: Arc::new(Mutex::new(ParleyFontSystem::new())),
-        }
+        Self::with_font_system(resources, Arc::new(Mutex::new(ParleyFontSystem::new())))
     }
 
     /// Create a rasterizer that shares an existing font system.
-    pub fn with_font_system(resources: Arc<WgpuResources>, font_system: Arc<Mutex<ParleyFontSystem>>) -> Self {
+    pub fn with_font_system(resources: Arc<WgpuResources>, font_system: Arc<Mutex<dyn FontSystem>>) -> Self {
         Self { resources, font_system }
     }
 }
 
 impl Rasterable for VelloRasterizer {
-    /// Share this rasterizer's Parley font system (as `dyn FontSystem`) with the layouter so
-    /// layout and rendering measure/draw against the same font collection.
+    /// Share the engine's font system with the layouter so layout and rendering measure/draw
+    /// against the same instance.
     fn font_system(&self) -> Option<Arc<Mutex<dyn FontSystem>>> {
-        Some(Arc::clone(&self.font_system) as Arc<Mutex<dyn FontSystem>>)
+        Some(Arc::clone(&self.font_system))
     }
 
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId> {
@@ -62,10 +58,14 @@ impl Rasterable for VelloRasterizer {
 
         let affine = Affine::translate(Vec2::new(-tile.rect.x, -tile.rect.y));
 
-        // Lock the font system once per tile. All text commands in this tile share
-        // the same FontContext, so font data is loaded at most once per family.
+        // Lock the font system once per tile and recover the concrete Parley system Vello draws
+        // with. A non-Parley font system (e.g. Pango/Skia configured against the Vello backend)
+        // means text can't be drawn here — log once and skip text commands.
         let mut font_guard = self.font_system.lock();
-        let font_cx = font_guard.font_cx_mut();
+        let mut parley = font_guard.as_any_mut().downcast_mut::<ParleyFontSystem>();
+        if parley.is_none() {
+            log::warn!("Vello rasterizer: configured font system is not Parley; text will not render");
+        }
 
         for element in &tile.elements {
             for command in &element.paint_commands {
@@ -77,9 +77,9 @@ impl Rasterable for VelloRasterizer {
                         rectangle::do_paint_rectangle(&mut scene, command, affine, media_store);
                     }
                     PaintCommand::Text(command) => {
-                        match text::do_paint_text(&mut scene, command, tile_size, affine, media_store, font_cx) {
-                            Ok(_) => {}
-                            Err(e) => {
+                        if let Some(parley) = parley.as_deref_mut() {
+                            let font_cx = parley.font_cx_mut();
+                            if let Err(e) = text::do_paint_text(&mut scene, command, tile_size, affine, media_store, font_cx) {
                                 log::warn!("Failed to paint text: {:?}", e);
                             }
                         }

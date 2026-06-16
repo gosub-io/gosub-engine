@@ -13,7 +13,9 @@ use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::ModuleConfiguration;
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType;
+use gosub_interface::font_system::FontSystem;
 use gosub_interface::render::backend::{CompositorSink, RenderBackend};
+use gosub_fontmanager::ParleyFontSystem;
 use gosub_render_pipeline::render::backends::null::NullBackend;
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_shared::node::NodeId;
@@ -27,30 +29,32 @@ use std::marker::PhantomData;
 /// is the headless `DefaultConfig<NullBackend, DefaultCompositor>`. Embedders that also want a
 /// custom CSS/DOM/parser stack implement [`ModuleConfiguration`] + [`EngineConfig`] on their own
 /// type instead.
-pub struct DefaultConfig<B = NullBackend, S = DefaultCompositor>(PhantomData<fn() -> (B, S)>);
+#[allow(clippy::type_complexity)] // PhantomData marker carrying the three config type params
+pub struct DefaultConfig<B = NullBackend, S = DefaultCompositor, F = ParleyFontSystem>(PhantomData<fn() -> (B, S, F)>);
 
-// `DefaultConfig` is a zero-sized marker; its Clone/Debug/PartialEq are independent of `B`/`S`
-// (which are never instantiated), so we impl them by hand rather than deriving bounds on B/S.
-impl<B, S> Clone for DefaultConfig<B, S> {
+// `DefaultConfig` is a zero-sized marker; its Clone/Debug/PartialEq are independent of `B`/`S`/`F`
+// (which are never instantiated), so we impl them by hand rather than deriving bounds on them.
+impl<B, S, F> Clone for DefaultConfig<B, S, F> {
     fn clone(&self) -> Self {
         Self(PhantomData)
     }
 }
-impl<B, S> std::fmt::Debug for DefaultConfig<B, S> {
+impl<B, S, F> std::fmt::Debug for DefaultConfig<B, S, F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("DefaultConfig")
     }
 }
-impl<B, S> PartialEq for DefaultConfig<B, S> {
+impl<B, S, F> PartialEq for DefaultConfig<B, S, F> {
     fn eq(&self, _: &Self) -> bool {
         true
     }
 }
 
-impl<B, S> ModuleConfiguration for DefaultConfig<B, S>
+impl<B, S, F> ModuleConfiguration for DefaultConfig<B, S, F>
 where
     B: RenderBackend + Send + Sync + 'static,
     S: CompositorSink + 'static,
+    F: FontSystem + Default,
 {
     type CssSystem = Css3System;
     type Document = DocumentImpl<Self>;
@@ -69,15 +73,20 @@ pub trait EngineConfig: ModuleConfiguration<Document = DocumentImpl<Self>> {
     type RenderBackend: RenderBackend + Send + Sync;
     /// Receives finished frames from the render backend.
     type CompositorSink: CompositorSink;
+    /// Font system used for text measurement (layout) and shared with the renderer for drawing.
+    /// The engine owns one instance, created via `Default`, and hands it to both.
+    type FontSystem: FontSystem + Default;
 }
 
-impl<B, S> EngineConfig for DefaultConfig<B, S>
+impl<B, S, F> EngineConfig for DefaultConfig<B, S, F>
 where
     B: RenderBackend + Send + Sync + 'static,
     S: CompositorSink + 'static,
+    F: FontSystem + Default,
 {
     type RenderBackend = B;
     type CompositorSink = S;
+    type FontSystem = F;
 }
 
 /// The parsed document type used by the engine for a given config (defaults to [`DefaultConfig`]).

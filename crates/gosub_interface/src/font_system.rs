@@ -139,76 +139,73 @@ impl ShapedText {
     }
 }
 
+// Text style for measurement
+
+/// CSS-resolved text style passed to [`FontSystem::measure`].
+///
+/// Carries everything an engine needs to lay out a run of text: the family (the implementation
+/// appends its own generic/bundled fallback), size, the font selectors, an optional absolute line
+/// height, an optional wrap width, and the device-pixel scale.
+#[derive(Debug, Clone)]
+pub struct TextStyle {
+    /// Primary CSS family name (implementations append a generic/bundled fallback).
+    pub family: String,
+    /// Font size in CSS pixels.
+    pub size: f32,
+    pub weight: FontWeight,
+    pub style: FontStyle,
+    pub stretch: FontStretch,
+    /// `Some(px)` forces an absolute line-box height; `None` = the font's natural height.
+    pub line_height: Option<f32>,
+    /// `Some(px)` soft-wraps at that width; `None` = a single unbroken line.
+    pub max_width: Option<f32>,
+    /// Device-pixel scale (DPI). `1.0` = CSS pixels.
+    pub display_scale: f32,
+}
+
+impl TextStyle {
+    /// A style for `family` at `size` px, default selectors, scale 1.0, no wrap.
+    pub fn new(family: impl Into<String>, size: f32) -> Self {
+        Self {
+            family: family.into(),
+            size,
+            weight: FontWeight::NORMAL,
+            style: FontStyle::Normal,
+            stretch: FontStretch::NORMAL,
+            line_height: None,
+            max_width: None,
+            display_scale: 1.0,
+        }
+    }
+}
+
 // Core trait
 
-/// A swappable font back-end.
+/// A swappable font system — the entire surface the engine and layouter need.
 ///
-/// Implementations exist (or will exist) for:
-/// - `ParleyFontSystem` — uses parley + fontique (default, supports Vello/Skia)
-/// - `PangoFontSystem`  — wraps GTK/Pango (used by the Cairo renderer on Linux)
+/// It registers fonts and **measures** text. Measuring goes through whichever font system the
+/// engine was configured with, so layout boxes are sized by the very engine that will draw the
+/// text (Parley, Pango, Skia, …) — measurement and drawing can't disagree.
 ///
-/// The system is intended to be shared between the layout engine (Taffy) and the
-/// renderer so that shaping is done once and the resulting `ShapedText` is passed
-/// through the pipeline rather than re-shaped at draw time.
+/// Engine-native *shaping* and *drawing* are deliberately **not** on this trait: the shaped
+/// representation and the draw target are backend-specific. A render backend recovers its concrete
+/// font system via [`FontSystem::as_any_mut`] and calls that type's own (inherent) shaping/draw
+/// methods.
 ///
 /// # Threading
-/// `FontSystem` requires `Send + Sync` so it can be wrapped in `Arc<Mutex<dyn FontSystem>>`.
-/// Callers must hold the mutex across a full resolve+shape pair if they need
-/// the results to be consistent.
+/// `Send + Sync` so it can live behind `Arc<Mutex<dyn FontSystem>>`, shared between the layouter
+/// and the renderer.
 pub trait FontSystem: Send + Sync + 'static {
-    /// Required for downcasting to a concrete font system implementation.
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-
-    /// Register a font from raw bytes.
+    /// Register a font from raw bytes (`@font-face` web fonts, bundled fallbacks).
     ///
-    /// Used for `@font-face` web fonts and for bundled fallback fonts (e.g. Roboto).
-    /// `family_override` lets callers assign a logical name that CSS can reference;
-    /// if `None` the name is taken from the font's own `name` table.
+    /// `family_override` assigns a logical name CSS can reference; `None` uses the font's own name.
     fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError>;
 
-    /// Resolve a CSS font query to a concrete `ResolvedFont`.
-    ///
-    /// Walks `query.families` in order and applies weight/style/stretch matching.
-    /// Returns `Err(FontError::FontNotFound)` only if no family in the list (including
-    /// generic families like `sans-serif`) could be resolved.
-    fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError>;
+    /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
+    fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32);
 
-    /// Shape `text` with `font` at `size` pixels.
-    ///
-    /// `line_height`: `Some(px)` forces an absolute CSS line box height; `None` uses the
-    /// font's natural line height (CSS `line-height: normal`).
-    /// `max_width`: if `Some(w)`, soft-wrap lines at `w` pixels. `None` = single line.
-    /// `display_scale`: device-pixel scale factor (DPI). `1.0` = CSS pixels.
-    ///
-    /// Returns fully positioned glyphs. The returned `ShapedText` is cheaply cloneable
-    /// (glyphs are usually stored in an `Arc<[ShapedGlyph]>` or `Vec`) so callers can
-    /// cache it at the layout node level.
-    fn shape(
-        &mut self,
-        text: &str,
-        font: &ResolvedFont,
-        size: f32,
-        line_height: Option<f32>,
-        max_width: Option<f32>,
-        display_scale: f32,
-    ) -> ShapedText;
-
-    /// Return only the bounding box of `text` without glyph positions.
-    ///
-    /// The default implementation delegates to `shape()`. Override this when the
-    /// back-end has a cheaper measurement path (e.g. `pango::Layout::pixel_size()`).
-    fn measure(
-        &mut self,
-        text: &str,
-        font: &ResolvedFont,
-        size: f32,
-        line_height: Option<f32>,
-        max_width: Option<f32>,
-        display_scale: f32,
-    ) -> (f32, f32) {
-        let shaped = self.shape(text, font, size, line_height, max_width, display_scale);
-        (shaped.width, shaped.height)
-    }
+    /// Recover the concrete font system so a render backend can call its native shaping/draw path.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
 // Config integration

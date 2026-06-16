@@ -13,7 +13,7 @@ use crate::tab::{create_tab_and_spawn, TabDefaults, TabHandle, TabOverrides, Tab
 use crate::util::spawn_named;
 use crate::zone::ZoneConfig;
 use crate::EngineError;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
@@ -118,6 +118,9 @@ pub struct ZoneContext<C: EngineConfig = crate::html::DefaultConfig> {
     pub(crate) compositor: Arc<RwLock<C::CompositorSink>>,
     /// Rendering backend to use for this zone (concrete, per the module config).
     pub(crate) render_backend: Arc<C::RenderBackend>,
+    /// The engine's shared font system (the config's `FontSystem`), used by the layouter for
+    /// measurement and handed to the rasterizer for drawing.
+    pub(crate) font_system: Arc<Mutex<C::FontSystem>>,
 }
 
 // Things that are shared upwards to the engine
@@ -200,6 +203,8 @@ impl<C: EngineConfig> Zone<C> {
         // Render backend / compositor for this engine's config (concrete)
         render_backend: Arc<C::RenderBackend>,
         compositor: Arc<RwLock<C::CompositorSink>>,
+        // The engine's shared font system (the config's `FontSystem`)
+        font_system: Arc<Mutex<C::FontSystem>>,
     ) -> Result<Self, EngineError> {
         // We generate the color by using the zone id as a seed
         let mut rng = StdRng::seed_from_u64(zone_id.0.as_u64_pair().0);
@@ -237,6 +242,7 @@ impl<C: EngineConfig> Zone<C> {
                 request_reference_map,
                 compositor,
                 render_backend,
+                font_system,
             }),
             id: zone_id,
             tabs: HashMap::new(),
@@ -258,6 +264,7 @@ impl<C: EngineConfig> Zone<C> {
         engine_context: Arc<EngineContext>,
         render_backend: Arc<C::RenderBackend>,
         compositor: Arc<RwLock<C::CompositorSink>>,
+        font_system: Arc<Mutex<C::FontSystem>>,
     ) -> Result<Self, EngineError> {
         Self::new_with_id(
             ZoneId::new(),
@@ -266,6 +273,7 @@ impl<C: EngineConfig> Zone<C> {
             engine_context,
             render_backend,
             compositor,
+            font_system,
         )
     }
 

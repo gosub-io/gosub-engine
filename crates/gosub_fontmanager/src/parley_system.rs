@@ -1,7 +1,7 @@
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, ShapedGlyph, ShapedRun, ShapedText,
+    FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, ShapedGlyph, ShapedRun, ShapedText, TextStyle,
 };
 use parley::fontique::{Attributes, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache};
 use parley::style::{FontStyle as ParleyStyle, FontWeight as ParleyWeight};
@@ -76,7 +76,60 @@ impl FontSystem for ParleyFontSystem {
         Ok(())
     }
 
-    fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
+    /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
+    ///
+    /// Resolves the family (mapping generics, appending a `sans-serif` fallback) then lays it out
+    /// with Parley and reads the line extents.
+    fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32) {
+        if text.is_empty() {
+            return (0.0, 0.0);
+        }
+        let families = [style.family.as_str(), "sans-serif"];
+        let query = FontQuery {
+            families: &families,
+            style: style.style,
+            weight: style.weight,
+            stretch: style.stretch,
+        };
+        let Ok(resolved) = self.resolve(&query) else {
+            return (text.chars().count() as f32 * style.size * 0.5, style.size * 1.2);
+        };
+
+        let mut builder = self.layout_cx.ranged_builder(&mut self.font_cx, text, style.display_scale, false);
+        builder.push_default(parley::StyleProperty::FontSize(style.size));
+        builder.push_default(parley::StyleProperty::FontFamily(parley::FontFamily::Source(
+            resolved.family.as_str().into(),
+        )));
+        builder.push_default(parley::StyleProperty::FontWeight(ParleyWeight::new(style.weight.0 as f32)));
+        builder.push_default(parley::StyleProperty::FontStyle(style_to_parley(style.style)));
+        if let Some(lh) = style.line_height {
+            builder.push_default(parley::StyleProperty::LineHeight(parley::LineHeight::Absolute(lh)));
+        }
+        builder.push_default(parley::StyleProperty::Brush(()));
+
+        let mut layout = builder.build(text);
+        layout.break_all_lines(Some(style.max_width.unwrap_or(f32::INFINITY)));
+
+        let mut width = 0.0f32;
+        let mut height = 0.0f32;
+        for line in layout.lines() {
+            let lm = line.metrics();
+            for item in line.items() {
+                if let PositionedLayoutItem::GlyphRun(run) = item {
+                    width = width.max(run.offset() + run.advance());
+                }
+            }
+            height += lm.line_height;
+        }
+        (width, height)
+    }
+}
+
+impl ParleyFontSystem {
+    /// Resolve a CSS font query to a concrete font + its bytes.
+    ///
+    /// Engine-specific (not on the `FontSystem` trait) — for the glyph-based draw path.
+    pub fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
         let families: Vec<QueryFamily> = query.families.iter().map(|&name| css_family_to_query(name)).collect();
 
         let attrs = Attributes::new(
@@ -116,7 +169,8 @@ impl FontSystem for ParleyFontSystem {
         found.ok_or_else(|| FontError::FontNotFound(query.families.join(", ")))
     }
 
-    fn shape(
+    /// Shape `text` into positioned glyph runs (engine-specific; for glyph-based rendering).
+    pub fn shape(
         &mut self,
         text: &str,
         font: &ResolvedFont,
@@ -216,50 +270,6 @@ impl FontSystem for ParleyFontSystem {
         }
     }
 
-    fn measure(
-        &mut self,
-        text: &str,
-        font: &ResolvedFont,
-        size: f32,
-        line_height: Option<f32>,
-        max_width: Option<f32>,
-        display_scale: f32,
-    ) -> (f32, f32) {
-        if text.is_empty() {
-            return (0.0, 0.0);
-        }
-
-        let mut builder = self.layout_cx.ranged_builder(&mut self.font_cx, text, display_scale, false);
-        builder.push_default(parley::StyleProperty::FontSize(size));
-        builder.push_default(parley::StyleProperty::FontFamily(parley::FontFamily::Source(
-            font.family.as_str().into(),
-        )));
-        builder.push_default(parley::StyleProperty::FontWeight(ParleyWeight::new(
-            font.weight.0 as f32,
-        )));
-        builder.push_default(parley::StyleProperty::FontStyle(style_to_parley(font.style)));
-        if let Some(lh) = line_height {
-            builder.push_default(parley::StyleProperty::LineHeight(parley::LineHeight::Absolute(lh)));
-        }
-        builder.push_default(parley::StyleProperty::Brush(()));
-
-        let mut layout = builder.build(text);
-        layout.break_all_lines(Some(max_width.unwrap_or(f32::INFINITY)));
-
-        let mut width = 0.0f32;
-        let mut height = 0.0f32;
-        for line in layout.lines() {
-            let lm = line.metrics();
-            for item in line.items() {
-                if let PositionedLayoutItem::GlyphRun(run) = item {
-                    width = width.max(run.offset() + run.advance());
-                }
-            }
-            height += lm.line_height;
-        }
-
-        (width, height)
-    }
 }
 
 // Conversion helpers

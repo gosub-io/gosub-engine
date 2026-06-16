@@ -153,7 +153,14 @@ impl RenderBackend for SkiaBackend {
         })
     }
 
-    fn create_rasterizer(&self) -> Box<dyn Any + Send + Sync> {
+    fn create_rasterizer(
+        &self,
+        font_system: std::sync::Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>>,
+    ) -> Box<dyn Any + Send + Sync> {
+        // Skia draws text through its own skia_safe text layout; wiring the engine's configured
+        // font system into the Skia draw path is a follow-up (measurement falls back to the
+        // layouter's own instance for this backend).
+        let _ = font_system;
         erase_rasterizer(Box::new(crate::SkiaRasterizer::new(1.0)))
     }
 

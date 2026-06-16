@@ -744,9 +744,9 @@ impl<C: EngineConfig> TabWorker<C> {
         if !self.context.has_rasterizer() {
             // `create_rasterizer` is type-erased (the backend trait lives in `gosub_interface`,
             // which can't name the pipeline's `Rasterable`); recover it here.
-            if let Some(rasterizer) =
-                gosub_render_pipeline::rasterizer::downcast_rasterizer(render_backend.create_rasterizer())
-            {
+            if let Some(rasterizer) = gosub_render_pipeline::rasterizer::downcast_rasterizer(
+                render_backend.create_rasterizer(self.zone_context.font_system.clone()),
+            ) {
                 self.context
                     .set_rasterizer(rasterizer, render_backend.raster_strategy());
             }

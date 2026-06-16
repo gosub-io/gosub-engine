@@ -330,7 +330,15 @@ pub trait RenderBackend: Send {
     /// and downcasts it back. The engine calls this once and drives it per [`Self::raster_strategy`].
     /// Defaults to a no-op marker; only backends with [`RasterStrategy`] other than
     /// [`RasterStrategy::None`] need to override it.
-    fn create_rasterizer(&self) -> Box<dyn Any + Send + Sync> {
+    ///
+    /// `font_system` is the engine's single shared font system (the config's `FontSystem`). The
+    /// rasterizer measures/draws through it; a backend recovers its concrete type via
+    /// [`crate::font_system::FontSystem::as_any_mut`] for its native draw path.
+    fn create_rasterizer(
+        &self,
+        font_system: Arc<parking_lot::Mutex<dyn crate::font_system::FontSystem>>,
+    ) -> Box<dyn Any + Send + Sync> {
+        let _ = font_system;
         Box::new(())
     }
 

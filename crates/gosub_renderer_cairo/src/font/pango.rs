@@ -1,7 +1,10 @@
 use cow_utils::CowUtils;
+use gosub_interface::font::{FontError, FontStyle};
+use gosub_interface::font_system::{FontSystem, TextStyle};
 use gtk4::pango;
 use gtk4::pango::Weight;
 use gtk4::prelude::FontFamilyExt;
+use std::any::Any;
 use std::sync::{Arc, OnceLock};
 
 const DEFAULT_FONT_FAMILY: &str = "sans";
@@ -76,6 +79,71 @@ impl PangoFontSystem {
 impl Default for PangoFontSystem {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl PangoFontSystem {
+    /// Measure `text` by building a Pango layout on a throwaway 1×1 surface (no pixels are
+    /// drawn — we only read `pixel_size()`). Reuses the same font-description path as the
+    /// rasterizer so measurement matches what Cairo will actually paint.
+    fn measure_inner(&self, text: &str, style: &TextStyle) -> Option<(f32, f32)> {
+        use pangocairo::functions::{context_set_resolution, create_layout};
+
+        let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1).ok()?;
+        let cr = cairo::Context::new(&surface).ok()?;
+        let layout = create_layout(&cr);
+        // 96 DPI matches the browser/CSS convention, same as the rasterizer.
+        context_set_resolution(&layout.context(), 96.0);
+
+        let family = self.find_available_font(&style.family, &layout.context());
+        let mut font_desc = pango::FontDescription::new();
+        font_desc.set_family(&family);
+        // CSS px → pt (× 72/96), then to Pango units (× SCALE).
+        font_desc.set_size((style.size as f64 * style.display_scale as f64 * pango::SCALE as f64 * (72.0 / 96.0)) as i32);
+        font_desc.set_weight(to_pango_weight(style.weight.0 as usize));
+        if style.style != FontStyle::Normal {
+            font_desc.set_style(pango::Style::Italic);
+        }
+        layout.set_font_description(Some(&font_desc));
+        layout.set_text(text);
+        layout.set_wrap(pango::WrapMode::Word);
+        match style.max_width {
+            Some(w) => layout.set_width((w * style.display_scale) as i32 * pango::SCALE),
+            None => layout.set_width(-1),
+        }
+
+        let (w, h) = layout.pixel_size();
+        Some((w as f32, h as f32))
+    }
+}
+
+/// Pango as a swappable [`FontSystem`].
+///
+/// Pango is an *opaque* engine: it shapes and draws from a family name via pango/cairo and never
+/// exposes raw font bytes or neutral glyph runs. The slim trait fits it well — only `measure` and
+/// `register_font` are meaningful; engine-native shaping/drawing stays in the Cairo rasterizer
+/// (which draws through Pango directly), and there are no inherent `resolve`/`shape` methods here.
+///
+/// Note: Pango uses its own natural line height (matching how the Cairo rasterizer draws), so
+/// `TextStyle::line_height` is intentionally not applied during measurement.
+impl FontSystem for PangoFontSystem {
+    fn register_font(&mut self, _data: Vec<u8>, _family_override: Option<&str>) -> Result<(), FontError> {
+        // Pango discovers fonts via fontconfig; injecting @font-face bytes at runtime would
+        // require writing a fontconfig configuration and is out of scope here.
+        log::warn!("PangoFontSystem::register_font is unsupported; the font was ignored");
+        Ok(())
+    }
+
+    fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32) {
+        if text.is_empty() {
+            return (0.0, 0.0);
+        }
+        self.measure_inner(text, style)
+            .unwrap_or_else(|| (text.chars().count() as f32 * style.size * 0.5, style.size * 1.2))
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 
