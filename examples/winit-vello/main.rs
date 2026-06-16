@@ -16,7 +16,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::ExternalHandle;
+use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use gosub_renderer_vello::{VelloBackend, WgpuContextProvider};
 use once_cell::sync::Lazy;
@@ -138,6 +138,52 @@ impl GpuState {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(device, &self.config);
+    }
+
+    /// Upload a CPU RGBA buffer to a texture and blit it to the swap chain.
+    ///
+    /// This is the path the engine actually drives for Vello: the backend's
+    /// `raster_strategy()` is `Sequential`, so frames arrive as `ExternalHandle::TileCache`
+    /// (CPU tiles rasterized by `VelloRasterizer`), not as a GPU texture handle.
+    fn present_pixels(&self, device: &wgpu::Device, queue: &wgpu::Queue, rgba: &[u8], w: u32, h: u32) {
+        if w == 0 || h == 0 {
+            return;
+        }
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("gosub-vello-tile-blit"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(w * 4),
+                rows_per_image: Some(h),
+            },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.present(device, queue, &view);
     }
 
     fn present(&self, device: &wgpu::Device, queue: &wgpu::Queue, view: &wgpu::TextureView) {
@@ -349,15 +395,104 @@ impl BrowserApp {
         rt.gpu.window.set_title(&title);
     }
 
-    fn redraw(&self) {
-        let Some(rt) = &self.state else { return };
-        let Some(handle) = self.compositor.read().frame_for(rt.tab_id) else {
+    fn redraw(&mut self) {
+        let Some(tab_id) = self.state.as_ref().map(|rt| rt.tab_id) else {
             return;
         };
-        if let ExternalHandle::WgpuTextureId { id, .. } = handle {
-            if let Some((_, view)) = rt.context.get_texture(id) {
-                rt.gpu.present(&rt.device, &rt.queue, &view);
+        let Some(handle) = self.compositor.read().frame_for(tab_id) else {
+            return;
+        };
+
+        match handle {
+            // GPU path — only taken when a backend reports `raster_strategy() == None`.
+            // The Vello backend does not (it rasterizes tiles), so this is here for
+            // completeness / future GPU-direct backends.
+            ExternalHandle::WgpuTextureId { id, .. } => {
+                let rt = self.state.as_ref().unwrap();
+                if let Some((_, view)) = rt.context.get_texture(id) {
+                    rt.gpu.present(&rt.device, &rt.queue, &view);
+                }
             }
+
+            // CPU tile path — what the engine produces for Vello today. Composite the
+            // visible tiles into an RGBA buffer, then upload + blit it via wgpu.
+            ExternalHandle::TileCache {
+                tiles,
+                dpr,
+                viewport_width,
+                viewport_height,
+                page_height,
+                ..
+            } => {
+                self.page_height = page_height;
+
+                let dpr_f = dpr as f32;
+                let w = (viewport_width * dpr) as usize;
+                let h = (viewport_height * dpr) as usize;
+                if w == 0 || h == 0 {
+                    return;
+                }
+                // Use the locally-tracked scroll so scrolling feels instant without waiting
+                // for the engine to acknowledge the scroll command.
+                let sx = (self.scroll.0 * dpr_f) as i64;
+                let sy = (self.scroll.1 * dpr_f) as i64;
+
+                // Opaque white background: a valid premultiplied base for source-over blending.
+                // Each u32 holds [R, G, B, A] little-endian (R in the low byte).
+                let mut buf = vec![0xFFFF_FFFFu32; w * h];
+                for tile in tiles.iter() {
+                    let px = (tile.page_x * dpr_f) as i64;
+                    let py = (tile.page_y * dpr_f) as i64;
+                    let screen_x = px - sx;
+                    let screen_y = py - sy;
+                    let tw = tile.width as i64;
+                    let th = tile.height as i64;
+                    if screen_x >= w as i64 || screen_y >= h as i64 || screen_x + tw <= 0 || screen_y + th <= 0 {
+                        continue;
+                    }
+                    let tile_start_col = (-screen_x).max(0) as usize;
+                    let tile_start_row = (-screen_y).max(0) as usize;
+                    let dst_x = screen_x.max(0) as usize;
+                    let dst_y0 = screen_y.max(0) as usize;
+                    let tw = tw as usize;
+                    let th = th as usize;
+                    // Normalize to [R, G, B, A] regardless of which rasterizer produced the tile
+                    // (Cargo feature unification may select Cairo's ARGB32 over Vello's RGBA).
+                    let tile_data = tile.format.to_rgba(&tile.data);
+                    let tile_u32 =
+                        unsafe { std::slice::from_raw_parts(tile_data.as_ptr() as *const u32, tile_data.len() / 4) };
+                    for tile_row in tile_start_row..th {
+                        let dst_y = dst_y0 + (tile_row - tile_start_row);
+                        if dst_y >= h {
+                            break;
+                        }
+                        let copy_w = (tw - tile_start_col).min(w - dst_x);
+                        if copy_w == 0 {
+                            break;
+                        }
+                        let src_off = tile_row * tw + tile_start_col;
+                        let dst_off = dst_y * w + dst_x;
+                        for col in 0..copy_w {
+                            buf[dst_off + col] = blend_over_argb_u32(tile_u32[src_off + col], buf[dst_off + col]);
+                        }
+                    }
+                }
+
+                let mut rgba = Vec::with_capacity(w * h * 4);
+                for &px in &buf {
+                    rgba.extend_from_slice(&[
+                        (px & 0xFF) as u8,
+                        ((px >> 8) & 0xFF) as u8,
+                        ((px >> 16) & 0xFF) as u8,
+                        255,
+                    ]);
+                }
+
+                let rt = self.state.as_ref().unwrap();
+                rt.gpu.present_pixels(&rt.device, &rt.queue, &rgba, w as u32, h as u32);
+            }
+
+            _ => {}
         }
     }
 }
