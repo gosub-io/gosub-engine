@@ -546,11 +546,18 @@ impl ApplicationHandler<()> for BrowserApp {
 
         // ── 4. Configure surface ──────────────────────────────────────────────
         let caps = surface.get_capabilities(&adapter);
+        // Prefer a NON-sRGB swapchain format. Both the Vello GPU texture and the CPU tile blits
+        // already contain sRGB-encoded bytes; presenting through an sRGB surface format would make
+        // the hardware sRGB-encode them a second time, washing colors out (orange → yellow) and
+        // brightening anti-aliased glyph edges so text looks too thin. A plain Unorm surface passes
+        // the bytes straight through to the (sRGB) display.
         let format = caps
             .formats
-            .first()
+            .iter()
             .copied()
-            .unwrap_or(wgpu::TextureFormat::Bgra8UnormSrgb);
+            .find(|f| !f.is_srgb())
+            .or_else(|| caps.formats.first().copied())
+            .unwrap_or(wgpu::TextureFormat::Bgra8Unorm);
         let alpha_mode = caps
             .alpha_modes
             .first()

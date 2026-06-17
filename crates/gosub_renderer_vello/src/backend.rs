@@ -60,7 +60,15 @@ pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
 
 impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
     pub fn new(context: Arc<C>) -> Result<Self> {
-        let renderer = Renderer::new(context.device(), RendererOptions::default())?;
+        // Compile every AA pipeline so callers can pick `Area` (analytic coverage) for text — it is
+        // sharper for small glyphs than the multisampled methods and is Vello's recommended default.
+        let renderer = Renderer::new(
+            context.device(),
+            RendererOptions {
+                antialiasing_support: vello::AaSupport::all(),
+                ..RendererOptions::default()
+            },
+        )?;
         let resources = Arc::new(WgpuResources {
             device: context.device_arc(),
             queue: context.queue_arc(),
@@ -104,7 +112,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                 base_color: Color::WHITE,
                 width: surface.size.width,
                 height: surface.size.height,
-                antialiasing_method: vello::AaConfig::Msaa16,
+                antialiasing_method: vello::AaConfig::Area,
             },
         )?;
 

@@ -45,8 +45,7 @@ pub(crate) fn paint_commands_to_scene(
             }
             PaintCommand::Text(command) => {
                 if let Some(parley) = parley.as_deref_mut() {
-                    let font_cx = parley.font_cx_mut();
-                    if let Err(e) = text::do_paint_text(scene, command, size, affine, media_store, font_cx) {
+                    if let Err(e) = text::do_paint_text(scene, command, size, affine, media_store, parley) {
                         log::warn!("Failed to paint text: {:?}", e);
                     }
                 }
@@ -124,7 +123,7 @@ impl Rasterable for VelloRasterizer {
             base_color: Color::new([0.0, 0.0, 0.0, 0.0]),
             width: tile.rect.width as u32,
             height: tile.rect.height as u32,
-            antialiasing_method: AaConfig::Msaa16,
+            antialiasing_method: AaConfig::Area,
         };
 
         if let Err(e) = self.resources.renderer.lock().render_to_texture(
