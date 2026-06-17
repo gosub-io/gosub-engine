@@ -733,6 +733,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Do a draw tick. This will be called based on the FPS that is requested
     #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
+        // A background media fetch (e.g. an image that started downloading during layout) landing
+        // must wake the render loop even when nothing else changed, so the now-available image is
+        // laid out and painted. This marks the render dirty under the hood.
+        if self.context.poll_media_completed() {
+            self.runtime.dirty = true;
+        }
+
         // Skip rendering when nothing has changed to avoid burning CPU at the tick rate.
         if !self.runtime.dirty {
             return Ok(());

@@ -335,6 +335,19 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.render_dirty = true;
     }
 
+    /// Poll whether a background media fetch (e.g. an image download started during layout) has
+    /// completed since the last call. When it has, the cached layout is stale, so mark the render
+    /// dirty and report `true` so the caller can also wake its own draw loop. The completion flag
+    /// is consumed (cleared) by this call.
+    pub fn poll_media_completed(&mut self) -> bool {
+        if self.media_store.take_completed() {
+            self.render_dirty = true;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Build/refresh the device-agnostic scene if needed.
     ///
     /// Two paths:
