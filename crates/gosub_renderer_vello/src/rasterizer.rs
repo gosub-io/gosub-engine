@@ -21,6 +21,40 @@ mod rectangle;
 mod svg;
 mod text;
 
+/// Translate a flat list of paint commands into a Vello scene.
+///
+/// Shared by the per-tile rasterizer (called once per tile, clipped + translated to the tile)
+/// and the GPU-scene backend path (called once for the whole viewport, translated by `−scroll`).
+/// `size` bounds text layout; `parley` is the concrete font system Vello draws glyphs through
+/// (`None` skips text — a non-Parley font system can't render here).
+pub(crate) fn paint_commands_to_scene(
+    scene: &mut Scene,
+    commands: &[PaintCommand],
+    size: Dimension,
+    affine: Affine,
+    media_store: &MediaStore,
+    mut parley: Option<&mut ParleyFontSystem>,
+) {
+    for command in commands {
+        match command {
+            PaintCommand::Svg(command) => {
+                svg::do_paint_svg(scene, command.media_id, &command.rect, affine, media_store);
+            }
+            PaintCommand::Rectangle(command) => {
+                rectangle::do_paint_rectangle(scene, command, affine, media_store);
+            }
+            PaintCommand::Text(command) => {
+                if let Some(parley) = parley.as_deref_mut() {
+                    let font_cx = parley.font_cx_mut();
+                    if let Err(e) = text::do_paint_text(scene, command, size, affine, media_store, font_cx) {
+                        log::warn!("Failed to paint text: {:?}", e);
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub struct VelloRasterizer {
     resources: Arc<WgpuResources>,
     /// The engine's shared font system. Vello draws glyphs through Parley, so it downcasts this to
@@ -68,26 +102,14 @@ impl Rasterable for VelloRasterizer {
         }
 
         for element in &tile.elements {
-            for command in &element.paint_commands {
-                match command {
-                    PaintCommand::Svg(command) => {
-                        svg::do_paint_svg(&mut scene, command.media_id, &command.rect, affine, media_store);
-                    }
-                    PaintCommand::Rectangle(command) => {
-                        rectangle::do_paint_rectangle(&mut scene, command, affine, media_store);
-                    }
-                    PaintCommand::Text(command) => {
-                        if let Some(parley) = parley.as_deref_mut() {
-                            let font_cx = parley.font_cx_mut();
-                            if let Err(e) =
-                                text::do_paint_text(&mut scene, command, tile_size, affine, media_store, font_cx)
-                            {
-                                log::warn!("Failed to paint text: {:?}", e);
-                            }
-                        }
-                    }
-                }
-            }
+            paint_commands_to_scene(
+                &mut scene,
+                &element.paint_commands,
+                tile_size,
+                affine,
+                media_store,
+                parley.as_deref_mut(),
+            );
         }
         drop(font_guard);
 

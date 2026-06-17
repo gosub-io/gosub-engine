@@ -3,6 +3,9 @@ use crate::backend::font_manager::FontManager;
 use crate::backend::text_renderer::{TextKey, TextRenderer};
 use anyhow::{anyhow, Result};
 use gosub_fontmanager::ParleyFontSystem;
+use gosub_interface::font_system::FontSystem;
+use gosub_render_pipeline::common::geo::Dimension;
+use gosub_render_pipeline::painter::PaintScene;
 use gosub_render_pipeline::rasterizer::{erase_rasterizer, RasterStrategy};
 use gosub_render_pipeline::render::backend::GpuPixelFormat;
 use gosub_render_pipeline::render::backend::{
@@ -49,6 +52,10 @@ pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
     /// Shared font system. Holds the Parley font collection so that all text
     /// shaping in this backend uses a single, consistent font discovery context.
     font_system: Arc<Mutex<ParleyFontSystem>>,
+    /// The engine's shared font system, captured when `create_rasterizer` is called. The GPU
+    /// scene path renders glyphs through this (the same instance the layouter measured against)
+    /// so layout and rendering agree. `None` until the engine installs the rasterizer.
+    shared_font_system: Mutex<Option<Arc<Mutex<dyn FontSystem>>>>,
 }
 
 impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
@@ -67,6 +74,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
             font_manager: Mutex::new(FontManager::new()),
             font_cache: Mutex::new(FontCache::new()),
             font_system: Arc::new(Mutex::new(ParleyFontSystem::new())),
+            shared_font_system: Mutex::new(None),
         })
     }
 
@@ -101,6 +109,44 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
         )?;
 
         Ok(())
+    }
+
+    /// Build a single Vello scene from the engine's viewport-level paint commands (GPU scene path).
+    /// Returns `None` when the context provides no paint scene (i.e. the CPU/display-list path).
+    fn build_scene_from_paint_commands(&self, ctx: &dyn RenderContext) -> Option<Scene> {
+        let ps = ctx.paint_scene()?.downcast_ref::<PaintScene>()?;
+        let (sx, sy) = ctx.scroll_offset();
+        let (vw, vh) = {
+            let vp = ctx.viewport();
+            (vp.width, vp.height)
+        };
+        let size = Dimension::new(vw as f64, vh as f64);
+        // Scroll is applied as a scene translate, so scrolling needs no re-layout/re-paint.
+        let affine = Affine::translate(Vec2::new(-sx, -sy));
+
+        let mut scene = Scene::new();
+        // Prefer the engine's shared font system (the layouter measured against it); fall back to
+        // the backend's own only if the rasterizer hasn't been installed yet.
+        let fs_arc = self.shared_font_system.lock().clone();
+        match fs_arc {
+            Some(fs) => {
+                let mut guard = fs.lock();
+                let parley = guard.as_any_mut().downcast_mut::<ParleyFontSystem>();
+                crate::rasterizer::paint_commands_to_scene(&mut scene, &ps.commands, size, affine, &ps.media_store, parley);
+            }
+            None => {
+                let mut guard = self.font_system.lock();
+                crate::rasterizer::paint_commands_to_scene(
+                    &mut scene,
+                    &ps.commands,
+                    size,
+                    affine,
+                    &ps.media_store,
+                    Some(&mut guard),
+                );
+            }
+        }
+        Some(scene)
     }
 
     fn build_scene(
@@ -219,12 +265,12 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
     }
 
     fn render(&self, ctx: &mut dyn RenderContext, surface: &mut dyn ErasedSurface) -> Result<()> {
-        let s = surface
-            .as_any_mut()
-            .downcast_mut::<VelloSurface>()
-            .ok_or_else(|| anyhow!("VelloBackend used with non-vello surface"))?;
-
-        let scene = {
+        // GPU scene path: the engine hands us one viewport-level paint-command list. Translate it
+        // into a single Vello scene and render straight to our texture — no tiles, no readback.
+        let scene = if let Some(scene) = self.build_scene_from_paint_commands(&*ctx) {
+            scene
+        } else {
+            // Fallback (null/display-list path): build from the tile-blit display list.
             let mut tr = self.text_renderer.lock();
             let mut fm = self.font_manager.lock();
             let mut fc = self.font_cache.lock();
@@ -233,6 +279,10 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             self.build_scene(&mut tr, &mut fm, &mut fc, font_cx, ctx)?
         };
 
+        let s = surface
+            .as_any_mut()
+            .downcast_mut::<VelloSurface>()
+            .ok_or_else(|| anyhow!("VelloBackend used with non-vello surface"))?;
         self.render_to_surface(s, &scene)?;
         s.frame_id = s.frame_id.wrapping_add(1);
 
@@ -251,6 +301,9 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
         &self,
         font_system: Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>>,
     ) -> Box<dyn Any + Send + Sync> {
+        // Capture the engine's shared font system so the GPU scene path can render glyphs through
+        // the same instance the layouter measured against.
+        *self.shared_font_system.lock() = Some(Arc::clone(&font_system));
         // Hand the engine's shared font system to the rasterizer; it also exposes it to the
         // layouter, so layout and rendering use the one instance.
         erase_rasterizer(Box::new(crate::VelloRasterizer::with_font_system(
@@ -260,7 +313,16 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
     }
 
     fn raster_strategy(&self) -> RasterStrategy {
+        // Tiles are rasterized sequentially: every Vello tile shares one `Mutex<Renderer>`,
+        // so batching (not parallelism) is the win here.
         RasterStrategy::Sequential
+    }
+
+    fn renders_to_gpu_texture(&self) -> bool {
+        // Unlike Cairo/Skia (which ship CPU tiles for the host to composite), Vello composites
+        // the rasterized tiles into a single GPU texture via `render` + `external_handle` and
+        // hands the host a `WgpuTextureId` to present directly — no per-frame CPU composite.
+        true
     }
 
     fn external_handle(&self, surface: &mut dyn ErasedSurface) -> Result<ExternalHandle> {

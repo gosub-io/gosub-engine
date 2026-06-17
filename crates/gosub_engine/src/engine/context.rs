@@ -47,8 +47,18 @@ use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
 use gosub_render_pipeline::layering::layer::LayerList;
 use gosub_render_pipeline::layouter::LayoutElementId;
+use gosub_render_pipeline::painter::{PaintScene, Painter};
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 use gosub_shared::node::NodeId;
+use std::any::Any;
+
+/// GPU-scene cache: the layer list (for hit-testing) plus the whole-page paint command list
+/// (for the backend to render). The GPU equivalent of [`PipelineCache`] — it skips tiling,
+/// rasterization, and tile compositing.
+struct SceneCache {
+    layer_list: Arc<LayerList>,
+    scene: PaintScene,
+}
 
 /// True if `node_id` could be affected by a `:hover` rule, per the [`HoverFingerprints`]
 /// computed by the CSS system. Uses only [`Document`] trait methods so it stays generic.
@@ -160,6 +170,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
 
     /// Cached rasterized tiles for the full page. Valid until render_dirty is set.
     pipeline_cache: Option<PipelineCache>,
+    /// GPU-scene cache (paint commands + layer list) for GPU backends. Mutually exclusive in
+    /// practice with `pipeline_cache`: a tab uses one path or the other per its backend.
+    scene_cache: Option<SceneCache>,
     /// Set when only hover state changed — triggers a paint-only repaint (stages 4–6),
     /// skipping the expensive render-tree rebuild (stage 1) and layout (stage 2).
     hover_dirty: bool,
@@ -213,6 +226,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             scroll_y: 0.0,
             scroll_dirty: false,
             pipeline_cache: None,
+            scene_cache: None,
             hover_dirty: false,
             hover_leaf: None,
             hover_old_lei: None,
@@ -260,6 +274,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.invalidate_render();
         {
             self.pipeline_cache = None;
+            self.scene_cache = None;
             self.hover_dirty = false;
             self.hover_leaf = None;
             self.hover_layout_element = None;
@@ -278,6 +293,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.invalidate_render();
             {
                 self.pipeline_cache = None;
+                self.scene_cache = None;
             }
         }
     }
@@ -287,9 +303,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     pub fn set_scroll(&mut self, x: f64, y: f64) {
         let x = x.max(0.0);
         let max_y = self
-            .pipeline_cache
-            .as_ref()
-            .map(|c| (c.page_height - self.viewport.height as f64).max(0.0))
+            .active_page_height()
+            .map(|ph| (ph - self.viewport.height as f64).max(0.0))
             .unwrap_or(f64::MAX);
         let y = y.max(0.0).min(max_y);
         if (self.scroll_x - x).abs() < 0.5 && (self.scroll_y - y).abs() < 0.5 {
@@ -448,6 +463,55 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.scene_epoch = self.scene_epoch.wrapping_add(1);
     }
 
+    /// GPU-scene path: rebuild the page's paint-command list when content changed.
+    ///
+    /// Runs stages 1–3 (render tree → layout → layering) and paints every element into one
+    /// ordered command list — no tiling, rasterization, or tile compositing. Scroll-only changes
+    /// don't rebuild anything (the backend re-renders with a new translate); they just advance the
+    /// scene epoch so the worker emits a frame.
+    pub fn rebuild_scene_cache_if_needed(&mut self) {
+        if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty {
+            return;
+        }
+        // Both content changes and hover-style changes rebuild the command list. Hover could reuse
+        // the cached layout (it only changes paint), but a GPU re-paint is cheap and avoids the
+        // tile path's hover-repaint bookkeeping; revisit if hover proves hot.
+        if self.render_dirty || self.hover_dirty {
+            if let Some(doc) = &self.document {
+                self.scene_cache = Some(pipeline_build_scene(
+                    doc.clone(),
+                    &self.viewport,
+                    self.rasterizer.as_deref(),
+                    self.media_store.clone(),
+                ));
+            }
+            self.render_dirty = false;
+            self.hover_dirty = false;
+            self.dom_dirty = false;
+            self.style_dirty = false;
+            self.layout_dirty = false;
+        }
+        self.scroll_dirty = false;
+        self.scene_epoch = self.scene_epoch.wrapping_add(1);
+    }
+
+    /// The active layer list for hit-testing — from the GPU scene cache or the CPU pipeline cache,
+    /// whichever this tab's backend populates.
+    fn active_layer_list(&self) -> Option<&Arc<LayerList>> {
+        self.scene_cache
+            .as_ref()
+            .map(|c| &c.layer_list)
+            .or_else(|| self.pipeline_cache.as_ref().map(|c| &c.layer_list))
+    }
+
+    /// The active full-page height, from whichever cache this tab populates.
+    fn active_page_height(&self) -> Option<f64> {
+        self.scene_cache
+            .as_ref()
+            .map(|c| c.scene.page_height)
+            .or_else(|| self.pipeline_cache.as_ref().map(|c| c.page_height))
+    }
+
     /// If only the scroll offset changed (no content/layout change), returns a zero-copy
     /// `ExternalHandle::TileCache` that the host can composite directly, bypassing the Cairo
     /// render pipeline entirely. Returns `None` when a full render is needed.
@@ -488,9 +552,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         })
     }
 
-    /// Returns the full page height from the last pipeline cache (0 if not yet rendered).
+    /// Returns the full page height from whichever cache is active (0 if not yet rendered).
     pub fn page_height(&self) -> f64 {
-        self.pipeline_cache.as_ref().map(|c| c.page_height).unwrap_or(0.0)
+        self.active_page_height().unwrap_or(0.0)
     }
 
     /// Hit-test at viewport coordinates `(vp_x, vp_y)` and update hover state.
@@ -505,16 +569,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let page_x = vp_x + self.scroll_x;
         let page_y = vp_y + self.scroll_y;
 
-        let (new_leaf, new_lei) = self.pipeline_cache.as_ref().map_or((None, None), |cache| {
+        let (new_leaf, new_lei) = self.active_layer_list().map_or((None, None), |layer_list| {
             let _t = gosub_shared::timing_guard!("hover.hit_test");
-            let Some(lei) = cache.layer_list.find_element_at(page_x, page_y) else {
+            let Some(lei) = layer_list.find_element_at(page_x, page_y) else {
                 return (None, None);
             };
-            let dom_node_id = cache
-                .layer_list
-                .layout_tree
-                .get_node_by_id(lei)
-                .map(|el| el.dom_node_id);
+            let dom_node_id = layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id);
             (dom_node_id, Some(lei))
         });
 
@@ -634,6 +694,12 @@ impl<C: RenderConfiguration> RenderContext for BrowsingContext<C> {
     }
     fn render_list(&self) -> &RenderList {
         &self.render_list
+    }
+    fn paint_scene(&self) -> Option<&dyn Any> {
+        self.scene_cache.as_ref().map(|c| &c.scene as &dyn Any)
+    }
+    fn scroll_offset(&self) -> (f64, f64) {
+        (self.scroll_x, self.scroll_y)
     }
 }
 
@@ -873,6 +939,75 @@ fn rasterize_sequential(
 ///
 /// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
 /// re-running layout or rasterization.
+/// GPU-scene build: stages 1–3 (render tree → layout → layering) plus a paint pass over every
+/// element, producing one ordered paint-command list for the whole page. Skips tiling,
+/// rasterization, and compositing — the backend renders the commands into a GPU texture.
+fn pipeline_build_scene<C: RenderConfiguration>(
+    doc: Arc<EngineDocument<C>>,
+    viewport: &Viewport,
+    rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
+    media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
+) -> SceneCache {
+    use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
+    use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
+    use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
+    use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
+    use gosub_render_pipeline::layouter::CanLayout;
+    use gosub_render_pipeline::rendertree_builder::RenderTree;
+
+    // Stage 1: render tree
+    let adapter = GosubDocumentAdapter::<C>::new(doc);
+    let mut render_tree = RenderTree::new(Arc::new(adapter));
+    if let Err(e) = render_tree.parse() {
+        log::error!("Failed to build render tree: {e}");
+    }
+
+    let vp_dim = if viewport.width > 0 && viewport.height > 0 {
+        Some(PipelineDimension::new(viewport.width as f64, viewport.height as f64))
+    } else {
+        None
+    };
+
+    // Stage 2: layout (share the rasterizer's font system, as the tile path does)
+    let mut layouter = match rasterizer.and_then(|r| r.font_system()) {
+        Some(font_system) => TaffyLayouter::with_font_system(font_system),
+        None => TaffyLayouter::new(),
+    };
+    layouter.set_media_store(Arc::clone(&media_store));
+    let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
+    let page_height = layout_tree.root_dimension.height;
+
+    // Stage 3: layering
+    let layer_list = Arc::new(LayerList::new(layout_tree));
+
+    // Stage 5′: paint every element into one ordered list (no tiling). Paint over the full page
+    // so scrolling reveals already-painted content without a rebuild.
+    let layer_count = layer_list.layer_ids.read().len();
+    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, page_height.max(1.0));
+    let state = BrowserState {
+        visible_layer_list: vec![true; layer_count],
+        wireframed: WireframeState::None,
+        debug_hover: false,
+        current_hovered_element: None,
+        show_tilegrid: false,
+        debug_table_cells: std::env::var("GOSUB_DEBUG_TABLE_CELLS").is_ok(),
+        viewport: full_page_rect,
+        tile_list: None,
+        dpi_scale_factor: 1.0,
+    };
+    let painter = Painter::new(Arc::clone(&layer_list));
+    let commands = painter.paint_all(&state);
+
+    SceneCache {
+        layer_list,
+        scene: PaintScene {
+            commands,
+            media_store,
+            page_height,
+        },
+    }
+}
+
 fn pipeline_build_cache<C: RenderConfiguration>(
     doc: Arc<EngineDocument<C>>,
     viewport: &Viewport,

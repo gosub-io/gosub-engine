@@ -353,6 +353,17 @@ pub trait RenderBackend: Send {
     fn device_pixel_ratio(&self) -> u32 {
         1
     }
+
+    /// Whether the backend composites its rasterized tiles into a GPU texture and exposes it via
+    /// [`Self::render`] + [`Self::external_handle`], rather than shipping CPU tiles for the host
+    /// to composite (an `ExternalHandle::TileCache`).
+    ///
+    /// `false` (default) keeps the CPU TileCache path used by Cairo/Skia. `true` routes the tab
+    /// worker through the display-list path so the host receives an `ExternalHandle::WgpuTextureId`.
+    /// Only meaningful for backends whose [`Self::raster_strategy`] rasterizes tiles.
+    fn renders_to_gpu_texture(&self) -> bool {
+        false
+    }
 }
 
 /// Interface for compositors to receive frames from backends.
