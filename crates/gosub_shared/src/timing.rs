@@ -201,11 +201,15 @@ impl TimingTable {
                 for timer_id in timers {
                     if let Some(timer) = self.timers.get(timer_id) {
                         if timer.has_finished() {
+                            let context = timer.context.clone().unwrap_or_default();
+                            if context.is_empty() {
+                                continue;
+                            }
                             println!(
                                 "                     | {:>8} | {:>10} | {}",
                                 1,
                                 self.scale(timer.duration_us, scale.clone()),
-                                timer.context.clone().unwrap_or_default()
+                                context
                             );
                         }
                     }
