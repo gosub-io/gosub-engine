@@ -784,6 +784,12 @@ impl ApplicationHandler<()> for BrowserApp {
                     return;
                 }
 
+                // 't' (when not editing the address bar) dumps the full timing table to the terminal.
+                if !self.addr_focused && logical_key == Key::Character("t".into()) {
+                    gosub_shared::timing::dump(true);
+                    return;
+                }
+
                 if self.addr_focused {
                     match &logical_key {
                         Key::Named(NamedKey::Enter) => self.navigate(),
@@ -819,6 +825,8 @@ fn main() {
         .env()
         .init()
         .unwrap_or_default();
+
+    println!("[hint] press 't' in the window to print the timing table to this terminal");
 
     let initial_url = {
         let raw = std::env::args()

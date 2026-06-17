@@ -238,6 +238,14 @@ pub fn reset_stats() {
     TIMING_TABLE.lock().clear();
 }
 
+/// Print the full timing table (all namespaces, aggregated stats) to stdout, auto-scaling units.
+/// When `details` is true, also prints each individual timer's duration and context.
+pub fn dump(details: bool) {
+    println!("\n=== Timing table (all values aggregated since start) ===");
+    TIMING_TABLE.lock().print_timings(details, Scale::Auto);
+    println!();
+}
+
 /// RAII timer guard — stops the timer when dropped, regardless of how the
 /// enclosing scope exits (normal return, early return, `?`, panic).
 ///

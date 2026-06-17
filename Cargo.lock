@@ -2190,6 +2190,7 @@ dependencies = [
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_renderer_vello",
+ "gosub_shared",
  "log",
  "once_cell",
  "parking_lot",
