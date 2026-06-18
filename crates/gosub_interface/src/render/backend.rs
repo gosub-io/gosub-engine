@@ -171,6 +171,18 @@ pub struct CachedTile {
     pub format: PixelFormat,
 }
 
+/// A rasterized tile that lives in a GPU backend's texture store, positioned in page coordinates.
+/// The `texture_id` is opaque outside the backend that produced it — it resolves the GPU texture
+/// in that backend's own store. Handed to [`RenderBackend::composite_tiles`].
+#[derive(Clone, Debug)]
+pub struct PlacedGpuTile {
+    pub page_x: f32,
+    pub page_y: f32,
+    pub width: u32,
+    pub height: u32,
+    pub texture_id: u64,
+}
+
 /// Safety: `ExternalHandle` can be sent between threads, but not shared.
 #[allow(unsafe_code)]
 unsafe impl Send for ExternalHandle {}
@@ -363,6 +375,35 @@ pub trait RenderBackend: Send {
     /// Only meaningful for backends whose [`Self::raster_strategy`] rasterizes tiles.
     fn renders_to_gpu_texture(&self) -> bool {
         false
+    }
+
+    /// Whether this GPU backend wants the **shared tile pipeline** rather than its own one-shot
+    /// scene path: the engine rasterizes tiles (into GPU textures, via [`Self::create_rasterizer`])
+    /// and calls [`Self::composite_tiles`] to present them. Only consulted when
+    /// [`Self::renders_to_gpu_texture`] is also true. Default `false` keeps the scene path.
+    fn gpu_tile_compositing(&self) -> bool {
+        false
+    }
+
+    /// Composite GPU-resident tiles (produced by this backend's rasterizer, see
+    /// [`Self::create_rasterizer`]) into `surface`, for the given viewport and scroll offset.
+    ///
+    /// This is the GPU analogue of the host's CPU tile compositing: the shared tile pipeline
+    /// rasterizes every tile (CPU bytes *or* a GPU texture id) and a GPU backend blits the visible
+    /// GPU tiles into its surface here, after which [`Self::external_handle`] yields the presentable
+    /// `WgpuTextureId`. `tiles` carry backend-owned `texture_id`s in page coordinates.
+    ///
+    /// Default is unsupported; only GPU backends override it. Lets one tile pipeline serve CPU and
+    /// GPU backends, differing only in where tile pixels live and who composites them.
+    fn composite_tiles(
+        &self,
+        _surface: &mut dyn ErasedSurface,
+        _tiles: &[PlacedGpuTile],
+        _viewport: (u32, u32),
+        _scroll: (f32, f32),
+        _page_height: f32,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("composite_tiles not supported by backend '{}'", self.name())
     }
 }
 

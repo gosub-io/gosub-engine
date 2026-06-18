@@ -41,6 +41,27 @@ pub struct WgpuResources {
     pub device: Arc<wgpu::Device>,
     pub queue: Arc<wgpu::Queue>,
     pub renderer: Mutex<Renderer>,
+    /// GPU-resident rasterized tiles, keyed by an opaque id handed back to the engine inside a
+    /// `TilePixels::Gpu`. Shared between the rasterizer (which renders + stores tiles) and the
+    /// backend compositor (which resolves ids → texture views to blit). This is the GPU sibling of
+    /// the pipeline's CPU `TextureStore`; it would live in a shared gpu-support crate once hoisted.
+    pub tile_textures: Mutex<std::collections::HashMap<u64, (wgpu::Texture, wgpu::TextureView)>>,
+    pub next_tile_id: std::sync::atomic::AtomicU64,
+}
+
+impl WgpuResources {
+    /// Store a rasterized GPU tile and return its opaque id.
+    pub fn store_tile(&self, texture: wgpu::Texture) -> u64 {
+        let view = texture.create_view(&Default::default());
+        let id = self.next_tile_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.tile_textures.lock().insert(id, (texture, view));
+        id
+    }
+
+    /// Resolve a tile id to its texture view (cloned handle), if still resident.
+    pub fn tile_view(&self, id: u64) -> Option<wgpu::TextureView> {
+        self.tile_textures.lock().get(&id).map(|(_, v)| v.clone())
+    }
 }
 
 pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
@@ -56,6 +77,12 @@ pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
     /// scene path renders glyphs through this (the same instance the layouter measured against)
     /// so layout and rendering agree. `None` until the engine installs the rasterizer.
     shared_font_system: Mutex<Option<Arc<Mutex<dyn FontSystem>>>>,
+    /// When `GOSUB_VELLO_GPU_TILES=1`, this backend opts into the **shared tile pipeline**: the
+    /// engine rasterizes tiles into GPU textures (via our rasterizer) and calls `composite_tiles`,
+    /// instead of the one-shot whole-viewport scene path. Proves CPU and GPU backends can share one
+    /// pipeline, differing only in tile storage + who composites.
+    gpu_tile_pipeline: bool,
+    gpu_compositor: Mutex<crate::gpu_tiles::GpuTileCompositor>,
 }
 
 impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
@@ -73,6 +100,8 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
             device: context.device_arc(),
             queue: context.queue_arc(),
             renderer: Mutex::new(renderer),
+            tile_textures: Mutex::new(std::collections::HashMap::new()),
+            next_tile_id: std::sync::atomic::AtomicU64::new(1),
         });
 
         Ok(Self {
@@ -83,6 +112,8 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
             font_cache: Mutex::new(FontCache::new()),
             font_system: Arc::new(Mutex::new(ParleyFontSystem::new())),
             shared_font_system: Mutex::new(None),
+            gpu_tile_pipeline: std::env::var("GOSUB_VELLO_GPU_TILES").as_deref() == Ok("1"),
+            gpu_compositor: Mutex::new(crate::gpu_tiles::GpuTileCompositor::default()),
         })
     }
 
@@ -328,9 +359,62 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
 
     fn renders_to_gpu_texture(&self) -> bool {
         // Unlike Cairo/Skia (which ship CPU tiles for the host to composite), Vello composites
-        // the rasterized tiles into a single GPU texture via `render` + `external_handle` and
-        // hands the host a `WgpuTextureId` to present directly — no per-frame CPU composite.
+        // the rasterized tiles into a single GPU texture via `render`/`composite_tiles` +
+        // `external_handle` and hands the host a `WgpuTextureId` to present directly.
         true
+    }
+
+    fn gpu_tile_compositing(&self) -> bool {
+        self.gpu_tile_pipeline
+    }
+
+    fn composite_tiles(
+        &self,
+        surface: &mut dyn ErasedSurface,
+        tiles: &[gosub_render_pipeline::render::backend::PlacedGpuTile],
+        viewport: (u32, u32),
+        scroll: (f32, f32),
+        _page_height: f32,
+    ) -> Result<()> {
+        let s = surface
+            .as_any_mut()
+            .downcast_mut::<VelloSurface>()
+            .ok_or_else(|| anyhow!("VelloBackend used with non-vello surface in composite_tiles()"))?;
+        let (_target_tex, target_view) = self
+            .context
+            .get_texture(s.texture_store_id)
+            .ok_or_else(|| anyhow!("invalid texture id in VelloSurface"))?;
+
+        // Resolve each engine tile id → its resident GPU texture view (rasterized by our rasterizer).
+        let views: Vec<(wgpu::TextureView, &gosub_render_pipeline::render::backend::PlacedGpuTile)> = tiles
+            .iter()
+            .filter_map(|t| self.resources.tile_view(t.texture_id).map(|v| (v, t)))
+            .collect();
+        let placed: Vec<crate::gpu_tiles::PlacedTileTex> = views
+            .iter()
+            .map(|(view, t)| crate::gpu_tiles::PlacedTileTex {
+                view,
+                page_x: t.page_x,
+                page_y: t.page_y,
+                width: t.width,
+                height: t.height,
+            })
+            .collect();
+
+        self.gpu_compositor.lock().composite(
+            self.context.device(),
+            self.context.queue(),
+            &target_view,
+            wgpu::TextureFormat::Rgba8Unorm,
+            viewport.0,
+            viewport.1,
+            scroll.0,
+            scroll.1,
+            &placed,
+        );
+
+        s.frame_id = s.frame_id.wrapping_add(1);
+        Ok(())
     }
 
     fn external_handle(&self, surface: &mut dyn ErasedSurface) -> Result<ExternalHandle> {

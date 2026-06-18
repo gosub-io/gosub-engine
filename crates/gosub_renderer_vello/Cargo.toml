@@ -25,6 +25,9 @@ skrifa = "0.42.1"
 
 skia-safe = { workspace = true, features = ["textlayout"], optional = true }
 
+[dev-dependencies]
+image = { workspace = true }
+
 [features]
 default = ["text_parley"]
 text_parley = []

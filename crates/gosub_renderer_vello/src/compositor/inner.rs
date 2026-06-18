@@ -47,9 +47,14 @@ pub fn compose_layer(scene: &mut vello::Scene, layer_id: LayerId, state: &Browse
             continue;
         };
 
+        // This CPU-into-scene compositor only handles CPU tiles; GPU-resident tiles are blitted by
+        // the backend's `composite_tiles` step instead.
+        let Some(cpu) = texture.cpu_data() else {
+            continue;
+        };
         // peniko ImageFormat::Rgba8 expects [R, G, B, A]; convert from the tile's tagged
         // byte order (no-op when the rasterizer already produced RGBA).
-        let rgba = texture.format.to_rgba(&texture.data).into_owned();
+        let rgba = texture.format.to_rgba(cpu).into_owned();
         let surface = ImageData {
             data: Blob::from(rgba),
             format: ImageFormat::Rgba8,

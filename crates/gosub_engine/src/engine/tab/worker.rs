@@ -367,7 +367,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
                 // Submit the scroll frame immediately — don't wait for the next timer tick.
                 // Eliminates up to 33ms of latency at 30fps per scroll event.
-                if self.zone_context.render_backend.raster_strategy() != RasterStrategy::None {
+                // GPU-tile-compositing backends skip this CPU TileCache fast path (their tiles have
+                // no CPU pixels); they re-composite on the next tick via `composite_tiles`.
+                if self.zone_context.render_backend.raster_strategy() != RasterStrategy::None
+                    && !self.zone_context.render_backend.gpu_tile_compositing()
+                {
                     let dpr = self.zone_context.render_backend.device_pixel_ratio();
                     if let Some(handle) = self.context.take_scroll_handle(dpr) {
                         self.runtime.committed_scene_epoch = self.context.scene_epoch();
@@ -804,6 +808,38 @@ impl<C: RenderConfiguration> TabWorker<C> {
         if render_backend.renders_to_gpu_texture() {
             let surface_recreated = self.ensure_surface_tracked(render_backend.clone(), self.desired_viewport.as_size())?;
             self.context.set_viewport(self.desired_viewport);
+
+            // Consolidated tile path (opt-in): rather than the one-shot whole-viewport scene, run
+            // the SAME shared tile pipeline the CPU backends use (stages 1-6 → cached tiles). The
+            // backend's rasterizer renders each tile into a GPU texture instead of CPU memory, and
+            // `composite_tiles` blits the resident tiles into the surface. Same pipeline, only the
+            // tile storage + compositor differ between CPU and GPU backends.
+            if render_backend.gpu_tile_compositing() {
+                self.context.rebuild_pipeline_cache_if_needed();
+                let scene_epoch = self.context.scene_epoch();
+                if !surface_recreated && scene_epoch == self.runtime.committed_scene_epoch {
+                    return Ok(());
+                }
+                if let Some(ref mut surf) = self.surface {
+                    let tiles = self.context.placed_gpu_tiles();
+                    let vp = (self.desired_viewport.width, self.desired_viewport.height);
+                    let (sx, sy) = self.context.scroll_xy();
+                    let page_height = self.context.page_height() as f32;
+                    match render_backend.composite_tiles(surf.as_mut(), &tiles, vp, (sx as f32, sy as f32), page_height) {
+                        Ok(()) => match render_backend.external_handle(surf.as_mut()) {
+                            Ok(handle) => {
+                                self.runtime.committed_scene_epoch = scene_epoch;
+                                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+                            }
+                            Err(e) => log::warn!("[tick_draw] gpu-tile external_handle error: {e}"),
+                        },
+                        Err(e) => log::warn!("[tick_draw] composite_tiles error: {e}"),
+                    }
+                }
+                self.sink.inc_frame();
+                return Ok(());
+            }
+
             self.context.rebuild_scene_cache_if_needed();
 
             let scene_epoch = self.context.scene_epoch();
