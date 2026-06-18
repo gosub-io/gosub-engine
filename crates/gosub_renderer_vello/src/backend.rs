@@ -83,6 +83,8 @@ pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
     /// pipeline, differing only in tile storage + who composites.
     gpu_tile_pipeline: bool,
     gpu_compositor: Mutex<crate::gpu_tiles::GpuTileCompositor>,
+    /// Frame counter for rate-limited GPU-tile diagnostics.
+    diag_frame: std::sync::atomic::AtomicU64,
 }
 
 impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
@@ -114,6 +116,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
             shared_font_system: Mutex::new(None),
             gpu_tile_pipeline: std::env::var("GOSUB_VELLO_GPU_TILES").as_deref() == Ok("1"),
             gpu_compositor: Mutex::new(crate::gpu_tiles::GpuTileCompositor::default()),
+            diag_frame: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -385,9 +388,22 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             .get_texture(s.texture_store_id)
             .ok_or_else(|| anyhow!("invalid texture id in VelloSurface"))?;
 
-        // Resolve each engine tile id → its resident GPU texture view (rasterized by our rasterizer).
+        // Cull to the visible viewport — only blit tiles that intersect [scroll, scroll+viewport].
+        // Without this we'd issue a draw per tile for the WHOLE page every frame (thousands on a
+        // tall page), which makes scrolling crawl. Mirrors the CPU path's `pipeline_composite`.
+        let (vw, vh) = (viewport.0 as f32, viewport.1 as f32);
+        let (sx, sy) = scroll;
+        let visible = |t: &gosub_render_pipeline::render::backend::PlacedGpuTile| {
+            t.page_x + t.width as f32 > sx
+                && t.page_x < sx + vw
+                && t.page_y + t.height as f32 > sy
+                && t.page_y < sy + vh
+        };
+
+        // Resolve each visible engine tile id → its resident GPU texture view (rasterized by our rasterizer).
         let views: Vec<(wgpu::TextureView, &gosub_render_pipeline::render::backend::PlacedGpuTile)> = tiles
             .iter()
+            .filter(|t| visible(t))
             .filter_map(|t| self.resources.tile_view(t.texture_id).map(|v| (v, t)))
             .collect();
         let placed: Vec<crate::gpu_tiles::PlacedTileTex> = views
@@ -401,6 +417,7 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             })
             .collect();
 
+        let t0 = std::time::Instant::now();
         self.gpu_compositor.lock().composite(
             self.context.device(),
             self.context.queue(),
@@ -412,6 +429,21 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             scroll.1,
             &placed,
         );
+
+        // Rate-limited diagnostics: total page tiles vs visible-after-cull vs resident GPU tiles,
+        // plus the composite submit time. If `total` and `resident` are huge and growing, the page
+        // is rasterizing/keeping the whole page (first-paint cost / no eviction); `visible` should
+        // stay small while scrolling.
+        let n = self.diag_frame.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if n.is_multiple_of(60) {
+            eprintln!(
+                "[gpu-tile] composite: total={} visible={} resident={} submit={:?}",
+                tiles.len(),
+                placed.len(),
+                self.resources.tile_textures.lock().len(),
+                t0.elapsed(),
+            );
+        }
 
         s.frame_id = s.frame_id.wrapping_add(1);
         Ok(())

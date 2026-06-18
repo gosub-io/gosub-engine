@@ -815,12 +815,18 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // `composite_tiles` blits the resident tiles into the surface. Same pipeline, only the
             // tile storage + compositor differ between CPU and GPU backends.
             if render_backend.gpu_tile_compositing() {
-                self.context.rebuild_pipeline_cache_if_needed();
+                {
+                    // If `pipeline.rasterize` shows up here during a pure scroll, the page is being
+                    // re-rasterized (it should not be — scroll only re-composites cached tiles).
+                    let _t = gosub_shared::timing_guard!("gputile.rebuild");
+                    self.context.rebuild_pipeline_cache_if_needed();
+                }
                 let scene_epoch = self.context.scene_epoch();
                 if !surface_recreated && scene_epoch == self.runtime.committed_scene_epoch {
                     return Ok(());
                 }
                 if let Some(ref mut surf) = self.surface {
+                    let _t = gosub_shared::timing_guard!("gputile.composite");
                     let tiles = self.context.placed_gpu_tiles();
                     let vp = (self.desired_viewport.width, self.desired_viewport.height);
                     let (sx, sy) = self.context.scroll_xy();

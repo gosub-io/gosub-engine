@@ -1522,7 +1522,7 @@ fn cpu_cached_tiles(baked: &[BakedTile]) -> Vec<CachedTile> {
                 page_y: t.page_y as f32,
                 width: t.width,
                 height: t.height,
-                data: Arc::clone(d),
+                data: d.clone(),
                 format: t.format,
             }),
             TilePixels::Gpu(_) => None,
@@ -1582,7 +1582,7 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
                 y: (tile.page_y - scroll_y) as f32,
                 w: tile.width,
                 h: tile.height,
-                data: Arc::clone(data),
+                data: data.clone(),
                 format: tile.format,
             });
         }
