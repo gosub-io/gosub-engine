@@ -2947,7 +2947,7 @@ dependencies = [
  "clap",
  "gosub_engine",
  "gosub_render_pipeline",
- "gosub_renderer_vello",
+ "gosub_renderer_skia",
  "image",
  "log",
  "once_cell",
@@ -2956,7 +2956,6 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
- "vello",
 ]
 
 [[package]]
