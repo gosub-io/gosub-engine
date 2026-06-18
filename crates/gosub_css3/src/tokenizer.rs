@@ -17,6 +17,8 @@ pub enum TokenType {
     AtKeyword(String),
     Ident(String),
     Function(String),
+    /// A `<unicode-range-token>`, stored as its raw textual form (e.g. `U+0000-00FF`, `U+4??`).
+    UnicodeRange(String),
     Url(String),
     BadUrl(String),
     Dimension {
@@ -197,6 +199,7 @@ impl fmt::Display for Token {
             | TokenType::Function(val)
             | TokenType::QuotedString(val)
             | TokenType::BadString(val) => val,
+            TokenType::UnicodeRange(val) => val,
             TokenType::Delim(val) => val.to_string(),
             TokenType::Number(val) => val.to_string(),
             TokenType::Percentage(val) => format!("{val}%"),
@@ -343,6 +346,13 @@ impl<'stream> Tokenizer<'stream> {
 
     /// 4.3.1. [Consume a token](https://www.w3.org/TR/css-syntax-3/#consume-token)
     fn consume_token(&mut self) -> Token {
+        // Strip a leading UTF-8 BOM (U+FEFF) at the very start of the stream, per CSS Syntax
+        // input preprocessing. `tokens.is_empty()` ensures this only applies before the first
+        // token is produced, so an in-content U+FEFF is left untouched.
+        if self.tokens.is_empty() && self.current_char() == Ch('\u{FEFF}') {
+            self.next_char();
+        }
+
         while self.look_ahead_slice(2) == "/*" {
             self.consume_comment();
         }
@@ -481,6 +491,7 @@ impl<'stream> Tokenizer<'stream> {
                 Token::new_delim(c, loc)
             }
             Ch(c) if c.is_numeric() => self.consume_numeric_token(),
+            Ch('u' | 'U') if self.starts_unicode_range() => self.consume_unicode_range_token(),
             Ch(c) if self.is_ident_start(c) => self.consume_ident_like_seq(),
             Ch(c) => {
                 self.next_char();
@@ -527,6 +538,62 @@ impl<'stream> Tokenizer<'stream> {
         }
 
         Token::new_number(number, loc)
+    }
+
+    /// Returns true if the stream starts a `<unicode-range-token>`: the current code point is
+    /// `u`/`U`, followed by `+`, followed by a hex digit or `?` (e.g. `U+1F600`, `U+4??`).
+    /// Assumes the current code point is `u`/`U`.
+    fn starts_unicode_range(&self) -> bool {
+        matches!(self.stream.look_ahead(1), Ch('+'))
+            && matches!(self.stream.look_ahead(2), Ch(c) if c.is_ascii_hexdigit() || c == '?')
+    }
+
+    /// 4.3.6. [Consume a unicode-range token](https://www.w3.org/TR/css-syntax-3/#consume-unicode-range-token)
+    ///
+    /// Consumes `U+` followed by up to 6 hex digits, optional `?` wildcards, and an optional
+    /// `-<hex>` range end. The token stores the raw textual form.
+    fn consume_unicode_range_token(&mut self) -> Token {
+        let loc = self.current_location();
+
+        let mut value = String::new();
+        // Consume the `u`/`U` and the `+`.
+        value.push(self.next_char().into());
+        value.push(self.next_char().into());
+
+        // Up to 6 hex digits.
+        let mut digits = 0;
+        while digits < 6 {
+            match self.current_char() {
+                Ch(c) if c.is_ascii_hexdigit() => {
+                    value.push(self.next_char().into());
+                    digits += 1;
+                }
+                _ => break,
+            }
+        }
+
+        // Trailing `?` wildcards, up to a total of 6 characters.
+        while digits < 6 && self.current_char() == Ch('?') {
+            value.push(self.next_char().into());
+            digits += 1;
+        }
+
+        // Optional range end: `-` followed by hex digits.
+        if self.current_char() == Ch('-') && matches!(self.stream.look_ahead(1), Ch(c) if c.is_ascii_hexdigit()) {
+            value.push(self.next_char().into());
+            let mut end_digits = 0;
+            while end_digits < 6 {
+                match self.current_char() {
+                    Ch(c) if c.is_ascii_hexdigit() => {
+                        value.push(self.next_char().into());
+                        end_digits += 1;
+                    }
+                    _ => break,
+                }
+            }
+        }
+
+        Token::new(TokenType::UnicodeRange(value), loc)
     }
 
     /// 4.3.5. [Consume a string token](https://www.w3.org/TR/css-syntax-3/#consume-string-token)

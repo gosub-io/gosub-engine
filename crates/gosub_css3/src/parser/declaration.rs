@@ -66,7 +66,14 @@ impl Css3<'_> {
         self.consume_whitespace_comments();
         let value = self.parse_value_sequence()?;
 
-        if value.is_empty() {
+        // Custom properties (`--foo`) accept an arbitrary token stream (CSS Custom Properties
+        // spec), including an empty value (`--foo: ;`) and tokens the value parser does not
+        // recognise (e.g. a stray `$` from unprocessed preprocessor output). Keep whatever the
+        // value parser understood and skip the remainder up to the declaration's terminator,
+        // rather than erroring. Regular properties still require a parseable value.
+        if custom_property {
+            self.skip_custom_property_remainder();
+        } else if value.is_empty() {
             return Err(CssError::with_location(
                 "Expected value in declaration",
                 self.tokenizer.current_location(),
@@ -91,6 +98,29 @@ impl Css3<'_> {
             },
             loc,
         ))
+    }
+
+    /// Consumes any leftover custom-property value tokens up to — but not including — the
+    /// declaration's terminating top-level `;` or `}`. Brackets, parentheses and `{}` blocks
+    /// nested within the value are skipped over so a terminator inside them is not mistaken
+    /// for the end of the declaration.
+    fn skip_custom_property_remainder(&mut self) {
+        let mut depth: usize = 0;
+        loop {
+            let t = self.tokenizer.lookahead(0);
+            match t.token_type {
+                TokenType::Eof => break,
+                TokenType::Semicolon | TokenType::RCurly if depth == 0 => break,
+                TokenType::LParen | TokenType::LBracket | TokenType::LCurly | TokenType::Function(_) => {
+                    depth += 1;
+                }
+                TokenType::RParen | TokenType::RBracket | TokenType::RCurly => {
+                    depth = depth.saturating_sub(1);
+                }
+                _ => {}
+            }
+            self.tokenizer.consume();
+        }
     }
 
     fn parse_until_declaration_end(&mut self) {

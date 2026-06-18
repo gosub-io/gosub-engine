@@ -97,15 +97,13 @@ impl Css3<'_> {
             self.consume_whitespace_comments();
 
             let t = self.consume_any()?;
-            value = match t.token_type {
-                TokenType::Number(value) => Some(Node::new(NodeType::Number { value }, t.location)),
-                TokenType::Dimension { value, unit } => {
-                    Some(Node::new(NodeType::Dimension { value, unit }, t.location))
-                }
-                TokenType::Ident(value) => Some(Node::new(NodeType::Ident { value }, t.location)),
+            let first = match t.token_type {
+                TokenType::Number(value) => Node::new(NodeType::Number { value }, t.location),
+                TokenType::Dimension { value, unit } => Node::new(NodeType::Dimension { value, unit }, t.location),
+                TokenType::Ident(value) => Node::new(NodeType::Ident { value }, t.location),
                 TokenType::Function(_) => {
                     self.tokenizer.reconsume();
-                    Some(self.parse_function()?)
+                    self.parse_function()?
                 }
                 _ => {
                     return Err(CssError::with_location(
@@ -113,6 +111,23 @@ impl Css3<'_> {
                         t.location,
                     ));
                 }
+            };
+
+            self.consume_whitespace_comments();
+
+            // Optional `<ratio>` (`<number> / <number>`), e.g. `aspect-ratio: 16/9`.
+            value = if self.tokenizer.lookahead(0).is_delim('/') {
+                let op_loc = self.tokenizer.current_location();
+                self.consume_any()?;
+                let second = self.parse_media_read_term()?;
+                Some(Node::new(
+                    NodeType::Value {
+                        children: vec![first, Node::new(NodeType::Operator("/".into()), op_loc), second],
+                    },
+                    loc,
+                ))
+            } else {
+                Some(first)
             };
 
             self.consume_whitespace_comments();
@@ -139,13 +154,17 @@ impl Css3<'_> {
         let mut right_comparison = None;
         let mut right = None;
 
-        if self.tokenizer.lookahead_sc(0).is_delim('(') {
+        // Optional second comparison for a double-ended range, e.g. `400px <= width <= 700px`.
+        // It is introduced by another comparison operator (`<`, `>` or `=`), not a parenthesis.
+        self.consume_whitespace_comments();
+        if matches!(self.tokenizer.lookahead_sc(0).token_type, TokenType::Delim('<' | '>' | '=')) {
             right_comparison = Some(self.parse_media_read_comparison()?);
             right = Some(self.parse_media_read_term()?);
         }
 
         self.consume_whitespace_comments();
-        self.consume_delim(')')?;
+        // Parentheses are tokenized as `RParen`, not `Delim(')')`.
+        self.consume(TokenType::RParen)?;
 
         Ok(Node::new(
             NodeType::Range {
@@ -255,5 +274,27 @@ impl Css3<'_> {
         log::trace!("parse_at_rule_media_prelude");
 
         self.parse_media_query_list()
+    }
+
+    /// Parses the prelude of a `@custom-media` rule (Media Queries Level 5 / PostCSS):
+    /// `@custom-media <extension-name> <media-query-list>;`, e.g.
+    /// `@custom-media --screen-max-xxl (max-width: 1440px);`. The value can also be the
+    /// keywords `true`/`false`, which the media-query parser accepts as a media type.
+    pub fn parse_at_rule_custom_media_prelude(&mut self) -> CssResult<Node> {
+        log::trace!("parse_at_rule_custom_media_prelude");
+
+        let loc = self.tokenizer.current_location();
+
+        let name = self.consume_any_ident()?;
+        self.consume_whitespace_comments();
+
+        let query_list = self.parse_media_query_list()?;
+
+        Ok(Node::new(
+            NodeType::Value {
+                children: vec![Node::new(NodeType::Ident { value: name }, loc), query_list],
+            },
+            loc,
+        ))
     }
 }

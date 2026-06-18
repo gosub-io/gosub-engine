@@ -199,14 +199,24 @@ impl Css3<'_> {
         self.consume(TokenType::Colon)?;
         self.consume(TokenType::Colon)?;
 
-        let t = self.tokenizer.lookahead(0);
-        let value = if t.is_ident() {
-            self.consume_any_ident()?
-        } else {
-            return Err(CssError::with_location(
-                format!("Unexpected token {t:?}").as_str(),
-                self.tokenizer.current_location(),
-            ));
+        let t = self.tokenizer.consume();
+        let value = match t.token_type {
+            TokenType::Ident(value) => value,
+            TokenType::Function(name) => {
+                // Functional pseudo-element, e.g. `::part(foo)`, `::slotted(span)`,
+                // `::highlight(name)`. Parse and consume the arguments so the stream advances
+                // past the `)`; the selector model only retains the pseudo-element name.
+                let lower = name.cow_to_lowercase();
+                self.parse_pseudo_function(lower.as_ref())?;
+                self.consume(TokenType::RParen)?;
+                name
+            }
+            _ => {
+                return Err(CssError::with_location(
+                    format!("Unexpected token {t:?}").as_str(),
+                    self.tokenizer.current_location(),
+                ));
+            }
         };
 
         Ok(Node::new(NodeType::PseudoElementSelector { value }, loc))

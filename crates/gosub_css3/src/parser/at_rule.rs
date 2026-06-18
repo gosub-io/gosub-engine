@@ -43,6 +43,31 @@ impl Css3<'_> {
         }
     }
 
+    /// Parses the prelude of a `@custom-selector` rule (CSS Extensions / PostCSS):
+    /// `@custom-selector <custom-selector> <selector-list>;`, e.g.
+    /// `@custom-selector :--heading h1, h2, h3;`. The `<custom-selector>` name is a
+    /// pseudo-class-style `:--ident`.
+    fn parse_at_rule_custom_selector_prelude(&mut self) -> CssResult<Node> {
+        log::trace!("parse_at_rule_custom_selector_prelude");
+
+        let loc = self.tokenizer.current_location();
+
+        // <custom-selector> name: `:--ident`
+        self.consume(TokenType::Colon)?;
+        let name = self.consume_any_ident()?;
+        self.consume_whitespace_comments();
+
+        // <selector-list>
+        let selectors = self.parse_selector_list()?;
+
+        Ok(Node::new(
+            NodeType::Value {
+                children: vec![Node::new(NodeType::Ident { value: format!(":{name}") }, loc), selectors],
+            },
+            loc,
+        ))
+    }
+
     fn read_sequence_at_rule_prelude(&mut self) -> CssResult<Node> {
         log::trace!("read_sequence_at_rule_prelude");
 
@@ -62,6 +87,8 @@ impl Css3<'_> {
         self.consume_whitespace_comments();
         let node = match name.cow_to_lowercase().as_ref() {
             "container" => Some(self.parse_at_rule_container_prelude()?),
+            "custom-media" => Some(self.parse_at_rule_custom_media_prelude()?),
+            "custom-selector" => Some(self.parse_at_rule_custom_selector_prelude()?),
             "font-face" => None,
             "import" => Some(self.parse_at_rule_import_prelude()?),
             "layer" => Some(self.parse_at_rule_layer_prelude()?),
