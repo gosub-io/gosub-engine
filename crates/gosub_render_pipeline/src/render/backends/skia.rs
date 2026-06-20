@@ -7,6 +7,10 @@ use anyhow::{anyhow, Result};
 use skia_safe::{Color4f, Font, FontMgr, FontStyle, Paint, Rect};
 use std::any::Any;
 
+thread_local! {
+    static FONT_MGR: FontMgr = FontMgr::new();
+}
+
 #[derive(Default)]
 pub struct SkiaBackend;
 
@@ -60,13 +64,12 @@ impl RenderBackend for SkiaBackend {
                         color,
                         ..
                     } => {
-                        let typeface = FontMgr::new()
-                            .legacy_make_typeface(None, FontStyle::normal())
-                            .unwrap_or_else(|| {
-                                FontMgr::new()
-                                    .legacy_make_typeface("sans-serif", FontStyle::normal())
+                        let typeface = FONT_MGR.with(|fm| {
+                            fm.legacy_make_typeface(None, FontStyle::normal()).unwrap_or_else(|| {
+                                fm.legacy_make_typeface("sans-serif", FontStyle::normal())
                                     .expect("no typeface")
-                            });
+                            })
+                        });
                         let font = Font::new(typeface, *size);
                         let mut paint = Paint::new(to_color4f(color), None);
                         paint.set_anti_alias(true);

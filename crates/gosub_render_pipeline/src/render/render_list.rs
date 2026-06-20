@@ -177,8 +177,8 @@ pub enum DisplayItem {
         w: u32,
         /// Tile height in pixels.
         h: u32,
-        /// Raw ARgb32 pixel data (length = `h * w * 4`).
-        data: Vec<u8>,
+        /// Raw ARgb32 pixel data (length = `h * w * 4`). Arc-shared from the rasterizer output.
+        data: std::sync::Arc<Vec<u8>>,
     },
 }
 

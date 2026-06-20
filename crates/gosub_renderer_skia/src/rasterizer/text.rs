@@ -3,12 +3,15 @@ use gosub_render_pipeline::painter::commands::text::Text;
 use gosub_render_pipeline::tiler::Tile;
 use skia_safe::{Canvas, Color4f, Font, FontMgr, FontStyle, Paint};
 
+thread_local! {
+    static FONT_MGR: FontMgr = FontMgr::new();
+}
+
 pub fn do_paint_text(canvas: &Canvas, _tile: &Tile, cmd: &Text, _dpi_scale_factor: f32) -> Result<(), anyhow::Error> {
     let color4f = brush_to_color4f(&cmd.brush);
     let mut paint = Paint::new(color4f, None);
     paint.set_anti_alias(true);
 
-    let font_mgr = FontMgr::new();
     let font_style = FontStyle::new(
         skia_safe::font_style::Weight::from(cmd.font_info.weight),
         skia_safe::font_style::Width::from((cmd.font_info.width / 100).clamp(1, 9)),
@@ -19,11 +22,11 @@ pub fn do_paint_text(canvas: &Canvas, _tile: &Tile, cmd: &Text, _dpi_scale_facto
         },
     );
 
-    let Some(typeface) = font_mgr
-        .match_family_style(&cmd.font_info.family, font_style)
-        .or_else(|| font_mgr.legacy_make_typeface(None, font_style))
-        .or_else(|| font_mgr.legacy_make_typeface(None, FontStyle::normal()))
-    else {
+    let Some(typeface) = FONT_MGR.with(|fm| {
+        fm.match_family_style(&cmd.font_info.family, font_style)
+            .or_else(|| fm.legacy_make_typeface(None, font_style))
+            .or_else(|| fm.legacy_make_typeface(None, FontStyle::normal()))
+    }) else {
         return Ok(());
     };
 
@@ -62,7 +65,6 @@ pub fn do_paint_text(canvas: &Canvas, _tile: &Tile, cmd: &Text, _dpi_scale_facto
             canvas.draw_str(line.as_str(), (x, y), &font, &paint);
         }
         y += line_height;
-        // Stop drawing if we've exceeded the rect's bottom.
         if y > (cmd.rect.y + cmd.rect.height) as f32 + line_height {
             break;
         }

@@ -12,10 +12,10 @@ pub mod text;
 /// Generic that defines a top, right, bottom, and left value.
 #[derive(Clone, Debug)]
 pub struct Trbl<T> {
-    top: T,
-    right: T,
-    bottom: T,
-    left: T,
+    pub top: T,
+    pub right: T,
+    pub bottom: T,
+    pub left: T,
 }
 
 #[derive(Clone, Debug)]

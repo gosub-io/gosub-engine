@@ -126,13 +126,13 @@ fn render_item(canvas: &skia_safe::Canvas, item: &DisplayItem) {
             color,
             ..
         } => {
-            let typeface = FontMgr::new()
-                .legacy_make_typeface(None, FontStyle::normal())
-                .unwrap_or_else(|| {
-                    FontMgr::new()
-                        .legacy_make_typeface("sans-serif", FontStyle::normal())
+            thread_local! { static FONT_MGR: FontMgr = FontMgr::new(); }
+            let typeface = FONT_MGR.with(|fm| {
+                fm.legacy_make_typeface(None, FontStyle::normal()).unwrap_or_else(|| {
+                    fm.legacy_make_typeface("sans-serif", FontStyle::normal())
                         .expect("no typeface")
-                });
+                })
+            });
             let font = Font::new(typeface, *size);
             let mut paint = Paint::new(to_color4f(color), None);
             paint.set_anti_alias(true);
