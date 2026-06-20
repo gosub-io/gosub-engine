@@ -5,6 +5,10 @@ use gosub_render_pipeline::common::TextureStore;
 use gosub_render_pipeline::painter::commands::PaintCommand;
 use gosub_render_pipeline::rasterizer::Rasterable;
 use gosub_render_pipeline::tiler::Tile;
+use std::sync::Arc;
+
+#[cfg(feature = "text_pango")]
+use crate::font::pango::{get as get_font_system, PangoFontSystem};
 
 mod brush;
 mod rectangle;
@@ -13,12 +17,45 @@ mod text;
 
 pub use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
 
-#[derive(Default)]
-pub struct CairoRasterizer {}
+pub struct CairoRasterizer {
+    #[cfg(feature = "text_pango")]
+    font_system: Arc<PangoFontSystem>,
+}
+
+impl Default for CairoRasterizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl CairoRasterizer {
-    pub fn new() -> CairoRasterizer {
-        CairoRasterizer {}
+    /// Create a rasterizer using the process-wide font system singleton.
+    ///
+    /// The singleton is populated by [`gosub_engine::init_gtk_resources`] (or
+    /// `gosub_renderer_cairo::font::pango::init()`) from the GTK main thread.
+    /// If it has not been initialised yet the singleton is created without
+    /// system-ui font resolution; `"sans"` is used as the fallback in that case.
+    pub fn new() -> Self {
+        Self {
+            #[cfg(feature = "text_pango")]
+            font_system: get_font_system(),
+        }
+    }
+
+    /// Create a rasterizer with an explicitly provided font system.
+    ///
+    /// Use this when you want to share a pre-initialised `PangoFontSystem`
+    /// between multiple rasterizer instances, or in tests where you control
+    /// font resolution yourself.
+    #[cfg(feature = "text_pango")]
+    pub fn with_font_system(font_system: Arc<PangoFontSystem>) -> Self {
+        Self { font_system }
+    }
+
+    /// Expose the font system so callers can share it with other components.
+    #[cfg(feature = "text_pango")]
+    pub fn font_system(&self) -> Arc<PangoFontSystem> {
+        Arc::clone(&self.font_system)
     }
 }
 
@@ -54,7 +91,14 @@ impl Rasterable for CairoRasterizer {
                         }
                         PaintCommand::Text(command) => {
                             #[cfg(feature = "text_pango")]
-                            match text::pango::do_paint_text(&cr.clone(), tile, command, media_store, dpr) {
+                            match text::pango::do_paint_text(
+                                &cr.clone(),
+                                tile,
+                                command,
+                                media_store,
+                                dpr,
+                                &self.font_system,
+                            ) {
                                 Ok(_) => {}
                                 Err(e) => {
                                     log::warn!("Failed to paint text: {:?}", e);

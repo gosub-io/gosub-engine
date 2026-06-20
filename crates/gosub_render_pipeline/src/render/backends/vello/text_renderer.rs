@@ -14,7 +14,10 @@ use crate::render::backends::vello::font_manager::FontManager;
 #[cfg(not(feature = "parley_layout"))]
 use parley::FontData as Font;
 #[cfg(feature = "parley_layout")]
-use parley::{FontContext, FontData as Font, LayoutContext};
+use parley::{FontData as Font, LayoutContext};
+// FontContext is always in the draw/shape signatures so that the caller
+// (VelloBackend) never needs cfg guards at the call site.
+use parley::FontContext;
 #[cfg(not(feature = "parley_layout"))]
 use skrifa::MetadataProvider;
 use std::collections::HashMap;
@@ -91,24 +94,16 @@ pub struct CachedRun {
 ///   accounts for line height and baseline.
 /// - `draw()` looks up/creates cached runs and submits them to the [`Scene`]
 ///   with a single affine translation for the target (x, y).
+///
+/// The `FontContext` (Parley's font collection) is injected by the caller rather
+/// than owned here, so all rendering components share the same font collection.
 pub struct TextRenderer {
-    #[cfg(feature = "parley_layout")]
-    font_cx: FontContext,
-    #[cfg(feature = "parley_layout")]
-    layout_cx: LayoutContext<[u8; 4]>,
     cache: HashMap<TextKey, Arc<[CachedRun]>>,
 }
 
 impl TextRenderer {
-    /// Create a fresh renderer with empty cache and shaping contexts.
     pub fn new() -> Self {
-        Self {
-            #[cfg(feature = "parley_layout")]
-            font_cx: FontContext::new(),
-            #[cfg(feature = "parley_layout")]
-            layout_cx: LayoutContext::new(),
-            cache: HashMap::new(),
-        }
+        Self { cache: HashMap::new() }
     }
 
     #[allow(unused)]
@@ -127,11 +122,16 @@ impl TextRenderer {
     /// Performance:
     /// - Multiple calls with the same `key` reuse shaping work.
     /// - If you animate only the position/color, reuse the same `key`.
+    ///
+    /// `font_cx` is the shared Parley font collection. It is used by the `parley_layout`
+    /// shaping path; the skrifa fallback path ignores it but the parameter is kept
+    /// unconditional so the call site never needs `#[cfg]` guards.
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
         fm: &mut FontManager,
         fc: &mut FontCache,
+        font_cx: &mut FontContext,
         scene: &mut Scene,
         key: &TextKey,
         x: f32,
@@ -141,7 +141,7 @@ impl TextRenderer {
         let runs = if let Some(r) = self.cache.get(key) {
             r.clone()
         } else {
-            let shaped = self.shape(fm, fc, key);
+            let shaped = self.shape(fm, fc, font_cx, key);
             self.cache.insert(key.clone(), shaped.clone());
             shaped
         };
@@ -176,8 +176,18 @@ impl TextRenderer {
     ///
     /// Alignment:
     /// - `align` is recorded in the key but currently not applied to advance/x positioning.
-    ///   When adding alignment, adjust each line’s glyph x by the rag width delta.
-    fn shape(&mut self, fm: &mut FontManager, fc: &mut FontCache, key: &TextKey) -> Arc<[CachedRun]> {
+    ///   When adding alignment, adjust each line's glyph x by the rag width delta.
+    ///
+    /// The `parley_layout` feature selects the Parley shaping path (uses `font_cx`).
+    /// Without it the skrifa path is used (maps codepoints directly, ignores `font_cx`).
+    #[cfg_attr(not(feature = "parley_layout"), allow(unused_variables))]
+    fn shape(
+        &mut self,
+        fm: &mut FontManager,
+        fc: &mut FontCache,
+        font_cx: &mut FontContext,
+        key: &TextKey,
+    ) -> Arc<[CachedRun]> {
         // Resolve font
         let (vello_font, _resolved_name) = match fc.fetch(&key.font_name) {
             Some(f) => (f.0.clone(), f.1),
@@ -236,26 +246,22 @@ impl TextRenderer {
 
         #[cfg(feature = "parley_layout")]
         {
-            // Build layout
-            let mut builder = self
-                .layout_cx
-                .ranged_builder(&mut self.font_cx, key.text.as_ref(), 1.0, true);
+            // A fresh LayoutContext is cheap (it is pure scratch space).
+            // FontContext is the expensive shared state — it is injected by the caller.
+            let mut layout_cx: LayoutContext<[u8; 4]> = LayoutContext::new();
+
+            let mut builder = layout_cx.ranged_builder(font_cx, key.text.as_ref(), 1.0, true);
             builder.push_default(parley::style::StyleProperty::FontSize(key.font_size as f32));
             builder.push_default(parley::style::StyleProperty::FontFamily(
                 parley::style::FontFamily::Source(_resolved_name.into()),
             ));
             let mut layout = builder.build(key.text.as_ref());
 
-            match key.wrap {
-                Some(w) if w > 0 => {
-                    let max_width = w as f32;
-                    layout.break_all_lines(Some(max_width));
-                }
-                _ => {
-                    let max_width = f32::INFINITY;
-                    layout.break_all_lines(Some(max_width));
-                }
-            }
+            let max_width = match key.wrap {
+                Some(w) if w > 0 => w as f32,
+                _ => f32::INFINITY,
+            };
+            layout.break_all_lines(Some(max_width));
 
             let mut pen_y = 0.0f32;
             let mut out: Vec<CachedRun> = Vec::new();

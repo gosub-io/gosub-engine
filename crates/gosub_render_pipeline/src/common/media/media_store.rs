@@ -7,8 +7,25 @@ use parking_lot::RwLock;
 use resvg::usvg;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use url::Url;
+
+/// Return `usvg::Options` backed by a shared fontdb that has system fonts loaded.
+///
+/// The database is built once the first time this is called and then reused,
+/// so system font discovery only happens once per process.
+fn svg_options() -> usvg::Options<'static> {
+    static FONTDB: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
+    let fontdb = Arc::clone(FONTDB.get_or_init(|| {
+        let mut db = usvg::fontdb::Database::new();
+        db.load_system_fonts();
+        Arc::new(db)
+    }));
+    usvg::Options {
+        fontdb,
+        ..Default::default()
+    }
+}
 
 const DEFAULT_SVG_ID: MediaId = MediaId::new(0);
 const DEFAULT_IMAGE_ID: MediaId = MediaId::new(1);
@@ -47,7 +64,7 @@ impl MediaStore {
 
         // Add "default svg" to the store.
         let default_svg_tree =
-            usvg::Tree::from_data(DEFAULT_SVG_DATA, &usvg::Options::default()).expect("Failed to load default svg");
+            usvg::Tree::from_data(DEFAULT_SVG_DATA, &svg_options()).expect("Failed to load default svg");
         let mut entries = store.entries.write();
         let media = Media::svg("gosub://default/svg", Svg::new(default_svg_tree));
         entries.insert(DEFAULT_SVG_ID, Arc::new(media));
@@ -99,7 +116,7 @@ impl MediaStore {
 
         let media_id = match media_type {
             MediaType::Svg => {
-                let svg_tree = match usvg::Tree::from_data(data, &usvg::Options::default()) {
+                let svg_tree = match usvg::Tree::from_data(data, &svg_options()) {
                     Ok(tree) => tree,
                     Err(_) => {
                         return Err(anyhow::anyhow!("Failed to parse SVG data"));
@@ -151,7 +168,7 @@ impl MediaStore {
 
         let media = match media_type {
             MediaType::Svg => {
-                let svg_tree = match usvg::Tree::from_data(&raw_data, &usvg::Options::default()) {
+                let svg_tree = match usvg::Tree::from_data(&raw_data, &svg_options()) {
                     Ok(tree) => tree,
                     Err(_) => {
                         return Err(anyhow::anyhow!("Failed to parse SVG data"));

@@ -1,7 +1,4 @@
-use parking_lot::Mutex;
-use parley::fontique::{FallbackKey, FontWeight, Script};
-use parley::{AlignmentOptions, FontContext};
-use std::sync::LazyLock;
+use parley::AlignmentOptions;
 use taffy::{
     AvailableSpace, CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, Point, Rect,
     RunMode, Size,
@@ -9,27 +6,14 @@ use taffy::{
 
 use gosub_interface::config::HasLayouter;
 use gosub_interface::css3::{CssProperty, CssValue};
-use gosub_interface::font::{FontBlob, FontInfo, FontManager, FontStyle, HasFontManager};
+use gosub_interface::font::{FontBlob, FontStyle};
 use gosub_interface::layout::{Decoration, DecorationStyle, HasTextLayout, LayoutNode, LayoutTree};
 use gosub_shared::font::Glyph;
+use gosub_shared::geo;
 use gosub_shared::geo::FP;
-use gosub_shared::{geo, ROBOTO_FONT};
 
 use crate::text::TextLayout;
 use crate::{Display, LayoutDocument, TaffyLayouter};
-
-static FONT_CX: LazyLock<Mutex<FontContext>> = LazyLock::new(|| {
-    let mut ctx = FontContext::default();
-
-    let fonts = ctx.collection.register_fonts(ROBOTO_FONT.to_vec().into(), None);
-
-    ctx.collection.append_fallbacks(
-        FallbackKey::new(Script::from_str_unchecked("Latn"), None),
-        fonts.iter().map(|f| f.0),
-    );
-
-    Mutex::new(ctx)
-});
 
 /// Computes the layout for inline elements.
 pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
@@ -42,7 +26,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                                                     // layout_input.sizing_mode = SizingMode::ContentSize;
 
     // If there are no children, the node is hidden
-    let Some(children) = tree.0.children(node_id) else {
+    let Some(children) = tree.tree.children(node_id) else {
         return LayoutOutput::HIDDEN;
     };
 
@@ -53,7 +37,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
     let mut str_buf = String::new();
     // Text node data holds the information about the text nodes. There can be multiple text node data elements for
     // a single text, for instance, if there are different font sizes or weights inside the text.
-    let mut text_node_data: Vec<TextNodeData<C>> = Vec::new();
+    let mut text_node_data: Vec<TextNodeData> = Vec::new();
     // List of any inline boxes that are inside the node
     let mut inline_boxes = Vec::new();
 
@@ -65,7 +49,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
         let child_node_id = NodeId::from((*child).into());
 
         // If the child is not a node, we skip it
-        let Some(node) = tree.0.get_node_mut(*child) else {
+        let Some(node) = tree.tree.get_node_mut(*child) else {
             continue;
         };
         node.clear_text_layout();
@@ -109,10 +93,11 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                 .get_property("letter-spacing")
                 .map(gosub_interface::css3::CssProperty::unit_to_px);
 
-            let font_info = <C::FontManager as FontManager>::FontInfo::new(&font_family)
-                .unwrap()
-                .with_weight(font_weight.value() as i32)
-                .with_style(font_style);
+            let font_info = FontDescriptor {
+                family: font_family,
+                weight: font_weight,
+                style: font_style,
+            };
 
             let mut underline = false;
             let mut overline = false;
@@ -126,8 +111,8 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                 .and_then(gosub_interface::css3::CssProperty::parse_color);
 
             // Generate decoration styles
-            if let Some(actual_parent) = tree.0.parent_id(node_id) {
-                if let Some(node) = tree.0.get_node_mut(actual_parent) {
+            if let Some(actual_parent) = tree.tree.parent_id(node_id) {
+                if let Some(node) = tree.tree.get_node_mut(actual_parent) {
                     let decoration_line = node.get_property("text-decoration-line");
 
                     if let Some(decoration_line) = decoration_line {
@@ -213,7 +198,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
 
             tree.update_style(*child);
 
-            let size = if let Some(cache) = tree.0.get_cache(*child) {
+            let size = if let Some(cache) = tree.tree.get_cache(*child) {
                 if cache.display == Display::Inline {
                     //TODO: handle margins here
                     out.content_size
@@ -244,21 +229,23 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
         str_buf.push(0 as char);
     }
 
-    // We use the parley layout engine to generate the text layout
+    // We use the parley layout engine to generate the text layout.
+    // FontContext is sourced from the shared ParleyFontSystem so that all callers
+    // (layout, render) use the same font collection.
     let mut layout_cx: parley::LayoutContext<usize> = parley::LayoutContext::new();
-    // let mut scale_cx = ScaleContext::new();
 
-    let mut font_context = FONT_CX.lock();
+    let mut font_system = tree.font_system.lock();
+    let font_context = font_system.font_cx_mut();
 
-    let mut builder = layout_cx.ranged_builder(&mut font_context, &str_buf, 1.0, false);
+    let mut builder = layout_cx.ranged_builder(font_context, &str_buf, 1.0, false);
     let mut align = parley::Alignment::default();
 
     // The first text node is the default style for the text. This is why this is treated separately.
     if let Some(default) = text_node_data.first() {
-        let info: &<<C as HasFontManager>::FontManager as FontManager>::FontInfo = default.font_info();
+        let info = &default.font_info;
 
         builder.push_default(parley::StyleProperty::FontFamily(parley::FontFamily::Source(
-            info.family().into(),
+            info.family.as_str().into(),
         )));
         builder.push_default(parley::StyleProperty::FontSize(default.font_size));
         if let Some(line_height) = default.line_height {
@@ -272,8 +259,8 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
         if let Some(letter_spacing) = default.letter_spacing {
             builder.push_default(parley::StyleProperty::LetterSpacing(letter_spacing));
         }
-        builder.push_default(parley::StyleProperty::FontWeight(FontWeight::new(info.weight() as f32)));
-        builder.push_default(parley::StyleProperty::FontStyle(match info.style() {
+        builder.push_default(parley::StyleProperty::FontWeight(info.weight));
+        builder.push_default(parley::StyleProperty::FontStyle(match info.style {
             FontStyle::Normal => parley::FontStyle::Normal,
             FontStyle::Italic => parley::FontStyle::Italic,
             FontStyle::Oblique => parley::FontStyle::Oblique(None),
@@ -311,10 +298,10 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
         let mut from = default.to;
 
         for (idx, text_node) in text_node_data.get(1..).unwrap_or_default().iter().enumerate() {
-            let info: &<<C as HasFontManager>::FontManager as FontManager>::FontInfo = text_node.font_info();
+            let info = &text_node.font_info;
 
             builder.push(
-                parley::StyleProperty::FontFamily(parley::FontFamily::Source(info.family().into())),
+                parley::StyleProperty::FontFamily(parley::FontFamily::Source(info.family.as_str().into())),
                 from..text_node.to,
             );
             builder.push(parley::StyleProperty::FontSize(text_node.font_size), from..text_node.to);
@@ -330,12 +317,9 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
             if let Some(letter_spacing) = text_node.letter_spacing {
                 builder.push(parley::StyleProperty::LetterSpacing(letter_spacing), from..text_node.to);
             }
+            builder.push(parley::StyleProperty::FontWeight(info.weight), from..text_node.to);
             builder.push(
-                parley::StyleProperty::FontWeight(FontWeight::new(info.weight() as f32)),
-                from..text_node.to,
-            );
-            builder.push(
-                parley::StyleProperty::FontStyle(match info.style() {
+                parley::StyleProperty::FontStyle(match info.style {
                     FontStyle::Normal => parley::FontStyle::Normal,
                     FontStyle::Italic => parley::FontStyle::Italic,
                     FontStyle::Oblique => parley::FontStyle::Oblique(None),
@@ -398,7 +382,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
 
     let mut layout = builder.build(&str_buf);
 
-    drop(font_context);
+    drop(font_system);
 
     let max_width = match layout_input.available_space.width {
         AvailableSpace::Definite(width) => Some(width),
@@ -525,7 +509,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
 
                     ids.push(node_id);
 
-                    let Some(node) = tree.0.get_node_mut(node_id) else {
+                    let Some(node) = tree.tree.get_node_mut(node_id) else {
                         continue;
                     };
 
@@ -561,7 +545,9 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
     }
 
     for id in ids {
-        let Some(node) = tree.0.get_node_mut(id) else { continue };
+        let Some(node) = tree.tree.get_node_mut(id) else {
+            continue;
+        };
 
         let Some(layouts) = node.get_text_layouts_mut() else {
             continue;
@@ -621,18 +607,27 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
     }
 }
 
+/// CSS font properties for a single text run. Replaces the old `FontInfo`
+/// associated-type machinery — this is a plain data struct with no generics.
+#[derive(Debug, Clone)]
+struct FontDescriptor {
+    family: String,
+    weight: parley::FontWeight,
+    style: FontStyle,
+}
+
 /// Structure that holds information for a (partial) text that consists of a single font size, weight, etc.
 /// If a string consists of multiple font sizes, weights, etc., there will be multiple `TextNodeData` elements.
 /// For instance: "This is a <b>bold</b> text". In this example there will be three text nodes: "This is a ",
 /// "bold" and " text" with different font weights.
 #[derive(Debug)]
-struct TextNodeData<C: HasFontManager> {
+struct TextNodeData {
     /// Start index of the text node in the complete string (`str_buf`)
     to: usize,
     /// Node identifier that holds the text
     id: NodeId,
-    /// Actual font for rendering and layouting
-    font_info: <<C as HasFontManager>::FontManager as FontManager>::FontInfo,
+    /// CSS font properties for this run
+    font_info: FontDescriptor,
     /// Font size
     font_size: f32,
     /// Line height in case of multiple lines
@@ -643,17 +638,10 @@ struct TextNodeData<C: HasFontManager> {
     letter_spacing: Option<f32>,
     /// Alignment of the text
     alignment: parley::Alignment,
-    /// Unknown
+    /// Font variation axes
     var_axes: Vec<parley::FontVariation>,
     /// Decoration of the font (strikethrough, underline etc)
     decoration: Decoration,
-}
-
-impl<C: HasFontManager> TextNodeData<C> {
-    /// Returns the font info of the text node
-    pub fn font_info(&self) -> &<<C as HasFontManager>::FontManager as FontManager>::FontInfo {
-        &self.font_info
-    }
 }
 
 fn parse_alignment<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> parley::Alignment {

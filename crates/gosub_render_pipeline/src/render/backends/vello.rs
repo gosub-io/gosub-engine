@@ -6,7 +6,9 @@ use crate::render::backends::vello::text_renderer::{TextKey, TextRenderer};
 use crate::render::render_context::RenderContext;
 use crate::render::render_list::DisplayItem;
 use anyhow::{anyhow, Result};
+use gosub_fontmanager::ParleyFontSystem;
 use parking_lot::Mutex;
+use parley::FontContext;
 use std::any::Any;
 use std::sync::Arc;
 use vello::kurbo::{Affine, Vec2};
@@ -41,6 +43,9 @@ pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
     text_renderer: Mutex<TextRenderer>,
     font_manager: Mutex<FontManager>,
     font_cache: Mutex<FontCache>,
+    /// Shared font system. Holds the Parley font collection so that all text
+    /// shaping in this backend uses a single, consistent font discovery context.
+    font_system: Arc<Mutex<ParleyFontSystem>>,
 }
 
 impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
@@ -58,7 +63,14 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
             text_renderer: Mutex::new(TextRenderer::new()),
             font_manager: Mutex::new(FontManager::new()),
             font_cache: Mutex::new(FontCache::new()),
+            font_system: Arc::new(Mutex::new(ParleyFontSystem::new())),
         })
+    }
+
+    /// Expose the font system so callers can share it with `TaffyLayouter` or
+    /// `VelloRasterizer` to ensure consistent font discovery across layout and render.
+    pub fn font_system(&self) -> Arc<Mutex<ParleyFontSystem>> {
+        Arc::clone(&self.font_system)
     }
 
     /// Returns the shared wgpu resources (device, queue, renderer) for use by the tile rasterizer.
@@ -93,6 +105,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
         text_renderer: &mut TextRenderer,
         font_manager: &mut FontManager,
         font_cache: &mut FontCache,
+        font_cx: &mut FontContext,
         ctx: &mut dyn RenderContext,
     ) -> Result<Scene> {
         let vp = ctx.viewport();
@@ -143,7 +156,16 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                         align: 0,
                     };
 
-                    text_renderer.draw(font_manager, font_cache, &mut scene, &key, x, y, (*color).into());
+                    text_renderer.draw(
+                        font_manager,
+                        font_cache,
+                        font_cx,
+                        &mut scene,
+                        &key,
+                        x,
+                        y,
+                        (*color).into(),
+                    );
                 }
                 DisplayItem::Blit { x, y, w, h, data } => {
                     // Cairo emits premultiplied ARgb32; in-memory bytes are [B, G, R, A] on
@@ -201,7 +223,9 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             let mut tr = self.text_renderer.lock();
             let mut fm = self.font_manager.lock();
             let mut fc = self.font_cache.lock();
-            self.build_scene(&mut tr, &mut fm, &mut fc, ctx)?
+            let mut fs = self.font_system.lock();
+            let font_cx = fs.font_cx_mut();
+            self.build_scene(&mut tr, &mut fm, &mut fc, font_cx, ctx)?
         };
 
         self.render_to_surface(s, &scene)?;
