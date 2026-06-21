@@ -148,6 +148,10 @@ impl GosubEngine {
         }
         self.io_handle = Some(io_handle);
 
+        // Start metrics HTTP server (GET http://127.0.0.1:9090/metrics)
+        #[cfg(feature = "metrics")]
+        crate::metrics::start(9090);
+
         // Start main engine run loop
         let join_handle = self.run().map(|task| spawn_named("Engine runner", task));
 
