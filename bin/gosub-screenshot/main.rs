@@ -1,15 +1,10 @@
 //! Headless screenshot tool: loads a URL through the full gosub_pipeline render system and
 //! saves the result as a PNG without opening a window.
 //!
-//! Usage:
-//!   cargo run -p example-pipeline-screenshot -- <url> [output.png] [width]
-//!
-//! width defaults to 1280. Height is determined automatically from the full page content.
-//! Maximum captured page height is 16384 px (safety cap).
-//!
 //! No display server required — uses Cairo in software rendering mode.
 
 use cairo::{Context, Format, ImageSurface};
+use clap::Parser;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabId};
@@ -26,6 +21,28 @@ use std::time::{Duration, Instant};
 use tokio::runtime::{Builder, Runtime};
 use url::Url;
 use uuid::uuid;
+
+const BUILD_VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("BUILD_GIT_SHA"),
+    " · ",
+    env!("BUILD_DATE"),
+    ")"
+);
+
+#[derive(Parser)]
+#[command(name = "gosub-screenshot", version = BUILD_VERSION, about = "Headless screenshot tool using the GoSub render pipeline")]
+struct Args {
+    /// URL to capture (https:// is prepended if no scheme is given)
+    url: String,
+    /// Output PNG path
+    #[arg(default_value = "screenshot.png")]
+    output: String,
+    /// Viewport width in CSS pixels
+    #[arg(default_value = "1280")]
+    width: u32,
+}
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
 /// Maximum page height to capture, in CSS pixels. Prevents out-of-memory on huge pages.
@@ -47,20 +64,17 @@ fn main() {
         .init()
         .unwrap_or_default();
 
-    let args: Vec<String> = std::env::args().collect();
-    let url_str = args
-        .get(1)
-        .map(|s| s.as_str())
-        .unwrap_or("https://example.com")
-        .to_string();
-    let output = args.get(2).map(|s| s.as_str()).unwrap_or("screenshot.png").to_string();
-    let viewport_w: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(1280);
-
-    let url_str = if url_str.contains("://") {
-        url_str
+    let args = Args::parse();
+    let url_str = if args.url.contains("://") {
+        args.url.clone()
     } else {
-        format!("https://{url_str}")
+        format!("https://{}", args.url)
     };
+    let output = args.output;
+    let viewport_w = args.width;
+
+    eprintln!("gosub-screenshot {BUILD_VERSION}");
+
     let url = Url::parse(&url_str).expect("invalid URL");
 
     let _rt_guard = TOKIO_RT.enter();

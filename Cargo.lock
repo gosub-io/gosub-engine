@@ -2216,25 +2216,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "example-pipeline-screenshot"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cairo-rs",
- "clap",
- "gosub_engine",
- "gosub_render_pipeline",
- "image",
- "log",
- "once_cell",
- "parking_lot",
- "simple_logger",
- "tokio",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "example-winit-cairo"
 version = "0.1.0"
 dependencies = [
@@ -3103,6 +3084,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub-screenshot"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cairo-rs",
+ "clap",
+ "gosub_engine",
+ "gosub_render_pipeline",
+ "image",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "gosub_bin"
 version = "0.1.1"
 dependencies = [
@@ -3384,6 +3384,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "image",
  "log",
+ "pangocairo",
  "parking_lot",
  "parley",
  "rand 0.10.1",

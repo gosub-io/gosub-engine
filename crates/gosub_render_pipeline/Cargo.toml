@@ -7,7 +7,7 @@ autobins = false
 [dependencies]
 taffy = { version = "0.10", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size", "calc"] }
 log = "0.4.29"
-image = "0.25.10"
+image = { version = "0.25.10", features = ["png"] }
 rand = "0.10.1"
 sha2 = "0.10.8"
 serde = { version = "1.0.217", features = ["derive"] }
@@ -30,6 +30,7 @@ gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry
 
 # backend_cairo optional deps
 cairo-rs = { version = "0.22", optional = true }
+pangocairo = { version = "0.22", optional = true }
 
 # backend_vello optional deps
 vello = { version = "0.8.0", optional = true }
@@ -45,13 +46,17 @@ skia-safe = { version = "0.97.2", optional = true }
 gdk4-wayland = { version = "0.11", optional = true, features = ["wayland_crate"] }
 gdk4-x11 = { version = "0.11", optional = true }
 
+[[example]]
+name = "screenshot_url"
+required-features = ["backend_cairo"]
+
 [dev-dependencies]
 gosub_html5 = { path = "../gosub_html5", registry = "gosub" }
 gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
 url = "2"
 
 [features]
-backend_cairo = ["dep:cairo-rs"]
+backend_cairo = ["dep:cairo-rs", "dep:pangocairo"]
 backend_vello = ["dep:vello", "dep:wgpu", "dep:fontique", "dep:hashbrown", "dep:skrifa"]
 backend_skia = ["dep:skia-safe"]
 backend_skia_gl = ["backend_skia", "skia-safe/gl", "skia-safe/egl"]

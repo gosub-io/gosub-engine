@@ -1,10 +1,10 @@
 [package]
-name = "example-pipeline-screenshot"
+name = "gosub-screenshot"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "pipeline-screenshot"
+name = "gosub-screenshot"
 path = "main.rs"
 
 [dependencies]
