@@ -178,6 +178,16 @@ fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
         "border-bottom-right-radius" => style.set(StyleProperty::BorderBottomRightRadius, parse_style_value(value)),
         "border-top-left-radius" => style.set(StyleProperty::BorderTopLeftRadius, parse_style_value(value)),
         "border-top-right-radius" => style.set(StyleProperty::BorderTopRightRadius, parse_style_value(value)),
+        "border-radius" => {
+            // Expand shorthand: 1 value → all corners; 2 → TL+BR/TR+BL; 3 → TL/TR+BL/BR; 4 → TL TR BR BL
+            // Slash notation for elliptical radii is not yet supported; only the first half is used.
+            let radii_part = value.split('/').next().unwrap_or(value).trim();
+            let v = parse_box_shorthand(radii_part);
+            style.set(StyleProperty::BorderTopLeftRadius, v[0].clone());
+            style.set(StyleProperty::BorderTopRightRadius, v[1].clone());
+            style.set(StyleProperty::BorderBottomRightRadius, v[2].clone());
+            style.set(StyleProperty::BorderBottomLeftRadius, v[3].clone());
+        }
         "border-top-style" => style.set(StyleProperty::BorderTopStyle, parse_border_style(value)),
         "border-right-style" => style.set(StyleProperty::BorderRightStyle, parse_border_style(value)),
         "border-bottom-style" => style.set(StyleProperty::BorderBottomStyle, parse_border_style(value)),

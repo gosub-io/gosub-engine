@@ -70,13 +70,13 @@ impl From<&str> for RgbColor {
             return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
         }
         if value.starts_with("rgba(") {
-            // Rgba function
+            // Rgba function — alpha from colors_transform is in 0..1 range; scale to 0..255
             let rgb = Rgb::from_str(value);
             if rgb.is_err() {
                 return RgbColor::default();
             }
             let rgb = rgb.unwrap();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
+            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha() * 255.0);
         }
         if value.starts_with("hsl(") {
             let hsl = Hsl::from_str(value);
@@ -87,14 +87,13 @@ impl From<&str> for RgbColor {
             return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
         }
         if value.starts_with("hsla(") {
-            // @TODO: hsla() does not work properly
-            // HSLA function
+            // hsla() — alpha from colors_transform is in 0..1 range; scale to 0..255
             let hsl = Hsl::from_str(value);
             if hsl.is_err() {
                 return RgbColor::default();
             }
             let rgb: Rgb = hsl.unwrap().to_rgb();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
+            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha() * 255.0);
         }
 
         get_hex_color_from_name(value).map_or(RgbColor::default(), parse_hex)

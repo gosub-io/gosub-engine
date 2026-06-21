@@ -74,8 +74,14 @@ fn create_text_layout(
     let cr = Context::new(&surface)?;
     let layout = build_pango_layout(&cr, cmd, width, dpr, font_system);
 
+    // Pango's natural text height (pango_height) is based on font metrics and may be
+    // smaller than the CSS line-height that the layout engine allocated (height).
+    // Centering the text vertically within the allocated space avoids the text
+    // appearing pinned to the top with blank space at the bottom.
+    let y_offset = ((height - pango_height) / 2).max(0) as f64;
+
     set_brush(&cr, &cmd.brush, cmd.rect, media_store);
-    cr.move_to(0.0, 0.0);
+    cr.move_to(0.0, y_offset);
     pangocairo::functions::show_layout(&cr, &layout);
 
     // Set device_scale AFTER rendering — only affects source sampling in the tile context,
