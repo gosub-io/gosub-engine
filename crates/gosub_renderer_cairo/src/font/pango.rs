@@ -109,7 +109,15 @@ impl PangoFontSystem {
         layout.set_text(text);
         layout.set_wrap(pango::WrapMode::Word);
         match style.max_width {
-            Some(w) => layout.set_width((w * style.display_scale) as i32 * pango::SCALE),
+            Some(w) => {
+                // Pango width is in Pango units (CSS px × display_scale × SCALE). Compute in
+                // f64 and guard against i32 overflow: a very large / unbounded max_width is
+                // treated as "no wrap limit" (-1), which is what an effectively-infinite
+                // width means anyway. Without this, large widths panic in debug (overflow)
+                // and silently wrap in release.
+                let units = w as f64 * style.display_scale as f64 * pango::SCALE as f64;
+                layout.set_width(if units >= i32::MAX as f64 { -1 } else { units as i32 });
+            }
             None => layout.set_width(-1),
         }
 

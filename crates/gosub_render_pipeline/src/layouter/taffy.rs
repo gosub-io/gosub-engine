@@ -276,17 +276,14 @@ impl CanLayout for TaffyLayouter {
                             Err(_) => Size::ZERO,
                         }
                     }
-                    // Return image intrinsic dimensions; CSS width/height constraints applied by taffy
-                    Some(TaffyContext::Image(image_ctx)) => Size {
-                        width: image_ctx.dimension.width as f32,
-                        height: image_ctx.dimension.height as f32,
-                    },
+                    // Replaced elements: honour whichever dimension CSS has constrained and
+                    // derive the other from the intrinsic aspect ratio, so e.g. an
+                    // `height: 30px` logo keeps its shape instead of stretching to its full
+                    // intrinsic width.
+                    Some(TaffyContext::Image(image_ctx)) => measure_replaced(v_kd, image_ctx.dimension),
                     // SVG-backed <img> elements carry their intrinsic size the same way.
                     // Without this arm they measured as 0×0 and collapsed (e.g. the HN logo).
-                    Some(TaffyContext::Svg(svg_ctx)) => Size {
-                        width: svg_ctx.dimension.width as f32,
-                        height: svg_ctx.dimension.height as f32,
-                    },
+                    Some(TaffyContext::Svg(svg_ctx)) => measure_replaced(v_kd, svg_ctx.dimension),
                     _ => Size::ZERO,
                 }
             })
@@ -920,6 +917,28 @@ fn to_absolute_url(uri: &str, base_uri: &str) -> String {
         Ok(joined) => joined.to_string(),
         // Base URL unusable (e.g. empty for an inline document) — fall back to the raw reference.
         Err(_) => uri.to_string(),
+    }
+}
+
+/// Measure a replaced element (image / SVG) honouring any dimension CSS has already
+/// constrained. When only one of width/height is known, the other is derived from the
+/// intrinsic aspect ratio so the element keeps its shape; when neither is known the
+/// intrinsic size is used as-is. (The both-known case is short-circuited before the
+/// measure callback reaches this point, but is handled here for completeness.)
+fn measure_replaced(known: Size<Option<f32>>, intrinsic: geo::Dimension) -> Size<f32> {
+    let iw = intrinsic.width as f32;
+    let ih = intrinsic.height as f32;
+    match (known.width, known.height) {
+        (Some(w), Some(h)) => Size { width: w, height: h },
+        (Some(w), None) => Size {
+            width: w,
+            height: if iw > 0.0 { w * ih / iw } else { ih },
+        },
+        (None, Some(h)) => Size {
+            width: if ih > 0.0 { h * iw / ih } else { iw },
+            height: h,
+        },
+        (None, None) => Size { width: iw, height: ih },
     }
 }
 

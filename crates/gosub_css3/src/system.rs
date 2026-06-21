@@ -1,4 +1,5 @@
 use crate::functions::attr::resolve_attr;
+use crate::functions::math::resolve_math;
 use crate::functions::var::resolve_var;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::shorthands::FixList;
@@ -406,6 +407,9 @@ pub fn resolve_functions<C: HasDocument>(
                 let resolved = match func.as_str() {
                     "attr" => resolve_attr::<C>(values, doc, id),
                     "var" => resolve_var(values, custom_props),
+                    "clamp" | "min" | "max" => {
+                        resolve_math(func, values).map_or_else(|| vec![val.clone()], |v| vec![v])
+                    }
                     _ => vec![val.clone()],
                 };
 

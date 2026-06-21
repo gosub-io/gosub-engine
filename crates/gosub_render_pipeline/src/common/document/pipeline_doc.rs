@@ -157,15 +157,24 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
 
         // ── Default: unit-based or keyword ────────────────────────────────
         _ => {
-            if p.as_unit().is_some() {
-                let px = match p.as_unit() {
-                    Some((v, "ch")) => v * 16.0 * 0.45,
-                    Some((v, "ex")) => v * 16.0 * 0.50,
-                    Some((v, "ic")) => v * 16.0,
-                    Some((v, "lh")) => v * 16.0 * 1.40,
-                    _ => p.unit_to_px(),
+            if let Some((v, unit)) = p.as_unit() {
+                // Font-relative units must scale with the *element's* font-size, which we
+                // don't know here. Express them as `em` (with an approximate factor for the
+                // ones that aren't already font-multiples) and let `get_style` resolve them
+                // against the computed font-size. Absolute and viewport units resolve to px
+                // immediately. The factors are coarse stand-ins for real font metrics:
+                // `ch` ≈ width of "0", `ex` ≈ x-height, `lh` ≈ line box.
+                let value = match unit {
+                    "em" => Value::Unit(v, Unit::Em),
+                    "ch" => Value::Unit(v * 0.5, Unit::Em),
+                    "ex" => Value::Unit(v * 0.5, Unit::Em),
+                    "ic" => Value::Unit(v, Unit::Em),
+                    "lh" => Value::Unit(v * 1.4, Unit::Em),
+                    // `rem` is root-relative (always 16px here) and everything else is
+                    // absolute/viewport — resolve straight to px, no element context needed.
+                    _ => Value::Unit(p.unit_to_px(), Unit::Px),
                 };
-                Some(Value::Unit(px, Unit::Px))
+                Some(value)
             } else if let Some(pct) = p.as_percentage() {
                 Some(Value::Unit(pct, Unit::Percent))
             } else if let Some(n) = p.as_number() {
@@ -263,28 +272,35 @@ pub trait PipelineDocument: Send + Sync {
             meta.initial_value()
         };
 
-        // Resolve em/rem for font-size. CSS spec: for font-size, em is relative to the
-        // *parent's* computed font-size; rem is relative to the root element's (16px default).
-        if matches!(prop, StyleProperty::FontSize) {
-            match &raw {
-                Value::Unit(v, Unit::Em) => {
-                    let parent_px = match self.parent(id) {
-                        Some(parent) => match self.get_style(parent, &StyleProperty::FontSize) {
-                            Value::Unit(px, Unit::Px) => px,
-                            _ => 16.0,
-                        },
+        // Resolve font-relative units (em/rem) to px. `rem` is always relative to the root
+        // element's font-size (16px default). `em` is relative to the *parent's* computed
+        // font-size for `font-size` itself, and to the element's *own* computed font-size
+        // for every other property (e.g. `max-width: 17ch` lands here as `em`).
+        match &raw {
+            Value::Unit(v, Unit::Rem) => Value::Unit(v * 16.0, Unit::Px),
+            Value::Unit(v, Unit::Em) => {
+                let basis = if matches!(prop, StyleProperty::FontSize) {
+                    match self.parent(id) {
+                        Some(parent) => self.font_size_px(parent),
                         None => 16.0,
-                    };
-                    return Value::Unit(v * parent_px, Unit::Px);
-                }
-                Value::Unit(v, Unit::Rem) => {
-                    return Value::Unit(v * 16.0, Unit::Px);
-                }
-                _ => {}
+                    }
+                } else {
+                    self.font_size_px(id)
+                };
+                Value::Unit(v * basis, Unit::Px)
             }
+            _ => raw,
         }
+    }
 
-        raw
+    /// The computed `font-size` of `id` in px, or 16px if unresolvable. Resolving
+    /// `font-size` only ever recurses to the *parent* (never to `id` itself), so this is
+    /// safe to call while resolving font-relative units on other properties of `id`.
+    fn font_size_px(&self, id: NodeId) -> f32 {
+        match self.get_style(id, &StyleProperty::FontSize) {
+            Value::Unit(px, Unit::Px) => px,
+            _ => 16.0,
+        }
     }
 
     fn get_style_f32(&self, id: NodeId, prop: &StyleProperty) -> f32 {
