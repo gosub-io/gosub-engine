@@ -244,6 +244,13 @@ impl MediaStore {
         }
     }
 
+    /// Returns true when `media_id` is one of the built-in fallback placeholders
+    /// (used when a resource failed to load). Callers can use this to avoid
+    /// propagating the placeholder's intrinsic pixel dimensions into layout.
+    pub fn is_placeholder(&self, media_id: MediaId) -> bool {
+        media_id == DEFAULT_IMAGE_ID || media_id == DEFAULT_SVG_ID
+    }
+
     pub fn update_svg(&self, media_id: MediaId, media: Arc<Media>) {
         let mut entries = self.entries.write();
         entries.insert(media_id, media);

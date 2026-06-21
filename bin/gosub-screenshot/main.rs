@@ -42,6 +42,12 @@ struct Args {
     /// Viewport width in CSS pixels
     #[arg(default_value = "1280")]
     width: u32,
+    /// Seconds to wait for navigation to complete
+    #[arg(long, default_value = "30")]
+    nav_timeout: u64,
+    /// Seconds to wait for the first render after navigation completes
+    #[arg(long, default_value = "120")]
+    render_timeout: u64,
 }
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
@@ -136,16 +142,33 @@ fn main() {
         let _ = tab_nav.send(TabCommand::ResumeDrawing { fps: 30 }).await;
     });
 
-    let timeout = Duration::from_secs(30);
-    let deadline = Instant::now() + timeout;
+    let nav_deadline = Instant::now() + Duration::from_secs(args.nav_timeout);
+    // Render deadline is set once navigation completes; its budget starts then.
+    let render_budget = Duration::from_secs(args.render_timeout);
+    let mut render_deadline: Option<Instant> = None;
 
     eprintln!("Loading {url_str} (viewport width={viewport_w})…");
 
     // ── Phase 1: wait for navigation to complete + first full render ──────────────
+    // Two separate budgets: nav_timeout for downloading the page, render_timeout for
+    // the CPU-bound pipeline (layout + rasterization). Complex pages can take tens of
+    // seconds in the pipeline even after HTML arrives.
     let mut nav_done = false;
     let mut first_render_done = false;
 
-    while Instant::now() < deadline {
+    loop {
+        let now = Instant::now();
+        if !nav_done && now >= nav_deadline {
+            eprintln!("Timeout waiting for navigation ({}s)", args.nav_timeout);
+            std::process::exit(1);
+        }
+        if let Some(rd) = render_deadline {
+            if now >= rd {
+                eprintln!("Timeout waiting for first render ({}s)", args.render_timeout);
+                std::process::exit(1);
+            }
+        }
+
         while rx_redraw.try_recv().is_ok() {
             if nav_done {
                 first_render_done = true;
@@ -158,6 +181,7 @@ fn main() {
                     NavigationEvent::Finished { .. } => {
                         eprintln!("Navigation finished.");
                         nav_done = true;
+                        render_deadline = Some(Instant::now() + render_budget);
                     }
                     NavigationEvent::Failed { error, .. } => {
                         eprintln!("Navigation failed: {error}");
@@ -181,10 +205,16 @@ fn main() {
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    if !nav_done || !first_render_done {
-        eprintln!("Timeout waiting for first render ({timeout:?})");
-        std::process::exit(1);
-    }
+    // Seed tile_cache_handle / cpu_frame from the Phase 1 frame. The rasterizer may
+    // already have submitted a TileCache (e.g. gosub_renderer_cairo), so we don't
+    // need Phase 2 to produce one from scratch. Phase 2 can still upgrade it with
+    // a post-scroll frame that carries the final page_height.
+    let phase1_frame = compositor.read().frame_for(tab_id);
+    let (mut tile_cache_handle, mut cpu_frame): (Option<ExternalHandle>, Option<ExternalHandle>) = match phase1_frame {
+        Some(h @ ExternalHandle::TileCache { .. }) => (Some(h), None),
+        Some(h @ ExternalHandle::CpuPixelsOwned { .. }) => (None, Some(h)),
+        _ => (None, None),
+    };
 
     // ── Phase 2: trigger a 1px scroll to get TileCache which carries page_height ──
     // The pipeline already has cached tiles; the scroll just swaps the handle type.
@@ -198,14 +228,15 @@ fn main() {
             .await;
     });
 
-    let mut tile_cache_handle: Option<ExternalHandle> = None;
     let deadline2 = Instant::now() + Duration::from_secs(5);
 
     while Instant::now() < deadline2 {
         while rx_redraw.try_recv().is_ok() {
             if let Some(handle) = compositor.read().frame_for(tab_id) {
-                if matches!(handle, ExternalHandle::TileCache { .. }) {
-                    tile_cache_handle = Some(handle);
+                match &handle {
+                    ExternalHandle::TileCache { .. } => tile_cache_handle = Some(handle),
+                    ExternalHandle::CpuPixelsOwned { .. } => cpu_frame = Some(handle),
+                    _ => {}
                 }
             }
         }
@@ -224,10 +255,10 @@ fn main() {
             ..
         }) => (tiles, dpr, page_height),
         _ => {
-            // TileCache unavailable (e.g. the page is too short to scroll).
-            // Fall back: grab whatever the compositor has and crop at the content rows.
+            // TileCache unavailable (e.g. Cairo backend, or page too short to scroll).
+            // Use the best CPU-pixels frame captured during Phase 1/2.
             eprintln!("TileCache not available; falling back to composited frame.");
-            let handle = compositor.read().frame_for(tab_id).unwrap_or_else(|| {
+            let handle = cpu_frame.unwrap_or_else(|| {
                 eprintln!("No rendered frame available.");
                 std::process::exit(1);
             });

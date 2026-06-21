@@ -266,7 +266,6 @@ impl TileList {
         }
     }
 
-    // @TODO: Optimize: remove all tiles that are empty
     pub fn generate(&mut self) {
         self.tiles.clear();
         self.arena.clear();
@@ -275,10 +274,13 @@ impl TileList {
             log::error!("Tile dimension is zero, cannot generate tiles");
             return;
         }
-        let rows =
-            (self.layer_list.layout_tree.root_dimension.height / self.default_tile_dimension.height).ceil() as usize;
-        let cols =
-            (self.layer_list.layout_tree.root_dimension.width / self.default_tile_dimension.width).ceil() as usize;
+        let tile_w = self.default_tile_dimension.width;
+        let tile_h = self.default_tile_dimension.height;
+
+        let page_w = self.layer_list.layout_tree.root_dimension.width;
+        let page_h = self.layer_list.layout_tree.root_dimension.height;
+        let max_cols = (page_w / tile_w).ceil() as usize;
+        let max_rows = (page_h / tile_h).ceil() as usize;
 
         // Detect canvas color. We paint the whole canvas with the background color from either the html or body nodes.
         let mut bgcolor = None;
@@ -296,13 +298,49 @@ impl TileList {
         let layer_list = self.layer_list.layers.read();
 
         // iterate each layer
-        for layer_id in self.layer_list.layer_ids.read().iter() {
-            // Each layer gets a list of tiles (rows * cols). They are stored in the arena.
-            let mut tile_ids = Vec::with_capacity(rows * cols);
+        for (layer_idx, layer_id) in self.layer_list.layer_ids.read().iter().enumerate() {
+            let Some(layer) = layer_list.get(layer_id) else {
+                continue;
+            };
 
-            // Generate tiles for this layer
-            for y in 0..rows {
-                for x in 0..cols {
+            // Compute the union bounding box of all elements in this layer so we only
+            // generate tiles that actually contain content. The first layer (the root
+            // background layer) always gets full-page coverage because it carries the
+            // canvas background color that other layers draw on top of.
+            let (row_start, row_end, col_start, col_end) = if layer_idx == 0 || layer.elements.is_empty() {
+                (0, max_rows, 0, max_cols)
+            } else {
+                let mut min_x = f64::MAX;
+                let mut min_y = f64::MAX;
+                let mut max_x = f64::MIN;
+                let mut max_y = f64::MIN;
+                for &eid in &layer.elements {
+                    if let Some(el) = self.layer_list.layout_tree.get_node_by_id(eid) {
+                        let m = el.box_model.margin_box;
+                        if m.width > 0.0 && m.height > 0.0 {
+                            min_x = min_x.min(m.x);
+                            min_y = min_y.min(m.y);
+                            max_x = max_x.max(m.x + m.width);
+                            max_y = max_y.max(m.y + m.height);
+                        }
+                    }
+                }
+                if min_x > max_x || min_y > max_y {
+                    // No visible elements — skip this layer entirely.
+                    continue;
+                }
+                let cs = (min_x / tile_w).floor() as usize;
+                let ce = ((max_x / tile_w).ceil() as usize).min(max_cols);
+                let rs = (min_y / tile_h).floor() as usize;
+                let re = ((max_y / tile_h).ceil() as usize).min(max_rows);
+                (rs, re, cs, ce)
+            };
+
+            let estimated = (row_end - row_start) * (col_end - col_start);
+            let mut tile_ids = Vec::with_capacity(estimated);
+
+            for y in row_start..row_end {
+                for x in col_start..col_end {
                     let tile_id = self.next_node_id();
                     let tile = Tile {
                         id: tile_id,
@@ -310,12 +348,7 @@ impl TileList {
                         state: TileState::Dirty,
                         elements: Vec::new(),
                         texture_id: None,
-                        rect: Rect::new(
-                            x as f64 * self.default_tile_dimension.width,
-                            y as f64 * self.default_tile_dimension.height,
-                            self.default_tile_dimension.width,
-                            self.default_tile_dimension.height,
-                        ),
+                        rect: Rect::new(x as f64 * tile_w, y as f64 * tile_h, tile_w, tile_h),
                         bgcolor,
                     };
 
@@ -338,7 +371,6 @@ impl TileList {
                 })
                 .collect();
 
-            // Add all remaining tiles to the tile layer
             let tile_layer = TileLayer {
                 layer_id: *layer_id,
                 tiles: tile_ids.clone(),
@@ -346,25 +378,18 @@ impl TileList {
             };
             self.tiles.insert(*layer_id, tile_layer);
 
-            // Get elements in this layer
-            let Some(layer) = layer_list.get(layer_id) else {
-                continue;
-            };
-
             let Some(tile_layer) = self.tiles.get(layer_id) else {
                 continue;
             };
 
-            // iterate each element in the layer
+            // iterate each element in the layer and assign it to the tiles it overlaps.
             for &element_id in &layer.elements {
-                // Get element
                 let Some(element) = self.layer_list.layout_tree.get_node_by_id(element_id) else {
                     log::warn!("Warning: Element {:?} not found in layout tree!", element_id);
                     continue;
                 };
                 let margin_box = element.box_model.margin_box;
 
-                // Find all tile_ids that contain this element
                 let matching_tile_ids = tile_layer.intersects_with(margin_box);
                 for tile_id in &matching_tile_ids {
                     let tile = self.arena.get_mut(tile_id).unwrap();
