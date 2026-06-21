@@ -116,8 +116,6 @@ pub struct TabWorker {
     desired_viewport: Viewport,
     /// Set when a resize arrives while rendering. Causes an immediate re-render after finishing the current rendering.
     dirty_after_inflight: bool,
-    /// Latest unprocessed mouse position; coalesced into one hit-test per frame tick.
-    pending_mouse_pos: Option<(f64, f64)>,
     /// Current scroll offset in CSS pixels (updated by MouseScroll).
     scroll_x: i32,
     scroll_y: i32,
@@ -170,7 +168,6 @@ impl TabWorker {
             committed_viewport: Default::default(),
             desired_viewport: Default::default(),
             dirty_after_inflight: false,
-            pending_mouse_pos: None,
             scroll_x: 0,
             scroll_y: 0,
             runtime: TabRuntime::default(),
@@ -253,6 +250,14 @@ impl TabWorker {
                     let Some(cmd) = msg else { break; };
                     if self.handle_tab_command(cmd).is_break() {
                         break;
+                    }
+                    // If the command (e.g. hover change) requested an immediate render,
+                    // call tick_draw now instead of waiting up to 1/fps seconds for the tick.
+                    if std::mem::replace(&mut self.runtime.render_now, false) {
+                        if let Err(e) = self.tick_draw().await {
+                            self.state = TabState::Failed(format!("Tab {:?} immediate render error: {}", self.tab_id, e));
+                            self.runtime.dirty = true;
+                        }
                     }
                 }
             }
@@ -388,8 +393,21 @@ impl TabWorker {
                 ControlFlow::Continue
             }
             TabCommand::MouseMove { x: _x, y: _y } => {
-                // Coalesce: store the latest position and let tick_draw do one hit-test per frame.
-                self.pending_mouse_pos = Some((_x as f64, _y as f64));
+                #[cfg(feature = "pipeline")]
+                {
+                    // Process the hit-test immediately so hover doesn't wait for the next tick.
+                    let (visual_dirty, url_changed, link_url) = self.context.update_hover(_x as f64, _y as f64);
+                    if url_changed {
+                        self.send_event(EngineEvent::HoverUrl {
+                            tab_id: self.tab_id,
+                            url: link_url,
+                        });
+                    }
+                    if visual_dirty {
+                        self.runtime.dirty = true;
+                        self.runtime.render_now = true;
+                    }
+                }
                 #[cfg(not(feature = "pipeline"))]
                 {
                     self.runtime.dirty = true;
@@ -732,21 +750,6 @@ impl TabWorker {
     /// Do a draw tick. This will be called based on the FPS that is requested
     #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
-        // Drain the coalesced mouse position — at most one hit-test per frame tick.
-        #[cfg(feature = "pipeline")]
-        if let Some((mx, my)) = self.pending_mouse_pos.take() {
-            let (visual_dirty, url_changed, link_url) = self.context.update_hover(mx, my);
-            if visual_dirty {
-                self.runtime.dirty = true;
-            }
-            if url_changed {
-                self.send_event(EngineEvent::HoverUrl {
-                    tab_id: self.tab_id,
-                    url: link_url,
-                });
-            }
-        }
-
         // Skip rendering when nothing has changed to avoid burning CPU at the tick rate.
         if !self.runtime.dirty {
             return Ok(());

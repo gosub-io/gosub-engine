@@ -9,7 +9,13 @@ use vello::Scene;
 pub fn do_paint_text(scene: &mut Scene, cmd: &Text, tile_size: Dimension, affine: Affine) -> Result<(), anyhow::Error> {
     let paragraph = get_skia_paragraph(cmd.text.as_str(), &cmd.font_info, cmd.rect.width, None, 1.00);
 
-    let mut surface = skia_safe::surfaces::raster_n32_premul((tile_size.width as i32, tile_size.height as i32))
+    let info = skia_safe::ImageInfo::new(
+        skia_safe::ISize::new(tile_size.width as i32, tile_size.height as i32),
+        skia_safe::ColorType::RGBA8888,
+        skia_safe::AlphaType::Premul,
+        None,
+    );
+    let mut surface = skia_safe::surfaces::raster(&info, None, None)
         .ok_or_else(|| anyhow::anyhow!("Failed to create Skia surface for text rendering"))?;
     let canvas = surface.canvas();
 

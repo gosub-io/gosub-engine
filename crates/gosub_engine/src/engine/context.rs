@@ -255,6 +255,12 @@ pub struct BrowsingContext {
     /// The DOM node currently under the pointer (for :hover matching).
     #[cfg(feature = "pipeline")]
     hover_leaf: Option<NodeId>,
+    /// Layout element ID from the PREVIOUS hover update (needed to find which tile to repaint).
+    hover_old_lei: Option<LayoutElementId>,
+    /// DOM nodes whose hover state changed in the last update (old chain ∪ new chain).
+    /// Only these nodes need their cached CSS invalidated; everything else in the tile stays cached.
+    #[cfg(feature = "pipeline")]
+    hover_dirty_nodes: Vec<NodeId>,
     /// The layout element currently under the pointer, used for bounding-box pre-check.
     #[cfg(feature = "pipeline")]
     hover_layout_element: Option<LayoutElementId>,
@@ -298,6 +304,9 @@ impl BrowsingContext {
             hover_dirty: false,
             #[cfg(feature = "pipeline")]
             hover_leaf: None,
+            hover_old_lei: None,
+            #[cfg(feature = "pipeline")]
+            hover_dirty_nodes: Vec::new(),
             #[cfg(feature = "pipeline")]
             hover_layout_element: None,
             #[cfg(feature = "pipeline")]
@@ -438,11 +447,16 @@ impl BrowsingContext {
                     layer_list,
                     page_height,
                     tile_pixel_cache: prev_tile_cache,
+                    tiles: prev_baked_tiles,
                     ..
                 } = old_cache;
                 self.pipeline_cache = Some(pipeline_hover_repaint(
                     layer_list,
                     page_height,
+                    prev_baked_tiles,
+                    self.hover_old_lei,
+                    self.hover_layout_element,
+                    &self.hover_dirty_nodes,
                     &self.viewport,
                     #[cfg(feature = "backend_vello")]
                     self.vello_resources.clone(),
@@ -609,6 +623,26 @@ impl BrowsingContext {
         // Common case: same element — skip the ancestor walk entirely.
         if new_leaf == self.hover_leaf {
             return (false, false, self.hover_link_url.clone());
+        }
+
+        self.hover_old_lei = self.hover_layout_element;
+
+        // Collect old and new ancestor chains — only these nodes need CSS cache invalidation.
+        self.hover_dirty_nodes.clear();
+        if let Some(doc) = &self.document {
+            let mut seen = std::collections::HashSet::new();
+            for start in [self.hover_leaf, new_leaf].into_iter().flatten() {
+                let mut id = start;
+                loop {
+                    if seen.insert(id) {
+                        self.hover_dirty_nodes.push(id);
+                    }
+                    match doc.parent(id) {
+                        Some(p) => id = p,
+                        None => break,
+                    }
+                }
+            }
         }
 
         self.hover_leaf = new_leaf;
@@ -980,13 +1014,12 @@ fn pipeline_build_cache(
         total_tiles
     );
 
-    // Stage 5: paint tiles in the renderable window.
-    // We only rasterize tiles that fall within [0, render_height], where render_height is
-    // capped to the viewport height. This bounds memory usage on tall pages: at 256×256×4B
-    // per tile, rendering all tiles for a 117K-px page across hundreds of layers would
-    // exhaust RAM. The viewport is already set to MAX_PAGE_HEIGHT by the screenshot tool
-    // (and to the actual window height by the browser), so capping here is always correct.
-    let render_height = page_height.min(viewport.height as f64);
+    // Stage 5: paint all tiles for the full page so that scrolling reveals pre-rendered
+    // content. We use the full page_height rather than capping to viewport.height; the
+    // compositor only ships the visible subset to the screen anyway, so no extra pixels
+    // are transferred. Memory is bounded by tile count: at 256×256×4B per tile, a 6 000 px
+    // page × 1 280 px wide = ~120 tiles × 256 KB each ≈ 30 MB, which is acceptable.
+    let render_height = page_height;
     let t = Instant::now();
     let ts5 = timing_start!("pipeline.painting");
     let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, render_height.max(1.0));
@@ -1278,13 +1311,18 @@ fn pipeline_build_cache(
 }
 
 /// Hover-only repaint: skip stages 1–2 (render-tree + layout), reuse the cached
-/// `LayerList`, then run stages 4–6 (tile, paint, rasterize) with a fresh style cache.
-/// This makes `:hover` visual changes (background, color, box-shadow, …) cheap —
-/// only the tiles that changed content get re-rasterized.
+/// `LayerList`, and only repaint tiles that intersect the old or new hovered element.
+/// All other tiles are carried over from `prev_baked_tiles` unchanged — no CSS
+/// re-evaluation, no re-rasterization.
 #[cfg(feature = "pipeline")]
+#[allow(clippy::too_many_arguments)]
 fn pipeline_hover_repaint(
     layer_list: Arc<gosub_render_pipeline::layering::layer::LayerList>,
     page_height: f64,
+    prev_baked_tiles: Vec<BakedTile>,
+    old_hover_lei: Option<LayoutElementId>,
+    new_hover_lei: Option<LayoutElementId>,
+    hover_dirty_nodes: &[NodeId],
     viewport: &gosub_render_pipeline::render::Viewport,
     #[cfg(feature = "backend_vello")] _vello_resources: Option<
         std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
@@ -1301,9 +1339,6 @@ fn pipeline_hover_repaint(
     log::info!("[pipeline] hover repaint (skipping stages 1–2)");
     let t_total = Instant::now();
 
-    // Invalidate the per-node style cache so the painter re-evaluates :hover rules.
-    layer_list.layout_tree.render_tree.doc.clear_style_cache();
-
     // Stage 4: tiling — reuse existing LayerList, no layout work.
     let t = Instant::now();
     let ts4 = timing_start!("pipeline.hover.tiling");
@@ -1311,14 +1346,94 @@ fn pipeline_hover_repaint(
     tile_list.generate();
     let total_tiles = tile_list.arena.len();
     timing_stop!(ts4);
-    log::info!(
+    log::warn!(
         "[pipeline] hover stage 4 tiling: {:>6.1}ms  ({} tiles)",
         t.elapsed().as_secs_f64() * 1000.0,
         total_tiles
     );
 
-    // Stage 5: paint — reads live styles from doc (now with cleared cache).
-    let render_height = page_height.min(viewport.height as f64);
+    // Build a position-keyed lookup of previous baked tiles so non-hover tiles can be
+    // carried over without any CSS re-evaluation or rasterization.
+    // Key: (page_x bits, page_y bits) — deterministic since tile positions don't change.
+    let mut prev_by_pos: std::collections::HashMap<(u64, u64), BakedTile> = prev_baked_tiles
+        .into_iter()
+        .map(|t| ((t.page_x.to_bits(), t.page_y.to_bits()), t))
+        .collect();
+
+    // Compute the union bounding box of old and new hovered elements.  Tiles that
+    // don't intersect this region cannot have changed visually, so we skip them.
+    let hover_rect: Option<PipelineRect> = {
+        let mut union: Option<PipelineRect> = None;
+        for lei in [old_hover_lei, new_hover_lei].into_iter().flatten() {
+            if let Some(el) = layer_list.layout_tree.get_node_by_id(lei) {
+                let m = el.box_model.margin_box;
+                let r = PipelineRect::new(m.x, m.y, m.width, m.height);
+                union = Some(match union {
+                    None => r,
+                    Some(u) => {
+                        let x0 = u.x.min(r.x);
+                        let y0 = u.y.min(r.y);
+                        let x1 = (u.x + u.width).max(r.x + r.width);
+                        let y1 = (u.y + u.height).max(r.y + r.height);
+                        PipelineRect::new(x0, y0, x1 - x0, y1 - y0)
+                    }
+                });
+            }
+        }
+        union
+    };
+
+    // Mark tiles that DON'T intersect the hover region as Clean.  For Clean tiles we
+    // carry the previous BakedTile forward; for Dirty tiles we re-evaluate CSS only
+    // for the elements they contain (targeted invalidation).
+    let mut clean_baked: Vec<BakedTile> = Vec::with_capacity(total_tiles);
+    if let Some(hover_rect) = hover_rect {
+        let doc = &layer_list.layout_tree.render_tree.doc;
+        for tile in tile_list.arena.values_mut() {
+            let tile_rect = tile.rect;
+            let overlaps = tile_rect.x < hover_rect.x + hover_rect.width
+                && tile_rect.x + tile_rect.width > hover_rect.x
+                && tile_rect.y < hover_rect.y + hover_rect.height
+                && tile_rect.y + tile_rect.height > hover_rect.y;
+            if !overlaps {
+                tile.state = TileState::Clean;
+                let key = (tile_rect.x.to_bits(), tile_rect.y.to_bits());
+                if let Some(baked) = prev_by_pos.remove(&key) {
+                    clean_baked.push(baked);
+                }
+            } else {
+                // Invalidate cached styles only for the hover-chain nodes (old + new ancestors).
+                // Non-hover elements in this tile keep their cached CSS — only the nodes that
+                // actually gained or lost :hover need re-evaluation.
+                doc.invalidate_style_for_nodes(hover_dirty_nodes);
+            }
+        }
+    } else {
+        // No hover element visible — reuse all previous baked tiles unchanged.
+        let all_tiles: Vec<BakedTile> = prev_by_pos.into_values().collect();
+        let cached_tiles = Arc::new(
+            all_tiles
+                .iter()
+                .map(|t| CachedTile {
+                    page_x: t.page_x as f32,
+                    page_y: t.page_y as f32,
+                    width: t.width,
+                    height: t.height,
+                    data: Arc::clone(&t.data),
+                })
+                .collect::<Vec<_>>(),
+        );
+        return PipelineCache {
+            tiles: all_tiles,
+            page_height,
+            cached_tiles,
+            layer_list,
+            tile_pixel_cache: prev_tile_cache,
+        };
+    }
+
+    // Stage 5: paint ONLY dirty (hover-affected) tiles.
+    let render_height = page_height;
     let t = Instant::now();
     let ts5 = timing_start!("pipeline.hover.painting");
     let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, render_height.max(1.0));
@@ -1335,28 +1450,42 @@ fn pipeline_hover_repaint(
     };
     let painter = Painter::new(tile_list.layer_list.clone());
     let mut painted_tiles = 0usize;
+    let mut total_elements_painted = 0usize;
     for &layer_id in &layer_ids {
         let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
         for tile_id in tile_ids {
             if let Some(tile) = tile_list.get_tile_mut(tile_id) {
                 if tile.state == TileState::Dirty {
+                    let elem_count = tile.elements.len();
+                    let t_tile = Instant::now();
                     let mut cmds = 0usize;
                     for tiled_element in &mut tile.elements {
                         let c = painter.paint(tiled_element, &paint_state);
                         cmds += c.len();
                         tiled_element.paint_commands = c;
                     }
+                    log::info!(
+                        "[pipeline] hover s5 tile ({:.0},{:.0}) elems={} cmds={} in {:.1}ms",
+                        tile.rect.x,
+                        tile.rect.y,
+                        elem_count,
+                        cmds,
+                        t_tile.elapsed().as_secs_f64() * 1000.0
+                    );
                     painted_tiles += 1;
+                    total_elements_painted += elem_count;
                     let _ = cmds;
                 }
             }
         }
     }
     timing_stop!(ts5);
-    log::info!(
-        "[pipeline] hover stage 5 painting: {:>6.1}ms  ({} tiles painted)",
+    log::warn!(
+        "[pipeline] hover stage 5 painting: {:>6.1}ms  ({} dirty tiles / {} elems painted, {} clean reused)",
         t.elapsed().as_secs_f64() * 1000.0,
-        painted_tiles
+        painted_tiles,
+        total_elements_painted,
+        clean_baked.len()
     );
 
     // Stage 6: rasterize (parallel for Cairo/Skia, using the tile-pixel cache).
@@ -1373,11 +1502,18 @@ fn pipeline_hover_repaint(
             let media_store = MediaStore::new();
             let rasterizer = $rasterizer;
 
+            let t_dirty = Instant::now();
             let dirty_ids: Vec<TileId> = layer_ids
                 .iter()
                 .flat_map(|&layer_id| tile_list.get_intersecting_tiles(layer_id, full_page_rect))
                 .filter(|&id| tile_list.arena.get(&id).map_or(false, |t| t.state == TileState::Dirty))
                 .collect();
+            log::info!(
+                "[pipeline] hover s6 dirty_ids: {:.1}ms ({} dirty, {} layers)",
+                t_dirty.elapsed().as_secs_f64() * 1000.0,
+                dirty_ids.len(),
+                layer_ids.len()
+            );
 
             type CacheEntry = (TileCacheKey, (u32, u32, Arc<Vec<u8>>));
             let results: Vec<(TileId, Option<BakedTile>, Option<CacheEntry>)> = dirty_ids
@@ -1441,7 +1577,7 @@ fn pipeline_hover_repaint(
                 }
             }
             timing_stop!(ts6);
-            log::info!(
+            log::warn!(
                 concat!(
                     "[pipeline] hover stage 6 rasterize ",
                     $label,
@@ -1527,14 +1663,18 @@ fn pipeline_hover_repaint(
         std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)>,
     ) = (Vec::new(), std::collections::HashMap::new());
 
-    log::info!(
-        "[pipeline] hover repaint total: {:.1}ms  ({} baked tiles)",
+    // Merge: newly rasterized hover tiles + clean tiles carried from previous render.
+    let all_baked_tiles: Vec<BakedTile> = baked_tiles.into_iter().chain(clean_baked).collect();
+
+    log::warn!(
+        "[pipeline] hover repaint total: {:.1}ms  ({} total tiles, {} dirty+rasterized)",
         t_total.elapsed().as_secs_f64() * 1000.0,
-        baked_tiles.len()
+        all_baked_tiles.len(),
+        painted_tiles,
     );
 
     let cached_tiles = Arc::new(
-        baked_tiles
+        all_baked_tiles
             .iter()
             .map(|t| gosub_render_pipeline::render::backend::CachedTile {
                 page_x: t.page_x as f32,
@@ -1547,7 +1687,7 @@ fn pipeline_hover_repaint(
     );
 
     PipelineCache {
-        tiles: baked_tiles,
+        tiles: all_baked_tiles,
         page_height,
         cached_tiles,
         layer_list,

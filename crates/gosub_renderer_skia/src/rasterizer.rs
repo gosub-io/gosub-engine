@@ -31,9 +31,13 @@ impl Rasterable for SkiaRasterizer {
             return None;
         }
 
-        let Some(mut surface) =
-            skia_safe::surfaces::raster_n32_premul(skia_safe::ISize::new(width as i32, height as i32))
-        else {
+        let info = skia_safe::ImageInfo::new(
+            skia_safe::ISize::new(width as i32, height as i32),
+            skia_safe::ColorType::BGRA8888,
+            skia_safe::AlphaType::Premul,
+            None,
+        );
+        let Some(mut surface) = skia_safe::surfaces::raster(&info, None, None) else {
             log::error!("Failed to create Skia surface for tile rasterization");
             return None;
         };

@@ -76,6 +76,7 @@ impl TaffyContext {
             text: text.to_string(),
             text_offset,
             no_wrap,
+            available_width: 0.0,
         })
     }
 
@@ -270,7 +271,8 @@ impl CanLayout for TaffyLayouter {
         // the taffy layout to a box model layout tree. This makes the rest of the pipeline
         // layout-engine agnostic.
         let root_id = layout_tree.root_id;
-        self.populate_boxmodel(&mut layout_tree, root_id, Coordinate::ZERO);
+        let root_width = layout_tree.root_dimension.width;
+        self.populate_boxmodel(&mut layout_tree, root_id, Coordinate::ZERO, root_width);
 
         // get dimension of the root node
         if let Some(root) = layout_tree.get_node_by_id(root_id) {
@@ -285,7 +287,13 @@ impl CanLayout for TaffyLayouter {
 
 impl TaffyLayouter {
     // Populate the layout tree with the box models that we now can generate
-    fn populate_boxmodel(&self, layout_tree: &mut LayoutTree, layout_node_id: LayoutElementId, offset: Coordinate) {
+    fn populate_boxmodel(
+        &self,
+        layout_tree: &mut LayoutTree,
+        layout_node_id: LayoutElementId,
+        offset: Coordinate,
+        parent_content_width: f64,
+    ) {
         let Some(taffy_node_id) = self.layout_taffy_mapping.get(&layout_node_id) else {
             log::warn!("No taffy mapping for layout node {:?}", layout_node_id);
             return;
@@ -301,7 +309,26 @@ impl TaffyLayouter {
             return;
         };
         el.box_model = taffy_layout_to_boxmodel(&layout, offset);
+        // For text nodes, available_width is the wrap limit passed to the renderer.
+        // Use the parent element's content width (supplied by our caller), which is the
+        // most accurate available constraint for text that lives directly in a block box.
+        if let ElementContext::Text(ref mut text_ctx) = el.context {
+            text_ctx.available_width = parent_content_width;
+        }
+        let my_content_width = el.box_model.content_box.width;
         let child_ids = el.children.clone();
+
+        // Inline elements (those placed in an anonymous flex container by their parent) do not
+        // establish a new containing block. Their children should inherit the enclosing block's
+        // content width so that Skia uses the same wrap boundary that Parley used during layout.
+        // Without this, Skia receives the inline element's shrunk natural width and wraps text
+        // that Parley measured as a single line, causing height mismatches and overlapping content.
+        let is_inline_node = self.anon_container_map.contains_key(&layout_node_id);
+        let content_width_for_children = if is_inline_node {
+            parent_content_width
+        } else {
+            my_content_width
+        };
 
         // Absolute position of this node's content area — used as the base offset for direct children.
         let children_offset = Coordinate::new(offset.x + layout.location.x as f64, offset.y + layout.location.y as f64);
@@ -324,6 +351,7 @@ impl TaffyLayouter {
                 layout_tree,
                 child_id,
                 Coordinate::new(children_offset.x + anon_offset.x, children_offset.y + anon_offset.y),
+                content_width_for_children,
             );
         }
     }
@@ -386,6 +414,10 @@ impl TaffyLayouter {
             flex_direction: FlexDirection::Row,
             flex_wrap: FlexWrap::Wrap,
             align_self: Some(AlignSelf::FlexStart),
+            // FlexStart ensures multi-row intrinsic height = sum of all row heights.
+            // Taffy's default (None = Stretch) fails to include wrapped rows in the
+            // container's auto height, causing rows beyond the first to overflow.
+            align_content: Some(AlignContent::FlexStart),
             gap: Size {
                 width: LengthPercentage::length(0.0),
                 height: LengthPercentage::length(0.0),

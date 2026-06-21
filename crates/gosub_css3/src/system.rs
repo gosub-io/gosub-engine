@@ -100,6 +100,11 @@ impl CssSystem for Css3System {
                                     slice::from_ref(&value)
                                 };
 
+                                // Each CSS declaration starts with a fresh TRBL multiplier
+                                // counter for this shorthand name. Without this reset, a prior
+                                // rule's `margin: 0` (count→1) would corrupt a later rule's
+                                // `margin: 0 auto` expansion (starting at multi=1 instead of 0).
+                                fix_list.reset_multiplier(&declaration.property);
                                 if !definition.matches_and_shorthands(match_value, &mut fix_list) {
                                     // Special-case: `background: <color>` — the full shorthand
                                     // syntax requires comma-separated layers and the simple
