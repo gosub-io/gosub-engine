@@ -1,3 +1,4 @@
+use crate::font::skia::{is_generic_family, split_font_families};
 use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::gradient::Gradient;
 use gosub_render_pipeline::painter::commands::text::Text;
@@ -33,14 +34,29 @@ fn get_font(family: &str, weight: i32, width: i32, slant: i32, size: f32) -> Opt
         if let Some(tf) = cache.get(&cache_key) {
             return Some(Font::new(tf.clone(), size));
         }
-        let tf = FONT_MGR.with(|fm| {
-            fm.match_family_style(family, font_style)
-                .or_else(|| fm.legacy_make_typeface(None, font_style))
-                .or_else(|| fm.legacy_make_typeface(None, FontStyle::normal()))
-        })?;
+        let tf = FONT_MGR.with(|fm| resolve_typeface(fm, family, font_style))?;
         cache.insert(cache_key, tf.clone());
         Some(Font::new(tf, size))
     })
+}
+
+/// Resolve a typeface by walking the CSS `font-family` fallback chain. Each requested family
+/// is tried in order; a concrete family is only accepted when the manager actually has it
+/// (its returned typeface name-matches), so a missing font like `Source Serif 4` falls
+/// through to the next entry (e.g. `Georgia`, then the generic `serif`) instead of silently
+/// becoming the default sans-serif. Generic keywords accept whatever the manager maps them to.
+fn resolve_typeface(fm: &FontMgr, families: &str, font_style: FontStyle) -> Option<Typeface> {
+    for name in split_font_families(families) {
+        let Some(tf) = fm.match_family_style(&name, font_style) else {
+            continue;
+        };
+        if is_generic_family(&name) || tf.family_name().eq_ignore_ascii_case(&name) {
+            return Some(tf);
+        }
+    }
+    // Nothing in the chain resolved — fall back to the platform default.
+    fm.legacy_make_typeface(None, font_style)
+        .or_else(|| fm.legacy_make_typeface(None, FontStyle::normal()))
 }
 
 pub fn do_paint_text(canvas: &Canvas, _tile: &Tile, cmd: &Text, _dpi_scale_factor: f32) -> Result<(), anyhow::Error> {

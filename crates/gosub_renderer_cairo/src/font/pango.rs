@@ -9,6 +9,19 @@ use std::sync::{Arc, OnceLock};
 
 const DEFAULT_FONT_FAMILY: &str = "sans";
 
+/// Map a CSS generic font-family keyword to the Pango/fontconfig alias that resolves it.
+/// Returns `None` for concrete family names (which must be looked up in `list_families()`).
+fn pango_generic_family(name: &str) -> Option<&'static str> {
+    match name.cow_to_ascii_lowercase().as_ref() {
+        "serif" | "ui-serif" => Some("serif"),
+        "sans-serif" | "ui-sans-serif" => Some("sans"),
+        "monospace" | "ui-monospace" => Some("monospace"),
+        "cursive" => Some("cursive"),
+        "fantasy" => Some("fantasy"),
+        _ => None,
+    }
+}
+
 // PangoFontSystem
 
 /// Font-system state for the Cairo/Pango backend.
@@ -64,6 +77,15 @@ impl PangoFontSystem {
                     return system_font.clone();
                 }
                 continue;
+            }
+
+            // Generic CSS families resolve through Pango/fontconfig aliases ("serif",
+            // "sans", "monospace") and never appear in `list_families()`, so map them
+            // explicitly. Without this the generic at the end of a list (e.g. the `serif`
+            // in `"Source Serif 4", Georgia, serif`) is skipped and the heading wrongly
+            // falls back to the default sans family.
+            if let Some(generic) = pango_generic_family(&font_name) {
+                return generic.to_string();
             }
 
             let normalized = font_name.cow_to_ascii_lowercase();

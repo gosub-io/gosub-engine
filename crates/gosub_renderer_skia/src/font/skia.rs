@@ -13,6 +13,40 @@ thread_local! {
     };
 }
 
+/// Split a CSS `font-family` value (`"Source Serif 4", Georgia, serif`) into its individual
+/// family names, trimmed and unquoted, in priority order. The font system tries each in turn
+/// so the CSS fallback chain (including the generic `serif`/`sans-serif`/`monospace`) is
+/// honoured instead of only the first name being attempted.
+pub(crate) fn split_font_families(families: &str) -> Vec<String> {
+    families
+        .split(',')
+        .map(|f| f.trim().trim_matches(['"', '\'']).trim().to_string())
+        .filter(|f| !f.is_empty())
+        .collect()
+}
+
+/// Whether `name` is a CSS generic family keyword. Generic families are expected to resolve
+/// to whatever the platform font manager maps them to, so a returned typeface that doesn't
+/// name-match is still accepted.
+pub(crate) fn is_generic_family(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "serif"
+            | "sans-serif"
+            | "monospace"
+            | "cursive"
+            | "fantasy"
+            | "system-ui"
+            | "ui-serif"
+            | "ui-sans-serif"
+            | "ui-monospace"
+            | "ui-rounded"
+            | "math"
+            | "emoji"
+            | "fangsong"
+    )
+}
+
 /// A [`FontSystem`] backed by Skia's `skia_safe` text layout.
 ///
 /// Opaque / backend-coupled like Pango: it measures (and the Skia rasterizer draws) through the
@@ -40,7 +74,8 @@ impl FontSystem for SkiaFontSystem {
 
             let mut ts = TextStyle::new();
             ts.set_font_size(style.size);
-            ts.set_font_families(std::slice::from_ref(&style.family));
+            // Pass the full family list so Skia's FontCollection walks the CSS fallback chain.
+            ts.set_font_families(&split_font_families(&style.family));
             ts.set_font_style(FontStyle::new(
                 skia_safe::font_style::Weight::from(style.weight.0 as i32),
                 skia_safe::font_style::Width::NORMAL,
@@ -96,7 +131,7 @@ pub fn get_skia_paragraph(
     ts.set_foreground_paint(&paint);
     ts.set_font_size(font_size_px as f32);
     ts.set_height(line_height_px as f32);
-    ts.set_font_families(std::slice::from_ref(&font_info.family));
+    ts.set_font_families(&split_font_families(&font_info.family));
     ts.set_font_style(FontStyle::new(
         font_info.weight.into(),
         font_info.width.into(),
@@ -110,6 +145,30 @@ pub fn get_skia_paragraph(
     paragraph.layout(max_width as f32);
 
     paragraph
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splits_and_trims_family_list() {
+        assert_eq!(
+            split_font_families("\"Source Serif 4\", Georgia, serif"),
+            vec!["Source Serif 4", "Georgia", "serif"]
+        );
+        assert_eq!(split_font_families("Arial"), vec!["Arial"]);
+        assert_eq!(split_font_families(" 'My Font' , , monospace "), vec!["My Font", "monospace"]);
+    }
+
+    #[test]
+    fn recognises_generic_families() {
+        assert!(is_generic_family("serif"));
+        assert!(is_generic_family("Sans-Serif"));
+        assert!(is_generic_family("monospace"));
+        assert!(!is_generic_family("Source Serif 4"));
+        assert!(!is_generic_family("Georgia"));
+    }
 }
 
 #[allow(dead_code)]
