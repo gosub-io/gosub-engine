@@ -2,6 +2,8 @@ use crate::common::document::node::{AttrMap, ElementData, Node, NodeType};
 use crate::common::document::style::{
     intern, BorderStyle, Display, FontWeight, NodeStyle, StyleProperty, TextAlign, TextWrap, Unit, Value,
 };
+use crate::painter::commands::color::Color;
+use crate::painter::commands::gradient::{ColorStop, Gradient, LinearGradient};
 use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem, CssValue};
@@ -219,6 +221,154 @@ fn css_property_url<S: CssSystem>(p: &S::Property) -> Option<String> {
     None
 }
 
+// ── Gradient parsing ──────────────────────────────────────────────────────────
+
+/// Search a property value (the `background-image` longhand or a `background` shorthand
+/// list) for a `linear-gradient(...)` and parse it into a [`Gradient`].
+fn css_property_gradient<S: CssSystem>(p: &S::Property) -> Option<Gradient> {
+    if let Some((name, args)) = p.as_function() {
+        if name.eq_ignore_ascii_case("linear-gradient") {
+            return parse_linear_gradient::<S>(args);
+        }
+    }
+    if let Some(list) = p.as_list() {
+        return list.iter().find_map(css_value_gradient::<S>);
+    }
+    None
+}
+
+fn css_value_gradient<S: CssSystem>(v: &S::Value) -> Option<Gradient> {
+    if let Some((name, args)) = v.as_function() {
+        if name.eq_ignore_ascii_case("linear-gradient") {
+            return parse_linear_gradient::<S>(args);
+        }
+    }
+    if let Some(list) = v.as_list() {
+        return list.iter().find_map(css_value_gradient::<S>);
+    }
+    None
+}
+
+/// Parse the argument list of a `linear-gradient(...)` into a [`Gradient`]: an optional
+/// leading direction (`to <side>[ <side>]` or an `<angle>`) followed by two or more colour
+/// stops. Stops without an explicit position are spread evenly between their neighbours.
+fn parse_linear_gradient<S: CssSystem>(args: &[S::Value]) -> Option<Gradient> {
+    // Split the flat argument list into comma-separated groups.
+    let mut groups: Vec<Vec<&S::Value>> = Vec::new();
+    let mut current: Vec<&S::Value> = Vec::new();
+    for a in args {
+        if a.is_comma() {
+            groups.push(std::mem::take(&mut current));
+        } else {
+            current.push(a);
+        }
+    }
+    groups.push(current);
+
+    // An optional direction occupies the first group when it carries no colour.
+    let mut angle_deg = 180.0_f32; // CSS default direction is `to bottom`.
+    let mut first_stop = 0;
+    if let Some(first) = groups.first() {
+        if let Some(angle) = parse_gradient_direction::<S>(first) {
+            angle_deg = angle;
+            first_stop = 1;
+        }
+    }
+
+    // Collect colour stops with their (optional) declared positions.
+    let mut colors: Vec<Color> = Vec::new();
+    let mut offsets: Vec<Option<f32>> = Vec::new();
+    for group in groups.iter().skip(first_stop) {
+        let Some((r, g, b, a)) = group.iter().find_map(|v| v.as_color()) else {
+            continue;
+        };
+        colors.push(Color::from_rgba(r / 255.0, g / 255.0, b / 255.0, a / 255.0));
+        offsets.push(group.iter().find_map(|v| v.as_percentage()).map(|p| p / 100.0));
+    }
+    let n = colors.len();
+    if n < 2 {
+        return None;
+    }
+
+    // Anchor the endpoints, then linearly interpolate any interior gaps.
+    if offsets[0].is_none() {
+        offsets[0] = Some(0.0);
+    }
+    if offsets[n - 1].is_none() {
+        offsets[n - 1] = Some(1.0);
+    }
+    let mut i = 0;
+    while i < n {
+        if offsets[i].is_some() {
+            i += 1;
+            continue;
+        }
+        let start = i - 1; // resolved (endpoints are anchored)
+        let mut end = i;
+        while end < n && offsets[end].is_none() {
+            end += 1;
+        }
+        let a = offsets[start].unwrap_or(0.0);
+        let b = offsets.get(end).and_then(|o| *o).unwrap_or(1.0);
+        let steps = (end - start) as f32;
+        for (k, slot) in offsets.iter_mut().enumerate().take(end).skip(start + 1) {
+            *slot = Some(a + (b - a) * ((k - start) as f32) / steps);
+        }
+        i = end;
+    }
+
+    // Clamp to [0,1] and keep positions non-decreasing (CSS gradient rule).
+    let mut running = 0.0_f32;
+    let stops = colors
+        .into_iter()
+        .zip(offsets)
+        .map(|(color, off)| {
+            let off = off.unwrap_or(0.0).clamp(0.0, 1.0).max(running);
+            running = off;
+            ColorStop { offset: off, color }
+        })
+        .collect();
+
+    Some(Gradient::Linear(LinearGradient { angle_deg, stops }))
+}
+
+/// Parse the leading direction group of a `linear-gradient`. Returns the gradient-line
+/// angle in CSS degrees, or `None` if the group is not a direction (i.e. it is a colour
+/// stop and the gradient uses the default `to bottom`).
+fn parse_gradient_direction<S: CssSystem>(group: &[&S::Value]) -> Option<f32> {
+    // Angle form: `45deg`, `0.25turn`, `1.5rad`, `100grad`.
+    if let Some((v, unit)) = group.first().and_then(|first| first.as_unit()) {
+        return match unit {
+            "deg" => Some(v),
+            "grad" => Some(v * 0.9),
+            "rad" => Some(v.to_degrees()),
+            "turn" => Some(v * 360.0),
+            _ => None,
+        };
+    }
+    // Keyword form: `to <side> [<side>]`.
+    let words: Vec<String> = group
+        .iter()
+        .filter_map(|v| v.as_string())
+        .map(|s| s.cow_to_lowercase().into_owned())
+        .collect();
+    if words.first().map(String::as_str) != Some("to") {
+        return None;
+    }
+    let has = |k: &str| words.iter().any(|w| w == k);
+    Some(match (has("top"), has("right"), has("bottom"), has("left")) {
+        (true, false, false, false) => 0.0,
+        (false, true, false, false) => 90.0,
+        (false, false, false, true) => 270.0,
+        (true, true, false, false) => 45.0,
+        (false, true, true, false) => 135.0,
+        (false, false, true, true) => 225.0,
+        (true, false, false, true) => 315.0,
+        // `to bottom` and any unrecognised combination fall back to a downward gradient.
+        _ => 180.0,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineNodeKind {
     Text,
@@ -245,6 +395,12 @@ pub trait PipelineDocument: Send + Sync {
 
     /// Returns the own (explicitly-set) value for `prop` on node `id`, without recursing.
     fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value>;
+
+    /// The CSS `background` / `background-image` gradient for node `id`, if its background
+    /// is a (currently only linear) gradient. Returns `None` for solid/image backgrounds.
+    fn background_gradient(&self, _id: NodeId) -> Option<Gradient> {
+        None
+    }
 
     /// Discard the computed-style cache so the next `get_own_style` call re-evaluates
     /// CSS selectors (including `:hover`) from scratch.  No-op for backends that do
@@ -492,6 +648,18 @@ where
             return crate::common::document::inline_style::html_presentation_attr(attrs, prop);
         }
 
+        None
+    }
+
+    fn background_gradient(&self, id: NodeId) -> Option<Gradient> {
+        let arc = self.cached_styles(id);
+        for key in ["background-image", "background"] {
+            if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), key) {
+                if let Some(g) = css_property_gradient::<C::CssSystem>(p) {
+                    return Some(g);
+                }
+            }
+        }
         None
     }
 

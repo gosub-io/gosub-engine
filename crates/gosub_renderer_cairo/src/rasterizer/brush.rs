@@ -2,11 +2,36 @@ use cairo::Context;
 use gosub_render_pipeline::common::geo::Rect;
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::brush::Brush;
+use gosub_render_pipeline::painter::commands::gradient::Gradient;
 
 pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaStore) {
     match brush {
         Brush::Solid(color) => {
             cr.set_source_rgba(color.r() as f64, color.g() as f64, color.b() as f64, color.a() as f64);
+        }
+        Brush::Gradient(Gradient::Linear(g)) => {
+            if rect.width == 0.0 || rect.height == 0.0 {
+                return;
+            }
+            let ((x0, y0), (x1, y1)) = g.line(rect.width as f32, rect.height as f32);
+            let pattern = cairo::LinearGradient::new(
+                rect.x + x0 as f64,
+                rect.y + y0 as f64,
+                rect.x + x1 as f64,
+                rect.y + y1 as f64,
+            );
+            for stop in &g.stops {
+                pattern.add_color_stop_rgba(
+                    stop.offset as f64,
+                    stop.color.r() as f64,
+                    stop.color.g() as f64,
+                    stop.color.b() as f64,
+                    stop.color.a() as f64,
+                );
+            }
+            if let Err(e) = cr.set_source(&pattern) {
+                log::warn!("Failed to set Cairo gradient source: {e:?}");
+            }
         }
         Brush::Image(media_id) => {
             if rect.width == 0.0 || rect.height == 0.0 {

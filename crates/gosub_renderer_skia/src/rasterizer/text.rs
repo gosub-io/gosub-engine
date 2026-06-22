@@ -1,4 +1,5 @@
 use gosub_render_pipeline::painter::commands::brush::Brush;
+use gosub_render_pipeline::painter::commands::gradient::Gradient;
 use gosub_render_pipeline::painter::commands::text::Text;
 use gosub_render_pipeline::tiler::Tile;
 use skia_safe::{Canvas, Color4f, Font, FontMgr, FontStyle, Paint, Typeface};
@@ -119,6 +120,12 @@ pub fn do_paint_text(canvas: &Canvas, _tile: &Tile, cmd: &Text, _dpi_scale_facto
 fn brush_to_color4f(brush: &Brush) -> Color4f {
     match brush {
         Brush::Solid(c) => Color4f::new(c.r(), c.g(), c.b(), c.a()),
+        // Gradient text fills aren't supported in the text path; approximate with the
+        // first colour stop so glyphs stay visible rather than defaulting to black.
+        Brush::Gradient(Gradient::Linear(g)) => match g.stops.first() {
+            Some(stop) => Color4f::new(stop.color.r(), stop.color.g(), stop.color.b(), stop.color.a()),
+            None => Color4f::new(0.0, 0.0, 0.0, 1.0),
+        },
         Brush::Image(_) => Color4f::new(0.0, 0.0, 0.0, 1.0),
     }
 }

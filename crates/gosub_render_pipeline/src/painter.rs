@@ -107,6 +107,16 @@ impl Painter {
         }
     }
 
+    /// The fill for an element's background box: a `linear-gradient(...)` if present,
+    /// otherwise the solid `background-color` (transparent when unset).
+    fn background_brush(&self, node_id: NodeId) -> Brush {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        if let Some(gradient) = doc.background_gradient(node_id) {
+            return Brush::gradient(gradient);
+        }
+        self.get_brush(node_id, &StyleProperty::BackgroundColor, Brush::solid(Color::TRANSPARENT))
+    }
+
     fn get_parent_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         match doc.parent(node_id) {
@@ -251,11 +261,7 @@ impl Painter {
                 commands.push(PaintCommand::rectangle(r));
             }
             ElementContext::None => {
-                let brush = self.get_brush(
-                    dom_node_id,
-                    &StyleProperty::BackgroundColor,
-                    Brush::solid(Color::TRANSPARENT),
-                );
+                let brush = self.background_brush(dom_node_id);
                 let r = Rectangle::new(layout_element.box_model.border_box).with_background(brush);
                 let r = self.decorate_with_border_and_radius(dom_node_id, r);
                 commands.push(PaintCommand::rectangle(r));

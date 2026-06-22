@@ -758,6 +758,7 @@ fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
     use gosub_render_pipeline::painter::commands::{
         border::{BorderRadius, BorderStyle},
         brush::Brush,
+        gradient::Gradient,
         PaintCommand,
     };
 
@@ -811,6 +812,17 @@ fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
                 Brush::Image(m) => {
                     fnv!(&[1]);
                     hu64!(m.as_u64());
+                }
+                Brush::Gradient(Gradient::Linear(g)) => {
+                    fnv!(&[2]);
+                    hf32!(g.angle_deg);
+                    for stop in &g.stops {
+                        hf32!(stop.offset);
+                        hf32!(stop.color.r());
+                        hf32!(stop.color.g());
+                        hf32!(stop.color.b());
+                        hf32!(stop.color.a());
+                    }
                 }
             }
         };

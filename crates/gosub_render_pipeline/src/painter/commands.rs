@@ -5,6 +5,7 @@ use crate::painter::commands::text::Text;
 pub mod border;
 pub mod brush;
 pub mod color;
+pub mod gradient;
 pub mod image;
 pub mod rectangle;
 pub mod text;

@@ -118,14 +118,18 @@ impl CssSystem for Css3System {
                                     // ignored.
                                     if declaration.property == "background" {
                                         let mut recovered = false;
-                                        if let Some(url_value) = find_background_url(&value) {
+                                        // `url(...)` or a `*-gradient(...)` both become the
+                                        // `background-image` longhand the consumer reads.
+                                        if let Some(image_value) =
+                                            find_background_url(&value).or_else(|| find_background_gradient(&value))
+                                        {
                                             add_property_to_map(
                                                 &mut css_map_entry,
                                                 sheet,
                                                 specificity,
                                                 &CssDeclaration {
                                                     property: "background-image".to_string(),
-                                                    value: url_value,
+                                                    value: image_value,
                                                     important: declaration.important,
                                                 },
                                             );
@@ -376,6 +380,17 @@ fn find_background_url(value: &CssValue) -> Option<CssValue> {
     match value {
         CssValue::Function(name, _) if name.eq_ignore_ascii_case("url") => Some(value.clone()),
         CssValue::List(list) => list.iter().find_map(find_background_url),
+        _ => None,
+    }
+}
+
+/// Recursively find the first `*-gradient(...)` function inside a (possibly nested/list)
+/// CSS value. Used to recover the image part of a `background` shorthand whose full
+/// `<bg-layer>` grammar the value matcher does not yet support.
+fn find_background_gradient(value: &CssValue) -> Option<CssValue> {
+    match value {
+        CssValue::Function(name, _) if name.to_ascii_lowercase().ends_with("gradient") => Some(value.clone()),
+        CssValue::List(list) => list.iter().find_map(find_background_gradient),
         _ => None,
     }
 }

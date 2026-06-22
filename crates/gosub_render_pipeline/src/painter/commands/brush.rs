@@ -1,5 +1,6 @@
 use crate::common::media::MediaId;
 use crate::painter::commands::color::Color;
+use crate::painter::commands::gradient::Gradient;
 
 #[derive(Clone, Debug)]
 pub enum Brush {
@@ -7,7 +8,8 @@ pub enum Brush {
     Solid(Color),
     /// Paint with an image. This allows us to display images
     Image(MediaId),
-    // Gradient(Gradient),
+    /// Paint with a CSS gradient (e.g. `linear-gradient(...)`).
+    Gradient(Gradient),
 }
 
 impl Brush {
@@ -19,7 +21,7 @@ impl Brush {
         Brush::Image(media_id)
     }
 
-    // pub fn gradient(gradient: Gradient) -> Self {
-    //     Brush::Gradient(gradient)
-    // }
+    pub fn gradient(gradient: Gradient) -> Self {
+        Brush::Gradient(gradient)
+    }
 }
