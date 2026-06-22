@@ -190,7 +190,16 @@ fn match_selector_part<C: HasDocument>(
                     false
                 }
             }
-            "root" => doc.parent(current_id).is_none() && doc.node_type(current_id) == NodeType::ElementNode,
+            // The document's root element (`<html>`): an element whose parent is absent or
+            // a non-element node (the Document). Checking `parent().is_none()` alone fails
+            // because `<html>`'s parent is the Document node, so `:root` would match nothing
+            // and `:root { --custom: … }` custom properties would never be collected.
+            "root" => {
+                doc.node_type(current_id) == NodeType::ElementNode
+                    && doc
+                        .parent(current_id)
+                        .is_none_or(|p| doc.node_type(p) != NodeType::ElementNode)
+            }
             "checked" => doc.attribute(current_id, "checked").is_some(),
             "disabled" => doc.attribute(current_id, "disabled").is_some(),
             "enabled" => {
