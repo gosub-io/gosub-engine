@@ -3,7 +3,7 @@ use log::warn;
 use crate::node::{Node as CssNode, NodeType};
 use crate::stylesheet::{
     AttributeSelector, Combinator, CssDeclaration, CssRule, CssSelector, CssSelectorPart, CssStylesheet, CssValue,
-    MatcherType,
+    FontFace, MatcherType,
 };
 use gosub_interface::css3::CssOrigin;
 use gosub_shared::errors::{CssError, CssResult};
@@ -202,7 +202,7 @@ fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
     Ok(Some(rule))
 }
 
-fn collect_rules(nodes: &[CssNode], rules: &mut Vec<CssRule>) -> CssResult<()> {
+fn collect_rules(nodes: &[CssNode], rules: &mut Vec<CssRule>, font_faces: &mut Vec<FontFace>) -> CssResult<()> {
     for node in nodes {
         match &*node.node_type {
             NodeType::Rule { .. } => {
@@ -215,12 +215,110 @@ fn collect_rules(nodes: &[CssNode], rules: &mut Vec<CssRule>) -> CssResult<()> {
                 block: Some(block),
                 ..
             } if name.eq_ignore_ascii_case("layer") => {
-                collect_rules(block.as_block(), rules)?;
+                collect_rules(block.as_block(), rules, font_faces)?;
+            }
+            NodeType::AtRule {
+                name,
+                block: Some(block),
+                ..
+            } if name.eq_ignore_ascii_case("font-face") => {
+                if let Some(face) = collect_font_face(block.as_block()) {
+                    font_faces.push(face);
+                }
             }
             _ => {}
         }
     }
     Ok(())
+}
+
+/// Build a [`FontFace`] from the declarations inside an `@font-face` block. Requires a
+/// `font-family` and at least one `src: url(...)`; returns `None` otherwise.
+fn collect_font_face(nodes: &[CssNode]) -> Option<FontFace> {
+    let mut family: Option<String> = None;
+    let mut sources: Vec<String> = Vec::new();
+    let mut unicode_range: Option<String> = None;
+
+    for decl in nodes {
+        if !decl.is_declaration() {
+            continue;
+        }
+        let (property, value_nodes, _important) = decl.as_declaration();
+        match property.to_ascii_lowercase().as_str() {
+            "font-family" => {
+                let name: String = value_nodes
+                    .iter()
+                    .filter_map(|n| CssValue::parse_ast_node(n).ok())
+                    .filter_map(|v| match v {
+                        CssValue::String(s) => Some(s),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let name = name.trim().trim_matches(['"', '\'']).trim().to_string();
+                if !name.is_empty() {
+                    family = Some(name);
+                }
+            }
+            "src" => {
+                for n in value_nodes {
+                    if let Ok(v) = CssValue::parse_ast_node(n) {
+                        collect_src_urls(&v, &mut sources);
+                    }
+                }
+            }
+            "unicode-range" => {
+                // Reconstruct the raw range list; consumers scan it for `U+xxxx` tokens, so
+                // the exact separator/spacing does not matter.
+                let raw: String = value_nodes
+                    .iter()
+                    .filter_map(|n| CssValue::parse_ast_node(n).ok())
+                    .filter_map(|v| match v {
+                        CssValue::String(s) => Some(s),
+                        CssValue::Comma => Some(",".to_string()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if !raw.trim().is_empty() {
+                    unicode_range = Some(raw);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let family = family?;
+    if sources.is_empty() {
+        return None;
+    }
+    Some(FontFace {
+        family,
+        sources,
+        unicode_range,
+    })
+}
+
+/// Recursively collect `url(...)` targets from an `@font-face` `src` value.
+fn collect_src_urls(value: &CssValue, out: &mut Vec<String>) {
+    match value {
+        CssValue::Function(name, args) if name.eq_ignore_ascii_case("url") => {
+            if let Some(url) = args.iter().find_map(|a| match a {
+                CssValue::String(s) => Some(s.trim_matches(['"', '\'']).to_string()),
+                _ => None,
+            }) {
+                if !url.is_empty() {
+                    out.push(url);
+                }
+            }
+        }
+        CssValue::List(list) => {
+            for item in list {
+                collect_src_urls(item, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Converts a CSS AST to a CSS stylesheet structure
@@ -231,12 +329,13 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
 
     let mut sheet = CssStylesheet {
         rules: vec![],
+        font_faces: vec![],
         origin,
         url: url.to_string(),
         parse_log: vec![],
     };
 
-    collect_rules(css_ast.as_stylesheet(), &mut sheet.rules)?;
+    collect_rules(css_ast.as_stylesheet(), &mut sheet.rules, &mut sheet.font_faces)?;
     Ok(sheet)
 }
 
@@ -245,6 +344,33 @@ mod tests {
     use super::*;
     use crate::Css3;
     use gosub_shared::config::ParserConfig;
+
+    #[test]
+    fn font_face_rules_are_collected() {
+        let stylesheet = Css3::parse_str(
+            r#"
+            @font-face {
+              font-family: 'Source Serif 4';
+              font-style: normal;
+              font-weight: 600;
+              src: url(https://example.com/ss.ttf) format('truetype');
+              unicode-range: U+0000-00FF, U+0131, U+0152-0153;
+            }
+            h1 { color: red; }
+            "#,
+            ParserConfig::default(),
+            CssOrigin::Author,
+            "test.css",
+        )
+        .unwrap();
+
+        assert_eq!(stylesheet.rules.len(), 1, "the h1 rule is still collected");
+        assert_eq!(stylesheet.font_faces.len(), 1);
+        let face = &stylesheet.font_faces[0];
+        assert_eq!(face.family, "Source Serif 4");
+        assert_eq!(face.sources, vec!["https://example.com/ss.ttf".to_string()]);
+        assert!(face.unicode_range.as_deref().unwrap_or("").contains("U+0000"));
+    }
 
     #[test]
     fn layer_rules_are_flattened() {

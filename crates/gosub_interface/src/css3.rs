@@ -70,6 +70,14 @@ pub trait CssStylesheet: PartialEq + Debug {
 
     /// Returns the source URL of the stylesheet
     fn url(&self) -> &str;
+
+    /// `@font-face` web fonts declared in this stylesheet, as
+    /// `(family, source_urls, unicode_range)` tuples. The source URLs are unresolved
+    /// (relative to the stylesheet's own URL); `unicode_range` is the raw descriptor or
+    /// `None` when the face covers all code points.
+    fn font_faces(&self) -> Vec<(String, Vec<String>, Option<String>)> {
+        Vec::new()
+    }
 }
 
 pub trait CssPropertyMap<S: CssSystem>: Default + Debug + WasmNotSend {

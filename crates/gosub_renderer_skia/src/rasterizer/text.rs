@@ -1,4 +1,4 @@
-use crate::font::skia::{is_generic_family, split_font_families};
+use crate::font::skia::{is_generic_family, split_font_families, web_font_generation, web_font_mgr};
 use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::gradient::Gradient;
 use gosub_render_pipeline::painter::commands::text::Text;
@@ -8,10 +8,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 // FontMgr is the font resolver; the typeface cache avoids repeated family-style lookups.
-// Key: (family, weight, width, slant_nonzero, size_bits) — size is baked into the Font object.
+// Key: (family, weight, width, slant_nonzero, web_font_generation) — the generation evicts
+// stale entries when an @font-face web font is registered. Size is baked into the Font.
 thread_local! {
     static FONT_MGR: FontMgr = FontMgr::new();
-    static TYPEFACE_CACHE: RefCell<HashMap<(String, i32, i32, bool), Typeface>> =
+    static TYPEFACE_CACHE: RefCell<HashMap<(String, i32, i32, bool, u64), Typeface>> =
         RefCell::new(HashMap::new());
 }
 
@@ -26,7 +27,7 @@ fn get_font(family: &str, weight: i32, width: i32, slant: i32, size: f32) -> Opt
         },
     );
 
-    let cache_key = (family.to_string(), weight, width, slant > 0);
+    let cache_key = (family.to_string(), weight, width, slant > 0, web_font_generation());
 
     // Try to reuse a cached typeface — match_family_style is non-trivial work.
     TYPEFACE_CACHE.with(|cache| {
@@ -40,13 +41,21 @@ fn get_font(family: &str, weight: i32, width: i32, slant: i32, size: f32) -> Opt
     })
 }
 
-/// Resolve a typeface by walking the CSS `font-family` fallback chain. Each requested family
-/// is tried in order; a concrete family is only accepted when the manager actually has it
-/// (its returned typeface name-matches), so a missing font like `Source Serif 4` falls
-/// through to the next entry (e.g. `Georgia`, then the generic `serif`) instead of silently
-/// becoming the default sans-serif. Generic keywords accept whatever the manager maps them to.
+/// Resolve a typeface by walking the CSS `font-family` fallback chain. Registered
+/// `@font-face` web fonts take priority for an exact family match; otherwise each requested
+/// family is tried in order, and a concrete family is only accepted when the manager
+/// actually has it (its returned typeface name-matches), so a missing font like
+/// `Source Serif 4` falls through to the next entry (e.g. `Georgia`, then the generic
+/// `serif`) instead of silently becoming the default sans-serif. Generic keywords accept
+/// whatever the manager maps them to.
 fn resolve_typeface(fm: &FontMgr, families: &str, font_style: FontStyle) -> Option<Typeface> {
+    let web = web_font_mgr();
     for name in split_font_families(families) {
+        if let Some(web) = web.as_ref() {
+            if let Some(tf) = web.match_family_style(&name, font_style) {
+                return Some(tf);
+            }
+        }
         let Some(tf) = fm.match_family_style(&name, font_style) else {
             continue;
         };

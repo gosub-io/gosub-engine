@@ -9,6 +9,77 @@ use std::sync::{Arc, OnceLock};
 
 const DEFAULT_FONT_FAMILY: &str = "sans";
 
+/// Register an in-memory `@font-face` font so Pango (via fontconfig) can discover it.
+///
+/// The bytes are written to a uniquely-named file in the temp dir — intentionally left on
+/// disk for the process lifetime, since fontconfig references it by path — and added to the
+/// process-global fontconfig config with `FcConfigAppFontAddFile`. fontconfig reads the
+/// font's own family name from its `name` table (so the family CSS asked for, e.g.
+/// "Source Serif 4", is what becomes available); `family_override` is informational.
+///
+/// Because the font is added to the *process-global* config (not a per-thread Pango font
+/// map), any Pango `FcFontMap` built afterwards on any thread sees it — provided it is
+/// registered before that font map is first built (the engine registers web fonts right
+/// after the document is set, before the first layout).
+fn register_font_via_fontconfig(data: &[u8], family_override: Option<&str>) -> Result<(), FontError> {
+    use fontconfig_sys::{FcConfigAppFontAddFile, FcConfigBuildFonts, FcConfigGetCurrent};
+    use std::io::Write as _;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    let safe: String = family_override
+        .unwrap_or("webfont")
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let mut path = std::env::temp_dir();
+    path.push(format!("gosub-webfont-{}-{safe}-{n}.ttf", std::process::id()));
+    {
+        let mut file =
+            std::fs::File::create(&path).map_err(|e| FontError::InvalidFont(format!("temp font file: {e}")))?;
+        file.write_all(data)
+            .map_err(|e| FontError::InvalidFont(format!("write font: {e}")))?;
+    }
+
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| FontError::InvalidFont("non-UTF-8 font path".to_string()))?;
+    let c_path = std::ffi::CString::new(path_str).map_err(|e| FontError::InvalidFont(format!("font path: {e}")))?;
+
+    #[allow(unsafe_code)] // fontconfig has no safe Rust binding for app-font registration
+    // SAFETY: `FcConfigGetCurrent` returns the process-global config (auto-initialised, not
+    // null in practice — checked anyway). `FcConfigAppFontAddFile` reads the NUL-terminated
+    // `c_path` (valid for the call, not retained by fontconfig) and copies what it needs;
+    // `FcConfigBuildFonts` rebuilds the font set. No Rust aliasing/lifetime invariants apply.
+    let added = unsafe {
+        let config = FcConfigGetCurrent();
+        if config.is_null() {
+            return Err(FontError::InvalidFont("fontconfig not initialised".to_string()));
+        }
+        let added = FcConfigAppFontAddFile(config, c_path.as_ptr().cast::<u8>());
+        if added != 0 {
+            FcConfigBuildFonts(config);
+        }
+        added
+    };
+
+    if added == 0 {
+        return Err(FontError::InvalidFont(format!(
+            "FcConfigAppFontAddFile failed for {}",
+            path.display()
+        )));
+    }
+
+    log::debug!(
+        "Registered web font '{}' via fontconfig ({})",
+        family_override.unwrap_or("<unnamed>"),
+        path.display()
+    );
+    Ok(())
+}
+
 /// Map a CSS generic font-family keyword to the Pango/fontconfig alias that resolves it.
 /// Returns `None` for concrete family names (which must be looked up in `list_families()`).
 fn pango_generic_family(name: &str) -> Option<&'static str> {
@@ -158,11 +229,8 @@ impl PangoFontSystem {
 /// Note: Pango uses its own natural line height (matching how the Cairo rasterizer draws), so
 /// `TextStyle::line_height` is intentionally not applied during measurement.
 impl FontSystem for PangoFontSystem {
-    fn register_font(&mut self, _data: Vec<u8>, _family_override: Option<&str>) -> Result<(), FontError> {
-        // Pango discovers fonts via fontconfig; injecting @font-face bytes at runtime would
-        // require writing a fontconfig configuration and is out of scope here.
-        log::warn!("PangoFontSystem::register_font is unsupported; the font was ignored");
-        Ok(())
+    fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError> {
+        register_font_via_fontconfig(&data, family_override)
     }
 
     fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32) {
@@ -253,4 +321,19 @@ fn get_system_ui_font_from_gsettings() -> Option<String> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Exercises the full registration path end-to-end: temp-file write plus the fontconfig
+    /// FFI (`FcConfigGetCurrent` / `FcConfigAppFontAddFile` / `FcConfigBuildFonts`). Uses the
+    /// always-available bundled Roboto bytes. A misdeclared FFI signature would crash here;
+    /// a clean `Ok(())` confirms the unsafe boundary is sound at runtime.
+    #[test]
+    fn registers_font_via_fontconfig() {
+        let res = register_font_via_fontconfig(gosub_shared::ROBOTO_FONT, Some("Gosub Roboto Test"));
+        assert!(res.is_ok(), "fontconfig registration failed: {res:?}");
+    }
 }

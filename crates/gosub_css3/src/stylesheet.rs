@@ -100,11 +100,26 @@ impl Debug for CssLog {
     }
 }
 
+/// A parsed `@font-face` rule: a logical font family and the (unresolved) URLs that
+/// provide it. URLs are relative to the stylesheet's own URL until resolved by the consumer.
+#[derive(Debug, PartialEq, Clone)]
+pub struct FontFace {
+    /// The `font-family` name this face provides (unquoted).
+    pub family: String,
+    /// Candidate `src: url(...)` targets in declared order.
+    pub sources: Vec<String>,
+    /// The raw `unicode-range` descriptor, if any (e.g. `"U+0000-00FF, U+0131"`). Used to
+    /// pick the subset that covers the content; `None` means the face covers all code points.
+    pub unicode_range: Option<String>,
+}
+
 /// Defines a complete stylesheet with all its rules and the location where it was found
 #[derive(Debug, PartialEq)]
 pub struct CssStylesheet {
     /// List of rules found in this stylesheet
     pub rules: Vec<CssRule>,
+    /// `@font-face` rules found in this stylesheet (web fonts).
+    pub font_faces: Vec<FontFace>,
     /// Origin of the stylesheet (user agent, author, user)
     pub origin: CssOrigin,
     /// Url or file path where the stylesheet was found
@@ -120,6 +135,13 @@ impl gosub_interface::css3::CssStylesheet for CssStylesheet {
 
     fn url(&self) -> &str {
         &self.url
+    }
+
+    fn font_faces(&self) -> Vec<(String, Vec<String>, Option<String>)> {
+        self.font_faces
+            .iter()
+            .map(|f| (f.family.clone(), f.sources.clone(), f.unicode_range.clone()))
+            .collect()
     }
 }
 

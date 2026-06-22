@@ -1,16 +1,102 @@
 use gosub_interface::font::{FontError, FontStyle as CssFontStyle};
 use gosub_interface::font_system::{FontSystem, TextStyle as GosubTextStyle};
 use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
-use skia_safe::textlayout::{Paragraph, ParagraphBuilder, ParagraphStyle, TextStyle};
-use skia_safe::{FontStyle, Paint};
+use parking_lot::Mutex;
+use skia_safe::textlayout::{FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, TextStyle, TypefaceFontProvider};
+use skia_safe::{FontMgr, FontStyle, Paint};
 use std::any::Any;
+use std::cell::RefCell;
+use std::sync::OnceLock;
+
+// ── Registered web fonts ──────────────────────────────────────────────────────
+//
+// `@font-face` fonts are registered as raw bytes in a process-global registry (bytes are
+// `Send + Sync`; Skia's `Typeface`/`FontMgr` are not). Each thread lazily materialises the
+// bytes into a `TypefaceFontProvider` when the registry's generation changes, so both the
+// measure path (this module's `FontCollection`) and the draw path (`rasterizer::text`) see
+// newly-registered fonts without sharing non-`Send` Skia objects across threads.
+
+struct FontRegistry {
+    generation: u64,
+    fonts: Vec<(String, Vec<u8>)>,
+}
+
+fn registry() -> &'static Mutex<FontRegistry> {
+    static REGISTRY: OnceLock<Mutex<FontRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        Mutex::new(FontRegistry {
+            generation: 0,
+            fonts: Vec::new(),
+        })
+    })
+}
+
+/// The current registry generation; bumped each time a font is registered.
+pub(crate) fn web_font_generation() -> u64 {
+    registry().lock().generation
+}
+
+/// Build a `FontMgr` (backed by a `TypefaceFontProvider`) containing every registered web
+/// font, or `None` if none are registered or none could be decoded.
+fn build_web_font_mgr() -> Option<FontMgr> {
+    let reg = registry().lock();
+    if reg.fonts.is_empty() {
+        return None;
+    }
+    let fm = FontMgr::new();
+    let mut provider = TypefaceFontProvider::new();
+    let mut any = false;
+    for (family, bytes) in reg.fonts.iter() {
+        if let Some(tf) = fm.new_from_data(bytes, None) {
+            provider.register_typeface(tf, Some(family.as_str()));
+            any = true;
+        }
+    }
+    any.then(|| provider.into())
+}
 
 thread_local! {
-    static FC: skia_safe::textlayout::FontCollection = {
-        let mut fc = skia_safe::textlayout::FontCollection::new();
-        fc.set_default_font_manager(skia_safe::FontMgr::new(), None);
-        fc
-    };
+    /// Per-thread cache of the registered-web-font manager, refreshed when the registry's
+    /// generation advances. `None` means no web fonts are registered.
+    static WEB_FONT_MGR: RefCell<(u64, Option<FontMgr>)> = const { RefCell::new((0, None)) };
+}
+
+/// A `FontMgr` containing the registered web fonts for this thread, or `None` if there are
+/// none. Cheap to call repeatedly: rebuilt only when a new font is registered.
+pub(crate) fn web_font_mgr() -> Option<FontMgr> {
+    WEB_FONT_MGR.with(|cell| {
+        let mut cell = cell.borrow_mut();
+        let gen = web_font_generation();
+        if cell.0 != gen {
+            cell.1 = build_web_font_mgr();
+            cell.0 = gen;
+        }
+        cell.1.clone()
+    })
+}
+
+thread_local! {
+    static FC: RefCell<(u64, FontCollection)> = RefCell::new((u64::MAX, base_font_collection()));
+}
+
+fn base_font_collection() -> FontCollection {
+    let mut fc = FontCollection::new();
+    fc.set_default_font_manager(FontMgr::new(), None);
+    fc
+}
+
+/// Run `f` with this thread's `FontCollection`, after refreshing its asset font manager
+/// (the registered web fonts) if new fonts have been registered since the last call.
+fn with_font_collection<R>(f: impl FnOnce(&FontCollection) -> R) -> R {
+    FC.with(|cell| {
+        let mut cell = cell.borrow_mut();
+        let gen = web_font_generation();
+        if cell.0 != gen {
+            cell.1.set_asset_font_manager(web_font_mgr());
+            cell.0 = gen;
+        }
+        f(&cell.1)
+    })
 }
 
 /// Split a CSS `font-family` value (`"Source Serif 4", Georgia, serif`) into its individual
@@ -57,10 +143,21 @@ pub(crate) fn is_generic_family(name: &str) -> bool {
 pub struct SkiaFontSystem;
 
 impl FontSystem for SkiaFontSystem {
-    fn register_font(&mut self, _data: Vec<u8>, _family_override: Option<&str>) -> Result<(), FontError> {
-        // Skia resolves fonts via its FontMgr; injecting @font-face bytes into the thread-local
-        // FontCollection at runtime is a follow-up.
-        log::warn!("SkiaFontSystem::register_font is unsupported; the font was ignored");
+    fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError> {
+        // Validate the bytes and derive the family name if none was supplied.
+        let family = match family_override {
+            Some(f) => f.to_string(),
+            None => match FontMgr::new().new_from_data(&data, None) {
+                Some(tf) => tf.family_name(),
+                None => return Err(FontError::InvalidFont("could not decode font data".into())),
+            },
+        };
+        if FontMgr::new().new_from_data(&data, None).is_none() {
+            return Err(FontError::InvalidFont(format!("unsupported font data for '{family}'")));
+        }
+        let mut reg = registry().lock();
+        reg.fonts.push((family, data));
+        reg.generation += 1;
         Ok(())
     }
 
@@ -68,7 +165,7 @@ impl FontSystem for SkiaFontSystem {
         if text.is_empty() {
             return (0.0, 0.0);
         }
-        FC.with(|fc| {
+        with_font_collection(|fc| {
             let paragraph_style = ParagraphStyle::new();
             let mut builder = ParagraphBuilder::new(&paragraph_style, fc.clone());
 
@@ -117,7 +214,7 @@ pub fn get_skia_paragraph(
     });
     paragraph_style.set_text_direction(skia_safe::textlayout::TextDirection::LTR);
 
-    let mut paragraph_builder = ParagraphBuilder::new(&paragraph_style, FC.with(|fc| fc.clone()));
+    let mut paragraph_builder = ParagraphBuilder::new(&paragraph_style, with_font_collection(|fc| fc.clone()));
 
     let paint = match paint {
         Some(p) => p.clone(),

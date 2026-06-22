@@ -133,6 +133,45 @@ pub struct TabWorker<C: RenderConfiguration> {
     internal_rx: mpsc::Receiver<TabInternalCommand>,
 }
 
+/// Whether a CSS `unicode-range` descriptor (e.g. `"U+0000-00FF, U+0131"`) includes the
+/// Basic-Latin letter `U+0041` ('A') — our proxy for "covers Latin-script text".
+fn unicode_range_covers_basic_latin(range: &str) -> bool {
+    const TARGET: u32 = 0x41; // 'A'
+    for token in range.split([',', ' ', '\t', '\n', '\r']).filter(|t| !t.is_empty()) {
+        let Some(hex) = token
+            .trim()
+            .strip_prefix("U+")
+            .or_else(|| token.trim().strip_prefix("u+"))
+        else {
+            continue;
+        };
+        let (lo, hi) = match hex.split_once('-') {
+            Some((a, b)) => (parse_hex_bound(a, false), parse_hex_bound(b, true)),
+            None => (parse_hex_bound(hex, false), parse_hex_bound(hex, true)),
+        };
+        if let (Some(lo), Some(hi)) = (lo, hi) {
+            if lo <= TARGET && TARGET <= hi {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Parse a `unicode-range` hex bound, expanding `?` wildcards to `0` (low bound) or `F`
+/// (high bound), e.g. `U+00??` → `0x0000..=0x00FF`.
+fn parse_hex_bound(s: &str, high: bool) -> Option<u32> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let filled: String = s
+        .chars()
+        .map(|c| if c == '?' { if high { 'F' } else { '0' } } else { c })
+        .collect();
+    u32::from_str_radix(&filled, 16).ok()
+}
+
 impl<C: RenderConfiguration> TabWorker<C> {
     /// Creates a new tab. Does NOT spawn the tab worker
     pub fn new(
@@ -272,6 +311,63 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.services.storage.drop_tab(self.zone_id, self.tab_id);
     }
 
+    /// Fetch and register any `@font-face` web fonts declared in the document's stylesheets
+    /// so the first layout/paint can use them. Runs once per navigation, before the first
+    /// render, and deduplicates by resolved font URL. Fetches are synchronous (blocking this
+    /// worker briefly during initial load); each face is registered under its CSS family so
+    /// the font system selects the right weight/style from the font's own metadata.
+    fn load_web_fonts(&self, doc: &C::Document, base_url: &Url) {
+        use gosub_interface::css3::CssStylesheet as _;
+        use gosub_interface::document::Document as _;
+        use gosub_interface::font_system::FontSystem as _;
+
+        let mut fetched: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for sheet in doc.stylesheets() {
+            let sheet_url = Url::parse(sheet.url()).ok();
+            for (family, sources, unicode_range) in sheet.font_faces() {
+                // Google-style web fonts split a family into many `unicode-range` subsets
+                // (latin, cyrillic, greek, …). We don't do per-glyph subset fallback, so
+                // register only subsets covering Basic Latin (and ranges with no descriptor),
+                // which covers Latin-script content without piling unusable subsets onto the
+                // same family.
+                if let Some(range) = &unicode_range {
+                    if !unicode_range_covers_basic_latin(range) {
+                        continue;
+                    }
+                }
+                for src in &sources {
+                    let resolved = sheet_url
+                        .as_ref()
+                        .unwrap_or(base_url)
+                        .join(src)
+                        .or_else(|_| base_url.join(src));
+                    let Ok(font_url) = resolved else { continue };
+                    if !fetched.insert(font_url.to_string()) {
+                        break; // this exact font file is already registered
+                    }
+                    match gosub_net::net::simple::sync_fetch(&font_url) {
+                        Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
+                            match self
+                                .zone_context
+                                .font_system
+                                .lock()
+                                .register_font(resp.body, Some(&family))
+                            {
+                                Ok(()) => {
+                                    log::debug!("Registered web font '{family}' from {font_url}");
+                                    break; // family face loaded; skip remaining sources
+                                }
+                                Err(e) => log::warn!("Failed to register web font '{family}': {e:?}"),
+                            }
+                        }
+                        Ok(resp) => log::warn!("Web font fetch {font_url} returned status {}", resp.status),
+                        Err(e) => log::warn!("Web font fetch {font_url} failed: {e}"),
+                    }
+                }
+            }
+        }
+    }
+
     fn on_nav_result(&mut self, res: NavigationResult<C>) {
         match res {
             NavigationResult::Ok {
@@ -281,6 +377,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 doc,
             } => {
                 self.context.set_document(Arc::clone(&doc));
+                self.load_web_fonts(&doc, &final_url);
                 self.current_url = Some(final_url.clone());
                 if let Some(t) = title {
                     self.title = t;
