@@ -31,7 +31,7 @@ use vello::wgpu;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
@@ -671,7 +671,14 @@ impl ApplicationHandler<()> for BrowserApp {
         // The wgpu surface (configured above) stays at physical `size`; the engine works in
         // logical (CSS) px so content matches DPR-aware browsers on fractionally scaled displays.
         self.scale = gpu.window.scale_factor();
-        eprintln!("DPR_DEBUG scale={} physical={}x{} logical={}x{}", self.scale, size.width, size.height, self.to_logical(size.width), self.to_logical(size.height));
+        eprintln!(
+            "DPR_DEBUG scale={} physical={}x{} logical={}x{}",
+            self.scale,
+            size.width,
+            size.height,
+            self.to_logical(size.width),
+            self.to_logical(size.height)
+        );
         let logical_w = self.to_logical(size.width);
         let logical_h = self.to_logical(size.height);
 
@@ -715,6 +722,22 @@ impl ApplicationHandler<()> for BrowserApp {
         if let Some(rt) = &self.state {
             rt.gpu.window.request_redraw();
         }
+    }
+
+    /// Drive a steady present cadence so engine-side updates (window resize, scroll, hover,
+    /// animations) appear live, the way the GTK example's 16ms `queue_draw` timer does.
+    ///
+    /// Without this the window only repainted when a navigation event woke the proxy, so a
+    /// resize re-laid-out the page in the engine but never presented the new frame. Re-arming a
+    /// redraw every ~16ms (capped via `WaitUntil`, so the loop still sleeps rather than busy-
+    /// spinning) keeps the swap chain showing the latest compositor frame at ~60fps.
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(rt) = &self.state {
+            rt.gpu.window.request_redraw();
+        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(
+            std::time::Instant::now() + std::time::Duration::from_millis(16),
+        ));
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
@@ -806,9 +829,7 @@ impl ApplicationHandler<()> for BrowserApp {
                 let (dx, dy) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_MULTIPLIER, y * SCROLL_MULTIPLIER),
                     // Trackpad pixel deltas are physical; the engine scrolls in logical (CSS) px.
-                    MouseScrollDelta::PixelDelta(p) => {
-                        (self.cursor_logical(p.x), self.cursor_logical(p.y))
-                    }
+                    MouseScrollDelta::PixelDelta(p) => (self.cursor_logical(p.x), self.cursor_logical(p.y)),
                 };
                 let max_y = (self.page_height - self.viewport.1 as f32).max(0.0);
                 self.scroll.0 = (self.scroll.0 + dx).max(0.0);
