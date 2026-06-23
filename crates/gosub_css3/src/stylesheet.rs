@@ -1,6 +1,7 @@
 use core::fmt::Debug;
 use core::slice;
 use cow_utils::CowUtils;
+use std::cell::Cell;
 use gosub_interface::css3::CssOrigin;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::errors::CssError;
@@ -9,6 +10,28 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 
 use crate::colors::{oklab_to_srgb, oklch_to_srgb, RgbColor};
+
+thread_local! {
+    /// Viewport size (CSS px) used to resolve viewport-relative units (`vw`/`vh`/`vmin`/`vmax`)
+    /// during style computation. Set per layout pass via [`set_layout_viewport`]; defaults to a
+    /// 1280×800 fallback so units still resolve before any real viewport is known.
+    static LAYOUT_VIEWPORT: Cell<(f32, f32)> = const { Cell::new((1280.0, 800.0)) };
+}
+
+/// Set the viewport (CSS px) used to resolve `vw`/`vh`/`vmin`/`vmax` for subsequent style
+/// computations on this thread. The render flow calls this before building and laying out the
+/// render tree so viewport units (including those inside `clamp()`) track the real window size
+/// instead of a fixed fallback. Non-positive dimensions are ignored.
+pub fn set_layout_viewport(width: f32, height: f32) {
+    if width > 0.0 && height > 0.0 {
+        LAYOUT_VIEWPORT.with(|vp| vp.set((width, height)));
+    }
+}
+
+/// The current viewport (CSS px) for resolving viewport-relative units on this thread.
+fn layout_viewport() -> (f32, f32) {
+    LAYOUT_VIEWPORT.with(Cell::get)
+}
 
 /// Severity of a CSS error
 #[derive(Debug, PartialEq)]
@@ -460,11 +483,18 @@ impl CssValue {
                 "cm" => *val * (96.0 / 2.54),
                 "mm" => *val * (96.0 / 25.4),
                 "q" => *val * (96.0 / 101.6),
-                // Viewport units — fixed-size fallback (1280×800)
-                "vw" | "svw" | "lvw" | "dvw" => *val * 12.8,
-                "vh" | "svh" | "lvh" | "dvh" => *val * 8.0,
-                "vmin" => *val * 8.0,
-                "vmax" => *val * 12.8,
+                // Viewport units — resolved against the current layout viewport (CSS px),
+                // falling back to 1280×800 until the render flow sets the real size.
+                "vw" | "svw" | "lvw" | "dvw" => *val * layout_viewport().0 / 100.0,
+                "vh" | "svh" | "lvh" | "dvh" => *val * layout_viewport().1 / 100.0,
+                "vmin" => {
+                    let (w, h) = layout_viewport();
+                    *val * w.min(h) / 100.0
+                }
+                "vmax" => {
+                    let (w, h) = layout_viewport();
+                    *val * w.max(h) / 100.0
+                }
                 _ => *val,
             },
             CssValue::String(value) => {

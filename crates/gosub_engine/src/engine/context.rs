@@ -1015,6 +1015,10 @@ fn pipeline_build_scene<C: RenderConfiguration>(
     use gosub_render_pipeline::layouter::CanLayout;
     use gosub_render_pipeline::rendertree_builder::RenderTree;
 
+    // Resolve viewport-relative CSS units (vw/vh/vmin/vmax, incl. inside clamp()) against the
+    // real viewport. Must precede parse(), which computes styles for display:none filtering.
+    gosub_css3::stylesheet::set_layout_viewport(viewport.width as f32, viewport.height as f32);
+
     // Stage 1: render tree
     let adapter = GosubDocumentAdapter::<C>::new(doc);
     let mut render_tree = RenderTree::new(Arc::new(adapter));
@@ -1089,6 +1093,10 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     use gosub_shared::{timing_start, timing_stop};
 
     let ts_total = timing_start!("pipeline.total");
+
+    // Resolve viewport-relative CSS units (vw/vh/vmin/vmax, incl. inside clamp()) against the
+    // real viewport. Must precede parse(), which computes styles for display:none filtering.
+    gosub_css3::stylesheet::set_layout_viewport(viewport.width as f32, viewport.height as f32);
 
     // Stage 1: render tree
     let ts1 = timing_start!("pipeline.render_tree");

@@ -311,19 +311,31 @@ var<private> VERTS: array<vec2<f32>, 3> = array<vec2<f32>, 3>(
     vec2<f32>(-1.0,  3.0),
 );
 
+struct VsOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
 @vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
-    return vec4<f32>(VERTS[vi], 0.0, 1.0);
+fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
+    let p = VERTS[vi];
+    var out: VsOut;
+    out.pos = vec4<f32>(p, 0.0, 1.0);
+    // Derive UV from the NDC position so the whole source texture is stretched across the
+    // surface regardless of their relative sizes. This matters when the source is a logical-px
+    // frame (on a fractionally scaled display) and the surface is larger physical px; mapping
+    // texel-for-pixel would otherwise leave the texture 1:1 in a corner. When sizes match it is
+    // identical to a 1:1 blit. Y is flipped (NDC +1 = top of screen = texture row 0).
+    out.uv = vec2<f32>(p.x * 0.5 + 0.5, p.y * -0.5 + 0.5);
+    return out;
 }
 
 @group(0) @binding(0) var t: texture_2d<f32>;
 @group(0) @binding(1) var s: sampler;
 
 @fragment
-fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
-    let dims = vec2<f32>(textureDimensions(t));
-    let uv   = pos.xy / dims;
-    return textureSample(t, s, uv);
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    return textureSample(t, s, in.uv);
 }
 "#;
 
@@ -360,10 +372,17 @@ struct BrowserApp {
     addr_focused: bool,
     current_url: String,
     modifiers: ModifiersState,
+    /// Cursor position in physical pixels, as winit reports it.
     cursor: PhysicalPosition<f64>,
     scroll: (f32, f32),
     page_height: f32,
+    /// Engine viewport in *logical* (CSS) pixels — physical window size ÷ `scale`.
     viewport: (u32, u32),
+    /// Display scale factor (physical ÷ logical px). The wgpu surface stays at physical size;
+    /// the engine lays out and paints in logical px, and the full-screen blit upscales the
+    /// resulting texture to the physical surface. Keeps page content the same on-screen size as
+    /// DPR-aware browsers on fractionally scaled displays instead of rendering everything smaller.
+    scale: f64,
 }
 
 impl BrowserApp {
@@ -393,6 +412,16 @@ impl BrowserApp {
             format!("Gosub Browser — {}", self.current_url)
         };
         rt.gpu.window.set_title(&title);
+    }
+
+    /// Convert a physical pixel length to logical (CSS) pixels for the engine.
+    fn to_logical(&self, physical: u32) -> u32 {
+        ((physical as f64 / self.scale).round() as u32).max(1)
+    }
+
+    /// Convert a physical cursor coordinate to logical (CSS) pixels for the engine.
+    fn cursor_logical(&self, physical: f64) -> f32 {
+        (physical / self.scale) as f32
     }
 
     fn redraw(&mut self) {
@@ -639,19 +668,26 @@ impl ApplicationHandler<()> for BrowserApp {
             .create_zone(zone_cfg, zone_services, Some(ZoneId::from(DEFAULT_ZONE)))
             .expect("create_zone");
 
+        // The wgpu surface (configured above) stays at physical `size`; the engine works in
+        // logical (CSS) px so content matches DPR-aware browsers on fractionally scaled displays.
+        self.scale = gpu.window.scale_factor();
+        eprintln!("DPR_DEBUG scale={} physical={}x{} logical={}x{}", self.scale, size.width, size.height, self.to_logical(size.width), self.to_logical(size.height));
+        let logical_w = self.to_logical(size.width);
+        let logical_h = self.to_logical(size.height);
+
         let tab = TOKIO_RT
             .block_on(zone.create_tab(
                 TabDefaults {
                     url: None,
                     title: Some("Gosub".to_string()),
-                    viewport: Some(Viewport::new(0, 0, size.width, size.height)),
+                    viewport: Some(Viewport::new(0, 0, logical_w, logical_h)),
                 },
                 None,
             ))
             .expect("create_tab");
 
         let tab_id = tab.tab_id;
-        self.viewport = (size.width, size.height);
+        self.viewport = (logical_w, logical_h);
 
         // Navigate + start drawing.
         let nav_tab = tab.clone();
@@ -691,6 +727,8 @@ impl ApplicationHandler<()> for BrowserApp {
                 if width == 0 || height == 0 {
                     return;
                 }
+                // Surface follows the physical framebuffer; the engine viewport is logical.
+                let (lw, lh) = (self.to_logical(width), self.to_logical(height));
                 if let Some(rt) = &mut self.state {
                     rt.gpu.resize(&rt.device, width, height);
                     let tab = rt.tab.clone();
@@ -699,21 +737,43 @@ impl ApplicationHandler<()> for BrowserApp {
                             .send(TabCommand::SetViewport {
                                 x: 0,
                                 y: 0,
-                                width,
-                                height,
+                                width: lw,
+                                height: lh,
                             })
                             .await;
                     });
                 }
-                self.viewport = (width, height);
+                self.viewport = (lw, lh);
                 self.scroll = (0.0, 0.0);
+            }
+
+            // The window moved to a display with a different scale (e.g. dragged between
+            // monitors). Re-derive logical size from the new scale and re-send the viewport.
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                self.scale = scale_factor;
+                if let Some(rt) = &self.state {
+                    let size = rt.gpu.window.inner_size();
+                    let (lw, lh) = (self.to_logical(size.width), self.to_logical(size.height));
+                    self.viewport = (lw, lh);
+                    let tab = rt.tab.clone();
+                    TOKIO_RT.spawn(async move {
+                        let _ = tab
+                            .send(TabCommand::SetViewport {
+                                x: 0,
+                                y: 0,
+                                width: lw,
+                                height: lh,
+                            })
+                            .await;
+                    });
+                }
             }
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = position;
                 if let Some(rt) = &self.state {
-                    let x = position.x as f32;
-                    let y = position.y as f32;
+                    let x = self.cursor_logical(position.x);
+                    let y = self.cursor_logical(position.y);
                     let tab = rt.tab.clone();
                     TOKIO_RT.spawn(async move {
                         let _ = tab.send(TabCommand::MouseMove { x, y }).await;
@@ -727,8 +787,8 @@ impl ApplicationHandler<()> for BrowserApp {
                 ..
             } => {
                 if let Some(rt) = &self.state {
-                    let x = self.cursor.x as f32;
-                    let y = self.cursor.y as f32;
+                    let x = self.cursor_logical(self.cursor.x);
+                    let y = self.cursor_logical(self.cursor.y);
                     let tab = rt.tab.clone();
                     TOKIO_RT.spawn(async move {
                         let _ = tab
@@ -745,7 +805,10 @@ impl ApplicationHandler<()> for BrowserApp {
             WindowEvent::MouseWheel { delta, .. } => {
                 let (dx, dy) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_MULTIPLIER, y * SCROLL_MULTIPLIER),
-                    MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
+                    // Trackpad pixel deltas are physical; the engine scrolls in logical (CSS) px.
+                    MouseScrollDelta::PixelDelta(p) => {
+                        (self.cursor_logical(p.x), self.cursor_logical(p.y))
+                    }
                 };
                 let max_y = (self.page_height - self.viewport.1 as f32).max(0.0);
                 self.scroll.0 = (self.scroll.0 + dx).max(0.0);
@@ -873,6 +936,7 @@ fn main() {
         scroll: (0.0, 0.0),
         page_height: 0.0,
         viewport: (1024, 768),
+        scale: 1.0,
     };
 
     event_loop.run_app(&mut app).expect("event loop");

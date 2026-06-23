@@ -168,7 +168,12 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
                 // `ch` ≈ width of "0", `ex` ≈ x-height, `lh` ≈ line box.
                 let value = match unit {
                     "em" => Value::Unit(v, Unit::Em),
-                    "ch" => Value::Unit(v * 0.5, Unit::Em),
+                    // `ch` is the advance of the "0" glyph. Without font metrics here we
+                    // approximate it as 0.55em — the CSS-spec 0.5em fallback is for fonts with no
+                    // "0", but real proportional fonts (e.g. the system sans / Source Serif 4 used
+                    // by content here) sit nearer 0.52–0.6em, so 0.5em makes `ch`-based widths
+                    // (e.g. `max-width: 17ch`) too narrow and over-wraps. `ex` ≈ x-height ≈ 0.5em.
+                    "ch" => Value::Unit(v * 0.55, Unit::Em),
                     "ex" => Value::Unit(v * 0.5, Unit::Em),
                     "ic" => Value::Unit(v, Unit::Em),
                     "lh" => Value::Unit(v * 1.4, Unit::Em),
