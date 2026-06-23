@@ -1,11 +1,11 @@
 use core::fmt::Debug;
 use core::slice;
 use cow_utils::CowUtils;
-use std::cell::Cell;
 use gosub_interface::css3::CssOrigin;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt::Display;
 
@@ -579,6 +579,15 @@ impl CssValue {
                         Err(e) => return Err(e),
                     }
                 }
+                // Color functions (rgb/rgba/hsl/hsla/oklch/…) collapse to a concrete `Color`
+                // at parse time. This lets `<color>` syntax matching (which only recognises
+                // `Color`/hex) accept them inside shorthands like `border`/`background`, and
+                // avoids re-parsing the function on every style lookup.
+                if is_color_function(&name) {
+                    if let Some(color) = parse_css_color_function(&name, &list) {
+                        return Ok(CssValue::Color(color));
+                    }
+                }
                 Ok(CssValue::Function(name, list))
             }
 
@@ -641,6 +650,14 @@ impl CssValue {
 ///
 /// Handles the CSS Color Level 4 space-separated syntax, including an optional alpha
 /// separated by `/` (represented as `CssValue::None` after the CSS parser processes it).
+/// True for CSS functional color notations that `parse_css_color_function` can resolve.
+fn is_color_function(name: &str) -> bool {
+    matches!(
+        name.cow_to_ascii_lowercase().as_ref(),
+        "rgb" | "rgba" | "hsl" | "hsla" | "oklch" | "oklab" | "color"
+    )
+}
+
 fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
     // Collect numeric/percentage/none arguments, skipping the `/` delimiter (stored as None)
     // and any string tokens (like the color-space name in `color(srgb ...)`).
@@ -742,8 +759,69 @@ fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
                 .unwrap_or(255.0);
             Some(RgbColor::new(nums[0] * 255.0, nums[1] * 255.0, nums[2] * 255.0, alpha))
         }
+        // rgb(R G B) / rgba(R G B A). Channels are 0-255 numbers or 0%-100% percentages.
+        "rgb" | "rgba" if nums.len() >= 3 => {
+            let chan = |i: usize| -> f32 {
+                if *is_pct.get(i).unwrap_or(&false) {
+                    nums[i] / 100.0 * 255.0
+                } else {
+                    nums[i]
+                }
+            };
+            Some(RgbColor::new(chan(0), chan(1), chan(2), parse_alpha(&nums, &is_pct, 3)))
+        }
+        // hsl(H S% L%) / hsla(...). Hue in degrees; saturation/lightness as percentages.
+        "hsl" | "hsla" if nums.len() >= 3 => {
+            let (r, g, b) = hsl_to_srgb(nums[0], nums[1] / 100.0, nums[2] / 100.0);
+            Some(RgbColor::new(r, g, b, parse_alpha(&nums, &is_pct, 3)))
+        }
         _ => None,
     }
+}
+
+/// Resolves an optional alpha argument at `idx` into the 0-255 range. A bare number is a
+/// 0-1 ratio; a percentage is 0-100. Missing alpha is fully opaque.
+fn parse_alpha(nums: &[f32], is_pct: &[bool], idx: usize) -> f32 {
+    nums.get(idx)
+        .copied()
+        .map(|a| {
+            if *is_pct.get(idx).unwrap_or(&false) {
+                a / 100.0 * 255.0
+            } else {
+                a * 255.0
+            }
+        })
+        .unwrap_or(255.0)
+}
+
+/// Converts HSL (hue in degrees, saturation/lightness in 0-1) to sRGB channels in 0-255.
+fn hsl_to_srgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
+    let h = h.rem_euclid(360.0) / 360.0;
+    if s <= 0.0 {
+        let v = l * 255.0;
+        return (v, v, v);
+    }
+    let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+    let p = 2.0 * l - q;
+    let hue = |mut t: f32| -> f32 {
+        if t < 0.0 {
+            t += 1.0;
+        }
+        if t > 1.0 {
+            t -= 1.0;
+        }
+        let c = if t < 1.0 / 6.0 {
+            p + (q - p) * 6.0 * t
+        } else if t < 1.0 / 2.0 {
+            q
+        } else if t < 2.0 / 3.0 {
+            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+        } else {
+            p
+        };
+        c * 255.0
+    };
+    (hue(h + 1.0 / 3.0), hue(h), hue(h - 1.0 / 3.0))
 }
 
 impl gosub_interface::css3::CssValue for CssValue {
@@ -949,5 +1027,41 @@ mod test {
         assert!(specificity5 < specificity6);
         assert!(specificity6 > specificity7);
         assert!(specificity7 < specificity8);
+    }
+
+    #[test]
+    fn rgb_hsl_color_functions() {
+        // rgba(): channels 0-255, alpha 0-1 → 0-255.
+        let c = parse_css_color_function(
+            "rgba",
+            &[
+                CssValue::Number(14.0),
+                CssValue::Comma,
+                CssValue::Number(42.0),
+                CssValue::Comma,
+                CssValue::Number(54.0),
+                CssValue::Comma,
+                CssValue::Number(0.5),
+            ],
+        )
+        .expect("rgba should parse");
+        assert_eq!((c.r, c.g, c.b), (14.0, 42.0, 54.0));
+        assert!((c.a - 127.5).abs() < 0.5);
+
+        // rgb() without alpha is fully opaque.
+        let c = parse_css_color_function("rgb", &[CssValue::Number(255.0), CssValue::Number(0.0), CssValue::Number(0.0)])
+            .unwrap();
+        assert_eq!((c.r, c.g, c.b, c.a), (255.0, 0.0, 0.0, 255.0));
+
+        // hsl(0 100% 50%) == red.
+        let c = parse_css_color_function(
+            "hsl",
+            &[CssValue::Number(0.0), CssValue::Percentage(100.0), CssValue::Percentage(50.0)],
+        )
+        .unwrap();
+        assert!((c.r - 255.0).abs() < 1.0 && c.g < 1.0 && c.b < 1.0, "hsl red got {c:?}");
+
+        // A color function collapses to CssValue::Color at AST conversion time.
+        assert!(is_color_function("rgba") && !is_color_function("calc"));
     }
 }

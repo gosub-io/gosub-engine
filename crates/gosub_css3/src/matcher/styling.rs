@@ -16,19 +16,42 @@ use crate::matcher::property_definitions::get_css_definitions;
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity};
 use crate::system::Css3System;
 
-// Matches a complete selector (all parts) against the given node(id)
+// Matches a complete selector (all parts) against the given node(id).
+//
+// `pseudo` selects what we are matching against:
+//   * `None`           — match the element itself. Any selector containing a `::pseudo-element`
+//                        part never matches (pseudo-elements are not the element).
+//   * `Some("before")` — match the `::before` pseudo-element of `node_id`. Only selectors that
+//                        explicitly carry the matching `::before` part match; the rest of the
+//                        compound is matched against the originating element as usual.
 pub(crate) fn match_selector<C: HasDocument>(
     document: &C::Document,
     node_id: NodeId,
     selector: &CssSelector,
+    pseudo: Option<&str>,
 ) -> (bool, Specificity) {
     for part in &selector.parts {
-        if match_selector_parts::<C>(document, node_id, part) {
+        // When matching a pseudo-element, the selector must explicitly target it.
+        if let Some(target) = pseudo {
+            if !part
+                .iter()
+                .any(|p| matches!(p, CssSelectorPart::PseudoElement(n) if pseudo_eq(n, target)))
+            {
+                continue;
+            }
+        }
+
+        if match_selector_parts::<C>(document, node_id, part, pseudo) {
             return (true, Specificity::from(part.as_slice()));
         }
     }
 
     (false, Specificity::new(0, 0, 0))
+}
+
+/// Case-insensitive compare of a pseudo-element name against a target (`before`/`after`).
+fn pseudo_eq(name: &str, target: &str) -> bool {
+    name.eq_ignore_ascii_case(target)
 }
 
 fn consume<'a, T>(this: &mut &'a [T]) -> Option<&'a T> {
@@ -42,7 +65,12 @@ fn consume<'a, T>(this: &mut &'a [T]) -> Option<&'a T> {
 }
 
 /// Returns true when the given node matches the part(s)
-fn match_selector_parts<C: HasDocument>(doc: &C::Document, node_id: NodeId, mut parts: &[CssSelectorPart]) -> bool {
+fn match_selector_parts<C: HasDocument>(
+    doc: &C::Document,
+    node_id: NodeId,
+    mut parts: &[CssSelectorPart],
+    pseudo: Option<&str>,
+) -> bool {
     let mut next_current_id: Option<NodeId> = Some(node_id);
 
     while let Some(part) = consume(&mut parts) {
@@ -54,7 +82,7 @@ fn match_selector_parts<C: HasDocument>(doc: &C::Document, node_id: NodeId, mut 
             return false;
         }
 
-        if !match_selector_part::<C>(part, current_id, doc, &mut next_current_id, &mut parts) {
+        if !match_selector_part::<C>(part, current_id, doc, &mut next_current_id, &mut parts, pseudo) {
             return false;
         }
     }
@@ -68,6 +96,7 @@ fn match_selector_part<C: HasDocument>(
     doc: &C::Document,
     next_id: &mut Option<NodeId>,
     parts: &mut &[CssSelectorPart],
+    pseudo: Option<&str>,
 ) -> bool {
     match part {
         CssSelectorPart::Universal => true,
@@ -216,10 +245,10 @@ fn match_selector_part<C: HasDocument>(
             // Unknown / unimplemented pseudo-classes never match.
             _ => false,
         },
-        CssSelectorPart::PseudoElement(_name) => {
-            // @Todo: implement pseudo elements
-            false
-        }
+        // A pseudo-element part matches only when we are explicitly computing the styles for that
+        // pseudo-element (`pseudo == Some(name)`). It does not advance `next_id`: the remaining
+        // compound continues to match against the originating element.
+        CssSelectorPart::PseudoElement(name) => pseudo.is_some_and(|target| pseudo_eq(name, target)),
         CssSelectorPart::Combinator(combinator) => match combinator {
             Combinator::Descendant => {
                 let Some(mut parent_id) = doc.parent(current_id) else {
@@ -233,7 +262,7 @@ fn match_selector_part<C: HasDocument>(
                 loop {
                     *next_id = Some(parent_id);
 
-                    if match_selector_part::<C>(last, parent_id, doc, next_id, parts) {
+                    if match_selector_part::<C>(last, parent_id, doc, next_id, parts, pseudo) {
                         return true;
                     }
 
@@ -255,7 +284,7 @@ fn match_selector_part<C: HasDocument>(
 
                 *next_id = Some(parent_id);
 
-                match_selector_part::<C>(last, parent_id, doc, next_id, parts)
+                match_selector_part::<C>(last, parent_id, doc, next_id, parts, pseudo)
             }
             Combinator::NextSibling => {
                 let Some(parent_id) = doc.parent(current_id) else {
@@ -282,7 +311,7 @@ fn match_selector_part<C: HasDocument>(
 
                 *next_id = Some(prev_id);
 
-                match_selector_part::<C>(last, prev_id, doc, next_id, parts)
+                match_selector_part::<C>(last, prev_id, doc, next_id, parts, pseudo)
             }
             Combinator::SubsequentSibling => {
                 let Some(parent_id) = doc.parent(current_id) else {
@@ -300,7 +329,7 @@ fn match_selector_part<C: HasDocument>(
                         break;
                     }
 
-                    if match_selector_part::<C>(last, child_id, doc, next_id, parts) {
+                    if match_selector_part::<C>(last, child_id, doc, next_id, parts, pseudo) {
                         return true;
                     }
                 }
@@ -481,6 +510,11 @@ impl CssProperty {
 
     fn find_actual_value(&self) -> CssValue {
         // @TODO: stuff like clipping and such should occur as well
+        // `opacity` (and other 0..1 ratios) must keep their fractional value — rounding
+        // `opacity: 0.15` to 0 would make a semi-transparent element vanish entirely.
+        if self.name == "opacity" {
+            return self.used.clone();
+        }
         // Only round absolute units (px, pt, in, cm, mm). Relative units (em, rem, %, vw, vh)
         // must NOT be rounded here — 1.5em rounded to 2.0em would make h2 render at h1 size.
         match &self.used {

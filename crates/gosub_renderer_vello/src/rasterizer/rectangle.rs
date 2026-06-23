@@ -13,6 +13,12 @@ pub(crate) fn do_paint_rectangle(scene: &mut vello::Scene, rect: &Rectangle, aff
         scene.fill(Fill::NonZero, affine, &vello_brush, None, &vello_rect);
     }
 
+    // Per-side borders (e.g. `border-bottom` only) are filled edge-by-edge.
+    if !rect.border().is_uniform() {
+        paint_per_side_border(scene, rect, affine, media_store);
+        return;
+    }
+
     match rect.border().style() {
         BorderStyle::None => {}
         BorderStyle::Solid => draw_single_border(scene, rect, affine, vec![], media_store),
@@ -27,6 +33,32 @@ pub(crate) fn do_paint_rectangle(scene: &mut vello::Scene, rect: &Rectangle, aff
             draw_single_border(scene, rect, affine, vec![], media_store)
         }
         BorderStyle::Hidden => {}
+    }
+}
+
+/// Paints a non-uniform border by filling each visible side as a solid edge rectangle.
+/// Side order is `[top, right, bottom, left]`.
+fn paint_per_side_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine, media_store: &MediaStore) {
+    let r = rect.rect();
+    let widths = rect.border().widths();
+    let styles = rect.border().styles();
+    let brushes = rect.border().brushes();
+
+    let edges = [
+        (r.x, r.y, r.width, widths[0] as f64),
+        (r.x + r.width - widths[1] as f64, r.y, widths[1] as f64, r.height),
+        (r.x, r.y + r.height - widths[2] as f64, r.width, widths[2] as f64),
+        (r.x, r.y, widths[3] as f64, r.height),
+    ];
+
+    for i in 0..4 {
+        if widths[i] <= 0.0 || styles[i].is_invisible() {
+            continue;
+        }
+        let (x, y, w, h) = edges[i];
+        let vello_brush = set_brush(&brushes[i], r, media_store);
+        let edge = Rect::new(x, y, x + w, y + h);
+        scene.fill(Fill::NonZero, affine, &vello_brush, None, &edge);
     }
 }
 

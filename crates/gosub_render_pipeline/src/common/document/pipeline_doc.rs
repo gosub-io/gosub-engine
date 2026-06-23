@@ -473,6 +473,129 @@ pub trait PipelineDocument: Send + Sync {
     }
 }
 
+// ── Pseudo-element (::before / ::after) synthetic nodes ───────────────────────
+//
+// CSS generated content (`::before` / `::after`) has no DOM node, but the whole render
+// pipeline is keyed by `NodeId`. We therefore mint *synthetic* NodeIds that the adapter
+// resolves on the fly: the rest of the pipeline (render-tree build, layout, paint) treats
+// them like any other node via the `PipelineDocument` interface.
+//
+// Encoding: the top bit flags a synthetic id; the next two bits are the role; the remaining
+// bits hold the originating ("owner") element id. Real DOM ids are small, so the high bits
+// are free.
+const PSEUDO_FLAG: u64 = 1 << 62;
+const ROLE_BEFORE_ELEM: u64 = 0; // the ::before pseudo-element box
+const ROLE_AFTER_ELEM: u64 = 1; // the ::after pseudo-element box
+const ROLE_BEFORE_TEXT: u64 = 2; // generated text child of ::before
+const ROLE_AFTER_TEXT: u64 = 3; // generated text child of ::after
+
+const fn is_pseudo_id(id_val: u64) -> bool {
+    id_val & PSEUDO_FLAG != 0
+}
+
+fn encode_pseudo(owner: NodeId, role: u64) -> NodeId {
+    NodeId::from(PSEUDO_FLAG | (u64::from(owner) << 2) | role)
+}
+
+/// Decodes a synthetic id into `(owner element id, role)`.
+fn decode_pseudo(id: NodeId) -> (NodeId, u64) {
+    let v = u64::from(id) & !PSEUDO_FLAG;
+    (NodeId::from(v >> 2), v & 0b11)
+}
+
+const fn role_is_after(role: u64) -> bool {
+    matches!(role, ROLE_AFTER_ELEM | ROLE_AFTER_TEXT)
+}
+
+const fn role_is_text(role: u64) -> bool {
+    matches!(role, ROLE_BEFORE_TEXT | ROLE_AFTER_TEXT)
+}
+
+/// A materialized pseudo-element: its computed style map plus the generated text (if the
+/// resolved `content` produced any). `text == None` means an empty box (e.g. `content: ""`).
+struct PseudoBox<P> {
+    styles: Arc<P>,
+    text: Option<String>,
+}
+
+/// Strips one matching pair of surrounding ASCII quotes from a CSS string token.
+fn unquote(s: &str) -> String {
+    let b = s.as_bytes();
+    if b.len() >= 2 && ((b[0] == b'"' && b[b.len() - 1] == b'"') || (b[0] == b'\'' && b[b.len() - 1] == b'\'')) {
+        s[1..s.len() - 1].to_string()
+    } else {
+        s.to_string()
+    }
+}
+
+/// Maps a single `content` keyword/string token to its generated text.
+/// Returns `None` only for `none`/`normal`, which suppress the box entirely.
+fn content_token_to_string(s: &str) -> Option<String> {
+    match s {
+        "none" | "normal" => None,
+        // We have no quote-pair stack, so use the typographic defaults.
+        "open-quote" => Some("\u{201C}".to_string()),
+        "close-quote" => Some("\u{201D}".to_string()),
+        "no-open-quote" | "no-close-quote" => Some(String::new()),
+        _ => Some(unquote(s)),
+    }
+}
+
+/// Resolves a `counter()` / `counters()` / unhandled function inside `content`.
+/// Counter state (counter-reset/counter-increment scoping) is not yet tracked, so counters
+/// currently resolve to empty text — generated boxes still appear, just without the number.
+fn resolve_content_function<S: CssSystem>(name: &str, _args: &[S::Value]) -> String {
+    if matches!(name, "counter" | "counters") {
+        log::debug!("content: {name}() is not yet supported; rendering empty");
+    }
+    String::new()
+}
+
+/// Resolves a single content list item (`S::Value`) to text.
+fn content_value_to_string<S: CssSystem>(v: &S::Value) -> Option<String> {
+    if let Some(s) = v.as_string() {
+        return content_token_to_string(s);
+    }
+    if let Some((name, args)) = v.as_function() {
+        return Some(resolve_content_function::<S>(name, args));
+    }
+    if let Some(list) = v.as_list() {
+        let mut out = String::new();
+        for item in list {
+            if let Some(part) = content_value_to_string::<S>(item) {
+                out.push_str(&part);
+            }
+        }
+        return Some(out);
+    }
+    None
+}
+
+/// Resolves a computed `content` property into the generated text string.
+/// `None` => no box should be generated (`content: none | normal`).
+/// `Some("")` => an empty box (e.g. `content: ""`).
+fn resolve_content<S: CssSystem>(p: &S::Property) -> Option<String> {
+    // A single string/keyword token.
+    if let Some(s) = p.as_string() {
+        return content_token_to_string(s);
+    }
+    // A list of tokens (strings, attr()/var() already resolved upstream, counters, quotes).
+    if let Some(list) = p.as_list() {
+        let mut out = String::new();
+        for v in list {
+            if let Some(part) = content_value_to_string::<S>(v) {
+                out.push_str(&part);
+            }
+        }
+        return Some(out);
+    }
+    // A bare function value.
+    if let Some((name, args)) = p.as_function() {
+        return Some(resolve_content_function::<S>(name, args));
+    }
+    None
+}
+
 // ── GosubDocumentAdapter ──────────────────────────────────────────────────────
 
 /// Adapts any `gosub_interface::document::Document<C>` into a `PipelineDocument`.
@@ -486,11 +609,16 @@ where
     style_cache: Mutex<HashMap<NodeId, Arc<<C::CssSystem as CssSystem>::PropertyMap>>>,
     /// Per-node inline-style cache (from the `style` attribute, highest specificity).
     inline_style_cache: Mutex<HashMap<NodeId, NodeStyle>>,
+    /// Materialized `::before` / `::after` pseudo-boxes, keyed by `(owner, is_after)`.
+    /// `None` means "no generated box". Populated lazily.
+    #[allow(clippy::type_complexity)]
+    pseudo_cache: Mutex<HashMap<(NodeId, bool), Option<Arc<PseudoBox<<C::CssSystem as CssSystem>::PropertyMap>>>>>,
 }
 
 impl<C> GosubDocumentAdapter<C>
 where
-    C: HasDocument,
+    C: HasDocument + Send + Sync + 'static,
+    C::Document: Send + Sync,
     <C::CssSystem as CssSystem>::PropertyMap: Send + Sync,
 {
     pub fn new(doc: Arc<C::Document>) -> Self {
@@ -498,7 +626,53 @@ where
             doc,
             style_cache: Mutex::new(HashMap::new()),
             inline_style_cache: Mutex::new(HashMap::new()),
+            pseudo_cache: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Returns the materialized `::before`/`::after` pseudo-box for `owner`, or `None` if no
+    /// rule generates one. Computed and cached on first access.
+    fn pseudo_box(
+        &self,
+        owner: NodeId,
+        is_after: bool,
+    ) -> Option<Arc<PseudoBox<<C::CssSystem as CssSystem>::PropertyMap>>> {
+        if let Some(cached) = self.pseudo_cache.lock().get(&(owner, is_after)) {
+            return cached.clone();
+        }
+
+        let result = self.compute_pseudo_box(owner, is_after);
+        self.pseudo_cache.lock().insert((owner, is_after), result.clone());
+        result
+    }
+
+    fn compute_pseudo_box(
+        &self,
+        owner: NodeId,
+        is_after: bool,
+    ) -> Option<Arc<PseudoBox<<C::CssSystem as CssSystem>::PropertyMap>>> {
+        // Pseudo-elements only hang off real elements.
+        if self.doc.node_type(owner) != GosubNodeType::ElementNode {
+            return None;
+        }
+        let name = if is_after { "after" } else { "before" };
+        let sheets = self.doc.stylesheets();
+        let mut prop_map = C::CssSystem::pseudo_properties_from_node::<C>(&*self.doc, owner, sheets, name)?;
+        for (_, prop) in prop_map.iter_mut() {
+            prop.compute_value();
+        }
+
+        // Resolve `content` into generated text. `none`/`normal` means no box at all.
+        let content_prop = <_ as CssPropertyMap<C::CssSystem>>::get(&prop_map, "content")?;
+        let text = resolve_content::<C::CssSystem>(content_prop)?;
+
+        // `content: ""` (and any all-empty result) generates a box but no text child.
+        let text = if text.is_empty() { None } else { Some(text) };
+
+        Some(Arc::new(PseudoBox {
+            styles: Arc::new(prop_map),
+            text,
+        }))
     }
 
     /// Returns the cached `PropertyMap` for `id`, computing and caching it on first access.
@@ -540,6 +714,88 @@ where
         (prop_map, inline_ns)
     }
 
+    /// Own style for a pseudo-element id, read from its generated style map.
+    fn pseudo_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value> {
+        let (owner, role) = decode_pseudo(id);
+        // Generated text nodes carry no own style; inheritance flows from the pseudo-element.
+        if role_is_text(role) {
+            return None;
+        }
+        let pb = self.pseudo_box(owner, role_is_after(role))?;
+        self.style_from_map(id, prop, pb.styles.as_ref())
+    }
+
+    /// Bridges a computed `PropertyMap` to a single `Value`, shared by real elements and
+    /// pseudo-elements. Handles the `text-decoration` / `background[-image]` shorthands and
+    /// `currentColor`. `id` is only used to resolve `currentColor` against the node's `color`.
+    fn style_from_map(
+        &self,
+        id: NodeId,
+        prop: &StyleProperty,
+        map: &<C::CssSystem as CssSystem>::PropertyMap,
+    ) -> Option<Value> {
+        let css_name = prop.css_name();
+
+        // For `text-decoration-line`, check the `text-decoration` shorthand FIRST when it
+        // is `none` (the shorthand is stored under its own key, not expanded to longhands).
+        if matches!(prop, StyleProperty::TextDecorationLine) {
+            if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, "text-decoration") {
+                if p.is_none() {
+                    return Some(Value::Keyword(intern("none")));
+                }
+                if let Some(s) = p.as_string() {
+                    if s == "none" || s == "initial" || s == "unset" {
+                        return Some(Value::Keyword(intern("none")));
+                    }
+                    if s.contains("underline") {
+                        return Some(Value::Keyword(intern("underline")));
+                    }
+                    if s.contains("line-through") {
+                        return Some(Value::Keyword(intern("line-through")));
+                    }
+                }
+            }
+        }
+
+        // background-image: accept the `background-image` longhand or a `url(...)` inside the
+        // `background` shorthand. The returned keyword is the unresolved URL.
+        if matches!(prop, StyleProperty::BackgroundImage) {
+            for key in ["background-image", "background"] {
+                if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, key) {
+                    if let Some(url) = css_property_url::<C::CssSystem>(p) {
+                        return Some(Value::Keyword(intern(&url)));
+                    }
+                }
+            }
+            return None;
+        }
+
+        // `currentColor` on any color property except `color` itself resolves to the node's
+        // computed `color`. (`color: currentColor` would be self-referential, so it is left to
+        // resolve via the normal cascade.)
+        if matches!(
+            prop,
+            StyleProperty::BackgroundColor
+                | StyleProperty::BorderTopColor
+                | StyleProperty::BorderRightColor
+                | StyleProperty::BorderBottomColor
+                | StyleProperty::BorderLeftColor
+        ) {
+            if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, css_name) {
+                if p.as_string().is_some_and(|s| s.eq_ignore_ascii_case("currentcolor")) {
+                    return Some(self.get_style(id, &StyleProperty::Color));
+                }
+            }
+        }
+
+        if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, css_name) {
+            if let Some(v) = css_property_to_value::<C::CssSystem>(p, prop) {
+                return Some(v);
+            }
+        }
+        None
+    }
+
     fn find_child_by_tag(&self, parent: NodeId, tag: &str) -> Option<NodeId> {
         self.doc
             .children(parent)
@@ -560,10 +816,46 @@ where
     }
 
     fn children(&self, id: NodeId) -> Vec<NodeId> {
-        self.doc.children(id).to_vec()
+        if is_pseudo_id(u64::from(id)) {
+            let (owner, role) = decode_pseudo(id);
+            // A pseudo-element's only child is its generated text (if any); text nodes are leaves.
+            if role_is_text(role) {
+                return Vec::new();
+            }
+            return match self.pseudo_box(owner, role_is_after(role)) {
+                Some(pb) if pb.text.is_some() => {
+                    let text_role = if role_is_after(role) {
+                        ROLE_AFTER_TEXT
+                    } else {
+                        ROLE_BEFORE_TEXT
+                    };
+                    vec![encode_pseudo(owner, text_role)]
+                }
+                _ => Vec::new(),
+            };
+        }
+
+        let mut out = Vec::new();
+        // `::before` is inserted as the first child, `::after` as the last.
+        if self.pseudo_box(id, false).is_some() {
+            out.push(encode_pseudo(id, ROLE_BEFORE_ELEM));
+        }
+        out.extend(self.doc.children(id).iter().copied());
+        if self.pseudo_box(id, true).is_some() {
+            out.push(encode_pseudo(id, ROLE_AFTER_ELEM));
+        }
+        out
     }
 
     fn node_kind(&self, id: NodeId) -> PipelineNodeKind {
+        if is_pseudo_id(u64::from(id)) {
+            let (_, role) = decode_pseudo(id);
+            return if role_is_text(role) {
+                PipelineNodeKind::Text
+            } else {
+                PipelineNodeKind::Element
+            };
+        }
         match self.doc.node_type(id) {
             GosubNodeType::TextNode => PipelineNodeKind::Text,
             GosubNodeType::CommentNode | GosubNodeType::DocTypeNode => PipelineNodeKind::Comment,
@@ -573,6 +865,10 @@ where
     }
 
     fn tag_name(&self, id: NodeId) -> Option<String> {
+        // Pseudo-elements have no tag name.
+        if is_pseudo_id(u64::from(id)) {
+            return None;
+        }
         self.doc.tag_name(id).map(|s| s.to_string())
     }
 
@@ -584,10 +880,31 @@ where
     }
 
     fn parent(&self, id: NodeId) -> Option<NodeId> {
+        if is_pseudo_id(u64::from(id)) {
+            let (owner, role) = decode_pseudo(id);
+            // Text child's parent is its pseudo-element; the pseudo-element's parent is the owner.
+            return Some(if role_is_text(role) {
+                encode_pseudo(
+                    owner,
+                    if role_is_after(role) {
+                        ROLE_AFTER_ELEM
+                    } else {
+                        ROLE_BEFORE_ELEM
+                    },
+                )
+            } else {
+                owner
+            });
+        }
         self.doc.parent(id)
     }
 
     fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value> {
+        // Generated content (::before / ::after) draws its styles from a separate map.
+        if is_pseudo_id(u64::from(id)) {
+            return self.pseudo_own_style(id, prop);
+        }
+
         let arc = self.cached_styles(id);
 
         // Inline styles (from `style` attribute) have highest specificity.
@@ -597,55 +914,8 @@ where
             }
         }
 
-        // Computed styles via bridge: CssProperty → Value.
-        let css_name = prop.css_name();
-
-        // For `text-decoration-line`, check the `text-decoration` shorthand FIRST when it
-        // is `none`.  The CSS shorthand `text-decoration: none` clears all decorations, but
-        // because the definitions JSON has empty expanded_properties for the shorthand, it is
-        // stored under the key "text-decoration" while the UA stylesheet's
-        // `a { text-decoration-line: underline }` is stored under "text-decoration-line".
-        // Without this early check the UA longhand would win over the author shorthand.
-        if matches!(prop, StyleProperty::TextDecorationLine) {
-            if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), "text-decoration") {
-                // `none` is represented as CssValue::None, not CssValue::String("none").
-                if p.is_none() {
-                    return Some(Value::Keyword(intern("none")));
-                }
-                if let Some(s) = p.as_string() {
-                    if s == "none" || s == "initial" || s == "unset" {
-                        return Some(Value::Keyword(intern("none")));
-                    }
-                    if s.contains("underline") {
-                        return Some(Value::Keyword(intern("underline")));
-                    }
-                    if s.contains("line-through") {
-                        return Some(Value::Keyword(intern("line-through")));
-                    }
-                }
-            }
-        }
-
-        // background-image: accept the `background-image` longhand or a `url(...)` inside the
-        // `background` shorthand. Shorthands are stored under their own key (not expanded into
-        // longhands), so the shorthand must be inspected explicitly — same pattern as
-        // `text-decoration` above. The returned keyword is the unresolved URL; the layouter
-        // resolves it against the base URL and loads it into the media store.
-        if matches!(prop, StyleProperty::BackgroundImage) {
-            for key in ["background-image", "background"] {
-                if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), key) {
-                    if let Some(url) = css_property_url::<C::CssSystem>(p) {
-                        return Some(Value::Keyword(intern(&url)));
-                    }
-                }
-            }
-            return None;
-        }
-
-        if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), css_name) {
-            if let Some(v) = css_property_to_value::<C::CssSystem>(p, prop) {
-                return Some(v);
-            }
+        if let Some(v) = self.style_from_map(id, prop, arc.as_ref()) {
+            return Some(v);
         }
 
         // HTML presentation attributes (bgcolor, width, …) as lowest-specificity fallback.
@@ -657,7 +927,16 @@ where
     }
 
     fn background_gradient(&self, id: NodeId) -> Option<Gradient> {
-        let arc = self.cached_styles(id);
+        // Read the gradient from the pseudo-element's own map, never the owner's.
+        let arc = if is_pseudo_id(u64::from(id)) {
+            let (owner, role) = decode_pseudo(id);
+            if role_is_text(role) {
+                return None;
+            }
+            self.pseudo_box(owner, role_is_after(role))?.styles.clone()
+        } else {
+            self.cached_styles(id)
+        };
         for key in ["background-image", "background"] {
             if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), key) {
                 if let Some(g) = css_property_gradient::<C::CssSystem>(p) {
@@ -671,14 +950,19 @@ where
     fn clear_style_cache(&self) {
         self.style_cache.lock().clear();
         self.inline_style_cache.lock().clear();
+        self.pseudo_cache.lock().clear();
     }
 
     fn invalidate_style_for_nodes(&self, ids: &[NodeId]) {
         let mut cache = self.style_cache.lock();
         let mut inline_cache = self.inline_style_cache.lock();
+        let mut pseudo_cache = self.pseudo_cache.lock();
         for id in ids {
             cache.remove(id);
             inline_cache.remove(id);
+            // Drop both pseudo-boxes belonging to this owner.
+            pseudo_cache.remove(&(*id, false));
+            pseudo_cache.remove(&(*id, true));
         }
     }
 
@@ -697,10 +981,42 @@ where
     }
 
     fn inner_html(&self, id: NodeId) -> String {
+        if is_pseudo_id(u64::from(id)) {
+            return String::new();
+        }
         self.doc.write_from_node(id)
     }
 
     fn get_node_by_id(&self, id: NodeId) -> Option<Node> {
+        // Synthetic pseudo nodes: build a transient Element (the box) or Text (its content).
+        if is_pseudo_id(u64::from(id)) {
+            let (owner, role) = decode_pseudo(id);
+            let node_type = if role_is_text(role) {
+                let text = self
+                    .pseudo_box(owner, role_is_after(role))
+                    .and_then(|pb| pb.text.clone());
+                NodeType::Text(text.unwrap_or_default())
+            } else {
+                // Carry the computed `display` on the synthetic element so the layouter's
+                // inline-vs-block grouping (which is tag-name based and would see an empty tag)
+                // treats the pseudo-element correctly. ::before/::after default to inline.
+                let mut style = NodeStyle::new();
+                style.set(StyleProperty::Display, self.get_style(id, &StyleProperty::Display));
+                NodeType::Element(ElementData::new(
+                    String::new(),
+                    Some(AttrMap::new()),
+                    false,
+                    Some(style),
+                ))
+            };
+            return Some(Node {
+                node_id: id,
+                parent_id: self.parent(id),
+                children: self.children(id),
+                node_type,
+            });
+        }
+
         let parent_id = self.doc.parent(id);
         let children = self.doc.children(id).to_vec();
 

@@ -101,9 +101,30 @@ impl Painter {
 
     fn get_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        match doc.get_style(node_id, css_prop) {
+        let brush = match doc.get_style(node_id, css_prop) {
             Value::Color(r, g, b, a) => Brush::solid(Color::from_rgba8(r, g, b, a)),
             _ => default,
+        };
+        self.apply_opacity(node_id, brush)
+    }
+
+    /// Scales a brush's alpha by the element's `opacity`. This is a per-element approximation
+    /// (it does not group-composite the element with its descendants), which is exact for
+    /// leaf boxes such as a 1px `::before` divider and a reasonable approximation otherwise.
+    fn apply_opacity(&self, node_id: NodeId, brush: Brush) -> Brush {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let opacity = match doc.get_style(node_id, &StyleProperty::Opacity) {
+            Value::Number(n) | Value::Unit(n, _) => n,
+            _ => 1.0,
+        };
+        if opacity >= 1.0 {
+            return brush;
+        }
+        let op = opacity.clamp(0.0, 1.0);
+        match brush {
+            Brush::Solid(c) => Brush::Solid(Color::from_rgba(c.r(), c.g(), c.b(), c.a() * op)),
+            // Gradient/image opacity (true group compositing) is not yet modelled.
+            other => other,
         }
     }
 
@@ -114,7 +135,11 @@ impl Painter {
         if let Some(gradient) = doc.background_gradient(node_id) {
             return Brush::gradient(gradient);
         }
-        self.get_brush(node_id, &StyleProperty::BackgroundColor, Brush::solid(Color::TRANSPARENT))
+        self.get_brush(
+            node_id,
+            &StyleProperty::BackgroundColor,
+            Brush::solid(Color::TRANSPARENT),
+        )
     }
 
     fn get_parent_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
@@ -233,6 +258,7 @@ impl Painter {
         match &layout_element.context {
             ElementContext::Text(ctx) => {
                 let brush = self.get_parent_brush(dom_node_id, &StyleProperty::Color, Brush::solid(Color::BLACK));
+                let brush = self.apply_opacity(dom_node_id, brush);
 
                 let r = layout_element.box_model.content_box;
                 let avail_w = if ctx.available_width > 0.0 {
@@ -315,13 +341,23 @@ impl Painter {
             let border_left_color =
                 self.get_brush(dom_node_id, &StyleProperty::BorderLeftColor, Brush::solid(Color::BLACK));
 
-            let border_style = match doc.get_style(dom_node_id, &StyleProperty::BorderTopStyle) {
+            let side_style = |prop: &StyleProperty| match doc.get_style(dom_node_id, prop) {
                 Value::BorderStyle(s) => css_border_style_to_paint(&s),
                 _ => BorderStyle::Solid,
             };
-            let border = Border::new(
-                border_top_width,
-                border_style,
+            let border = Border::new_per_side(
+                [
+                    border_top_width,
+                    border_right_width,
+                    border_bottom_width,
+                    border_left_width,
+                ],
+                [
+                    side_style(&StyleProperty::BorderTopStyle),
+                    side_style(&StyleProperty::BorderRightStyle),
+                    side_style(&StyleProperty::BorderBottomStyle),
+                    side_style(&StyleProperty::BorderLeftStyle),
+                ],
                 [
                     border_top_color,
                     border_right_color,

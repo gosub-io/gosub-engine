@@ -306,6 +306,8 @@ pub enum StyleProperty {
     WhiteSpace,
     TextDecorationLine,
     BackgroundImage,
+    Content,
+    Opacity,
 }
 
 impl StyleProperty {
@@ -384,6 +386,8 @@ impl StyleProperty {
             StyleProperty::WhiteSpace => 69,
             StyleProperty::TextDecorationLine => 70,
             StyleProperty::BackgroundImage => 71,
+            StyleProperty::Content => 72,
+            StyleProperty::Opacity => 73,
         }
     }
 
@@ -883,6 +887,18 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("none"),
     },
+    // 72 content — not inherited; initial = normal (applies to ::before/::after pseudo-elements)
+    PropertyMeta {
+        name: "content",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("normal"),
+    },
+    // 73 opacity — not inherited; initial = 1.0
+    PropertyMeta {
+        name: "opacity",
+        inherited: false,
+        initial_kind: InitialKind::Number(1.0),
+    },
 ];
 
 // ── NodeStyle — replaces StylePropertyList ────────────────────────────────────
@@ -1017,6 +1033,8 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         69 => Some(StyleProperty::WhiteSpace),
         70 => Some(StyleProperty::TextDecorationLine),
         71 => Some(StyleProperty::BackgroundImage),
+        72 => Some(StyleProperty::Content),
+        73 => Some(StyleProperty::Opacity),
         _ => None,
     }
 }

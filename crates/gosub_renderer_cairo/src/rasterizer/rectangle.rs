@@ -23,6 +23,15 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
         _ = cr.fill();
     }
 
+    // Per-side borders (e.g. `border-bottom: 1px solid …`) cannot be expressed as a single
+    // stroked rectangle, so draw each visible side as its own filled edge. The uniform path
+    // below keeps handling equal-width/style borders (with dashes, double, radius, etc.).
+    if !rectangle.border().is_uniform() {
+        paint_per_side_border(cr, rectangle, media_store);
+        _ = cr.restore();
+        return;
+    }
+
     setup_rectangle_path(cr, rectangle);
 
     cr.set_line_width(rectangle.border().width() as f64);
@@ -62,14 +71,46 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
                 _ = cr.stroke();
             }
         }
-        BorderStyle::Groove => {}
-        BorderStyle::Ridge => {}
-        BorderStyle::Inset => {}
-        BorderStyle::Outset => {}
+        // 3D border styles (groove/ridge/inset/outset) are not yet rendered with their
+        // light/dark two-tone effect. Fall back to a solid stroke so the border is at
+        // least visible (matches the Skia rasterizer). This is what makes e.g. the
+        // 1px-inset default `<hr>` render as a visible line.
+        BorderStyle::Groove | BorderStyle::Ridge | BorderStyle::Inset | BorderStyle::Outset => {
+            _ = cr.stroke();
+        }
         BorderStyle::Hidden => {}
     }
 
     _ = cr.restore();
+}
+
+/// Paints a non-uniform border by filling each visible side as a solid edge rectangle.
+/// Side order is `[top, right, bottom, left]`. Dashed/dotted/double styles fall back to a
+/// solid fill per side, which is the common case for single-side borders.
+fn paint_per_side_border(cr: &Context, rectangle: &Rectangle, media_store: &MediaStore) {
+    let rect = rectangle.rect();
+    let widths = rectangle.border().widths();
+    let styles = rectangle.border().styles();
+    let brushes = rectangle.border().brushes();
+
+    // (x, y, w, h) for each side's edge rectangle.
+    let edges = [
+        (rect.x, rect.y, rect.width, widths[0] as f64),                              // top
+        (rect.x + rect.width - widths[1] as f64, rect.y, widths[1] as f64, rect.height), // right
+        (rect.x, rect.y + rect.height - widths[2] as f64, rect.width, widths[2] as f64), // bottom
+        (rect.x, rect.y, widths[3] as f64, rect.height),                             // left
+    ];
+
+    for i in 0..4 {
+        if widths[i] <= 0.0 || styles[i].is_invisible() {
+            continue;
+        }
+        let (x, y, w, h) = edges[i];
+        cr.new_path();
+        cr.rectangle(x, y, w, h);
+        set_brush(cr, &brushes[i], rect, media_store);
+        _ = cr.fill();
+    }
 }
 
 fn setup_rectangle_path(cr: &Context, rect: &Rectangle) {

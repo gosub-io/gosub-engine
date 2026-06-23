@@ -56,6 +56,19 @@ pub trait CssSystem: Clone + Debug + 'static {
         sheets: &[Self::Stylesheet],
     ) -> Option<Self::PropertyMap>;
 
+    /// Returns the properties that apply to the `::before` / `::after` pseudo-element of `id`.
+    /// `pseudo` is the pseudo-element name without colons (`"before"` or `"after"`). Returns
+    /// `None` when no rule targets that pseudo-element (so no generated box should be created).
+    /// The default implementation reports no pseudo-element styling.
+    fn pseudo_properties_from_node<C: HasDocument<CssSystem = Self>>(
+        _doc: &C::Document,
+        _id: NodeId,
+        _sheets: &[Self::Stylesheet],
+        _pseudo: &str,
+    ) -> Option<Self::PropertyMap> {
+        None
+    }
+
     fn load_default_useragent_stylesheet() -> Self::Stylesheet;
 
     /// Scan `sheets` and collect the [`HoverFingerprints`] — the element types/classes/ids that
