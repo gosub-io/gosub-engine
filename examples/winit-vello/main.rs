@@ -16,7 +16,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle};
+use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, TileAnchor, ExternalHandle};
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use gosub_renderer_vello::{VelloBackend, WgpuContextProvider};
 use once_cell::sync::Lazy;
@@ -470,6 +470,7 @@ impl BrowserApp {
                 // Each u32 holds [R, G, B, A] little-endian (R in the low byte).
                 let mut buf = vec![0xFFFF_FFFFu32; w * h];
                 for tile in tiles.iter() {
+                    let (sx, sy) = if tile.anchor == TileAnchor::Fixed { Default::default() } else { (sx, sy) };
                     let px = (tile.page_x * dpr_f) as i64;
                     let py = (tile.page_y * dpr_f) as i64;
                     let screen_x = px - sx;

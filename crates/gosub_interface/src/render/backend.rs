@@ -173,6 +173,27 @@ pub enum GpuPixelFormat {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct WgpuTextureId(pub u64);
 
+/// How a tile's layer responds to page scroll at composite time.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TileAnchor {
+    /// Normal flow: the tile scrolls with the page (composited at `page - scroll`).
+    #[default]
+    Scroll,
+    /// `position: fixed`: the tile is pinned to the viewport and ignores scroll
+    /// (composited at its page position, which equals its viewport position).
+    Fixed,
+}
+
+/// Effective top-left of a tile in viewport coordinates, given its page-space position, the current
+/// scroll offset and its anchor. Fixed tiles ignore scroll so they stay pinned to the viewport.
+#[inline]
+pub fn anchored_tile_pos(page_x: f64, page_y: f64, scroll_x: f64, scroll_y: f64, anchor: TileAnchor) -> (f64, f64) {
+    match anchor {
+        TileAnchor::Scroll => (page_x - scroll_x, page_y - scroll_y),
+        TileAnchor::Fixed => (page_x, page_y),
+    }
+}
+
 /// A single pre-rasterized tile for direct compositing in the host draw callback.
 /// Pixel data is reference-counted (`Bytes`) so handing out a handle is zero-copy.
 #[derive(Clone, Debug)]
@@ -188,6 +209,8 @@ pub struct CachedTile {
     /// premultiplied pixels by this before the source-over blend, fading opacity-promoted layers
     /// (e.g. a translucent fixed navbar) as a whole.
     pub opacity: f32,
+    /// How this tile's layer responds to scroll (normal flow vs. `position: fixed`).
+    pub anchor: TileAnchor,
 }
 
 /// A rasterized tile that lives in a GPU backend's texture store, positioned in page coordinates.
@@ -202,6 +225,8 @@ pub struct PlacedGpuTile {
     pub texture_id: u64,
     /// Group opacity (1.0 = opaque) of the tile's layer, applied by the GPU compositor.
     pub opacity: f32,
+    /// How this tile's layer responds to scroll (normal flow vs. `position: fixed`).
+    pub anchor: TileAnchor,
 }
 
 /// Safety: `ExternalHandle` can be sent between threads, but not shared.

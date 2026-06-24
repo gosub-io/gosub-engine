@@ -12,7 +12,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle};
+use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, TileAnchor, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
@@ -420,6 +420,7 @@ fn blit_handle_to_buffer(
             let sy = (scroll_y * dpr_f).round() as i64;
 
             for tile in tiles.iter() {
+                let (sx, sy) = if tile.anchor == TileAnchor::Fixed { Default::default() } else { (sx, sy) };
                 // Signed physical position of tile relative to content area top-left.
                 let px = (tile.page_x * dpr_f).round() as i64 - sx;
                 let py = (tile.page_y * dpr_f).round() as i64 - sy;

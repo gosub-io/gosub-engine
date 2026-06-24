@@ -400,11 +400,18 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
         // tall page), which makes scrolling crawl. Mirrors the CPU path's `pipeline_composite`.
         let (vw, vh) = (viewport.0 as f32, viewport.1 as f32);
         let (sx, sy) = scroll;
+        use gosub_render_pipeline::render::backend::TileAnchor;
         let visible = |t: &gosub_render_pipeline::render::backend::PlacedGpuTile| {
-            t.page_x + t.width as f32 > sx
-                && t.page_x < sx + vw
-                && t.page_y + t.height as f32 > sy
-                && t.page_y < sy + vh
+            // Fixed tiles are pinned to the viewport, so cull them against [0, viewport] in page
+            // space (page == viewport for fixed); scrolling tiles cull against [scroll, +viewport].
+            let (ox, oy) = match t.anchor {
+                TileAnchor::Fixed => (0.0, 0.0),
+                TileAnchor::Scroll => (sx, sy),
+            };
+            t.page_x + t.width as f32 > ox
+                && t.page_x < ox + vw
+                && t.page_y + t.height as f32 > oy
+                && t.page_y < oy + vh
         };
 
         // Resolve each visible engine tile id → its resident GPU texture view (rasterized by our rasterizer).
@@ -425,6 +432,7 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
                 width: t.width,
                 height: t.height,
                 opacity: t.opacity,
+                anchor: t.anchor,
             })
             .collect();
 

@@ -22,7 +22,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
+use gosub_render_pipeline::render::backend::{CachedTile, TileAnchor, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
@@ -362,6 +362,7 @@ fn composite_tiles(
     );
 
     for tile in tiles.iter() {
+        let (sx, sy) = if tile.anchor == TileAnchor::Fixed { (0.0, 0.0) } else { (*sx, *sy) };
         // screen position = page position minus the scroll offset embedded in the handle,
         // consistent with winit-skia and winit-cairo.
         let screen_x = tile.page_x - sx;

@@ -11,7 +11,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle};
+use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, TileAnchor, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
 use once_cell::sync::Lazy;
@@ -345,6 +345,7 @@ fn blit_to_buffer(
             let sx = scroll.0 as usize * d;
             let sy = scroll.1 as usize * d;
             for tile in tiles.iter() {
+                let (sx, sy) = if tile.anchor == TileAnchor::Fixed { Default::default() } else { (sx, sy) };
                 let tile_px = tile.page_x as usize * d;
                 let tile_py = tile.page_y as usize * d;
                 let tw = tile.width as usize;

@@ -19,7 +19,7 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
+use gosub_render_pipeline::render::backend::{CachedTile, TileAnchor, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
 use gtk4::glib;
@@ -218,6 +218,7 @@ fn main() {
                     let sy = (scroll_y * dpr).round() as i32;
 
                     for tile in state.tiles.iter() {
+                        let (sx, sy) = if tile.anchor == TileAnchor::Fixed { Default::default() } else { (sx, sy) };
                         let px = (tile.page_x * dpr).round() as i32 - sx;
                         let py = (tile.page_y * dpr).round() as i32 - sy;
                         let tw = tile.width as i32;

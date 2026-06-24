@@ -1,6 +1,7 @@
 use crate::common::document::node::NodeId;
 use crate::common::document::style::{lookup, StyleProperty, Value};
 use crate::layouter::{LayoutElementId, LayoutTree};
+use crate::render::backend::TileAnchor;
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::ops::AddAssign;
@@ -42,6 +43,9 @@ pub struct Layer {
     /// the layer is promoted because its source element has CSS `opacity < 1` (a compositing
     /// group): the layer's tiles are rasterized normally and the compositor fades them as a unit.
     pub opacity: f32,
+    /// How the layer responds to scroll. `Fixed` (from `position: fixed`) pins the layer to the
+    /// viewport; the compositor composites its tiles without subtracting the scroll offset.
+    pub anchor: TileAnchor,
     /// Elements in this layer
     pub elements: Vec<LayoutElementId>,
 }
@@ -52,6 +56,7 @@ impl Layer {
             layer_id,
             order,
             opacity: 1.0,
+            anchor: TileAnchor::Scroll,
             elements: Vec::new(),
         }
     }
@@ -119,13 +124,22 @@ impl LayerList {
     }
 
     /// @TODO: This must be done through rstar!
-    /// Find the element at the given coordinates. It will return the given element if it is found or None otherwise
-    pub fn find_element_at(&self, x: f64, y: f64) -> Option<LayoutElementId> {
+    /// Find the element at the given viewport coordinates, accounting for scroll. Element boxes are
+    /// in page space, so a scrolling layer is hit-tested at `viewport + scroll`; a `fixed` layer is
+    /// pinned to the viewport, so it is hit-tested at the raw viewport coordinate (no scroll).
+    /// Returns the topmost matching element, or None.
+    pub fn find_element_at(&self, vp_x: f64, vp_y: f64, scroll_x: f64, scroll_y: f64) -> Option<LayoutElementId> {
         // This assumes that the layers are ordered from top to bottom
         for layer_id in self.layer_ids.read().iter().rev() {
             let binding = self.layers.read();
             let Some(layer) = binding.get(layer_id) else {
                 continue;
+            };
+
+            // Convert the viewport point into this layer's coordinate space.
+            let (x, y) = match layer.anchor {
+                TileAnchor::Fixed => (vp_x, vp_y),
+                TileAnchor::Scroll => (vp_x + scroll_x, vp_y + scroll_y),
             };
 
             for element_id in layer.elements.iter().rev() {
@@ -149,15 +163,16 @@ impl LayerList {
         None
     }
 
-    /// Creates a new fully-opaque layer at the given order and returns its id.
+    /// Creates a new fully-opaque, scroll-anchored layer at the given order and returns its id.
     pub fn new_layer(&self, order: isize) -> LayerId {
-        self.new_layer_with_opacity(order, 1.0)
+        self.new_promoted_layer(order, 1.0, TileAnchor::Scroll)
     }
 
-    /// Creates a new layer at the given order with a group opacity and returns its id.
-    pub fn new_layer_with_opacity(&self, order: isize, opacity: f32) -> LayerId {
+    /// Creates a new layer at the given order with a group opacity and scroll anchor, returns its id.
+    pub fn new_promoted_layer(&self, order: isize, opacity: f32, anchor: TileAnchor) -> LayerId {
         let mut layer = Layer::new(self.next_layer_id(), order);
         layer.opacity = opacity;
+        layer.anchor = anchor;
         let layer_id = layer.layer_id;
         self.layer_ids.write().push(layer_id);
         self.layers.write().insert(layer_id, layer);
@@ -169,6 +184,12 @@ impl LayerList {
     /// compositor to fade an opacity-promoted layer's tiles as a unit.
     pub fn layer_opacity(&self, layer_id: LayerId) -> f32 {
         self.layers.read().get(&layer_id).map(|l| l.opacity).unwrap_or(1.0)
+    }
+
+    /// Scroll anchor for a layer (`Scroll` if the layer is unknown). Used by the compositor to pin
+    /// `position: fixed` layers to the viewport.
+    pub fn layer_anchor(&self, layer_id: LayerId) -> TileAnchor {
+        self.layers.read().get(&layer_id).map(|l| l.anchor).unwrap_or_default()
     }
 
     /// True when this DOM node's paint must skip per-element opacity because it belongs to an
@@ -256,7 +277,9 @@ impl LayerList {
         // TODO: derive layer order from the element's CSS z-index / stacking context instead of 1.
         if !in_promoted_group && (own_opacity < 1.0 || is_fixed) {
             let layer_opacity = own_opacity.clamp(0.0, 1.0);
-            let group_layer_id = self.new_layer_with_opacity(1, layer_opacity);
+            // `position: fixed` pins the layer to the viewport; opacity-only promotion still scrolls.
+            let anchor = if is_fixed { TileAnchor::Fixed } else { TileAnchor::Scroll };
+            let group_layer_id = self.new_promoted_layer(1, layer_opacity, anchor);
             self.add_to_layer(group_layer_id, layout_element.id);
             let faded = layer_opacity < 1.0;
             // Only a faded layer risks double-darkening, so only then skip the element's per-element

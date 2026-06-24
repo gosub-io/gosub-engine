@@ -14,6 +14,7 @@
 //! is host-created with only `RENDER_ATTACHMENT` (not `COPY_DST`), so a render pass is the portable
 //! choice — and it gives correct premultiplied-alpha blending for free.
 
+use gosub_render_pipeline::render::backend::TileAnchor;
 use vello::wgpu;
 
 /// A placed, GPU-resident tile to composite: a texture view plus its page-space rectangle.
@@ -25,6 +26,8 @@ pub struct PlacedTileTex<'a> {
     pub height: u32,
     /// Group opacity (1.0 = opaque) of the tile's layer; the blit shader fades the tile by it.
     pub opacity: f32,
+    /// How the tile responds to scroll (normal flow vs. `position: fixed`).
+    pub anchor: TileAnchor,
 }
 
 /// Uniform handed to the blit shader for one tile: destination rect in target pixels plus the
@@ -255,13 +258,13 @@ impl GpuTileCompositor {
             // Transient per-tile uniform buffers + bind groups, kept alive until the pass ends.
             let mut keep_alive: Vec<(wgpu::Buffer, wgpu::BindGroup)> = Vec::with_capacity(tiles.len());
             for tile in tiles {
+                // Fixed (position:fixed) tiles ignore scroll so they stay pinned to the viewport.
+                let (ex, ey) = match tile.anchor {
+                    TileAnchor::Fixed => (tile.page_x, tile.page_y),
+                    TileAnchor::Scroll => (tile.page_x - scroll_x, tile.page_y - scroll_y),
+                };
                 let uniform = BlitUniform {
-                    dst: [
-                        tile.page_x - scroll_x,
-                        tile.page_y - scroll_y,
-                        tile.width as f32,
-                        tile.height as f32,
-                    ],
+                    dst: [ex, ey, tile.width as f32, tile.height as f32],
                     viewport: [target_w as f32, target_h as f32],
                     opacity: tile.opacity,
                 };
@@ -418,6 +421,7 @@ mod tests {
                 width: 256,
                 height: 256,
                 opacity: 1.0,
+                anchor: TileAnchor::Scroll,
             },
             PlacedTileTex {
                 view: &blue_view,
@@ -426,6 +430,7 @@ mod tests {
                 width: 256,
                 height: 256,
                 opacity: 1.0,
+                anchor: TileAnchor::Scroll,
             },
         ];
 
