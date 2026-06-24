@@ -1,0 +1,53 @@
+[advisories]
+version = 2
+unmaintained = "all"
+yanked = "warn"
+ignore = [
+    # `adler` is unmaintained but is pinned transitively by v8's build-dependency
+    # (miniz_oxide 0.7.x, which requires `adler` ^0.7.2). It cannot be removed
+    # without v8 itself moving to miniz_oxide 0.8 (which uses adler2).
+    "RUSTSEC-2025-0056", # adler unmaintained
+    # `paste` is unmaintained but only pulled in transitively; no maintained
+    # drop-in replacement is wired through our dependencies yet.
+    "RUSTSEC-2024-0436", # paste unmaintained
+]
+
+[licenses]
+version = 2
+private.ignore = true
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "0BSD",
+    "BSL-1.0",       # clipboard-win, error-code
+    "CC0-1.0",       # hexf-parse
+    "ISC",
+    "Zlib",
+    "MPL-2.0",       # dwrote, option-ext (weak, file-level copyleft)
+    "NCSA",          # libfuzzer-sys
+    "OFL-1.1",       # epaint_default_fonts (bundled fonts)
+    "Ubuntu-font-1.0", # epaint_default_fonts (bundled fonts)
+    "Unicode-3.0",
+    "Unlicense",
+    "CDLA-Permissive-2.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+deny = [
+    # AI Fork of serde_yaml
+    "serde_yml",
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = [
+    # vello is consumed from a pinned git revision until an upstream release lands.
+    "https://github.com/linebender/vello",
+]

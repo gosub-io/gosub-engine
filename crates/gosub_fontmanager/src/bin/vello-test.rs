@@ -12,7 +12,7 @@ use winit::window::{Window, WindowId};
 const AA_CONFIGS: [AaConfig; 3] = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Msaa16];
 
 fn main() {
-    colog::init();
+    env_logger::init();
 
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);

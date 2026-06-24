@@ -27,7 +27,7 @@ impl Default for ColorBrush {
 }
 
 fn main() {
-    colog::init();
+    env_logger::init();
 
     let display_scale = 1.0;
     let max_advance = Some(400.0 * display_scale);

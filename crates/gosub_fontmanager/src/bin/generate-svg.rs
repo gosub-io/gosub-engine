@@ -26,7 +26,7 @@ Hello world from the Gosub FontManager system!
 ";
 
 fn main() {
-    colog::init();
+    env_logger::init();
 
     let manager = FontManager::new();
 

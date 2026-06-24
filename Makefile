@@ -2,7 +2,7 @@
 
 SHELL=/usr/bin/env bash
 
-.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-audit ci-check fuzz-css3 help
+.PHONY: all test bench build fix doc clean test-unit test-clippy test-fmt test-check test-smoke fuzz-html5 fuzz-html5-tokenizer test-deny ci-check fuzz-css3 help
 
 all: help
 
@@ -48,11 +48,18 @@ test-check: ## Check all features compile against locked dependencies
 	source test-utils.sh ;\
 	run_section "Cargo check" cargo check --locked --all --all-features
 
-test-audit: ## Check dependencies for security vulnerabilities
+test-deny: ## Check dependencies for advisories, licenses, bans and sources
 	source test-utils.sh ;\
-	run_section "Cargo audit" cargo audit
+	run_section "Cargo deny" bash -c '\
+		if cargo deny --version >/dev/null 2>&1; then \
+			cargo deny check; \
+		else \
+			echo "cargo-deny not found (install: cargo install --locked cargo-deny)" ;\
+			exit 1; \
+		fi \
+	'
 
-ci-check: test-fmt test-clippy test-check test-unit test-audit ## Run all CI checks (fmt + clippy + check-features + unit + audit)
+ci-check: test-fmt test-clippy test-check test-unit test-deny ## Run all CI checks (fmt + clippy + check-features + unit + deny)
 
 test-smoke: ## CLI smoke tests
 	source test-utils.sh ;\
