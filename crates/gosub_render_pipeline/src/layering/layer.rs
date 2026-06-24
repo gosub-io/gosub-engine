@@ -1,6 +1,8 @@
+use crate::common::document::node::NodeId;
+use crate::common::document::style::{lookup, StyleProperty, Value};
 use crate::layouter::{LayoutElementId, LayoutTree};
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::AddAssign;
 use std::sync::Arc;
 
@@ -36,6 +38,10 @@ pub struct Layer {
     /// Order of the layer
     #[allow(unused)]
     pub order: isize,
+    /// Group opacity applied to the whole layer at composite time (1.0 = fully opaque). Set when
+    /// the layer is promoted because its source element has CSS `opacity < 1` (a compositing
+    /// group): the layer's tiles are rasterized normally and the compositor fades them as a unit.
+    pub opacity: f32,
     /// Elements in this layer
     pub elements: Vec<LayoutElementId>,
 }
@@ -45,6 +51,7 @@ impl Layer {
         Layer {
             layer_id,
             order,
+            opacity: 1.0,
             elements: Vec::new(),
         }
     }
@@ -70,6 +77,10 @@ pub struct LayerList {
     pub layers: RwLock<HashMap<LayerId, Layer>>,
     /// Next layer ID
     next_layer_id: RwLock<LayerId>,
+    /// DOM nodes whose paint should NOT receive per-element opacity, because they live in an
+    /// opacity compositing group that fades the whole layer once at composite time. The painter
+    /// checks this to avoid darkening such elements twice. See [`LayerList::is_opacity_grouped`].
+    opacity_group_nodes: RwLock<HashSet<NodeId>>,
 }
 
 impl std::fmt::Debug for LayerList {
@@ -88,6 +99,7 @@ impl Clone for LayerList {
             layer_ids: RwLock::new(self.layer_ids.read().clone()),
             layers: RwLock::new(self.layers.read().clone()),
             next_layer_id: RwLock::new(*self.next_layer_id.read()),
+            opacity_group_nodes: RwLock::new(self.opacity_group_nodes.read().clone()),
         }
     }
 }
@@ -99,6 +111,7 @@ impl LayerList {
             layers: RwLock::new(HashMap::new()),
             layer_ids: RwLock::new(Vec::new()),
             next_layer_id: RwLock::new(LayerId::new(0)),
+            opacity_group_nodes: RwLock::new(HashSet::new()),
         };
 
         layer_list.generate_layers();
@@ -136,14 +149,43 @@ impl LayerList {
         None
     }
 
-    /// Creates a new layer at the given order and returns its id.
+    /// Creates a new fully-opaque layer at the given order and returns its id.
     pub fn new_layer(&self, order: isize) -> LayerId {
-        let layer = Layer::new(self.next_layer_id(), order);
+        self.new_layer_with_opacity(order, 1.0)
+    }
+
+    /// Creates a new layer at the given order with a group opacity and returns its id.
+    pub fn new_layer_with_opacity(&self, order: isize, opacity: f32) -> LayerId {
+        let mut layer = Layer::new(self.next_layer_id(), order);
+        layer.opacity = opacity;
         let layer_id = layer.layer_id;
         self.layer_ids.write().push(layer_id);
         self.layers.write().insert(layer_id, layer);
 
         layer_id
+    }
+
+    /// Group opacity for a layer (1.0 if the layer is unknown or fully opaque). Used by the
+    /// compositor to fade an opacity-promoted layer's tiles as a unit.
+    pub fn layer_opacity(&self, layer_id: LayerId) -> f32 {
+        self.layers.read().get(&layer_id).map(|l| l.opacity).unwrap_or(1.0)
+    }
+
+    /// True when this DOM node's paint must skip per-element opacity because it belongs to an
+    /// opacity compositing group (the whole layer is faded once at composite time instead).
+    pub fn is_opacity_grouped(&self, node_id: NodeId) -> bool {
+        self.opacity_group_nodes.read().contains(&node_id)
+    }
+
+    /// Append an element to a layer, logging if the layer id is somehow missing.
+    fn add_to_layer(&self, layer_id: LayerId, element_id: LayoutElementId) {
+        if let Some(mut layers) = self.get_layer_mut(layer_id) {
+            if let Some(layer) = layers.get_mut(&layer_id) {
+                layer.add_element(element_id);
+            } else {
+                log::warn!("Layer {} not found in HashMap", layer_id);
+            }
+        }
     }
 
     #[allow(unused)]
@@ -171,43 +213,84 @@ impl LayerList {
         let root_id = self.layout_tree.root_id;
         let default_layer_id = self.new_layer(0);
 
-        self.traverse(default_layer_id, root_id);
+        self.traverse(default_layer_id, root_id, false, false);
     }
 
-    fn traverse(&self, layer_id: LayerId, layout_element_node_id: LayoutElementId) {
+    /// Walk the layout tree assigning each element to a layer.
+    ///
+    /// An element is *promoted* to its own layer (taking its whole subtree with it) when it
+    /// establishes a stacking context we handle: CSS `opacity < 1` (the layer is faded as a group)
+    /// or `position: fixed` (an independent/overlay layer). `in_promoted_group` is true while we
+    /// are inside such a subtree; there we deliberately do NOT spin off separate image layers, so
+    /// the image stays in the group layer and moves/fades together with it instead of floating on
+    /// top at full opacity. `group_faded` is true only when the enclosing group's layer has
+    /// `opacity < 1`; it gates the per-element opacity skip (see [`LayerList::is_opacity_grouped`]).
+    fn traverse(
+        &self,
+        layer_id: LayerId,
+        layout_element_node_id: LayoutElementId,
+        in_promoted_group: bool,
+        group_faded: bool,
+    ) {
         let Some(layout_element) = self.layout_tree.get_node_by_id(layout_element_node_id) else {
             return;
         };
+        let doc = &self.layout_tree.render_tree.doc;
 
-        let is_image = self
-            .layout_tree
-            .render_tree
-            .doc
+        // Read the element's OWN (non-inherited) opacity and position: only the element that
+        // declares the stacking context establishes the group; descendants inherit the result
+        // through the layer and must not each re-promote.
+        let own_opacity = match doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Opacity) {
+            Some(Value::Number(n)) | Some(Value::Unit(n, _)) => n,
+            _ => 1.0,
+        };
+        let is_fixed = matches!(
+            doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Position),
+            Some(Value::Keyword(id)) if lookup(id) == "fixed"
+        );
+
+        // Promote a not-yet-grouped element with opacity < 1 or position: fixed to its own layer
+        // and pull its whole subtree into that layer. The layer's opacity (1.0 for an opaque fixed
+        // element) is realised at composite time. (Nested groups are not separately promoted in
+        // this pass; a descendant's own opacity still applies per-element on top of any group fade.)
+        // TODO: derive layer order from the element's CSS z-index / stacking context instead of 1.
+        if !in_promoted_group && (own_opacity < 1.0 || is_fixed) {
+            let layer_opacity = own_opacity.clamp(0.0, 1.0);
+            let group_layer_id = self.new_layer_with_opacity(1, layer_opacity);
+            self.add_to_layer(group_layer_id, layout_element.id);
+            let faded = layer_opacity < 1.0;
+            // Only a faded layer risks double-darkening, so only then skip the element's per-element
+            // opacity (here the promoting element's own opacity is what the layer fade realises).
+            if faded {
+                self.opacity_group_nodes.write().insert(layout_element.dom_node_id);
+            }
+            for &child_id in &layout_element.children {
+                self.traverse(group_layer_id, child_id, true, faded);
+            }
+            return;
+        }
+
+        let is_image = doc
             .tag_name(layout_element.dom_node_id)
             .map(|tag| tag.eq_ignore_ascii_case("img"))
             .unwrap_or(false);
 
-        // When we detect an image, we create a new layer for it.
-        // TODO: derive layer order from the element's CSS z-index / stacking context instead of 1.
-        if is_image {
+        if is_image && !in_promoted_group {
+            // Standalone image: give it its own layer (existing behaviour).
             let image_layer_id = self.new_layer(1);
-            if let Some(mut layers) = self.get_layer_mut(image_layer_id) {
-                if let Some(image_layer) = layers.get_mut(&image_layer_id) {
-                    image_layer.add_element(layout_element.id);
-                } else {
-                    log::warn!("Image layer {} not found in HashMap", image_layer_id);
-                }
-            }
-        } else if let Some(mut layers) = self.get_layer_mut(layer_id) {
-            if let Some(layer) = layers.get_mut(&layer_id) {
-                layer.add_element(layout_element.id);
-            } else {
-                log::warn!("Layer {} not found in HashMap", layer_id);
+            self.add_to_layer(image_layer_id, layout_element.id);
+        } else {
+            self.add_to_layer(layer_id, layout_element.id);
+            // Inside a faded group, an element with no own opacity relies entirely on the layer
+            // fade, so its paint skips per-element opacity. An element that *does* declare its own
+            // opacity keeps applying it per-element (an approximation that stacks with the fade).
+            if in_promoted_group && group_faded && own_opacity >= 1.0 {
+                self.opacity_group_nodes.write().insert(layout_element.dom_node_id);
             }
         }
 
         for &child_id in &layout_element.children {
-            self.traverse(layer_id, child_id);
+            self.traverse(layer_id, child_id, in_promoted_group, group_faded);
         }
     }
 

@@ -12,7 +12,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
+use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
@@ -462,7 +462,7 @@ fn blit_handle_to_buffer(
                         // Source-over blend so transparent upper-layer pixels reveal the
                         // content (or white background) beneath, instead of overwriting it.
                         let src_argb = tile.format.pixel_to_argb_u32(tile_u32[src_row + col]);
-                        buf[buf_row + col] = blend_over_argb_u32(src_argb, buf[buf_row + col]);
+                        buf[buf_row + col] = blend_over_argb_u32(scale_premul_argb_u32(src_argb, tile.opacity), buf[buf_row + col]);
                     }
                 }
             }

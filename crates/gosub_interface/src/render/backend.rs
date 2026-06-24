@@ -139,6 +139,21 @@ pub fn blend_over_argb_u32(src: u32, dst: u32) -> u32 {
     (rb & 0x00FF_00FF) | ((ag & 0x00FF_00FF) << 8)
 }
 
+/// Scale a premultiplied `0xAARRGGBB` pixel by `opacity` (0.0..=1.0), returning a premultiplied
+/// pixel. All four channels (alpha included) are multiplied by the same factor, which keeps the
+/// pixel premultiplied and realises CSS group opacity for an opacity-promoted layer. Apply this to
+/// a tile's source pixel before [`blend_over_argb_u32`] to fade the whole layer as a unit.
+#[inline]
+pub fn scale_premul_argb_u32(argb: u32, opacity: f32) -> u32 {
+    if opacity >= 1.0 {
+        return argb;
+    }
+    let factor = (opacity.clamp(0.0, 1.0) * 255.0 + 0.5) as u32;
+    let rb = mul_div255_pair(argb & 0x00FF_00FF, factor);
+    let ag = mul_div255_pair((argb >> 8) & 0x00FF_00FF, factor);
+    (rb & 0x00FF_00FF) | ((ag & 0x00FF_00FF) << 8)
+}
+
 /// Multiply each of the two 8-bit channels packed in `pair` (`0x00XX00YY`) by `factor`
 /// (0..=255) and divide by 255 with rounding, returning the packed result.
 #[inline]
@@ -169,6 +184,10 @@ pub struct CachedTile {
     pub data: bytes::Bytes,
     /// In-memory byte order of `data`, set by the rasterizer that produced it.
     pub format: PixelFormat,
+    /// Group opacity (1.0 = opaque) of the tile's layer. The compositor scales the tile's
+    /// premultiplied pixels by this before the source-over blend, fading opacity-promoted layers
+    /// (e.g. a translucent fixed navbar) as a whole.
+    pub opacity: f32,
 }
 
 /// A rasterized tile that lives in a GPU backend's texture store, positioned in page coordinates.
@@ -181,6 +200,8 @@ pub struct PlacedGpuTile {
     pub width: u32,
     pub height: u32,
     pub texture_id: u64,
+    /// Group opacity (1.0 = opaque) of the tile's layer, applied by the GPU compositor.
+    pub opacity: f32,
 }
 
 /// Safety: `ExternalHandle` can be sent between threads, but not shared.

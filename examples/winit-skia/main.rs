@@ -11,7 +11,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
+use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
 use once_cell::sync::Lazy;
@@ -387,7 +387,7 @@ fn blit_to_buffer(
                     let dst = &mut buf[dst_base..dst_base + cw];
                     for (d, &s) in dst.iter_mut().zip(src.iter()) {
                         let src_argb = tile.format.pixel_to_argb_u32(s);
-                        *d = blend_over_argb_u32(src_argb, *d);
+                        *d = blend_over_argb_u32(scale_premul_argb_u32(src_argb, tile.opacity), *d);
                     }
                 }
             }

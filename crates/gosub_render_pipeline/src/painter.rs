@@ -112,6 +112,12 @@ impl Painter {
     /// (it does not group-composite the element with its descendants), which is exact for
     /// leaf boxes such as a 1px `::before` divider and a reasonable approximation otherwise.
     fn apply_opacity(&self, node_id: NodeId, brush: Brush) -> Brush {
+        // Elements promoted into an opacity compositing group are faded as a whole layer at
+        // composite time; applying opacity per-element here too would darken them twice.
+        if self.layer_list.is_opacity_grouped(node_id) {
+            return brush;
+        }
+
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let opacity = match doc.get_style(node_id, &StyleProperty::Opacity) {
             Value::Number(n) | Value::Unit(n, _) => n,

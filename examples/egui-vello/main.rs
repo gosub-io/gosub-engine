@@ -11,7 +11,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
+use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use gosub_renderer_vello::{VelloBackend, WgpuContextProvider};
 use once_cell::sync::Lazy;
@@ -334,7 +334,7 @@ impl BrowserApp {
                         // are both [R,G,B,A]; the blend is channel-symmetric, so the
                         // swapped R/B (vs. ARGB) does not affect the result.
                         for col in 0..copy_w {
-                            buf[dst_off + col] = blend_over_argb_u32(tile_u32[src_off + col], buf[dst_off + col]);
+                            buf[dst_off + col] = blend_over_argb_u32(scale_premul_argb_u32(tile_u32[src_off + col], tile.opacity), buf[dst_off + col]);
                         }
                     }
                 }

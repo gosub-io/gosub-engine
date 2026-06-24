@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  .navbar {
+    position: fixed;        /* promotes to a layer (also via opacity below) */
+    top: 0; left: 0; right: 0;
+    height: 60px;
+    background: #1020c0;     /* solid blue; the layer fade makes it translucent */
+    opacity: 0.5;            /* <- triggers opacity-group promotion */
+    color: white;
+    font-size: 28px;
+    padding: 14px 24px;
+  }
+  .navbar img { height: 32px; vertical-align: middle; }
+  .content { padding-top: 80px; }
+  .content p { font-size: 20px; margin: 18px 24px; }
+  .stripe { height: 40px; background: #e03030; margin: 10px 0; }
+</style>
+</head>
+<body>
+  <div class="navbar">
+    NavBar <img src="../../tests/data/gosub.png" alt="logo"> Text + image fade together
+  </div>
+  <div class="content">
+    <div class="stripe"></div>
+    <p>The navbar above has opacity:0.5. The blue background, the white text, and the
+       image inside it should ALL be faded as one group, letting the red stripe and
+       this text show through underneath — none of them should stay fully opaque.</p>
+    <div class="stripe"></div>
+    <p>If the image stayed solid while the bar faded, nested-layer suppression failed.</p>
+  </div>
+</body>
+</html>

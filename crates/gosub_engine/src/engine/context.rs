@@ -104,6 +104,8 @@ struct BakedTile {
     pixels: TilePixels,
     /// In-memory byte order of the pixels (CPU variant), set by the rasterizer that produced it.
     format: gosub_render_pipeline::render::backend::PixelFormat,
+    /// Group opacity (1.0 = opaque) of this tile's layer, applied by the compositor.
+    opacity: f32,
 }
 
 /// Key that uniquely identifies a tile's content for cache lookup.
@@ -986,6 +988,7 @@ fn rasterize_sequential(
                     height: tex.height as u32,
                     pixels: tex.pixels.clone(),
                     format: tex.format,
+                    opacity: tile_list.layer_list.layer_opacity(tile.layer_id),
                 });
             }
         }
@@ -1235,6 +1238,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
                             height: h,
                             pixels: data.clone(),
                             format: tile_format,
+                            opacity: tile_list.layer_list.layer_opacity(tile.layer_id),
                         };
                         return (tile_id, Some(baked), None);
                     }
@@ -1251,6 +1255,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
                             height: tex.height as u32,
                             pixels: tex.pixels.clone(),
                             format: tex.format,
+                            opacity: tile_list.layer_list.layer_opacity(tile.layer_id),
                         });
 
                     let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, b.pixels.clone())));
@@ -1481,6 +1486,7 @@ fn pipeline_hover_repaint(
                                 height: h,
                                 pixels: data.clone(),
                                 format: tile_format,
+                                opacity: tile_list.layer_list.layer_opacity(tile.layer_id),
                             }),
                             None,
                         );
@@ -1496,6 +1502,7 @@ fn pipeline_hover_repaint(
                             height: tex.height as u32,
                             pixels: tex.pixels.clone(),
                             format: tex.format,
+                            opacity: tile_list.layer_list.layer_opacity(tile.layer_id),
                         });
                     let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, b.pixels.clone())));
                     (tile_id, baked, cache_entry)
@@ -1565,6 +1572,7 @@ fn cpu_cached_tiles(baked: &[BakedTile]) -> Vec<CachedTile> {
                 height: t.height,
                 data: d.clone(),
                 format: t.format,
+                opacity: t.opacity,
             }),
             TilePixels::Gpu(_) => None,
         })
@@ -1584,6 +1592,7 @@ fn collect_placed_gpu_tiles(baked: &[BakedTile]) -> Vec<gosub_render_pipeline::r
                     width: t.width,
                     height: t.height,
                     texture_id: id,
+                    opacity: t.opacity,
                 })
             } else {
                 None

@@ -12,7 +12,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
+use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
@@ -265,7 +265,7 @@ impl BrowserApp {
                         // content beneath, instead of overwriting it.
                         for col in 0..copy_w {
                             let src_argb = tile.format.pixel_to_argb_u32(tile_u32[src_off + col]);
-                            buf[dst_off + col] = blend_over_argb_u32(src_argb, buf[dst_off + col]);
+                            buf[dst_off + col] = blend_over_argb_u32(scale_premul_argb_u32(src_argb, tile.opacity), buf[dst_off + col]);
                         }
                     }
                 }
