@@ -310,10 +310,10 @@ fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
         "line-height" => style.set(StyleProperty::LineHeight, parse_line_height(value)),
         "text-wrap" => style.set(StyleProperty::TextWrap, parse_text_wrap(value)),
 
-        "inset-block-end" => style.set(StyleProperty::InsetBlockEnd, parse_style_value(value)),
-        "inset-block-start" => style.set(StyleProperty::InsetBlockStart, parse_style_value(value)),
-        "inset-inline-end" => style.set(StyleProperty::InsetInlineEnd, parse_style_value(value)),
-        "inset-inline-start" => style.set(StyleProperty::InsetInlineStart, parse_style_value(value)),
+        "top" | "inset-block-start" => style.set(StyleProperty::InsetBlockStart, parse_style_value(value)),
+        "bottom" | "inset-block-end" => style.set(StyleProperty::InsetBlockEnd, parse_style_value(value)),
+        "left" | "inset-inline-start" => style.set(StyleProperty::InsetInlineStart, parse_style_value(value)),
+        "right" | "inset-inline-end" => style.set(StyleProperty::InsetInlineEnd, parse_style_value(value)),
 
         "justify-items" => style.set(StyleProperty::JustifyItems, parse_style_str(value)),
         "justify-self" => style.set(StyleProperty::JustifySelf, parse_style_str(value)),

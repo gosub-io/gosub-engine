@@ -788,6 +788,27 @@ where
             }
         }
 
+        // Inset properties are modelled with logical variants, but pages usually write the
+        // physical `top`/`right`/`bottom`/`left`. Accept either key (the physical aliasing is valid
+        // for the default horizontal-tb, ltr writing mode this engine assumes).
+        let inset_physical = match prop {
+            StyleProperty::InsetBlockStart => Some("top"),
+            StyleProperty::InsetBlockEnd => Some("bottom"),
+            StyleProperty::InsetInlineStart => Some("left"),
+            StyleProperty::InsetInlineEnd => Some("right"),
+            _ => None,
+        };
+        if let Some(physical) = inset_physical {
+            for key in [css_name, physical] {
+                if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, key) {
+                    if let Some(v) = css_property_to_value::<C::CssSystem>(p, prop) {
+                        return Some(v);
+                    }
+                }
+            }
+            return None;
+        }
+
         if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, css_name) {
             if let Some(v) = css_property_to_value::<C::CssSystem>(p, prop) {
                 return Some(v);
