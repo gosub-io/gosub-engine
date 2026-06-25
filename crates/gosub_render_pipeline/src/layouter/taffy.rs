@@ -529,7 +529,12 @@ impl TaffyLayouter {
                 // Still discard pure-whitespace text nodes; they carry no visual content.
                 if let NodeType::Text(text) = &child_node.node_type {
                     if text.trim().is_empty() {
-                        continue;
+                        // Drop leading whitespace (before any inline sibling). Keep inter-element
+                        // whitespace — it collapses to a single space in extract_taffy_data and
+                        // visually separates adjacent inline elements (e.g. between </span><span>).
+                        if current_inline_group.is_empty() {
+                            continue;
+                        }
                     }
                 }
                 self.tree.add_child(leaf_id, child_taffy_id).unwrap();
