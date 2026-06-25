@@ -256,6 +256,7 @@ pub struct BrowsingContext {
     #[cfg(feature = "pipeline")]
     hover_leaf: Option<NodeId>,
     /// Layout element ID from the PREVIOUS hover update (needed to find which tile to repaint).
+    #[cfg(feature = "pipeline")]
     hover_old_lei: Option<LayoutElementId>,
     /// DOM nodes whose hover state changed in the last update (old chain ∪ new chain).
     /// Only these nodes need their cached CSS invalidated; everything else in the tile stays cached.
@@ -304,6 +305,7 @@ impl BrowsingContext {
             hover_dirty: false,
             #[cfg(feature = "pipeline")]
             hover_leaf: None,
+            #[cfg(feature = "pipeline")]
             hover_old_lei: None,
             #[cfg(feature = "pipeline")]
             hover_dirty_nodes: Vec::new(),
@@ -943,7 +945,7 @@ fn pipeline_build_cache(
     use gosub_render_pipeline::layouter::CanLayout;
     use gosub_render_pipeline::painter::Painter;
     use gosub_render_pipeline::rendertree_builder::RenderTree;
-    use gosub_render_pipeline::tiler::{TileId, TileList, TileState};
+    use gosub_render_pipeline::tiler::{TileList, TileState};
     use gosub_shared::{timing_start, timing_stop};
     use std::time::Instant;
 
@@ -1082,6 +1084,7 @@ fn pipeline_build_cache(
             use gosub_render_pipeline::common::media::MediaStore;
             use gosub_render_pipeline::common::texture_store::TextureStore;
             use gosub_render_pipeline::rasterizer::Rasterable;
+            use gosub_render_pipeline::tiler::TileId;
             use rayon::prelude::*;
 
             let t = Instant::now();
@@ -1203,6 +1206,9 @@ fn pipeline_build_cache(
         not(feature = "backend_skia")
     ))]
     let baked_tiles = {
+        // prev_tile_cache is used by the cairo/skia parallel rasterizer; vello doesn't
+        // implement the dirty-tile cache yet, so acknowledge the parameter here.
+        let _ = &prev_tile_cache;
         use gosub_render_pipeline::common::media::MediaStore;
         use gosub_render_pipeline::common::texture_store::TextureStore;
         use gosub_render_pipeline::rasterizer::Rasterable;
@@ -1333,7 +1339,7 @@ fn pipeline_hover_repaint(
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
     use gosub_render_pipeline::painter::Painter;
-    use gosub_render_pipeline::tiler::{TileId, TileList, TileState};
+    use gosub_render_pipeline::tiler::{TileList, TileState};
     use gosub_shared::{timing_start, timing_stop};
     use std::time::Instant;
 
@@ -1497,6 +1503,7 @@ fn pipeline_hover_repaint(
             use gosub_render_pipeline::common::media::MediaStore;
             use gosub_render_pipeline::common::texture_store::TextureStore;
             use gosub_render_pipeline::rasterizer::Rasterable;
+            use gosub_render_pipeline::tiler::TileId;
             use rayon::prelude::*;
 
             let t = Instant::now();
