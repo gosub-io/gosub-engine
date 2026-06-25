@@ -2,7 +2,7 @@ use crate::render::backend::{
     ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
 };
 use crate::render::render_context::RenderContext;
-use crate::render::render_list::{Color, DisplayItem};
+use crate::render::render_list::DisplayItem;
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use skia_safe::gpu::DirectContext;
@@ -228,7 +228,7 @@ impl ErasedSurface for SkiaGpuSurface {
 }
 
 #[inline]
-pub fn to_color4f(c: &Color) -> Color4f {
+pub fn to_color4f(c: &crate::render::render_list::Color) -> Color4f {
     Color4f::new(c.r, c.g, c.b, c.a)
 }
 

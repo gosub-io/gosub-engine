@@ -57,10 +57,10 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 
 // ── GL state kept on the main thread ─────────────────────────────────────────
 
+#[allow(dead_code)]
 struct GlState {
     gl_context: PossiblyCurrentContext,
     gl_surface: GlSurface_<WindowSurface>,
-    #[allow(dead_code)]
     gl_config: Config,
     direct_context: DirectContext,
 }
@@ -508,7 +508,7 @@ fn main() {
         gl_display.get_proc_address(&c)
     })
     .expect("GL interface");
-    let direct_context = gpu::direct_contexts::make_gl(interface, None).expect("Skia DirectContext");
+    let direct_context = skia_safe::gpu::direct_contexts::make_gl(interface, None).expect("Skia DirectContext");
 
     let gl_state = GlState {
         gl_context,

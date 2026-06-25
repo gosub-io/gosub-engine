@@ -145,6 +145,7 @@ fn main() {
         gl_area.set_hexpand(true);
         gl_area.set_focusable(true);
 
+        // Hold Skia's DirectContext: created in connect_realize, used in connect_render.
         let dc_holder: Rc<RefCell<Option<skia_safe::gpu::DirectContext>>> = Rc::new(RefCell::new(None));
 
         gl_area.connect_realize({
