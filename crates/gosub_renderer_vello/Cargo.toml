@@ -5,11 +5,6 @@ edition = "2021"
 description = "Vello rasterizer and compositor backend for the Gosub render pipeline"
 license = "MIT"
 
-[[bin]]
-name = "pipeline-vello"
-path = "src/bin/pipeline-vello.rs"
-required-features = ["text_parley"]
-
 [dependencies]
 gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline", features = ["backend_vello"] }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }

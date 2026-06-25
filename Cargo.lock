@@ -1154,17 +1154,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "colog"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df62599ba6adc9c6c04a54278c8209125343dc4775f57b9d76c9a4287e58f2bd"
-dependencies = [
- "colored",
- "env_logger",
- "log",
-]
-
-[[package]]
 name = "color"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2137,30 +2126,6 @@ dependencies = [
  "url",
  "uuid",
  "vello",
-]
-
-[[package]]
-name = "example-egui-vello-paned"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "eframe",
- "egui",
- "gosub_engine",
- "gosub_render_pipeline",
- "gosub_shared",
- "log",
- "once_cell",
- "parking_lot",
- "simple_logger",
- "tokio",
- "tracing",
- "tracing-log",
- "tracing-subscriber",
- "url",
- "uuid",
- "vello",
- "wgpu",
 ]
 
 [[package]]
@@ -3271,8 +3236,8 @@ dependencies = [
  "anyhow",
  "cairo-rs",
  "cairo-sys-rs",
- "colog",
  "cow-utils",
+ "env_logger",
  "font-kit",
  "freetype-rs",
  "gosub_interface",
@@ -3336,6 +3301,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub_lattice"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_shared",
+ "log",
+]
+
+[[package]]
 name = "gosub_net"
 version = "0.1.1"
 dependencies = [
@@ -3379,6 +3353,7 @@ dependencies = [
  "gosub_fontmanager",
  "gosub_html5",
  "gosub_interface",
+ "gosub_lattice",
  "gosub_net",
  "gosub_shared",
  "hashbrown 0.17.1",
@@ -3490,6 +3465,7 @@ dependencies = [
  "anyhow",
  "gosub_fontmanager",
  "gosub_interface",
+ "gosub_lattice",
  "gosub_shared",
  "log",
  "parking_lot",
@@ -6959,9 +6935,9 @@ dependencies = [
 
 [[package]]
 name = "swash"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1804632b66a35ca2b1d277eb0a138e10f46cb365b9a6d297e876b69ef79de43"
+checksum = "0811b01ca2c4e8718760713911feaf4675c24f94e50530a015ec646cfb622f7c"
 dependencies = [
  "skrifa 0.42.1",
  "yazi",

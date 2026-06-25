@@ -20,9 +20,9 @@ pub(crate) fn do_paint_text(
 
     cr.save()?;
 
+    // Translate so the tile origin maps to the surface origin.
+    // No explicit clip — the surface boundary clips hard at pixel edges.
     cr.translate(-tile.rect.x, -tile.rect.y);
-    cr.rectangle(tile.rect.x, tile.rect.y, tile.rect.width, tile.rect.height);
-    cr.clip();
 
     // Round to integer CSS-pixel boundaries before placing; device_scale handles DPR mapping.
     let x = cmd.rect.x.round();
@@ -128,13 +128,17 @@ fn build_pango_layout_inner(
     }
 
     let layout = create_layout(cr);
-    context_set_resolution(&layout.context(), 72.0);
+    // 96 DPI matches browser convention (1 CSS px = 1/96 in). FreeType hinting
+    // is calibrated for 96 DPI, which gives sharper strokes than 72 DPI.
+    // Font size is passed in CSS pixels; convert to points (÷ 96 × 72) so the
+    // rendered physical size is unchanged: 13.33 px → 10 pt × (96/72) = 13.33 px.
+    context_set_resolution(&layout.context(), 96.0);
 
     let selected_family = font_system.find_available_font(cmd.font_info.family.as_str(), &layout.context());
     let mut font_desc = FontDescription::new();
     font_desc.set_family(&selected_family);
-    // Font size in physical pixels = CSS size × DPR.
-    font_desc.set_size((cmd.font_info.size * dpr as f64 * SCALE as f64) as i32);
+    // CSS px → pt: multiply by 72/96 = 0.75, then by SCALE for Pango units.
+    font_desc.set_size((cmd.font_info.size * dpr as f64 * SCALE as f64 * (72.0 / 96.0)) as i32);
     font_desc.set_weight(to_pango_weight(cmd.font_info.weight as usize));
     if cmd.font_info.slant != 0 {
         font_desc.set_style(pangocairo::pango::Style::Italic);

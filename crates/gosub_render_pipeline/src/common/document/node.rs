@@ -1,4 +1,3 @@
-use crate::common::document::document::Document;
 use crate::common::document::style::{Display, NodeStyle, StyleProperty, Value};
 use cow_utils::CowUtils;
 use std::collections::HashMap;
@@ -178,42 +177,6 @@ impl Node {
                 _ => 0.0,
             },
             _ => 0.0,
-        }
-    }
-}
-
-impl Node {
-    pub fn new_text(doc: &Document, parent_id: Option<NodeId>, text: String) -> Node {
-        Node {
-            node_id: doc.next_node_id(),
-            parent_id,
-            children: vec![],
-            node_type: NodeType::Text(text),
-        }
-    }
-
-    pub fn new_comment(doc: &Document, parent_id: Option<NodeId>, comment: String) -> Node {
-        Node {
-            node_id: doc.next_node_id(),
-            parent_id,
-            children: vec![],
-            node_type: NodeType::Comment(comment),
-        }
-    }
-
-    pub fn new_element(
-        doc: &Document,
-        parent_id: Option<NodeId>,
-        tag_name: String,
-        attributes: Option<AttrMap>,
-        self_closing: bool,
-        style: Option<NodeStyle>,
-    ) -> Node {
-        Node {
-            node_id: doc.next_node_id(),
-            parent_id,
-            children: vec![],
-            node_type: NodeType::Element(ElementData::new(tag_name, attributes, self_closing, style)),
         }
     }
 }

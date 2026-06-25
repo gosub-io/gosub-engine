@@ -36,7 +36,7 @@ impl FontData {
 /// nodes that can be rendered or have any effect of visual layout. The layout part holds all the information
 /// about how the nodes are laid out on the screen.
 pub trait LayoutTree<C: HasLayouter<LayoutTree = Self>>: Sized + Debug + 'static {
-    type NodeId: Debug + Copy + Clone + From<u64> + Into<u64> + PartialEq;
+    type NodeId: Debug + Copy + Clone + From<u64> + Into<u64> + PartialEq + Eq + std::hash::Hash;
     type Node: LayoutNode<C>;
 
     /// Returns all `NodeIds` of the children of the given `NodeId`
@@ -173,6 +173,15 @@ pub trait LayoutNode<C: HasLayouter>: HasTextLayout<C> {
     fn text_size(&self) -> Option<Size>;
     /// This can only return true if the `Layout::COLLAPSE_INLINE` is set true for the layouter
     fn is_anon_inline_parent(&self) -> bool;
+
+    /// Returns an HTML attribute value by name, or `None` if the attribute is absent
+    /// or the node type does not support attributes.
+    ///
+    /// Concrete implementations backed by a DOM should override this; the default
+    /// always returns `None`, which is safe (callers fall back to default values).
+    fn get_attribute(&self, _name: &str) -> Option<String> {
+        None
+    }
 }
 
 pub trait HasTextLayout<C: HasLayouter> {

@@ -8,9 +8,14 @@ use gosub_render_pipeline::tiler::Tile;
 pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangle, media_store: &MediaStore) {
     _ = cr.save();
 
+    // Translate so the tile origin maps to the surface origin.
+    // No explicit clip: Cairo's image surface boundary clips to exact pixel boundaries
+    // without anti-aliasing, preventing the semi-transparent edge pixels that the
+    // old cr.clip() produced and caused visible seams at tile borders.
+    // cr.clip() also cleared the current path; replace that with an explicit new_path()
+    // so setup_rectangle_path always starts from a clean slate.
     cr.translate(-tile.rect.x, -tile.rect.y);
-    cr.rectangle(tile.rect.x, tile.rect.y, tile.rect.width, tile.rect.height);
-    cr.clip();
+    cr.new_path();
 
     if let Some(brush) = rectangle.background() {
         setup_rectangle_path(cr, rectangle);

@@ -32,7 +32,7 @@ impl Default for ColorBrush {
 const APP_ID: &str = "io.gosub.font-manager.gtk-test";
 
 fn main() -> glib::ExitCode {
-    colog::init();
+    env_logger::init();
 
     let app = Application::builder().application_id(APP_ID).build();
     app.connect_activate(build_ui);

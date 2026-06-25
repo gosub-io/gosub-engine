@@ -21,6 +21,8 @@ pub struct BrowserState {
     pub debug_hover: bool,
     /// Show the tile grid
     pub show_tilegrid: bool,
+    /// Draw a 1px red border around every table-cell element (set via GOSUB_DEBUG_TABLE_CELLS=1)
+    pub debug_table_cells: bool,
     /// When set, this is the element that is currently hovered upon
     pub current_hovered_element: Option<LayoutElementId>,
     /// Current viewport offset + size
@@ -38,6 +40,7 @@ impl Debug for BrowserState {
             .field("wireframed", &self.wireframed)
             .field("debug_hover", &self.debug_hover)
             .field("show_tilegrid", &self.show_tilegrid)
+            .field("debug_table_cells", &self.debug_table_cells)
             .field("current_hovered_element", &self.current_hovered_element)
             .field("viewport", &self.viewport)
             .field("dpi_scale_factor", &self.dpi_scale_factor)

@@ -83,13 +83,10 @@ jobs:
       - name: Run fmt
         run: cargo fmt --check --all
 
-  audit:
+  deny:
     runs-on: ubuntu-24.04
-    permissions:
-      checks: write
-      contents: read
     steps:
       - uses: actions/checkout@v6
-      - uses: rustsec/audit-check@v2
+      - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          command: check

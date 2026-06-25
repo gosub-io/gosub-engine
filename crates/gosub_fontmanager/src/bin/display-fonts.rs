@@ -3,7 +3,7 @@ use gosub_fontmanager::FontManager;
 use prettytable::{Attr, Cell, Row, Table};
 
 fn main() {
-    colog::init();
+    env_logger::init();
 
     let arg = std::env::args().nth(1);
     let binding = arg.unwrap_or_default();

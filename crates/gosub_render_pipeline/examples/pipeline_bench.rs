@@ -167,6 +167,7 @@ fn run_pipeline_once(html: &str, layouter: &mut TaffyLayouter) -> StageTimes {
         debug_hover: false,
         current_hovered_element: None,
         show_tilegrid: false,
+        debug_table_cells: false,
         viewport: full_rect,
         tile_list: None,
         dpi_scale_factor: 1.0,
