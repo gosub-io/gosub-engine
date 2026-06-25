@@ -134,7 +134,15 @@ Install `rustup`, then:
 rustup default stable
 ```
 
-For the GTK4-based examples you also need these OS packages (Ubuntu / Debian):
+Clone and build:
+
+```bash
+git clone https://github.com/gosub-io/gosub-engine.git
+cd gosub-engine
+cargo build
+```
+
+**OS packages required for GTK4 and Cairo examples** (Ubuntu / Debian):
 
 ```
 make gcc g++
@@ -143,13 +151,8 @@ libgdk-pixbuf-2.0-dev libgraphene-1.0-dev libgtk-4-dev
 libsqlite3-dev
 ```
 
-Clone and build:
-
-```bash
-git clone https://github.com/gosub-io/gosub-engine.git
-cd gosub-engine
-cargo build
-```
+The winit-vello, egui-vello, and gosub-screenshot binaries have no system-library
+dependencies and build out of the box on Linux, macOS, and Windows.
 </details>
 
 ### Engine examples (no GUI required)
@@ -161,10 +164,38 @@ cargo build
 
 ### GUI examples
 
+All GUI examples accept a URL as the first argument, e.g. `-- https://example.com`.
+
+#### winit (cross-platform, no GTK required)
+
+| Command | Renderer | Notes |
+|---|---|---|
+| `cargo run -p example-winit-vello` | Vello / wgpu | Cross-platform — Metal, DX12, Vulkan |
+| `cargo run -p example-winit-skia` | Skia CPU | softbuffer presentation |
+| `cargo run -p example-winit-skia-gpu` | Skia GPU (OpenGL) | OpenGL compositing |
+| `cargo run -p example-winit-cairo` | Cairo CPU | Linux; needs libcairo |
+
+#### GTK4 (Linux, requires GTK4 system packages)
+
+| Command | Renderer | Notes |
+|---|---|---|
+| `cargo run -p example-gtk4-cairo` | Cairo CPU | Pango text rendering |
+| `cargo run -p example-gtk4-skia` | Skia CPU | |
+| `cargo run -p example-gtk4-skia-gpu` | Skia GPU (OpenGL/GLArea) | Hardware-accelerated compositing |
+
+#### egui
+
+| Command | Renderer | Notes |
+|---|---|---|
+| `cargo run -p example-egui-vello` | Vello / wgpu | Cross-platform |
+| `cargo run -p example-egui-skia` | Skia CPU | |
+| `cargo run -p example-egui-cairo` | Cairo CPU | Linux; needs libcairo |
+
+### Headless tool
+
 | Command | Description |
 |---|---|
-| `cargo run --example gtk-cairo` | GTK4 / Cairo window |
-| `cargo run --example egui-vello` | egui / Vello / wgpu window |
+| `cargo run -p gosub-screenshot -- <url> [out.png]` | Render a URL to a PNG without opening a window (Vello/wgpu, cross-platform) |
 
 ### Component tools (individual crate testing)
 
