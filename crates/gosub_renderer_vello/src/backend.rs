@@ -272,11 +272,20 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                     h,
                     data,
                     format,
+                    opacity,
                 } => {
                     // peniko ImageFormat::Rgba8 expects [R, G, B, A]. The tile may be premultiplied
                     // ARGB32 (Cairo/Skia, [B, G, R, A]) or already RGBA (Vello); `to_rgba` swaps only
                     // when needed, so colors are correct regardless of which rasterizer produced it.
-                    let rgba = format.to_rgba(data).into_owned();
+                    let mut rgba = format.to_rgba(data).into_owned();
+                    // Fade the whole tile by the group opacity. Pixels are premultiplied, so scaling
+                    // all four channels keeps them premultiplied — the same factor the GPU tile path
+                    // applies in its blit shader.
+                    if *opacity < 1.0 {
+                        for b in rgba.iter_mut() {
+                            *b = (*b as f32 * *opacity).round() as u8;
+                        }
+                    }
                     let blob = vello::peniko::Blob::<u8>::new(Arc::new(rgba));
                     let image = ImageData {
                         data: blob,

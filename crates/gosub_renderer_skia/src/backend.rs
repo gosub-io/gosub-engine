@@ -84,6 +84,7 @@ impl RenderBackend for SkiaBackend {
                         h,
                         data,
                         format,
+                        opacity,
                     } => {
                         let stride = (*w * 4) as usize;
                         let expected = *h as usize * stride;
@@ -102,7 +103,16 @@ impl RenderBackend for SkiaBackend {
                         if let Some(image) =
                             skia_safe::images::raster_from_data(&info, skia_safe::Data::new_copy(&data), stride)
                         {
-                            canvas.draw_image(&image, (*x, *y), None);
+                            // Fade the whole tile by the group opacity (paint alpha applies to the
+                            // premultiplied image); skip the paint entirely when fully opaque.
+                            let paint = if *opacity < 1.0 {
+                                let mut p = Paint::default();
+                                p.set_alpha_f(*opacity);
+                                Some(p)
+                            } else {
+                                None
+                            };
+                            canvas.draw_image(&image, (*x, *y), paint.as_ref());
                         }
                     }
                 }

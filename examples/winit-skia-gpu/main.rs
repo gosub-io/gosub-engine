@@ -398,7 +398,15 @@ fn blit_tile(canvas: &skia_safe::Canvas, tile: &CachedTile, x: f32, y: f32) {
     if let Some(image) =
         skia_safe::images::raster_from_data(&info, skia_safe::Data::new_copy(&tile.data), (tile.width * 4) as usize)
     {
-        canvas.draw_image(&image, (x, y), None);
+        // Fade the whole tile by its layer's group opacity (e.g. a translucent fixed navbar).
+        let paint = if tile.opacity < 1.0 {
+            let mut p = skia_safe::Paint::default();
+            p.set_alpha_f(tile.opacity);
+            Some(p)
+        } else {
+            None
+        };
+        canvas.draw_image(&image, (x, y), paint.as_ref());
     }
 }
 

@@ -87,6 +87,7 @@ impl RenderBackend for CairoBackend {
                         h,
                         data,
                         format,
+                        opacity,
                     } => {
                         let stride = (*w * 4) as i32;
                         let expected_len = (*h as usize) * (stride as usize);
@@ -124,7 +125,17 @@ impl RenderBackend for CairoBackend {
                             cr.set_source(&pattern).unwrap_or(());
                             // w, h are already in physical pixels (tile surface dimensions).
                             cr.rectangle(phys_x, phys_y, *w as f64, *h as f64);
-                            _ = cr.fill();
+                            if *opacity >= 1.0 {
+                                _ = cr.fill();
+                            } else {
+                                // `paint_with_alpha` ignores the current path, so clip to the tile
+                                // rect first, then fade the whole (premultiplied) tile by the group
+                                // opacity. save/restore confines the clip to this tile.
+                                _ = cr.save();
+                                cr.clip();
+                                _ = cr.paint_with_alpha(*opacity as f64);
+                                _ = cr.restore();
+                            }
                         }
                     }
                 }

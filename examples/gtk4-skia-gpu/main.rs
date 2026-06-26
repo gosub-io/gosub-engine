@@ -245,7 +245,15 @@ fn main() {
                         if let Some(image) =
                             skia_safe::images::raster_from_data(&info, skia_safe::Data::new_copy(&tile.data), stride)
                         {
-                            canvas.draw_image(&image, (px as f32, py as f32), None);
+                            // Fade the whole tile by its layer's group opacity.
+                            let paint = if tile.opacity < 1.0 {
+                                let mut p = skia_safe::Paint::default();
+                                p.set_alpha_f(tile.opacity);
+                                Some(p)
+                            } else {
+                                None
+                            };
+                            canvas.draw_image(&image, (px as f32, py as f32), paint.as_ref());
                         }
                     }
                 }

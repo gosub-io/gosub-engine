@@ -272,31 +272,45 @@ fn main() {
         // Normalize to [R, G, B, A] regardless of which rasterizer produced the tile.
         // Skia produces premultiplied ARGB32 ([B, G, R, A]); `to_rgba` swaps as needed.
         let data = tile.format.to_rgba(&tile.data);
+        // Group opacity of the tile's layer (e.g. a translucent fixed navbar). Pixels are
+        // premultiplied, so scaling all four channels by it fades the whole tile as one group.
+        let op = tile.opacity.clamp(0.0, 1.0);
 
         for row in 0..th {
             for col in 0..tw {
                 let src_off = (row * tile.width as usize + col) * 4;
                 let dst_off = ((ty as usize + row) * page_w as usize + (tx as usize + col)) * 4;
 
-                let r = data[src_off];
-                let g = data[src_off + 1];
-                let b = data[src_off + 2];
-                let a = data[src_off + 3];
+                let (r, g, b, a) = if op >= 1.0 {
+                    (
+                        data[src_off] as u32,
+                        data[src_off + 1] as u32,
+                        data[src_off + 2] as u32,
+                        data[src_off + 3] as u32,
+                    )
+                } else {
+                    (
+                        (data[src_off] as f32 * op).round() as u32,
+                        (data[src_off + 1] as f32 * op).round() as u32,
+                        (data[src_off + 2] as f32 * op).round() as u32,
+                        (data[src_off + 3] as f32 * op).round() as u32,
+                    )
+                };
 
                 // Premultiplied source-over the *existing* buffer (initialised to white), not a
                 // fixed white background: result = src_rgb + (255 - src_a)/255 * dst_rgb. Blending
                 // over the buffer (rather than overwriting) lets an upper layer's transparent
                 // regions reveal content from layers already composited beneath it — e.g. a
                 // promoted `position: fixed` navbar tile must not erase the rows behind it.
-                let inv_a = 255u32 - a as u32;
+                let inv_a = 255u32 - a;
                 let (d0, d1, d2) = (
                     pixels[dst_off] as u32,
                     pixels[dst_off + 1] as u32,
                     pixels[dst_off + 2] as u32,
                 );
-                pixels[dst_off] = (r as u32 + d0 * inv_a / 255).min(255) as u8;
-                pixels[dst_off + 1] = (g as u32 + d1 * inv_a / 255).min(255) as u8;
-                pixels[dst_off + 2] = (b as u32 + d2 * inv_a / 255).min(255) as u8;
+                pixels[dst_off] = (r + d0 * inv_a / 255).min(255) as u8;
+                pixels[dst_off + 1] = (g + d1 * inv_a / 255).min(255) as u8;
+                pixels[dst_off + 2] = (b + d2 * inv_a / 255).min(255) as u8;
                 // dst alpha stays 255 (opaque output)
             }
         }

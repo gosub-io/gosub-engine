@@ -1638,6 +1638,7 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
                 h: tile.height,
                 data: data.clone(),
                 format: tile.format,
+                opacity: tile.opacity,
             });
         }
     }
