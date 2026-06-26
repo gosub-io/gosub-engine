@@ -29,6 +29,7 @@ gosub_net = { version = "0.1.1", registry = "gosub", path = "../gosub_net" }
 [dev-dependencies]
 test-case = { workspace = true }
 criterion = { workspace = true, features = ["html_reports"] }
+flate2 = "1"
 
 
 [features]
@@ -44,5 +45,20 @@ harness = false
 name = "tree_construction"
 harness = false
 
-[lints]
-workspace = true
+[[bench]]
+name = "html_parser"
+harness = false
+
+# Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
+# the html_parser bench installs a counting GlobalAlloc, which requires unsafe
+# (allowed at file level there).
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

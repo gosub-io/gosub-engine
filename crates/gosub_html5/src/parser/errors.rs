@@ -140,6 +140,8 @@ impl ParserError {
 pub struct ErrorLogger {
     /// List of errors that occurred during parsing
     errors: Vec<ParseError>,
+    /// Messages already recorded per location, for O(1) duplicate detection
+    seen: std::collections::HashMap<Location, std::collections::HashSet<String>>,
 }
 
 impl Default for ErrorLogger {
@@ -152,7 +154,10 @@ impl ErrorLogger {
     /// Creates a new error logger
     #[must_use]
     pub fn new() -> Self {
-        Self { errors: Vec::new() }
+        Self {
+            errors: Vec::new(),
+            seen: std::collections::HashMap::new(),
+        }
     }
 
     /// Returns a cloned instance of the errors
@@ -164,11 +169,12 @@ impl ErrorLogger {
     /// Adds a new error to the error logger
     pub fn add_error(&mut self, location: Location, message: &str) {
         // Check if the error already exists, if so, don't add it again
-        for err in &self.errors {
-            if err.location == location && err.message == *message {
+        if let Some(messages) = self.seen.get(&location) {
+            if messages.contains(message) {
                 return;
             }
         }
+        self.seen.entry(location).or_default().insert(message.to_string());
 
         self.errors.push(ParseError {
             message: message.to_string(),

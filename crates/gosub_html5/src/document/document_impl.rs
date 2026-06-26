@@ -25,6 +25,9 @@ pub struct DocumentImpl<C: HasDocument> {
     pub url: Option<Url>,
     pub(crate) arena: NodeArena,
     named_id_elements: HashMap<String, NodeId>,
+    /// Reverse index of `named_id_elements`: which ids each node is registered under.
+    /// Kept in sync so unregistering a node does not require scanning the whole map.
+    named_ids_by_node: HashMap<NodeId, Vec<String>>,
     pub doctype: DocumentType,
     pub quirks_mode: QuirksMode,
     pub stylesheets: Vec<<C::CssSystem as CssSystem>::Stylesheet>,
@@ -50,6 +53,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             url,
             arena: NodeArena::new(),
             named_id_elements: HashMap::new(),
+            named_ids_by_node: HashMap::new(),
             doctype: document_type,
             quirks_mode: QuirksMode::NoQuirks,
             stylesheets: Vec::new(),
@@ -201,6 +205,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         if is_element && name == "id" && is_valid_id_attribute_value(value) {
             if let Entry::Vacant(e) = self.named_id_elements.entry(value.to_string()) {
                 e.insert(id);
+                self.named_ids_by_node.entry(id).or_default().push(value.to_string());
             }
         }
     }
@@ -377,6 +382,32 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         self.on_document_node_mutation_update_named_id(node);
     }
 
+    /// Same as [`Self::on_document_node_mutation_update_named_id`], but looks the node up in the
+    /// arena by id so callers that mutate nodes in place don't need a cloned `NodeImpl`.
+    fn on_document_node_mutation_by_id(&mut self, node_id: NodeId) {
+        let id_attr = match self.arena.node_ref(node_id).and_then(NodeImpl::get_element_data) {
+            Some(data) => data.attributes.get("id").cloned(),
+            None => return, // not an element
+        };
+        match id_attr {
+            Some(id_value) => {
+                if is_valid_id_attribute_value(&id_value) {
+                    if let Entry::Vacant(e) = self.named_id_elements.entry(id_value.clone()) {
+                        e.insert(node_id);
+                        self.named_ids_by_node.entry(node_id).or_default().push(id_value);
+                    }
+                }
+            }
+            None => {
+                if let Some(ids) = self.named_ids_by_node.remove(&node_id) {
+                    for id_value in ids {
+                        self.named_id_elements.remove(&id_value);
+                    }
+                }
+            }
+        }
+    }
+
     fn on_document_node_mutation_update_named_id(&mut self, node: &NodeImpl) {
         let Some(element_data) = node.get_element_data() else {
             return;
@@ -385,10 +416,18 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             if is_valid_id_attribute_value(id_value) {
                 if let Entry::Vacant(e) = self.named_id_elements.entry(id_value.clone()) {
                     e.insert(node.id());
+                    self.named_ids_by_node
+                        .entry(node.id())
+                        .or_default()
+                        .push(id_value.clone());
                 }
             }
-        } else {
-            self.named_id_elements.retain(|_, id| *id != node.id());
+        } else if let Some(ids) = self.named_ids_by_node.remove(&node.id()) {
+            // The node lost its id attribute: unregister every id it was registered under.
+            // (Inserts are vacant-only, so each of these keys is guaranteed to map to this node.)
+            for id_value in ids {
+                self.named_id_elements.remove(&id_value);
+            }
         }
     }
 
@@ -437,28 +476,23 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         if parent_id == node_id || self.has_node_id_recursive(node_id, parent_id) {
             return;
         }
-        if let Some(parent_node) = self.arena.node(parent_id) {
-            let mut parent_node = parent_node;
+        if let Some(parent_node) = self.arena.node_ref_mut(parent_id) {
             match position {
-                Some(position) => {
-                    if position > parent_node.children().len() {
-                        parent_node.push(node_id);
-                    } else {
-                        parent_node.insert(node_id, position);
-                    }
+                Some(position) if position <= parent_node.children().len() => {
+                    parent_node.insert(node_id, position);
                 }
-                None => {
+                _ => {
                     parent_node.push(node_id);
                 }
             }
-            self.update_node(parent_node);
+            self.on_document_node_mutation_by_id(parent_id);
         }
-        let Some(mut node) = self.arena.node(node_id) else {
+        let Some(node) = self.arena.node_ref_mut(node_id) else {
             log::warn!("attach_node: node {node_id} not found in arena");
             return;
         };
         node.parent = Some(parent_id);
-        self.update_node(node);
+        self.on_document_node_mutation_by_id(node_id);
     }
 
     pub fn detach_node(&mut self, node_id: NodeId) {
@@ -466,16 +500,14 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             return;
         };
         if let Some(parent_id) = parent {
-            if let Some(parent_node) = self.node_by_id(parent_id) {
-                let mut parent_node = parent_node.clone();
+            if let Some(parent_node) = self.arena.node_ref_mut(parent_id) {
                 parent_node.remove(node_id);
-                self.update_node(parent_node);
+                self.on_document_node_mutation_by_id(parent_id);
             }
 
-            if let Some(node) = self.node_by_id(node_id) {
-                let mut node = node.clone();
+            if let Some(node) = self.arena.node_ref_mut(node_id) {
                 node.set_parent(None);
-                self.update_node(node);
+                self.on_document_node_mutation_by_id(node_id);
             }
         }
     }
@@ -513,14 +545,13 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     pub fn delete_node_by_id(&mut self, node_id: NodeId) {
-        let Some(node) = self.arena.node(node_id) else {
+        let Some(parent) = self.arena.node_ref(node_id).map(NodeImpl::parent_id) else {
             return;
         };
-        if let Some(parent_id) = node.parent_id() {
-            if let Some(parent) = self.node_by_id(parent_id) {
-                let mut parent = parent.clone();
-                parent.remove(node_id);
-                self.update_node(parent);
+        if let Some(parent_id) = parent {
+            if let Some(parent_node) = self.arena.node_ref_mut(parent_id) {
+                parent_node.remove(node_id);
+                self.on_document_node_mutation_by_id(parent_id);
             }
         }
         self.arena.delete_node(node_id);
@@ -555,7 +586,8 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         false
     }
 
-    pub fn nodes(&self) -> &HashMap<NodeId, NodeImpl> {
+    /// Iterate over all registered nodes with their ids.
+    pub fn nodes(&self) -> impl Iterator<Item = (NodeId, &NodeImpl)> {
         self.arena.nodes()
     }
 

@@ -117,6 +117,8 @@ pub struct ByteStream {
     char_byte_offsets: Vec<usize>,
     /// char_pos of the first character on each line (index 0 = line 1)
     line_starts: Vec<usize>,
+    /// Cached index into `line_starts` from the last `location()` call (lookup hint)
+    last_line_idx: std::cell::Cell<usize>,
     /// Current position in the decoded chars array
     char_pos: usize,
     /// True when the stream is closed (no more data will be added)
@@ -279,9 +281,17 @@ impl Stream for ByteStream {
     }
 
     fn location(&self) -> Location {
-        // Binary search for the last line that starts at or before char_pos.
-        // line_starts[0] = 0, so partition_point always returns >= 1.
-        let idx = self.line_starts.partition_point(|&s| s <= self.char_pos) - 1;
+        // Find the last line that starts at or before char_pos. The stream advances
+        // mostly monotonically, so start from the cached line index of the previous
+        // call and walk from there — amortized O(1) instead of a binary search per call.
+        let mut idx = self.last_line_idx.get().min(self.line_starts.len() - 1);
+        while idx > 0 && self.line_starts[idx] > self.char_pos {
+            idx -= 1;
+        }
+        while idx + 1 < self.line_starts.len() && self.line_starts[idx + 1] <= self.char_pos {
+            idx += 1;
+        }
+        self.last_line_idx.set(idx);
         Location {
             line: idx + 1,
             column: self.char_pos - self.line_starts[idx] + 1,
@@ -304,6 +314,7 @@ impl ByteStream {
             chars: Vec::new(),
             char_byte_offsets: Vec::new(),
             line_starts: vec![0],
+            last_line_idx: std::cell::Cell::new(0),
             closed: false,
             encoding,
         }
@@ -312,8 +323,10 @@ impl ByteStream {
     /// Create a stream from a string, fully decoded and closed, ready for parsing.
     pub fn from_str(s: &str, encoding: Encoding) -> Self {
         let mut stream = Self::new(encoding, None);
-        stream.read_from_str(s, None);
-        stream.close();
+        stream.buffer = Vec::from(s.as_bytes());
+        // Close before decoding so the buffer is decoded exactly once.
+        stream.closed = true;
+        stream.decode_buffer();
         stream
     }
 
@@ -347,28 +360,50 @@ impl ByteStream {
                 }
             }
             Encoding::UTF8 => {
-                // Fast path: closed stream with fully valid UTF-8 (the common case).
-                // std::str::from_utf8 validates in one pass; char_indices is then linear.
-                if self.closed {
-                    if let Ok(s) = std::str::from_utf8(&self.buffer) {
-                        for (byte_pos, ch) in s.char_indices() {
-                            self.char_byte_offsets.push(byte_pos);
-                            self.chars.push(Ch(ch));
-                        }
-                        self.compute_line_starts();
-                        return;
-                    }
-                }
-                // Fallback: open stream or buffer with encoding errors.
+                // Single linear pass: decode the longest valid prefix in bulk, then handle
+                // any invalid sequence and continue. Each byte is validated exactly once.
                 let mut byte_pos = 0;
                 while byte_pos < self.buffer.len() {
-                    let (ch, len) = decode_one_utf8(&self.buffer[byte_pos..], self.closed);
-                    if len == 0 {
-                        break; // incomplete sequence at end of open stream — stop
+                    match std::str::from_utf8(&self.buffer[byte_pos..]) {
+                        Ok(s) => {
+                            for (off, ch) in s.char_indices() {
+                                self.char_byte_offsets.push(byte_pos + off);
+                                self.chars.push(Ch(ch));
+                            }
+                            byte_pos = self.buffer.len();
+                        }
+                        Err(e) => {
+                            let valid_up_to = e.valid_up_to();
+                            // SAFETY: from_utf8 validated bytes up to `valid_up_to`.
+                            #[allow(unsafe_code)]
+                            let s = unsafe {
+                                std::str::from_utf8_unchecked(&self.buffer[byte_pos..byte_pos + valid_up_to])
+                            };
+                            for (off, ch) in s.char_indices() {
+                                self.char_byte_offsets.push(byte_pos + off);
+                                self.chars.push(Ch(ch));
+                            }
+                            byte_pos += valid_up_to;
+
+                            match e.error_len() {
+                                Some(n) => {
+                                    self.char_byte_offsets.push(byte_pos);
+                                    self.chars.push(Ch(REPLACEMENT_CHARACTER));
+                                    byte_pos += n;
+                                }
+                                None => {
+                                    // Incomplete sequence at the end of the buffer. On a closed
+                                    // stream it decodes to a single replacement character; on an
+                                    // open stream we stop and wait for more data.
+                                    if self.closed {
+                                        self.char_byte_offsets.push(byte_pos);
+                                        self.chars.push(Ch(REPLACEMENT_CHARACTER));
+                                    }
+                                    byte_pos = self.buffer.len();
+                                }
+                            }
+                        }
                     }
-                    self.char_byte_offsets.push(byte_pos);
-                    self.chars.push(ch);
-                    byte_pos += len;
                 }
             }
             Encoding::UTF16LE => {
@@ -523,6 +558,10 @@ impl ByteStream {
     }
 
     pub fn set_encoding(&mut self, e: Encoding) {
+        if self.encoding == e {
+            // Already decoded with this encoding; nothing to do.
+            return;
+        }
         let current_byte_offset = self.tell_bytes();
         self.encoding = e;
         self.decode_buffer();
@@ -535,7 +574,7 @@ impl ByteStream {
 }
 
 /// Location holds the start position of the given element in the data source
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, PartialEq, Eq, Hash, Copy)]
 pub struct Location {
     /// Line number, starting with 1
     pub line: usize,
@@ -569,38 +608,6 @@ impl Display for Location {
 impl Debug for Location {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "({}:{})", self.line, self.column)
-    }
-}
-
-/// Decode one UTF-8 character from the start of `buf`. Returns `(Character, bytes_consumed)`.
-/// Returns `(StreamEnd, 0)` for an incomplete sequence at the end of an open stream (signals loop stop).
-fn decode_one_utf8(buf: &[u8], closed: bool) -> (Character, usize) {
-    match std::str::from_utf8(buf) {
-        Ok(s) => match s.chars().next() {
-            Some(ch) => (Ch(ch), ch.len_utf8()),
-            None => (StreamEnd, 0), // empty buffer
-        },
-        Err(e) => {
-            if e.valid_up_to() > 0 {
-                // SAFETY: from_utf8 validated bytes up to `valid_up_to()`.
-                #[allow(unsafe_code)]
-                let s = unsafe { std::str::from_utf8_unchecked(&buf[..e.valid_up_to()]) };
-                #[allow(clippy::expect_used)] // PANIC-SAFE: valid_up_to() > 0 guarantees at least one char
-                let ch = s.chars().next().expect("valid_up_to > 0");
-                (Ch(ch), ch.len_utf8())
-            } else {
-                match e.error_len() {
-                    Some(n) => (Ch(REPLACEMENT_CHARACTER), n),
-                    None => {
-                        if closed {
-                            (Ch(REPLACEMENT_CHARACTER), buf.len())
-                        } else {
-                            (StreamEnd, 0)
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
