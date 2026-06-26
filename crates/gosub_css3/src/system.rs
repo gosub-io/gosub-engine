@@ -2,7 +2,7 @@ use crate::functions::attr::resolve_attr;
 use crate::functions::math::resolve_math;
 use crate::functions::var::resolve_var;
 use crate::matcher::property_definitions::get_css_definitions;
-use crate::matcher::shorthands::FixList;
+use crate::matcher::shorthands::{FixList, FixListInfo};
 use crate::matcher::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
 use crate::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, Css3};
@@ -160,6 +160,16 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                             } else {
                                 slice::from_ref(&value)
                             };
+
+                            // Tag the expanded longhands with this declaration's cascade origin
+                            // and specificity, so e.g. an author `margin: 0` outranks the UA
+                            // `body { margin: 8px }` instead of losing to it on processing order.
+                            fix_list.set_info(FixListInfo::new(
+                                sheet.origin,
+                                declaration.important,
+                                sheet.url.clone(),
+                                specificity,
+                            ));
 
                             // Each CSS declaration starts with a fresh TRBL multiplier
                             // counter for this shorthand name. Without this reset, a prior

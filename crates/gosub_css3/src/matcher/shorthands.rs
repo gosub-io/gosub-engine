@@ -121,6 +121,18 @@ pub struct FixListInfo {
     specificity: Specificity,
 }
 
+impl FixListInfo {
+    #[must_use]
+    pub fn new(origin: CssOrigin, important: bool, location: String, specificity: Specificity) -> Self {
+        Self {
+            origin,
+            important,
+            location,
+            specificity,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Shorthand {
     name: String,
@@ -374,8 +386,15 @@ impl FixList {
 
         for (k, v) in &mut self.list {
             if *k == name {
-                v.clear(); //TODO: This is a hack, we should not have to clear the vec
-                v.push(value);
+                // Keep the cascade-winning declaration for this longhand. A higher- or
+                // equal-priority declaration replaces the existing one: "equal" covers the
+                // within-declaration TRBL re-assignment (last write wins), while a higher origin
+                // (author > user-agent) or specificity wins regardless of stylesheet order. This
+                // is why `body { margin: 0 }` (author) correctly overrides the UA `margin: 8px`.
+                if v.last().is_none_or(|existing| value >= *existing) {
+                    v.clear();
+                    v.push(value);
+                }
                 return;
             }
         }

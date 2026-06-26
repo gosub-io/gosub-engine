@@ -648,10 +648,12 @@ impl css3::CssProperty<Css3System> for CssProperty {
     }
 
     fn as_number(&self) -> Option<f32> {
-        if let CssValue::Number(num) = &self.actual {
-            Some(*num)
-        } else {
-            None
+        match &self.actual {
+            CssValue::Number(num) => Some(*num),
+            // A bare `0` parses to the dedicated `Zero` variant; surface it as the number 0 so
+            // consumers (e.g. unitless `top: 0`, `margin: 0`) see it instead of dropping the value.
+            CssValue::Zero => Some(0.0),
+            _ => None,
         }
     }
 

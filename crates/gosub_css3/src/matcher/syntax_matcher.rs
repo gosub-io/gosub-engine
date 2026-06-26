@@ -342,6 +342,9 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
             let f32max = f32::MAX;
 
             match value {
+                // A bare `0` is a valid value for any unit-typed component (e.g. `<length>`):
+                // it parses to the dedicated `Zero` variant, and `Number(0)` is the same case.
+                CssValue::Zero => return first_match(input),
                 CssValue::Number(n) if *n == 0.0 => return first_match(input),
                 CssValue::Unit(n, u)
                     if unit.contains(u) && *n >= from.unwrap_or(f32min) && *n <= to.unwrap_or(f32max) =>
