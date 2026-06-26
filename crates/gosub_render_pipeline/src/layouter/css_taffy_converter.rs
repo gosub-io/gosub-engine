@@ -4,8 +4,8 @@ use crate::common::document::style::{
     lookup, Display as CssDisplay, StyleProperty, TextAlign as CssTextAlign, Unit as CssUnit, Value,
 };
 use taffy::prelude::{
-    minmax, span, FromFr, FromLength, FromPercent, MaxTrackSizingFunction, MinTrackSizingFunction, TaffyAuto,
-    TaffyGridLine, TaffyGridSpan, TaffyMaxContent, TaffyMinContent, TaffyZero,
+    minmax, span, FromFr, FromLength, MaxTrackSizingFunction, MinTrackSizingFunction, TaffyAuto, TaffyGridLine,
+    TaffyMaxContent, TaffyMinContent, TaffyZero,
 };
 use taffy::{
     AlignContent, AlignItems, AlignSelf, BoxSizing, Dimension, Display, FlexDirection, FlexWrap, GridAutoFlow,

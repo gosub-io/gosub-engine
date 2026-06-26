@@ -84,7 +84,7 @@ fn main() {
     app.connect_activate(move |app| {
         let _rt_guard = TOKIO_RT.enter();
 
-        gosub_engine::init_gtk_resources();
+        gosub_engine::init_gtk_resources().expect("failed to init GTK resources");
 
         let (tx_redraw, mut rx_redraw) = mpsc::unbounded_channel::<()>();
 
@@ -102,7 +102,9 @@ fn main() {
 
         let zone_cfg = ZoneConfig::builder().do_not_track(true).build().expect("ZoneConfig");
         let cookie_store: gosub_engine::cookies::CookieStoreHandle =
-            SqliteCookieStore::new(".pipeline-browser-cookies.db".into()).into();
+            SqliteCookieStore::new(".pipeline-browser-cookies.db".into())
+                .expect("failed to open cookie store")
+                .into();
         let zone_services = ZoneServices {
             storage: Arc::new(StorageService::new(
                 Arc::new(SqliteLocalStore::new(".pipeline-browser-local.db").expect("local store")),

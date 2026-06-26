@@ -77,7 +77,7 @@ pub struct EngineContext {
 impl Default for EngineContext {
     fn default() -> Self {
         Self {
-            render_backend: Arc::new(gosub_render_pipeline::render::backends::null::NullBackend::new().unwrap()),
+            render_backend: Arc::new(gosub_render_pipeline::render::backends::null::NullBackend::new()),
             compositor: Arc::new(RwLock::new(DefaultCompositor::new(|| {}))),
             event_tx: broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY).0,
             config: Arc::new(EngineConfig::default()),
@@ -98,7 +98,7 @@ impl GosubEngine {
     /// # use parking_lot::RwLock;
     /// # use gosub_render_pipeline::render::backends::null::NullBackend;
     /// # use gosub_render_pipeline::render::DefaultCompositor;
-    /// let backend = NullBackend::new().unwrap();
+    /// let backend = NullBackend::new();
     /// let compositor = DefaultCompositor::default();
     /// let engine = ge::GosubEngine::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
     /// ```
@@ -189,7 +189,6 @@ impl GosubEngine {
         let mut cmd_rx = self.cmd_rx.take()?;
 
         Some(async move {
-            #[allow(clippy::never_loop)]
             while let Some(cmd) = cmd_rx.recv().await {
                 match cmd {
                     EngineCommand::Shutdown { reply } => {
@@ -198,7 +197,7 @@ impl GosubEngine {
                         break;
                     }
                     _ => {
-                        unimplemented!("unhandled engine command: {:?}", cmd);
+                        log::warn!("Unhandled engine command: {:?}", cmd);
                     }
                 }
             }
@@ -263,8 +262,8 @@ impl GosubEngine {
         zone_id: Option<ZoneId>,
     ) -> Result<Zone, EngineError> {
         let zone = match zone_id {
-            Some(zone_id) => Zone::new_with_id(zone_id, config, services, self.context.clone()),
-            None => Zone::new(config, services, self.context.clone()),
+            Some(zone_id) => Zone::new_with_id(zone_id, config, services, self.context.clone())?,
+            None => Zone::new(config, services, self.context.clone())?,
         };
 
         let zone_id = zone.id;

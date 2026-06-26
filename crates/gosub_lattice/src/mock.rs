@@ -11,9 +11,7 @@ use crate::model::{build_model, RowGroup};
 use crate::types::{CellLayout, CssLength, CssProp, TableRole};
 use crate::TableTree;
 
-// ---------------------------------------------------------------------------
 // MockCell — a single cell specification used by the builder
-// ---------------------------------------------------------------------------
 
 /// Cell specification used with [`MockTable`].
 #[derive(Clone)]
@@ -75,9 +73,7 @@ pub fn cell(label: impl Into<String>) -> MockCell {
     MockCell::new(label)
 }
 
-// ---------------------------------------------------------------------------
 // MockTable — fluent builder
-// ---------------------------------------------------------------------------
 
 #[derive(Default)]
 pub struct MockTable {
@@ -203,9 +199,7 @@ impl MockTable {
     }
 }
 
-// ---------------------------------------------------------------------------
 // MockTree — the in-memory node tree
-// ---------------------------------------------------------------------------
 
 struct MockNode {
     role: TableRole,
@@ -349,9 +343,7 @@ impl TableTree for MockTree {
     }
 }
 
-// ---------------------------------------------------------------------------
 // ASCII renderer
-// ---------------------------------------------------------------------------
 
 /// Render the table stored in `tree` as an ASCII-art string.
 ///

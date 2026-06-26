@@ -82,7 +82,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
         let (_texture, texture_view) = self
             .context
             .get_texture(surface.texture_store_id)
-            .expect("invalid texture id in VelloSurface");
+            .ok_or_else(|| anyhow!("invalid texture id in VelloSurface"))?;
 
         self.resources.renderer.lock().render_to_texture(
             self.context.device(),

@@ -75,7 +75,9 @@ pub struct CachedTile {
 }
 
 /// Safety: `ExternalHandle` can be sent between threads, but not shared.
+#[allow(unsafe_code)]
 unsafe impl Send for ExternalHandle {}
+#[allow(unsafe_code)]
 unsafe impl Sync for ExternalHandle {}
 
 /// Handle that the host/browser can use to composite a surface.

@@ -32,7 +32,7 @@ async fn main() -> Result<(), EngineError> {
     //   - a compositor (receives Redraw events and composites them into a frame)
     //
     // EngineConfig lets you tune limits like max_zones; Default is fine to start.
-    let backend = NullBackend::new().expect("null backend");
+    let backend = NullBackend::new();
     let mut engine = GosubEngine::new(
         Some(EngineConfig::default()),
         Arc::new(backend),

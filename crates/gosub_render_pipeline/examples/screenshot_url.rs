@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 /// Fetch a URL, run it through the gosub pipeline, and save the result as a PNG.
 ///
 /// Elements are painted with their CSS background-color. Text nodes are rendered
@@ -77,7 +78,7 @@ fn main() {
     eprintln!("Building render tree…");
     let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
     let mut render_tree = RenderTree::new(Arc::new(adapter));
-    render_tree.parse();
+    render_tree.parse().expect("failed to build render tree");
     let element_count = render_tree.count_elements();
     eprintln!("  {element_count} nodes in render tree");
 

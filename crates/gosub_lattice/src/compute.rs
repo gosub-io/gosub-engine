@@ -26,9 +26,7 @@ pub fn compute_table_layout<T: TableTree>(
     let model = build_model(tree, table_node);
     let (spacing_x, spacing_y) = model.border_spacing;
 
-    // -----------------------------------------------------------------------
-    // 1. Build per-section grids
-    // -----------------------------------------------------------------------
+    // Build per-section grids
     let header_grids: Vec<SectionGrid<T::NodeId>> = model
         .header_groups
         .iter()
@@ -44,9 +42,7 @@ pub fn compute_table_layout<T: TableTree>(
         .map(|g| build_section_grid(&g.rows))
         .collect();
 
-    // -----------------------------------------------------------------------
-    // 2. Determine column count across all sections
-    // -----------------------------------------------------------------------
+    // Determine column count across all sections
     let n_cols = header_grids
         .iter()
         .chain(body_grids.iter())
@@ -59,18 +55,14 @@ pub fn compute_table_layout<T: TableTree>(
         return Ok((0.0, 0.0));
     }
 
-    // -----------------------------------------------------------------------
-    // 3. Resolve table width
-    // -----------------------------------------------------------------------
+    // Resolve table width
     let table_width = match tree.css_length(model.node, CssProp::Width) {
         CssLength::Px(w) => w,
         CssLength::Percent(p) => p / 100.0 * available_width,
         _ => available_width,
     };
 
-    // -----------------------------------------------------------------------
-    // 4. Column widths
-    // -----------------------------------------------------------------------
+    // Column widths
     let all_grids: Vec<&SectionGrid<T::NodeId>> = header_grids
         .iter()
         .chain(body_grids.iter())
@@ -83,14 +75,12 @@ pub fn compute_table_layout<T: TableTree>(
     // col_x[i] = x of the left edge of column i (within a row).
     let col_x = col_x_offsets(&col_widths, spacing_x);
 
-    // -----------------------------------------------------------------------
-    // 5. Row heights per section
+    // Row heights per section
     //
     // `compute_row_heights` takes `&mut tree` so it can call `layout_cell` to
     // run the normal layout engine inside each cell.  We use for-loops rather
     // than iterator combinators because a closure can't hold `&mut tree` while
     // the model is also borrowed.
-    // -----------------------------------------------------------------------
     let mut header_heights: Vec<Vec<f32>> = Vec::with_capacity(header_grids.len());
     for grid in &header_grids {
         header_heights.push(compute_row_heights(tree, grid, &col_widths));
@@ -106,14 +96,12 @@ pub fn compute_table_layout<T: TableTree>(
         footer_heights.push(compute_row_heights(tree, grid, &col_widths));
     }
 
-    // -----------------------------------------------------------------------
-    // 6. Apply positions
+    // Apply positions
     //
     //    Per CSS: sections are rendered in the order header → body → footer,
     //    regardless of their source position.  Each group is positioned
     //    relative to the table.  Each row is positioned relative to its group.
     //    Each cell is positioned relative to its row.
-    // -----------------------------------------------------------------------
     let inner_width = col_widths.iter().sum::<f32>() + (n_cols as f32 + 1.0) * spacing_x;
 
     let mut group_y = spacing_y; // Y offset of the next group, relative to the table
@@ -233,9 +221,7 @@ fn place_cell<T: TableTree>(
     );
 }
 
-// ---------------------------------------------------------------------------
 // Offset helpers
-// ---------------------------------------------------------------------------
 
 /// `col_x[i]` = x of the left edge of column `i` within a row, in px.
 /// Accounts for the border-spacing gutter to the left of each column.

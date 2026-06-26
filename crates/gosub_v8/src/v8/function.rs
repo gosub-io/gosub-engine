@@ -443,7 +443,7 @@ extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
         Ok(external) => external,
         Err(e) => {
             let Some(e) = V8Context::create_exception(&mut scope, e) else {
-                eprintln!("failed to create exception string\nexception was: {e}");
+                log::error!("failed to create exception string\nexception was: {e}");
                 return;
             };
 

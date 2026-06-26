@@ -1,4 +1,4 @@
-use gosub_lattice::{BorderCollapse, BoxEdges, CellLayout, CssLength, CssProp, TableRole, TableTree};
+use gosub_lattice::{CellLayout, CssLength, CssProp, TableRole, TableTree};
 
 use crate::common::document::node::{NodeId as DomNodeId, NodeType};
 use crate::common::document::pipeline_doc::PipelineDocument;

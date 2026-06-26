@@ -18,74 +18,74 @@ gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline" }
 gosub_renderer_cairo = { version = "0.1.0", path = "../gosub_renderer_cairo", optional = true, default-features = false }
 gosub_renderer_skia = { version = "0.1.0", path = "../gosub_renderer_skia", optional = true }
 gosub_renderer_vello = { version = "0.1.0", path = "../gosub_renderer_vello", optional = true }
-uuid = { version = "1.17.0", features = ["v4", "serde"] }
-reqwest = { version = "0.13.3", features = ["json", "gzip", "brotli", "deflate", "cookies", "rustls", "stream"] }
-tokio = { version = "1.52", features = [
+uuid = { workspace = true, features = ["v4", "serde"] }
+reqwest = { workspace = true, default-features = true, features = ["json", "gzip", "brotli", "deflate", "cookies", "rustls", "stream"] }
+tokio = { workspace = true, features = [
     "macros",
     "rt-multi-thread",
     "full",
     "tracing",
     "io-util",
 ] }
-thiserror = "2.0.18"
-rand = "0.10.1"
-futures = { version = "0.3", features = ["executor"] }
-anyhow = "1.0.98"
-http = "1.4.1"
-url = "2.5.4"
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.141"
-log = "0.4.27"
-lazy_static = "1.5.0"
+thiserror = { workspace = true }
+rand = { workspace = true }
+futures = { workspace = true, features = ["executor"] }
+anyhow = { workspace = true }
+http = { workspace = true }
+url = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+log = { workspace = true }
+lazy_static = { workspace = true }
 env_logger = "0.11.8"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
-tracing-log = "0.2"
-tracing = "0.1.41"
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }
+tracing-log = { workspace = true }
+tracing = { workspace = true }
 
 r2d2 = { version = "0.8", optional = true }
 r2d2_sqlite = { version = "0.33", optional = true, features = ["bundled"] }
 
-gtk4 = { version = "0.11", optional = true }
-cairo-rs = { version = "0.22", optional = true }
+gtk4 = { workspace = true, optional = true }
+cairo-rs = { workspace = true, optional = true }
 
-skia-safe = { version = "0.97.2", optional = true }
+skia-safe = { workspace = true, optional = true }
 
-vello = { version = "0.8.0", optional = true }
-wgpu = { version = "29.0.0", optional = true }
+vello = { workspace = true, optional = true }
+wgpu = { workspace = true, optional = true }
 
-winit = { version = "0.30.12", optional = true }
+winit = { workspace = true, optional = true }
 
-eframe = { version = "0.34.3", optional = true, features = ["wgpu"] }
-egui = { version = "0.34.3", optional = true }
+eframe = { workspace = true, features = ["wgpu"], optional = true }
+egui = { workspace = true, optional = true }
 num_cpus = "1.17.0"
 rayon = "1"
 time = "0.3.41"
-tokio-util = { version = "0.7.16", features = ["io"] }
-tempfile = "3.21.0"
+tokio-util = { workspace = true, features = ["io"] }
+tempfile = { workspace = true }
 bitflags = "2.11.1"
-futures-util = "0.3.31"
-cow-utils = "0.1.3"
-bytes = "1.10.1"
-dashmap = "7.0.0-rc2"
-once_cell = "1.21.3"
+futures-util = { workspace = true }
+cow-utils = { workspace = true }
+bytes = { workspace = true }
+dashmap = { workspace = true }
+once_cell = { workspace = true }
 psl = "2"
-parking_lot = "0.12.4"
-indicatif = "0.18.0"
-tokio-stream = { version = "0.1.17", features = ["sync"] }
-futures-core = "0.3.31"
+parking_lot = { workspace = true }
+indicatif = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync"] }
+futures-core = { workspace = true }
 mime = "0.3.17"
-chrono = "0.4.45"
-regex = "1.11.1"
+chrono = { workspace = true }
+regex = { workspace = true }
 mimetype-detector = "0.2.2"
-image = "0.25.8"
+image = { workspace = true }
 async-trait = "0.1.89"
 async-channel = "2.5.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-gdk4-wayland = { version = "0.11", optional = true, features = [
+gdk4-wayland = { workspace = true, features = [
     "wayland_crate",
-] }
-gdk4-x11 = { version = "0.11", optional = true }
+], optional = true }
+gdk4-x11 = { workspace = true, optional = true }
 
 [features]
 default = ["sqlite_cookie_store", "parley_layout"]
@@ -103,3 +103,6 @@ metrics = []
 
 wayland = ["gdk4-wayland"]
 x11 = ["gdk4-x11"]
+
+[lints]
+workspace = true

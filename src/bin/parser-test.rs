@@ -70,7 +70,7 @@ fn main() {
     }
 
     if results.failed > 0 {
-        println!("❌ Failed tests:");
+        println!("Failed tests:");
         for (test_idx, line, scripting_enabled, data) in results.tests_failed {
             let mode = if scripting_enabled {
                 "scripting=on"
@@ -105,25 +105,25 @@ fn run_test(test_idx: usize, test: Test, scripting_enabled: bool, all_results: &
                 all_results.succeeded += 1;
 
                 #[cfg(all(feature = "debug_parser", test))]
-                println!("✅  {}", entry.actual);
+                println!("PASS {}", entry.actual);
             }
             ResultStatus::Missing => {
                 all_results.failed += 1;
 
                 #[cfg(all(feature = "debug_parser", test))]
-                println!("❌ {} (missing)", entry.expected);
+                println!("FAIL {} (missing)", entry.expected);
             }
             ResultStatus::Additional => {
                 all_results.failed += 1;
 
                 #[cfg(all(feature = "debug_parser", test))]
-                println!("❌ {} (unexpected)", entry.actual);
+                println!("FAIL {} (unexpected)", entry.actual);
             }
             ResultStatus::Mismatch => {
                 all_results.failed += 1;
 
                 #[cfg(all(feature = "debug_parser", test))]
-                println!("❌ {} (wanted: {})", entry.actual, entry.expected);
+                println!("FAIL {} (wanted: {})", entry.actual, entry.expected);
             }
             ResultStatus::IncorrectPosition => {}
         }
@@ -138,7 +138,7 @@ fn run_test(test_idx: usize, test: Test, scripting_enabled: bool, all_results: &
 
                 #[cfg(all(feature = "debug_parser", test))]
                 println!(
-                    "✅  ({}:{}) {}",
+                    "PASS ({}:{}) {}",
                     entry.actual.line, entry.actual.col, entry.actual.message
                 );
             }
@@ -147,7 +147,7 @@ fn run_test(test_idx: usize, test: Test, scripting_enabled: bool, all_results: &
 
                 #[cfg(all(feature = "debug_parser", test))]
                 println!(
-                    "❌ ({}:{}) {} (missing)",
+                    "FAIL ({}:{}) {} (missing)",
                     entry.expected.line, entry.expected.col, entry.expected.message
                 );
             }
@@ -156,7 +156,7 @@ fn run_test(test_idx: usize, test: Test, scripting_enabled: bool, all_results: &
 
                 #[cfg(all(feature = "debug_parser", test))]
                 println!(
-                    "❌ ({}:{}) {} (unexpected)",
+                    "FAIL ({}:{}) {} (unexpected)",
                     entry.actual.line, entry.actual.col, entry.actual.message
                 );
             }
@@ -165,7 +165,7 @@ fn run_test(test_idx: usize, test: Test, scripting_enabled: bool, all_results: &
 
                 #[cfg(all(feature = "debug_parser", test))]
                 println!(
-                    "❌ ({}:{}) {} (wanted: {})",
+                    "FAIL ({}:{}) {} (wanted: {})",
                     entry.actual.line, entry.actual.col, entry.actual.message, entry.expected.message
                 );
             }
@@ -175,7 +175,7 @@ fn run_test(test_idx: usize, test: Test, scripting_enabled: bool, all_results: &
 
                 #[cfg(all(feature = "debug_parser", test))]
                 println!(
-                    "❌ ({}:{}) (wanted: ({}::{})) {}",
+                    "FAIL ({}:{}) (wanted: ({}::{})) {}",
                     entry.actual.line,
                     entry.actual.col,
                     entry.expected.line,

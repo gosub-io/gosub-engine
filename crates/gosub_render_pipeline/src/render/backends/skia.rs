@@ -64,12 +64,13 @@ impl RenderBackend for SkiaBackend {
                         color,
                         ..
                     } => {
-                        let typeface = FONT_MGR.with(|fm| {
-                            fm.legacy_make_typeface(None, FontStyle::normal()).unwrap_or_else(|| {
-                                fm.legacy_make_typeface("sans-serif", FontStyle::normal())
-                                    .expect("no typeface")
-                            })
-                        });
+                        let Some(typeface) = FONT_MGR.with(|fm| {
+                            fm.legacy_make_typeface(None, FontStyle::normal())
+                                .or_else(|| fm.legacy_make_typeface("sans-serif", FontStyle::normal()))
+                        }) else {
+                            log::warn!("SkiaBackend: no typeface available; skipping text run");
+                            continue;
+                        };
                         let font = Font::new(typeface, *size);
                         let mut paint = Paint::new(to_color4f(color), None);
                         paint.set_anti_alias(true);

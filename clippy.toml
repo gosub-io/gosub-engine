@@ -7,6 +7,11 @@ disallowed-methods = [
   { path = "str::replacen", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_replacen` instead." },
 ]
 
+disallowed-types = [
+  { path = "std::sync::Mutex", reason = "Use `parking_lot::Mutex` instead: no lock poisoning, so no `.unwrap()` on every lock." },
+  { path = "std::sync::RwLock", reason = "Use `parking_lot::RwLock` instead: no lock poisoning, so no `.unwrap()` on every lock." },
+]
+
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true

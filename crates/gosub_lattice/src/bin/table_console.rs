@@ -3,9 +3,7 @@
 use gosub_lattice::mock::{cell, MockTable};
 
 fn main() {
-    // ------------------------------------------------------------------
     // 1. Simple 3-column table, no spanning
-    // ------------------------------------------------------------------
     println!("=== Simple 3-column table ===");
     let out = MockTable::new(60.0)
         .header_row(vec![cell("Name"), cell("Age"), cell("City")])
@@ -16,9 +14,7 @@ fn main() {
         .render();
     println!("{out}");
 
-    // ------------------------------------------------------------------
     // 2. colspan: Bob's name spans 2 columns
-    // ------------------------------------------------------------------
     println!("=== colspan demo ===");
     let out = MockTable::new(60.0)
         .header_row(vec![cell("Name"), cell("Info")])
@@ -28,9 +24,7 @@ fn main() {
         .render();
     println!("{out}");
 
-    // ------------------------------------------------------------------
     // 3. rowspan: Bob spans 2 body rows (clamped to the body section)
-    // ------------------------------------------------------------------
     println!("=== rowspan demo (clamped to body section) ===");
     let out = MockTable::new(60.0)
         .header_row(vec![cell("Name"), cell("Score")])
@@ -41,9 +35,7 @@ fn main() {
         .render();
     println!("{out}");
 
-    // ------------------------------------------------------------------
     // 4. rowspan that would cross thead→tbody boundary — must be clamped
-    // ------------------------------------------------------------------
     println!("=== rowspan clamped at section boundary ===");
     let out = MockTable::new(60.0)
         .header_row(vec![
@@ -54,9 +46,7 @@ fn main() {
         .render();
     println!("{out}");
 
-    // ------------------------------------------------------------------
     // 5. thead/tbody/tfoot all present, rowspan within tbody
-    // ------------------------------------------------------------------
     println!("=== thead + rowspan in tbody + tfoot ===");
     let out = MockTable::new(60.0)
         .header_row(vec![cell("Col A"), cell("Col B"), cell("Col C")])

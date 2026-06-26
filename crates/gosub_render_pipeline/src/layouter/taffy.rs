@@ -179,7 +179,7 @@ impl CanLayout for TaffyLayouter {
         // Compute the layout with a measure function
         if let Err(e) = self
             .tree
-            .compute_layout_with_measure(self.root_id, size, |v_kd, v_as, v_ni, v_nc, v_s| {
+            .compute_layout_with_measure(self.root_id, size, |v_kd, v_as, _v_ni, v_nc, _v_s| {
                 // If taffy already knows both dimensions, no measurement needed.
                 if let (Some(w), Some(h)) = (v_kd.width, v_kd.height) {
                     return Size { width: w, height: h };
@@ -437,7 +437,9 @@ impl TaffyLayouter {
         }) else {
             return;
         };
-        self.tree.add_child(leaf_id, taffy_container_id).unwrap();
+        if let Err(e) = self.tree.add_child(leaf_id, taffy_container_id) {
+            log::warn!("Failed to add anonymous container to taffy tree: {:?}", e);
+        }
 
         // and add all the inline elements to the anonymous element
         for (inline_layout_element_id, inline_taffy_node_id) in current_inline_group {
@@ -483,7 +485,6 @@ impl TaffyLayouter {
             None => to_element_context(None),
         };
 
-        // We add the element to the taffy tree. If we have a context, make sure we add it with the context as well.
         let result = match taffy_context {
             Some(ctx) => self.tree.new_leaf_with_context(taffy_style.to_owned(), ctx),
             None => self.tree.new_leaf(taffy_style.to_owned()),
@@ -494,7 +495,6 @@ impl TaffyLayouter {
             return None;
         };
 
-        // Create the element node in our layout tree
         let mut element_node = LayoutElementNode {
             id: layout_tree.next_node_id(),
             dom_node_id: dom_node.node_id,
@@ -504,8 +504,7 @@ impl TaffyLayouter {
             context: element_context,
         };
 
-        // Now we iterate the children, and add them to both taffy and the element_node's children vec.
-
+        // Children are tracked in both the taffy tree and the element_node's children vec.
         let mut current_inline_group = Vec::new();
         // Track how many trailing whitespace-only text nodes are at the end of the current inline
         // group so they can be stripped before flushing, mirroring how leading whitespace is dropped.
@@ -537,7 +536,9 @@ impl TaffyLayouter {
                         }
                     }
                 }
-                self.tree.add_child(leaf_id, child_taffy_id).unwrap();
+                if let Err(e) = self.tree.add_child(leaf_id, child_taffy_id) {
+                    log::warn!("Failed to add child to taffy tree: {:?}", e);
+                }
                 element_node.children.push(child_layout_element_id);
                 continue;
             }
@@ -578,8 +579,9 @@ impl TaffyLayouter {
             current_inline_group = Vec::new();
             trailing_ws_count = 0;
 
-            // Add this child
-            self.tree.add_child(leaf_id, child_taffy_id).unwrap();
+            if let Err(e) = self.tree.add_child(leaf_id, child_taffy_id) {
+                log::warn!("Failed to add child to taffy tree: {:?}", e);
+            }
             element_node.children.push(child_layout_element_id);
         }
 
@@ -587,11 +589,8 @@ impl TaffyLayouter {
         current_inline_group.truncate(current_inline_group.len().saturating_sub(trailing_ws_count));
         self.process_inlines(&current_inline_group, &mut element_node, leaf_id);
 
-        // Finally, we can insert the generated element also in the layout-tree. This is the ultimate
-        // structure we must return to the rest of the pipeline. Taffy itself will stay internal to this
-        // layouter, as other layout engines can use different systems (or we can write our own as well)
-
-        // Insert element node into our arena
+        // The layout-tree is the structure handed to the rest of the pipeline; taffy stays
+        // internal to this layouter so other layout engines can be swapped in.
         let layout_element_id = element_node.id;
         layout_tree.arena.insert(layout_element_id, element_node);
 
@@ -610,13 +609,11 @@ impl TaffyLayouter {
         let mut taffy_style = Style::default();
 
         match &dom_node.node_type {
-            // Node is an element node (like a div, span, etc.)
             NodeType::Element(data) => {
-                // Create the taffy style by reading CSS properties through the pipeline document.
                 let conv = CssTaffyConverter::new(dom_node.node_id, &*layout_tree.render_tree.doc);
                 taffy_style = conv.convert(false);
 
-                // Check if element type is an image, if so, set the taffy context
+                // Images get a taffy context so their intrinsic size participates in layout.
                 if data.tag_name.eq_ignore_ascii_case("img") {
                     let base_url = layout_tree.render_tree.doc.base_url();
                     let Some(src) = data.get_attribute("src") else {
@@ -823,8 +820,7 @@ fn to_absolute_url(uri: &str, base_uri: &str) -> String {
         return format!("{}:{}", scheme, uri);
     }
 
-    // We have a relative path, so we need to prepend the base URL.
-    // Avoid double slashes at the join point.
+    // Relative path: prepend the base URL, avoiding double slashes at the join point.
     if base_uri.ends_with('/') && uri.starts_with('/') {
         return format!("{}{}", base_uri, &uri[1..]);
     }
@@ -862,12 +858,6 @@ fn to_element_context(taffy_context: Option<&TaffyContext>) -> ElementContext {
         ),
         None => ElementContext::None,
     }
-}
-
-#[inline(always)]
-fn dpi(value: f64) -> f64 {
-    let dpi_scale_factor = 3.0;
-    value * dpi_scale_factor
 }
 
 /// Converts a taffy layout to our own BoxModel structure

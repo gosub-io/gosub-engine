@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 /// Renders a simple HTML page through the gosub pipeline and saves the result as a PNG.
 ///
 /// Each element's computed box is painted with its CSS background-color. Text nodes are
@@ -77,7 +78,7 @@ fn main() {
     // 2. Build filtered render tree (invisible elements removed).
     let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
     let mut render_tree = RenderTree::new(Arc::new(adapter));
-    render_tree.parse();
+    render_tree.parse().expect("failed to build render tree");
     let element_count = render_tree.count_elements();
 
     // 3. Run taffy layout.

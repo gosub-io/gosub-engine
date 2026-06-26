@@ -156,22 +156,24 @@ impl RenderTree {
         }
     }
 
-    pub fn parse(&mut self) {
+    pub fn parse(&mut self) -> anyhow::Result<()> {
         self.arena.clear();
         self.root_id = None;
 
         let Some(root_id) = self.doc.root() else {
-            panic!("Document has no root node");
+            anyhow::bail!("Document has no root node");
         };
 
         match self.build_rendertree(root_id) {
             Some(render_node_id) => self.root_id = Some(render_node_id),
-            None => panic!("Failed to build rendertree"),
+            None => anyhow::bail!("Failed to build rendertree"),
         }
 
         if let Ok(path) = std::env::var("GOSUB_DUMP_CSS") {
             self.dump_css_to_json(&path);
         }
+
+        Ok(())
     }
 
     fn is_visible(&self, id: NodeId) -> bool {

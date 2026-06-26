@@ -559,7 +559,7 @@ fn main() {
         .unwrap_or_default();
 
     // Cairo/Pango need GTK4 initialised. No GTK window is created.
-    gosub_engine::init_gtk_resources();
+    gosub_engine::init_gtk_resources().expect("failed to init GTK resources");
 
     let initial_url = {
         let raw = std::env::args()

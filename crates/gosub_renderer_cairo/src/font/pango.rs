@@ -6,9 +6,7 @@ use std::sync::{Arc, OnceLock};
 
 const DEFAULT_FONT_FAMILY: &str = "sans";
 
-// ---------------------------------------------------------------------------
 // PangoFontSystem
-// ---------------------------------------------------------------------------
 
 /// Font-system state for the Cairo/Pango backend.
 ///
@@ -81,9 +79,7 @@ impl Default for PangoFontSystem {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Process-wide singleton (required because GTK init must happen on main thread)
-// ---------------------------------------------------------------------------
 
 /// Process-wide `PangoFontSystem` singleton.
 ///
@@ -110,9 +106,7 @@ pub fn get() -> Arc<PangoFontSystem> {
     Arc::clone(PANGO_FONT_SYSTEM.get_or_init(|| Arc::new(PangoFontSystem::new())))
 }
 
-// ---------------------------------------------------------------------------
 // Weight mapping
-// ---------------------------------------------------------------------------
 
 pub fn to_pango_weight(weight: usize) -> Weight {
     match weight {
@@ -129,9 +123,7 @@ pub fn to_pango_weight(weight: usize) -> Weight {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Backward-compat shim used by gosub_engine::init_gtk_resources
-// ---------------------------------------------------------------------------
 
 /// Deprecated entry point kept for ABI compatibility.
 /// Prefer calling [`init`] directly.
@@ -140,9 +132,7 @@ pub fn init_system_ui_font() {
     init();
 }
 
-// ---------------------------------------------------------------------------
 // Internal helpers
-// ---------------------------------------------------------------------------
 
 fn get_system_ui_font_from_gsettings() -> Option<String> {
     use gtk4::gio::{Settings, SettingsSchemaSource};

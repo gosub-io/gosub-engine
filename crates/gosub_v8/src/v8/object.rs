@@ -216,7 +216,7 @@ impl WebObject for V8Object {
                     Ok(external) => external,
                     Err(e) => {
                         let Some(e) = V8Context::create_exception(scope, e) else {
-                            eprintln!("failed to create exception string\nexception was: {e}");
+                            log::error!("failed to create exception string\nexception was: {e}");
                             return;
                         };
                         scope.throw_exception(e);
@@ -258,7 +258,7 @@ impl WebObject for V8Object {
                     Ok(external) => external,
                     Err(e) => {
                         let Some(e) = V8Context::create_exception(scope, e) else {
-                            eprintln!("failed to create exception string\nexception was: {e}");
+                            log::error!("failed to create exception string\nexception was: {e}");
                             return;
                         };
                         scope.throw_exception(e);

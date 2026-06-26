@@ -226,9 +226,7 @@ impl FontSystem for ParleyFontSystem {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Conversion helpers
-// ---------------------------------------------------------------------------
 
 fn css_family_to_query(name: &str) -> QueryFamily<'_> {
     match name.cow_to_lowercase().as_ref() {

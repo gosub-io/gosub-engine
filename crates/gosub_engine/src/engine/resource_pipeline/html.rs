@@ -70,7 +70,6 @@ impl HtmlPipelineImpl {
         let child_tasks_for_closure = child_tasks.clone();
 
         let mut on_discover = |hint: ResourceHint| {
-            // Create a request for the discovered resource
             let sub_req = FetchRequest {
                 req_id: RequestId::new(),
                 reference: parent_ref,

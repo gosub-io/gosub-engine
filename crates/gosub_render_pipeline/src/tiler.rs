@@ -4,8 +4,7 @@ use crate::common::document::style::{StyleProperty, Value};
 use crate::common::geo::{Coordinate, Dimension, Rect};
 use crate::common::texture::TextureId;
 use crate::layering::layer::{LayerId, LayerList};
-use crate::layouter::{LayoutElementId, LayoutElementNode};
-use crate::painter::commands::color::Color;
+use crate::layouter::LayoutElementId;
 use crate::painter::commands::PaintCommand;
 use parking_lot::RwLock;
 use rstar::primitives::GeomWithData;
@@ -283,8 +282,7 @@ impl TileList {
         let max_rows = (page_h / tile_h).ceil() as usize;
 
         // Detect canvas color. We paint the whole canvas with the background color from either the html or body nodes.
-        let mut bgcolor = None;
-        bgcolor = get_background_color_from_node(
+        let mut bgcolor = get_background_color_from_node(
             self.layer_list.layout_tree.render_tree.doc.html_node_id(),
             self.layer_list.layout_tree.render_tree.doc.as_ref(),
         );
@@ -359,15 +357,18 @@ impl TileList {
 
             let rtree_data: Vec<_> = tile_ids
                 .iter()
-                .map(|tile_id| {
-                    let tile = self.arena.get(tile_id).unwrap();
-                    GeomWithData::new(
+                .filter_map(|tile_id| {
+                    let Some(tile) = self.arena.get(tile_id) else {
+                        log::warn!("Tile {:?} missing from arena while building rtree", tile_id);
+                        return None;
+                    };
+                    Some(GeomWithData::new(
                         rstar::primitives::Rectangle::from_corners(
                             [tile.rect.x, tile.rect.y],
                             [tile.rect.x + tile.rect.width, tile.rect.y + tile.rect.height],
                         ),
                         *tile_id,
-                    )
+                    ))
                 })
                 .collect();
 
@@ -392,7 +393,10 @@ impl TileList {
 
                 let matching_tile_ids = tile_layer.intersects_with(margin_box);
                 for tile_id in &matching_tile_ids {
-                    let tile = self.arena.get_mut(tile_id).unwrap();
+                    let Some(tile) = self.arena.get_mut(tile_id) else {
+                        log::warn!("Tile {:?} missing from arena while assigning elements", tile_id);
+                        continue;
+                    };
                     let position = Coordinate::new(
                         margin_box.x.max(tile.rect.x) - tile.rect.x,
                         margin_box.y.max(tile.rect.y) - tile.rect.y,
@@ -425,7 +429,9 @@ impl TileList {
         for (layer_id, tile_layer) in self.tiles.iter() {
             println!("Layer: {}", layer_id);
             for tile_id in tile_layer.tiles.iter() {
-                let tile = self.arena.get(tile_id).unwrap();
+                let Some(tile) = self.arena.get(tile_id) else {
+                    continue;
+                };
                 println!("  Tile: {} : {} elements", tile_id, tile.elements.len());
             }
         }

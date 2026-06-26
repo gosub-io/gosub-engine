@@ -20,12 +20,11 @@
 //!
 //! ## I/O characteristics & caveats
 //! - `save_zone` **rewrites** the set of cookies for a zone (DELETE + INSERT).
-//! - Several helpers use `expect(...)` and will **panic** on DB errors. Consider
-//!   replacing with fallible variants for production.
+//! - Persistence is best-effort: database errors are logged, never panicked on.
 //!
 //! ## Example
 //! ```ignore,no_run
-//! let store = SqliteCookieStore::new("cookies.sqlite".into()); // -> Arc<SqliteCookieStore>
+//! let store = SqliteCookieStore::new("cookies.sqlite".into())?; // -> Arc<SqliteCookieStore>
 //!
 //! // New zones will receive a PersistentCookieJar minted by this store.
 //! let zone_id = engine.zone().cookie_store(store).create()?;
@@ -45,6 +44,7 @@ use crate::engine::cookies::persistent_cookie_jar::PersistentCookieJar;
 use crate::engine::cookies::store::CookieStore;
 use crate::engine::cookies::{Cookie, CookieJarHandle, CookieStoreHandle};
 use crate::engine::zone::ZoneId;
+use crate::EngineError;
 
 /// A SQLite-based cookie store that persists cookies across sessions.
 ///
@@ -64,14 +64,15 @@ impl SqliteCookieStore {
     ///
     /// Returns an `Arc<Self>` ready to be used as a `CookieStoreHandle`.
     ///
-    /// # Panics
-    /// Panics if the pool cannot be created or if the `cookies` table cannot be created.
-    pub fn new(path: PathBuf) -> Arc<Self> {
+    /// # Errors
+    /// Returns [`EngineError::CookieStore`] if the pool cannot be created or the
+    /// `cookies` table cannot be created/migrated.
+    pub fn new(path: PathBuf) -> Result<Arc<Self>, EngineError> {
         let manager = SqliteConnectionManager::file(path);
-        let pool = Pool::new(manager).expect("Failed to create SQLite pool");
+        let pool = Pool::new(manager).map_err(|e| EngineError::CookieStore(e.into()))?;
 
         {
-            let conn = pool.get().expect("DB connection");
+            let conn = pool.get().map_err(|e| EngineError::CookieStore(e.into()))?;
 
             // Drop table if the expires column is TEXT (pre-i64 schema).
             let old_schema = conn
@@ -85,7 +86,7 @@ impl SqliteCookieStore {
                 > 0;
             if old_schema {
                 conn.execute_batch("DROP TABLE IF EXISTS cookies;")
-                    .expect("Schema migration failed");
+                    .map_err(|e| EngineError::CookieStore(e.into()))?;
             }
 
             conn.execute_batch(
@@ -104,7 +105,7 @@ impl SqliteCookieStore {
                     PRIMARY KEY (zone_id, origin, name, path, domain)
                 );",
             )
-            .expect("Failed to create cookies table");
+            .map_err(|e| EngineError::CookieStore(e.into()))?;
 
             // Add created_at to any pre-existing table that lacks it.
             let _ = conn.execute_batch("ALTER TABLE cookies ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;");
@@ -121,50 +122,62 @@ impl SqliteCookieStore {
             *self_ref = Some(CookieStoreHandle::from(store.clone()));
         }
 
-        store
+        Ok(store)
     }
 
-    /// Borrows a pooled SQLite connection.
-    ///
-    /// # Panics
-    /// Panics if a connection cannot be retrieved from the pool.
-    fn conn(&self) -> PooledConnection<SqliteConnectionManager> {
-        self.pool.get().expect("Failed to get DB connection")
+    /// Borrows a pooled SQLite connection, logging on failure.
+    fn conn(&self) -> Option<PooledConnection<SqliteConnectionManager>> {
+        match self.pool.get() {
+            Ok(conn) => Some(conn),
+            Err(e) => {
+                log::error!("Failed to get cookie DB connection: {e}");
+                None
+            }
+        }
     }
 
     /// Loads all cookies for `zone_id` from the database into a new [`DefaultCookieJar`].
     ///
-    /// # Panics
-    /// Panics on SQL preparation or query errors.
+    /// Best-effort: on database errors an empty jar is returned and the error is logged.
     fn load_zone(&self, zone_id: ZoneId) -> DefaultCookieJar {
-        let conn = self.conn();
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT origin, name, value, path, domain, secure, expires, same_site, http_only, created_at
-             FROM cookies WHERE zone_id = ?1",
-            )
-            .expect("Prepare failed");
-
-        let rows = stmt
-            .query_map([zone_id.to_string()], |row| {
-                let origin: String = row.get(0)?;
-                let entry = Cookie {
-                    name: row.get(1)?,
-                    value: row.get(2)?,
-                    path: row.get(3)?,
-                    domain: row.get(4)?,
-                    secure: row.get::<_, i64>(5)? != 0,
-                    expires: row.get::<_, Option<i64>>(6)?,
-                    same_site: row.get(7)?,
-                    http_only: row.get::<_, i64>(8)? != 0,
-                    created_at: row.get::<_, i64>(9).unwrap_or(0),
-                };
-                Ok((origin, entry))
-            })
-            .expect("Query failed");
-
         let mut jar = DefaultCookieJar::new();
+        let Some(conn) = self.conn() else {
+            return jar;
+        };
+
+        let mut stmt = match conn.prepare(
+            "SELECT origin, name, value, path, domain, secure, expires, same_site, http_only, created_at
+             FROM cookies WHERE zone_id = ?1",
+        ) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                log::error!("Failed to prepare cookie SELECT: {e}");
+                return jar;
+            }
+        };
+
+        let rows = match stmt.query_map([zone_id.to_string()], |row| {
+            let origin: String = row.get(0)?;
+            let entry = Cookie {
+                name: row.get(1)?,
+                value: row.get(2)?,
+                path: row.get(3)?,
+                domain: row.get(4)?,
+                secure: row.get::<_, i64>(5)? != 0,
+                expires: row.get::<_, Option<i64>>(6)?,
+                same_site: row.get(7)?,
+                http_only: row.get::<_, i64>(8)? != 0,
+                created_at: row.get::<_, i64>(9).unwrap_or(0),
+            };
+            Ok((origin, entry))
+        }) {
+            Ok(rows) => rows,
+            Err(e) => {
+                log::error!("Failed to query cookies for zone {zone_id}: {e}");
+                return jar;
+            }
+        };
+
         for (origin, entry) in rows.flatten() {
             jar.entries.entry(origin).or_default().push(entry);
         }
@@ -177,53 +190,71 @@ impl SqliteCookieStore {
     /// Replaces all cookies for `zone_id` with the contents of `jar` in a transaction.
     ///
     /// DELETEs the existing rows for the zone and INSERTs the new set.
-    ///
-    /// # Panics
-    /// Panics if the transaction, statement preparation, or execution fails.
+    /// Best-effort: on database errors the snapshot is skipped and the error is logged.
     fn save_zone(&self, zone_id: ZoneId, jar: &DefaultCookieJar) {
-        let mut conn = self.conn();
-        let tx = conn.transaction().expect("Transaction failed");
+        let Some(mut conn) = self.conn() else {
+            return;
+        };
+        let tx = match conn.transaction() {
+            Ok(tx) => tx,
+            Err(e) => {
+                log::error!("Failed to start cookie transaction for zone {zone_id}: {e}");
+                return;
+            }
+        };
 
-        tx.execute("DELETE FROM cookies WHERE zone_id = ?1", [zone_id.to_string()])
-            .expect("Failed to delete cookies");
+        if let Err(e) = tx.execute("DELETE FROM cookies WHERE zone_id = ?1", [zone_id.to_string()]) {
+            log::error!("Failed to delete cookies for zone {zone_id}: {e}");
+            return;
+        }
 
-        let mut stmt = tx.prepare(
-            "INSERT INTO cookies (zone_id, origin, name, value, path, domain, secure, expires, same_site, http_only, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"
-        ).expect("Prepare failed");
+        {
+            let mut stmt = match tx.prepare(
+                "INSERT INTO cookies (zone_id, origin, name, value, path, domain, secure, expires, same_site, http_only, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"
+            ) {
+                Ok(stmt) => stmt,
+                Err(e) => {
+                    log::error!("Failed to prepare cookie INSERT: {e}");
+                    return;
+                }
+            };
 
-        for (origin, cookies) in &jar.entries {
-            for cookie in cookies {
-                stmt.execute(params![
-                    zone_id.to_string(),
-                    origin,
-                    cookie.name,
-                    cookie.value,
-                    cookie.path,
-                    cookie.domain,
-                    cookie.secure as i64,
-                    cookie.expires,
-                    cookie.same_site,
-                    cookie.http_only as i64,
-                    cookie.created_at,
-                ])
-                .expect("Failed to insert cookie");
+            for (origin, cookies) in &jar.entries {
+                for cookie in cookies {
+                    if let Err(e) = stmt.execute(params![
+                        zone_id.to_string(),
+                        origin,
+                        cookie.name,
+                        cookie.value,
+                        cookie.path,
+                        cookie.domain,
+                        cookie.secure as i64,
+                        cookie.expires,
+                        cookie.same_site,
+                        cookie.http_only as i64,
+                        cookie.created_at,
+                    ]) {
+                        log::error!("Failed to insert cookie for zone {zone_id}: {e}");
+                        return;
+                    }
+                }
             }
         }
 
-        drop(stmt);
-
-        tx.commit().expect("Commit failed");
+        if let Err(e) = tx.commit() {
+            log::error!("Failed to commit cookie snapshot for zone {zone_id}: {e}");
+        }
     }
 
-    /// Deletes all cookies for `zone_id` from the database.
-    ///
-    /// # Panics
-    /// Panics on SQL execution error.
+    /// Deletes all cookies for `zone_id` from the database (best-effort).
     fn remove_zone_from_db(&self, zone_id: ZoneId) {
-        let conn = self.conn();
-        conn.execute("DELETE FROM cookies WHERE zone_id = ?1", [zone_id.to_string()])
-            .expect("Failed to delete zone cookies");
+        let Some(conn) = self.conn() else {
+            return;
+        };
+        if let Err(e) = conn.execute("DELETE FROM cookies WHERE zone_id = ?1", [zone_id.to_string()]) {
+            log::error!("Failed to delete cookies for zone {zone_id}: {e}");
+        }
     }
 }
 
@@ -248,7 +279,13 @@ impl CookieStore for SqliteCookieStore {
         let arc_jar: CookieJarHandle = jar.into();
 
         let store_ref = self.store_self.read();
-        let store = store_ref.as_ref().expect("store_self not initialized").clone();
+        let store = match store_ref.as_ref() {
+            Some(store) => store.clone(),
+            None => {
+                log::error!("store_self not initialized; cannot provision cookie jar");
+                return None;
+            }
+        };
 
         let persistent = PersistentCookieJar::new(zone_id, arc_jar.clone(), store);
         let handle = CookieJarHandle::new(persistent);

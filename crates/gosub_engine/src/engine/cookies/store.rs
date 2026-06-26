@@ -28,7 +28,7 @@
 //!         Arc::new(InMemoryLocalStore::new()),
 //!         Arc::new(InMemorySessionStore::new()),
 //!     )),
-//!     cookie_store: Some(SqliteCookieStore::new("cookies.db".into()).into()),
+//!     cookie_store: Some(SqliteCookieStore::new("cookies.db".into())?.into()),
 //!     cookie_jar: None, // engine will attach a PersistentCookieJar that snapshots to the store
 //!     partition_policy: PartitionPolicy::None,
 //! };
@@ -74,7 +74,7 @@
 //!         Arc::new(InMemoryLocalStore::new()),
 //!         Arc::new(InMemorySessionStore::new()),
 //!     )),
-//!     cookie_store: Some(JsonCookieStore::new("private-cookies.json".into()).into()),
+//!     cookie_store: Some(JsonCookieStore::new("private-cookies.json".into())?.into()),
 //!     cookie_jar: None,
 //!     partition_policy: PartitionPolicy::None,
 //! };

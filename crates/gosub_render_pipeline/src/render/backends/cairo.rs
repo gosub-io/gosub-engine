@@ -34,11 +34,12 @@ impl RenderBackend for CairoBackend {
         Ok(Box::new(CairoSurface::new(physical, present)?))
     }
 
+    #[allow(unsafe_code)] // Blit creates a cairo image surface over borrowed pixel data
     fn render(&self, ctx: &mut dyn RenderContext, surface: &mut dyn ErasedSurface) -> Result<()> {
         let s = surface
             .as_any_mut()
             .downcast_mut::<CairoSurface>()
-            .expect("CairoBackend used with non-Cairo surface");
+            .ok_or_else(|| anyhow!("CairoBackend used with non-Cairo surface"))?;
 
         let vp = ctx.viewport();
         let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed) as f64;
@@ -194,11 +195,14 @@ impl CairoSurface {
         })
     }
 
+    #[allow(unsafe_code)] // cairo draws directly into our pixel buffer via a raw pointer
     pub fn with_ctx<R>(&mut self, f: impl FnOnce(&cairo::Context) -> R) -> Result<R> {
         let w = self.size.width as i32;
         let h = self.size.height as i32;
         let stride = self.stride;
 
+        // SAFETY: `ptr` stays valid for the surface's lifetime — `self.pixels` is not
+        // touched until the surface is flushed and dropped at the end of this call.
         let ptr = self.pixels.as_mut_ptr();
         let surface = unsafe { cairo::ImageSurface::create_for_data_unsafe(ptr, cairo::Format::ARgb32, w, h, stride)? };
 

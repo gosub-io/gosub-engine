@@ -9,11 +9,11 @@ description = "Taffy layouter for Gosub"
 [dependencies]
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 gosub_lattice = { version = "0.1.0", registry = "gosub", path = "../gosub_lattice" }
-parking_lot = "0.12"
+parking_lot = { workspace = true }
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface" }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
-taffy = { version = "0.10.1", default-features = false, features = ["std", "flexbox", "grid", "block_layout", "content_size", "calc"] }
-anyhow = "1.0.102"
-regex = "1.12.3"
-log = "0.4.29"
-parley = { version = "0.9.0", default-features = false, features = ["std"] }
+taffy = { workspace = true, features = ["std", "flexbox", "grid", "block_layout", "content_size", "calc"] }
+anyhow = { workspace = true }
+regex = { workspace = true }
+log = { workspace = true }
+parley = { workspace = true, features = ["std"] }

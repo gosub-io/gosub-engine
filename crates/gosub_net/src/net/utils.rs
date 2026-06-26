@@ -229,6 +229,20 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn stream_to_bytes_prepends_peek_buffer() {
+        let shared = Arc::new(SharedBody::new(8));
+        let writer = shared.clone();
+        tokio::spawn(async move {
+            writer.push(Bytes::from_static(b"-BODY-1"));
+            writer.push(Bytes::from_static(b"-BODY-2"));
+            writer.finish();
+        });
+
+        let body = stream_to_bytes(PeekBuf::from_slice(b"HEAD"), shared).await.unwrap();
+        assert_eq!(&body[..], b"HEAD-BODY-1-BODY-2");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn waiter_finishes_buffered_to_all() {
         let waiter = Waiter::new_arc();
         let (tx1, rx1) = oneshot::channel();

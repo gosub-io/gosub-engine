@@ -58,9 +58,6 @@ pub enum EngineError {
     #[error("Task init failed: {0}")]
     TaskInitFailed(#[source] anyhow::Error),
 
-    #[error("poisoned")]
-    Poisoned,
-
     #[error("Failed to create tab: {0}")]
     CreateTab(#[source] anyhow::Error),
 
@@ -78,6 +75,10 @@ pub enum EngineError {
 
     #[error("I/O runtime not started")]
     IoNotStarted,
+
+    /// A cookie/storage backing store failed to initialize.
+    #[error("Cookie store error: {0}")]
+    CookieStore(#[source] anyhow::Error),
 }
 
 #[derive(thiserror::Error, Debug)]

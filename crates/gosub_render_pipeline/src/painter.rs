@@ -11,9 +11,7 @@ use crate::painter::commands::color::Color;
 use crate::painter::commands::rectangle::{Radius, Rectangle};
 use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
-use crate::tiler::{Tile, TiledLayoutElement};
-use rand::Rng;
-use std::ops::AddAssign;
+use crate::tiler::TiledLayoutElement;
 use std::sync::Arc;
 
 /// Painter works with the layout tree and generates paint commands for the renderer. It does not
@@ -38,10 +36,7 @@ impl Painter {
         let dom_node_id = layout_element.dom_node_id;
 
         // Paint boxmodel for the hovered element if needed
-        if state.debug_hover
-            && state.current_hovered_element.is_some()
-            && state.current_hovered_element.unwrap() == layout_element.id
-        {
+        if state.debug_hover && state.current_hovered_element == Some(layout_element.id) {
             commands.extend(self.generate_boxmodel_commands(layout_element));
         }
 

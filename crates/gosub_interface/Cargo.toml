@@ -9,8 +9,8 @@ license = "MIT"
 [dependencies]
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
 gosub_net = { version = "0.1.1", path = "../gosub_net", registry = "gosub" }
-parking_lot = "0.12"
-url = "2.5.8"
+parking_lot = { workspace = true }
+url = { workspace = true }
 
 [lints]
 workspace = true

@@ -28,7 +28,7 @@ pub struct DocumentImpl<C: HasDocument> {
     pub doctype: DocumentType,
     pub quirks_mode: QuirksMode,
     pub stylesheets: Vec<<C::CssSystem as CssSystem>::Stylesheet>,
-    hovered_nodes: std::sync::RwLock<std::collections::HashSet<NodeId>>,
+    hovered_nodes: parking_lot::RwLock<std::collections::HashSet<NodeId>>,
 }
 
 impl<C: HasDocument> PartialEq for DocumentImpl<C> {
@@ -53,7 +53,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             doctype: document_type,
             quirks_mode: QuirksMode::NoQuirks,
             stylesheets: Vec::new(),
-            hovered_nodes: std::sync::RwLock::new(std::collections::HashSet::new()),
+            hovered_nodes: parking_lot::RwLock::new(std::collections::HashSet::new()),
         };
         let root = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
         doc.arena.register_node(root);
@@ -350,7 +350,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn is_hovered(&self, id: NodeId) -> bool {
-        self.hovered_nodes.read().unwrap().contains(&id)
+        self.hovered_nodes.read().contains(&id)
     }
 }
 
@@ -360,7 +360,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// Update the set of hovered nodes to the ancestor chain of `leaf` (inclusive).
     /// Pass `None` to clear hover state. Uses interior mutability so it works through Arc.
     pub fn set_hovered_nodes(&self, leaf: Option<NodeId>) {
-        let mut set = self.hovered_nodes.write().unwrap();
+        let mut set = self.hovered_nodes.write();
         set.clear();
         if let Some(mut id) = leaf {
             loop {

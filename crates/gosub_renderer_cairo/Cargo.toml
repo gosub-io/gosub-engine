@@ -8,15 +8,15 @@ license = "MIT"
 [dependencies]
 gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline", features = ["backend_cairo"] }
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
-resvg = "0.47.0"
-log = "0.4.29"
-anyhow = "1.0"
-cow-utils = "0.1"
-parking_lot = "0.12"
+resvg = { workspace = true }
+log = { workspace = true }
+anyhow = { workspace = true }
+cow-utils = { workspace = true }
+parking_lot = { workspace = true }
 
-cairo-rs = { version = "0.22" }
-gtk4 = { version = "0.11.1", optional = true }
-pangocairo = { version = "0.22", optional = true }
+cairo-rs = { workspace = true }
+gtk4 = { workspace = true, optional = true }
+pangocairo = { workspace = true, optional = true }
 
 [features]
 default = ["text_pango"]

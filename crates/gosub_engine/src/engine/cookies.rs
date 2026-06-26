@@ -62,7 +62,7 @@
 //! use gosub_engine::cookies::{SqliteCookieStore};
 //!
 //! # async fn demo(mut engine: gosub_engine::GosubEngine) -> anyhow::Result<()> {
-//! let store = SqliteCookieStore::new("cookies.db".into());
+//! let store = SqliteCookieStore::new("cookies.db".into())?;
 //!
 //! let services = ZoneServices {
 //!     storage: Arc::new(StorageService::new(

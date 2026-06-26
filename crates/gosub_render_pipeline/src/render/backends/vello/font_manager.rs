@@ -38,7 +38,10 @@ impl FontManager {
             let vello_font = Font::new(cand.blob.clone(), cand.index);
 
             let (fam_id, _) = cand.family;
-            let fam_info = col_clone.family(fam_id).expect("family id invalid");
+            let Some(fam_info) = col_clone.family(fam_id) else {
+                log::warn!("Font candidate has an invalid family id; trying next candidate");
+                return QueryStatus::Continue;
+            };
 
             chosen = Some((vello_font, fam_info.name().to_string()));
             QueryStatus::Stop
