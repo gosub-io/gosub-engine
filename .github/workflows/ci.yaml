@@ -60,14 +60,21 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: stable
+          # Separate cache: all-features artifacts (skia, vello, gtk) differ
+          # heavily from the default-features builds of the other jobs.
+          shared-key: all-features
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
-      - name: Check all features compile
-        run: cargo check --locked --all --all-features
+      - uses: taiki-e/install-action@nextest
+      - name: Clippy with all features
+        run: cargo clippy --locked --all --all-targets --all-features -- -D warnings
+      - name: Test with all features
+        run: cargo nextest run --locked --all --all-features --no-fail-fast
 
   fmt:
     runs-on: ubuntu-24.04
