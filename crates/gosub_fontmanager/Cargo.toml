@@ -56,3 +56,16 @@ pangocairo = { workspace = true, optional = true }
 
 [features]
 gtk = ["dep:gtk4", "dep:cairo-rs", "dep:cairo-sys-rs", "dep:pangocairo"]
+
+# Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
+# this crate has justified unsafe (allowed per-site with a SAFETY comment).
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

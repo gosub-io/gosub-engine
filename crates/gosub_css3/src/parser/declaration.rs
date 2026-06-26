@@ -98,12 +98,8 @@ impl Css3<'_> {
             "parse_until_declaration_end, now at: {:?}",
             self.tokenizer.current_location()
         );
-        loop {
-            let t = self.consume_any();
-            if t.is_err() {
-                break;
-            }
-            match t.unwrap().token_type {
+        while let Ok(t) = self.consume_any() {
+            match t.token_type {
                 TokenType::Semicolon => {
                     self.tokenizer.reconsume();
                     break;

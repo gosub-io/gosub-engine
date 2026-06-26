@@ -182,10 +182,13 @@ fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
                 continue;
             }
 
-            let value = if css_values.len() == 1 {
-                css_values.pop().expect("unreachable")
-            } else {
-                CssValue::List(css_values)
+            let value = match css_values.pop() {
+                Some(value) if css_values.is_empty() => value,
+                Some(value) => {
+                    css_values.push(value);
+                    CssValue::List(css_values)
+                }
+                None => CssValue::List(css_values),
             };
 
             rule.declarations.push(CssDeclaration {
@@ -294,7 +297,7 @@ mod tests {
 
     #[test]
     fn convert_font_family() {
-        let stylesheet = Css3::parse_str(
+        let _stylesheet = Css3::parse_str(
             r#"
               body {
                 border: 1px solid black;
@@ -310,8 +313,6 @@ mod tests {
             "test.css",
         )
         .unwrap();
-
-        dbg!(&stylesheet);
     }
 
     #[test]

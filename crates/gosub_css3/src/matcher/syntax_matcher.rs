@@ -253,7 +253,9 @@ fn match_component_group<'a>(
 /// Matches a single component value
 fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent) -> MatchResult<'a> {
     // Get the first value from the input which we will use for matching
-    let value = input.first().unwrap();
+    let Some(value) = input.first() else {
+        return no_match(input);
+    };
 
     // println!("\n\n match_component: {:?} against {:?}", value, component);
 
@@ -380,7 +382,11 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
             }
         }
         e => {
-            panic!("Unknown syntax component: {e:?}");
+            #[allow(clippy::panic)]
+            // PANIC-SAFE: components come from the compiled-in definitions, which the test suite matches exhaustively
+            {
+                panic!("Unknown syntax component: {e:?}");
+            }
         }
     }
 
@@ -454,7 +460,7 @@ fn match_group_exactly_one<'a>(
 
     if components_matched.len() > 1 {
         let mut shortest_remainder_idx = 0;
-        let mut shortest_remainder_len = components_matched.first().unwrap().2.len();
+        let mut shortest_remainder_len = usize::MAX;
 
         for (idx, (_, _, remainder)) in components_matched.iter().enumerate() {
             if remainder.len() < shortest_remainder_len {
@@ -731,7 +737,7 @@ enum Fulfillment {
 fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment {
     // Filter out the multipliers that are not relevant for this check
     let binding = component.get_multipliers();
-    let mut filtered_multipliers: Vec<_> = binding
+    let filtered_multipliers: Vec<_> = binding
         .iter()
         .filter(|m| {
             !matches!(
@@ -742,11 +748,10 @@ fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment 
         .collect();
 
     // Make sure that whenever we do not find a (primary) multiplier, we use the default "Once".
-    if filtered_multipliers.is_empty() {
-        filtered_multipliers.push(&SyntaxComponentMultiplier::Once);
-    }
-
-    match filtered_multipliers.first().unwrap() {
+    match filtered_multipliers
+        .first()
+        .unwrap_or(&&SyntaxComponentMultiplier::Once)
+    {
         SyntaxComponentMultiplier::Once => match cnt {
             0 => Fulfillment::NotYetFulfilled,
             1 => Fulfillment::Fulfilled,
@@ -785,7 +790,7 @@ fn first_match(input: &[CssValue]) -> MatchResult<'_> {
     MatchResult {
         remainder: input.get(1..).unwrap_or(&[]),
         matched: true,
-        matched_values: vec![input.first().unwrap().clone()],
+        matched_values: input.first().cloned().into_iter().collect(),
     }
 }
 
@@ -806,7 +811,6 @@ mod tests {
         ($e:expr) => {
             println!("\n\n-------- ASSERT MATCH --------");
             let res = $e.clone();
-            dbg!(&res);
             assert_eq!(true, res.matched);
             println!("------------------------------\n\n");
         };
@@ -816,7 +820,6 @@ mod tests {
         ($e:expr) => {
             println!("\n\n------- ASSERT NOT MATCH ------");
             let res = $e;
-            dbg!(&res);
             assert_eq!(false, res.matched);
             println!("------------------------------\n\n");
         };
@@ -1068,7 +1071,6 @@ mod tests {
         assert_false!(tree.clone().matches(&[str!("foo"), str!("baz"),]));
 
         let tree = CssSyntax::new("foo bar?").compile().unwrap();
-        dbg!(&tree);
         assert_true!(tree.clone().matches(&[str!("foo")]));
         assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"),]));
         assert_false!(tree.clone().matches(&[str!("foo"), str!("bar"), str!("bar"),]));

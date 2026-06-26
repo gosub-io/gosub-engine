@@ -352,14 +352,23 @@ impl VariadicArgs for V8VariadicArgs {
     where
         <Self::RT as WebRuntime>::Value: IntoRustValue<T>,
     {
-        self.args.iter().map(|x| x.to_rust_value().unwrap()).collect()
+        self.args
+            .iter()
+            .filter_map(|x| match x.to_rust_value() {
+                Ok(value) => Some(value),
+                Err(e) => {
+                    log::warn!("Failed to convert JS argument to Rust value: {e}");
+                    None
+                }
+            })
+            .collect()
     }
 
     fn get_as<T>(&self, index: usize) -> Option<T>
     where
         <Self::RT as WebRuntime>::Value: IntoRustValue<T>,
     {
-        self.args.get(index).map(|x| x.to_rust_value().unwrap())
+        self.args.get(index).and_then(|x| x.to_rust_value().ok())
     }
 }
 

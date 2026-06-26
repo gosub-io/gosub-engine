@@ -735,7 +735,9 @@ impl<'stream> Tokenizer<'stream> {
             return default_char;
         }
 
-        let as_u32 = u32::from_str_radix(&value, 16).expect("unable to parse hex string as number");
+        let Ok(as_u32) = u32::from_str_radix(&value, 16) else {
+            return default_char;
+        };
 
         // todo: look for better implementation
         if let Some(char) = char::from_u32(as_u32) {

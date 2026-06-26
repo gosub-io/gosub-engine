@@ -714,9 +714,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         force_quirks,
                         ..
                     } => {
-                        if name.is_some() && name.as_ref().unwrap() != "html"
+                        if name.as_deref().is_some_and(|name| name != "html")
                             || pub_identifier.is_some()
-                            || (sys_identifier.is_some() && sys_identifier.as_ref().unwrap() != "about:legacy-compat")
+                            || sys_identifier.as_deref().is_some_and(|id| id != "about:legacy-compat")
                         {
                             self.parse_error("doctype not allowed in initial insertion mode");
                         }
@@ -1041,6 +1041,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                             return;
                         }
 
+                        #[allow(clippy::unwrap_used)] // PANIC-SAFE: the is_empty() guard above returned
                         let style_text_node_id = *self.document.children(style_node_id).first().unwrap();
 
                         // Load stylesheet from text node
@@ -1775,11 +1776,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// Pops the last element from the open elements until we reach any of the elements in $arr
     fn pop_until_any(&mut self, arr: &[&str]) {
         while !self.open_elements.is_empty() {
-            let node_id = self.open_elements.pop();
-            if node_id.is_none() {
+            let Some(node_id) = self.open_elements.pop() else {
                 break;
-            }
-            let tag = self.document.tag_name(node_id.unwrap()).unwrap_or_default();
+            };
+            let tag = self.document.tag_name(node_id).unwrap_or_default();
             if arr.contains(&tag) {
                 break;
             }
@@ -1934,7 +1934,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
                 // fragment case: use context node
                 if self.is_fragment_case {
-                    node_id = self.context_node_id.expect("context_node_id not set in fragment case");
+                    #[allow(clippy::expect_used)] // PANIC-SAFE: fragment parsing always sets a context node (13.2.4)
+                    let context_node_id = self.context_node_id.expect("context_node_id not set in fragment case");
+                    node_id = context_node_id;
                 }
             }
             match self.document.tag_name(node_id).unwrap_or_default() {
@@ -2526,12 +2528,12 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     let node_id = self.form_element;
                     self.form_element = None;
 
-                    if node_id.is_none() || !self.is_in_scope(name, HTML_NAMESPACE, Scope::Regular) {
+                    let Some(node_id) = node_id.filter(|_| self.is_in_scope(name, HTML_NAMESPACE, Scope::Regular))
+                    else {
                         self.parse_error("end tag not in scope");
                         // ignore token
                         return;
-                    }
-                    let node_id = node_id.expect("node_id");
+                    };
 
                     self.generate_implied_end_tags(None, false);
 
@@ -2764,7 +2766,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
                 self.acknowledge_closing_tag(*is_self_closing);
 
-                if !attributes.contains_key("type") || attributes.get("type").unwrap().cow_to_lowercase() != *"hidden" {
+                if attributes.get("type").is_none_or(|t| t.cow_to_lowercase() != *"hidden") {
                     self.frameset_ok = false;
                 }
             }
@@ -3320,7 +3322,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 attributes,
                 ..
             } if name == "input" => {
-                if !attributes.contains_key("type") || attributes.get("type").unwrap().cow_to_lowercase() != *"hidden" {
+                if attributes.get("type").is_none_or(|t| t.cow_to_lowercase() != *"hidden") {
                     anything_else = true;
                 } else {
                     self.parse_error("input tag not allowed in in table insertion mode");
@@ -3586,10 +3588,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             return;
         }
 
-        if self
-            .open_elements
-            .contains(&entry.node_id().expect("node id not found"))
-        {
+        if entry.node_id().is_some_and(|id| self.open_elements.contains(&id)) {
             return;
         }
 
@@ -3601,10 +3600,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 break;
             }
 
-            if self
-                .open_elements
-                .contains(&entry.node_id().expect("node id not found"))
-            {
+            if entry.node_id().is_some_and(|id| self.open_elements.contains(&id)) {
                 entry_index += 1;
                 break;
             }
@@ -3618,11 +3614,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
         loop {
             let entry = self.active_formatting_elements[entry_index];
-            if let ActiveElement::Marker = entry {
+            let Some(node_id) = entry.node_id() else {
                 // Marker found. This should not happen!
                 break;
-            }
-            let node_id = entry.node_id().expect("node id not found");
+            };
 
             let new_node_id = self.insert_element_from_node(node_id, None);
 
@@ -3656,8 +3651,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         if let Token::StartTag { attributes, .. } = token {
             let mut new_attributes = HashMap::new();
             for (name, value) in attributes.iter() {
-                if SVG_ADJUSTMENTS_ATTRIBUTES.contains_key(name) {
-                    let &new_name = SVG_ADJUSTMENTS_ATTRIBUTES.get(name).expect("svg adjustments");
+                if let Some(&new_name) = SVG_ADJUSTMENTS_ATTRIBUTES.get(name) {
                     new_attributes.insert(new_name.to_owned(), value.clone());
                 } else {
                     new_attributes.insert(name.clone(), value.clone());
@@ -3670,8 +3664,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// Adjusts tag name in the given token for SVG
     fn adjust_svg_tag_names(&self, token: &mut Token) {
         if let Token::StartTag { name, .. } = token {
-            if SVG_ADJUSTMENTS_TAGS.contains_key(name) {
-                (*SVG_ADJUSTMENTS_TAGS.get(name).expect("svg tagname")).clone_into(name);
+            if let Some(new_name) = SVG_ADJUSTMENTS_TAGS.get(name) {
+                (*new_name).clone_into(name);
             }
         }
     }
@@ -3681,8 +3675,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         if let Token::StartTag { attributes, .. } = token {
             let mut new_attributes = HashMap::new();
             for (name, value) in attributes.iter() {
-                if MATHML_ADJUSTMENTS.contains_key(name) {
-                    let &new_name = MATHML_ADJUSTMENTS.get(name).expect("svg adjustments");
+                if let Some(&new_name) = MATHML_ADJUSTMENTS.get(name) {
                     new_attributes.insert(new_name.to_owned(), value.clone());
                 } else {
                     new_attributes.insert(name.clone(), value.clone());
@@ -3696,8 +3689,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         if let Token::StartTag { attributes, .. } = token {
             let mut new_attributes = HashMap::new();
             for (name, value) in attributes.iter() {
-                if XML_ADJUSTMENTS.contains_key(name) {
-                    let (prefix, local_name, _namespace) = XML_ADJUSTMENTS.get(name).expect("cml adjustments");
+                if let Some((prefix, local_name, _namespace)) = XML_ADJUSTMENTS.get(name) {
                     new_attributes.insert(format!("{prefix} {local_name}"), value.clone());
                 } else {
                     new_attributes.insert(name.clone(), value.clone());
@@ -3848,16 +3840,20 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             }
         }
 
-        let token = self.token_queue.first().cloned();
-        self.token_queue.remove(0);
-
-        token.expect("no token found")
+        if self.token_queue.is_empty() {
+            // Cannot happen: the branch above either queued a token or returned early.
+            return Token::Eof {
+                location: Location::default(),
+            };
+        }
+        self.token_queue.remove(0)
     }
 
     /// Returns the NodeId of the adjusted current node.
     fn get_adjusted_current_node_id(&self) -> NodeId {
         if self.is_fragment_case && self.open_elements.len() == 1 {
             // fragment case: return context node
+            #[allow(clippy::expect_used)] // PANIC-SAFE: fragment parsing always sets a context node (13.2.4)
             return self.context_node_id.expect("context_node_id not set in fragment case");
         }
         current_node_id!(self)
@@ -4177,12 +4173,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             return;
         }
 
-        if !attributes.contains_key("rel") {
+        let Some(rel) = attributes.get("rel").cloned() else {
             self.parse_error("link element without 'rel' attribute not supported yet");
             return;
-        }
-
-        let rel = attributes.get("rel").expect("rel").clone();
+        };
 
         // @todo: We need to check if the link rel is body-ok
         let parser_in_body = true;
@@ -4212,19 +4206,16 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     Ok(url) => url,
                     Err(_err) => {
                         // Relative URL
-                        if self.document.url().is_some() {
-                            let url = self.document.url();
-                            let base_url = url.as_ref().unwrap();
-                            match base_url.join(href) {
-                                Ok(url) => url,
-                                Err(_) => {
-                                    self.parse_error("link element with invalid href url");
-                                    return;
-                                }
-                            }
-                        } else {
+                        let Some(base_url) = self.document.url() else {
                             self.parse_error("link element without base url not supported yet");
                             return;
+                        };
+                        match base_url.join(href) {
+                            Ok(url) => url,
+                            Err(_) => {
+                                self.parse_error("link element with invalid href url");
+                                return;
+                            }
                         }
                     }
                 };

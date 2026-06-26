@@ -161,14 +161,6 @@ pub fn parse_tracking_sizing_function<C: HasLayouter>(
     Vec::new() //TODO: Implement this
 }
 
-#[allow(dead_code)]
-pub fn parse_non_repeated_tracking_sizing_function<C: HasLayouter>(
-    _node: &mut impl LayoutNode<C>,
-    _name: &str,
-) -> TrackSizingFunction {
-    todo!("implement parse_non_repeated_tracking_sizing_function")
-}
-
 pub fn parse_grid_auto<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> Vec<TrackSizingFunction> {
     let Some(display) = node.get_property(name) else {
         return Vec::new();

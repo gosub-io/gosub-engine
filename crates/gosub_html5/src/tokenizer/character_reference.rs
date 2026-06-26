@@ -75,7 +75,8 @@ impl Tokenizer<'_> {
                             return;
                         }
 
-                        let entity_chars = *TOKEN_NAMED_CHARS.get(entity.as_str()).unwrap();
+                        // find_entity() only returns keys of TOKEN_NAMED_CHARS, so the lookup cannot miss
+                        let entity_chars = TOKEN_NAMED_CHARS.get(entity.as_str()).copied().unwrap_or_default();
 
                         // Flush codepoints consumed as character reference
                         for c in entity_chars.chars() {
@@ -277,8 +278,8 @@ impl Tokenizer<'_> {
                     if self.is_control_char(char_ref_code) || char_ref_code == 0x0D {
                         self.parse_error(ParserError::ControlCharacterReference, self.get_location());
 
-                        if TOKEN_REPLACEMENTS.contains_key(&char_ref_code) {
-                            char_ref_code = *TOKEN_REPLACEMENTS.get(&char_ref_code).unwrap() as u32;
+                        if let Some(&replacement) = TOKEN_REPLACEMENTS.get(&char_ref_code) {
+                            char_ref_code = replacement as u32;
                         }
                     }
 

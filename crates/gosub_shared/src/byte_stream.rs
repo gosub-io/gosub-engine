@@ -576,13 +576,16 @@ impl Debug for Location {
 /// Returns `(StreamEnd, 0)` for an incomplete sequence at the end of an open stream (signals loop stop).
 fn decode_one_utf8(buf: &[u8], closed: bool) -> (Character, usize) {
     match std::str::from_utf8(buf) {
-        Ok(s) => {
-            let ch = s.chars().next().expect("non-empty buf");
-            (Ch(ch), ch.len_utf8())
-        }
+        Ok(s) => match s.chars().next() {
+            Some(ch) => (Ch(ch), ch.len_utf8()),
+            None => (StreamEnd, 0), // empty buffer
+        },
         Err(e) => {
             if e.valid_up_to() > 0 {
+                // SAFETY: from_utf8 validated bytes up to `valid_up_to()`.
+                #[allow(unsafe_code)]
                 let s = unsafe { std::str::from_utf8_unchecked(&buf[..e.valid_up_to()]) };
+                #[allow(clippy::expect_used)] // PANIC-SAFE: valid_up_to() > 0 guarantees at least one char
                 let ch = s.chars().next().expect("valid_up_to > 0");
                 (Ch(ch), ch.len_utf8())
             } else {

@@ -129,11 +129,14 @@ impl CssSystem for Css3System {
                                     continue;
                                 }
 
-                                let value = if let CssValue::List(mut value) = value {
-                                    if value.len() == 1 {
-                                        value.pop().expect("unreachable")
-                                    } else {
-                                        CssValue::List(value)
+                                let value = if let CssValue::List(mut values) = value {
+                                    match values.pop() {
+                                        Some(single) if values.is_empty() => single,
+                                        Some(last) => {
+                                            values.push(last);
+                                            CssValue::List(values)
+                                        }
+                                        None => CssValue::List(values),
                                     }
                                 } else {
                                     value
@@ -155,11 +158,14 @@ impl CssSystem for Css3System {
                                 // like margin-top, padding-left, font-size etc. (which are valid
                                 // CSS but happen not to have their own PropertyDefinition entry)
                                 // still reach the style consumer.
-                                let value = if let CssValue::List(mut v) = value {
-                                    if v.len() == 1 {
-                                        v.pop().expect("unreachable")
-                                    } else {
-                                        CssValue::List(v)
+                                let value = if let CssValue::List(mut values) = value {
+                                    match values.pop() {
+                                        Some(single) if values.is_empty() => single,
+                                        Some(last) => {
+                                            values.push(last);
+                                            CssValue::List(values)
+                                        }
+                                        None => CssValue::List(values),
                                     }
                                 } else {
                                     value
@@ -232,16 +238,12 @@ pub fn add_property_to_map(
         specificity,
     };
 
-    if let std::collections::hash_map::Entry::Vacant(e) = css_map_entry.properties.entry(property_name.clone()) {
-        // Generate new property in the css map
-        let mut entry = CssProperty::new(property_name.as_str());
-        entry.declared.push(declaration);
-        e.insert(entry);
-    } else {
-        // Just add the declaration to the existing property
-        let entry = css_map_entry.properties.get_mut(&property_name).unwrap();
-        entry.declared.push(declaration);
-    }
+    css_map_entry
+        .properties
+        .entry(property_name.clone())
+        .or_insert_with(|| CssProperty::new(property_name.as_str()))
+        .declared
+        .push(declaration);
 }
 
 pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bool {

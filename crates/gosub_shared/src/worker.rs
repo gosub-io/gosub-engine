@@ -254,7 +254,10 @@ impl WasmWorker {
 
 
 #[wasm_bindgen]
+#[allow(unsafe_code)]
 pub fn wasm_execute_work(ptr: usize) {
+    // SAFETY: `ptr` is the Box::into_raw pointer passed to the spawned wasm worker;
+    // it is consumed exactly once here.
     let work = unsafe { Box::from_raw(ptr as *mut Work) };
     (work.f)();
 }

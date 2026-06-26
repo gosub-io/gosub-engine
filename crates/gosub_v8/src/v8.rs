@@ -41,6 +41,7 @@ impl Default for V8Engine {
 const MAX_V8_INIT_SECONDS: u64 = 10;
 
 impl V8Engine {
+    #[allow(clippy::panic)] // deliberate fail-fast: a hung V8 initialization cannot be recovered from
     pub fn initialize() {
         let mut wait_time = MAX_V8_INIT_SECONDS * 1000;
 

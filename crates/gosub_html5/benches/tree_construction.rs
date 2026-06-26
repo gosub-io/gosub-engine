@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use criterion::{criterion_group, criterion_main, Criterion};
 use gosub_css3::system::Css3System;
 use gosub_html5::document::document_impl::DocumentImpl;

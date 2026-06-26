@@ -2,7 +2,7 @@
 name = "gosub_bin"
 version = "0.1.1"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.82"
 authors = ["Gosub Community <info@gosub.io>"]
 description = "Gosub Browser Engine"
 license = "MIT"

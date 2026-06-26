@@ -26,12 +26,8 @@ impl Css3<'_> {
 
     /// Reads until the end of a declaration or rule (or end of the block), in case there is a syntax error
     pub(crate) fn parse_until_rule_end(&mut self) {
-        loop {
-            let t = self.consume_any();
-            if t.is_err() {
-                break;
-            }
-            match t.unwrap().token_type {
+        while let Ok(t) = self.consume_any() {
+            match t.token_type {
                 TokenType::Semicolon => {
                     break;
                 }

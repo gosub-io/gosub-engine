@@ -115,7 +115,6 @@ mod tests {
     #[test_case("webkit01.dat")]
     #[test_case("webkit02.dat")]
     fn tree_construction(filename: &str) {
-        dbg!(fixture_root_path().join(filename));
         let fixture_file = read_fixture_from_path(fixture_root_path().join(filename)).expect("fixture");
         let mut harness = Harness::new();
 
