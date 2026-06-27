@@ -35,6 +35,10 @@ const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000001");
 /// to Firefox's ~134 CSS px/tick (measured, constant across zoom).
 const SCROLL_MULTIPLIER: f32 = 134.0;
 
+/// Duration of the ease-in-out animation a single wheel tick plays out over, in seconds. Matches
+/// the winit example so both backends scroll with the same feel.
+const SCROLL_ANIM_SECS: f32 = 0.22;
+
 type AppConfig = DefaultRenderConfig<gosub_renderer_cairo::CairoBackend, PangoFontSystem>;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
@@ -147,8 +151,15 @@ fn main() {
         // Current scroll offset in CSS px — updated synchronously in the GTK scroll
         // handler so every frame sees the very latest position without async latency.
         let local_scroll: Rc<Cell<(f32, f32)>> = Rc::new(Cell::new((0.0, 0.0)));
-        // Handle for the active kinetic-scroll glib timeout (if any).
-        let kinetic_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        // Smooth-scroll animation state (GTK main thread only). `local_scroll` is eased toward
+        // `scroll_target`; `scroll_from`/`scroll_start` define the in-flight ease; `scroll_sent` is
+        // the rounded integer position last pushed to the engine (it scrolls in integer px and
+        // integrates relative deltas); `anim_source` holds the running ~60fps ease timeout.
+        let scroll_target: Rc<Cell<(f32, f32)>> = Rc::new(Cell::new((0.0, 0.0)));
+        let scroll_from: Rc<Cell<(f32, f32)>> = Rc::new(Cell::new((0.0, 0.0)));
+        let scroll_start: Rc<Cell<Option<std::time::Instant>>> = Rc::new(Cell::new(None));
+        let scroll_sent: Rc<Cell<(i32, i32)>> = Rc::new(Cell::new((0, 0)));
+        let anim_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
 
         // --- Widgets ---
         let address_entry = Entry::new();
@@ -163,13 +174,16 @@ fn main() {
         drawing_area.set_focusable(true);
 
         // When the engine submits a new frame, check if it is a TileCache and stash it
-        // in local_tiles so the draw callback can use it immediately.  Also sync the
-        // local scroll position so kinetic deceleration stays consistent.
+        // in local_tiles so the draw callback can use it immediately.  Also reconcile the
+        // local scroll position with the engine's authoritative value when no ease is in flight.
         {
             let da = drawing_area.clone();
             let compositor_rx = compositor.clone();
             let local_tiles = local_tiles.clone();
             let local_scroll = local_scroll.clone();
+            let scroll_target = scroll_target.clone();
+            let scroll_start = scroll_start.clone();
+            let scroll_sent = scroll_sent.clone();
             glib::spawn_future_local(async move {
                 while let Some(()) = rx_redraw.recv().await {
                     if let Some(ExternalHandle::TileCache {
@@ -189,8 +203,15 @@ fn main() {
                             viewport_height,
                             page_height,
                         });
-                        // Sync scroll — the engine may have clamped it.
-                        local_scroll.set((scroll_x, scroll_y));
+                        // Reconcile with the engine's authoritative (possibly clamped) scroll, but
+                        // only when no ease is in flight — otherwise the engine's slightly-lagging
+                        // frames fight the local animation. Also re-bases the target/sent trackers
+                        // (e.g. after navigation resets the engine to 0).
+                        if scroll_start.get().is_none() {
+                            local_scroll.set((scroll_x, scroll_y));
+                            scroll_target.set((scroll_x, scroll_y));
+                            scroll_sent.set((scroll_x.round() as i32, scroll_y.round() as i32));
+                        }
                     }
                     da.queue_draw();
                 }
@@ -341,104 +362,90 @@ fn main() {
         // The local scroll offset is updated synchronously here (on the GTK main thread),
         // so queue_draw() immediately sees the new position — zero async latency.
         // The engine is also notified via a Tokio task for its own state bookkeeping.
-        let scroll_ctl = gtk4::EventControllerScroll::new(
-            gtk4::EventControllerScrollFlags::BOTH_AXES | gtk4::EventControllerScrollFlags::KINETIC,
-        );
-
-        // Cancel any in-progress kinetic scroll when a new gesture starts.
-        scroll_ctl.connect_scroll_begin({
-            let kinetic_source = kinetic_source.clone();
-            move |_| {
-                if let Some(id) = kinetic_source.borrow_mut().take() {
-                    id.remove();
-                }
-            }
-        });
+        let scroll_ctl = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::BOTH_AXES);
 
         scroll_ctl.connect_scroll({
             let tab = tab.clone();
             let local_tiles = local_tiles.clone();
             let local_scroll = local_scroll.clone();
+            let scroll_target = scroll_target.clone();
+            let scroll_from = scroll_from.clone();
+            let scroll_start = scroll_start.clone();
+            let scroll_sent = scroll_sent.clone();
+            let anim_source = anim_source.clone();
             let da = drawing_area.clone();
             move |_ctl, dx, dy| {
                 let delta_x = dx as f32 * SCROLL_MULTIPLIER;
                 let delta_y = dy as f32 * SCROLL_MULTIPLIER;
 
-                // Update local scroll immediately (synchronous — no async roundtrip).
-                let (prev_x, prev_y) = local_scroll.get();
                 let max_y = local_tiles
                     .borrow()
                     .as_ref()
                     .map(|s| (s.page_height - s.viewport_height as f32).max(0.0))
                     .unwrap_or(f32::MAX);
-                let new_x = (prev_x + delta_x).max(0.0);
-                let new_y = (prev_y + delta_y).clamp(0.0, max_y);
-                local_scroll.set((new_x, new_y));
 
-                // Repaint at the new scroll position immediately.
-                da.queue_draw();
+                // Accumulate the tick into the target and re-base the ease from the current position.
+                let (tx, ty) = scroll_target.get();
+                scroll_target.set(((tx + delta_x).max(0.0), (ty + delta_y).clamp(0.0, max_y)));
+                scroll_from.set(local_scroll.get());
+                scroll_start.set(Some(std::time::Instant::now()));
 
-                // Notify engine asynchronously for state tracking and the next full render.
-                let tab = tab.borrow().clone();
-                TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::MouseScroll { delta_x, delta_y }).await;
-                });
-                glib::Propagation::Stop
-            }
-        });
+                // Start the ~60fps ease loop if it isn't already running.
+                if anim_source.borrow().is_none() {
+                    let id = glib::timeout_add_local(std::time::Duration::from_millis(16), {
+                        let tab = tab.clone();
+                        let local_scroll = local_scroll.clone();
+                        let scroll_target = scroll_target.clone();
+                        let scroll_from = scroll_from.clone();
+                        let scroll_start = scroll_start.clone();
+                        let scroll_sent = scroll_sent.clone();
+                        let anim_source = anim_source.clone();
+                        let da = da.clone();
+                        move || {
+                            let Some(start) = scroll_start.get() else {
+                                *anim_source.borrow_mut() = None;
+                                return glib::ControlFlow::Break;
+                            };
+                            let t = (start.elapsed().as_secs_f32() / SCROLL_ANIM_SECS).clamp(0.0, 1.0);
+                            // smoothstep: zero slope at both ends → eases in and out.
+                            let e = t * t * (3.0 - 2.0 * t);
+                            let (fx, fy) = scroll_from.get();
+                            let (tx, ty) = scroll_target.get();
+                            let cur = (fx + (tx - fx) * e, fy + (ty - fy) * e);
+                            local_scroll.set(cur);
+                            da.queue_draw();
 
-        // Kinetic (momentum) scrolling: continue scrolling after the finger lifts.
-        scroll_ctl.connect_decelerate({
-            let tab = tab.clone();
-            let local_tiles = local_tiles.clone();
-            let local_scroll = local_scroll.clone();
-            let kinetic_source = kinetic_source.clone();
-            let da = drawing_area.clone();
-            move |_ctl, vel_x, vel_y| {
-                // vel_x/vel_y are in "scroll units per millisecond" — same units as the
-                // dx/dy deltas above, so multiply by 50 to get CSS px/ms.
-                let vx = Rc::new(Cell::new(vel_x as f32 * SCROLL_MULTIPLIER));
-                let vy = Rc::new(Cell::new(vel_y as f32 * SCROLL_MULTIPLIER));
+                            // Drive the engine with the incremental rounded delta (it scrolls in
+                            // integer CSS px and integrates relative deltas, clamping at the bounds).
+                            let want = (cur.0.round() as i32, cur.1.round() as i32);
+                            let (sx, sy) = scroll_sent.get();
+                            let (ddx, ddy) = (want.0 - sx, want.1 - sy);
+                            if ddx != 0 || ddy != 0 {
+                                scroll_sent.set(want);
+                                let tab = tab.borrow().clone();
+                                TOKIO_RT.spawn(async move {
+                                    let _ = tab
+                                        .send(TabCommand::MouseScroll {
+                                            delta_x: ddx as f32,
+                                            delta_y: ddy as f32,
+                                        })
+                                        .await;
+                                });
+                            }
 
-                let tab = tab.clone();
-                let local_tiles = local_tiles.clone();
-                let local_scroll = local_scroll.clone();
-                let kinetic_source_inner = kinetic_source.clone();
-                let da = da.clone();
-
-                // ~60 fps deceleration loop.
-                let id = glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
-                    let cur_vx = vx.get();
-                    let cur_vy = vy.get();
-                    if cur_vx.abs() < 2.0 && cur_vy.abs() < 2.0 {
-                        *kinetic_source_inner.borrow_mut() = None;
-                        return glib::ControlFlow::Break;
-                    }
-                    // Exponential friction — decelerates to ~5% in ~1 second at 60fps.
-                    let friction = 0.93_f32;
-                    vx.set(cur_vx * friction);
-                    vy.set(cur_vy * friction);
-
-                    let delta_x = cur_vx * 0.016; // velocity × 16ms frame
-                    let delta_y = cur_vy * 0.016;
-
-                    let (prev_x, prev_y) = local_scroll.get();
-                    let max_y = local_tiles
-                        .borrow()
-                        .as_ref()
-                        .map(|s| (s.page_height - s.viewport_height as f32).max(0.0))
-                        .unwrap_or(f32::MAX);
-                    local_scroll.set(((prev_x + delta_x).max(0.0), (prev_y + delta_y).clamp(0.0, max_y)));
-                    da.queue_draw();
-
-                    let tab = tab.borrow().clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab.send(TabCommand::MouseScroll { delta_x, delta_y }).await;
+                            if t >= 1.0 {
+                                local_scroll.set(scroll_target.get());
+                                scroll_start.set(None);
+                                *anim_source.borrow_mut() = None;
+                                return glib::ControlFlow::Break;
+                            }
+                            glib::ControlFlow::Continue
+                        }
                     });
+                    *anim_source.borrow_mut() = Some(id);
+                }
 
-                    glib::ControlFlow::Continue
-                });
-                *kinetic_source.borrow_mut() = Some(id);
+                glib::Propagation::Stop
             }
         });
         drawing_area.add_controller(scroll_ctl);
@@ -511,11 +518,15 @@ fn main() {
             let tab = tab.clone();
             let local_tiles = local_tiles.clone();
             let local_scroll = local_scroll.clone();
-            let kinetic_source = kinetic_source.clone();
+            let scroll_target = scroll_target.clone();
+            let scroll_from = scroll_from.clone();
+            let scroll_start = scroll_start.clone();
+            let scroll_sent = scroll_sent.clone();
+            let anim_source = anim_source.clone();
             let da = drawing_area.clone();
             move |entry| {
-                // Cancel any kinetic scroll in progress.
-                if let Some(id) = kinetic_source.borrow_mut().take() {
+                // Cancel any in-flight scroll animation.
+                if let Some(id) = anim_source.borrow_mut().take() {
                     id.remove();
                 }
 
@@ -529,12 +540,17 @@ fn main() {
                 // Reset local state for the new page.
                 *local_tiles.borrow_mut() = None;
                 local_scroll.set((0.0, 0.0));
+                scroll_target.set((0.0, 0.0));
+                scroll_from.set((0.0, 0.0));
+                scroll_start.set(None);
+                scroll_sent.set((0, 0));
 
                 let tab = tab.borrow().clone();
                 let url_str = url.to_string();
                 TOKIO_RT.spawn(async move {
                     let _ = tab.send(TabCommand::Navigate { url: url_str }).await;
-                    let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+                    // 60fps so the per-frame smooth-scroll deltas render as a smooth glide.
+                    let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
                 });
                 da.queue_draw();
             }
@@ -566,7 +582,11 @@ fn main() {
             let address_entry = address_entry.clone();
             let local_tiles = local_tiles.clone();
             let local_scroll = local_scroll.clone();
-            let kinetic_source = kinetic_source.clone();
+            let scroll_target = scroll_target.clone();
+            let scroll_from = scroll_from.clone();
+            let scroll_start = scroll_start.clone();
+            let scroll_sent = scroll_sent.clone();
+            let anim_source = anim_source.clone();
             glib::spawn_future_local(async move {
                 while let Some(evt) = ui_rx.recv().await {
                     match evt {
@@ -576,11 +596,15 @@ fn main() {
                             match event {
                                 NavigationEvent::Started { .. } => {
                                     // Same reset the address-bar handler does on manual navigation.
-                                    if let Some(id) = kinetic_source.borrow_mut().take() {
+                                    if let Some(id) = anim_source.borrow_mut().take() {
                                         id.remove();
                                     }
                                     *local_tiles.borrow_mut() = None;
                                     local_scroll.set((0.0, 0.0));
+                                    scroll_target.set((0.0, 0.0));
+                                    scroll_from.set((0.0, 0.0));
+                                    scroll_start.set(None);
+                                    scroll_sent.set((0, 0));
                                     da.queue_draw();
                                 }
                                 NavigationEvent::Finished { url, .. } => {
@@ -630,7 +654,8 @@ fn main() {
                     let tab = tab_init.borrow().clone();
                     TOKIO_RT.spawn(async move {
                         let _ = tab.send(TabCommand::Navigate { url: url.to_string() }).await;
-                        let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+                        // 60fps so the per-frame smooth-scroll deltas render as a smooth glide.
+                        let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
                     });
                 }
             });
