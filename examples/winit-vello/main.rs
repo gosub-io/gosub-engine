@@ -36,7 +36,10 @@ use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000007");
-const SCROLL_MULTIPLIER: f32 = 12.5;
+/// CSS pixels scrolled per wheel notch. winit delivers a mouse wheel as `LineDelta(0, ±1)` (1.0
+/// per notch), so this is the per-tick distance directly. Calibrated to Firefox's ~134 CSS px/tick
+/// (measured, and constant across zoom). Trackpad `PixelDelta` is handled separately, unscaled.
+const SCROLL_MULTIPLIER: f32 = 134.0;
 
 type AppConfig = DefaultRenderConfig<VelloBackend<WinitWgpuContextProvider>>;
 

@@ -31,8 +31,9 @@ use url::Url;
 use uuid::uuid;
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000001");
-/// CSS pixels scrolled per raw GTK scroll unit.  Lower = more dampened.
-const SCROLL_MULTIPLIER: f32 = 12.5;
+/// CSS pixels scrolled per raw GTK scroll unit (`unit=Wheel` delivers `dy=±1` per notch). Calibrated
+/// to Firefox's ~134 CSS px/tick (measured, constant across zoom).
+const SCROLL_MULTIPLIER: f32 = 134.0;
 
 type AppConfig = DefaultRenderConfig<gosub_renderer_cairo::CairoBackend, PangoFontSystem>;
 
