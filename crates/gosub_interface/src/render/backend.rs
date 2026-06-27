@@ -173,8 +173,63 @@ pub enum GpuPixelFormat {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct WgpuTextureId(pub u64);
 
+/// Geometry to resolve a `position: sticky` layer's offset at composite time. All values are in
+/// page space (the same space as a tile's `page_x`/`page_y`). The sticky element lays out in normal
+/// flow (like `relative`); this constraint shifts its whole promoted layer by a scroll-dependent,
+/// cage-clamped translation when it would otherwise scroll past one of its insets. Insets are `None`
+/// when `auto` (that edge does not stick). `bottom`/`right` are not represented yet — they need the
+/// viewport extent, which this struct does not carry.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StickyConstraint {
+    /// `top` sticky inset in CSS px, `None` when `auto`.
+    pub inset_top: Option<f64>,
+    /// `left` sticky inset in CSS px, `None` when `auto`.
+    pub inset_left: Option<f64>,
+    /// The sticky element's own natural (in-flow) margin box, page space.
+    pub natural_x: f64,
+    pub natural_y: f64,
+    pub natural_w: f64,
+    pub natural_h: f64,
+    /// The containing block's content box (the cage the element may not escape), page space.
+    pub cage_x: f64,
+    pub cage_y: f64,
+    pub cage_w: f64,
+    pub cage_h: f64,
+}
+
+impl StickyConstraint {
+    /// Page-space translation to add on top of normal `page - scroll` placement. The same value
+    /// applies to every tile in the layer, so the layer translates as a rigid unit. The clamp
+    /// yields all three sticky regimes: flowing (0), stuck (tracking the inset), and shoved off by
+    /// the containing block (pinned to the cage edge).
+    #[inline]
+    pub fn offset(&self, scroll_x: f64, scroll_y: f64) -> (f64, f64) {
+        let mut dy = 0.0;
+        if let Some(top) = self.inset_top {
+            // Where the element's top edge would sit in the viewport under plain scrolling.
+            let natural_vp_y = self.natural_y - scroll_y;
+            // Push down so the top rests at `top`; never negative (never pulled above flow).
+            let want = (top - natural_vp_y).max(0.0);
+            // Cage slack: how far it may move before its bottom hits the container bottom. Scroll
+            // cancels here, so this is pure geometry.
+            let slack = ((self.cage_y + self.cage_h) - (self.natural_y + self.natural_h)).max(0.0);
+            dy = want.min(slack);
+        }
+
+        let mut dx = 0.0;
+        if let Some(left) = self.inset_left {
+            let natural_vp_x = self.natural_x - scroll_x;
+            let want = (left - natural_vp_x).max(0.0);
+            let slack = ((self.cage_x + self.cage_w) - (self.natural_x + self.natural_w)).max(0.0);
+            dx = want.min(slack);
+        }
+
+        (dx, dy)
+    }
+}
+
 /// How a tile's layer responds to page scroll at composite time.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum TileAnchor {
     /// Normal flow: the tile scrolls with the page (composited at `page - scroll`).
     #[default]
@@ -182,15 +237,23 @@ pub enum TileAnchor {
     /// `position: fixed`: the tile is pinned to the viewport and ignores scroll
     /// (composited at its page position, which equals its viewport position).
     Fixed,
+    /// `position: sticky`: the tile scrolls normally until it would cross one of its insets, then
+    /// it sticks at the inset, clamped so it never leaves its containing block.
+    Sticky(StickyConstraint),
 }
 
 /// Effective top-left of a tile in viewport coordinates, given its page-space position, the current
-/// scroll offset and its anchor. Fixed tiles ignore scroll so they stay pinned to the viewport.
+/// scroll offset and its anchor. Fixed tiles ignore scroll so they stay pinned to the viewport;
+/// sticky tiles scroll normally plus a clamped catch-up translation.
 #[inline]
 pub fn anchored_tile_pos(page_x: f64, page_y: f64, scroll_x: f64, scroll_y: f64, anchor: TileAnchor) -> (f64, f64) {
     match anchor {
         TileAnchor::Scroll => (page_x - scroll_x, page_y - scroll_y),
         TileAnchor::Fixed => (page_x, page_y),
+        TileAnchor::Sticky(c) => {
+            let (dx, dy) = c.offset(scroll_x, scroll_y);
+            (page_x - scroll_x + dx, page_y - scroll_y + dy)
+        }
     }
 }
 
@@ -464,6 +527,38 @@ mod tests {
 
     const WHITE: u32 = 0xFFFF_FFFF; // opaque white, premultiplied
     const BLACK: u32 = 0xFF00_0000; // opaque black, premultiplied
+
+    #[test]
+    fn sticky_top_three_regimes() {
+        // A 60px-tall navbar with natural top at y=220, top:0 inset, inside a 1000px-tall cage
+        // starting at y=200. Cage bottom = 1200; element bottom = 280; slack = 920.
+        let c = StickyConstraint {
+            inset_top: Some(0.0),
+            inset_left: None,
+            natural_x: 0.0,
+            natural_y: 220.0,
+            natural_w: 100.0,
+            natural_h: 60.0,
+            cage_x: 0.0,
+            cage_y: 200.0,
+            cage_w: 100.0,
+            cage_h: 1000.0,
+        };
+
+        // Phase 1 — flowing: scrolled less than the natural top, element still below the inset.
+        let (_, dy) = c.offset(0.0, 100.0); // natural_vp_y = 120 > 0 → no stick
+        assert_eq!(dy, 0.0);
+
+        // Phase 2 — stuck: scrolled past the natural top, element pinned at inset 0.
+        let (_, dy) = c.offset(0.0, 500.0); // natural_vp_y = -280; want = 280, < slack 920
+        assert_eq!(dy, 280.0);
+        // viewport top = natural_y - scroll + dy = 220 - 500 + 280 = 0 (pinned at top:0).
+        assert_eq!(220.0 - 500.0 + dy, 0.0);
+
+        // Phase 3 — shoved off: scrolled so far the cage bottom drags it; offset clamps to slack.
+        let (_, dy) = c.offset(0.0, 5000.0); // want = 4780, clamped to slack 920
+        assert_eq!(dy, 920.0);
+    }
 
     #[test]
     fn transparent_source_preserves_destination() {

@@ -416,6 +416,12 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             let (ox, oy) = match t.anchor {
                 TileAnchor::Fixed => (0.0, 0.0),
                 TileAnchor::Scroll => (sx, sy),
+                // A sticky tile lands at `page - scroll + offset`, so cull its page box against
+                // the inverse-mapped window `[scroll - offset, +viewport]`.
+                TileAnchor::Sticky(c) => {
+                    let (dx, dy) = c.offset(sx as f64, sy as f64);
+                    (sx - dx as f32, sy - dy as f32)
+                }
             };
             t.page_x + t.width as f32 > ox
                 && t.page_x < ox + vw

@@ -13,7 +13,7 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, CachedTile, TileAnchor, ExternalHandle};
+use gosub_render_pipeline::render::backend::{anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gosub_renderer_cairo::PangoFontSystem;
@@ -689,13 +689,18 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
             b[3] = 0xFF;
         }
 
-        let sx = (scroll_x * state.dpr as f32).round() as i64;
-        let sy = (scroll_y * state.dpr as f32).round() as i64;
-
         for tile in state.tiles.iter() {
-            let (sx, sy) = if tile.anchor == TileAnchor::Fixed { Default::default() } else { (sx, sy) };
-            let px = (tile.page_x * state.dpr as f32).round() as i64 - sx;
-            let py = (tile.page_y * state.dpr as f32).round() as i64 - sy;
+            // Resolve the tile's viewport position in CSS px — handles scroll, fixed and sticky
+            // uniformly — then scale to device px.
+            let (vx, vy) = anchored_tile_pos(
+                tile.page_x as f64,
+                tile.page_y as f64,
+                scroll_x as f64,
+                scroll_y as f64,
+                tile.anchor,
+            );
+            let px = (vx * state.dpr as f64).round() as i64;
+            let py = (vy * state.dpr as f64).round() as i64;
             let tw = tile.width as i64;
             let th = tile.height as i64;
 

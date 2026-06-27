@@ -574,6 +574,8 @@ impl TaffyLayouter {
             id: layout_tree.next_node_id(),
             dom_node_id: dom_node.node_id,
             render_node_id,
+            // Back-patched below once all children are attached (covers block + inline children).
+            parent: None,
             box_model: box_model::BoxModel::ZERO,
             children: vec![],
             context: element_context,
@@ -687,7 +689,15 @@ impl TaffyLayouter {
         // The layout-tree is the structure handed to the rest of the pipeline; taffy stays
         // internal to this layouter so other layout engines can be swapped in.
         let layout_element_id = element_node.id;
+        let child_ids = element_node.children.clone();
         layout_tree.arena.insert(layout_element_id, element_node);
+        // Point every child (block and inline) back at this node so the containing block can be
+        // found by walking up — e.g. the cage for `position: sticky`.
+        for child_id in child_ids {
+            if let Some(child) = layout_tree.arena.get_mut(&child_id) {
+                child.parent = Some(layout_element_id);
+            }
+        }
 
         // Create a mapping between the layout element id and the taffy node id. We need this to generate
         // the boxmodel at a later time in this pipeline stage.

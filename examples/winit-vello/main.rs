@@ -16,7 +16,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, TileAnchor, ExternalHandle};
+use gosub_render_pipeline::render::backend::{anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use gosub_renderer_vello::{VelloBackend, WgpuContextProvider};
 use once_cell::sync::Lazy;
@@ -463,18 +463,21 @@ impl BrowserApp {
                 }
                 // Use the locally-tracked scroll so scrolling feels instant without waiting
                 // for the engine to acknowledge the scroll command.
-                let sx = (self.scroll.0 * dpr_f) as i64;
-                let sy = (self.scroll.1 * dpr_f) as i64;
-
                 // Opaque white background: a valid premultiplied base for source-over blending.
                 // Each u32 holds [R, G, B, A] little-endian (R in the low byte).
                 let mut buf = vec![0xFFFF_FFFFu32; w * h];
                 for tile in tiles.iter() {
-                    let (sx, sy) = if tile.anchor == TileAnchor::Fixed { Default::default() } else { (sx, sy) };
-                    let px = (tile.page_x * dpr_f) as i64;
-                    let py = (tile.page_y * dpr_f) as i64;
-                    let screen_x = px - sx;
-                    let screen_y = py - sy;
+                    // Resolve the tile's viewport position in CSS px — this handles scroll, fixed
+                    // and sticky uniformly — then scale to device px.
+                    let (vx, vy) = anchored_tile_pos(
+                        tile.page_x as f64,
+                        tile.page_y as f64,
+                        self.scroll.0 as f64,
+                        self.scroll.1 as f64,
+                        tile.anchor,
+                    );
+                    let screen_x = (vx * dpr_f as f64) as i64;
+                    let screen_y = (vy * dpr_f as f64) as i64;
                     let tw = tile.width as i64;
                     let th = tile.height as i64;
                     if screen_x >= w as i64 || screen_y >= h as i64 || screen_x + tw <= 0 || screen_y + th <= 0 {

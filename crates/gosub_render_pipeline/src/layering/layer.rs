@@ -1,7 +1,7 @@
 use crate::common::document::node::NodeId;
-use crate::common::document::style::{lookup, StyleProperty, Value};
-use crate::layouter::{LayoutElementId, LayoutTree};
-use crate::render::backend::TileAnchor;
+use crate::common::document::style::{lookup, StyleProperty, Unit, Value};
+use crate::layouter::{LayoutElementId, LayoutElementNode, LayoutTree};
+use crate::render::backend::{StickyConstraint, TileAnchor};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::ops::AddAssign;
@@ -136,10 +136,15 @@ impl LayerList {
                 continue;
             };
 
-            // Convert the viewport point into this layer's coordinate space.
+            // Convert the viewport point into this layer's (page-space) coordinate space by
+            // inverting the composite mapping `vp = page - scroll + sticky_offset`.
             let (x, y) = match layer.anchor {
                 TileAnchor::Fixed => (vp_x, vp_y),
                 TileAnchor::Scroll => (vp_x + scroll_x, vp_y + scroll_y),
+                TileAnchor::Sticky(c) => {
+                    let (dx, dy) = c.offset(scroll_x, scroll_y);
+                    (vp_x + scroll_x - dx, vp_y + scroll_y - dy)
+                }
             };
 
             for element_id in layer.elements.iter().rev() {
@@ -161,6 +166,47 @@ impl LayerList {
         }
 
         None
+    }
+
+    /// Build the sticky constraint for an element promoted because of `position: sticky`, or `None`
+    /// when the element is not sticky. The cage is the containing block's content box; for now we
+    /// approximate it with the parent's content box (there are no sub-scroll-containers yet, so the
+    /// scrollport is always the viewport). A root sticky element with no parent gets a zero-slack
+    /// cage (its own box), so it simply never sticks.
+    fn sticky_constraint(&self, el: &LayoutElementNode) -> Option<StickyConstraint> {
+        let doc = &self.layout_tree.render_tree.doc;
+
+        let is_sticky = matches!(
+            doc.get_own_style(el.dom_node_id, &StyleProperty::Position),
+            Some(Value::Keyword(id)) if lookup(id) == "sticky"
+        );
+        if !is_sticky {
+            return None;
+        }
+
+        // Physical `top`/`left` map to these logical inset properties (see inline_style.rs).
+        let inset_top = read_px(doc.get_own_style(el.dom_node_id, &StyleProperty::InsetBlockStart));
+        let inset_left = read_px(doc.get_own_style(el.dom_node_id, &StyleProperty::InsetInlineStart));
+
+        let natural = el.box_model.margin_box;
+        let cage = el
+            .parent
+            .and_then(|pid| self.layout_tree.get_node_by_id(pid))
+            .map(|p| p.box_model.content_box)
+            .unwrap_or(natural);
+
+        Some(StickyConstraint {
+            inset_top,
+            inset_left,
+            natural_x: natural.x,
+            natural_y: natural.y,
+            natural_w: natural.width,
+            natural_h: natural.height,
+            cage_x: cage.x,
+            cage_y: cage.y,
+            cage_w: cage.width,
+            cage_h: cage.height,
+        })
     }
 
     /// Creates a new fully-opaque, scroll-anchored layer at the given order and returns its id.
@@ -269,16 +315,28 @@ impl LayerList {
             doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Position),
             Some(Value::Keyword(id)) if lookup(id) == "fixed"
         );
+        // `position: sticky` promotes like `fixed` but with a scroll-dependent, cage-clamped offset
+        // resolved at composite time. The constraint captures the element's natural box and its
+        // containing block, both already laid out by the time layering runs.
+        let sticky = self.sticky_constraint(layout_element);
 
         // Promote a not-yet-grouped element with opacity < 1 or position: fixed to its own layer
         // and pull its whole subtree into that layer. The layer's opacity (1.0 for an opaque fixed
         // element) is realised at composite time. (Nested groups are not separately promoted in
         // this pass; a descendant's own opacity still applies per-element on top of any group fade.)
         // TODO: derive layer order from the element's CSS z-index / stacking context instead of 1.
-        if !in_promoted_group && (own_opacity < 1.0 || is_fixed) {
+        if !in_promoted_group && (own_opacity < 1.0 || is_fixed || sticky.is_some()) {
             let layer_opacity = own_opacity.clamp(0.0, 1.0);
-            // `position: fixed` pins the layer to the viewport; opacity-only promotion still scrolls.
-            let anchor = if is_fixed { TileAnchor::Fixed } else { TileAnchor::Scroll };
+            // `sticky` resolves its position from scroll at composite time; `fixed` pins to the
+            // viewport; opacity-only promotion still scrolls normally. (Opacity is realised via
+            // `layer_opacity` regardless, so a sticky+opacity element composes correctly.)
+            let anchor = if let Some(c) = sticky {
+                TileAnchor::Sticky(c)
+            } else if is_fixed {
+                TileAnchor::Fixed
+            } else {
+                TileAnchor::Scroll
+            };
             let group_layer_id = self.new_promoted_layer(1, layer_opacity, anchor);
             self.add_to_layer(group_layer_id, layout_element.id);
             let faded = layer_opacity < 1.0;
@@ -322,5 +380,15 @@ impl LayerList {
         let id = *nid;
         *nid += 1;
         id
+    }
+}
+
+/// Read a CSS length inset as px, treating unitless numbers as px. Returns `None` for `auto`,
+/// missing values, or non-px units (percentage/em insets aren't resolved here yet).
+fn read_px(value: Option<Value>) -> Option<f64> {
+    match value {
+        Some(Value::Unit(v, Unit::Px)) => Some(v as f64),
+        Some(Value::Number(v)) => Some(v as f64),
+        _ => None,
     }
 }

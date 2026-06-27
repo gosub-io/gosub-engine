@@ -14,7 +14,7 @@
 //! is host-created with only `RENDER_ATTACHMENT` (not `COPY_DST`), so a render pass is the portable
 //! choice — and it gives correct premultiplied-alpha blending for free.
 
-use gosub_render_pipeline::render::backend::TileAnchor;
+use gosub_render_pipeline::render::backend::{anchored_tile_pos, TileAnchor};
 use vello::wgpu;
 
 /// A placed, GPU-resident tile to composite: a texture view plus its page-space rectangle.
@@ -258,11 +258,16 @@ impl GpuTileCompositor {
             // Transient per-tile uniform buffers + bind groups, kept alive until the pass ends.
             let mut keep_alive: Vec<(wgpu::Buffer, wgpu::BindGroup)> = Vec::with_capacity(tiles.len());
             for tile in tiles {
-                // Fixed (position:fixed) tiles ignore scroll so they stay pinned to the viewport.
-                let (ex, ey) = match tile.anchor {
-                    TileAnchor::Fixed => (tile.page_x, tile.page_y),
-                    TileAnchor::Scroll => (tile.page_x - scroll_x, tile.page_y - scroll_y),
-                };
+                // Fixed tiles pin to the viewport; sticky tiles get a clamped catch-up offset. The
+                // shared helper keeps this in lock-step with the CPU compositor.
+                let (ex, ey) = anchored_tile_pos(
+                    tile.page_x as f64,
+                    tile.page_y as f64,
+                    scroll_x as f64,
+                    scroll_y as f64,
+                    tile.anchor,
+                );
+                let (ex, ey) = (ex as f32, ey as f32);
                 let uniform = BlitUniform {
                     dst: [ex, ey, tile.width as f32, tile.height as f32],
                     viewport: [target_w as f32, target_h as f32],

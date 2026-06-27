@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+
+  /* The sticky navbar mirrors the real gosub.io header: it sticks to the top of
+     the VIEWPORT once scrolled to, but only while its containing block (.section)
+     is still on screen. When .section scrolls out, the navbar must ride out with
+     it — unlike position:fixed, which would stay pinned forever.
+
+     It is also opacity:0.5, so this doubles as a sticky + opacity-group test:
+     the blue bar, the white text, and the logo should fade together as one layer
+     while the red stripes show through underneath. */
+  .navbar {
+    position: sticky;        /* NOT fixed: scrolls with flow, then sticks at top:0,
+                                then scrolls away once .section leaves the viewport */
+    top: 0;
+    height: 60px;
+    background: #1020c0;
+    opacity: 0.5;
+    color: white;
+    font-size: 28px;
+    padding: 14px 24px;
+  }
+  .navbar img { height: 32px; vertical-align: middle; }
+
+  /* The lead-in pushes the navbar DOWN so it starts below the viewport top.
+     Phase 1 (scroll with flow): the navbar travels up until it reaches top:0. */
+  .lead-in { height: 220px; background: #f0f0f0; padding: 16px 24px; font-size: 20px; }
+
+  /* .section is the navbar's containing block. It is tall enough that the navbar
+     spends a long stretch STUCK at top:0 (phase 2) before the section's bottom
+     edge reaches the navbar and drags it off-screen (phase 3). */
+  .section { background: #fafafa; }
+  .section p { font-size: 20px; margin: 18px 24px; }
+  .stripe { height: 40px; background: #e03030; margin: 10px 0; }
+
+  /* Content AFTER the containing block. Once we scroll here the sticky navbar must
+     be GONE — if it is still pinned to the top, sticky was rendered as fixed. */
+  .after { background: #d8e8d8; padding: 16px 24px; font-size: 20px; min-height: 600px; }
+</style>
+</head>
+<body>
+  <div class="lead-in">
+    Scroll down. The blue navbar starts here, below the top of the page.
+    As you scroll, it should travel up with the page (phase 1).
+  </div>
+
+  <div class="section">
+    <div class="navbar">
+      NavBar <img src="../../tests/data/gosub.png" alt="logo"> sticky + opacity, fades as one group
+    </div>
+    <div class="stripe"></div>
+    <p>Phase 2: the navbar is now STUCK at the top of the viewport. It should stay
+       pinned here while you keep scrolling through this section. Because it has
+       opacity:0.5, the red stripes and this text must show through it — the bar,
+       its white text, and the logo all fade together as a single layer.</p>
+    <div class="stripe"></div>
+    <p>Keep scrolling. The navbar stays at top:0…</p>
+    <div class="stripe"></div>
+    <p>…still stuck…</p>
+    <div class="stripe"></div>
+    <p>…still stuck…</p>
+    <div class="stripe"></div>
+    <p>Phase 3 approaches: the bottom edge of this section is about to reach the
+       navbar. When it does, the navbar must be pushed UP and out of view with the
+       section — it must NOT stay pinned. That is the difference from position:fixed.</p>
+    <div class="stripe"></div>
+  </div>
+
+  <div class="after">
+    You are now past the navbar's containing block. The blue navbar must be
+    completely gone from the top of the viewport here. If it is still pinned,
+    sticky was (incorrectly) rendered as fixed.
+    <br>
+    this 
+    <br>
+
+    <br>
+
+    <br>
+    <br>
+    is 
+    <br>
+
+    <br>
+    <br>
+
+    <br>
+    more
+    <br>
+
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+
+    <br>
+
+    <br>
+    text
+    <br>
+  </div>
+</body>
+</html>
