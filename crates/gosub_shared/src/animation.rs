@@ -201,6 +201,164 @@ fn elastic(t: f32) -> f32 {
     2.0_f32.powf(-10.0 * t) * ((t * 10.0 - 0.75) * c4).sin() + 1.0
 }
 
+/// Drives a single scalar offset (e.g. a scroll axis) from its current value toward a target over
+/// time. Implementors own their current position and any internal motion state (velocity, elapsed
+/// time); the *target* is supplied externally on every [`ScrollAnimator::step`] and may change
+/// between calls (retargeting). This is the one path the engine ticks, regardless of whether the
+/// underlying feel is a fixed-duration tween, a spring, or something embedder-defined.
+pub trait ScrollAnimator: Send {
+    /// Advance by `dt` seconds toward `target`, returning the new current value. A changed `target`
+    /// is absorbed however the animator sees fit (a [`Tween`] rebases its ease; a [`Spring`] keeps
+    /// its velocity and re-aims).
+    fn step(&mut self, target: f64, dt: f64) -> f64;
+
+    /// True once the animation has converged on its target and no longer needs ticking.
+    fn settled(&self) -> bool;
+
+    /// The current value without advancing.
+    fn position(&self) -> f64;
+
+    /// Jump to `pos` and clear any motion (navigation, programmatic instant set).
+    fn reset(&mut self, pos: f64);
+}
+
+/// Smallest tween duration we honour; below this a tween behaves as an instant set.
+const MIN_TWEEN_SECS: f64 = 1e-4;
+
+/// A fixed-duration animation that interpolates from a start value to the target, reparameterized by
+/// an [`Easing`]. Retargeting rebases the ease from the current position and restarts the clock, so
+/// rapid retargets glide continuously rather than snapping.
+#[derive(Debug, Clone)]
+pub struct Tween {
+    easing: Easing,
+    duration: f64,
+    from: f64,
+    current: f64,
+    target: f64,
+    elapsed: f64,
+}
+
+impl Tween {
+    /// Create a tween sitting at `start` (settled until it is first given a different target).
+    pub fn new(start: f64, easing: Easing, duration: std::time::Duration) -> Self {
+        Self {
+            easing,
+            duration: duration.as_secs_f64().max(MIN_TWEEN_SECS),
+            from: start,
+            current: start,
+            target: start,
+            elapsed: 0.0,
+        }
+    }
+}
+
+impl ScrollAnimator for Tween {
+    fn step(&mut self, target: f64, dt: f64) -> f64 {
+        // Retarget: rebase the ease from where we are now and restart the clock.
+        if target != self.target {
+            self.from = self.current;
+            self.target = target;
+            self.elapsed = 0.0;
+        }
+        self.elapsed = (self.elapsed + dt.max(0.0)).min(self.duration);
+        let t = (self.elapsed / self.duration) as f32;
+        let e = self.easing.eval(t) as f64;
+        self.current = self.from + (self.target - self.from) * e;
+        // Snap exactly on completion so `settled` is precise and we don't crawl asymptotically.
+        if self.elapsed >= self.duration {
+            self.current = self.target;
+        }
+        self.current
+    }
+
+    fn settled(&self) -> bool {
+        self.from == self.target || self.elapsed >= self.duration
+    }
+
+    fn position(&self) -> f64 {
+        self.current
+    }
+
+    fn reset(&mut self, pos: f64) {
+        self.from = pos;
+        self.current = pos;
+        self.target = pos;
+        self.elapsed = self.duration;
+    }
+}
+
+/// Convergence thresholds below which a spring is considered settled (CSS px and px/s).
+const SPRING_SETTLE_POS: f64 = 0.25;
+const SPRING_SETTLE_VEL: f64 = 0.25;
+
+/// A damped-spring animation: an open-ended physical settle rather than a fixed-duration tween.
+/// Because it carries velocity, retargeting mid-flight is seamless (a second flick adds to the
+/// motion instead of restarting). For a non-overshooting "critical" feel use `damping ≈ 2·√(k·m)`.
+#[derive(Debug, Clone)]
+pub struct Spring {
+    stiffness: f64,
+    damping: f64,
+    mass: f64,
+    current: f64,
+    velocity: f64,
+    target: f64,
+}
+
+impl Spring {
+    /// Create a unit-mass spring sitting at `start`.
+    pub fn new(start: f64, stiffness: f64, damping: f64) -> Self {
+        Self::with_mass(start, stiffness, damping, 1.0)
+    }
+
+    /// Create a spring with explicit mass.
+    pub fn with_mass(start: f64, stiffness: f64, damping: f64, mass: f64) -> Self {
+        Self {
+            stiffness,
+            damping,
+            mass: mass.max(1e-6),
+            current: start,
+            velocity: 0.0,
+            target: start,
+        }
+    }
+}
+
+impl ScrollAnimator for Spring {
+    fn step(&mut self, target: f64, dt: f64) -> f64 {
+        self.target = target;
+        // Clamp the frame gap and sub-step so a large dt (e.g. after a stall) stays stable.
+        let dt = dt.clamp(0.0, 0.064);
+        let sub = (dt / 0.004).ceil().max(1.0);
+        let h = dt / sub;
+        for _ in 0..sub as u32 {
+            let force = -self.stiffness * (self.current - self.target) - self.damping * self.velocity;
+            let accel = force / self.mass;
+            self.velocity += accel * h; // semi-implicit Euler: update velocity, then position
+            self.current += self.velocity * h;
+        }
+        // Snap once within threshold so we don't crawl toward the target forever.
+        if (self.current - self.target).abs() < SPRING_SETTLE_POS && self.velocity.abs() < SPRING_SETTLE_VEL {
+            self.current = self.target;
+            self.velocity = 0.0;
+        }
+        self.current
+    }
+
+    fn settled(&self) -> bool {
+        self.current == self.target && self.velocity == 0.0
+    }
+
+    fn position(&self) -> f64 {
+        self.current
+    }
+
+    fn reset(&mut self, pos: f64) {
+        self.current = pos;
+        self.target = pos;
+        self.velocity = 0.0;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,6 +487,145 @@ mod tests {
         for i in 0..=100 {
             let v = e.eval(i as f32 / 100.0);
             assert!((-1e-4..=1.0 + 1e-4).contains(&v), "bounce left [0,1]: {v}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod animator_tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+
+    /// A fresh tween sits settled at its start until it is given a different target.
+    #[test]
+    fn tween_starts_settled() {
+        let mut t = Tween::new(10.0, Easing::Linear, ms(200));
+        assert!(t.settled());
+        assert_eq!(t.position(), 10.0);
+        // Stepping toward the same value keeps it settled.
+        t.step(10.0, 0.016);
+        assert!(t.settled());
+    }
+
+    /// Linear tween advances proportionally and lands exactly on the target.
+    #[test]
+    fn tween_linear_progression() {
+        let mut t = Tween::new(0.0, Easing::Linear, ms(200));
+        assert!((t.step(100.0, 0.05) - 25.0).abs() < 1e-6); // 0.05/0.20 = 25%
+        assert!((t.step(100.0, 0.05) - 50.0).abs() < 1e-6);
+        assert!((t.step(100.0, 0.05) - 75.0).abs() < 1e-6);
+        let end = t.step(100.0, 0.05);
+        assert_eq!(end, 100.0, "must land exactly on target");
+        assert!(t.settled());
+    }
+
+    /// Overshooting `dt` clamps to the duration and still lands exactly on target.
+    #[test]
+    fn tween_overshoot_dt_clamps() {
+        let mut t = Tween::new(0.0, Easing::Linear, ms(200));
+        assert_eq!(t.step(100.0, 10.0), 100.0);
+        assert!(t.settled());
+    }
+
+    /// Retargeting mid-flight rebases the ease from the current position (no jump).
+    #[test]
+    fn tween_retarget_rebases_from_current() {
+        let mut t = Tween::new(0.0, Easing::Linear, ms(200));
+        assert!((t.step(100.0, 0.05) - 25.0).abs() < 1e-6); // now at 25, heading to 100
+        // New target 0: rebase from 25, 25% of the way back toward 0 → 18.75.
+        assert!((t.step(0.0, 0.05) - 18.75).abs() < 1e-6);
+    }
+
+    /// EaseInOut starts slower than linear (less than 25% covered at 25% time).
+    #[test]
+    fn tween_ease_in_out_is_slow_at_start() {
+        let mut t = Tween::new(0.0, Easing::EaseInOut, ms(200));
+        let v = t.step(100.0, 0.05); // 25% of the way through time
+        assert!(v < 25.0, "ease-in-out should lag linear early, got {v}");
+    }
+
+    #[test]
+    fn tween_reset() {
+        let mut t = Tween::new(0.0, Easing::Linear, ms(200));
+        t.step(100.0, 0.1);
+        t.reset(42.0);
+        assert_eq!(t.position(), 42.0);
+        assert!(t.settled());
+    }
+
+    /// A critically-damped spring converges on its target and snaps settled.
+    #[test]
+    fn spring_converges_and_settles() {
+        // damping ≈ 2·√(stiffness·mass) → critical.
+        let mut s = Spring::new(0.0, 170.0, 26.1);
+        let mut last = 0.0;
+        for _ in 0..200 {
+            last = s.step(100.0, 0.016);
+            if s.settled() {
+                break;
+            }
+        }
+        assert!(s.settled(), "spring should settle within ~3s");
+        assert_eq!(last, 100.0, "settle snaps exactly to target");
+        assert_eq!(s.position(), 100.0);
+    }
+
+    /// Critical damping does not meaningfully overshoot the target.
+    #[test]
+    fn spring_critical_no_large_overshoot() {
+        let mut s = Spring::new(0.0, 170.0, 26.1);
+        let mut peak = 0.0_f64;
+        for _ in 0..200 {
+            let v = s.step(100.0, 0.016);
+            peak = peak.max(v);
+            if s.settled() {
+                break;
+            }
+        }
+        assert!(peak <= 101.0, "critical spring overshot to {peak}");
+    }
+
+    /// Retargeting a moving spring re-aims smoothly and still converges (velocity carried over).
+    #[test]
+    fn spring_retarget_converges() {
+        let mut s = Spring::new(0.0, 170.0, 26.1);
+        for _ in 0..10 {
+            s.step(100.0, 0.016); // build some velocity toward 100
+        }
+        for _ in 0..300 {
+            s.step(300.0, 0.016); // re-aim mid-flight
+            if s.settled() {
+                break;
+            }
+        }
+        assert!(s.settled());
+        assert_eq!(s.position(), 300.0);
+    }
+
+    #[test]
+    fn spring_reset() {
+        let mut s = Spring::new(0.0, 170.0, 26.1);
+        s.step(100.0, 0.05);
+        s.reset(7.0);
+        assert_eq!(s.position(), 7.0);
+        assert!(s.settled());
+    }
+
+    /// The trait is object-safe and `Send` (it runs on the worker thread).
+    #[test]
+    fn animators_are_boxable_and_send() {
+        fn assert_send<T: Send>(_: &T) {}
+        let animators: Vec<Box<dyn ScrollAnimator>> = vec![
+            Box::new(Tween::new(0.0, Easing::Smoothstep, ms(220))),
+            Box::new(Spring::new(0.0, 170.0, 26.1)),
+        ];
+        assert_send(&animators);
+        for mut a in animators {
+            a.step(50.0, 0.016);
         }
     }
 }
