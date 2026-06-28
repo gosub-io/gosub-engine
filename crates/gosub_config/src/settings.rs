@@ -118,6 +118,33 @@ impl Setting {
             other => vec![other.to_string()],
         }
     }
+
+    /// Returns a human-readable name for this setting's type (e.g. `unsigned`, `float`).
+    #[must_use]
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Setting::SInt(_) => "signed",
+            Setting::UInt(_) => "unsigned",
+            Setting::Float(_) => "float",
+            Setting::String(_) => "string",
+            Setting::Bool(_) => "boolean",
+            Setting::Map(_) => "map",
+        }
+    }
+
+    /// Returns the bare value of this setting as a string, without the type prefix used by
+    /// [`Display`] and without emitting a type-mismatch warning (unlike [`Setting::to_string`]).
+    #[must_use]
+    pub fn value_string(&self) -> String {
+        match self {
+            Setting::SInt(v) => v.to_string(),
+            Setting::UInt(v) => v.to_string(),
+            Setting::Float(v) => v.to_string(),
+            Setting::String(v) => v.clone(),
+            Setting::Bool(v) => v.to_string(),
+            Setting::Map(v) => v.join(","),
+        }
+    }
 }
 
 fn is_bool_value(s: &str) -> bool {
@@ -246,12 +273,31 @@ impl Constraint {
         }
     }
 
+    /// Returns the constraint's allowed values as individual tokens, e.g. `["left", "right"]` or
+    /// `["-1", "0-9999"]`.
+    #[must_use]
+    pub fn tokens(&self) -> Vec<String> {
+        match self {
+            Constraint::Enum(values) => values.clone(),
+            Constraint::Range(ranges) => ranges
+                .iter()
+                .map(|(lo, hi)| if lo == hi { lo.to_string() } else { format!("{lo}-{hi}") })
+                .collect(),
+        }
+    }
+
+    /// Compact one-line form for tables, e.g. `left | right` or `-1 | 0-9999`.
+    #[must_use]
+    pub fn compact(&self) -> String {
+        self.tokens().join(" | ")
+    }
+
     /// Returns true when the given value satisfies the constraint.
     #[must_use]
     pub fn allows(&self, value: &Setting) -> bool {
         match self {
             Constraint::Enum(allowed) => {
-                let v = canonical_string(value);
+                let v = value.value_string();
                 allowed.iter().any(|a| a == &v)
             }
             Constraint::Range(ranges) => {
@@ -264,16 +310,7 @@ impl Constraint {
 
 impl Display for Constraint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Constraint::Enum(values) => write!(f, "one of: {}", values.join(", ")),
-            Constraint::Range(ranges) => {
-                let parts: Vec<String> = ranges
-                    .iter()
-                    .map(|(lo, hi)| if lo == hi { lo.to_string() } else { format!("{lo}-{hi}") })
-                    .collect();
-                write!(f, "one of: {}", parts.join(", "))
-            }
-        }
+        write!(f, "one of: {}", self.tokens().join(", "))
     }
 }
 
@@ -290,19 +327,6 @@ fn parse_range_token(token: &str) -> Option<(isize, isize)> {
     let lo = token[..pos].parse::<isize>().ok()?;
     let hi = token[pos + 1..].parse::<isize>().ok()?;
     Some((lo, hi))
-}
-
-/// Returns the canonical string form of a setting without emitting a type-mismatch warning
-/// (unlike [`Setting::to_string`]). Used for constraint matching.
-fn canonical_string(value: &Setting) -> String {
-    match value {
-        Setting::SInt(v) => v.to_string(),
-        Setting::UInt(v) => v.to_string(),
-        Setting::Float(v) => v.to_string(),
-        Setting::String(v) => v.clone(),
-        Setting::Bool(v) => v.to_string(),
-        Setting::Map(v) => v.join(","),
-    }
 }
 
 /// `SettingInfo` returns information about a given setting

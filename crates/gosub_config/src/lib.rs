@@ -67,6 +67,40 @@ pub fn config_store_write() -> parking_lot::RwLockWriteGuard<'static, ConfigStor
     CONFIG_STORE.write()
 }
 
+/// Identifies a registered subscription so it can later be removed via [`unsubscribe`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SubscriptionId(u64);
+
+/// Callback invoked when a watched setting changes. It receives the setting key and the new value.
+///
+/// The callback is invoked synchronously from within [`ConfigStore::set`] / [`ConfigStore::remove`]
+/// while the global store is read-locked. It must therefore be lightweight and MUST NOT call back
+/// into the store with a write lock (`subscribe`, `unsubscribe`, `set_storage`) or it will deadlock.
+/// To react with further config changes, defer the work (e.g. send on a channel) instead of doing
+/// it inline.
+pub type SubscriptionCallback = Box<dyn Fn(&str, &Setting) + Send + Sync>;
+
+struct Subscription {
+    id: SubscriptionId,
+    matcher: WildMatch,
+    callback: SubscriptionCallback,
+}
+
+/// Subscribes to changes on settings whose key matches `pattern` (a [`WildMatch`] pattern, so `*`
+/// and `?` wildcards are supported, e.g. `dns.*` or `*`). The callback fires whenever a matching
+/// setting's value actually changes via `set` or `remove`. Returns an id used to [`unsubscribe`].
+pub fn subscribe<F>(pattern: &str, callback: F) -> SubscriptionId
+where
+    F: Fn(&str, &Setting) + Send + Sync + 'static,
+{
+    config_store_write().subscribe(pattern, callback)
+}
+
+/// Removes a previously registered subscription. Returns true when a subscription was removed.
+pub fn unsubscribe(id: SubscriptionId) -> bool {
+    config_store_write().unsubscribe(id)
+}
+
 /// Reads a setting from the config store, returning a type-appropriate default when the key is
 /// unknown or a storage error occurs.
 ///
@@ -196,6 +230,10 @@ pub struct ConfigStore {
     setting_keys: Vec<String>,
     /// The storage adapter used for persisting and loading keys
     storage: Box<dyn StorageAdapter>,
+    /// Registered change subscriptions, notified when a matching setting changes
+    subscriptions: Vec<Subscription>,
+    /// Monotonic counter used to hand out unique `SubscriptionId`s
+    next_subscription_id: u64,
 }
 
 impl Default for ConfigStore {
@@ -205,6 +243,8 @@ impl Default for ConfigStore {
             settings_info: HashMap::new(),
             setting_keys: Vec::new(),
             storage: Box::new(MemoryStorageAdapter::new()),
+            subscriptions: Vec::new(),
+            next_subscription_id: 0,
         };
 
         // Populate the store with the default settings. They may be overwritten by the storage
@@ -304,8 +344,17 @@ impl ConfigStore {
             }
         }
 
-        self.settings.lock().insert(key.to_owned(), value.clone());
-        self.storage.set(key, value)?;
+        let changed = {
+            let mut settings = self.settings.lock();
+            let changed = settings.get(key) != Some(&value);
+            settings.insert(key.to_owned(), value.clone());
+            changed
+        };
+        self.storage.set(key, value.clone())?;
+
+        if changed {
+            self.notify(key, &value);
+        }
         Ok(())
     }
 
@@ -321,13 +370,55 @@ impl ConfigStore {
 
         self.storage.remove(key)?;
         // Revert the in-memory value back to the default so subsequent reads return the default.
-        self.settings.lock().insert(key.to_owned(), info.default.clone());
+        let changed = {
+            let mut settings = self.settings.lock();
+            let changed = settings.get(key) != Some(&info.default);
+            settings.insert(key.to_owned(), info.default.clone());
+            changed
+        };
+
+        if changed {
+            self.notify(key, &info.default);
+        }
         Ok(())
     }
 
     /// Flushes any buffered writes in the underlying storage adapter to its backing store.
     pub fn flush(&self) -> Result<()> {
         self.storage.flush()
+    }
+
+    /// Subscribes to changes on settings whose key matches `pattern` (a [`WildMatch`] pattern, so
+    /// `*`/`?` wildcards work). Returns an id that can be passed to [`ConfigStore::unsubscribe`].
+    /// See [`SubscriptionCallback`] for the constraints that apply to the callback.
+    pub fn subscribe<F>(&mut self, pattern: &str, callback: F) -> SubscriptionId
+    where
+        F: Fn(&str, &Setting) + Send + Sync + 'static,
+    {
+        let id = SubscriptionId(self.next_subscription_id);
+        self.next_subscription_id += 1;
+        self.subscriptions.push(Subscription {
+            id,
+            matcher: WildMatch::new(pattern),
+            callback: Box::new(callback),
+        });
+        id
+    }
+
+    /// Removes a previously registered subscription. Returns true when a subscription was removed.
+    pub fn unsubscribe(&mut self, id: SubscriptionId) -> bool {
+        let before = self.subscriptions.len();
+        self.subscriptions.retain(|sub| sub.id != id);
+        self.subscriptions.len() != before
+    }
+
+    /// Notifies all subscriptions whose pattern matches `key` that the setting changed to `value`.
+    fn notify(&self, key: &str, value: &Setting) {
+        for sub in &self.subscriptions {
+            if sub.matcher.matches(key) {
+                (sub.callback)(key, value);
+            }
+        }
     }
 
     /// Populates the settings in the storage from the settings.json file
@@ -362,6 +453,8 @@ impl ConfigStore {
 #[cfg(test)]
 mod test {
     use super::*;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
     use storage::MemoryStorageAdapter;
 
     #[test]
@@ -430,6 +523,107 @@ mod test {
     fn flush_is_ok() {
         config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
         assert!(config_store().flush().is_ok());
+    }
+
+    // Subscription tests use keys that no other test mutates, since the config store is a global
+    // singleton shared across tests running in parallel.
+
+    /// Captures `(key, value)` pairs delivered to a subscription callback.
+    #[allow(clippy::type_complexity)]
+    fn capturing_callback() -> (Arc<Mutex<Vec<(String, Setting)>>>, impl Fn(&str, &Setting) + Send + Sync) {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let sink = captured.clone();
+        let cb = move |key: &str, value: &Setting| {
+            sink.lock().push((key.to_string(), value.clone()));
+        };
+        (captured, cb)
+    }
+
+    #[test]
+    fn subscribe_fires_on_change() {
+        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+
+        let (captured, cb) = capturing_callback();
+        let id = subscribe("dns.remote.doh.enabled", cb);
+
+        // default is false -> setting true is a real change
+        config_store().set("dns.remote.doh.enabled", Setting::Bool(true)).unwrap();
+
+        assert_eq!(
+            *captured.lock(),
+            vec![("dns.remote.doh.enabled".to_string(), Setting::Bool(true))]
+        );
+        unsubscribe(id);
+    }
+
+    #[test]
+    fn subscribe_only_fires_on_actual_change() {
+        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+
+        let (captured, cb) = capturing_callback();
+        let id = subscribe("dns.remote.timeout", cb);
+
+        // default is u:5 -> setting 5 again is not a change, 7 is
+        config_store().set("dns.remote.timeout", Setting::UInt(5)).unwrap();
+        config_store().set("dns.remote.timeout", Setting::UInt(7)).unwrap();
+
+        assert_eq!(
+            *captured.lock(),
+            vec![("dns.remote.timeout".to_string(), Setting::UInt(7))]
+        );
+        unsubscribe(id);
+    }
+
+    #[test]
+    fn subscribe_wildcard_matches() {
+        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+
+        let (captured, cb) = capturing_callback();
+        let id = subscribe("renderer.*", cb);
+
+        config_store().set("renderer.opengl.enabled", Setting::Bool(false)).unwrap();
+
+        assert_eq!(
+            *captured.lock(),
+            vec![("renderer.opengl.enabled".to_string(), Setting::Bool(false))]
+        );
+        unsubscribe(id);
+    }
+
+    #[test]
+    fn remove_notifies_with_default() {
+        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+
+        let (captured, cb) = capturing_callback();
+        let id = subscribe("dns.cache.ttl.override.seconds", cb);
+
+        // default u:0 -> set 99 (change), then remove (revert to default 0, also a change)
+        config_store().set("dns.cache.ttl.override.seconds", Setting::UInt(99)).unwrap();
+        config_store().remove("dns.cache.ttl.override.seconds").unwrap();
+
+        assert_eq!(
+            *captured.lock(),
+            vec![
+                ("dns.cache.ttl.override.seconds".to_string(), Setting::UInt(99)),
+                ("dns.cache.ttl.override.seconds".to_string(), Setting::UInt(0)),
+            ]
+        );
+        unsubscribe(id);
+    }
+
+    #[test]
+    fn unsubscribe_stops_notifications() {
+        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+
+        let (captured, cb) = capturing_callback();
+        let id = subscribe("useragent.default_page", cb);
+        assert!(unsubscribe(id));
+
+        config_store()
+            .set("useragent.default_page", Setting::String("about:config".into()))
+            .unwrap();
+
+        assert!(captured.lock().is_empty());
     }
 
     #[test]
