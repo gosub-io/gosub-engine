@@ -41,11 +41,6 @@ const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000007");
 /// (measured, and constant across zoom). Trackpad `PixelDelta` is handled separately, unscaled.
 const SCROLL_MULTIPLIER: f32 = 134.0;
 
-/// Duration of the ease-in-out animation a single wheel tick plays out over, in seconds. Each tick
-/// retargets the animation from the current position, so rapid ticks accumulate into a continuous
-/// glide rather than restarting from a standstill.
-const SCROLL_ANIM_SECS: f32 = 0.22;
-
 type AppConfig = DefaultRenderConfig<VelloBackend<WinitWgpuContextProvider>>;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
@@ -382,18 +377,6 @@ struct BrowserApp {
     modifiers: ModifiersState,
     /// Cursor position in physical pixels, as winit reports it.
     cursor: PhysicalPosition<f64>,
-    /// Currently displayed scroll offset (CSS px). Eased toward `scroll_target` each frame.
-    scroll: (f32, f32),
-    /// Destination the smooth-scroll animation eases toward. Wheel ticks accumulate here.
-    scroll_target: (f32, f32),
-    /// `scroll` captured when the current animation began — the ease's start point.
-    scroll_anim_from: (f32, f32),
-    /// When the current scroll animation started; `None` once settled (no animation in flight).
-    scroll_anim_start: Option<std::time::Instant>,
-    /// Rounded integer scroll position last pushed to the engine, so each frame sends only the
-    /// incremental delta (the engine scrolls in integer px and integrates relative deltas).
-    scroll_sent: (i32, i32),
-    page_height: f32,
     /// Engine viewport in *logical* (CSS) pixels — physical window size ÷ `scale`.
     viewport: (u32, u32),
     /// Display scale factor (physical ÷ logical px). The wgpu surface stays at physical size;
@@ -406,8 +389,6 @@ struct BrowserApp {
 impl BrowserApp {
     fn navigate(&mut self) {
         let Some(rt) = &self.state else { return };
-        // Clone the tab up front so the `&self.state` borrow is released before the mutations below
-        // (reset_scroll needs `&mut self`).
         let tab = rt.tab.clone();
         let mut s = self.url_input.clone();
         if !s.starts_with("http://") && !s.starts_with("https://") {
@@ -416,7 +397,6 @@ impl BrowserApp {
         let Ok(_) = Url::parse(&s) else { return };
         self.url_input = s.clone();
         self.addr_focused = false;
-        self.reset_scroll();
         self.update_title();
         TOKIO_RT.spawn(async move {
             let _ = tab.send(TabCommand::Navigate { url: s }).await;
@@ -445,53 +425,6 @@ impl BrowserApp {
         (physical / self.scale) as f32
     }
 
-    /// Reset scroll to the top and cancel any in-flight smooth-scroll animation (on navigate/resize).
-    fn reset_scroll(&mut self) {
-        self.scroll = (0.0, 0.0);
-        self.scroll_target = (0.0, 0.0);
-        self.scroll_anim_from = (0.0, 0.0);
-        self.scroll_anim_start = None;
-        self.scroll_sent = (0, 0);
-    }
-
-    /// Advance the smooth-scroll animation one frame, easing `self.scroll` toward `scroll_target`
-    /// with a smoothstep (ease-in-out) curve. No-op once the animation has settled.
-    fn advance_scroll(&mut self) {
-        let Some(start) = self.scroll_anim_start else {
-            return;
-        };
-        let t = (start.elapsed().as_secs_f32() / SCROLL_ANIM_SECS).clamp(0.0, 1.0);
-        // smoothstep has zero slope at both ends, so motion eases in and eases out.
-        let e = t * t * (3.0 - 2.0 * t);
-        let (fx, fy) = self.scroll_anim_from;
-        let (tx, ty) = self.scroll_target;
-        self.scroll = (fx + (tx - fx) * e, fy + (ty - fy) * e);
-        if t >= 1.0 {
-            self.scroll = self.scroll_target;
-            self.scroll_anim_start = None;
-        }
-        // Drive the engine to the eased position. The engine scrolls in integer CSS px and
-        // integrates *relative* deltas (clamping at the page bounds), so send the change in the
-        // rounded position, tracked cumulatively. This animates the GPU whole-page path (which is
-        // engine-rendered, so `self.scroll` alone is invisible there) and stays in lock-step with
-        // the CPU tile path.
-        let want = (self.scroll.0.round() as i32, self.scroll.1.round() as i32);
-        let (dx, dy) = (want.0 - self.scroll_sent.0, want.1 - self.scroll_sent.1);
-        if dx != 0 || dy != 0 {
-            self.scroll_sent = want;
-            if let Some(rt) = &self.state {
-                let tab = rt.tab.clone();
-                TOKIO_RT.spawn(async move {
-                    let _ = tab
-                        .send(TabCommand::MouseScroll {
-                            delta_x: dx as f32,
-                            delta_y: dy as f32,
-                        })
-                        .await;
-                });
-            }
-        }
-    }
 
     fn redraw(&mut self) {
         let Some(tab_id) = self.state.as_ref().map(|rt| rt.tab_id) else {
@@ -519,19 +452,17 @@ impl BrowserApp {
                 dpr,
                 viewport_width,
                 viewport_height,
-                page_height,
+                scroll_x,
+                scroll_y,
                 ..
             } => {
-                self.page_height = page_height;
-
                 let dpr_f = dpr as f32;
                 let w = (viewport_width * dpr) as usize;
                 let h = (viewport_height * dpr) as usize;
                 if w == 0 || h == 0 {
                     return;
                 }
-                // Use the locally-tracked scroll so scrolling feels instant without waiting
-                // for the engine to acknowledge the scroll command.
+                // Composite at the engine's authoritative (animated) scroll, carried on the handle.
                 // Opaque white background: a valid premultiplied base for source-over blending.
                 // Each u32 holds [R, G, B, A] little-endian (R in the low byte).
                 let mut buf = vec![0xFFFF_FFFFu32; w * h];
@@ -541,8 +472,8 @@ impl BrowserApp {
                     let (vx, vy) = anchored_tile_pos(
                         tile.page_x as f64,
                         tile.page_y as f64,
-                        self.scroll.0 as f64,
-                        self.scroll.1 as f64,
+                        scroll_x as f64,
+                        scroll_y as f64,
                         tile.anchor,
                     );
                     let screen_x = (vx * dpr_f as f64) as i64;
@@ -806,7 +737,6 @@ impl ApplicationHandler<()> for BrowserApp {
     /// redraw every ~16ms (capped via `WaitUntil`, so the loop still sleeps rather than busy-
     /// spinning) keeps the swap chain showing the latest compositor frame at ~60fps.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        self.advance_scroll();
         if let Some(rt) = &self.state {
             rt.gpu.window.request_redraw();
         }
@@ -842,7 +772,6 @@ impl ApplicationHandler<()> for BrowserApp {
                     });
                 }
                 self.viewport = (lw, lh);
-                self.reset_scroll();
             }
 
             // The window moved to a display with a different scale (e.g. dragged between
@@ -906,21 +835,14 @@ impl ApplicationHandler<()> for BrowserApp {
                     // Trackpad pixel deltas are physical; the engine scrolls in logical (CSS) px.
                     MouseScrollDelta::PixelDelta(p) => (self.cursor_logical(p.x), self.cursor_logical(p.y)),
                 };
-                // On the GPU whole-page path winit never learns page_height (it rides only on the
-                // TileCache handle), so only clamp the top when we know the bottom. The engine clamps
-                // the bottom authoritatively as it integrates the per-frame deltas from advance_scroll.
-                let max_y = if self.page_height > 0.0 {
-                    (self.page_height - self.viewport.1 as f32).max(0.0)
-                } else {
-                    f32::INFINITY
-                };
-                // Accumulate the tick into the target and (re)start the ease from where we are now.
-                // advance_scroll eases toward scroll_target and drives the engine each frame — we do
-                // NOT jump the engine here, otherwise it would step instantly past the animation.
-                self.scroll_target.0 = (self.scroll_target.0 + dx).max(0.0);
-                self.scroll_target.1 = (self.scroll_target.1 + dy).max(0.0).min(max_y);
-                self.scroll_anim_from = self.scroll;
-                self.scroll_anim_start = Some(std::time::Instant::now());
+                // Fire-and-forget one delta per wheel event; the engine accumulates the target,
+                // clamps it to the page, and animates the scroll itself.
+                if let Some(rt) = &self.state {
+                    let tab = rt.tab.clone();
+                    TOKIO_RT.spawn(async move {
+                        let _ = tab.send(TabCommand::MouseScroll { delta_x: dx, delta_y: dy }).await;
+                    });
+                }
             }
 
             WindowEvent::ModifiersChanged(mods) => {
@@ -1030,12 +952,6 @@ fn main() {
         current_url,
         modifiers: ModifiersState::empty(),
         cursor: PhysicalPosition::default(),
-        scroll: (0.0, 0.0),
-        scroll_target: (0.0, 0.0),
-        scroll_anim_from: (0.0, 0.0),
-        scroll_anim_start: None,
-        scroll_sent: (0, 0),
-        page_height: 0.0,
         viewport: (1024, 768),
         scale: 1.0,
     };

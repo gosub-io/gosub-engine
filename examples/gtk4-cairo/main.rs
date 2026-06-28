@@ -13,7 +13,9 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, CachedTile, ExternalHandle};
+use gosub_render_pipeline::render::backend::{
+    anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, CachedTile, ExternalHandle, PixelFormat,
+};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gosub_renderer_cairo::PangoFontSystem;
@@ -35,10 +37,6 @@ const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000001");
 /// to Firefox's ~134 CSS px/tick (measured, constant across zoom).
 const SCROLL_MULTIPLIER: f32 = 134.0;
 
-/// Duration of the ease-in-out animation a single wheel tick plays out over, in seconds. Matches
-/// the winit example so both backends scroll with the same feel.
-const SCROLL_ANIM_SECS: f32 = 0.22;
-
 type AppConfig = DefaultRenderConfig<gosub_renderer_cairo::CairoBackend, PangoFontSystem>;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
@@ -57,7 +55,6 @@ struct TileDrawState {
     dpr: u32,
     viewport_width: u32,
     viewport_height: u32,
-    page_height: f32,
 }
 
 fn main() {
@@ -82,15 +79,9 @@ fn main() {
         // background rasterizer threads never need to touch GTK globals.
         gosub_renderer_cairo::init_gtk_resources().expect("failed to init GTK resources");
 
-        // Channel from engine → GTK: request a redraw
-        let (tx_redraw, mut rx_redraw) = mpsc::unbounded_channel::<()>();
-
-        let compositor = Arc::new(RwLock::new(DefaultCompositor::new({
-            let tx = tx_redraw.clone();
-            move || {
-                let _ = tx.send(());
-            }
-        })));
+        // The present pump polls `frame_for()` at ~60fps, so the compositor doesn't need to signal
+        // redraws (the old tokio-channel signal didn't reliably wake the GTK main loop anyway).
+        let compositor = Arc::new(RwLock::new(DefaultCompositor::new(|| {})));
 
         let backend = gosub_renderer_cairo::CairoBackend::new();
         let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
@@ -150,16 +141,9 @@ fn main() {
         let local_tiles: Rc<RefCell<Option<TileDrawState>>> = Rc::new(RefCell::new(None));
         // Current scroll offset in CSS px — updated synchronously in the GTK scroll
         // handler so every frame sees the very latest position without async latency.
+        // The engine owns scroll smoothing now; this just mirrors the engine's reported scroll
+        // (refreshed when each TileCache frame arrives) for the draw callback to composite at.
         let local_scroll: Rc<Cell<(f32, f32)>> = Rc::new(Cell::new((0.0, 0.0)));
-        // Smooth-scroll animation state (GTK main thread only). `local_scroll` is eased toward
-        // `scroll_target`; `scroll_from`/`scroll_start` define the in-flight ease; `scroll_sent` is
-        // the rounded integer position last pushed to the engine (it scrolls in integer px and
-        // integrates relative deltas); `anim_source` holds the running ~60fps ease timeout.
-        let scroll_target: Rc<Cell<(f32, f32)>> = Rc::new(Cell::new((0.0, 0.0)));
-        let scroll_from: Rc<Cell<(f32, f32)>> = Rc::new(Cell::new((0.0, 0.0)));
-        let scroll_start: Rc<Cell<Option<std::time::Instant>>> = Rc::new(Cell::new(None));
-        let scroll_sent: Rc<Cell<(i32, i32)>> = Rc::new(Cell::new((0, 0)));
-        let anim_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
 
         // --- Widgets ---
         let address_entry = Entry::new();
@@ -173,48 +157,41 @@ fn main() {
         drawing_area.set_hexpand(true);
         drawing_area.set_focusable(true);
 
-        // When the engine submits a new frame, check if it is a TileCache and stash it
-        // in local_tiles so the draw callback can use it immediately.  Also reconcile the
-        // local scroll position with the engine's authoritative value when no ease is in flight.
+        // Present pump: poll the latest engine frame at ~60fps from a native glib timeout (which the
+        // GTK main loop dispatches reliably), mirror its tiles + animated scroll into the local
+        // state, and redraw. This is the GTK counterpart of winit's per-frame `frame_for` + present.
+        //
+        // We deliberately do NOT drive this off the engine's redraw channel: that channel is a tokio
+        // mpsc awaited inside a `glib::spawn_future_local`, and its waker does not reliably wake the
+        // GTK main loop. During a scroll animation the future is only polled at the start and end, so
+        // the intermediate frames are never read and the scroll visibly jumps from start to finish.
         {
             let da = drawing_area.clone();
-            let compositor_rx = compositor.clone();
+            let compositor = compositor.clone();
             let local_tiles = local_tiles.clone();
             let local_scroll = local_scroll.clone();
-            let scroll_target = scroll_target.clone();
-            let scroll_start = scroll_start.clone();
-            let scroll_sent = scroll_sent.clone();
-            glib::spawn_future_local(async move {
-                while let Some(()) = rx_redraw.recv().await {
-                    if let Some(ExternalHandle::TileCache {
+            glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
+                if let Some(ExternalHandle::TileCache {
+                    tiles,
+                    dpr,
+                    viewport_width,
+                    viewport_height,
+                    page_height: _,
+                    scroll_x,
+                    scroll_y,
+                }) = compositor.read().frame_for(tab_id)
+                {
+                    *local_tiles.borrow_mut() = Some(TileDrawState {
                         tiles,
                         dpr,
                         viewport_width,
                         viewport_height,
-                        page_height,
-                        scroll_x,
-                        scroll_y,
-                    }) = compositor_rx.read().frame_for(tab_id)
-                    {
-                        *local_tiles.borrow_mut() = Some(TileDrawState {
-                            tiles,
-                            dpr,
-                            viewport_width,
-                            viewport_height,
-                            page_height,
-                        });
-                        // Reconcile with the engine's authoritative (possibly clamped) scroll, but
-                        // only when no ease is in flight — otherwise the engine's slightly-lagging
-                        // frames fight the local animation. Also re-bases the target/sent trackers
-                        // (e.g. after navigation resets the engine to 0).
-                        if scroll_start.get().is_none() {
-                            local_scroll.set((scroll_x, scroll_y));
-                            scroll_target.set((scroll_x, scroll_y));
-                            scroll_sent.set((scroll_x.round() as i32, scroll_y.round() as i32));
-                        }
-                    }
-                    da.queue_draw();
+                    });
+                    // Mirror the engine's authoritative (animated, clamped) scroll for the draw.
+                    local_scroll.set((scroll_x, scroll_y));
                 }
+                da.queue_draw();
+                glib::ControlFlow::Continue
             });
         }
 
@@ -336,7 +313,7 @@ fn main() {
                         dpr,
                         scroll_x,
                         scroll_y,
-                        page_height,
+                        page_height: _,
                         tiles,
                     } => {
                         // This arm is only reached if local_tiles was empty — should be rare.
@@ -345,7 +322,6 @@ fn main() {
                             dpr,
                             viewport_width,
                             viewport_height,
-                            page_height,
                         };
                         draw_tile_cache(cr, w, h, &state, scroll_x, scroll_y);
                     }
@@ -366,85 +342,16 @@ fn main() {
 
         scroll_ctl.connect_scroll({
             let tab = tab.clone();
-            let local_tiles = local_tiles.clone();
-            let local_scroll = local_scroll.clone();
-            let scroll_target = scroll_target.clone();
-            let scroll_from = scroll_from.clone();
-            let scroll_start = scroll_start.clone();
-            let scroll_sent = scroll_sent.clone();
-            let anim_source = anim_source.clone();
-            let da = drawing_area.clone();
             move |_ctl, dx, dy| {
                 let delta_x = dx as f32 * SCROLL_MULTIPLIER;
                 let delta_y = dy as f32 * SCROLL_MULTIPLIER;
-
-                let max_y = local_tiles
-                    .borrow()
-                    .as_ref()
-                    .map(|s| (s.page_height - s.viewport_height as f32).max(0.0))
-                    .unwrap_or(f32::MAX);
-
-                // Accumulate the tick into the target and re-base the ease from the current position.
-                let (tx, ty) = scroll_target.get();
-                scroll_target.set(((tx + delta_x).max(0.0), (ty + delta_y).clamp(0.0, max_y)));
-                scroll_from.set(local_scroll.get());
-                scroll_start.set(Some(std::time::Instant::now()));
-
-                // Start the ~60fps ease loop if it isn't already running.
-                if anim_source.borrow().is_none() {
-                    let id = glib::timeout_add_local(std::time::Duration::from_millis(16), {
-                        let tab = tab.clone();
-                        let local_scroll = local_scroll.clone();
-                        let scroll_target = scroll_target.clone();
-                        let scroll_from = scroll_from.clone();
-                        let scroll_start = scroll_start.clone();
-                        let scroll_sent = scroll_sent.clone();
-                        let anim_source = anim_source.clone();
-                        let da = da.clone();
-                        move || {
-                            let Some(start) = scroll_start.get() else {
-                                *anim_source.borrow_mut() = None;
-                                return glib::ControlFlow::Break;
-                            };
-                            let t = (start.elapsed().as_secs_f32() / SCROLL_ANIM_SECS).clamp(0.0, 1.0);
-                            // smoothstep: zero slope at both ends → eases in and out.
-                            let e = t * t * (3.0 - 2.0 * t);
-                            let (fx, fy) = scroll_from.get();
-                            let (tx, ty) = scroll_target.get();
-                            let cur = (fx + (tx - fx) * e, fy + (ty - fy) * e);
-                            local_scroll.set(cur);
-                            da.queue_draw();
-
-                            // Drive the engine with the incremental rounded delta (it scrolls in
-                            // integer CSS px and integrates relative deltas, clamping at the bounds).
-                            let want = (cur.0.round() as i32, cur.1.round() as i32);
-                            let (sx, sy) = scroll_sent.get();
-                            let (ddx, ddy) = (want.0 - sx, want.1 - sy);
-                            if ddx != 0 || ddy != 0 {
-                                scroll_sent.set(want);
-                                let tab = tab.borrow().clone();
-                                TOKIO_RT.spawn(async move {
-                                    let _ = tab
-                                        .send(TabCommand::MouseScroll {
-                                            delta_x: ddx as f32,
-                                            delta_y: ddy as f32,
-                                        })
-                                        .await;
-                                });
-                            }
-
-                            if t >= 1.0 {
-                                local_scroll.set(scroll_target.get());
-                                scroll_start.set(None);
-                                *anim_source.borrow_mut() = None;
-                                return glib::ControlFlow::Break;
-                            }
-                            glib::ControlFlow::Continue
-                        }
-                    });
-                    *anim_source.borrow_mut() = Some(id);
-                }
-
+                // Fire-and-forget one delta per wheel event; the engine accumulates the target,
+                // clamps it to the page, and animates the scroll. Its frames refresh local_scroll
+                // via the redraw handler, so the draw follows the engine's animated position.
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab.send(TabCommand::MouseScroll { delta_x, delta_y }).await;
+                });
                 glib::Propagation::Stop
             }
         });
@@ -518,18 +425,8 @@ fn main() {
             let tab = tab.clone();
             let local_tiles = local_tiles.clone();
             let local_scroll = local_scroll.clone();
-            let scroll_target = scroll_target.clone();
-            let scroll_from = scroll_from.clone();
-            let scroll_start = scroll_start.clone();
-            let scroll_sent = scroll_sent.clone();
-            let anim_source = anim_source.clone();
             let da = drawing_area.clone();
             move |entry| {
-                // Cancel any in-flight scroll animation.
-                if let Some(id) = anim_source.borrow_mut().take() {
-                    id.remove();
-                }
-
                 let mut s = entry.text().to_string();
                 if !s.starts_with("http://") && !s.starts_with("https://") {
                     s = format!("https://{s}");
@@ -537,13 +434,9 @@ fn main() {
                 }
                 let Ok(url) = Url::parse(&s) else { return };
 
-                // Reset local state for the new page.
+                // Reset local state for the new page (the engine resets its own scroll on navigate).
                 *local_tiles.borrow_mut() = None;
                 local_scroll.set((0.0, 0.0));
-                scroll_target.set((0.0, 0.0));
-                scroll_from.set((0.0, 0.0));
-                scroll_start.set(None);
-                scroll_sent.set((0, 0));
 
                 let tab = tab.borrow().clone();
                 let url_str = url.to_string();
@@ -582,11 +475,6 @@ fn main() {
             let address_entry = address_entry.clone();
             let local_tiles = local_tiles.clone();
             let local_scroll = local_scroll.clone();
-            let scroll_target = scroll_target.clone();
-            let scroll_from = scroll_from.clone();
-            let scroll_start = scroll_start.clone();
-            let scroll_sent = scroll_sent.clone();
-            let anim_source = anim_source.clone();
             glib::spawn_future_local(async move {
                 while let Some(evt) = ui_rx.recv().await {
                     match evt {
@@ -595,16 +483,10 @@ fn main() {
                             log::info!("navigation: {event:?}");
                             match event {
                                 NavigationEvent::Started { .. } => {
-                                    // Same reset the address-bar handler does on manual navigation.
-                                    if let Some(id) = anim_source.borrow_mut().take() {
-                                        id.remove();
-                                    }
+                                    // Reset local mirrors for the new page (the engine resets its
+                                    // own scroll on navigate).
                                     *local_tiles.borrow_mut() = None;
                                     local_scroll.set((0.0, 0.0));
-                                    scroll_target.set((0.0, 0.0));
-                                    scroll_from.set((0.0, 0.0));
-                                    scroll_start.set(None);
-                                    scroll_sent.set((0, 0));
                                     da.queue_draw();
                                 }
                                 NavigationEvent::Finished { url, .. } => {
@@ -707,13 +589,9 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
             return;
         };
 
-        // White background (ARGB32 premultiplied little-endian = 0xFFFF_FFFF).
-        for b in data.chunks_exact_mut(4) {
-            b[0] = 0xFF;
-            b[1] = 0xFF;
-            b[2] = 0xFF;
-            b[3] = 0xFF;
-        }
+        // White opaque background: every byte 0xFF (premultiplied ARGB32 = 0xFFFF_FFFF per pixel).
+        // `fill` lowers to a single memset — far cheaper than a per-pixel loop, even in debug.
+        data.fill(0xFF);
 
         for tile in state.tiles.iter() {
             // Resolve the tile's viewport position in CSS px — handles scroll, fixed and sticky
@@ -743,6 +621,10 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
             let dst_y0 = py.max(0) as usize;
             let tw_usize = tw as usize;
             let th_usize = th as usize;
+            // Hoisted per-tile: a fully-opaque, non-faded tile already in the surface's byte order
+            // can be blitted row-by-row with a plain memcpy — no per-pixel work at all.
+            let faded = tile.opacity < 1.0;
+            let can_memcpy = tile.opaque && !faded && matches!(tile.format, PixelFormat::PreMulArgb32);
 
             for tile_row in tile_row0..th_usize {
                 let dst_y = dst_y0 + (tile_row - tile_row0);
@@ -755,17 +637,37 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
                 }
                 let src_off = (tile_row * tw_usize + tile_col0) * 4;
                 let dst_off = dst_y * stride + dst_x * 4;
-                // Alpha-blend (source-over) rather than overwrite, so transparent
-                // pixels of an upper-layer tile reveal the content drawn beneath it.
+                let row_bytes = copy_w * 4;
+
+                if can_memcpy {
+                    // Opaque, non-faded, same-format tile: the whole row is a straight copy.
+                    data[dst_off..dst_off + row_bytes].copy_from_slice(&tile.data[src_off..src_off + row_bytes]);
+                    continue;
+                }
+
+                // Otherwise source-over, doing the alpha math only where it's actually needed: an
+                // opaque pixel overwrites, a transparent one is skipped (keep what's beneath), and
+                // only a partial-alpha pixel runs the full blend. The group fade applies only to
+                // faded layers. (Cairo tiles are PreMulArgb32, so `pixel_to_argb_u32` is the
+                // identity — no per-pixel channel swap.)
                 for col in 0..copy_w {
                     let s = src_off + col * 4;
                     let d = dst_off + col * 4;
                     let src_px =
                         u32::from_le_bytes([tile.data[s], tile.data[s + 1], tile.data[s + 2], tile.data[s + 3]]);
-                    let src_argb = tile.format.pixel_to_argb_u32(src_px);
-                    let dst_px = u32::from_le_bytes([data[d], data[d + 1], data[d + 2], data[d + 3]]);
-                    let out = blend_over_argb_u32(scale_premul_argb_u32(src_argb, tile.opacity), dst_px);
-                    data[d..d + 4].copy_from_slice(&out.to_le_bytes());
+                    let mut argb = tile.format.pixel_to_argb_u32(src_px);
+                    if faded {
+                        argb = scale_premul_argb_u32(argb, tile.opacity);
+                    }
+                    match argb >> 24 {
+                        0 => {} // fully transparent: keep the destination
+                        0xFF => data[d..d + 4].copy_from_slice(&argb.to_le_bytes()), // opaque: overwrite
+                        _ => {
+                            let dst_px = u32::from_le_bytes([data[d], data[d + 1], data[d + 2], data[d + 3]]);
+                            let out = blend_over_argb_u32(argb, dst_px);
+                            data[d..d + 4].copy_from_slice(&out.to_le_bytes());
+                        }
+                    }
                 }
             }
         }

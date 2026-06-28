@@ -8,7 +8,16 @@
 //!
 //! [`tick`]: ScrollState::tick
 
-use gosub_shared::animation::{ScrollAnimator, ScrollBehavior};
+use gosub_shared::animation::{Easing, ScrollAnimator, ScrollBehavior};
+
+/// The engine's default wheel-scroll feel. This is the single place that defines how normal
+/// (non-CSS) scrolling animates; change it here to retune the global default.
+pub(crate) fn default_text_scroll() -> ScrollBehavior {
+    ScrollBehavior::Tween {
+        duration: std::time::Duration::from_millis(220),
+        easing: Easing::Smoothstep,
+    }
+}
 
 /// Owns the engine's scroll offset and animates it toward a target.
 pub(crate) struct ScrollState {

@@ -1581,6 +1581,9 @@ fn cpu_cached_tiles(baked: &[BakedTile]) -> Vec<CachedTile> {
                 format: t.format,
                 opacity: t.opacity,
                 anchor: t.anchor,
+                // Alpha is the 4th byte in both supported formats ([B,G,R,A] / [R,G,B,A]). Scanned
+                // once here (per cache build, not per scroll) so the compositor can fast-path it.
+                opaque: d.chunks_exact(4).all(|px| px[3] == 0xFF),
             }),
             TilePixels::Gpu(_) => None,
         })

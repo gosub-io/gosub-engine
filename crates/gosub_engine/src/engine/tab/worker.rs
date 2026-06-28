@@ -11,11 +11,10 @@ use crate::net::types::{FetchKeyData, FetchRequest, FetchResult, Initiator, NetE
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
 use crate::storage::types::compute_partition_key;
 use crate::storage::{StorageEvent, StorageHandles};
-use crate::tab::scroll::ScrollState;
+use crate::tab::scroll::{default_text_scroll, ScrollState};
 use crate::tab::services::EffectiveTabServices;
 use crate::tab::state::{TabActivityMode, TabRuntime, TabState};
 use crate::tab::{TabId, TabSink};
-use gosub_shared::animation::ScrollBehavior;
 use crate::util::spawn_named;
 use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
@@ -319,9 +318,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
             desired_viewport: Default::default(),
             scroll_x: 0,
             scroll_y: 0,
-            // Instant by default: the engine integrates deltas immediately, leaving any embedder-side
-            // smooth scrolling in charge until phase 5 flips this to an animated behavior.
-            scroll: ScrollState::new(ScrollBehavior::Instant),
+            // The engine owns wheel-scroll smoothing; embedders send one delta per notch.
+            scroll: ScrollState::new(default_text_scroll()),
             scroll_anim_last: None,
             runtime,
             load: None,

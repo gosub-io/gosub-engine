@@ -101,7 +101,7 @@ impl PixelFormat {
     /// On little-endian hosts, `PreMulArgb32` bytes `[B, G, R, A]` already read as
     /// `0xAARRGGBB`, while `Rgba8` bytes `[R, G, B, A]` read as `0xAABBGGRR` and need
     /// their red/blue channels swapped.
-    #[inline]
+    #[inline(always)] // hot per-pixel compositor helper; force-inline even in debug (-O0)
     pub fn pixel_to_argb_u32(self, px: u32) -> u32 {
         match self {
             PixelFormat::PreMulArgb32 => px,
@@ -122,7 +122,7 @@ impl PixelFormat {
 /// This is the "source-over" Porter-Duff operator: `out = src + dst * (1 - src_alpha)`.
 /// Compositing tiles with this (rather than overwriting the destination) lets a
 /// transparent upper-layer tile reveal the content of lower layers beneath it.
-#[inline]
+#[inline(always)] // hot per-pixel compositor helper; force-inline even in debug (-O0)
 pub fn blend_over_argb_u32(src: u32, dst: u32) -> u32 {
     let sa = src >> 24;
     if sa == 0xFF {
@@ -143,7 +143,7 @@ pub fn blend_over_argb_u32(src: u32, dst: u32) -> u32 {
 /// pixel. All four channels (alpha included) are multiplied by the same factor, which keeps the
 /// pixel premultiplied and realises CSS group opacity for an opacity-promoted layer. Apply this to
 /// a tile's source pixel before [`blend_over_argb_u32`] to fade the whole layer as a unit.
-#[inline]
+#[inline(always)] // hot per-pixel compositor helper; force-inline even in debug (-O0)
 pub fn scale_premul_argb_u32(argb: u32, opacity: f32) -> u32 {
     if opacity >= 1.0 {
         return argb;
@@ -156,7 +156,7 @@ pub fn scale_premul_argb_u32(argb: u32, opacity: f32) -> u32 {
 
 /// Multiply each of the two 8-bit channels packed in `pair` (`0x00XX00YY`) by `factor`
 /// (0..=255) and divide by 255 with rounding, returning the packed result.
-#[inline]
+#[inline(always)] // hot per-pixel compositor helper; force-inline even in debug (-O0)
 fn mul_div255_pair(pair: u32, factor: u32) -> u32 {
     // Process both channels at once: add rounding bias, then the classic
     // `(x + (x >> 8) + 128) >> 8` approximation of `x / 255`.
@@ -274,6 +274,9 @@ pub struct CachedTile {
     pub opacity: f32,
     /// How this tile's layer responds to scroll (normal flow vs. `position: fixed`).
     pub anchor: TileAnchor,
+    /// True when every pixel is fully opaque (alpha == 255). Computed once when the tile is cached;
+    /// lets a CPU compositor blit the tile with a plain row copy instead of a per-pixel source-over.
+    pub opaque: bool,
 }
 
 /// A rasterized tile that lives in a GPU backend's texture store, positioned in page coordinates.
