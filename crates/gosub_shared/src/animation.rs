@@ -359,6 +359,54 @@ impl ScrollAnimator for Spring {
     }
 }
 
+/// How a scroll offset moves toward its target. The non-`Custom` variants are plain data (portable
+/// across a future process boundary, e.g. for an out-of-process renderer); `Custom` is an
+/// in-process-only escape hatch for a fully embedder-defined feel.
+#[derive(Clone)]
+pub enum ScrollBehavior {
+    /// Jump straight to the target — no animation (CSS `scroll-behavior: auto`, reduced-motion).
+    Instant,
+    /// Fixed-duration tween reparameterized by `easing`.
+    Tween { duration: std::time::Duration, easing: Easing },
+    /// Open-ended damped spring (carries velocity; retargets seamlessly).
+    Spring { stiffness: f64, damping: f64 },
+    /// Embedder-supplied animator factory, called with the axis's start position. In-process only.
+    Custom(Arc<dyn Fn(f64) -> Box<dyn ScrollAnimator> + Send + Sync>),
+}
+
+impl ScrollBehavior {
+    /// Build a fresh animator for one axis starting at `start`. Returns `None` for [`Instant`],
+    /// which the caller realises by setting the position directly.
+    pub fn make_animator(&self, start: f64) -> Option<Box<dyn ScrollAnimator>> {
+        match self {
+            ScrollBehavior::Instant => None,
+            ScrollBehavior::Tween { duration, easing } => Some(Box::new(Tween::new(start, easing.clone(), *duration))),
+            ScrollBehavior::Spring { stiffness, damping } => Some(Box::new(Spring::new(start, *stiffness, *damping))),
+            ScrollBehavior::Custom(factory) => Some(factory(start)),
+        }
+    }
+
+    /// True for [`ScrollBehavior::Instant`].
+    pub fn is_instant(&self) -> bool {
+        matches!(self, ScrollBehavior::Instant)
+    }
+}
+
+impl std::fmt::Debug for ScrollBehavior {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScrollBehavior::Instant => write!(f, "Instant"),
+            ScrollBehavior::Tween { duration, easing } => {
+                write!(f, "Tween {{ duration: {duration:?}, easing: {easing:?} }}")
+            }
+            ScrollBehavior::Spring { stiffness, damping } => {
+                write!(f, "Spring {{ stiffness: {stiffness}, damping: {damping} }}")
+            }
+            ScrollBehavior::Custom(_) => write!(f, "Custom(<factory>)"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

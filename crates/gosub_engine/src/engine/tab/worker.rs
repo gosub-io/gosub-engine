@@ -11,9 +11,11 @@ use crate::net::types::{FetchKeyData, FetchRequest, FetchResult, Initiator, NetE
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
 use crate::storage::types::compute_partition_key;
 use crate::storage::{StorageEvent, StorageHandles};
+use crate::tab::scroll::ScrollState;
 use crate::tab::services::EffectiveTabServices;
 use crate::tab::state::{TabActivityMode, TabRuntime, TabState};
 use crate::tab::{TabId, TabSink};
+use gosub_shared::animation::ScrollBehavior;
 use crate::util::spawn_named;
 use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
@@ -116,9 +118,15 @@ pub struct TabWorker<C: RenderConfiguration> {
     present_mode: PresentMode,
     /// The newest viewport requested by the tab, which may differ from the committed one.
     desired_viewport: Viewport,
-    /// Current scroll offset in CSS pixels (updated by MouseScroll).
+    /// Current scroll offset in CSS pixels (updated by MouseScroll). Mirrors the integer-rounded
+    /// position held by `scroll`; the rest of the worker reads these.
     scroll_x: i32,
     scroll_y: i32,
+    /// Engine-side scroll position + smooth-scroll animation. Defaults to `Instant`, so behaviour is
+    /// unchanged until the engine takes scrolling over from the embedder (see [`ScrollBehavior`]).
+    scroll: ScrollState,
+    /// Timestamp of the last scroll-animation step, for computing `dt`. `None` when not animating.
+    scroll_anim_last: Option<std::time::Instant>,
     /// Keeps track of the tab worker runtime data
     pub(crate) runtime: TabRuntime,
     /// Current in-flight navigation (if any)
@@ -311,6 +319,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
             desired_viewport: Default::default(),
             scroll_x: 0,
             scroll_y: 0,
+            // Instant by default: the engine integrates deltas immediately, leaving any embedder-side
+            // smooth scrolling in charge until phase 5 flips this to an animated behavior.
+            scroll: ScrollState::new(ScrollBehavior::Instant),
+            scroll_anim_last: None,
             runtime,
             load: None,
             active_nav: None,
@@ -559,36 +571,45 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 let max_y = {
                     let ph = self.context.page_height();
                     if ph > 0.0 {
-                        (ph - self.desired_viewport.height as f64).max(0.0) as i32
+                        (ph - self.desired_viewport.height as f64).max(0.0)
                     } else {
-                        i32::MAX / 2
+                        f64::MAX
                     }
                 };
-                let prev_x = self.scroll_x;
-                let prev_y = self.scroll_y;
-                self.scroll_x = (self.scroll_x + delta_x as i32).max(0);
-                self.scroll_y = (self.scroll_y + delta_y as i32).clamp(0, max_y);
-                self.context.set_scroll(self.scroll_x as f64, self.scroll_y as f64);
 
-                // Submit the scroll frame immediately — don't wait for the next timer tick.
-                // Eliminates up to 33ms of latency at 30fps per scroll event.
-                // GPU-tile-compositing backends skip this CPU TileCache fast path (their tiles have
-                // no CPU pixels); they re-composite on the next tick via `composite_tiles`.
-                if self.zone_context.render_backend.raster_strategy() != RasterStrategy::None
-                    && !self.zone_context.render_backend.gpu_tile_compositing()
-                {
-                    let dpr = self.zone_context.render_backend.device_pixel_ratio();
-                    if let Some(handle) = self.context.take_scroll_handle(dpr) {
-                        self.runtime.committed_scene_epoch = self.context.scene_epoch();
-                        self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
-                        return ControlFlow::Continue;
+                match self.scroll.scroll_by(delta_x as f64, delta_y as f64, f64::MAX, max_y) {
+                    // Instant behavior: apply the new offset now and keep the immediate-submit fast
+                    // path (avoids up to 1/fps of latency per scroll event).
+                    Some((x, y)) => {
+                        let moved = x != self.scroll_x || y != self.scroll_y;
+                        self.scroll_x = x;
+                        self.scroll_y = y;
+                        self.context.set_scroll(x as f64, y as f64);
+
+                        // GPU-tile-compositing backends skip this CPU TileCache fast path (their
+                        // tiles have no CPU pixels); they re-composite on the next tick.
+                        if self.zone_context.render_backend.raster_strategy() != RasterStrategy::None
+                            && !self.zone_context.render_backend.gpu_tile_compositing()
+                        {
+                            let dpr = self.zone_context.render_backend.device_pixel_ratio();
+                            if let Some(handle) = self.context.take_scroll_handle(dpr) {
+                                self.runtime.committed_scene_epoch = self.context.scene_epoch();
+                                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+                                return ControlFlow::Continue;
+                            }
+                        }
+
+                        // TileCache not ready yet; fall back to the timer path. Only mark dirty if
+                        // the integer offset actually moved (sub-pixel deltas are no-ops).
+                        if moved {
+                            self.runtime.dirty = true;
+                        }
                     }
-                }
-
-                // TileCache not ready yet (first render hasn't completed); fall back to timer path.
-                // Only mark dirty if the scroll position actually moved (sub-pixel deltas are no-ops).
-                if self.scroll_x != prev_x || self.scroll_y != prev_y {
-                    self.runtime.dirty = true;
+                    // Animated behavior: tick_draw advances the ease toward the new target. Request
+                    // an immediate tick so the first frame lands without waiting up to 1/fps.
+                    None => {
+                        self.runtime.render_now = true;
+                    }
                 }
                 ControlFlow::Continue
             }
@@ -686,6 +707,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
     fn navigate_to(&mut self, url: impl Into<String>, _ignore_cache: bool) {
         self.scroll_x = 0;
         self.scroll_y = 0;
+        self.scroll.reset(0.0, 0.0);
+        self.scroll_anim_last = None;
         self.context.reset_scroll();
         // Cancel any previous running navigation in this tab
         self.cancel_current_nav();
@@ -942,6 +965,30 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Do a draw tick. This will be called based on the FPS that is requested
     #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
+        // Advance an in-flight smooth scroll: ease the engine scroll one step toward its target and
+        // keep the frame loop alive (mark dirty) until it settles exactly on the target. Dormant
+        // unless the scroll behavior is animated — `Instant` applies moves synchronously in the
+        // MouseScroll handler, so `animating()` stays false there.
+        if self.scroll.animating() {
+            let now = std::time::Instant::now();
+            let dt = self
+                .scroll_anim_last
+                .map(|t| now.duration_since(t).as_secs_f64())
+                .unwrap_or(1.0 / self.runtime.fps.max(1) as f64);
+            self.scroll_anim_last = Some(now);
+            if let Some((x, y)) = self.scroll.tick(dt) {
+                if x != self.scroll_x || y != self.scroll_y {
+                    self.scroll_x = x;
+                    self.scroll_y = y;
+                    self.context.set_scroll(x as f64, y as f64);
+                    self.runtime.dirty = true;
+                }
+            }
+            if !self.scroll.animating() {
+                self.scroll_anim_last = None;
+            }
+        }
+
         // A background media fetch (e.g. an image that started downloading during layout) landing
         // must wake the render loop even when nothing else changed, so the now-available image is
         // laid out and painted. This marks the render dirty under the hood.
