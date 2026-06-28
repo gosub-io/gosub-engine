@@ -55,6 +55,14 @@ impl StorageAdapter for SqliteStorageAdapter {
         Ok(())
     }
 
+    fn remove(&self, key: &str) -> Result<()> {
+        let db_lock = self.connection.lock();
+        let query = "DELETE FROM settings WHERE key = :key";
+        let mut statement = db_lock.prepare(query)?;
+        statement.execute(named_params! { ":key": key })?;
+        Ok(())
+    }
+
     fn all(&self) -> Result<HashMap<String, Setting>> {
         let mut settings = HashMap::new();
 

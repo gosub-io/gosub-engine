@@ -31,6 +31,12 @@ impl StorageAdapter for MemoryStorageAdapter {
         Ok(())
     }
 
+    fn remove(&self, key: &str) -> Result<()> {
+        let mut lock = self.settings.lock();
+        lock.remove(key);
+        Ok(())
+    }
+
     fn all(&self) -> Result<HashMap<String, Setting>> {
         let lock = self.settings.lock();
         Ok(lock.clone())

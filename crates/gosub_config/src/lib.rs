@@ -33,10 +33,22 @@ pub trait StorageAdapter: Send + Sync {
     /// can get mutable.
     fn set(&self, key: &str, value: Setting) -> Result<()>;
 
+    /// Removes a stored setting from the storage. Removing a key that does not exist is not an error
+    /// (the operation is idempotent). This is used to revert a setting back to its default value.
+    fn remove(&self, key: &str) -> Result<()>;
+
     /// Retrieves all the settings in the storage in one go. This is used for preloading the settings
     /// into the `ConfigStore` and is more performant normally than calling `get_setting` manually for each
     /// setting.
     fn all(&self) -> Result<HashMap<String, Setting>>;
+
+    /// Flushes any buffered writes to the backing store. Adapters that persist eagerly on every `set`
+    /// (or that do not persist at all, like the in-memory adapter) treat this as a no-op. It exists so
+    /// callers can request an explicit durability point and so adapters can later batch writes without
+    /// changing the trait.
+    fn flush(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 lazy_static! {
@@ -270,6 +282,27 @@ impl ConfigStore {
         Ok(())
     }
 
+    /// Removes the stored override for the given key, reverting it back to its default value. The key
+    /// MUST have a settings-info entry, otherwise this function returns an error and does nothing.
+    pub fn remove(&self, key: &str) -> Result<()> {
+        let info = if let Some(info) = self.settings_info.get(key) {
+            info
+        } else {
+            warn!("config: Setting {key} is not known");
+            return Err(Error::Config(format!("Setting {key} is not known")));
+        };
+
+        self.storage.remove(key)?;
+        // Revert the in-memory value back to the default so subsequent reads return the default.
+        self.settings.lock().insert(key.to_owned(), info.default.clone());
+        Ok(())
+    }
+
+    /// Flushes any buffered writes in the underlying storage adapter to its backing store.
+    pub fn flush(&self) -> Result<()> {
+        self.storage.flush()
+    }
+
     /// Populates the settings in the storage from the settings.json file
     fn populate_default_settings(&mut self) -> Result<()> {
         let json_data: Value = serde_json::from_str(SETTINGS_JSON)?;
@@ -341,6 +374,34 @@ mod test {
         config_set!(uint "dns.cache.max_entries", 9432);
         let max_entries = config!(uint "dns.cache.max_entries");
         assert_eq!(max_entries, 9432);
+    }
+
+    #[test]
+    fn remove_reverts_to_default() {
+        // Note: the config store is a global singleton shared across tests, so this test uses a key
+        // (`dns.remote.retries`, default u:3) that no other test mutates to avoid cross-test races.
+        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+
+        // Override the default, then remove it again.
+        config_store_write().set("dns.remote.retries", Setting::UInt(42)).unwrap();
+        assert_eq!(config_store().get("dns.remote.retries").unwrap().unwrap(), Setting::UInt(42));
+
+        config_store_write().remove("dns.remote.retries").unwrap();
+
+        // Back to the default value defined in settings.json.
+        assert_eq!(config_store().get("dns.remote.retries").unwrap().unwrap(), Setting::UInt(3));
+    }
+
+    #[test]
+    fn remove_unknown_key_errors() {
+        let result = config_store_write().remove("this.key.doesnt.exist");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn flush_is_ok() {
+        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+        assert!(config_store().flush().is_ok());
     }
 
     #[test]
