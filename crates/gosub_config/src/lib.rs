@@ -5,7 +5,7 @@ pub mod storage;
 pub use errors::Error;
 pub(crate) type Result<T> = std::result::Result<T, Error>;
 
-use crate::settings::{Setting, SettingInfo};
+use crate::settings::{Constraint, Setting, SettingInfo};
 use crate::storage::MemoryStorageAdapter;
 use lazy_static::lazy_static;
 use log::warn;
@@ -117,6 +117,16 @@ macro_rules! config {
             }
         }
     };
+    (float $key:expr) => {
+        match config_store().get($key) {
+            Ok(Some(setting)) => setting.to_float(),
+            Ok(None) => 0.0,
+            Err(err) => {
+                log::warn!("config error: {err}");
+                0.0
+            }
+        }
+    };
     (map $key:expr) => {
         match config_store().get($key) {
             Ok(Some(setting)) => setting.to_map(),
@@ -152,6 +162,11 @@ macro_rules! config_set {
             log::warn!("config error: {err}");
         }
     }};
+    (float $key:expr, $val:expr) => {{
+        if let Err(err) = config_store().set($key, Setting::Float($val)) {
+            log::warn!("config error: {err}");
+        }
+    }};
     (map $key:expr, $val:expr) => {{
         if let Err(err) = config_store().set($key, Setting::Map($val)) {
             log::warn!("config error: {err}");
@@ -167,6 +182,9 @@ struct JsonEntry {
     _entry_type: String,
     default: String,
     description: String,
+    /// Optional comma-separated list of allowed values or ranges (e.g. `left,right` or `-1,0-9999`).
+    #[serde(default)]
+    values: Option<String>,
 }
 
 /// Configuration storage is the place where the gosub engine can find all configurable options
@@ -277,6 +295,15 @@ impl ConfigStore {
             )));
         }
 
+        if let Some(constraint) = &info.constraint {
+            if !constraint.allows(&value) {
+                warn!("config: Setting {key} value {value} violates its constraint");
+                return Err(Error::Config(format!(
+                    "Setting {key} value is not allowed by its constraint"
+                )));
+            }
+        }
+
         self.settings.lock().insert(key.to_owned(), value.clone());
         self.storage.set(key, value)?;
         Ok(())
@@ -318,6 +345,7 @@ impl ConfigStore {
                         key: key.clone(),
                         description: entry.description,
                         default: Setting::from_str(&entry.default)?,
+                        constraint: entry.values.as_deref().and_then(Constraint::parse),
                     };
 
                     self.setting_keys.push(key.clone());
@@ -402,6 +430,43 @@ mod test {
     fn flush_is_ok() {
         config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
         assert!(config_store().flush().is_ok());
+    }
+
+    #[test]
+    fn constraint_enum_enforced() {
+        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+
+        // `useragent.tab.close_button` is constrained to `left,right`.
+        assert!(config_store().set("useragent.tab.close_button", Setting::Map(vec!["right".into()])).is_ok());
+        assert!(config_store()
+            .set("useragent.tab.close_button", Setting::Map(vec!["middle".into()]))
+            .is_err());
+    }
+
+    #[test]
+    fn constraint_range_enforced() {
+        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+
+        // `useragent.tab.max_opened` is constrained to `-1,0-9999`.
+        assert!(config_store().set("useragent.tab.max_opened", Setting::SInt(100)).is_ok());
+        assert!(config_store().set("useragent.tab.max_opened", Setting::SInt(-1)).is_ok());
+        assert!(config_store().set("useragent.tab.max_opened", Setting::SInt(10_000)).is_err());
+        assert!(config_store().set("useragent.tab.max_opened", Setting::SInt(-5)).is_err());
+    }
+
+    #[test]
+    fn defaults_satisfy_their_constraints() {
+        let store = config_store();
+        for (key, info) in &store.settings_info {
+            if let Some(constraint) = &info.constraint {
+                assert!(
+                    constraint.allows(&info.default),
+                    "default for {key} violates its own constraint: {:?} not in {:?}",
+                    info.default,
+                    constraint
+                );
+            }
+        }
     }
 
     #[test]

@@ -88,6 +88,9 @@ fn main() -> anyhow::Result<()> {
             println!("Key            : {key}");
             println!("Current Value  : {value}");
             println!("Default Value  : {}", info.default);
+            if let Some(constraint) = &info.constraint {
+                println!("Allowed Values : {constraint}");
+            }
             println!("Description    : {}", info.description);
         }
         Commands::List => {
