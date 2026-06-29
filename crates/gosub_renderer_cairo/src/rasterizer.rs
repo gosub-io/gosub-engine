@@ -133,7 +133,12 @@ impl Rasterable for CairoRasterizer {
             return None;
         };
 
-        let texture_id = texture_store.add(w, h, data.to_vec());
+        let texture_id = texture_store.add(
+            w,
+            h,
+            data.to_vec(),
+            gosub_render_pipeline::render::backend::PixelFormat::PreMulArgb32,
+        );
 
         Some(texture_id)
     }

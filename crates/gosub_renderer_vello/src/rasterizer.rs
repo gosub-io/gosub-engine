@@ -120,7 +120,12 @@ impl Rasterable for VelloRasterizer {
             tile.id,
         )?;
 
-        let texture_id = texture_store.add(tile_size.width as usize, tile_size.height as usize, texture_data);
+        let texture_id = texture_store.add(
+            tile_size.width as usize,
+            tile_size.height as usize,
+            texture_data,
+            gosub_render_pipeline::render::backend::PixelFormat::Rgba8,
+        );
 
         Some(texture_id)
     }

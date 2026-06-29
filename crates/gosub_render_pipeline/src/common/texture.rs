@@ -25,12 +25,14 @@ impl std::fmt::Display for TextureId {
     }
 }
 
-/// Raw pixel buffer produced by a rasterizer. Data is Arc-wrapped so it can be shared
-/// zero-copy into BakedTile / CachedTile without any pixel buffer copies.
+/// Raw pixel buffer produced by a rasterizer. Stored as `Bytes` so it can be cloned and
+/// shared (cheap refcount bump) and sliced zero-copy without any pixel buffer copies.
 #[derive(Debug)]
 pub struct Texture {
     pub id: TextureId,
     pub width: usize,
     pub height: usize,
-    pub data: std::sync::Arc<Vec<u8>>,
+    pub data: bytes::Bytes,
+    /// In-memory byte order of `data`, set by the rasterizer that produced it.
+    pub format: crate::render::backend::PixelFormat,
 }
