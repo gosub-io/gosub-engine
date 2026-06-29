@@ -95,6 +95,61 @@ fn swap_rb(data: &[u8]) -> Vec<u8> {
     out
 }
 
+impl PixelFormat {
+    /// Reinterpret a little-endian 4-byte pixel (read as a `u32`) into the canonical
+    /// `0xAARRGGBB` packing used for compositing, regardless of source channel order.
+    ///
+    /// On little-endian hosts, `PreMulArgb32` bytes `[B, G, R, A]` already read as
+    /// `0xAARRGGBB`, while `Rgba8` bytes `[R, G, B, A]` read as `0xAABBGGRR` and need
+    /// their red/blue channels swapped.
+    #[inline]
+    pub fn pixel_to_argb_u32(self, px: u32) -> u32 {
+        match self {
+            PixelFormat::PreMulArgb32 => px,
+            PixelFormat::Rgba8 => {
+                let a = px & 0xFF00_0000;
+                let g = px & 0x0000_FF00;
+                let r = px & 0x0000_00FF;
+                let b = (px >> 16) & 0xFF;
+                a | (r << 16) | g | b
+            }
+        }
+    }
+}
+
+/// Alpha-blend a premultiplied source pixel over a premultiplied destination pixel,
+/// both packed as `0xAARRGGBB`. Returns the premultiplied `0xAARRGGBB` result.
+///
+/// This is the "source-over" Porter-Duff operator: `out = src + dst * (1 - src_alpha)`.
+/// Compositing tiles with this (rather than overwriting the destination) lets a
+/// transparent upper-layer tile reveal the content of lower layers beneath it.
+#[inline]
+pub fn blend_over_argb_u32(src: u32, dst: u32) -> u32 {
+    let sa = src >> 24;
+    if sa == 0xFF {
+        return src; // opaque source fully covers the destination
+    }
+    if sa == 0 {
+        return dst; // fully transparent source contributes nothing
+    }
+    let inv = 255 - sa;
+    // Blend the two pixels half a channel-pair at a time to keep it branch-free.
+    // 0x00FF00FF mask isolates R and B; 0xFF00FF00 isolates A and G.
+    let rb = (src & 0x00FF_00FF) + mul_div255_pair(dst & 0x00FF_00FF, inv);
+    let ag = ((src >> 8) & 0x00FF_00FF) + mul_div255_pair((dst >> 8) & 0x00FF_00FF, inv);
+    (rb & 0x00FF_00FF) | ((ag & 0x00FF_00FF) << 8)
+}
+
+/// Multiply each of the two 8-bit channels packed in `pair` (`0x00XX00YY`) by `factor`
+/// (0..=255) and divide by 255 with rounding, returning the packed result.
+#[inline]
+fn mul_div255_pair(pair: u32, factor: u32) -> u32 {
+    // Process both channels at once: add rounding bias, then the classic
+    // `(x + (x >> 8) + 128) >> 8` approximation of `x / 255`.
+    let t = pair * factor + 0x0080_0080;
+    ((t + ((t >> 8) & 0x00FF_00FF)) >> 8) & 0x00FF_00FF
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum GpuPixelFormat {
     Bgra8UnormSrgb,
@@ -303,5 +358,52 @@ impl RenderBackend for RenderBackendRouter {
     #[cfg(feature = "backend_vello")]
     fn wgpu_resources(&self) -> Option<std::sync::Arc<crate::render::backends::vello::WgpuResources>> {
         self.current().wgpu_resources()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const WHITE: u32 = 0xFFFF_FFFF; // opaque white, premultiplied
+    const BLACK: u32 = 0xFF00_0000; // opaque black, premultiplied
+
+    #[test]
+    fn transparent_source_preserves_destination() {
+        // This is the bug the blend fixes: a transparent upper-layer tile must NOT
+        // erase the content drawn beneath it.
+        assert_eq!(blend_over_argb_u32(0x0000_0000, WHITE), WHITE);
+        assert_eq!(blend_over_argb_u32(0x0000_0000, BLACK), BLACK);
+        assert_eq!(blend_over_argb_u32(0x0000_0000, 0xFF12_3456), 0xFF12_3456);
+    }
+
+    #[test]
+    fn opaque_source_replaces_destination() {
+        assert_eq!(blend_over_argb_u32(BLACK, WHITE), BLACK);
+        assert_eq!(blend_over_argb_u32(0xFFAB_CDEF, WHITE), 0xFFAB_CDEF);
+    }
+
+    #[test]
+    fn half_alpha_black_over_white_is_grey() {
+        // Premultiplied 50% black = alpha 0x80, rgb 0. Over opaque white → ~50% grey,
+        // still fully opaque.
+        let out = blend_over_argb_u32(0x8000_0000, WHITE);
+        assert_eq!(out >> 24, 0xFF, "result must be opaque");
+        let r = (out >> 16) & 0xFF;
+        assert!((126..=129).contains(&r), "expected ~half grey, got {r}");
+    }
+
+    #[test]
+    fn rgba8_pixel_normalizes_to_argb() {
+        // Rgba8 little-endian bytes [R,G,B,A] = [0x11,0x22,0x33,0xFF] read as 0xFF332211.
+        let le = u32::from_le_bytes([0x11, 0x22, 0x33, 0xFF]);
+        assert_eq!(PixelFormat::Rgba8.pixel_to_argb_u32(le), 0xFF11_2233);
+    }
+
+    #[test]
+    fn premul_argb32_pixel_is_unchanged() {
+        // PreMulArgb32 little-endian bytes [B,G,R,A] = [0x33,0x22,0x11,0xFF] read as 0xFF112233.
+        let le = u32::from_le_bytes([0x33, 0x22, 0x11, 0xFF]);
+        assert_eq!(PixelFormat::PreMulArgb32.pixel_to_argb_u32(le), 0xFF11_2233);
     }
 }

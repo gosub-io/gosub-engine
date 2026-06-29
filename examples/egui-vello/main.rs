@@ -10,7 +10,7 @@ use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalSt
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::ExternalHandle;
+use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::backends::vello::{VelloBackend, WgpuContextProvider};
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use once_cell::sync::Lazy;
@@ -288,7 +288,8 @@ impl BrowserApp {
                 }
                 let sx = (self.scroll_x * dpr_f) as i64;
                 let sy = (self.scroll_y * dpr_f) as i64;
-                let mut buf = vec![0x00FF_FFFFu32; w * h];
+                // Opaque white: a valid premultiplied background for source-over blending.
+                let mut buf = vec![0xFFFF_FFFFu32; w * h];
 
                 for tile in tiles.iter() {
                     let px = (tile.page_x * dpr_f) as i64;
@@ -325,7 +326,13 @@ impl BrowserApp {
                         }
                         let src_off = tile_row * tw + tile_start_col;
                         let dst_off = dst_y * w + dst_x;
-                        buf[dst_off..dst_off + copy_w].copy_from_slice(&tile_u32[src_off..src_off + copy_w]);
+                        // Source-over blend so transparent upper-layer pixels reveal the
+                        // content beneath, instead of overwriting it. `buf` and `tile_u32`
+                        // are both [R,G,B,A]; the blend is channel-symmetric, so the
+                        // swapped R/B (vs. ARGB) does not affect the result.
+                        for col in 0..copy_w {
+                            buf[dst_off + col] = blend_over_argb_u32(tile_u32[src_off + col], buf[dst_off + col]);
+                        }
                     }
                 }
 

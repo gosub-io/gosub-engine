@@ -11,7 +11,7 @@ use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalSt
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::ExternalHandle;
+use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::backends::cairo::{CairoBackend, DEVICE_PIXEL_RATIO};
 use gosub_render_pipeline::render::DefaultCompositor;
 use once_cell::sync::Lazy;
@@ -130,8 +130,8 @@ impl BrowserApp {
 
         let Ok(mut buf) = surface.buffer_mut() else { return };
 
-        // Fill white
-        buf.fill(0x00FF_FFFF);
+        // Fill opaque white (valid premultiplied background for source-over blending).
+        buf.fill(0xFFFF_FFFF);
 
         // Composite engine content into the content area (below address bar).
         let content_h = win_h.saturating_sub(ADDRESS_BAR_HEIGHT);
@@ -455,7 +455,10 @@ fn blit_handle_to_buffer(
                     let buf_row = (addr_h as usize + dst_y) * win_w as usize + dst_x;
                     let src_row = tile_row * tw_usize + tile_col0;
                     for col in 0..copy_w {
-                        buf[buf_row + col] = tile_u32[src_row + col] & 0x00FF_FFFF;
+                        // Source-over blend so transparent upper-layer pixels reveal the
+                        // content (or white background) beneath, instead of overwriting it.
+                        let src_argb = tile.format.pixel_to_argb_u32(tile_u32[src_row + col]);
+                        buf[buf_row + col] = blend_over_argb_u32(src_argb, buf[buf_row + col]);
                     }
                 }
             }

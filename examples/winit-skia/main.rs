@@ -10,7 +10,7 @@ use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalSt
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::ExternalHandle;
+use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::backends::skia::SkiaBackend;
 use gosub_render_pipeline::render::DefaultCompositor;
 use once_cell::sync::Lazy;
@@ -98,7 +98,8 @@ impl BrowserApp {
         }
 
         let Ok(mut buf) = surface.buffer_mut() else { return };
-        buf.fill(0x00FF_FFFF);
+        // Opaque white: a valid premultiplied background for source-over blending.
+        buf.fill(0xFFFF_FFFF);
 
         let content_h = win_h.saturating_sub(ADDRESS_BAR_HEIGHT);
         if content_h > 0 {
@@ -373,15 +374,17 @@ fn blit_to_buffer(
                     if cw == 0 {
                         break;
                     }
-                    // Skia tiles are BGRA8888; softbuffer wants 0x00RRGGBB.
-                    // BGRA as little-endian u32 = B|(G<<8)|(R<<16)|(A<<24).
-                    // 0x00RRGGBB                = B|(G<<8)|(R<<16) = px & 0x00FFFFFF.
+                    // Skia tiles are BGRA8888 (premultiplied); reinterpreted as a
+                    // little-endian u32 they read as 0xAARRGGBB. Source-over blend so
+                    // transparent upper-layer pixels reveal the content beneath instead
+                    // of overwriting it. softbuffer ignores the high (alpha) byte.
                     let row_off = row * tw + col_start;
                     let src = &tile_u32[row_off..row_off + cw];
                     let dst_base = dst_y * win_w as usize + screen_x;
                     let dst = &mut buf[dst_base..dst_base + cw];
                     for (d, &s) in dst.iter_mut().zip(src.iter()) {
-                        *d = s & 0x00_FF_FF_FF;
+                        let src_argb = tile.format.pixel_to_argb_u32(s);
+                        *d = blend_over_argb_u32(src_argb, *d);
                     }
                 }
             }

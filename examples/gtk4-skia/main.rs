@@ -11,7 +11,7 @@ use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalSt
 use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
+use gosub_render_pipeline::render::backend::{blend_over_argb_u32, CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -696,7 +696,18 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
                 }
                 let src_off = (tile_row * tw_usize + tile_col0) * 4;
                 let dst_off = dst_y * stride + dst_x * 4;
-                data[dst_off..dst_off + copy_w * 4].copy_from_slice(&tile.data[src_off..src_off + copy_w * 4]);
+                // Alpha-blend (source-over) rather than overwrite, so transparent
+                // pixels of an upper-layer tile reveal the content drawn beneath it.
+                for col in 0..copy_w {
+                    let s = src_off + col * 4;
+                    let d = dst_off + col * 4;
+                    let src_px =
+                        u32::from_le_bytes([tile.data[s], tile.data[s + 1], tile.data[s + 2], tile.data[s + 3]]);
+                    let src_argb = tile.format.pixel_to_argb_u32(src_px);
+                    let dst_px = u32::from_le_bytes([data[d], data[d + 1], data[d + 2], data[d + 3]]);
+                    let out = blend_over_argb_u32(src_argb, dst_px);
+                    data[d..d + 4].copy_from_slice(&out.to_le_bytes());
+                }
             }
         }
     }

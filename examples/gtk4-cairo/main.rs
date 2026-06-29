@@ -12,7 +12,7 @@ use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalSt
 use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
+use gosub_render_pipeline::render::backend::{blend_over_argb_u32, CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
 use gosub_render_pipeline::render::DefaultCompositor;
 use gtk4::glib;
@@ -482,7 +482,7 @@ fn main() {
             let local_tiles = local_tiles.clone();
             let local_scroll = local_scroll.clone();
             move |area, w, h| {
-                let scale = area.scale_factor() as u32;
+                let scale = render_dpr(area);
                 DEVICE_PIXEL_RATIO.store(scale, std::sync::atomic::Ordering::Relaxed);
                 // Clear cached tiles — they were rasterized for the old viewport size.
                 *local_tiles.borrow_mut() = None;
@@ -637,6 +637,25 @@ fn main() {
     app.run_with_args(&argv0);
 }
 
+/// Resolve the device-pixel ratio to render at for `widget`.
+///
+/// `GtkWidget::scale_factor()` only ever reports an integer, so on a fractionally scaled
+/// display (e.g. 1.25× or 1.5×, common on Wayland) it returns 1 and the page is rasterized
+/// at logical resolution — the compositor then upscales the whole surface, blurring text.
+///
+/// `GdkSurface::scale()` exposes the true fractional scale. We round it *up* to the next
+/// integer and render at that resolution; downscaling a slightly-too-large buffer to the
+/// display's fractional size stays sharp, whereas upscaling a too-small one does not.
+fn render_dpr(widget: &impl IsA<gtk4::Widget>) -> u32 {
+    let fractional = widget
+        .native()
+        .and_then(|n| n.surface())
+        .map(|s| s.scale())
+        .filter(|s| *s > 0.0)
+        .unwrap_or_else(|| widget.scale_factor() as f64);
+    fractional.ceil().max(1.0) as u32
+}
+
 /// Composite a TileDrawState at the given scroll position into `cr`.
 fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawState, scroll_x: f32, scroll_y: f32) {
     let dpr_i = state.dpr as i32;
@@ -700,7 +719,18 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
                 }
                 let src_off = (tile_row * tw_usize + tile_col0) * 4;
                 let dst_off = dst_y * stride + dst_x * 4;
-                data[dst_off..dst_off + copy_w * 4].copy_from_slice(&tile.data[src_off..src_off + copy_w * 4]);
+                // Alpha-blend (source-over) rather than overwrite, so transparent
+                // pixels of an upper-layer tile reveal the content drawn beneath it.
+                for col in 0..copy_w {
+                    let s = src_off + col * 4;
+                    let d = dst_off + col * 4;
+                    let src_px =
+                        u32::from_le_bytes([tile.data[s], tile.data[s + 1], tile.data[s + 2], tile.data[s + 3]]);
+                    let src_argb = tile.format.pixel_to_argb_u32(src_px);
+                    let dst_px = u32::from_le_bytes([data[d], data[d + 1], data[d + 2], data[d + 3]]);
+                    let out = blend_over_argb_u32(src_argb, dst_px);
+                    data[d..d + 4].copy_from_slice(&out.to_le_bytes());
+                }
             }
         }
     }
@@ -709,7 +739,11 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
     dst.set_device_scale(dpr_f, dpr_f);
 
     cr.set_source_surface(&dst, 0.0, 0.0).unwrap_or_default();
-    cr.source().set_filter(gtk4::cairo::Filter::Nearest);
+    // `dst` is rendered at an integer DPR that is the ceil of the display's (possibly
+    // fractional) scale, so the draw context resamples it to the real device resolution.
+    // `Good` keeps that down/up-scale smooth. There are no internal tile seams to worry
+    // about here because all tiles were already CPU-blitted into this single surface.
+    cr.source().set_filter(gtk4::cairo::Filter::Good);
     cr.paint().unwrap_or_default();
 }
 
