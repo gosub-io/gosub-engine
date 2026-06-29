@@ -1,0 +1,26 @@
+{
+  "general": [
+    {
+      "key": "default_page",
+      "type": "s",
+      "default": "s:about:blank",
+      "description": "This setting sets the default page to load when Gosub starts or when a new tab is opened."
+    }
+  ],
+  "tab": [
+    {
+      "key": "close_button",
+      "type": "m",
+      "values": "left,right",
+      "default": "m:left",
+      "description": "Defines where the close button on tabs is located"
+    },
+    {
+      "key": "max_opened",
+      "type": "i",
+      "values": "-1,0-9999",
+      "default": "i:-1",
+      "description": "Defines how many tabs may be opened inside a window. -1 means unlimited."
+    }
+  ]
+}

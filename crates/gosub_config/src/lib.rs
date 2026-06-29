@@ -93,6 +93,25 @@ impl Config {
         self.0.write().set_storage(storage);
     }
 
+    /// Merges every setting from `other` into this config under an optional namespace.
+    ///
+    /// Each of `other`'s settings is registered here with key `"{namespace}.{key}"` (or just
+    /// `key` when `namespace` is empty), carrying over its description, default, constraint and
+    /// *current* value. For example, merging a user-agent config under `"user_agent"` turns its
+    /// `tabs.close_position` into `user_agent.tabs.close_position`.
+    ///
+    /// This is a one-time snapshot copy, not a live link: later changes in `other` are not
+    /// reflected here. Keys that already exist are left untouched (and logged). Merged settings
+    /// live in memory only; they are not written to this config's storage adapter unless later
+    /// `set`. Returns the number of settings actually merged.
+    pub fn merge(&self, other: &Config, namespace: &str) -> usize {
+        // Snapshot `other` first (its read guard is released at the end of this statement) so that
+        // acquiring our own write lock can never overlap with it — safe even if `other` is a clone
+        // of `self`.
+        let entries = other.0.read().snapshot();
+        self.0.write().absorb(entries, namespace)
+    }
+
     /// Returns the setting for the given key, falling back to the default, or `Ok(None)` when the
     /// key is unknown. See [`ConfigStore::get`].
     pub fn get(&self, key: &str) -> Result<Option<Setting>> {
@@ -442,6 +461,47 @@ impl ConfigStore {
             .map(|sub| sub.callback.clone())
             .collect()
     }
+
+    /// Captures every known setting as `(info, current_value)`, used by [`Config::merge`].
+    fn snapshot(&self) -> Vec<(SettingInfo, Setting)> {
+        let settings = self.settings.lock();
+        self.setting_keys
+            .iter()
+            .filter_map(|key| {
+                let info = self.settings_info.get(key)?.clone();
+                let value = settings.get(key).cloned().unwrap_or_else(|| info.default.clone());
+                Some((info, value))
+            })
+            .collect()
+    }
+
+    /// Registers a set of snapshotted settings under an optional namespace prefix, skipping keys
+    /// that already exist. Returns the number of settings added.
+    fn absorb(&mut self, entries: Vec<(SettingInfo, Setting)>, namespace: &str) -> usize {
+        let namespace = namespace.trim_end_matches('.');
+        let mut merged = 0;
+
+        for (mut info, value) in entries {
+            let key = if namespace.is_empty() {
+                info.key.clone()
+            } else {
+                format!("{namespace}.{}", info.key)
+            };
+
+            if self.settings_info.contains_key(&key) {
+                warn!("config: merge skipped already-known key {key}");
+                continue;
+            }
+
+            info.key = key.clone();
+            self.settings.lock().insert(key.clone(), value);
+            self.setting_keys.push(key.clone());
+            self.settings_info.insert(key, info);
+            merged += 1;
+        }
+
+        merged
+    }
 }
 
 #[cfg(test)]
@@ -556,6 +616,50 @@ mod test {
     fn unknown_key_returns_none() {
         let cfg = test_config();
         assert!(cfg.get("this.key.doesnt.exist").unwrap().is_none());
+    }
+
+    #[test]
+    fn merge_namespaces_keys_and_values() {
+        let engine = test_config();
+
+        // A separate user-agent config with its own setting, overridden from its default.
+        let ua = Config::new([info("tabs.close_position", "m:left", Some("left,right"))]);
+        ua.set("tabs.close_position", Setting::Map(vec!["right".into()])).unwrap();
+
+        let merged = engine.merge(&ua, "user_agent");
+        assert_eq!(merged, 1);
+
+        // Registered under the namespace, carrying the current (overridden) value and constraint.
+        assert_eq!(
+            engine.get("user_agent.tabs.close_position").unwrap().unwrap(),
+            Setting::Map(vec!["right".into()])
+        );
+        let info = engine.get_info("user_agent.tabs.close_position").unwrap();
+        assert_eq!(info.key, "user_agent.tabs.close_position");
+        assert!(info.constraint.is_some());
+
+        // The merged key is now a normal, constraint-checked setting of the engine config.
+        assert!(engine.set("user_agent.tabs.close_position", Setting::Map(vec!["nope".into()])).is_err());
+    }
+
+    #[test]
+    fn merge_without_namespace_keeps_keys() {
+        let engine = test_config();
+        let other = Config::new([info("custom.flag", "b:true", None)]);
+
+        assert_eq!(engine.merge(&other, ""), 1);
+        assert!(engine.get_bool("custom.flag"));
+    }
+
+    #[test]
+    fn merge_skips_existing_keys() {
+        let engine = test_config();
+        // `renderer.opengl.enabled` already exists in the engine schema.
+        let other = Config::new([info("renderer.opengl.enabled", "b:false", None)]);
+
+        assert_eq!(engine.merge(&other, ""), 0);
+        // Original value is untouched.
+        assert!(engine.get_bool("renderer.opengl.enabled"));
     }
 
     #[test]
