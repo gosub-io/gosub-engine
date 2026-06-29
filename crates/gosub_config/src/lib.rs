@@ -7,7 +7,6 @@ pub(crate) type Result<T> = std::result::Result<T, Error>;
 
 use crate::settings::{Constraint, Setting, SettingInfo};
 use crate::storage::MemoryStorageAdapter;
-use lazy_static::lazy_static;
 use log::warn;
 use parking_lot::RwLock;
 use serde_derive::Deserialize;
@@ -15,6 +14,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::mem;
 use std::str::FromStr;
+use std::sync::Arc;
 use wildmatch::WildMatch;
 
 /// Settings are stored in a json file, but this is included in the binary for mostly easy editting.
@@ -51,34 +51,16 @@ pub trait StorageAdapter: Send + Sync {
     }
 }
 
-lazy_static! {
-    // Initial config store will have a memory storage adapter. It will save within the session, but not
-    // persist this on disk.
-    static ref CONFIG_STORE: RwLock<ConfigStore> = RwLock::new(ConfigStore::default());
-}
-
-/// Returns a reference to the config store, which is locked by a mutex.
-/// Any callers of the config store can just do  `config::config_store().get("dns.local.enabled`")
-pub fn config_store() -> parking_lot::RwLockReadGuard<'static, ConfigStore> {
-    CONFIG_STORE.read()
-}
-
-pub fn config_store_write() -> parking_lot::RwLockWriteGuard<'static, ConfigStore> {
-    CONFIG_STORE.write()
-}
-
-/// Identifies a registered subscription so it can later be removed via [`unsubscribe`].
+/// Identifies a registered subscription so it can later be removed via [`Config::unsubscribe`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SubscriptionId(u64);
 
 /// Callback invoked when a watched setting changes. It receives the setting key and the new value.
 ///
-/// The callback is invoked synchronously from within [`ConfigStore::set`] / [`ConfigStore::remove`]
-/// while the global store is read-locked. It must therefore be lightweight and MUST NOT call back
-/// into the store with a write lock (`subscribe`, `unsubscribe`, `set_storage`) or it will deadlock.
-/// To react with further config changes, defer the work (e.g. send on a channel) instead of doing
-/// it inline.
-pub type SubscriptionCallback = Box<dyn Fn(&str, &Setting) + Send + Sync>;
+/// The callback is invoked after the store's internal lock has been released, so it MAY read or
+/// write the same [`Config`] without deadlocking. Beware infinite recursion if a callback sets a
+/// key it also subscribes to.
+pub type SubscriptionCallback = Arc<dyn Fn(&str, &Setting) + Send + Sync>;
 
 struct Subscription {
     id: SubscriptionId,
@@ -86,126 +68,185 @@ struct Subscription {
     callback: SubscriptionCallback,
 }
 
-/// Subscribes to changes on settings whose key matches `pattern` (a [`WildMatch`] pattern, so `*`
-/// and `?` wildcards are supported, e.g. `dns.*` or `*`). The callback fires whenever a matching
-/// setting's value actually changes via `set` or `remove`. Returns an id used to [`unsubscribe`].
-pub fn subscribe<F>(pattern: &str, callback: F) -> SubscriptionId
-where
-    F: Fn(&str, &Setting) + Send + Sync + 'static,
-{
-    config_store_write().subscribe(pattern, callback)
+/// A shareable handle to a configuration store. Cloning is cheap (an `Arc` bump); all clones refer
+/// to the same underlying store, so subscriptions and writes made through one clone are visible to
+/// the others. This is the per-engine entry point to configuration — construct one and hand clones
+/// to whichever components need it.
+#[derive(Clone)]
+pub struct Config(Arc<RwLock<ConfigStore>>);
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::in_memory()
+    }
 }
 
-/// Removes a previously registered subscription. Returns true when a subscription was removed.
-pub fn unsubscribe(id: SubscriptionId) -> bool {
-    config_store_write().unsubscribe(id)
+impl Config {
+    /// Creates a config backed by a volatile in-memory store (settings are lost on drop).
+    #[must_use]
+    pub fn in_memory() -> Self {
+        Config(Arc::new(RwLock::new(ConfigStore::default())))
+    }
+
+    /// Creates a config backed by the given storage adapter, preloading any persisted settings.
+    #[must_use]
+    pub fn with_storage(storage: Box<dyn StorageAdapter>) -> Self {
+        let config = Self::in_memory();
+        config.set_storage(storage);
+        config
+    }
+
+    /// Swaps in a new storage adapter, loading its persisted settings over the current ones.
+    pub fn set_storage(&self, storage: Box<dyn StorageAdapter>) {
+        self.0.write().set_storage(storage);
+    }
+
+    /// Returns the setting for the given key, falling back to the default, or `Ok(None)` when the
+    /// key is unknown. See [`ConfigStore::get`].
+    pub fn get(&self, key: &str) -> Result<Option<Setting>> {
+        self.0.read().get(key)
+    }
+
+    /// Sets a setting, persisting it and notifying any matching subscribers when the value changes.
+    pub fn set(&self, key: &str, value: Setting) -> Result<()> {
+        // Mutate under the lock, collect the callbacks to fire, then release the lock *before*
+        // invoking them so callbacks can freely re-enter the store.
+        let fire = {
+            let store = self.0.write();
+            store.set(key, value)?.map(|value| {
+                let callbacks = store.matching_callbacks(key);
+                (value, callbacks)
+            })
+        };
+        if let Some((value, callbacks)) = fire {
+            for callback in callbacks {
+                callback(key, &value);
+            }
+        }
+        Ok(())
+    }
+
+    /// Removes the override for a key, reverting to its default and notifying matching subscribers
+    /// when the value changes.
+    pub fn remove(&self, key: &str) -> Result<()> {
+        let fire = {
+            let store = self.0.write();
+            store.remove(key)?.map(|default| {
+                let callbacks = store.matching_callbacks(key);
+                (default, callbacks)
+            })
+        };
+        if let Some((value, callbacks)) = fire {
+            for callback in callbacks {
+                callback(key, &value);
+            }
+        }
+        Ok(())
+    }
+
+    /// Flushes any buffered writes in the underlying storage adapter.
+    pub fn flush(&self) -> Result<()> {
+        self.0.read().flush()
+    }
+
+    /// Returns true when the store knows about the given key.
+    #[must_use]
+    pub fn has(&self, key: &str) -> bool {
+        self.0.read().has(key)
+    }
+
+    /// Returns the keys matching the given wildcard search (`*`/`?`).
+    #[must_use]
+    pub fn find(&self, search: &str) -> Vec<String> {
+        self.0.read().find(search)
+    }
+
+    /// Returns metadata (description, default, constraint) for the given key.
+    #[must_use]
+    pub fn get_info(&self, key: &str) -> Option<SettingInfo> {
+        self.0.read().get_info(key)
+    }
+
+    /// Subscribes to changes on settings whose key matches `pattern` (a [`WildMatch`] pattern, so
+    /// `*`/`?` wildcards work, e.g. `dns.*` or `*`). The callback fires whenever a matching
+    /// setting's value actually changes via `set` or `remove`. Returns an id used to unsubscribe.
+    pub fn subscribe<F>(&self, pattern: &str, callback: F) -> SubscriptionId
+    where
+        F: Fn(&str, &Setting) + Send + Sync + 'static,
+    {
+        self.0.write().subscribe(pattern, callback)
+    }
+
+    /// Removes a previously registered subscription. Returns true when a subscription was removed.
+    pub fn unsubscribe(&self, id: SubscriptionId) -> bool {
+        self.0.write().unsubscribe(id)
+    }
+
+    /// Reads a boolean setting, returning `false` when the key is unknown or a storage error occurs.
+    #[must_use]
+    pub fn get_bool(&self, key: &str) -> bool {
+        self.typed_get(key, false, Setting::to_bool)
+    }
+
+    /// Reads an unsigned integer setting, returning `0` on unknown key or storage error.
+    #[must_use]
+    pub fn get_uint(&self, key: &str) -> usize {
+        self.typed_get(key, 0, Setting::to_uint)
+    }
+
+    /// Reads a signed integer setting, returning `0` on unknown key or storage error.
+    #[must_use]
+    pub fn get_sint(&self, key: &str) -> isize {
+        self.typed_get(key, 0, Setting::to_sint)
+    }
+
+    /// Reads a float setting, returning `0.0` on unknown key or storage error.
+    #[must_use]
+    pub fn get_float(&self, key: &str) -> f64 {
+        self.typed_get(key, 0.0, Setting::to_float)
+    }
+
+    /// Reads a string setting, returning an empty string on unknown key or storage error.
+    #[must_use]
+    pub fn get_string(&self, key: &str) -> String {
+        self.typed_get(key, String::new(), Setting::to_string)
+    }
+
+    /// Reads a map setting, returning an empty vector on unknown key or storage error.
+    #[must_use]
+    pub fn get_map(&self, key: &str) -> Vec<String> {
+        self.typed_get(key, Vec::new(), Setting::to_map)
+    }
+
+    /// Shared helper for the typed getters: reads the setting, applies `convert`, or returns
+    /// `default` when the key is unknown (logging on a storage error).
+    fn typed_get<T>(&self, key: &str, default: T, convert: impl Fn(&Setting) -> T) -> T {
+        match self.get(key) {
+            Ok(Some(setting)) => convert(&setting),
+            Ok(None) => default,
+            Err(err) => {
+                warn!("config error: {err}");
+                default
+            }
+        }
+    }
 }
 
-/// Reads a setting from the config store, returning a type-appropriate default when the key is
-/// unknown or a storage error occurs.
+/// Grants access to a [`Config`] handle. Subsystems that only need to read or watch settings
+/// should bound on `T: HasConfig` rather than taking a concrete context type, so they stay
+/// decoupled from how the engine is assembled.
 ///
-/// ```ignore
-/// let enabled = config!(bool "dns.local.enabled");
-/// let max     = config!(uint "dns.cache.max_entries");
-/// ```
-#[allow(clippy::crate_in_macro_def)]
-#[macro_export]
-macro_rules! config {
-    (string $key:expr) => {
-        match config_store().get($key) {
-            Ok(Some(setting)) => setting.to_string(),
-            Ok(None) => String::new(),
-            Err(err) => {
-                log::warn!("config error: {err}");
-                String::new()
-            }
-        }
-    };
-    (bool $key:expr) => {
-        match config_store().get($key) {
-            Ok(Some(setting)) => setting.to_bool(),
-            Ok(None) => false,
-            Err(err) => {
-                log::warn!("config error: {err}");
-                false
-            }
-        }
-    };
-    (uint $key:expr) => {
-        match config_store().get($key) {
-            Ok(Some(setting)) => setting.to_uint(),
-            Ok(None) => 0,
-            Err(err) => {
-                log::warn!("config error: {err}");
-                0
-            }
-        }
-    };
-    (sint $key:expr) => {
-        match config_store().get($key) {
-            Ok(Some(setting)) => setting.to_sint(),
-            Ok(None) => 0,
-            Err(err) => {
-                log::warn!("config error: {err}");
-                0
-            }
-        }
-    };
-    (float $key:expr) => {
-        match config_store().get($key) {
-            Ok(Some(setting)) => setting.to_float(),
-            Ok(None) => 0.0,
-            Err(err) => {
-                log::warn!("config error: {err}");
-                0.0
-            }
-        }
-    };
-    (map $key:expr) => {
-        match config_store().get($key) {
-            Ok(Some(setting)) => setting.to_map(),
-            Ok(None) => Vec::new(),
-            Err(err) => {
-                log::warn!("config error: {err}");
-                Vec::new()
-            }
-        }
-    };
+/// A bare [`Config`] implements this (returning itself), and a runtime context that owns a
+/// `Config` implements it by returning a reference to that field.
+pub trait HasConfig {
+    /// Returns the configuration handle.
+    fn config(&self) -> &Config;
 }
 
-#[allow(clippy::crate_in_macro_def)]
-#[macro_export]
-macro_rules! config_set {
-    (string $key:expr, $val:expr) => {{
-        if let Err(err) = config_store().set($key, Setting::String($val)) {
-            log::warn!("config error: {err}");
-        }
-    }};
-    (bool $key:expr, $val:expr) => {{
-        if let Err(err) = config_store().set($key, Setting::Bool($val)) {
-            log::warn!("config error: {err}");
-        }
-    }};
-    (uint $key:expr, $val:expr) => {{
-        if let Err(err) = config_store().set($key, Setting::UInt($val)) {
-            log::warn!("config error: {err}");
-        }
-    }};
-    (sint $key:expr, $val:expr) => {{
-        if let Err(err) = config_store().set($key, Setting::SInt($val)) {
-            log::warn!("config error: {err}");
-        }
-    }};
-    (float $key:expr, $val:expr) => {{
-        if let Err(err) = config_store().set($key, Setting::Float($val)) {
-            log::warn!("config error: {err}");
-        }
-    }};
-    (map $key:expr, $val:expr) => {{
-        if let Err(err) = config_store().set($key, Setting::Map($val)) {
-            log::warn!("config error: {err}");
-        }
-    }};
+impl HasConfig for Config {
+    fn config(&self) -> &Config {
+        self
+    }
 }
 
 /// `JsonEntry` is used for parsing the settings.json file
@@ -317,10 +358,11 @@ impl ConfigStore {
         Ok(None)
     }
 
-    /// Sets the given setting to the given value. Will persist the setting to the
-    /// storage. Note that the setting MUST have a settings-info entry, otherwise
-    /// this function will not store the setting.
-    pub fn set(&self, key: &str, value: Setting) -> Result<()> {
+    /// Sets the given setting to the given value and persists it. The setting MUST have a
+    /// settings-info entry and satisfy its type and constraint, otherwise an error is returned.
+    /// Returns `Ok(Some(value))` when the value actually changed (so the caller should notify
+    /// subscribers), or `Ok(None)` when the value was already set to `value`.
+    pub fn set(&self, key: &str, value: Setting) -> Result<Option<Setting>> {
         let info = if let Some(info) = self.settings_info.get(key) {
             info
         } else {
@@ -352,15 +394,13 @@ impl ConfigStore {
         };
         self.storage.set(key, value.clone())?;
 
-        if changed {
-            self.notify(key, &value);
-        }
-        Ok(())
+        Ok(changed.then_some(value))
     }
 
     /// Removes the stored override for the given key, reverting it back to its default value. The key
     /// MUST have a settings-info entry, otherwise this function returns an error and does nothing.
-    pub fn remove(&self, key: &str) -> Result<()> {
+    /// Returns `Ok(Some(default))` when the value actually changed, or `Ok(None)` otherwise.
+    pub fn remove(&self, key: &str) -> Result<Option<Setting>> {
         let info = if let Some(info) = self.settings_info.get(key) {
             info
         } else {
@@ -370,17 +410,15 @@ impl ConfigStore {
 
         self.storage.remove(key)?;
         // Revert the in-memory value back to the default so subsequent reads return the default.
+        let default = info.default.clone();
         let changed = {
             let mut settings = self.settings.lock();
-            let changed = settings.get(key) != Some(&info.default);
-            settings.insert(key.to_owned(), info.default.clone());
+            let changed = settings.get(key) != Some(&default);
+            settings.insert(key.to_owned(), default.clone());
             changed
         };
 
-        if changed {
-            self.notify(key, &info.default);
-        }
-        Ok(())
+        Ok(changed.then_some(default))
     }
 
     /// Flushes any buffered writes in the underlying storage adapter to its backing store.
@@ -400,7 +438,7 @@ impl ConfigStore {
         self.subscriptions.push(Subscription {
             id,
             matcher: WildMatch::new(pattern),
-            callback: Box::new(callback),
+            callback: Arc::new(callback),
         });
         id
     }
@@ -412,13 +450,14 @@ impl ConfigStore {
         self.subscriptions.len() != before
     }
 
-    /// Notifies all subscriptions whose pattern matches `key` that the setting changed to `value`.
-    fn notify(&self, key: &str, value: &Setting) {
-        for sub in &self.subscriptions {
-            if sub.matcher.matches(key) {
-                (sub.callback)(key, value);
-            }
-        }
+    /// Returns clones of the callbacks for every subscription whose pattern matches `key`. The
+    /// caller invokes these after releasing the store lock so callbacks may re-enter the store.
+    fn matching_callbacks(&self, key: &str) -> Vec<SubscriptionCallback> {
+        self.subscriptions
+            .iter()
+            .filter(|sub| sub.matcher.matches(key))
+            .map(|sub| sub.callback.clone())
+            .collect()
     }
 
     /// Populates the settings in the storage from the settings.json file
@@ -455,20 +494,16 @@ mod test {
     use super::*;
     use parking_lot::Mutex;
     use std::sync::Arc;
-    use storage::MemoryStorageAdapter;
 
     #[test]
-    fn test_config_store() {
-        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+    fn get_and_set() {
+        let cfg = Config::in_memory();
 
-        let setting = config_store().get("dns.local.enabled").unwrap().unwrap();
+        let setting = cfg.get("dns.local.enabled").unwrap().unwrap();
         assert_eq!(setting, Setting::Bool(true));
 
-        config_store_write()
-            .set("dns.local.enabled", Setting::Bool(false))
-            .unwrap();
-        let setting = config_store().get("dns.local.enabled").unwrap().unwrap();
-        assert_eq!(setting, Setting::Bool(false));
+        cfg.set("dns.local.enabled", Setting::Bool(false)).unwrap();
+        assert_eq!(cfg.get("dns.local.enabled").unwrap().unwrap(), Setting::Bool(false));
     }
 
     #[test]
@@ -479,7 +514,8 @@ mod test {
             assert_eq!(captured_logs.len(), 0);
         });
 
-        let result = config_store_write().set("dns.local.enabled", Setting::String("wont accept strings".into()));
+        let cfg = Config::in_memory();
+        let result = cfg.set("dns.local.enabled", Setting::String("wont accept strings".into()));
         assert!(result.is_err());
 
         testing_logger::validate(|captured_logs| {
@@ -489,44 +525,76 @@ mod test {
     }
 
     #[test]
-    fn macro_usage() {
-        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+    fn typed_accessors() {
+        let cfg = Config::in_memory();
 
-        config_set!(uint "dns.cache.max_entries", 9432);
-        let max_entries = config!(uint "dns.cache.max_entries");
-        assert_eq!(max_entries, 9432);
+        cfg.set("dns.cache.max_entries", Setting::UInt(9432)).unwrap();
+        assert_eq!(cfg.get_uint("dns.cache.max_entries"), 9432);
+
+        assert!(cfg.get_bool("dns.local.enabled"));
+        assert_eq!(cfg.get_string("useragent.default_page"), "about:blank");
+    }
+
+    #[test]
+    fn typed_getter_unknown_returns_default() {
+        let cfg = Config::in_memory();
+        assert_eq!(cfg.get_string("this.key.doesnt.exist"), "");
+        assert_eq!(cfg.get_uint("this.key.doesnt.exist"), 0);
+        assert!(!cfg.get_bool("this.key.doesnt.exist"));
     }
 
     #[test]
     fn remove_reverts_to_default() {
-        // Note: the config store is a global singleton shared across tests, so this test uses a key
-        // (`dns.remote.retries`, default u:3) that no other test mutates to avoid cross-test races.
-        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+        let cfg = Config::in_memory();
 
-        // Override the default, then remove it again.
-        config_store_write().set("dns.remote.retries", Setting::UInt(42)).unwrap();
-        assert_eq!(config_store().get("dns.remote.retries").unwrap().unwrap(), Setting::UInt(42));
+        cfg.set("dns.remote.retries", Setting::UInt(42)).unwrap();
+        assert_eq!(cfg.get("dns.remote.retries").unwrap().unwrap(), Setting::UInt(42));
 
-        config_store_write().remove("dns.remote.retries").unwrap();
-
-        // Back to the default value defined in settings.json.
-        assert_eq!(config_store().get("dns.remote.retries").unwrap().unwrap(), Setting::UInt(3));
+        cfg.remove("dns.remote.retries").unwrap();
+        assert_eq!(cfg.get("dns.remote.retries").unwrap().unwrap(), Setting::UInt(3));
     }
 
     #[test]
     fn remove_unknown_key_errors() {
-        let result = config_store_write().remove("this.key.doesnt.exist");
-        assert!(result.is_err());
+        let cfg = Config::in_memory();
+        assert!(cfg.remove("this.key.doesnt.exist").is_err());
     }
 
     #[test]
     fn flush_is_ok() {
-        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
-        assert!(config_store().flush().is_ok());
+        let cfg = Config::in_memory();
+        assert!(cfg.flush().is_ok());
     }
 
-    // Subscription tests use keys that no other test mutates, since the config store is a global
-    // singleton shared across tests running in parallel.
+    #[test]
+    fn unknown_key_returns_none() {
+        let cfg = Config::in_memory();
+        assert!(cfg.get("this.key.doesnt.exist").unwrap().is_none());
+    }
+
+    #[test]
+    fn has_config_accessor() {
+        // A subsystem bounded on `HasConfig` can read settings without knowing the concrete type.
+        fn retries<T: HasConfig>(ctx: &T) -> usize {
+            ctx.config().get_uint("dns.remote.retries")
+        }
+
+        let cfg = Config::in_memory();
+        cfg.set("dns.remote.retries", Setting::UInt(11)).unwrap();
+        assert_eq!(retries(&cfg), 11);
+    }
+
+    #[test]
+    fn separate_configs_are_isolated() {
+        let a = Config::in_memory();
+        let b = Config::in_memory();
+
+        a.set("dns.local.enabled", Setting::Bool(false)).unwrap();
+
+        // `b` is a wholly separate store and keeps the default.
+        assert!(!a.get_bool("dns.local.enabled"));
+        assert!(b.get_bool("dns.local.enabled"));
+    }
 
     /// Captures `(key, value)` pairs delivered to a subscription callback.
     #[allow(clippy::type_complexity)]
@@ -541,65 +609,59 @@ mod test {
 
     #[test]
     fn subscribe_fires_on_change() {
-        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
-
+        let cfg = Config::in_memory();
         let (captured, cb) = capturing_callback();
-        let id = subscribe("dns.remote.doh.enabled", cb);
+        cfg.subscribe("dns.remote.doh.enabled", cb);
 
         // default is false -> setting true is a real change
-        config_store().set("dns.remote.doh.enabled", Setting::Bool(true)).unwrap();
+        cfg.set("dns.remote.doh.enabled", Setting::Bool(true)).unwrap();
 
         assert_eq!(
             *captured.lock(),
             vec![("dns.remote.doh.enabled".to_string(), Setting::Bool(true))]
         );
-        unsubscribe(id);
     }
 
     #[test]
     fn subscribe_only_fires_on_actual_change() {
-        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
-
+        let cfg = Config::in_memory();
         let (captured, cb) = capturing_callback();
-        let id = subscribe("dns.remote.timeout", cb);
+        cfg.subscribe("dns.remote.timeout", cb);
 
         // default is u:5 -> setting 5 again is not a change, 7 is
-        config_store().set("dns.remote.timeout", Setting::UInt(5)).unwrap();
-        config_store().set("dns.remote.timeout", Setting::UInt(7)).unwrap();
+        cfg.set("dns.remote.timeout", Setting::UInt(5)).unwrap();
+        cfg.set("dns.remote.timeout", Setting::UInt(7)).unwrap();
 
-        assert_eq!(
-            *captured.lock(),
-            vec![("dns.remote.timeout".to_string(), Setting::UInt(7))]
-        );
-        unsubscribe(id);
+        assert_eq!(*captured.lock(), vec![("dns.remote.timeout".to_string(), Setting::UInt(7))]);
     }
 
     #[test]
     fn subscribe_wildcard_matches() {
-        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
-
+        let cfg = Config::in_memory();
         let (captured, cb) = capturing_callback();
-        let id = subscribe("renderer.*", cb);
+        cfg.subscribe("*", cb);
 
-        config_store().set("renderer.opengl.enabled", Setting::Bool(false)).unwrap();
+        cfg.set("renderer.opengl.enabled", Setting::Bool(false)).unwrap();
+        cfg.set("dns.remote.retries", Setting::UInt(9)).unwrap();
 
         assert_eq!(
             *captured.lock(),
-            vec![("renderer.opengl.enabled".to_string(), Setting::Bool(false))]
+            vec![
+                ("renderer.opengl.enabled".to_string(), Setting::Bool(false)),
+                ("dns.remote.retries".to_string(), Setting::UInt(9)),
+            ]
         );
-        unsubscribe(id);
     }
 
     #[test]
     fn remove_notifies_with_default() {
-        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
-
+        let cfg = Config::in_memory();
         let (captured, cb) = capturing_callback();
-        let id = subscribe("dns.cache.ttl.override.seconds", cb);
+        cfg.subscribe("dns.cache.ttl.override.seconds", cb);
 
         // default u:0 -> set 99 (change), then remove (revert to default 0, also a change)
-        config_store().set("dns.cache.ttl.override.seconds", Setting::UInt(99)).unwrap();
-        config_store().remove("dns.cache.ttl.override.seconds").unwrap();
+        cfg.set("dns.cache.ttl.override.seconds", Setting::UInt(99)).unwrap();
+        cfg.remove("dns.cache.ttl.override.seconds").unwrap();
 
         assert_eq!(
             *captured.lock(),
@@ -608,49 +670,59 @@ mod test {
                 ("dns.cache.ttl.override.seconds".to_string(), Setting::UInt(0)),
             ]
         );
-        unsubscribe(id);
     }
 
     #[test]
     fn unsubscribe_stops_notifications() {
-        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
-
+        let cfg = Config::in_memory();
         let (captured, cb) = capturing_callback();
-        let id = subscribe("useragent.default_page", cb);
-        assert!(unsubscribe(id));
+        let id = cfg.subscribe("useragent.default_page", cb);
+        assert!(cfg.unsubscribe(id));
 
-        config_store()
-            .set("useragent.default_page", Setting::String("about:config".into()))
-            .unwrap();
+        cfg.set("useragent.default_page", Setting::String("about:config".into())).unwrap();
 
         assert!(captured.lock().is_empty());
     }
 
     #[test]
+    fn callback_can_reenter_the_store() {
+        // The callback writes a *different* key from within the notification. This only works
+        // because notifications fire after the store lock is released.
+        let cfg = Config::in_memory();
+        let inner = cfg.clone();
+        cfg.subscribe("dns.remote.doh.enabled", move |_key, _value| {
+            inner.set("dns.remote.dot.enabled", Setting::Bool(true)).unwrap();
+        });
+
+        cfg.set("dns.remote.doh.enabled", Setting::Bool(true)).unwrap();
+
+        assert!(cfg.get_bool("dns.remote.dot.enabled"));
+    }
+
+    #[test]
     fn constraint_enum_enforced() {
-        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+        let cfg = Config::in_memory();
 
         // `useragent.tab.close_button` is constrained to `left,right`.
-        assert!(config_store().set("useragent.tab.close_button", Setting::Map(vec!["right".into()])).is_ok());
-        assert!(config_store()
-            .set("useragent.tab.close_button", Setting::Map(vec!["middle".into()]))
-            .is_err());
+        assert!(cfg.set("useragent.tab.close_button", Setting::Map(vec!["right".into()])).is_ok());
+        assert!(cfg.set("useragent.tab.close_button", Setting::Map(vec!["middle".into()])).is_err());
     }
 
     #[test]
     fn constraint_range_enforced() {
-        config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
+        let cfg = Config::in_memory();
 
         // `useragent.tab.max_opened` is constrained to `-1,0-9999`.
-        assert!(config_store().set("useragent.tab.max_opened", Setting::SInt(100)).is_ok());
-        assert!(config_store().set("useragent.tab.max_opened", Setting::SInt(-1)).is_ok());
-        assert!(config_store().set("useragent.tab.max_opened", Setting::SInt(10_000)).is_err());
-        assert!(config_store().set("useragent.tab.max_opened", Setting::SInt(-5)).is_err());
+        assert!(cfg.set("useragent.tab.max_opened", Setting::SInt(100)).is_ok());
+        assert!(cfg.set("useragent.tab.max_opened", Setting::SInt(-1)).is_ok());
+        assert!(cfg.set("useragent.tab.max_opened", Setting::SInt(10_000)).is_err());
+        assert!(cfg.set("useragent.tab.max_opened", Setting::SInt(-5)).is_err());
     }
 
     #[test]
     fn defaults_satisfy_their_constraints() {
-        let store = config_store();
+        let cfg = Config::in_memory();
+        let store = cfg.0.read();
         for (key, info) in &store.settings_info {
             if let Some(constraint) = &info.constraint {
                 assert!(
@@ -661,18 +733,5 @@ mod test {
                 );
             }
         }
-    }
-
-    #[test]
-    fn unknown_key_returns_none() {
-        let result = config_store().get("this.key.doesnt.exist");
-        assert!(result.unwrap().is_none());
-    }
-
-    #[test]
-    fn unknown_key_in_macro_returns_default() {
-        config_set!(string "this.key.doesnt.exist", "yesitdoes".into());
-        let s = config!(string "this.key.doesnt.exist");
-        assert_eq!(s, "");
     }
 }

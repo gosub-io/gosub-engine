@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use derive_more::Display;
 use gosub_config::settings::Setting;
 use gosub_config::storage::{JsonStorageAdapter, SqliteStorageAdapter};
-use gosub_config::{config_store, config_store_write, StorageAdapter};
+use gosub_config::{Config, StorageAdapter};
 use std::str::FromStr;
 
 #[derive(Debug, Parser)]
@@ -73,17 +73,17 @@ fn main() -> anyhow::Result<()> {
         Engine::Json => Box::new(JsonStorageAdapter::try_from(&args.global_opts.path)?),
     };
 
-    config_store_write().set_storage(storage);
+    let config = Config::with_storage(storage);
 
     match args.command {
         Commands::View { key } => {
-            if !config_store().has(&key) {
+            if !config.has(&key) {
                 println!("Key not found");
                 return Ok(());
             }
 
-            let info = config_store().get_info(&key).unwrap();
-            let value = config_store().get(&key)?.unwrap_or(info.default.clone());
+            let info = config.get_info(&key).unwrap();
+            let value = config.get(&key)?.unwrap_or(info.default.clone());
 
             println!("Key            : {key}");
             println!("Type           : {}", value.type_name());
@@ -95,13 +95,13 @@ fn main() -> anyhow::Result<()> {
             println!("Description    : {}", info.description);
         }
         Commands::List => {
-            print_table(&config_store().find("*"))?;
+            print_table(&config, &config.find("*"))?;
         }
         Commands::Set { key, value } => {
-            config_store().set(&key, Setting::from_str(&value)?)?;
+            config.set(&key, Setting::from_str(&value)?)?;
         }
         Commands::Search { key } => {
-            print_table(&config_store().find(&key))?;
+            print_table(&config, &config.find(&key))?;
         }
     }
 
@@ -118,15 +118,13 @@ struct Row {
 
 /// Prints the given settings as an aligned table with a header row. The `ALLOWED` column is only
 /// shown when at least one of the settings has a constraint.
-fn print_table(keys: &[String]) -> anyhow::Result<()> {
-    let store = config_store();
-
+fn print_table(config: &Config, keys: &[String]) -> anyhow::Result<()> {
     let mut rows = Vec::new();
     for key in keys {
-        let Some(info) = store.get_info(key) else {
+        let Some(info) = config.get_info(key) else {
             continue;
         };
-        let value = store.get(key)?.unwrap_or_else(|| info.default.clone());
+        let value = config.get(key)?.unwrap_or_else(|| info.default.clone());
         let rendered = value.value_string();
 
         rows.push(Row {
