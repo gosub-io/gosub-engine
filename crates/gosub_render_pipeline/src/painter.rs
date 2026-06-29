@@ -12,6 +12,7 @@ use crate::painter::commands::color::Color;
 use crate::painter::commands::rectangle::{Radius, Rectangle};
 use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
+use crate::render::backend::TileAnchor;
 use crate::tiler::TiledLayoutElement;
 use std::sync::Arc;
 
@@ -58,8 +59,21 @@ impl Painter {
             let Some(layer) = layers.get(layer_id) else {
                 continue;
             };
+            // A promoted layer (faded by group opacity, or pinned/sticky) becomes a compositing
+            // group the scene backend fades + positions as a unit. The base scroll layer at full
+            // opacity needs no wrapper.
+            let promoted = layer.opacity < 1.0 || !matches!(layer.anchor, TileAnchor::Scroll);
+            if promoted {
+                out.push(PaintCommand::PushLayer {
+                    opacity: layer.opacity,
+                    anchor: layer.anchor,
+                });
+            }
             for &element_id in &layer.elements {
                 out.extend(self.paint_element(element_id, state));
+            }
+            if promoted {
+                out.push(PaintCommand::PopLayer);
             }
         }
         out

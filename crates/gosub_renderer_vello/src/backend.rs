@@ -1,3 +1,27 @@
+//! Vello render backend.
+//!
+//! Vello is a **compute-based scene renderer**, not a canvas — so this backend works fundamentally
+//! differently from the canvas backends (Cairo, Skia), which tile + composite.
+//!
+//! - **No tile cache.** Nothing here caches rasterized tiles. The engine builds one whole-viewport
+//!   paint-command list (`Painter::paint_all`) and `render()` turns it into a single Vello `Scene`
+//!   drawn in one GPU pass. Vello is immediate-mode / stateless between frames, so **every frame
+//!   re-renders the entire scene from scratch**: a hover or any content change rebuilds the command
+//!   list and redraws everything; a scroll re-renders the cached commands with a translate
+//!   transform. There is no dirty-region / per-tile incremental update (that's the tile path).
+//!
+//! - **Compositing is fused into the render.** Group opacity and fixed/sticky/scroll positioning are
+//!   applied *during* the Vello pass via native layer push/pop (`scene.push_layer` with the group
+//!   alpha; a per-anchor transform for placement), driven by the `PaintCommand::PushLayer`/`PopLayer`
+//!   markers the painter emits around each promoted layer — not by a separate tile compositor.
+//!
+//! This trades the tile cache's incremental-update efficiency for "re-render the whole scene fast on
+//! the GPU," which is how Vello-native engines (e.g. Blitz) work. Cost scales with total scene size
+//! rather than visible content, so the tile path remains the better fit for the canvas backends.
+//!
+//! (An opt-in `GOSUB_VELLO_GPU_TILES=1` mode instead routes Vello through the shared GPU tile
+//! compositor like Skia-GPU — that path *does* tile. The default is the scene path described here.)
+
 use crate::backend::font_cache::FontCache;
 use crate::backend::font_manager::FontManager;
 use crate::backend::text_renderer::{TextKey, TextRenderer};
@@ -179,6 +203,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                     &ps.commands,
                     size,
                     affine,
+                    (sx, sy),
                     &ps.media_store,
                     parley,
                 );
@@ -190,6 +215,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                     &ps.commands,
                     size,
                     affine,
+                    (sx, sy),
                     &ps.media_store,
                     Some(&mut guard),
                 );

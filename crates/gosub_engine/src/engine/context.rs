@@ -853,6 +853,9 @@ fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
 
         for cmd in &elem.paint_commands {
             match cmd {
+                // Scene-only layer-group markers; never present in per-tile commands, so they don't
+                // affect a tile's content hash.
+                PaintCommand::PushLayer { .. } | PaintCommand::PopLayer => {}
                 PaintCommand::Rectangle(r) => {
                     fnv!(&[0u8]);
                     let rect = r.rect();

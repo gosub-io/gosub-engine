@@ -1,6 +1,7 @@
 use crate::common::media::MediaId;
 use crate::painter::commands::rectangle::Rectangle;
 use crate::painter::commands::text::Text;
+use crate::render::backend::TileAnchor;
 
 pub mod border;
 pub mod brush;
@@ -30,6 +31,14 @@ pub enum PaintCommand {
     Text(Text),
     Rectangle(Rectangle),
     Svg(PaintSvg),
+    /// Begin a compositing group for a promoted layer (CSS `opacity < 1`, `position: fixed`, or
+    /// `sticky`). A scene backend composites everything up to the matching [`PaintCommand::PopLayer`]
+    /// as a unit — fading it by `opacity` and positioning it per `anchor`. Only the GPU-scene path
+    /// (`Painter::paint_all`) emits these; the tile path applies opacity/anchor at composite instead
+    /// and never produces them (so tile rasterizers can ignore both variants).
+    PushLayer { opacity: f32, anchor: TileAnchor },
+    /// End the most recent [`PaintCommand::PushLayer`] group.
+    PopLayer,
 }
 
 impl PaintCommand {

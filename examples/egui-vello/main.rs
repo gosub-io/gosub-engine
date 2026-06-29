@@ -136,7 +136,8 @@ struct BrowserApp {
     status_url: String,
     /// CPU texture for TileCache frames (pipeline+vello path).
     cpu_texture: Option<egui::TextureHandle>,
-    /// GPU texture id for WgpuTextureId frames (non-pipeline vello path).
+    /// (engine wgpu texture id, egui handle) for the WgpuTextureId path. Keyed by the texture id so
+    /// it's re-registered only when the texture changes (resize), not every frame.
     egui_texture: Option<(u64, egui::TextureId)>,
     last_panel_size: egui::Vec2,
     ui_rx: std::sync::mpsc::Receiver<UiEvent>,
@@ -356,11 +357,16 @@ impl BrowserApp {
                 }
             }
 
-            ExternalHandle::WgpuTextureId { id, frame_id, .. } => {
+            ExternalHandle::WgpuTextureId { id, .. } => {
+                // Re-register only when the underlying wgpu texture itself changes (e.g. on resize),
+                // NOT every frame. The engine renders new content into the SAME texture each frame,
+                // and egui re-samples it on every repaint — so keying on `frame_id` (which bumps
+                // each frame) churned a bind-group free+register per frame and tanked the frame rate,
+                // making the scroll animation undersample. Key on the texture `id` instead.
                 let needs_update = self
                     .egui_texture
                     .as_ref()
-                    .map(|(fid, _)| *fid != frame_id)
+                    .map(|(tex_id, _)| *tex_id != id)
                     .unwrap_or(true);
                 if !needs_update {
                     return;
@@ -379,7 +385,7 @@ impl BrowserApp {
                     &view,
                     eframe::wgpu::FilterMode::Linear,
                 );
-                self.egui_texture = Some((frame_id, new_tex));
+                self.egui_texture = Some((id, new_tex));
             }
 
             _ => {}
@@ -402,7 +408,23 @@ impl eframe::App for BrowserApp {
         }
 
         // Update local scroll synchronously so refresh_texture composites at the new position.
-        let scroll_delta = ctx.input(|i| i.smooth_scroll_delta);
+        // Raw mouse-wheel deltas (NOT egui's smoothed scroll): the engine owns scroll smoothing
+        // now, so forwarding egui's `smooth_scroll_delta` double-smooths (slow ramp, no ease-out,
+        // drawn out). Read raw wheel events and convert lines → px (~134/notch, like the others).
+        let scroll_delta = ctx.input(|i| {
+            let mut acc = egui::Vec2::ZERO;
+            for e in &i.events {
+                if let egui::Event::MouseWheel { unit, delta, .. } = e {
+                    let mult = match unit {
+                        egui::MouseWheelUnit::Line => 134.0,
+                        egui::MouseWheelUnit::Point => 1.0,
+                        egui::MouseWheelUnit::Page => 800.0,
+                    };
+                    acc += *delta * mult;
+                }
+            }
+            acc
+        });
         if scroll_delta != egui::Vec2::ZERO {
             let dx = -scroll_delta.x;
             let dy = -scroll_delta.y;

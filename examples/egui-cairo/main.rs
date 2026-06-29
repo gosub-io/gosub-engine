@@ -344,7 +344,23 @@ impl eframe::App for BrowserApp {
         }
 
         // Update local scroll synchronously so refresh_texture composites at the new position.
-        let scroll_delta = ctx.input(|i| i.smooth_scroll_delta);
+        // Raw mouse-wheel deltas (NOT egui's smoothed scroll): the engine owns scroll smoothing
+        // now, so forwarding egui's `smooth_scroll_delta` double-smooths (slow ramp, no ease-out,
+        // drawn out). Read raw wheel events and convert lines → px (~134/notch, like the others).
+        let scroll_delta = ctx.input(|i| {
+            let mut acc = egui::Vec2::ZERO;
+            for e in &i.events {
+                if let egui::Event::MouseWheel { unit, delta, .. } = e {
+                    let mult = match unit {
+                        egui::MouseWheelUnit::Line => 134.0,
+                        egui::MouseWheelUnit::Point => 1.0,
+                        egui::MouseWheelUnit::Page => 800.0,
+                    };
+                    acc += *delta * mult;
+                }
+            }
+            acc
+        });
         if scroll_delta != egui::Vec2::ZERO {
             let dx = -scroll_delta.x;
             let dy = -scroll_delta.y;
