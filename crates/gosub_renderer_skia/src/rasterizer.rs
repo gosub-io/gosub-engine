@@ -5,6 +5,7 @@ use gosub_render_pipeline::common::TextureStore;
 use gosub_render_pipeline::layering::layer::LayerId;
 use gosub_render_pipeline::painter::commands::PaintCommand;
 use gosub_render_pipeline::rasterizer::Rasterable;
+use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gosub_render_pipeline::tiler::Tile;
 use parking_lot::Mutex;
 use skia_safe::{Bitmap, Canvas, Matrix, Paint, Rect, SamplingOptions, TileMode};
@@ -46,8 +47,12 @@ impl Rasterable for SkiaRasterizer {
     }
 
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, _media_store: &MediaStore) -> Option<TextureId> {
-        let width = tile.rect.width as u32;
-        let height = tile.rect.height as u32;
+        // Rasterize at physical resolution (CSS px × DPR) so text/edges are crisp on HiDPI. The
+        // compositor places these physical-sized tiles at physical positions (mirrors Cairo); at
+        // DPR=1 this is a no-op.
+        let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed).max(1);
+        let width = tile.rect.width as u32 * dpr;
+        let height = tile.rect.height as u32 * dpr;
 
         if tile.layer_id != LayerId::new(0) && tile.elements.is_empty() {
             return None;
@@ -74,7 +79,13 @@ impl Rasterable for SkiaRasterizer {
             }
         }
 
-        canvas.clip_rect(Rect::new(0.0, 0.0, width as f32, height as f32), None, None);
+        // Draw in CSS coordinates scaled up to physical pixels, so commands stay DPR-agnostic.
+        canvas.scale((dpr as f32, dpr as f32));
+        canvas.clip_rect(
+            Rect::new(0.0, 0.0, tile.rect.width as f32, tile.rect.height as f32),
+            None,
+            None,
+        );
         canvas.translate((-tile.rect.x as f32, -tile.rect.y as f32));
 
         for element in &tile.elements {
