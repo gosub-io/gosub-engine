@@ -180,7 +180,7 @@ struct BakedTile {
     page_y: f64,
     width: u32,
     height: u32,
-    data: Arc<Vec<u8>>,
+    data: bytes::Bytes,
     /// In-memory byte order of `data`, set by the rasterizer that produced it.
     format: gosub_render_pipeline::render::backend::PixelFormat,
 }
@@ -202,7 +202,7 @@ struct PipelineCache {
     /// Rasterized tile data keyed by (page_x, page_y, layer_id, content_hash).
     /// Passed to the next render so unchanged tiles skip rasterization.
     /// Value is (physical_width, physical_height, pixel_data).
-    tile_pixel_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)>,
+    tile_pixel_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>,
 }
 
 /// BrowsingContext dedicated to a specific tab
@@ -934,7 +934,7 @@ fn pipeline_build_cache(
     #[cfg(feature = "backend_vello")] _vello_resources: Option<
         std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
     >,
-    prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)>,
+    prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>,
 ) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
@@ -1109,7 +1109,7 @@ fn pipeline_build_cache(
             // For each tile: compute a content hash; if it matches the previous render's cached
             // pixels, reuse them (cache hit). Otherwise rasterize on this thread.
             // Result: (tile_id, Option<BakedTile>, Option<new_cache_entry>)
-            type CacheEntry = (TileCacheKey, (u32, u32, Arc<Vec<u8>>));
+            type CacheEntry = (TileCacheKey, (u32, u32, bytes::Bytes));
             let results: Vec<(TileId, Option<BakedTile>, Option<CacheEntry>)> = dirty_ids
                 .par_iter()
                 .map(|&tile_id| {
@@ -1126,7 +1126,7 @@ fn pipeline_build_cache(
                             page_y: tile.rect.y,
                             width: w,
                             height: h,
-                            data: Arc::clone(data),
+                            data: data.clone(),
                             format: tile_format,
                         };
                         return (tile_id, Some(baked), None);
@@ -1142,11 +1142,11 @@ fn pipeline_build_cache(
                             page_y: tile.rect.y,
                             width: tex.width as u32,
                             height: tex.height as u32,
-                            data: Arc::clone(&tex.data),
+                            data: tex.data.clone(),
                             format: tex.format,
                         });
 
-                    let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, Arc::clone(&b.data))));
+                    let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, b.data.clone())));
                     (tile_id, baked, cache_entry)
                 })
                 .collect();
@@ -1156,7 +1156,7 @@ fn pipeline_build_cache(
             let mut cache_hits = 0usize;
             let mut empty = 0usize;
             let mut tiles: Vec<BakedTile> = Vec::with_capacity(results.len());
-            let mut new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)> =
+            let mut new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)> =
                 std::collections::HashMap::with_capacity(results.len());
 
             for (tile_id, baked, cache_entry) in results {
@@ -1260,7 +1260,7 @@ fn pipeline_build_cache(
                             page_y: tile.rect.y,
                             width: tex.width as u32,
                             height: tex.height as u32,
-                            data: Arc::clone(&tex.data),
+                            data: tex.data.clone(),
                             format: tex.format,
                         });
                     }
@@ -1287,13 +1287,13 @@ fn pipeline_build_cache(
         not(feature = "backend_cairo"),
         not(feature = "backend_skia")
     ))]
-    let new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)> =
+    let new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)> =
         std::collections::HashMap::new();
 
     #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
     let baked_tiles: Vec<BakedTile> = Vec::new();
     #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
-    let new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)> =
+    let new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)> =
         std::collections::HashMap::new();
 
     timing_stop!(ts_total);
@@ -1312,7 +1312,7 @@ fn pipeline_build_cache(
                 page_y: t.page_y as f32,
                 width: t.width,
                 height: t.height,
-                data: Arc::clone(&t.data),
+                data: t.data.clone(),
                 format: t.format,
             })
             .collect::<Vec<_>>(),
@@ -1344,7 +1344,7 @@ fn pipeline_hover_repaint(
     #[cfg(feature = "backend_vello")] _vello_resources: Option<
         std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
     >,
-    prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)>,
+    prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>,
 ) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
@@ -1436,7 +1436,7 @@ fn pipeline_hover_repaint(
                     page_y: t.page_y as f32,
                     width: t.width,
                     height: t.height,
-                    data: Arc::clone(&t.data),
+                    data: t.data.clone(),
                     format: t.format,
                 })
                 .collect::<Vec<_>>(),
@@ -1539,7 +1539,7 @@ fn pipeline_hover_repaint(
                 layer_ids.len()
             );
 
-            type CacheEntry = (TileCacheKey, (u32, u32, Arc<Vec<u8>>));
+            type CacheEntry = (TileCacheKey, (u32, u32, bytes::Bytes));
             let results: Vec<(TileId, Option<BakedTile>, Option<CacheEntry>)> = dirty_ids
                 .par_iter()
                 .map(|&tile_id| {
@@ -1555,7 +1555,7 @@ fn pipeline_hover_repaint(
                                 page_y: tile.rect.y,
                                 width: w,
                                 height: h,
-                                data: Arc::clone(data),
+                                data: data.clone(),
                                 format: tile_format,
                             }),
                             None,
@@ -1570,10 +1570,10 @@ fn pipeline_hover_repaint(
                             page_y: tile.rect.y,
                             width: tex.width as u32,
                             height: tex.height as u32,
-                            data: Arc::clone(&tex.data),
+                            data: tex.data.clone(),
                             format: tex.format,
                         });
-                    let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, Arc::clone(&b.data))));
+                    let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, b.data.clone())));
                     (tile_id, baked, cache_entry)
                 })
                 .collect();
@@ -1581,7 +1581,7 @@ fn pipeline_hover_repaint(
             let mut rasterized = 0usize;
             let mut cache_hits = 0usize;
             let mut tiles: Vec<BakedTile> = Vec::with_capacity(results.len());
-            let mut new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)> =
+            let mut new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)> =
                 std::collections::HashMap::with_capacity(results.len());
             for (tile_id, baked, cache_entry) in results {
                 if let Some(tile) = tile_list.arena.get_mut(&tile_id) {
@@ -1669,7 +1669,7 @@ fn pipeline_hover_repaint(
                             page_y: tile.rect.y,
                             width: tex.width as u32,
                             height: tex.height as u32,
-                            data: Arc::clone(&tex.data),
+                            data: tex.data.clone(),
                             format: tex.format,
                         });
                     }
@@ -1687,7 +1687,7 @@ fn pipeline_hover_repaint(
     #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
     let (baked_tiles, new_tile_cache): (
         Vec<BakedTile>,
-        std::collections::HashMap<TileCacheKey, (u32, u32, Arc<Vec<u8>>)>,
+        std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>,
     ) = (Vec::new(), std::collections::HashMap::new());
 
     // Merge: newly rasterized hover tiles + clean tiles carried from previous render.
@@ -1708,7 +1708,7 @@ fn pipeline_hover_repaint(
                 page_y: t.page_y as f32,
                 width: t.width,
                 height: t.height,
-                data: Arc::clone(&t.data),
+                data: t.data.clone(),
                 format: t.format,
             })
             .collect::<Vec<_>>(),
@@ -1753,7 +1753,7 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
             y: (tile.page_y - scroll_y) as f32,
             w: tile.width,
             h: tile.height,
-            data: Arc::clone(&tile.data),
+            data: tile.data.clone(),
             format: tile.format,
         });
         blits += 1;

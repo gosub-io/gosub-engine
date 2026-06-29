@@ -28,14 +28,14 @@ impl TextureStore {
         &mut self,
         width: usize,
         height: usize,
-        data: Vec<u8>,
+        data: impl Into<bytes::Bytes>,
         format: crate::render::backend::PixelFormat,
     ) -> TextureId {
         let texture = Texture {
             id: self.next_id(),
             width,
             height,
-            data: std::sync::Arc::new(data),
+            data: data.into(),
             format,
         };
 
