@@ -377,6 +377,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     self.raster_strategy,
                     prev_tile_cache,
                     self.media_store.clone(),
+                    self.config_store.get_uint("renderer.tile.size") as f64,
                 ));
             }
             self.render_dirty = false;
@@ -406,6 +407,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     self.raster_strategy,
                     prev_tile_cache,
                     self.media_store.clone(),
+                    self.config_store.get_uint("renderer.tile.size") as f64,
                 ));
             } else {
                 // No cached layout yet — fall back to a full rebuild.
@@ -417,6 +419,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         self.raster_strategy,
                         std::collections::HashMap::new(),
                         self.media_store.clone(),
+                        self.config_store.get_uint("renderer.tile.size") as f64,
                     ));
                 }
             }
@@ -448,6 +451,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         self.raster_strategy,
                         prev_tile_cache,
                         self.media_store.clone(),
+                        self.config_store.get_uint("renderer.tile.size") as f64,
                     ));
                 }
                 self.render_dirty = false;
@@ -459,7 +463,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
             let mut rl = RenderList::default();
             rl.items.push(DisplayItem::Clear {
-                color: Color::new(1.0, 1.0, 1.0, 1.0),
+                color: parse_clear_color(&self.config_store.get_string("renderer.clear_color")),
             });
             if let Some(cache) = &self.pipeline_cache {
                 pipeline_composite(
@@ -714,6 +718,21 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 impl<C: RenderConfiguration> HasConfig for BrowsingContext<C> {
     fn config(&self) -> &Config {
         &self.config_store
+    }
+}
+
+/// Parses a `#rrggbb` or `#rrggbbaa` hex color (the `renderer.clear_color` setting) into a
+/// [`Color`]. Falls back to opaque white on any malformed input.
+fn parse_clear_color(value: &str) -> Color {
+    let hex = value.trim().trim_start_matches('#');
+    let byte = |i: usize| hex.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok());
+
+    match (byte(0), byte(2), byte(4)) {
+        (Some(r), Some(g), Some(b)) => {
+            let a = byte(6).unwrap_or(255);
+            Color::new(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, a as f32 / 255.0)
+        }
+        _ => Color::new(1.0, 1.0, 1.0, 1.0),
     }
 }
 
@@ -1044,6 +1063,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     strategy: RasterStrategy,
     prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, TilePixels)>,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
+    tile_size: f64,
 ) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
@@ -1097,7 +1117,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
 
     // Stage 4: tiling
     let ts4 = timing_start!("pipeline.tiling");
-    let mut tile_list = TileList::new(layer_list, PipelineDimension::new(256.0, 256.0));
+    let mut tile_list = TileList::new(layer_list, PipelineDimension::new(tile_size, tile_size));
     let saved_layer_list = Arc::clone(&tile_list.layer_list);
     tile_list.generate();
     timing_stop!(ts4);
@@ -1286,6 +1306,7 @@ fn pipeline_hover_repaint(
     strategy: RasterStrategy,
     prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, TilePixels)>,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
+    tile_size: f64,
 ) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
@@ -1295,7 +1316,7 @@ fn pipeline_hover_repaint(
 
     // Stage 4: tiling — reuse existing LayerList, no layout work.
     let ts4 = timing_start!("pipeline.hover.tiling");
-    let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(256.0, 256.0));
+    let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(tile_size, tile_size));
     tile_list.generate();
     let total_tiles = tile_list.arena.len();
     timing_stop!(ts4);
@@ -1589,4 +1610,28 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
     }
 
     timing_stop!(ts7);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_clear_color;
+
+    #[test]
+    fn parse_clear_color_handles_rgb_rgba_and_garbage() {
+        // 8-digit #rrggbbaa
+        let c = parse_clear_color("#ff8000cc");
+        assert!((c.r - 1.0).abs() < 1e-4);
+        assert!((c.g - 0.5020).abs() < 1e-3);
+        assert!((c.b - 0.0).abs() < 1e-4);
+        assert!((c.a - 0.8).abs() < 1e-2);
+
+        // 6-digit #rrggbb defaults alpha to opaque, leading '#' optional
+        let c = parse_clear_color("00ff00");
+        assert!((c.g - 1.0).abs() < 1e-4);
+        assert!((c.a - 1.0).abs() < 1e-4);
+
+        // Malformed input falls back to opaque white
+        let c = parse_clear_color("not-a-color");
+        assert_eq!((c.r, c.g, c.b, c.a), (1.0, 1.0, 1.0, 1.0));
+    }
 }

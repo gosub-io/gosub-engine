@@ -312,7 +312,7 @@ impl<C: RenderConfiguration> Zone<C> {
         initial: TabDefaults,
         overrides: Option<TabOverrides>,
     ) -> Result<TabHandle, EngineError> {
-        if self.tabs.len() >= self.config.max_tabs {
+        if self.tabs.len() >= effective_max_tabs(&self.context.config_store, self.config.max_tabs) {
             return Err(EngineError::TabLimitExceeded);
         }
 
@@ -389,6 +389,12 @@ impl<C: RenderConfiguration> Zone<C> {
     }
 }
 
+/// Resolves the effective tab limit for a zone: the engine-wide `engine.zone.max_tabs` setting,
+/// further capped by any tighter per-zone [`ZoneConfig`] value.
+fn effective_max_tabs(config: &Config, zone_max: usize) -> usize {
+    config.get_uint("engine.zone.max_tabs").min(zone_max)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -423,5 +429,23 @@ mod tests {
         assert!(!f.share_bookmarks);
         assert!(!f.share_passwords);
         assert!(!f.share_cookiejar);
+    }
+
+    #[test]
+    fn effective_max_tabs_reads_config_and_caps_with_zone() {
+        use gosub_config::settings::Setting;
+
+        let config = crate::engine::settings_store::default_config();
+        let zone_default = ZoneConfig::default().max_tabs; // 16
+
+        // Default config value (16) with the default zone value (16).
+        assert_eq!(effective_max_tabs(&config, zone_default), 16);
+
+        // Lowering the engine-wide setting takes effect.
+        config.set("engine.zone.max_tabs", Setting::UInt(4)).unwrap();
+        assert_eq!(effective_max_tabs(&config, zone_default), 4);
+
+        // A tighter per-zone value still wins (we use the smaller of the two).
+        assert_eq!(effective_max_tabs(&config, 2), 2);
     }
 }

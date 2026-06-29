@@ -24,7 +24,15 @@ pub(crate) struct TabRuntime {
 
 impl Default for TabRuntime {
     fn default() -> Self {
-        let fps = 60;
+        Self::with_fps(60)
+    }
+}
+
+impl TabRuntime {
+    /// Builds the tab runtime targeting `fps` frames per second (clamped to at least 1 to avoid a
+    /// zero-length tick interval).
+    pub(crate) fn with_fps(fps: u32) -> Self {
+        let fps = fps.max(1);
 
         Self {
             drawing_enabled: false,

@@ -145,7 +145,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel::<TabInternalCommand>(32);
 
-        let context = BrowsingContext::new(zone_context.config_store.clone());
+        let config_store = zone_context.config_store.clone();
+        let context = BrowsingContext::new(config_store.clone());
+        let runtime = TabRuntime::with_fps(config_store.get_uint("renderer.tab.default_fps") as u32);
 
         Self {
             tab_id,
@@ -158,7 +160,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             state: TabState::Idle,
             mode: TabActivityMode::Active,
             favicon: vec![],
-            title: "New Tab".to_string(),
+            title: config_store.get_string("useragent.tab.default_title"),
             pending_url: None,
             current_url: None,
             is_loading: false,
@@ -169,7 +171,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             desired_viewport: Default::default(),
             scroll_x: 0,
             scroll_y: 0,
-            runtime: TabRuntime::default(),
+            runtime,
             load: None,
             active_nav: None,
             internal_tx,
