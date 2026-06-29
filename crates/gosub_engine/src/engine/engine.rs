@@ -87,7 +87,7 @@ impl Default for EngineContext {
         Self {
             event_tx: broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY).0,
             config: Arc::new(EngineSettings::default()),
-            config_store: Config::in_memory(),
+            config_store: crate::engine::settings_store::default_config(),
             io_tx: Arc::new(RwLock::new(None)),
             request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
         }
@@ -126,7 +126,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             context: Arc::new(EngineContext {
                 event_tx: event_tx.clone(),
                 config: Arc::new(resolved_config),
-                config_store: Config::in_memory(),
+                config_store: crate::engine::settings_store::default_config(),
                 io_tx: Arc::new(RwLock::new(None)),
                 request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
             }),

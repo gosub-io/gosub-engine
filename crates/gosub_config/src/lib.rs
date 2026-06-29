@@ -5,20 +5,14 @@ pub mod storage;
 pub use errors::Error;
 pub(crate) type Result<T> = std::result::Result<T, Error>;
 
-use crate::settings::{Constraint, Setting, SettingInfo};
+use crate::settings::{Setting, SettingInfo};
 use crate::storage::MemoryStorageAdapter;
 use log::warn;
 use parking_lot::RwLock;
-use serde_derive::Deserialize;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::mem;
-use std::str::FromStr;
 use std::sync::Arc;
 use wildmatch::WildMatch;
-
-/// Settings are stored in a json file, but this is included in the binary for mostly easy editting.
-const SETTINGS_JSON: &str = include_str!("./settings.json");
 
 /// `StoreAdapter` is the interface for storing and retrieving settings
 /// This can be used to storage settings in a database, json file, etc
@@ -75,23 +69,21 @@ struct Subscription {
 #[derive(Clone)]
 pub struct Config(Arc<RwLock<ConfigStore>>);
 
-impl Default for Config {
-    fn default() -> Self {
-        Self::in_memory()
-    }
-}
-
 impl Config {
-    /// Creates a config backed by a volatile in-memory store (settings are lost on drop).
+    /// Creates a config from the given settings schema, backed by a volatile in-memory store.
+    ///
+    /// `gosub_config` is agnostic of which settings exist: the caller (e.g. the engine) supplies
+    /// the schema — the set of known keys with their defaults and constraints. Only keys present
+    /// in the schema can be read or written.
     #[must_use]
-    pub fn in_memory() -> Self {
-        Config(Arc::new(RwLock::new(ConfigStore::default())))
+    pub fn new(schema: impl IntoIterator<Item = SettingInfo>) -> Self {
+        Config(Arc::new(RwLock::new(ConfigStore::new(schema))))
     }
 
-    /// Creates a config backed by the given storage adapter, preloading any persisted settings.
+    /// Creates a config from the given schema, backed by `storage` and preloading its settings.
     #[must_use]
-    pub fn with_storage(storage: Box<dyn StorageAdapter>) -> Self {
-        let config = Self::in_memory();
+    pub fn with_storage(schema: impl IntoIterator<Item = SettingInfo>, storage: Box<dyn StorageAdapter>) -> Self {
+        let config = Self::new(schema);
         config.set_storage(storage);
         config
     }
@@ -249,19 +241,6 @@ impl HasConfig for Config {
     }
 }
 
-/// `JsonEntry` is used for parsing the settings.json file
-#[derive(Debug, Deserialize)]
-struct JsonEntry {
-    key: String,
-    #[serde(rename = "type")]
-    _entry_type: String,
-    default: String,
-    description: String,
-    /// Optional comma-separated list of allowed values or ranges (e.g. `left,right` or `-1,0-9999`).
-    #[serde(default)]
-    values: Option<String>,
-}
-
 /// Configuration storage is the place where the gosub engine can find all configurable options
 pub struct ConfigStore {
     settings: parking_lot::Mutex<HashMap<String, Setting>>,
@@ -277,8 +256,10 @@ pub struct ConfigStore {
     next_subscription_id: u64,
 }
 
-impl Default for ConfigStore {
-    fn default() -> Self {
+impl ConfigStore {
+    /// Builds a store from the given settings schema. Each [`SettingInfo`] registers a known key
+    /// with its default value (seeded into the live settings) and optional constraint.
+    fn new(schema: impl IntoIterator<Item = SettingInfo>) -> Self {
         let mut store = ConfigStore {
             settings: parking_lot::Mutex::new(HashMap::new()),
             settings_info: HashMap::new(),
@@ -288,14 +269,16 @@ impl Default for ConfigStore {
             next_subscription_id: 0,
         };
 
-        // Populate the store with the default settings. They may be overwritten by the storage
-        // as soon as one is added with config::config_store()::set_storage()
-        let _ = store.populate_default_settings();
+        for info in schema {
+            let key = info.key.clone();
+            store.settings.lock().insert(key.clone(), info.default.clone());
+            store.setting_keys.push(key.clone());
+            store.settings_info.insert(key, info);
+        }
+
         store
     }
-}
 
-impl ConfigStore {
     /// Sets a new storage engine and updates all settings in the config store according to what
     /// is written in the storage. Note that it will overwrite any current settings in the config
     /// store. Take this into consideration when using this function to switch storage engines.
@@ -459,45 +442,48 @@ impl ConfigStore {
             .map(|sub| sub.callback.clone())
             .collect()
     }
-
-    /// Populates the settings in the storage from the settings.json file
-    fn populate_default_settings(&mut self) -> Result<()> {
-        let json_data: Value = serde_json::from_str(SETTINGS_JSON)?;
-
-        if let Value::Object(data) = json_data {
-            for (section_prefix, section_entries) in &data {
-                let section_entries: Vec<JsonEntry> = serde_json::from_value(section_entries.clone())?;
-
-                for entry in section_entries {
-                    let key = format!("{}.{}", section_prefix, entry.key);
-
-                    let info = SettingInfo {
-                        key: key.clone(),
-                        description: entry.description,
-                        default: Setting::from_str(&entry.default)?,
-                        constraint: entry.values.as_deref().and_then(Constraint::parse),
-                    };
-
-                    self.setting_keys.push(key.clone());
-                    self.settings_info.insert(key.clone(), info.clone());
-                    self.settings.lock().insert(key.clone(), info.default.clone());
-                }
-            }
-        }
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::settings::Constraint;
     use parking_lot::Mutex;
+    use std::str::FromStr;
     use std::sync::Arc;
+
+    /// Builds a `SettingInfo` from a key, a wire-format default (e.g. `b:true`), and an optional
+    /// constraint spec (e.g. `left,right`).
+    fn info(key: &str, default: &str, values: Option<&str>) -> SettingInfo {
+        SettingInfo {
+            key: key.to_string(),
+            description: String::new(),
+            default: Setting::from_str(default).unwrap(),
+            constraint: values.and_then(Constraint::parse),
+        }
+    }
+
+    /// A small, self-contained schema for the tests. `gosub_config` no longer ships any settings of
+    /// its own, so the tests define exactly the keys they exercise.
+    fn test_config() -> Config {
+        Config::new([
+            info("dns.local.enabled", "b:true", None),
+            info("dns.cache.max_entries", "u:1000", None),
+            info("dns.cache.ttl.override.seconds", "u:0", None),
+            info("dns.remote.retries", "u:3", None),
+            info("dns.remote.timeout", "u:5", None),
+            info("dns.remote.doh.enabled", "b:false", None),
+            info("dns.remote.dot.enabled", "b:false", None),
+            info("useragent.default_page", "s:about:blank", None),
+            info("useragent.tab.close_button", "m:left", Some("left,right")),
+            info("useragent.tab.max_opened", "i:-1", Some("-1,0-9999")),
+            info("renderer.opengl.enabled", "b:true", None),
+        ])
+    }
 
     #[test]
     fn get_and_set() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
 
         let setting = cfg.get("dns.local.enabled").unwrap().unwrap();
         assert_eq!(setting, Setting::Bool(true));
@@ -514,7 +500,7 @@ mod test {
             assert_eq!(captured_logs.len(), 0);
         });
 
-        let cfg = Config::in_memory();
+        let cfg = test_config();
         let result = cfg.set("dns.local.enabled", Setting::String("wont accept strings".into()));
         assert!(result.is_err());
 
@@ -526,7 +512,7 @@ mod test {
 
     #[test]
     fn typed_accessors() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
 
         cfg.set("dns.cache.max_entries", Setting::UInt(9432)).unwrap();
         assert_eq!(cfg.get_uint("dns.cache.max_entries"), 9432);
@@ -537,7 +523,7 @@ mod test {
 
     #[test]
     fn typed_getter_unknown_returns_default() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
         assert_eq!(cfg.get_string("this.key.doesnt.exist"), "");
         assert_eq!(cfg.get_uint("this.key.doesnt.exist"), 0);
         assert!(!cfg.get_bool("this.key.doesnt.exist"));
@@ -545,7 +531,7 @@ mod test {
 
     #[test]
     fn remove_reverts_to_default() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
 
         cfg.set("dns.remote.retries", Setting::UInt(42)).unwrap();
         assert_eq!(cfg.get("dns.remote.retries").unwrap().unwrap(), Setting::UInt(42));
@@ -556,19 +542,19 @@ mod test {
 
     #[test]
     fn remove_unknown_key_errors() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
         assert!(cfg.remove("this.key.doesnt.exist").is_err());
     }
 
     #[test]
     fn flush_is_ok() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
         assert!(cfg.flush().is_ok());
     }
 
     #[test]
     fn unknown_key_returns_none() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
         assert!(cfg.get("this.key.doesnt.exist").unwrap().is_none());
     }
 
@@ -579,15 +565,15 @@ mod test {
             ctx.config().get_uint("dns.remote.retries")
         }
 
-        let cfg = Config::in_memory();
+        let cfg = test_config();
         cfg.set("dns.remote.retries", Setting::UInt(11)).unwrap();
         assert_eq!(retries(&cfg), 11);
     }
 
     #[test]
     fn separate_configs_are_isolated() {
-        let a = Config::in_memory();
-        let b = Config::in_memory();
+        let a = test_config();
+        let b = test_config();
 
         a.set("dns.local.enabled", Setting::Bool(false)).unwrap();
 
@@ -609,7 +595,7 @@ mod test {
 
     #[test]
     fn subscribe_fires_on_change() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
         let (captured, cb) = capturing_callback();
         cfg.subscribe("dns.remote.doh.enabled", cb);
 
@@ -624,7 +610,7 @@ mod test {
 
     #[test]
     fn subscribe_only_fires_on_actual_change() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
         let (captured, cb) = capturing_callback();
         cfg.subscribe("dns.remote.timeout", cb);
 
@@ -637,7 +623,7 @@ mod test {
 
     #[test]
     fn subscribe_wildcard_matches() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
         let (captured, cb) = capturing_callback();
         cfg.subscribe("*", cb);
 
@@ -655,7 +641,7 @@ mod test {
 
     #[test]
     fn remove_notifies_with_default() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
         let (captured, cb) = capturing_callback();
         cfg.subscribe("dns.cache.ttl.override.seconds", cb);
 
@@ -674,7 +660,7 @@ mod test {
 
     #[test]
     fn unsubscribe_stops_notifications() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
         let (captured, cb) = capturing_callback();
         let id = cfg.subscribe("useragent.default_page", cb);
         assert!(cfg.unsubscribe(id));
@@ -688,7 +674,7 @@ mod test {
     fn callback_can_reenter_the_store() {
         // The callback writes a *different* key from within the notification. This only works
         // because notifications fire after the store lock is released.
-        let cfg = Config::in_memory();
+        let cfg = test_config();
         let inner = cfg.clone();
         cfg.subscribe("dns.remote.doh.enabled", move |_key, _value| {
             inner.set("dns.remote.dot.enabled", Setting::Bool(true)).unwrap();
@@ -701,7 +687,7 @@ mod test {
 
     #[test]
     fn constraint_enum_enforced() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
 
         // `useragent.tab.close_button` is constrained to `left,right`.
         assert!(cfg.set("useragent.tab.close_button", Setting::Map(vec!["right".into()])).is_ok());
@@ -710,7 +696,7 @@ mod test {
 
     #[test]
     fn constraint_range_enforced() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
 
         // `useragent.tab.max_opened` is constrained to `-1,0-9999`.
         assert!(cfg.set("useragent.tab.max_opened", Setting::SInt(100)).is_ok());
@@ -721,7 +707,7 @@ mod test {
 
     #[test]
     fn defaults_satisfy_their_constraints() {
-        let cfg = Config::in_memory();
+        let cfg = test_config();
         let store = cfg.0.read();
         for (key, info) in &store.settings_info {
             if let Some(constraint) = &info.constraint {

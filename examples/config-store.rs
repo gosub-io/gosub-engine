@@ -4,6 +4,7 @@ use derive_more::Display;
 use gosub_config::settings::Setting;
 use gosub_config::storage::{JsonStorageAdapter, SqliteStorageAdapter};
 use gosub_config::{Config, StorageAdapter};
+use gosub_engine::default_settings;
 use std::str::FromStr;
 
 #[derive(Debug, Parser)]
@@ -73,7 +74,10 @@ fn main() -> anyhow::Result<()> {
         Engine::Json => Box::new(JsonStorageAdapter::try_from(&args.global_opts.path)?),
     };
 
-    let config = Config::with_storage(storage);
+    // The schema (which settings exist) is owned by the engine; the CLI just attaches a
+    // persistent storage backend to it.
+    let config = default_settings();
+    config.set_storage(storage);
 
     match args.command {
         Commands::View { key } => {
