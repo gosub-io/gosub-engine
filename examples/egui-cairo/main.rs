@@ -12,7 +12,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, TileAnchor, ExternalHandle};
+use gosub_render_pipeline::render::backend::{anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
@@ -208,7 +208,8 @@ impl BrowserApp {
                 viewport_width,
                 viewport_height,
                 page_height,
-                ..
+                scroll_x,
+                scroll_y,
             } => {
                 // Update page_height so scroll clamping stays accurate.
                 self.page_height = page_height;
@@ -219,20 +220,21 @@ impl BrowserApp {
                 if w == 0 || h == 0 {
                     return;
                 }
-                // Physical-pixel scroll offset using local state (no async roundtrip).
-                let sx = (self.scroll_x * dpr_f) as i64;
-                let sy = (self.scroll_y * dpr_f) as i64;
                 // Opaque white: a valid premultiplied background for source-over blending.
                 let mut buf = vec![0xFFFF_FFFFu32; w * h];
 
                 for tile in tiles.iter() {
-                    let (sx, sy) = if tile.anchor == TileAnchor::Fixed { Default::default() } else { (sx, sy) };
-                    // Physical-pixel position of this tile on the page.
-                    let px = (tile.page_x * dpr_f) as i64;
-                    let py = (tile.page_y * dpr_f) as i64;
-                    // Screen position — may be negative when tile starts above/left of viewport.
-                    let screen_x = px - sx;
-                    let screen_y = py - sy;
+                    // Resolve the tile's viewport position in CSS px from the engine's authoritative
+                    // scroll (handles scroll, fixed and sticky uniformly), then scale to device px.
+                    let (vx, vy) = anchored_tile_pos(
+                        tile.page_x as f64,
+                        tile.page_y as f64,
+                        scroll_x as f64,
+                        scroll_y as f64,
+                        tile.anchor,
+                    );
+                    let screen_x = (vx * dpr_f as f64) as i64;
+                    let screen_y = (vy * dpr_f as f64) as i64;
                     let tw = tile.width as i64;
                     let th = tile.height as i64;
                     // Cull tiles fully outside the viewport.

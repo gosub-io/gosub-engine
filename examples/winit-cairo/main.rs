@@ -12,7 +12,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, TileAnchor, ExternalHandle};
+use gosub_render_pipeline::render::backend::{anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
@@ -33,7 +33,7 @@ use winit::window::{Window, WindowAttributes, WindowId};
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000006");
 const ADDRESS_BAR_HEIGHT: u32 = 36;
-const SCROLL_MULTIPLIER: f32 = 12.5;
+const SCROLL_MULTIPLIER: f32 = 134.0;
 
 type AppConfig = DefaultRenderConfig<CairoBackend, PangoFontSystem>;
 
@@ -416,14 +416,19 @@ fn blit_handle_to_buffer(
         } => {
             *page_height = ph;
             let dpr_f = tile_dpr as f32;
-            let sx = (scroll_x * dpr_f).round() as i64;
-            let sy = (scroll_y * dpr_f).round() as i64;
 
             for tile in tiles.iter() {
-                let (sx, sy) = if tile.anchor == TileAnchor::Fixed { Default::default() } else { (sx, sy) };
-                // Signed physical position of tile relative to content area top-left.
-                let px = (tile.page_x * dpr_f).round() as i64 - sx;
-                let py = (tile.page_y * dpr_f).round() as i64 - sy;
+                // Resolve viewport position in CSS px from the engine's scroll (handles scroll,
+                // fixed and sticky uniformly), then scale to device px.
+                let (vx, vy) = anchored_tile_pos(
+                    tile.page_x as f64,
+                    tile.page_y as f64,
+                    scroll_x as f64,
+                    scroll_y as f64,
+                    tile.anchor,
+                );
+                let px = (vx * dpr_f as f64).round() as i64;
+                let py = (vy * dpr_f as f64).round() as i64;
                 let tw = tile.width as i64;
                 let th = tile.height as i64;
                 let cw_i = win_w as i64;

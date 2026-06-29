@@ -11,7 +11,7 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, TileAnchor, ExternalHandle};
+use gosub_render_pipeline::render::backend::{anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
 use once_cell::sync::Lazy;
@@ -33,7 +33,7 @@ use winit::window::{Window, WindowAttributes, WindowId};
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-00000000000a");
 const ADDRESS_BAR_HEIGHT: u32 = 36;
-const SCROLL_MULTIPLIER: f32 = 12.5;
+const SCROLL_MULTIPLIER: f32 = 134.0;
 
 type AppConfig = DefaultRenderConfig<SkiaBackend, SkiaFontSystem>;
 
@@ -309,7 +309,7 @@ fn blit_to_buffer(
     content_h: u32,
     handle: ExternalHandle,
     page_height: &mut f32,
-    scroll: (f32, f32),
+    _scroll: (f32, f32),
 ) {
     match handle {
         ExternalHandle::CpuPixelsOwned {
@@ -336,33 +336,41 @@ fn blit_to_buffer(
             tiles,
             page_height: ph,
             dpr,
+            scroll_x,
+            scroll_y,
             ..
         } => {
             *page_height = ph;
-            let d = dpr as usize;
-            // Use the locally-tracked scroll position so scrolling feels instant without
-            // waiting for the engine to acknowledge the scroll command.
-            let sx = scroll.0 as usize * d;
-            let sy = scroll.1 as usize * d;
+            let dpr_f = dpr as f64;
             for tile in tiles.iter() {
-                let (sx, sy) = if tile.anchor == TileAnchor::Fixed { Default::default() } else { (sx, sy) };
-                let tile_px = tile.page_x as usize * d;
-                let tile_py = tile.page_y as usize * d;
-                let tw = tile.width as usize;
-                let th = tile.height as usize;
+                // Viewport position in CSS px from the engine's authoritative scroll (handles
+                // scroll, fixed and sticky uniformly), then scaled to device px. Signed: a tile may
+                // start above/left of the viewport.
+                let (vx, vy) = anchored_tile_pos(
+                    tile.page_x as f64,
+                    tile.page_y as f64,
+                    scroll_x as f64,
+                    scroll_y as f64,
+                    tile.anchor,
+                );
+                let screen_x_i = (vx * dpr_f).round() as i64;
+                let screen_y_i = (vy * dpr_f).round() as i64;
+                let tw = tile.width as i64;
+                let th = tile.height as i64;
 
                 // Skip tiles entirely outside the viewport.
-                if tile_px + tw <= sx || tile_py + th <= sy {
+                if screen_x_i + tw <= 0 || screen_y_i + th <= 0 || screen_x_i >= win_w as i64 {
                     continue;
                 }
 
-                // First visible row/col within the tile (> 0 when tile is partially above/left).
-                let row_start = sy.saturating_sub(tile_py);
-                let col_start = sx.saturating_sub(tile_px);
-
-                // Screen position of the first visible pixel.
-                let screen_x = tile_px.saturating_sub(sx);
-                let screen_y = tile_py.saturating_sub(sy);
+                // Leading rows/cols of the tile that fall above/left of the viewport edge.
+                let row_start = (-screen_y_i).max(0) as usize;
+                let col_start = (-screen_x_i).max(0) as usize;
+                // On-screen position of the first visible pixel.
+                let screen_x = screen_x_i.max(0) as usize;
+                let screen_y = screen_y_i.max(0) as usize;
+                let tw = tw as usize;
+                let th = th as usize;
 
                 let tile_u32 =
                     unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
