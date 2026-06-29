@@ -67,12 +67,371 @@
       "description": "When enabled, Gosub will use the hosts file to resolve hostnames as well."
     }
   ],
+  "net": [
+    {
+      "key": "user_agent",
+      "type": "s",
+      "default": "s:Gosub/0.1 (+https://gosub.dev)",
+      "description": "Default User-Agent string sent with outgoing HTTP requests."
+    },
+    {
+      "key": "timeout.connect_secs",
+      "type": "u",
+      "default": "u:5",
+      "description": "TCP+TLS handshake timeout (seconds) before request bytes are sent."
+    },
+    {
+      "key": "timeout.request_secs",
+      "type": "u",
+      "default": "u:60",
+      "description": "Timeout (seconds) from sending the first request byte until response headers arrive."
+    },
+    {
+      "key": "timeout.read_idle_secs",
+      "type": "u",
+      "default": "u:15",
+      "description": "Maximum silence (seconds) between consecutive response body chunks before timing out."
+    },
+    {
+      "key": "timeout.body_secs",
+      "type": "u",
+      "default": "u:180",
+      "description": "Wall-clock deadline (seconds) for receiving the entire response body. 0 disables the limit."
+    },
+    {
+      "key": "http.global_slots",
+      "type": "u",
+      "default": "u:32",
+      "description": "Maximum number of concurrent HTTP connections across all origins."
+    },
+    {
+      "key": "http.per_origin_h1",
+      "type": "u",
+      "default": "u:6",
+      "description": "Maximum concurrent HTTP/1.x connections per origin."
+    },
+    {
+      "key": "http.per_origin_h2",
+      "type": "u",
+      "default": "u:16",
+      "description": "Maximum concurrent HTTP/2 streams per origin."
+    },
+    {
+      "key": "http.max_redirects",
+      "type": "u",
+      "default": "u:20",
+      "description": "Maximum number of HTTP redirects to follow before giving up."
+    },
+    {
+      "key": "http.http2_enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "Enable HTTP/2 support."
+    },
+    {
+      "key": "http.http3_enabled",
+      "type": "b",
+      "default": "b:false",
+      "description": "Enable HTTP/3 support (if the backend supports it)."
+    },
+    {
+      "key": "http.max_body_bytes",
+      "type": "u",
+      "default": "u:10485760",
+      "description": "Maximum response body size (bytes) for synchronous HTTP operations."
+    },
+    {
+      "key": "cookies.persist",
+      "type": "b",
+      "default": "b:true",
+      "description": "Persist cookies to disk between sessions."
+    },
+    {
+      "key": "cookies.partitioning",
+      "type": "s",
+      "values": "disabled,top_level,strict_site",
+      "default": "s:top_level",
+      "description": "Cookie partitioning policy."
+    },
+    {
+      "key": "cookies.third_party_policy",
+      "type": "s",
+      "values": "allow,block,samesite_none_only",
+      "default": "s:allow",
+      "description": "How third-party cookies are handled."
+    },
+    {
+      "key": "cache.disk_bytes",
+      "type": "u",
+      "default": "u:536870912",
+      "description": "Maximum on-disk HTTP cache size in bytes (default 512 MB)."
+    },
+    {
+      "key": "cache.memory_bytes",
+      "type": "u",
+      "default": "u:134217728",
+      "description": "Maximum in-memory HTTP cache size in bytes (default 128 MB)."
+    },
+    {
+      "key": "security.cors_enforcement",
+      "type": "b",
+      "default": "b:true",
+      "description": "Enforce CORS policies on cross-origin requests."
+    },
+    {
+      "key": "security.blocked_domains",
+      "type": "m",
+      "default": "m:",
+      "description": "List of domains to block (exact match)."
+    },
+    {
+      "key": "security.allowlist_domains",
+      "type": "m",
+      "default": "m:",
+      "description": "List of explicitly allowed domains (exact match). Empty means no allowlist."
+    },
+    {
+      "key": "proxy.http",
+      "type": "s",
+      "default": "s:",
+      "description": "Proxy URL for HTTP requests (e.g. http://user:pass@host:port). Empty disables."
+    },
+    {
+      "key": "proxy.https",
+      "type": "s",
+      "default": "s:",
+      "description": "Proxy URL for HTTPS requests. Empty disables."
+    },
+    {
+      "key": "proxy.socks5",
+      "type": "s",
+      "default": "s:",
+      "description": "SOCKS5 proxy URL (e.g. socks5://host:1080). Empty disables."
+    },
+    {
+      "key": "proxy.no_proxy",
+      "type": "m",
+      "default": "m:",
+      "description": "List of domains that bypass the proxy."
+    },
+    {
+      "key": "tls.system_roots",
+      "type": "b",
+      "default": "b:true",
+      "description": "Use the system root certificate store for TLS validation."
+    }
+  ],
   "renderer": [
     {
       "key": "opengl.enabled",
       "type": "b",
       "default": "b:true",
       "description": "When set to true, the OpenGL renderer will be used. When set to false, the software renderer will be used."
+    },
+    {
+      "key": "device_pixel_ratio",
+      "type": "u",
+      "default": "u:1",
+      "description": "Physical-to-CSS pixel ratio (HiDPI scaling)."
+    },
+    {
+      "key": "tile.size",
+      "type": "u",
+      "default": "u:256",
+      "description": "Square tile dimension (pixels) used by the rasterization grid."
+    },
+    {
+      "key": "clear_color",
+      "type": "s",
+      "default": "s:#ffffffff",
+      "description": "Background color (#rrggbbaa) used to clear the surface before compositing."
+    },
+    {
+      "key": "target_fps",
+      "type": "u",
+      "default": "u:0",
+      "description": "Frame-rate cap in FPS. 0 means uncapped."
+    },
+    {
+      "key": "tab.default_fps",
+      "type": "u",
+      "default": "u:60",
+      "description": "Default per-tab render frame rate."
+    },
+    {
+      "key": "pixel_snap",
+      "type": "b",
+      "default": "b:true",
+      "description": "Snap rendering coordinates to pixel boundaries for sharper text."
+    },
+    {
+      "key": "gpu.msaa_samples",
+      "type": "u",
+      "values": "1,2,4,8",
+      "default": "u:1",
+      "description": "Multi-sample anti-aliasing sample count."
+    },
+    {
+      "key": "gpu.vsync",
+      "type": "b",
+      "default": "b:true",
+      "description": "Enable vertical sync (may increase latency)."
+    },
+    {
+      "key": "gpu.srgb_framebuffer",
+      "type": "b",
+      "default": "b:true",
+      "description": "Use an sRGB framebuffer if supported."
+    },
+    {
+      "key": "gpu.prefer_low_power",
+      "type": "b",
+      "default": "b:false",
+      "description": "Prefer a low-power (integrated) GPU on multi-GPU systems."
+    },
+    {
+      "key": "font.antialias",
+      "type": "s",
+      "values": "none,gray,subpixel",
+      "default": "s:gray",
+      "description": "Font anti-aliasing method."
+    },
+    {
+      "key": "font.hint_style",
+      "type": "s",
+      "values": "none,slight,medium,full",
+      "default": "s:slight",
+      "description": "Font hinting style."
+    },
+    {
+      "key": "font.dpi",
+      "type": "f",
+      "default": "f:96.0",
+      "description": "DPI resolution used for font rendering (CSS px to point conversion)."
+    }
+  ],
+  "engine": [
+    {
+      "key": "max_zones",
+      "type": "u",
+      "default": "u:8",
+      "description": "Maximum number of zones that may be created within the engine."
+    },
+    {
+      "key": "zone.max_tabs",
+      "type": "u",
+      "default": "u:16",
+      "description": "Maximum number of tabs allowed within a single zone."
+    },
+    {
+      "key": "worker_threads",
+      "type": "u",
+      "default": "u:0",
+      "description": "Engine worker thread-pool size. 0 means auto-detect from CPU cores."
+    },
+    {
+      "key": "io_concurrency",
+      "type": "u",
+      "default": "u:64",
+      "description": "Maximum number of concurrent network/disk I/O tasks."
+    },
+    {
+      "key": "script_concurrency",
+      "type": "u",
+      "default": "u:8",
+      "description": "Maximum number of concurrent script (JS/WASM) tasks."
+    },
+    {
+      "key": "channel_capacity",
+      "type": "u",
+      "default": "u:512",
+      "description": "Default buffer capacity for the engine's async command/event channels."
+    },
+    {
+      "key": "io_shutdown_secs",
+      "type": "u",
+      "default": "u:10",
+      "description": "Grace period (seconds) for the I/O thread to shut down cleanly."
+    },
+    {
+      "key": "storage.quota_per_zone_bytes",
+      "type": "u",
+      "default": "u:268435456",
+      "description": "Per-zone storage quota in bytes (localStorage, IndexedDB; default 256 MB)."
+    },
+    {
+      "key": "storage.font_cache_bytes",
+      "type": "u",
+      "default": "u:67108864",
+      "description": "Maximum font cache size in bytes (default 64 MB)."
+    },
+    {
+      "key": "storage.sqlite_busy_ms",
+      "type": "u",
+      "default": "u:500",
+      "description": "SQLite busy timeout in milliseconds for concurrent access."
+    },
+    {
+      "key": "storage.sqlite_pool_max",
+      "type": "u",
+      "default": "u:16",
+      "description": "Maximum number of pooled SQLite connections."
+    }
+  ],
+  "scripting": [
+    {
+      "key": "javascript_enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "Enable JavaScript execution engine-wide."
+    },
+    {
+      "key": "lua_enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "Enable Lua scripting engine-wide."
+    },
+    {
+      "key": "wasm_enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "Enable WebAssembly execution engine-wide."
+    },
+    {
+      "key": "max_cpu_ms_per_frame",
+      "type": "u",
+      "default": "u:8",
+      "description": "Maximum CPU time (milliseconds) scripts may use per frame."
+    }
+  ],
+  "security": [
+    {
+      "key": "sandbox_mode",
+      "type": "s",
+      "values": "off,balanced,strict",
+      "default": "s:balanced",
+      "description": "Sandboxing level applied to zones."
+    }
+  ],
+  "telemetry": [
+    {
+      "key": "log_level",
+      "type": "s",
+      "values": "error,warn,info,debug,trace",
+      "default": "s:info",
+      "description": "Logging verbosity level."
+    },
+    {
+      "key": "metrics_enabled",
+      "type": "b",
+      "default": "b:false",
+      "description": "Collect engine metrics."
+    },
+    {
+      "key": "trace_enabled",
+      "type": "b",
+      "default": "b:false",
+      "description": "Collect tracing spans."
     }
   ]
 }
