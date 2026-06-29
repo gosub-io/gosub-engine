@@ -2,8 +2,9 @@
 //!
 //! `gosub_config` provides the configuration *machinery* but is agnostic of which settings exist.
 //! The engine owns the schema: the set of known keys with their types, defaults, constraints and
-//! descriptions. It lives in `settings.json` (embedded at build time) and is parsed here into the
-//! [`SettingInfo`] list that seeds a [`Config`].
+//! descriptions. It lives in two embedded files — `settings.json` (engine settings) and
+//! `useragent-settings.json` (user-agent settings, merged under the `useragent` namespace) — which
+//! are parsed here into the [`SettingInfo`] lists that seed a [`Config`].
 
 use gosub_config::settings::{Constraint, Setting, SettingInfo};
 use gosub_config::Config;
@@ -103,7 +104,11 @@ mod test {
     fn schema_constraints_are_applied() {
         let cfg = default_config();
         // `useragent.tab.close_button` is constrained to `left,right` (constraint survives the merge).
-        assert!(cfg.set("useragent.tab.close_button", Setting::Map(vec!["right".into()])).is_ok());
-        assert!(cfg.set("useragent.tab.close_button", Setting::Map(vec!["nope".into()])).is_err());
+        assert!(cfg
+            .set("useragent.tab.close_button", Setting::Map(vec!["right".into()]))
+            .is_ok());
+        assert!(cfg
+            .set("useragent.tab.close_button", Setting::Map(vec!["nope".into()]))
+            .is_err());
     }
 }

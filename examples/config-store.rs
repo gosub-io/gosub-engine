@@ -135,7 +135,11 @@ fn print_table(config: &Config, keys: &[String]) -> anyhow::Result<()> {
             key: key.clone(),
             type_name: value.type_name().to_string(),
             // Em dash for empty values (e.g. an empty map) so the column never looks blank.
-            value: if rendered.is_empty() { "—".to_string() } else { rendered },
+            value: if rendered.is_empty() {
+                "—".to_string()
+            } else {
+                rendered
+            },
             allowed: info.constraint.as_ref().map(|c| c.compact()).unwrap_or_default(),
         });
     }
@@ -149,7 +153,11 @@ fn print_table(config: &Config, keys: &[String]) -> anyhow::Result<()> {
 
     // Column widths account for both the header label and the widest cell (measured in chars).
     let width = |header: &str, cells: &dyn Fn(&Row) -> &str| {
-        rows.iter().map(|r| cells(r).chars().count()).chain([header.chars().count()]).max().unwrap_or(0)
+        rows.iter()
+            .map(|r| cells(r).chars().count())
+            .chain([header.chars().count()])
+            .max()
+            .unwrap_or(0)
     };
     let kw = width("KEY", &|r| &r.key);
     let tw = width("TYPE", &|r| &r.type_name);

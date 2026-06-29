@@ -624,7 +624,8 @@ mod test {
 
         // A separate user-agent config with its own setting, overridden from its default.
         let ua = Config::new([info("tabs.close_position", "m:left", Some("left,right"))]);
-        ua.set("tabs.close_position", Setting::Map(vec!["right".into()])).unwrap();
+        ua.set("tabs.close_position", Setting::Map(vec!["right".into()]))
+            .unwrap();
 
         let merged = engine.merge(&ua, "user_agent");
         assert_eq!(merged, 1);
@@ -639,7 +640,9 @@ mod test {
         assert!(info.constraint.is_some());
 
         // The merged key is now a normal, constraint-checked setting of the engine config.
-        assert!(engine.set("user_agent.tabs.close_position", Setting::Map(vec!["nope".into()])).is_err());
+        assert!(engine
+            .set("user_agent.tabs.close_position", Setting::Map(vec!["nope".into()]))
+            .is_err());
     }
 
     #[test]
@@ -688,7 +691,10 @@ mod test {
 
     /// Captures `(key, value)` pairs delivered to a subscription callback.
     #[allow(clippy::type_complexity)]
-    fn capturing_callback() -> (Arc<Mutex<Vec<(String, Setting)>>>, impl Fn(&str, &Setting) + Send + Sync) {
+    fn capturing_callback() -> (
+        Arc<Mutex<Vec<(String, Setting)>>>,
+        impl Fn(&str, &Setting) + Send + Sync,
+    ) {
         let captured = Arc::new(Mutex::new(Vec::new()));
         let sink = captured.clone();
         let cb = move |key: &str, value: &Setting| {
@@ -722,7 +728,10 @@ mod test {
         cfg.set("dns.remote.timeout", Setting::UInt(5)).unwrap();
         cfg.set("dns.remote.timeout", Setting::UInt(7)).unwrap();
 
-        assert_eq!(*captured.lock(), vec![("dns.remote.timeout".to_string(), Setting::UInt(7))]);
+        assert_eq!(
+            *captured.lock(),
+            vec![("dns.remote.timeout".to_string(), Setting::UInt(7))]
+        );
     }
 
     #[test]
@@ -769,7 +778,8 @@ mod test {
         let id = cfg.subscribe("useragent.default_page", cb);
         assert!(cfg.unsubscribe(id));
 
-        cfg.set("useragent.default_page", Setting::String("about:config".into())).unwrap();
+        cfg.set("useragent.default_page", Setting::String("about:config".into()))
+            .unwrap();
 
         assert!(captured.lock().is_empty());
     }
@@ -794,8 +804,12 @@ mod test {
         let cfg = test_config();
 
         // `useragent.tab.close_button` is constrained to `left,right`.
-        assert!(cfg.set("useragent.tab.close_button", Setting::Map(vec!["right".into()])).is_ok());
-        assert!(cfg.set("useragent.tab.close_button", Setting::Map(vec!["middle".into()])).is_err());
+        assert!(cfg
+            .set("useragent.tab.close_button", Setting::Map(vec!["right".into()]))
+            .is_ok());
+        assert!(cfg
+            .set("useragent.tab.close_button", Setting::Map(vec!["middle".into()]))
+            .is_err());
     }
 
     #[test]
