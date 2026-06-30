@@ -177,6 +177,39 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
     }
 }
 
+/// Recursively search a CSS value tree for the first `url(...)` token and return its
+/// (unresolved) target, stripping any quotes. Used for `background-image`.
+fn css_value_url<S: CssSystem>(v: &S::Value) -> Option<String> {
+    if let Some((name, args)) = v.as_function() {
+        if name.eq_ignore_ascii_case("url") {
+            if let Some(s) = args.iter().find_map(|a| a.as_string()) {
+                return Some(s.trim_matches(['"', '\'']).to_string());
+            }
+        }
+    }
+    if let Some(list) = v.as_list() {
+        return list.iter().find_map(css_value_url::<S>);
+    }
+    None
+}
+
+/// Extract the first `url(...)` from a property's actual value. Handles both the
+/// `background-image` longhand (a bare `url()` function) and the `background` shorthand,
+/// whose value is a list like `[url(...), no-repeat]`.
+fn css_property_url<S: CssSystem>(p: &S::Property) -> Option<String> {
+    if let Some((name, args)) = p.as_function() {
+        if name.eq_ignore_ascii_case("url") {
+            if let Some(s) = args.iter().find_map(|a| a.as_string()) {
+                return Some(s.trim_matches(['"', '\'']).to_string());
+            }
+        }
+    }
+    if let Some(list) = p.as_list() {
+        return list.iter().find_map(css_value_url::<S>);
+    }
+    None
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineNodeKind {
     Text,
@@ -414,6 +447,22 @@ where
                     }
                 }
             }
+        }
+
+        // background-image: accept the `background-image` longhand or a `url(...)` inside the
+        // `background` shorthand. Shorthands are stored under their own key (not expanded into
+        // longhands), so the shorthand must be inspected explicitly — same pattern as
+        // `text-decoration` above. The returned keyword is the unresolved URL; the layouter
+        // resolves it against the base URL and loads it into the media store.
+        if matches!(prop, StyleProperty::BackgroundImage) {
+            for key in ["background-image", "background"] {
+                if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), key) {
+                    if let Some(url) = css_property_url::<C::CssSystem>(p) {
+                        return Some(Value::Keyword(intern(&url)));
+                    }
+                }
+            }
+            return None;
         }
 
         if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), css_name) {

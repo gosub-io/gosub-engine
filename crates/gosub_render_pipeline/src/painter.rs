@@ -4,7 +4,7 @@ use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
 use crate::common::document::style::{BorderStyle as CssBorderStyle, Display, StyleProperty, Value};
 use crate::layering::layer::LayerList;
-use crate::layouter::{ElementContext, LayoutElementNode};
+use crate::layouter::{BackgroundMedia, ElementContext, LayoutElementNode};
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::color::Color;
@@ -146,9 +146,40 @@ impl Painter {
         vec![PaintCommand::rectangle(r)]
     }
 
+    /// Paint commands for an element's CSS `background-image`, filling the border box.
+    /// Raster images are blitted via `Brush::image`; SVGs go through the SVG paint path
+    /// (e.g. HN's `triangle.svg` votearrow), which `Brush::image` cannot render.
+    fn background_media_commands(
+        &self,
+        bg: BackgroundMedia,
+        layout_element: &LayoutElementNode,
+        dom_node_id: NodeId,
+    ) -> Vec<PaintCommand> {
+        let border_box = layout_element.box_model.border_box;
+        match bg {
+            BackgroundMedia::Image(media_id) => {
+                let brush = Brush::image(media_id);
+                let r = Rectangle::new(border_box).with_background(brush);
+                let r = self.decorate_with_border_and_radius(dom_node_id, r);
+                vec![PaintCommand::rectangle(r)]
+            }
+            BackgroundMedia::Svg(media_id) => vec![PaintCommand::svg(media_id, Rectangle::new(border_box))],
+        }
+    }
+
     /// Generates the paint commands for the given layout element
     fn generate_element_commands(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
+
+        // CSS background-image. For plain block elements (`None` context) it is painted just
+        // after the background-color in that branch below (correct CSS layering). For
+        // replaced/text content we paint it first so the element's own content stays on top.
+        let bg_media = layout_element.background_media;
+        if let Some(bg) = bg_media {
+            if !matches!(layout_element.context, ElementContext::None) {
+                commands.extend(self.background_media_commands(bg, layout_element, dom_node_id));
+            }
+        }
 
         match &layout_element.context {
             ElementContext::Text(ctx) => {
@@ -189,6 +220,11 @@ impl Painter {
                 let r = Rectangle::new(layout_element.box_model.border_box).with_background(brush);
                 let r = self.decorate_with_border_and_radius(dom_node_id, r);
                 commands.push(PaintCommand::rectangle(r));
+
+                // background-image paints on top of the background-color.
+                if let Some(bg) = bg_media {
+                    commands.extend(self.background_media_commands(bg, layout_element, dom_node_id));
+                }
             }
         }
 

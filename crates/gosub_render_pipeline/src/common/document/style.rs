@@ -305,6 +305,7 @@ pub enum StyleProperty {
     FontStyle,
     WhiteSpace,
     TextDecorationLine,
+    BackgroundImage,
 }
 
 impl StyleProperty {
@@ -382,6 +383,7 @@ impl StyleProperty {
             StyleProperty::FontStyle => 68,
             StyleProperty::WhiteSpace => 69,
             StyleProperty::TextDecorationLine => 70,
+            StyleProperty::BackgroundImage => 71,
         }
     }
 
@@ -875,6 +877,12 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: true,
         initial_kind: InitialKind::Keyword("none"),
     },
+    // 71 background-image — not inherited; initial = none
+    PropertyMeta {
+        name: "background-image",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("none"),
+    },
 ];
 
 // ── NodeStyle — replaces StylePropertyList ────────────────────────────────────
@@ -1008,6 +1016,7 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         68 => Some(StyleProperty::FontStyle),
         69 => Some(StyleProperty::WhiteSpace),
         70 => Some(StyleProperty::TextDecorationLine),
+        71 => Some(StyleProperty::BackgroundImage),
         _ => None,
     }
 }

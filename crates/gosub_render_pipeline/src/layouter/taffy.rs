@@ -10,8 +10,8 @@ use crate::layouter::css_taffy_converter::CssTaffyConverter;
 use crate::layouter::table::post_process_tables;
 use crate::layouter::text::get_text_layout;
 use crate::layouter::{
-    box_model, CanLayout, ElementContext, ElementContextImage, ElementContextSvg, ElementContextText, LayoutElementId,
-    LayoutElementNode, LayoutTree,
+    box_model, BackgroundMedia, CanLayout, ElementContext, ElementContextImage, ElementContextSvg, ElementContextText,
+    LayoutElementId, LayoutElementNode, LayoutTree,
 };
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
@@ -514,6 +514,8 @@ impl TaffyLayouter {
             return None;
         };
 
+        let background_media = self.resolve_background_media(layout_tree, dom_node.node_id);
+
         let mut element_node = LayoutElementNode {
             id: layout_tree.next_node_id(),
             dom_node_id: dom_node.node_id,
@@ -521,6 +523,7 @@ impl TaffyLayouter {
             box_model: box_model::BoxModel::ZERO,
             children: vec![],
             context: element_context,
+            background_media,
         };
 
         // Children are tracked in both the taffy tree and the element_node's children vec.
@@ -619,6 +622,36 @@ impl TaffyLayouter {
         self.dom_to_layout_mapping.insert(dom_node.node_id, layout_element_id);
 
         Some((layout_element_id, leaf_id))
+    }
+
+    /// Resolves the element's CSS `background-image` (if any) to a media id: reads the computed
+    /// value, resolves the URL against the document base URL, and loads it into the media store.
+    /// Returns `None` when there is no background image or it fails to load.
+    fn resolve_background_media(&self, layout_tree: &LayoutTree, dom_node_id: DomNodeId) -> Option<BackgroundMedia> {
+        let doc = &layout_tree.render_tree.doc;
+        let url = match doc.get_style(dom_node_id, &StyleProperty::BackgroundImage) {
+            Value::Keyword(id) => lookup(id),
+            _ => return None,
+        };
+        if url.is_empty() || url.eq_ignore_ascii_case("none") {
+            return None;
+        }
+
+        let abs = to_absolute_url(&url, &doc.base_url());
+        let media_id = match self.media_store.load_media(&abs) {
+            Ok(media_id) => media_id,
+            Err(e) => {
+                log::warn!("Could not load background-image '{}': {}", abs, e);
+                return None;
+            }
+        };
+
+        // Pick the renderer based on what was actually stored: an SVG (e.g. HN's
+        // `triangle.svg` votearrow) must go through the SVG paint path, not a raster blit.
+        match &*self.media_store.get(media_id, MediaType::Image) {
+            Media::Svg(_) => Some(BackgroundMedia::Svg(media_id)),
+            Media::Image(_) => Some(BackgroundMedia::Image(media_id)),
+        }
     }
 
     /// Extracts taffy variables based the DOM node. It will generate the taffy style based on the node CSS properties,

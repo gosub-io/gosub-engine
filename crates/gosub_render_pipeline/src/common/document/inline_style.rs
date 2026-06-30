@@ -20,6 +20,16 @@ pub fn parse_inline_style_attr(style_attr: &str) -> NodeStyle {
     style
 }
 
+/// Extract the target of a `url(...)` token from a CSS value string, stripping surrounding
+/// quotes. Returns `None` when there is no `url()` (e.g. a gradient or plain color).
+fn parse_css_url(value: &str) -> Option<String> {
+    let start = value.find("url(")? + "url(".len();
+    let rest = &value[start..];
+    let end = rest.find(')')?;
+    let inner = rest[..end].trim().trim_matches(['"', '\'']).trim();
+    (!inner.is_empty()).then(|| inner.to_string())
+}
+
 fn parse_background_color_token(value: &str) -> Option<Value> {
     for token in value.split_whitespace() {
         let v = parse_named_color(token);
@@ -262,6 +272,14 @@ fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
             if let Some(color) = parse_background_color_token(value) {
                 style.set(StyleProperty::BackgroundColor, color);
             }
+            if let Some(url) = parse_css_url(value) {
+                style.set(StyleProperty::BackgroundImage, Value::Keyword(intern(&url)));
+            }
+        }
+        "background-image" => {
+            if let Some(url) = parse_css_url(value) {
+                style.set(StyleProperty::BackgroundImage, Value::Keyword(intern(&url)));
+            }
         }
 
         "font-weight" => style.set(StyleProperty::FontWeight, parse_font_weight(value)),
@@ -468,5 +486,41 @@ pub fn html_presentation_attr(attrs: &HashMap<String, String>, prop: &StylePrope
             }
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_url_from_value() {
+        assert_eq!(parse_css_url("url(grayarrow.gif)").as_deref(), Some("grayarrow.gif"));
+        assert_eq!(parse_css_url("url('a b.png')").as_deref(), Some("a b.png"));
+        assert_eq!(parse_css_url(r#"url("x.gif") no-repeat"#).as_deref(), Some("x.gif"));
+        assert_eq!(parse_css_url("#fff no-repeat"), None);
+        assert_eq!(parse_css_url("url()"), None);
+    }
+
+    #[test]
+    fn background_shorthand_sets_image_and_color() {
+        let style = parse_inline_style_attr("background: #fff url(grayarrow.gif) no-repeat");
+        assert!(matches!(
+            style.get_own(&StyleProperty::BackgroundImage),
+            Some(Value::Keyword(_))
+        ));
+        assert!(matches!(
+            style.get_own(&StyleProperty::BackgroundColor),
+            Some(Value::Color(255, 255, 255, 255))
+        ));
+    }
+
+    #[test]
+    fn background_image_longhand() {
+        let style = parse_inline_style_attr("background-image: url(pic.png)");
+        assert!(matches!(
+            style.get_own(&StyleProperty::BackgroundImage),
+            Some(Value::Keyword(_))
+        ));
     }
 }
