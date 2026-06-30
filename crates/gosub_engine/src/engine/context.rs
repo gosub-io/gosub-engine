@@ -166,6 +166,9 @@ struct BakedTile {
 /// Format: (page_x bits, page_y bits, layer_id, paint-command hash).
 type TileCacheKey = (u64, u64, u64, u64);
 
+/// Rasterized tile cache: maps a [`TileCacheKey`] to `(physical_width, physical_height, pixels)`.
+type TilePixelCache = std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>;
+
 /// Cached output of stages 1–6 for the whole page. Re-used on every scroll tick.
 struct PipelineCache {
     tiles: Vec<BakedTile>,
@@ -177,7 +180,7 @@ struct PipelineCache {
     /// Rasterized tile data keyed by (page_x, page_y, layer_id, content_hash).
     /// Passed to the next render so unchanged tiles skip rasterization.
     /// Value is (physical_width, physical_height, pixel_data).
-    tile_pixel_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>,
+    tile_pixel_cache: TilePixelCache,
 }
 
 /// BrowsingContext dedicated to a specific tab
@@ -868,7 +871,7 @@ fn pipeline_build_cache(
     #[cfg(feature = "backend_vello")] _vello_resources: Option<
         std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
     >,
-    prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>,
+    prev_tile_cache: TilePixelCache,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
 ) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
@@ -1042,8 +1045,7 @@ fn pipeline_build_cache(
 
             // Phase 3: update tile states, gather BakedTiles, and build the new tile cache.
             let mut tiles: Vec<BakedTile> = Vec::with_capacity(results.len());
-            let mut new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)> =
-                std::collections::HashMap::with_capacity(results.len());
+            let mut new_tile_cache: TilePixelCache = std::collections::HashMap::with_capacity(results.len());
 
             for (tile_id, baked, cache_entry) in results {
                 if let Some(tile) = tile_list.arena.get_mut(&tile_id) {
@@ -1148,13 +1150,12 @@ fn pipeline_build_cache(
         not(feature = "backend_cairo"),
         not(feature = "backend_skia")
     ))]
-    let new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)> =
-        std::collections::HashMap::new();
+    let new_tile_cache: TilePixelCache = std::collections::HashMap::new();
 
     #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
     let baked_tiles: Vec<BakedTile> = Vec::new();
     #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
-    let new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)> = {
+    let new_tile_cache: TilePixelCache = {
         // No backend selected: rasterization is skipped, so the dirty-tile cache is unused.
         let _ = &prev_tile_cache;
         std::collections::HashMap::new()
@@ -1202,7 +1203,7 @@ fn pipeline_hover_repaint(
     #[cfg(feature = "backend_vello")] _vello_resources: Option<
         std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
     >,
-    prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>,
+    prev_tile_cache: TilePixelCache,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
 ) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
@@ -1394,8 +1395,7 @@ fn pipeline_hover_repaint(
                 .collect();
 
             let mut tiles: Vec<BakedTile> = Vec::with_capacity(results.len());
-            let mut new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)> =
-                std::collections::HashMap::with_capacity(results.len());
+            let mut new_tile_cache: TilePixelCache = std::collections::HashMap::with_capacity(results.len());
             for (tile_id, baked, cache_entry) in results {
                 if let Some(tile) = tile_list.arena.get_mut(&tile_id) {
                     match baked {
@@ -1479,10 +1479,7 @@ fn pipeline_hover_repaint(
     };
 
     #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
-    let (baked_tiles, new_tile_cache): (
-        Vec<BakedTile>,
-        std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>,
-    ) = {
+    let (baked_tiles, new_tile_cache): (Vec<BakedTile>, TilePixelCache) = {
         // No backend selected: rasterization is skipped, so the shared media store is unused.
         let _ = &media_store;
         (Vec::new(), std::collections::HashMap::new())
