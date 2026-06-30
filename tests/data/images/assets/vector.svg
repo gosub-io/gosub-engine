@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#11a3a3"/>
+      <stop offset="1" stop-color="#0a3d3d"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="400" height="300" fill="url(#g)"/>
+  <rect x="4" y="4" width="392" height="292" fill="none" stroke="#ffffff" stroke-width="3" opacity="0.8"/>
+  <circle cx="320" cy="80" r="46" fill="#ffffff" opacity="0.18"/>
+  <polygon points="60,250 130,120 200,250" fill="#ffffff" opacity="0.25"/>
+  <text x="200" y="150" font-family="DejaVu Sans, sans-serif" font-size="96" font-weight="bold"
+        text-anchor="middle" fill="#ffffff">SVG</text>
+  <text x="200" y="240" font-family="DejaVu Sans, sans-serif" font-size="26"
+        text-anchor="middle" fill="#ffffff" opacity="0.85">vector / scalable</text>
+</svg>

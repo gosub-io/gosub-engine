@@ -27,7 +27,7 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
                 use gtk4::glib::Bytes;
                 use gtk4::prelude::GdkCairoContextExt;
 
-                let bytes = Bytes::from(img.as_raw().as_slice());
+                let bytes = Bytes::from(img.as_raw());
                 let pixbuf = Pixbuf::from_bytes(
                     &bytes,
                     Colorspace::Rgb,

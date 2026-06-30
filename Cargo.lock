@@ -2326,15 +2326,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "file_type"
-version = "0.8.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "678acf8099d6cd5d8f1c665140918c36b4875c251c05a7f76acd79ab84f1d1ed"
-dependencies = [
- "phf",
-]
-
-[[package]]
 name = "filetime"
 version = "0.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3347,7 +3338,6 @@ dependencies = [
  "cairo-rs",
  "cow-utils",
  "csscolorparser",
- "file_type",
  "fontique 0.10.0",
  "gdk4-wayland",
  "gdk4-x11",

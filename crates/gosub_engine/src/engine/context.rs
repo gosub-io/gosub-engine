@@ -1176,7 +1176,7 @@ fn pipeline_build_cache(
                     }
                 }
             }
-            let mut tiles: Vec<BakedTile> = Vec::with_capacity(rasterized);
+            let mut tiles: Vec<BakedTile> = Vec::with_capacity(tile_list.arena.len());
             for tile in tile_list.arena.values() {
                 if let (Some(texture_id), true) = (tile.texture_id, tile.state == TileState::Clean) {
                     if let Some(tex) = texture_store.get(texture_id) {
