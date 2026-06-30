@@ -10,6 +10,10 @@ ignore = [
     # `paste` is unmaintained but only pulled in transitively; no maintained
     # drop-in replacement is wired through our dependencies yet.
     "RUSTSEC-2024-0436", # paste unmaintained
+    # `ttf-parser` is unmaintained but pulled in transitively by SVG rendering
+    # (resvg -> usvg -> fontdb) and font shaping (ab_glyph -> owned_ttf_parser).
+    # Nothing we control depends on it directly.
+    "RUSTSEC-2026-0192", # ttf-parser unmaintained
 ]
 
 [licenses]
