@@ -417,7 +417,17 @@ impl eframe::App for BrowserApp {
                 if let egui::Event::MouseWheel { unit, delta, .. } = e {
                     let mult = match unit {
                         egui::MouseWheelUnit::Line => 134.0,
-                        egui::MouseWheelUnit::Point => 1.0,
+                        // macOS reports a mouse-wheel notch as an integer Point delta (±1), while a
+                        // trackpad reports precise fractional deltas. Treat whole-number notches like
+                        // Line events (×134) so the wheel matches the other backends; pass precise
+                        // (fractional) trackpad deltas through unscaled.
+                        egui::MouseWheelUnit::Point => {
+                            if delta.x.fract() == 0.0 && delta.y.fract() == 0.0 {
+                                134.0
+                            } else {
+                                1.0
+                            }
+                        }
                         egui::MouseWheelUnit::Page => 800.0,
                     };
                     acc += *delta * mult;
