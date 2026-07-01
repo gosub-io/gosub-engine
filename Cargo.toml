@@ -72,7 +72,7 @@ nom = "8.0.0"
 once_cell = "1.21.3"
 pangocairo = "0.22.0"
 parking_lot = "0.12.4"
-parley = {version = "0.9.0", default-features = false}
+parley = {version = "0.11.0", default-features = false}
 pollster = "0.4.0"
 rand = "0.10.1"
 regex = "1.12.3"
