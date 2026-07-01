@@ -555,6 +555,48 @@ impl CssDefinitions {
                     _ => {}
                 }
             }
+
+            // `border-radius` is `<lp>{1,4} [ / <lp>{1,4} ]?`, so — unlike margin/padding
+            // whose `{1,4}` sits on the top-level component — the top-level component is a
+            // Juxtaposition group whose FIRST child carries the `{1,4}` multiplier (the second
+            // child is the optional `/ <vertical-radii>` part). Detect that shape and drive the
+            // same {1,4}-value box expansion.
+            //
+            // The QuadMulti expansion is tuned for the TRBL box order (margin/padding scramble
+            // their `computed` list to `[bottom, left, right, top]` so `get_names` lands each
+            // value on the right side). Corner properties are listed naturally as
+            // `[top-left, top-right, bottom-right, bottom-left]`, so feed the corners to the
+            // resolver reordered to `[BR, BL, TR, TL]`; that makes `get_names` reproduce the CSS
+            // corner rules (1 value → all; 2 → TL·BR / TR·BL; 3 → TL / TR·BL / BR; 4 → TL TR BR BL).
+            if computed.len() == 4 {
+                if let SyntaxComponent::Group { components: outer, .. } = component {
+                    let nested_quad = outer.first().is_some_and(|first_child| {
+                        first_child
+                            .multipliers()
+                            .iter()
+                            .any(|m| matches!(m, SyntaxComponentMultiplier::Between(1, 4)))
+                    });
+
+                    if nested_quad {
+                        // [BR, BL, TR, TL] — see comment above.
+                        for i in [2usize, 3, 1, 0] {
+                            shorthands.push(Shorthand {
+                                name: computed[i].clone(),
+                                // Descend into the outer group's first child (the `{1,4}` group)
+                                // and its single value slot, so the resolver completes once per
+                                // matched value the same way the top-level `{1,4}` case does.
+                                components: vec![0, 0],
+                            });
+                        }
+
+                        return Some(Shorthands {
+                            multiplier: Multiplier::QuadMulti,
+                            shorthands,
+                            name: name.to_string(),
+                        });
+                    }
+                }
+            }
         }
 
         let mut found_props = Vec::with_capacity(computed.len());
@@ -786,5 +828,48 @@ mod tests {
             ],
             &mut fix_list,
         ));
+    }
+
+    #[test]
+    fn border_radius() {
+        let definitions = get_css_definitions();
+        let prop = definitions.find_property("border-radius").unwrap();
+
+        // Resolve the shorthand and return (top-left, top-right, bottom-right, bottom-left).
+        let corners = |vals: &[CssValue]| -> (f32, f32, f32, f32) {
+            let mut fl = FixList::new();
+            assert!(prop.clone().matches_and_shorthands(vals, &mut fl), "should match");
+            let get = |name: &str| -> f32 {
+                let (_, v) = fl.list.iter().find(|(k, _)| k == name).expect("longhand present");
+                match &v.last().unwrap().value {
+                    CssValue::Unit(n, _) => *n,
+                    other => panic!("unexpected value {other:?}"),
+                }
+            };
+            (
+                get("border-top-left-radius"),
+                get("border-top-right-radius"),
+                get("border-bottom-right-radius"),
+                get("border-bottom-left-radius"),
+            )
+        };
+
+        // 1 value: all four corners.
+        assert_eq!(corners(&[unit!(6.0, "px")]), (6.0, 6.0, 6.0, 6.0));
+
+        // 2 values: first is top-left & bottom-right, second is top-right & bottom-left.
+        assert_eq!(corners(&[unit!(1.0, "px"), unit!(2.0, "px")]), (1.0, 2.0, 1.0, 2.0));
+
+        // 3 values: top-left, (top-right & bottom-left), bottom-right.
+        assert_eq!(
+            corners(&[unit!(1.0, "px"), unit!(2.0, "px"), unit!(3.0, "px")]),
+            (1.0, 2.0, 3.0, 2.0)
+        );
+
+        // 4 values: top-left, top-right, bottom-right, bottom-left.
+        assert_eq!(
+            corners(&[unit!(1.0, "px"), unit!(2.0, "px"), unit!(3.0, "px"), unit!(4.0, "px")]),
+            (1.0, 2.0, 3.0, 4.0)
+        );
     }
 }
