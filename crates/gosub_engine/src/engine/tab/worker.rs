@@ -361,7 +361,7 @@ impl TabWorker {
 
                 // Submit the scroll frame immediately — don't wait for the next timer tick.
                 // Eliminates up to 33ms of latency at 30fps per scroll event.
-                #[cfg(all(feature = "pipeline", any(feature = "backend_cairo", feature = "backend_skia")))]
+                #[cfg(any(feature = "backend_cairo", feature = "backend_skia"))]
                 {
                     #[cfg(feature = "backend_cairo")]
                     let dpr = {
@@ -385,31 +385,23 @@ impl TabWorker {
                 }
                 ControlFlow::Continue
             }
-            TabCommand::MouseMove { x: _x, y: _y } => {
-                #[cfg(feature = "pipeline")]
-                {
-                    // Process the hit-test immediately so hover doesn't wait for the next tick.
-                    let (visual_dirty, url_changed, link_url) = self.context.update_hover(_x as f64, _y as f64);
-                    if url_changed {
-                        self.send_event(EngineEvent::HoverUrl {
-                            tab_id: self.tab_id,
-                            url: link_url,
-                        });
-                    }
-                    if visual_dirty {
-                        self.runtime.dirty = true;
-                        self.runtime.render_now = true;
-                    }
+            TabCommand::MouseMove { x, y } => {
+                // Process the hit-test immediately so hover doesn't wait for the next tick.
+                let (visual_dirty, url_changed, link_url) = self.context.update_hover(x as f64, y as f64);
+                if url_changed {
+                    self.send_event(EngineEvent::HoverUrl {
+                        tab_id: self.tab_id,
+                        url: link_url,
+                    });
                 }
-                #[cfg(not(feature = "pipeline"))]
-                {
+                if visual_dirty {
                     self.runtime.dirty = true;
+                    self.runtime.render_now = true;
                 }
                 ControlFlow::Continue
             }
-            TabCommand::MouseDown { button: _button, .. } => {
-                #[cfg(feature = "pipeline")]
-                if matches!(_button, crate::events::MouseButton::Left) {
+            TabCommand::MouseDown { button, .. } => {
+                if matches!(button, crate::events::MouseButton::Left) {
                     if let Some(href) = self.context.hover_link_url.clone() {
                         let resolved = self
                             .current_url
@@ -759,7 +751,7 @@ impl TabWorker {
         // DPR: Cairo rasterizes at physical pixels (DPR > 1 on HiDPI), so it reads the
         // DEVICE_PIXEL_RATIO atomic set by the GTK display thread.  Skia rasterizes at
         // CSS pixels (DPR = 1) — no physical scaling in the rasterizer.
-        #[cfg(all(feature = "pipeline", any(feature = "backend_cairo", feature = "backend_skia")))]
+        #[cfg(any(feature = "backend_cairo", feature = "backend_skia"))]
         {
             #[cfg(feature = "backend_cairo")]
             let dpr = {
@@ -790,7 +782,6 @@ impl TabWorker {
 
         // Vello: same TileCache path as Skia. Extract wgpu resources from the backend on first use.
         #[cfg(all(
-            feature = "pipeline",
             feature = "backend_vello",
             not(any(feature = "backend_cairo", feature = "backend_skia"))
         ))]
