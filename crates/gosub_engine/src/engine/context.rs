@@ -36,6 +36,7 @@
 
 use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::EngineDocument;
+use gosub_render_pipeline::rasterizer::{RasterStrategy, Rasterable};
 use gosub_render_pipeline::render::{Color, DisplayItem, RenderContext, RenderList, Viewport};
 use std::sync::Arc;
 use url::Url;
@@ -167,6 +168,7 @@ struct BakedTile {
 type TileCacheKey = (u64, u64, u64, u64);
 
 /// Rasterized tile cache: maps a [`TileCacheKey`] to `(physical_width, physical_height, pixels)`.
+/// Carried between renders so unchanged tiles skip rasterization.
 type TilePixelCache = std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>;
 
 /// Cached output of stages 1–6 for the whole page. Re-used on every scroll tick.
@@ -246,10 +248,10 @@ pub struct BrowsingContext {
     /// The href of the link currently under the pointer, if any.
     pub hover_link_url: Option<String>,
 
-    /// Shared wgpu resources for the Vello rasterizer (device, queue, renderer).
-    /// Set by the tab worker when the engine is initialised with a VelloBackend.
-    #[cfg(feature = "backend_vello")]
-    pub vello_resources: Option<std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>>,
+    /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
+    /// worker from the engine's `RenderBackend` (replacing the former per-backend cfg cascade).
+    rasterizer: Option<Box<dyn Rasterable + Send + Sync>>,
+    raster_strategy: RasterStrategy,
 
     /// Media store shared between the layout and rasterization stages. The layouter loads
     /// images/SVGs into it by id; the rasterizer resolves the same ids back. It persists
@@ -284,10 +286,22 @@ impl BrowsingContext {
             hover_fingerprints: None,
             hover_chain_sensitive: false,
             hover_link_url: None,
-            #[cfg(feature = "backend_vello")]
-            vello_resources: None,
+            rasterizer: None,
+            raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
         }
+    }
+
+    /// True once the active backend's rasterizer has been installed (see [`Self::set_rasterizer`]).
+    pub fn has_rasterizer(&self) -> bool {
+        self.rasterizer.is_some()
+    }
+
+    /// Installs the active backend's per-tile rasterizer and raster strategy. Called once by the
+    /// tab worker from `RenderBackend::create_rasterizer` / `raster_strategy`.
+    pub fn set_rasterizer(&mut self, rasterizer: Box<dyn Rasterable + Send + Sync>, strategy: RasterStrategy) {
+        self.rasterizer = Some(rasterizer);
+        self.raster_strategy = strategy;
     }
 
     /// Binds the storage handles to the browsing context (@TODO: Why not via the ::new()?).
@@ -393,8 +407,8 @@ impl BrowsingContext {
                 self.pipeline_cache = Some(pipeline_build_cache(
                     doc.clone(),
                     &self.viewport,
-                    #[cfg(feature = "backend_vello")]
-                    self.vello_resources.clone(),
+                    self.rasterizer.as_deref(),
+                    self.raster_strategy,
                     prev_tile_cache,
                     self.media_store.clone(),
                 ));
@@ -422,8 +436,8 @@ impl BrowsingContext {
                     self.hover_layout_element,
                     &self.hover_dirty_nodes,
                     &self.viewport,
-                    #[cfg(feature = "backend_vello")]
-                    self.vello_resources.clone(),
+                    self.rasterizer.as_deref(),
+                    self.raster_strategy,
                     prev_tile_cache,
                     self.media_store.clone(),
                 ));
@@ -433,8 +447,8 @@ impl BrowsingContext {
                     self.pipeline_cache = Some(pipeline_build_cache(
                         doc.clone(),
                         &self.viewport,
-                        #[cfg(feature = "backend_vello")]
-                        self.vello_resources.clone(),
+                        self.rasterizer.as_deref(),
+                        self.raster_strategy,
                         std::collections::HashMap::new(),
                         self.media_store.clone(),
                     ));
@@ -464,8 +478,8 @@ impl BrowsingContext {
                     self.pipeline_cache = Some(pipeline_build_cache(
                         doc.clone(),
                         &self.viewport,
-                        #[cfg(feature = "backend_vello")]
-                        self.vello_resources.clone(),
+                        self.rasterizer.as_deref(),
+                        self.raster_strategy,
                         prev_tile_cache,
                         self.media_store.clone(),
                     ));
@@ -684,7 +698,6 @@ impl RenderContext for BrowsingContext {
 /// Runs pipeline stages 1–6 for the **entire page** (all tiles, not just the viewport slice)
 /// Compute a stable cache key for a tile: (page_x bits, page_y bits, layer_id, content hash).
 /// The content hash covers all paint commands so any visual change produces a different key.
-#[cfg(any(feature = "backend_cairo", feature = "backend_skia"))]
 fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
     use gosub_render_pipeline::painter::commands::{
         border::{BorderRadius, BorderStyle},
@@ -861,6 +874,59 @@ fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
     (tile.rect.x.to_bits(), tile.rect.y.to_bits(), tile.layer_id.as_u64(), h)
 }
 
+/// Sequential per-tile rasterization, used by GPU backends (e.g. Vello) whose shared
+/// `Mutex<Renderer>` rules out parallelism. No dirty-tile cache, so it returns an empty one.
+fn rasterize_sequential(
+    rasterizer: &(dyn Rasterable + Send + Sync),
+    layer_ids: &[gosub_render_pipeline::layering::layer::LayerId],
+    tile_list: &mut gosub_render_pipeline::tiler::TileList,
+    full_page_rect: gosub_render_pipeline::common::geo::Rect,
+    media_store: &gosub_render_pipeline::common::media::MediaStore,
+) -> (Vec<BakedTile>, TilePixelCache) {
+    use gosub_render_pipeline::common::texture_store::TextureStore;
+    use gosub_render_pipeline::tiler::TileState;
+    use gosub_shared::{timing_start, timing_stop};
+
+    let ts6 = timing_start!("pipeline.rasterize");
+    let mut texture_store = TextureStore::new();
+
+    for &layer_id in layer_ids {
+        let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
+        for tile_id in tile_ids {
+            if let Some(tile) = tile_list.get_tile_mut(tile_id) {
+                if tile.state == TileState::Dirty {
+                    match rasterizer.rasterize(tile, &mut texture_store, media_store) {
+                        Some(texture_id) => {
+                            tile.texture_id = Some(texture_id);
+                            tile.state = TileState::Clean;
+                        }
+                        None => tile.state = TileState::Empty,
+                    }
+                }
+            }
+        }
+    }
+
+    let mut tiles: Vec<BakedTile> = Vec::with_capacity(tile_list.arena.len());
+    for tile in tile_list.arena.values() {
+        if let (Some(texture_id), true) = (tile.texture_id, tile.state == TileState::Clean) {
+            if let Some(tex) = texture_store.get(texture_id) {
+                tiles.push(BakedTile {
+                    page_x: tile.rect.x,
+                    page_y: tile.rect.y,
+                    width: tex.width as u32,
+                    height: tex.height as u32,
+                    data: tex.data.clone(),
+                    format: tex.format,
+                });
+            }
+        }
+    }
+
+    timing_stop!(ts6);
+    (tiles, std::collections::HashMap::new())
+}
+
 /// and returns a `PipelineCache` of rasterized tiles ready for repeated compositing.
 ///
 /// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
@@ -868,9 +934,8 @@ fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
 fn pipeline_build_cache(
     doc: Arc<EngineDocument>,
     viewport: &Viewport,
-    #[cfg(feature = "backend_vello")] _vello_resources: Option<
-        std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
-    >,
+    rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
+    strategy: RasterStrategy,
     prev_tile_cache: TilePixelCache,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
 ) -> PipelineCache {
@@ -973,11 +1038,9 @@ fn pipeline_build_cache(
     //
     // Vello stays sequential because all tiles share a Mutex<Renderer>; batching
     // (not parallelism) is the fix there.
-    #[cfg(any(feature = "backend_cairo", feature = "backend_skia"))]
     macro_rules! rasterize_parallel {
-        ($rasterizer:expr, $label:literal) => {{
+        ($rasterizer:expr) => {{
             use gosub_render_pipeline::common::texture_store::TextureStore;
-            use gosub_render_pipeline::rasterizer::Rasterable;
             use gosub_render_pipeline::render::backend::PixelFormat;
             use gosub_render_pipeline::tiler::TileId;
             use rayon::prelude::*;
@@ -1069,96 +1132,14 @@ fn pipeline_build_cache(
         }};
     }
 
-    #[cfg(feature = "backend_cairo")]
-    let (baked_tiles, new_tile_cache) = {
-        use gosub_renderer_cairo::CairoRasterizer;
-        rasterize_parallel!(CairoRasterizer::new(), "(cairo):    ")
-    };
-
-    #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
-    let (baked_tiles, new_tile_cache) = {
-        use gosub_renderer_skia::SkiaRasterizer;
-        rasterize_parallel!(SkiaRasterizer::new(1.0), "(skia):     ")
-    };
-
-    #[cfg(all(
-        feature = "backend_vello",
-        not(feature = "backend_cairo"),
-        not(feature = "backend_skia")
-    ))]
-    let baked_tiles = {
-        // prev_tile_cache is used by the cairo/skia parallel rasterizer; vello doesn't
-        // implement the dirty-tile cache yet, so acknowledge the parameter here.
-        let _ = &prev_tile_cache;
-        use gosub_render_pipeline::common::texture_store::TextureStore;
-        use gosub_render_pipeline::rasterizer::Rasterable;
-        use gosub_renderer_vello::VelloRasterizer;
-
-        let ts6 = timing_start!("pipeline.rasterize");
-        // Shared store populated during layout (see pipeline_build_cache `media_store` param).
-        let mut texture_store = TextureStore::new();
-        let mut empty = 0usize;
-
-        let tiles = if let Some(ref resources) = _vello_resources {
-            let rasterizer = VelloRasterizer::new(std::sync::Arc::clone(resources));
-            for &layer_id in &layer_ids {
-                let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
-                for tile_id in tile_ids {
-                    if let Some(tile) = tile_list.get_tile_mut(tile_id) {
-                        if tile.state == TileState::Dirty {
-                            match rasterizer.rasterize(tile, &mut texture_store, &media_store) {
-                                Some(texture_id) => {
-                                    tile.texture_id = Some(texture_id);
-                                    tile.state = TileState::Clean;
-                                }
-                                None => {
-                                    tile.state = TileState::Empty;
-                                    empty += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            let mut tiles: Vec<BakedTile> = Vec::with_capacity(tile_list.arena.len());
-            for tile in tile_list.arena.values() {
-                if let (Some(texture_id), true) = (tile.texture_id, tile.state == TileState::Clean) {
-                    if let Some(tex) = texture_store.get(texture_id) {
-                        tiles.push(BakedTile {
-                            page_x: tile.rect.x,
-                            page_y: tile.rect.y,
-                            width: tex.width as u32,
-                            height: tex.height as u32,
-                            data: tex.data.clone(),
-                            format: tex.format,
-                        });
-                    }
-                }
-            }
-            tiles
-        } else {
-            log::warn!("[pipeline] backend_vello active but no wgpu resources set — stage 6 skipped");
-            Vec::new()
-        };
-
-        timing_stop!(ts6);
-        tiles
-    };
-    // Vello uses sequential rasterization; dirty-tile cache not yet implemented.
-    #[cfg(all(
-        feature = "backend_vello",
-        not(feature = "backend_cairo"),
-        not(feature = "backend_skia")
-    ))]
-    let new_tile_cache: TilePixelCache = std::collections::HashMap::new();
-
-    #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
-    let baked_tiles: Vec<BakedTile> = Vec::new();
-    #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
-    let new_tile_cache: TilePixelCache = {
-        // No backend selected: rasterization is skipped, so the dirty-tile cache is unused.
-        let _ = &prev_tile_cache;
-        std::collections::HashMap::new()
+    // Stage 6: rasterize tiles using the active backend's rasterizer + strategy (chosen at
+    // runtime by the engine's RenderBackend; no per-backend cfg here).
+    let (baked_tiles, new_tile_cache) = match (strategy, rasterizer) {
+        (RasterStrategy::ParallelCached, Some(rasterizer)) => rasterize_parallel!(rasterizer),
+        (RasterStrategy::Sequential, Some(rasterizer)) => {
+            rasterize_sequential(rasterizer, &layer_ids, &mut tile_list, full_page_rect, &media_store)
+        }
+        _ => (Vec::new(), std::collections::HashMap::new()),
     };
 
     timing_stop!(ts_total);
@@ -1200,9 +1181,8 @@ fn pipeline_hover_repaint(
     new_hover_lei: Option<LayoutElementId>,
     hover_dirty_nodes: &[NodeId],
     viewport: &gosub_render_pipeline::render::Viewport,
-    #[cfg(feature = "backend_vello")] _vello_resources: Option<
-        std::sync::Arc<gosub_render_pipeline::render::backends::vello::WgpuResources>,
-    >,
+    rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
+    strategy: RasterStrategy,
     prev_tile_cache: TilePixelCache,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
 ) -> PipelineCache {
@@ -1332,11 +1312,9 @@ fn pipeline_hover_repaint(
     timing_stop!(ts5);
 
     // Stage 6: rasterize (parallel for Cairo/Skia, using the tile-pixel cache).
-    #[cfg(any(feature = "backend_cairo", feature = "backend_skia"))]
     macro_rules! rasterize_parallel {
-        ($rasterizer:expr, $label:literal) => {{
+        ($rasterizer:expr) => {{
             use gosub_render_pipeline::common::texture_store::TextureStore;
-            use gosub_render_pipeline::rasterizer::Rasterable;
             use gosub_render_pipeline::render::backend::PixelFormat;
             use gosub_render_pipeline::tiler::TileId;
             use rayon::prelude::*;
@@ -1417,72 +1395,16 @@ fn pipeline_hover_repaint(
         }};
     }
 
-    #[cfg(feature = "backend_cairo")]
-    let (baked_tiles, new_tile_cache) = {
-        use gosub_renderer_cairo::CairoRasterizer;
-        rasterize_parallel!(CairoRasterizer::new(), "(cairo):")
-    };
-
-    #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
-    let (baked_tiles, new_tile_cache) = {
-        use gosub_renderer_skia::SkiaRasterizer;
-        rasterize_parallel!(SkiaRasterizer::new(1.0), "(skia): ")
-    };
-
-    #[cfg(all(
-        feature = "backend_vello",
-        not(feature = "backend_cairo"),
-        not(feature = "backend_skia")
-    ))]
-    let (baked_tiles, new_tile_cache) = {
-        // Vello: sequential rasterization, no tile-pixel cache yet.
-        use gosub_render_pipeline::common::texture_store::TextureStore;
-        use gosub_render_pipeline::rasterizer::Rasterable;
-        use gosub_renderer_vello::VelloRasterizer;
-        let ts6 = timing_start!("pipeline.hover.rasterize");
-        // Shared store from pipeline_hover_repaint param (still holds last-layout media).
-        let mut texture_store = TextureStore::new();
-        let mut tiles: Vec<BakedTile> = Vec::new();
-        if let Some(ref resources) = _vello_resources {
-            let rasterizer = VelloRasterizer::new(std::sync::Arc::clone(resources));
-            for &layer_id in &layer_ids {
-                for tile_id in tile_list.get_intersecting_tiles(layer_id, full_page_rect) {
-                    if let Some(tile) = tile_list.get_tile_mut(tile_id) {
-                        if tile.state == TileState::Dirty {
-                            if let Some(tid) = rasterizer.rasterize(tile, &mut texture_store, &media_store) {
-                                tile.texture_id = Some(tid);
-                                tile.state = TileState::Clean;
-                            } else {
-                                tile.state = TileState::Empty;
-                            }
-                        }
-                    }
-                }
-            }
-            for tile in tile_list.arena.values() {
-                if let (Some(tid), true) = (tile.texture_id, tile.state == TileState::Clean) {
-                    if let Some(tex) = texture_store.get(tid) {
-                        tiles.push(BakedTile {
-                            page_x: tile.rect.x,
-                            page_y: tile.rect.y,
-                            width: tex.width as u32,
-                            height: tex.height as u32,
-                            data: tex.data.clone(),
-                            format: tex.format,
-                        });
-                    }
-                }
-            }
+    // Stage 6 (hover): rasterize the dirty tiles with the active backend's rasterizer + strategy.
+    let (baked_tiles, new_tile_cache) = match (strategy, rasterizer) {
+        (RasterStrategy::ParallelCached, Some(rasterizer)) => rasterize_parallel!(rasterizer),
+        (RasterStrategy::Sequential, Some(rasterizer)) => {
+            rasterize_sequential(rasterizer, &layer_ids, &mut tile_list, full_page_rect, &media_store)
         }
-        timing_stop!(ts6);
-        (tiles, std::collections::HashMap::new())
-    };
-
-    #[cfg(not(any(feature = "backend_cairo", feature = "backend_skia", feature = "backend_vello")))]
-    let (baked_tiles, new_tile_cache): (Vec<BakedTile>, TilePixelCache) = {
-        // No backend selected: rasterization is skipped, so the shared media store is unused.
-        let _ = &media_store;
-        (Vec::new(), std::collections::HashMap::new())
+        _ => {
+            let _ = &media_store;
+            (Vec::new(), std::collections::HashMap::new())
+        }
     };
 
     // Merge: newly rasterized hover tiles + clean tiles carried from previous render.

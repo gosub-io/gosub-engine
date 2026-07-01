@@ -1,18 +1,6 @@
 /// Default backend that doesn't render or return anything.
+///
+/// Concrete rendering backends (Cairo, Skia, Vello) live in their own
+/// `gosub_renderer_*` crates; the pipeline only defines the `RenderBackend`
+/// trait and ships this null implementation.
 pub mod null;
-
-/// Backend using the Cairo graphics library.
-#[cfg(feature = "backend_cairo")]
-pub mod cairo;
-
-/// Backend using the Vello graphics library.
-#[cfg(feature = "backend_vello")]
-pub mod vello;
-
-/// Backend using the Skia graphics library (CPU rasterizer).
-#[cfg(feature = "backend_skia")]
-pub mod skia;
-
-/// Backend using Skia with OpenGL GPU acceleration.
-#[cfg(feature = "backend_skia_gl")]
-pub mod skia_gpu;

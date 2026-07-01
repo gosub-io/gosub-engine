@@ -65,10 +65,6 @@ fn main() {
     app.connect_activate(move |app| {
         let _rt_guard = TOKIO_RT.enter();
 
-        // Cache GSettings-derived values while still on the GTK main thread so the
-        // background rasterizer threads never need to touch GTK globals.
-        gosub_engine::init_gtk_resources().expect("failed to init GTK resources");
-
         // Channel from engine → GTK: request a redraw
         let (tx_redraw, mut rx_redraw) = mpsc::unbounded_channel::<()>();
 
@@ -79,7 +75,7 @@ fn main() {
             }
         })));
 
-        let backend = gosub_render_pipeline::render::backends::skia::SkiaBackend::new();
+        let backend = gosub_renderer_skia::SkiaBackend::new();
         let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
         let event_rx = engine.subscribe_events();

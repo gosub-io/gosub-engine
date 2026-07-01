@@ -1,4 +1,4 @@
-use gosub_render_pipeline::render::backends::vello::WgpuContextProvider;
+use gosub_renderer_vello::WgpuContextProvider;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;

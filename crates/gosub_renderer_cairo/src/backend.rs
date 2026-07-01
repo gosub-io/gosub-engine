@@ -1,14 +1,12 @@
-use crate::render::backend::{
+use anyhow::{anyhow, Result};
+use gosub_render_pipeline::rasterizer::{RasterStrategy, Rasterable};
+use gosub_render_pipeline::render::backend::{
     ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
 };
-use crate::render::render_context::RenderContext;
-use crate::render::render_list::DisplayItem;
-use anyhow::{anyhow, Result};
+use gosub_render_pipeline::render::render_context::RenderContext;
+use gosub_render_pipeline::render::render_list::DisplayItem;
+use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use std::any::Any;
-
-/// Device-pixel ratio shared between the GTK display thread and the render backends.
-/// Set once from `area.scale_factor()` before any rendering begins.
-pub static DEVICE_PIXEL_RATIO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
 /// Cairo backend for rendering using gtk4/cairo graphics library.
 #[derive(Default)]
@@ -176,6 +174,18 @@ impl RenderBackend for CairoBackend {
             pixels: s.pixels.to_vec(),
             format: PixelFormat::PreMulArgb32,
         })
+    }
+
+    fn create_rasterizer(&self) -> Box<dyn Rasterable + Send + Sync> {
+        Box::new(crate::CairoRasterizer::new())
+    }
+
+    fn raster_strategy(&self) -> RasterStrategy {
+        RasterStrategy::ParallelCached
+    }
+
+    fn device_pixel_ratio(&self) -> u32 {
+        DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 

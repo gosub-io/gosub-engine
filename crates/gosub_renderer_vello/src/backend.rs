@@ -1,12 +1,15 @@
-use crate::render::backend::GpuPixelFormat;
-use crate::render::backend::{ErasedSurface, ExternalHandle, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
-use crate::render::backends::vello::font_cache::FontCache;
-use crate::render::backends::vello::font_manager::FontManager;
-use crate::render::backends::vello::text_renderer::{TextKey, TextRenderer};
-use crate::render::render_context::RenderContext;
-use crate::render::render_list::DisplayItem;
+use crate::backend::font_cache::FontCache;
+use crate::backend::font_manager::FontManager;
+use crate::backend::text_renderer::{TextKey, TextRenderer};
 use anyhow::{anyhow, Result};
 use gosub_fontmanager::ParleyFontSystem;
+use gosub_render_pipeline::rasterizer::{RasterStrategy, Rasterable};
+use gosub_render_pipeline::render::backend::GpuPixelFormat;
+use gosub_render_pipeline::render::backend::{
+    ErasedSurface, ExternalHandle, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
+};
+use gosub_render_pipeline::render::render_context::RenderContext;
+use gosub_render_pipeline::render::render_list::DisplayItem;
 use parking_lot::Mutex;
 use parley::FontContext;
 use std::any::Any;
@@ -240,8 +243,16 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
         Err(anyhow!("VelloBackend snapshot not implemented"))
     }
 
-    fn wgpu_resources(&self) -> Option<Arc<WgpuResources>> {
-        Some(Arc::clone(&self.resources))
+    fn wgpu_resources(&self) -> Option<Arc<dyn Any + Send + Sync>> {
+        Some(Arc::clone(&self.resources) as Arc<dyn Any + Send + Sync>)
+    }
+
+    fn create_rasterizer(&self) -> Box<dyn Rasterable + Send + Sync> {
+        Box::new(crate::VelloRasterizer::new(Arc::clone(&self.resources)))
+    }
+
+    fn raster_strategy(&self) -> RasterStrategy {
+        RasterStrategy::Sequential
     }
 
     fn external_handle(&self, surface: &mut dyn ErasedSurface) -> Result<ExternalHandle> {

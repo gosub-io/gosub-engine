@@ -1,5 +1,10 @@
 use crate::render::backend::{SurfaceRect, SurfaceSize};
 
+/// Process-wide device-pixel ratio, set once by the host display thread (GTK/winit)
+/// before rendering begins. Backends that rasterize at physical pixels (Cairo) read it;
+/// backends that rasterize at CSS pixels (Skia, Vello) treat it as 1.
+pub static DEVICE_PIXEL_RATIO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
 #[derive(Debug, Copy, Clone)]
 pub struct DevicePixelRatio(pub f64);
 

@@ -19,8 +19,8 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
-use gosub_render_pipeline::render::backends::skia::SkiaBackend;
 use gosub_render_pipeline::render::DefaultCompositor;
+use gosub_renderer_skia::SkiaBackend;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, Entry, GLArea, Label, Orientation};
@@ -83,8 +83,6 @@ fn main() {
 
     app.connect_activate(move |app| {
         let _rt_guard = TOKIO_RT.enter();
-
-        gosub_engine::init_gtk_resources().expect("failed to init GTK resources");
 
         let (tx_redraw, mut rx_redraw) = mpsc::unbounded_channel::<()>();
 

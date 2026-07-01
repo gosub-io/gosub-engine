@@ -13,8 +13,8 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, CachedTile, ExternalHandle};
-use gosub_render_pipeline::render::backends::cairo::DEVICE_PIXEL_RATIO;
 use gosub_render_pipeline::render::DefaultCompositor;
+use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, DrawingArea, Entry, Label, Orientation};
@@ -71,7 +71,7 @@ fn main() {
 
         // Cache GSettings-derived values while still on the GTK main thread so the
         // background rasterizer threads never need to touch GTK globals.
-        gosub_engine::init_gtk_resources().expect("failed to init GTK resources");
+        gosub_renderer_cairo::init_gtk_resources().expect("failed to init GTK resources");
 
         // Channel from engine → GTK: request a redraw
         let (tx_redraw, mut rx_redraw) = mpsc::unbounded_channel::<()>();
@@ -83,7 +83,7 @@ fn main() {
             }
         })));
 
-        let backend = gosub_render_pipeline::render::backends::cairo::CairoBackend::new();
+        let backend = gosub_renderer_cairo::CairoBackend::new();
         let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
         let event_rx = engine.subscribe_events();

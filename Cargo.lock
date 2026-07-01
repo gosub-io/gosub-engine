@@ -2079,6 +2079,7 @@ dependencies = [
  "egui",
  "gosub_engine",
  "gosub_render_pipeline",
+ "gosub_renderer_cairo",
  "log",
  "once_cell",
  "parking_lot",
@@ -2097,6 +2098,7 @@ dependencies = [
  "egui",
  "gosub_engine",
  "gosub_render_pipeline",
+ "gosub_renderer_skia",
  "log",
  "once_cell",
  "parking_lot",
@@ -2115,6 +2117,7 @@ dependencies = [
  "egui",
  "gosub_engine",
  "gosub_render_pipeline",
+ "gosub_renderer_vello",
  "log",
  "once_cell",
  "parking_lot",
@@ -2135,6 +2138,7 @@ dependencies = [
  "anyhow",
  "gosub_engine",
  "gosub_render_pipeline",
+ "gosub_renderer_cairo",
  "gtk4",
  "log",
  "once_cell",
@@ -2152,6 +2156,7 @@ dependencies = [
  "anyhow",
  "gosub_engine",
  "gosub_render_pipeline",
+ "gosub_renderer_skia",
  "gtk4",
  "log",
  "once_cell",
@@ -2169,6 +2174,7 @@ dependencies = [
  "anyhow",
  "gosub_engine",
  "gosub_render_pipeline",
+ "gosub_renderer_skia",
  "gtk4",
  "log",
  "once_cell",
@@ -2188,6 +2194,7 @@ dependencies = [
  "cairo-rs",
  "gosub_engine",
  "gosub_render_pipeline",
+ "gosub_renderer_cairo",
  "log",
  "once_cell",
  "parking_lot",
@@ -2206,6 +2213,7 @@ dependencies = [
  "anyhow",
  "gosub_engine",
  "gosub_render_pipeline",
+ "gosub_renderer_skia",
  "log",
  "once_cell",
  "parking_lot",
@@ -2247,6 +2255,7 @@ dependencies = [
  "anyhow",
  "gosub_engine",
  "gosub_render_pipeline",
+ "gosub_renderer_vello",
  "log",
  "once_cell",
  "parking_lot",
@@ -2443,28 +2452,6 @@ name = "fontique"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c20b425addb8661e97fe1d51c4d8bcec3ec29ed6ad0db983976a7521276b8f7"
-dependencies = [
- "hashbrown 0.17.1",
- "linebender_resource_handle",
- "memmap2",
- "objc2 0.6.4",
- "objc2-core-foundation",
- "objc2-core-text",
- "objc2-foundation 0.3.2",
- "parlance",
- "read-fonts 0.39.2",
- "roxmltree 0.21.1",
- "smallvec",
- "windows",
- "windows-core",
- "yeslogic-fontconfig-sys",
-]
-
-[[package]]
-name = "fontique"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "274fa4f0f0a926ae182c7c076c078cce8a38471d15e61a102a02cac984be9813"
 dependencies = [
  "hashbrown 0.17.1",
  "linebender_resource_handle",
@@ -3047,6 +3034,7 @@ dependencies = [
  "clap",
  "gosub_engine",
  "gosub_render_pipeline",
+ "gosub_renderer_vello",
  "image",
  "log",
  "once_cell",
@@ -3083,6 +3071,7 @@ dependencies = [
  "gosub_jsapi",
  "gosub_net",
  "gosub_render_pipeline",
+ "gosub_renderer_vello",
  "gosub_shared",
  "gosub_taffy",
  "gosub_v8",
@@ -3162,7 +3151,6 @@ dependencies = [
  "async-trait",
  "bitflags 2.13.0",
  "bytes",
- "cairo-rs",
  "chrono",
  "cow-utils",
  "dashmap",
@@ -3179,11 +3167,7 @@ dependencies = [
  "gosub_interface",
  "gosub_net",
  "gosub_render_pipeline",
- "gosub_renderer_cairo",
- "gosub_renderer_skia",
- "gosub_renderer_vello",
  "gosub_shared",
- "gtk4",
  "http",
  "image",
  "indicatif",
@@ -3203,7 +3187,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "skia-safe",
  "tempfile",
  "thiserror 2.0.18",
  "time",
@@ -3215,7 +3198,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
- "vello",
  "wgpu",
  "winit",
 ]
@@ -3335,10 +3317,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
- "cairo-rs",
  "cow-utils",
  "csscolorparser",
- "fontique 0.10.0",
  "gdk4-wayland",
  "gdk4-x11",
  "gosub_css3",
@@ -3348,10 +3328,8 @@ dependencies = [
  "gosub_lattice",
  "gosub_net",
  "gosub_shared",
- "hashbrown 0.17.1",
  "image",
  "log",
- "pangocairo",
  "parking_lot",
  "parley",
  "rand 0.10.1",
@@ -3361,12 +3339,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "skia-safe",
- "skrifa 0.42.1",
  "taffy",
  "url",
- "vello",
- "wgpu",
 ]
 
 [[package]]
@@ -3386,6 +3360,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub_renderer_dynamic"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_render_pipeline",
+ "gosub_renderer_cairo",
+ "gosub_renderer_skia",
+ "gosub_renderer_vello",
+]
+
+[[package]]
 name = "gosub_renderer_skia"
 version = "0.1.0"
 dependencies = [
@@ -3402,6 +3387,7 @@ name = "gosub_renderer_vello"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "fontique",
  "gosub_fontmanager",
  "gosub_render_pipeline",
  "gosub_shared",
@@ -3411,6 +3397,7 @@ dependencies = [
  "pollster",
  "resvg",
  "skia-safe",
+ "skrifa 0.42.1",
  "vello",
  "winit",
 ]
@@ -3757,8 +3744,6 @@ version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
- "allocator-api2",
- "equivalent",
  "foldhash 0.2.0",
 ]
 
@@ -5344,7 +5329,7 @@ version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fad031076f48f0d4d85ce1aea9b94b4e715a4d636a030a123038f8f5b5e4343"
 dependencies = [
- "fontique 0.9.0",
+ "fontique",
  "harfrust",
  "hashbrown 0.17.1",
  "icu_normalizer",

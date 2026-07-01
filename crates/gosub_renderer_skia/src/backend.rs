@@ -1,9 +1,10 @@
-use crate::render::backend::{
+use anyhow::{anyhow, Result};
+use gosub_render_pipeline::rasterizer::{RasterStrategy, Rasterable};
+use gosub_render_pipeline::render::backend::{
     ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
 };
-use crate::render::render_context::RenderContext;
-use crate::render::render_list::DisplayItem;
-use anyhow::{anyhow, Result};
+use gosub_render_pipeline::render::render_context::RenderContext;
+use gosub_render_pipeline::render::render_list::DisplayItem;
 use skia_safe::{Color4f, Font, FontMgr, FontStyle, Paint, Rect};
 use std::any::Any;
 
@@ -151,6 +152,14 @@ impl RenderBackend for SkiaBackend {
             format: PixelFormat::PreMulArgb32,
         })
     }
+
+    fn create_rasterizer(&self) -> Box<dyn Rasterable + Send + Sync> {
+        Box::new(crate::SkiaRasterizer::new(1.0))
+    }
+
+    fn raster_strategy(&self) -> RasterStrategy {
+        RasterStrategy::ParallelCached
+    }
 }
 
 pub struct SkiaSurface {
@@ -208,6 +217,6 @@ impl ErasedSurface for SkiaSurface {
 }
 
 #[inline]
-fn to_color4f(c: &crate::render::render_list::Color) -> Color4f {
+fn to_color4f(c: &gosub_render_pipeline::render::render_list::Color) -> Color4f {
     Color4f::new(c.r, c.g, c.b, c.a)
 }
