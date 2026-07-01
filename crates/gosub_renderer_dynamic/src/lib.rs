@@ -17,20 +17,36 @@ use gosub_render_pipeline::render::backend::{
 };
 use gosub_render_pipeline::render::backends::null::NullBackend;
 use gosub_render_pipeline::render::render_context::RenderContext;
-use parking_lot::RwLock;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 /// Identifies a concrete render backend. Defined here, never in the pipeline, so the pipeline
 /// remains agnostic of which backends exist.
+///
+/// `#[repr(u8)]` so it can be stored lock-free in an [`AtomicU8`] (see `DynamicRenderBackend::active`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum RenderBackendKind {
     /// The null backend (renders nothing).
-    Null,
+    Null = 0,
     /// Cairo (CPU, GTK/Pango).
-    Cairo,
+    Cairo = 1,
     /// Skia (CPU raster).
-    Skia,
+    Skia = 2,
     /// Vello (wgpu GPU).
-    Vello,
+    Vello = 3,
+}
+
+impl RenderBackendKind {
+    /// Reconstruct from the `u8` discriminant stored in the atomic. Any unknown value
+    /// (which cannot occur — only `self as u8` values are stored) maps to [`Null`](Self::Null).
+    fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::Cairo,
+            2 => Self::Skia,
+            3 => Self::Vello,
+            _ => Self::Null,
+        }
+    }
 }
 
 type BoxedBackend = Arc<dyn RenderBackend + Send + Sync>;
@@ -43,7 +59,8 @@ type BoxedBackend = Arc<dyn RenderBackend + Send + Sync>;
 pub struct DynamicRenderBackend {
     backends: HashMap<RenderBackendKind, BoxedBackend>,
     null: BoxedBackend,
-    active: RwLock<RenderBackendKind>,
+    /// The currently selected backend, stored lock-free (only ever point read/written).
+    active: AtomicU8,
 }
 
 impl DynamicRenderBackend {
@@ -56,7 +73,7 @@ impl DynamicRenderBackend {
     /// backend of that kind was registered.
     pub fn set_active(&self, kind: RenderBackendKind) -> bool {
         if kind == RenderBackendKind::Null || self.backends.contains_key(&kind) {
-            *self.active.write() = kind;
+            self.active.store(kind as u8, Ordering::Relaxed);
             true
         } else {
             false
@@ -65,12 +82,12 @@ impl DynamicRenderBackend {
 
     /// The kind of the currently active backend.
     pub fn active_kind(&self) -> RenderBackendKind {
-        *self.active.read()
+        RenderBackendKind::from_u8(self.active.load(Ordering::Relaxed))
     }
 
     #[inline]
     fn active_backend(&self) -> BoxedBackend {
-        let kind = *self.active.read();
+        let kind = self.active_kind();
         self.backends
             .get(&kind)
             .cloned()
@@ -182,7 +199,7 @@ impl DynamicRenderBackendBuilder {
         DynamicRenderBackend {
             backends: self.backends,
             null: Arc::new(NullBackend::new()),
-            active: RwLock::new(active),
+            active: AtomicU8::new(active as u8),
         }
     }
 }

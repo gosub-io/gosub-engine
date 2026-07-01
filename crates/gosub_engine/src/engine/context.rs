@@ -916,7 +916,7 @@ fn rasterize_sequential(
                     page_y: tile.rect.y,
                     width: tex.width as u32,
                     height: tex.height as u32,
-                    data: Arc::clone(&tex.data),
+                    data: tex.data.clone(),
                     format: tex.format,
                 });
             }
