@@ -46,7 +46,7 @@ impl Rasterable for SkiaRasterizer {
         self.font_system.clone()
     }
 
-    fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, _media_store: &MediaStore) -> Option<TextureId> {
+    fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId> {
         // Rasterize at physical resolution (CSS px × DPR) so text/edges are crisp on HiDPI. The
         // compositor places these physical-sized tiles at physical positions (mirrors Cairo); at
         // DPR=1 this is a no-op.
@@ -101,7 +101,7 @@ impl Rasterable for SkiaRasterizer {
                         let _ = text::do_paint_text(canvas, tile, command, self.dpi_scale_factor);
                     }
                     PaintCommand::Svg(command) => {
-                        svg::do_paint_svg(canvas, tile, command.media_id, &command.rect);
+                        svg::do_paint_svg(canvas, tile, command.media_id, &command.rect, media_store, dpr as i32);
                     }
                 }
             }
