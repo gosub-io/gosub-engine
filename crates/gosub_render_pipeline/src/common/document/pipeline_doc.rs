@@ -157,6 +157,34 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             None
         }
 
+        // ── Grid track lists: `repeat(3, 1fr)`, `210px 1fr`, `auto`, … ─────
+        // These are stored as a `Function` (repeat/minmax) or a multi-value `List`, neither of
+        // which `as_string()` returns, and a bare `1fr` is a `Unit` — so the default branch
+        // below would drop or mis-type them. Serialize back to a canonical CSS track-list
+        // string so the layouter's track-list parser (`parse_grid_template`) can read it.
+        StyleProperty::GridTemplateColumns
+        | StyleProperty::GridTemplateRows
+        | StyleProperty::GridAutoColumns
+        | StyleProperty::GridAutoRows => {
+            let s = if let Some(str) = p.as_string() {
+                str.to_string()
+            } else if let Some((name, args)) = p.as_function() {
+                format!("{name}({})", join_grid_args::<S>(args))
+            } else if let Some(list) = p.as_list() {
+                list.iter()
+                    .map(grid_value_to_string::<S>)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else if let Some((val, unit)) = p.as_unit() {
+                format!("{val}{unit}")
+            } else if let Some(pct) = p.as_percentage() {
+                format!("{pct}%")
+            } else {
+                return None;
+            };
+            Some(Value::Keyword(intern(&s)))
+        }
+
         // ── Default: unit-based or keyword ────────────────────────────────
         _ => {
             if let Some((v, unit)) = p.as_unit() {
@@ -191,6 +219,51 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             }
         }
     }
+}
+
+/// Serialize a single CSS value from a grid track list back into canonical CSS text
+/// (`1fr`, `210px`, `50%`, `auto`, `minmax(100px, 1fr)`, …). Used to reconstruct a
+/// `grid-template-*` string the layouter can parse.
+fn grid_value_to_string<S: CssSystem>(v: &S::Value) -> String {
+    if let Some(s) = v.as_string() {
+        return s.to_string();
+    }
+    if let Some((val, unit)) = v.as_unit() {
+        return format!("{val}{unit}");
+    }
+    if let Some(pct) = v.as_percentage() {
+        return format!("{pct}%");
+    }
+    if v.is_comma() {
+        return ",".to_string();
+    }
+    if let Some((name, args)) = v.as_function() {
+        return format!("{name}({})", join_grid_args::<S>(args));
+    }
+    if let Some(list) = v.as_list() {
+        return list.iter().map(grid_value_to_string::<S>).collect::<Vec<_>>().join(" ");
+    }
+    if let Some(n) = v.as_number() {
+        return format!("{n}");
+    }
+    String::new()
+}
+
+/// Join the arguments of a grid function like `repeat(3, 1fr)` or `minmax(100px, 1fr)`,
+/// rendering the internal comma separators as `, ` and other arguments space-separated.
+fn join_grid_args<S: CssSystem>(args: &[S::Value]) -> String {
+    let mut out = String::new();
+    for arg in args {
+        if arg.is_comma() {
+            out.push_str(", ");
+        } else {
+            if !out.is_empty() && !out.ends_with(' ') {
+                out.push(' ');
+            }
+            out.push_str(&grid_value_to_string::<S>(arg));
+        }
+    }
+    out.trim().to_string()
 }
 
 /// Recursively search a CSS value tree for the first `url(...)` token and return its

@@ -489,15 +489,64 @@ fn parse_grid_track(token: &str) -> Option<TrackSizingFunction> {
     None
 }
 
-/// Parse a grid-template-columns/rows value string ("1fr 1fr 1fr", "200px 1fr 100px", …).
+/// Split a track list into top-level tokens, keeping function calls like `repeat(3, 1fr)` or
+/// `minmax(100px, 1fr)` whole (their inner whitespace/commas must not split the token).
+fn split_grid_tokens(s: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+    for ch in s.chars() {
+        match ch {
+            '(' => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' => {
+                depth = depth.saturating_sub(1);
+                current.push(ch);
+            }
+            c if c.is_whitespace() && depth == 0 => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            c => current.push(c),
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+/// Parse a grid-template-columns/rows value string ("1fr 1fr 1fr", "200px 1fr 100px",
+/// "repeat(3, 1fr)", …).
 fn parse_grid_template(s: &str) -> Option<Vec<GridTemplateComponent<String>>> {
     let mut tracks = Vec::new();
-    for token in s.split_whitespace() {
+    for token in split_grid_tokens(s) {
         // Skip named line brackets like [line-name]
         if token.starts_with('[') {
             continue;
         }
-        let tsf = parse_grid_track(token)?;
+
+        // `repeat(<count>, <track-list>)` — expand a fixed integer count into that many
+        // copies of its track list. `auto-fill`/`auto-fit` counts are not supported yet and
+        // cause the whole value to be ignored (falls back to the default) rather than
+        // mis-rendering.
+        if let Some(inner) = token
+            .strip_prefix("repeat(")
+            .and_then(|t| t.strip_suffix(')'))
+        {
+            let (count_str, track_str) = inner.split_once(',')?;
+            let count: u16 = count_str.trim().parse().ok()?;
+            let inner_tracks = parse_grid_template(track_str)?;
+            for _ in 0..count {
+                tracks.extend(inner_tracks.iter().cloned());
+            }
+            continue;
+        }
+
+        let tsf = parse_grid_track(&token)?;
         tracks.push(GridTemplateComponent::Single(tsf));
     }
     if tracks.is_empty() {
@@ -546,4 +595,50 @@ fn parse_single_placement(s: &str) -> GridPlacement {
         return GridPlacement::from_line_index(n);
     }
     GridPlacement::Auto
+}
+
+#[cfg(test)]
+mod grid_template_tests {
+    use super::{parse_grid_template, split_grid_tokens};
+
+    #[test]
+    fn splits_keep_functions_whole() {
+        assert_eq!(split_grid_tokens("1fr 1fr 1fr"), vec!["1fr", "1fr", "1fr"]);
+        assert_eq!(split_grid_tokens("210px 1fr"), vec!["210px", "1fr"]);
+        assert_eq!(split_grid_tokens("repeat(3, 1fr)"), vec!["repeat(3, 1fr)"]);
+        assert_eq!(
+            split_grid_tokens("repeat(2, 1fr) 200px"),
+            vec!["repeat(2, 1fr)", "200px"]
+        );
+        assert_eq!(
+            split_grid_tokens("minmax(100px, 1fr) auto"),
+            vec!["minmax(100px, 1fr)", "auto"]
+        );
+    }
+
+    #[test]
+    fn expands_repeat() {
+        // repeat(3, 1fr) => three tracks
+        assert_eq!(parse_grid_template("repeat(3, 1fr)").unwrap().len(), 3);
+        // repeat over a two-track list => count * 2
+        assert_eq!(parse_grid_template("repeat(2, 1fr 2fr)").unwrap().len(), 4);
+        // repeat mixed with a standalone track
+        assert_eq!(parse_grid_template("repeat(2, 1fr) 200px").unwrap().len(), 3);
+    }
+
+    #[test]
+    fn plain_track_lists() {
+        assert_eq!(parse_grid_template("1fr 1fr 1fr").unwrap().len(), 3);
+        assert_eq!(parse_grid_template("210px 1fr").unwrap().len(), 2);
+        assert_eq!(parse_grid_template("1fr").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn unsupported_falls_back_to_none() {
+        // auto-fill count isn't supported yet -> None (caller uses the default instead of
+        // mis-rendering).
+        assert!(parse_grid_template("repeat(auto-fill, 1fr)").is_none());
+        // Garbage token -> None
+        assert!(parse_grid_template("bogus").is_none());
+    }
 }
