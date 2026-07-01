@@ -37,6 +37,22 @@ else
     now() { date +%s.%N; }
 fi
 
+# Examples that only build on Linux — they hard-link libGL and set up a Linux
+# OpenGL context (glutin / GTK GLArea), which has no macOS equivalent. They're
+# skipped on other platforms instead of failing the run. Space-separated, with a
+# leading/trailing space. (If you don't have GTK4 on macOS, add the gtk4-* ones.)
+linux_only=" example-winit-skia-gpu example-gtk4-skia-gpu "
+os="$(uname -s)"
+
+should_skip() {
+    if [ "$os" != "Linux" ]; then
+        case "$linux_only" in
+            *" $1 "*) return 0 ;;
+        esac
+    fi
+    return 1
+}
+
 # Discover example packages: name = "example-..." in examples/*/Cargo.toml, so
 # new examples are picked up automatically. awk (not grep -P) keeps this portable.
 packages=()
@@ -61,10 +77,17 @@ log=$(mktemp)
 trap 'rm -f "$log"' EXIT
 total_start=$(now)
 failures=0
+skipped=0
 
 for pkg in "${packages[@]}"; do
     bin="${pkg#example-}"
     printf '%-26s ' "$pkg"   # show the name immediately; the row fills in when done
+
+    if should_skip "$pkg"; then
+        skipped=$((skipped + 1))
+        printf '%9s %9s   %s\n' "-" "-" "skipped (${os})"
+        continue
+    fi
 
     start=$(now)
     if cargo build $release_flag -p "$pkg" >"$log" 2>&1; then
@@ -92,6 +115,7 @@ total_end=$(now)
 total=$(awk "BEGIN { printf \"%.1fs\", $total_end - $total_start }")
 
 echo
-printf 'Total: %s   (%d examples, %d failed)\n' "$total" "${#packages[@]}" "$failures"
+printf 'Total: %s   (%d examples, %d failed, %d skipped)\n' \
+    "$total" "${#packages[@]}" "$failures" "$skipped"
 
 [ "$failures" -eq 0 ]
