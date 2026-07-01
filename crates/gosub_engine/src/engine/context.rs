@@ -98,6 +98,11 @@ fn hover_matches<C: RenderConfiguration>(fp: &HoverFingerprints, doc: &EngineDoc
 struct BakedTile {
     page_x: f64,
     page_y: f64,
+    /// Owning layer id. Needed to disambiguate tiles from different layers that share the same
+    /// page position — e.g. the base layer and a `position: sticky` header both have a tile at
+    /// the top-left `(0,0)`. Keying carry-over by position alone collapses them (see
+    /// [`pipeline_hover_repaint`]).
+    layer_id: u64,
     width: u32,
     height: u32,
     /// Tile pixels — CPU bytes (Cairo/Skia) or an opaque GPU texture id (Vello/wgpu).
@@ -989,6 +994,7 @@ fn rasterize_sequential(
                 tiles.push(BakedTile {
                     page_x: tile.rect.x,
                     page_y: tile.rect.y,
+                    layer_id: tile.layer_id.as_u64(),
                     width: tex.width as u32,
                     height: tex.height as u32,
                     pixels: tex.pixels.clone(),
@@ -1240,6 +1246,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
                         let baked = BakedTile {
                             page_x: tile.rect.x,
                             page_y: tile.rect.y,
+                            layer_id: tile.layer_id.as_u64(),
                             width: w,
                             height: h,
                             pixels: data.clone(),
@@ -1258,6 +1265,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
                         .map(|tex| BakedTile {
                             page_x: tile.rect.x,
                             page_y: tile.rect.y,
+                            layer_id: tile.layer_id.as_u64(),
                             width: tex.width as u32,
                             height: tex.height as u32,
                             pixels: tex.pixels.clone(),
@@ -1356,10 +1364,13 @@ fn pipeline_hover_repaint(
 
     // Build a position-keyed lookup of previous baked tiles so non-hover tiles can be
     // carried over without any CSS re-evaluation or rasterization.
-    // Key: (page_x bits, page_y bits) — deterministic since tile positions don't change.
-    let mut prev_by_pos: std::collections::HashMap<(u64, u64), BakedTile> = prev_baked_tiles
+    // Key: (page_x bits, page_y bits, layer_id) — deterministic since tile positions don't
+    // change. The layer id is essential: overlapping layers (e.g. the base layer and a sticky
+    // header) share a page position, and keying by position alone would collapse them into one,
+    // dropping the other tile and leaving a blank gap on the next hover repaint.
+    let mut prev_by_pos: std::collections::HashMap<(u64, u64, u64), BakedTile> = prev_baked_tiles
         .into_iter()
-        .map(|t| ((t.page_x.to_bits(), t.page_y.to_bits()), t))
+        .map(|t| ((t.page_x.to_bits(), t.page_y.to_bits(), t.layer_id), t))
         .collect();
 
     // Compute the union bounding box of old and new hovered elements.  Tiles that
@@ -1385,6 +1396,11 @@ fn pipeline_hover_repaint(
         union
     };
 
+    // Full-page paint rect and back-to-front layer order — used both to re-emit carried tiles in
+    // order (below / in the early-return) and by stages 5–6 further down.
+    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, page_height.max(1.0));
+    let layer_ids = tile_list.layer_list.layer_ids.read().clone();
+
     // Mark tiles that DON'T intersect the hover region as Clean.  For Clean tiles we
     // carry the previous BakedTile forward; for Dirty tiles we re-evaluate CSS only
     // for the elements they contain (targeted invalidation).
@@ -1399,7 +1415,7 @@ fn pipeline_hover_repaint(
                 && tile_rect.y + tile_rect.height > hover_rect.y;
             if !overlaps {
                 tile.state = TileState::Clean;
-                let key = (tile_rect.x.to_bits(), tile_rect.y.to_bits());
+                let key = (tile_rect.x.to_bits(), tile_rect.y.to_bits(), tile.layer_id.as_u64());
                 if let Some(baked) = prev_by_pos.remove(&key) {
                     clean_baked.push(baked);
                 }
@@ -1411,8 +1427,10 @@ fn pipeline_hover_repaint(
             }
         }
     } else {
-        // No hover element visible — reuse all previous baked tiles unchanged.
-        let all_tiles: Vec<BakedTile> = prev_by_pos.into_values().collect();
+        // No hover element visible — carry every previous tile forward, but re-emit in
+        // back-to-front layer order (see order_baked_tiles_by_layer): `into_values()` is
+        // unordered and would scramble overlapping-layer compositing.
+        let all_tiles = order_baked_tiles_by_layer(&tile_list, &layer_ids, full_page_rect, prev_by_pos);
         let cached_tiles = Arc::new(cpu_cached_tiles(&all_tiles));
         return PipelineCache {
             tiles: all_tiles,
@@ -1423,11 +1441,9 @@ fn pipeline_hover_repaint(
         };
     }
 
-    // Stage 5: paint ONLY dirty (hover-affected) tiles.
-    let render_height = page_height;
+    // Stage 5: paint ONLY dirty (hover-affected) tiles. `full_page_rect` and `layer_ids` were
+    // computed above (shared with the carry-over ordering).
     let ts5 = timing_start!("pipeline.hover.painting");
-    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, render_height.max(1.0));
-    let layer_ids = tile_list.layer_list.layer_ids.read().clone();
     let paint_state = BrowserState {
         visible_layer_list: vec![true; layer_ids.len()],
         wireframed: WireframeState::None,
@@ -1490,6 +1506,7 @@ fn pipeline_hover_repaint(
                             Some(BakedTile {
                                 page_x: tile.rect.x,
                                 page_y: tile.rect.y,
+                                layer_id: tile.layer_id.as_u64(),
                                 width: w,
                                 height: h,
                                 pixels: data.clone(),
@@ -1507,6 +1524,7 @@ fn pipeline_hover_repaint(
                         .map(|tex| BakedTile {
                             page_x: tile.rect.x,
                             page_y: tile.rect.y,
+                            layer_id: tile.layer_id.as_u64(),
                             width: tex.width as u32,
                             height: tex.height as u32,
                             pixels: tex.pixels.clone(),
@@ -1555,8 +1573,16 @@ fn pipeline_hover_repaint(
         }
     };
 
-    // Merge: newly rasterized hover tiles + clean tiles carried from previous render.
-    let all_baked_tiles: Vec<BakedTile> = baked_tiles.into_iter().chain(clean_baked).collect();
+    // Merge newly rasterized hover tiles + carried-over clean tiles, keyed by position+layer, then
+    // re-emit in back-to-front layer order so overlapping layers composite correctly (a plain
+    // `dirty ++ clean` concat scrambles the order — `clean_baked` came out of a HashMap — which
+    // corrupts overlap regions like a sticky header and every scroll frame reusing this cache).
+    let by_key: std::collections::HashMap<(u64, u64, u64), BakedTile> = baked_tiles
+        .into_iter()
+        .chain(clean_baked)
+        .map(|t| ((t.page_x.to_bits(), t.page_y.to_bits(), t.layer_id), t))
+        .collect();
+    let all_baked_tiles = order_baked_tiles_by_layer(&tile_list, &layer_ids, full_page_rect, by_key);
 
     let cached_tiles = Arc::new(cpu_cached_tiles(&all_baked_tiles));
 
@@ -1567,6 +1593,32 @@ fn pipeline_hover_repaint(
         layer_list,
         tile_pixel_cache: new_tile_cache,
     }
+}
+
+/// Re-emit baked tiles in strict back-to-front layer order (the same order a full render
+/// produces them). The compositor blits tiles in list order with source-over, so overlapping
+/// layers — e.g. the base layer and a `position: sticky`/`fixed` header sharing a page position
+/// — must stay layer-ordered or a lower tile paints over a higher one. `by_key` maps
+/// `(page_x bits, page_y bits, layer_id)` → tile; positions with no baked tile (empty/transparent)
+/// are simply skipped.
+fn order_baked_tiles_by_layer(
+    tile_list: &gosub_render_pipeline::tiler::TileList,
+    layer_ids: &[gosub_render_pipeline::layering::layer::LayerId],
+    full_page_rect: gosub_render_pipeline::common::geo::Rect,
+    mut by_key: std::collections::HashMap<(u64, u64, u64), BakedTile>,
+) -> Vec<BakedTile> {
+    let mut ordered = Vec::with_capacity(by_key.len());
+    for &layer_id in layer_ids {
+        for tile_id in tile_list.get_intersecting_tiles(layer_id, full_page_rect) {
+            if let Some(tile) = tile_list.arena.get(&tile_id) {
+                let key = (tile.rect.x.to_bits(), tile.rect.y.to_bits(), tile.layer_id.as_u64());
+                if let Some(t) = by_key.remove(&key) {
+                    ordered.push(t);
+                }
+            }
+        }
+    }
+    ordered
 }
 
 /// Build the CPU `CachedTile` list for the zero-copy scroll handle. GPU-resident tiles have no
