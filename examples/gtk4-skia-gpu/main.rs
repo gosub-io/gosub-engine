@@ -19,7 +19,8 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{CachedTile, TileAnchor, ExternalHandle};
+use gosub_render_pipeline::render::backend::{anchored_tile_pos, CachedTile, ExternalHandle};
+use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
 use gtk4::glib;
@@ -36,7 +37,7 @@ use url::Url;
 use uuid::uuid;
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-00000000000d");
-const SCROLL_MULTIPLIER: f32 = 12.5;
+const SCROLL_MULTIPLIER: f32 = 134.0;
 
 type AppConfig = DefaultRenderConfig<SkiaBackend, SkiaFontSystem>;
 
@@ -52,8 +53,6 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 struct TileDrawState {
     tiles: Arc<Vec<CachedTile>>,
     dpr: u32,
-    viewport_height: u32,
-    page_height: f32,
 }
 
 // ── GL helper ─────────────────────────────────────────────────────────────────
@@ -179,6 +178,9 @@ fn main() {
 
                 // Use physical pixel dimensions for the GL surface.
                 let scale = area.scale_factor();
+                // Publish the DPR so the Skia backend rasterizes tiles at physical resolution
+                // (otherwise tiles are 1x and the page renders tiny on a HiDPI surface).
+                DEVICE_PIXEL_RATIO.store((scale as u32).max(1), std::sync::atomic::Ordering::Relaxed);
                 let phys_w = area.width() * scale;
                 let phys_h = area.height() * scale;
                 if phys_w == 0 || phys_h == 0 {
@@ -214,13 +216,19 @@ fn main() {
 
                     let (scroll_x, scroll_y) = local_scroll_render.get();
                     let dpr = state.dpr as f32;
-                    let sx = (scroll_x * dpr).round() as i32;
-                    let sy = (scroll_y * dpr).round() as i32;
 
                     for tile in state.tiles.iter() {
-                        let (sx, sy) = if tile.anchor == TileAnchor::Fixed { Default::default() } else { (sx, sy) };
-                        let px = (tile.page_x * dpr).round() as i32 - sx;
-                        let py = (tile.page_y * dpr).round() as i32 - sy;
+                        // anchored_tile_pos handles scroll / fixed / sticky uniformly (in CSS px);
+                        // scale the result to physical pixels for the GL surface.
+                        let (vx, vy) = anchored_tile_pos(
+                            tile.page_x as f64,
+                            tile.page_y as f64,
+                            scroll_x as f64,
+                            scroll_y as f64,
+                            tile.anchor,
+                        );
+                        let px = (vx * dpr as f64).round() as i32;
+                        let py = (vy * dpr as f64).round() as i32;
                         let tw = tile.width as i32;
                         let th = tile.height as i32;
 
@@ -276,19 +284,12 @@ fn main() {
                     if let Some(ExternalHandle::TileCache {
                         tiles,
                         dpr,
-                        viewport_width: _,
-                        viewport_height,
-                        page_height,
                         scroll_x,
                         scroll_y,
+                        ..
                     }) = compositor_rx.read().frame_for(tab_id)
                     {
-                        *local_tiles.borrow_mut() = Some(TileDrawState {
-                            tiles,
-                            dpr,
-                            viewport_height,
-                            page_height,
-                        });
+                        *local_tiles.borrow_mut() = Some(TileDrawState { tiles, dpr });
                         local_scroll.set((scroll_x, scroll_y));
                     }
                     gl_area.queue_render();
@@ -301,16 +302,22 @@ fn main() {
         gl_area.connect_resize({
             let tab = tab.clone();
             let local_scroll = local_scroll.clone();
-            move |_, w, h| {
+            move |area, w, h| {
+                let scale = area.scale_factor().max(1);
+                // Publish the DPR before the engine re-rasterizes for the new viewport.
+                DEVICE_PIXEL_RATIO.store(scale as u32, std::sync::atomic::Ordering::Relaxed);
                 local_scroll.set((0.0, 0.0));
+                // GtkGLArea's resize reports PHYSICAL pixels; the engine viewport is logical (CSS)
+                // px (the DPR handles physical rasterization separately), so divide by the scale.
+                let (vw, vh) = (w / scale, h / scale);
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
                     let _ = tab
                         .send(TabCommand::SetViewport {
                             x: 0,
                             y: 0,
-                            width: w as u32,
-                            height: h as u32,
+                            width: vw as u32,
+                            height: vh as u32,
                         })
                         .await;
                 });
@@ -324,18 +331,12 @@ fn main() {
         );
         scroll_ctl.connect_scroll({
             let tab = tab.clone();
-            let local_scroll = local_scroll.clone();
-            let local_tiles_scroll = local_tiles.clone();
             move |_, dx, dy| {
                 let dx = dx as f32 * SCROLL_MULTIPLIER;
                 let dy = dy as f32 * SCROLL_MULTIPLIER;
-                let (px, py) = local_scroll.get();
-                let max_y = local_tiles_scroll
-                    .borrow()
-                    .as_ref()
-                    .map(|s| (s.page_height - s.viewport_height as f32).max(0.0))
-                    .unwrap_or(0.0);
-                local_scroll.set(((px + dx).max(0.0), (py + dy).clamp(0.0, max_y)));
+                // Engine owns the scroll: forward the delta and let it animate. The composite reads
+                // the engine's scroll back via the TileCache handle (synced into local_scroll), so
+                // setting local_scroll here too would fight the animated frames and cause jank.
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
                     let _ = tab

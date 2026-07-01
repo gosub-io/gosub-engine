@@ -22,7 +22,10 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{CachedTile, TileAnchor, ExternalHandle};
+use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
+
+type AppConfig = DefaultRenderConfig<SkiaBackend, SkiaFontSystem>;
+use gosub_render_pipeline::render::backend::{anchored_tile_pos, CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
@@ -45,7 +48,7 @@ use winit::window::{Window, WindowAttributes, WindowId};
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-00000000000d");
 const ADDRESS_BAR_HEIGHT: f32 = 36.0;
-const SCROLL_MULTIPLIER: f32 = 12.5;
+const SCROLL_MULTIPLIER: f32 = 134.0;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
     Builder::new_multi_thread()
@@ -95,9 +98,9 @@ impl GlState {
 
 struct BrowserApp {
     #[allow(dead_code)]
-    engine: GosubEngine,
+    engine: GosubEngine<AppConfig>,
     #[allow(dead_code)]
-    zone: Zone,
+    zone: Zone<AppConfig>,
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
@@ -362,11 +365,10 @@ fn composite_tiles(
     );
 
     for tile in tiles.iter() {
-        let (sx, sy) = if tile.anchor == TileAnchor::Fixed { (0.0, 0.0) } else { (*sx, *sy) };
-        // screen position = page position minus the scroll offset embedded in the handle,
-        // consistent with winit-skia and winit-cairo.
-        let screen_x = tile.page_x - sx;
-        let screen_y = tile.page_y - sy + addr_h;
+        // anchored_tile_pos handles scroll / fixed / sticky uniformly from the engine's scroll.
+        let (vx, vy) = anchored_tile_pos(tile.page_x as f64, tile.page_y as f64, *sx as f64, *sy as f64, tile.anchor);
+        let screen_x = vx as f32;
+        let screen_y = vy as f32 + addr_h;
 
         // Cull tiles outside the viewport
         if screen_x + tile.width as f32 <= 0.0 {
@@ -535,10 +537,11 @@ fn main() {
         }
     })));
 
-    // Use a null render backend — TileCache frames are submitted directly by the engine
-    // without going through a render backend's display-list pipeline.
-    let backend = gosub_render_pipeline::render::backends::null::NullBackend::new();
-    let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(None, Arc::new(backend), compositor.clone());
+    // Rasterize tiles on the CPU via the Skia backend; this example then uploads those tiles and
+    // composites them onto the GL window surface through Skia's Ganesh GPU backend. (A NullBackend
+    // produces no tiles — the engine needs a real rasterizer to emit TileCache frames.)
+    let backend = SkiaBackend::new();
+    let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
     let _join = engine.start().expect("engine start");
 
     let proxy_ev = proxy.clone();

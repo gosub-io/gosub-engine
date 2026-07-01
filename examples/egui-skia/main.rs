@@ -12,7 +12,7 @@ use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle};
-use gosub_render_pipeline::render::DefaultCompositor;
+use gosub_render_pipeline::render::{DefaultCompositor, DEVICE_PIXEL_RATIO};
 use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
@@ -309,6 +309,14 @@ fn bgra_premul_to_rgba8(pixels: &[u8], width: usize, height: usize, stride: usiz
 impl eframe::App for BrowserApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+
+        // Publish the DPR so the Skia backend rasterizes tiles at physical resolution. Use ceil so
+        // fractional scaling (e.g. 1.25) renders at 2x and egui downscales — crisp — rather than 1x
+        // upscaled (blurry). Matches gtk4-skia / egui-cairo.
+        DEVICE_PIXEL_RATIO.store(
+            (ctx.pixels_per_point().ceil() as u32).max(1),
+            std::sync::atomic::Ordering::Relaxed,
+        );
 
         while let Ok(ev) = self.ui_rx.try_recv() {
             match ev {

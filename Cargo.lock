@@ -2213,6 +2213,7 @@ dependencies = [
  "glutin-winit",
  "gosub_engine",
  "gosub_render_pipeline",
+ "gosub_renderer_skia",
  "log",
  "once_cell",
  "parking_lot",
