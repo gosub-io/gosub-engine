@@ -17,8 +17,8 @@ thread_local! {
     static TYPEFACE_CACHE: RefCell<HashMap<TypefaceCacheKey, Typeface>> = RefCell::new(HashMap::new());
 }
 
-fn get_font(family: &str, weight: i32, width: i32, slant: i32, size: f32) -> Option<Font> {
-    let font_style = FontStyle::new(
+fn css_font_style(weight: i32, width: i32, slant: i32) -> FontStyle {
+    FontStyle::new(
         skia_safe::font_style::Weight::from(weight),
         skia_safe::font_style::Width::from(width.clamp(1, 9)),
         if slant > 0 {
@@ -26,7 +26,11 @@ fn get_font(family: &str, weight: i32, width: i32, slant: i32, size: f32) -> Opt
         } else {
             skia_safe::font_style::Slant::Upright
         },
-    );
+    )
+}
+
+fn get_font(family: &str, weight: i32, width: i32, slant: i32, size: f32) -> Option<Font> {
+    let font_style = css_font_style(weight, width, slant);
 
     let cache_key = (family.to_string(), weight, width, slant > 0, web_font_generation());
 
@@ -75,6 +79,7 @@ pub fn do_paint_text(canvas: &Canvas, _tile: &Tile, cmd: &Text, _dpi_scale_facto
     paint.set_anti_alias(true);
 
     let font_size = cmd.font_info.size as f32;
+    let font_style = css_font_style(cmd.font_info.weight, cmd.font_info.width / 100, cmd.font_info.slant);
     let Some(font) = get_font(
         &cmd.font_info.family,
         cmd.font_info.weight,
@@ -132,7 +137,7 @@ pub fn do_paint_text(canvas: &Canvas, _tile: &Tile, cmd: &Text, _dpi_scale_facto
 
     for line in &lines {
         if !line.is_empty() {
-            canvas.draw_str(line.as_str(), (x, y), &font, &paint);
+            draw_line_with_fallback(canvas, line, &font, font_style, font_size, x, y, &paint);
         }
         y += line_height;
         if y > (cmd.rect.y + cmd.rect.height) as f32 + line_height {
@@ -141,6 +146,52 @@ pub fn do_paint_text(canvas: &Canvas, _tile: &Tile, cmd: &Text, _dpi_scale_facto
     }
 
     Ok(())
+}
+
+/// Draw one already-wrapped line, falling back to another font for any character the primary
+/// `base_font` has no glyph for. Skia's `draw_str` renders with a single typeface and shows
+/// missing glyphs as tofu boxes (e.g. an arrow/icon char in a serif body font). We split the
+/// line into runs that share a font — the base font, or a per-character fallback resolved via
+/// the font manager — and draw each run, advancing the pen by its measured width.
+fn draw_line_with_fallback(
+    canvas: &Canvas,
+    line: &str,
+    base_font: &Font,
+    base_style: FontStyle,
+    size: f32,
+    mut x: f32,
+    y: f32,
+    paint: &Paint,
+) {
+    let mut run = String::new();
+    let mut run_font = base_font.clone();
+
+    for ch in line.chars() {
+        // Whitespace and characters the base font can render stay on the base font; only a
+        // genuine missing glyph triggers a fallback lookup.
+        let ch_font = if ch.is_whitespace() || base_font.unichar_to_glyph(ch as i32) != 0 {
+            base_font.clone()
+        } else {
+            FONT_MGR
+                .with(|fm| fm.match_family_style_character("", base_style, &[], ch as i32))
+                .map(|tf| Font::new(tf, size))
+                .unwrap_or_else(|| base_font.clone())
+        };
+
+        if run.is_empty() {
+            run_font = ch_font;
+        } else if ch_font.typeface().unique_id() != run_font.typeface().unique_id() {
+            canvas.draw_str(run.as_str(), (x, y), &run_font, paint);
+            x += run_font.measure_str(run.as_str(), Some(paint)).0;
+            run.clear();
+            run_font = ch_font;
+        }
+        run.push(ch);
+    }
+
+    if !run.is_empty() {
+        canvas.draw_str(run.as_str(), (x, y), &run_font, paint);
+    }
 }
 
 fn brush_to_color4f(brush: &Brush) -> Color4f {

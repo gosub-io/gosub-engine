@@ -11,7 +11,7 @@ path = "main.rs"
 gosub_engine = { path = "../../crates/gosub_engine", features = ["sqlite_cookie_store"] }
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
 gosub_renderer_skia = { path = "../../crates/gosub_renderer_skia" }
-gtk4 = { workspace = true }
+gtk4 = { workspace = true, features = ["v4_12"] }
 once_cell = { workspace = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
