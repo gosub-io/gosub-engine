@@ -1,4 +1,5 @@
 pub mod compute;
+pub mod geo;
 pub mod grid;
 pub mod mock;
 pub mod model;
