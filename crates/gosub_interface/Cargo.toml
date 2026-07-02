@@ -12,6 +12,7 @@ gosub_net = { version = "0.1.1", path = "../gosub_net", registry = "gosub" }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
 url = { workspace = true }
+bytes = { workspace = true }
 
 # Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
 # ExternalHandle carries raw GPU/surface handles and needs unsafe Send/Sync impls,

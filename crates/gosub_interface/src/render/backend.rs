@@ -159,14 +159,14 @@ pub enum GpuPixelFormat {
 pub struct WgpuTextureId(pub u64);
 
 /// A single pre-rasterized tile for direct compositing in the host draw callback.
-/// Pixel data is reference-counted so handing out a handle is zero-copy.
+/// Pixel data is reference-counted (`Bytes`) so handing out a handle is zero-copy.
 #[derive(Clone, Debug)]
 pub struct CachedTile {
     pub page_x: f32,
     pub page_y: f32,
     pub width: u32,
     pub height: u32,
-    pub data: Arc<Vec<u8>>,
+    pub data: bytes::Bytes,
     /// In-memory byte order of `data`, set by the rasterizer that produced it.
     pub format: PixelFormat,
 }

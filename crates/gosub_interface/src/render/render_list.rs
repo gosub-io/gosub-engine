@@ -177,8 +177,8 @@ pub enum DisplayItem {
         w: u32,
         /// Tile height in pixels.
         h: u32,
-        /// Raw premultiplied pixel data (length = `h * w * 4`). Arc-shared from the rasterizer output.
-        data: std::sync::Arc<Vec<u8>>,
+        /// Raw premultiplied pixel data (length = `h * w * 4`). `Bytes`-shared from the rasterizer output.
+        data: bytes::Bytes,
         /// In-memory byte order of `data`, set by the rasterizer that produced it.
         format: crate::render::backend::PixelFormat,
     },
