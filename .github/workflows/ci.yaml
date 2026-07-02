@@ -5,8 +5,18 @@ on:
     branches: [ main ]
   pull_request:
 
+# Cancel superseded runs: without this, every push to a PR leaves the previous
+# full CI run burning runners to completion alongside the new one.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
+  # No debuginfo in CI: not needed for pass/fail, and it roughly halves both
+  # cold-build time and cache size for the big dep graphs (skia, vello, gtk).
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
 
 jobs:
   test:
