@@ -44,7 +44,8 @@ here; this is the crate they implement against.
 
 ### gosub_fontmanager
 Font loading and management. Provides the font system abstraction used for text shaping /
-measurement by layout and shared with the render backends for drawing.
+measurement by layout and shared with the render backends for drawing. See [fonts.md](fonts.md)
+for the full picture (font systems vs text rasterizers).
 
 ### gosub_svg
 SVG document support backed by `usvg` and optionally `resvg`.
@@ -79,6 +80,10 @@ chosen at runtime via feature flags rather than at the type level.
 The async networking stack: streaming HTTP fetcher with priority queues, inflight coalescing,
 redirect handling, and per-zone cookie isolation, plus lower-level helpers. Consumed by
 `gosub_engine`.
+
+> Note: this crate is moving to its own project, **gosub_sonar**, which carries its own
+> documentation. The [network docs](network/) here describe the in-tree crate until the
+> move completes.
 
 ---
 
