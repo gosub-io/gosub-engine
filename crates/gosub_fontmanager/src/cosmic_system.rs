@@ -36,11 +36,24 @@ impl Default for CosmicFontSystem {
     }
 }
 
+/// A run of shaped glyphs that all share one font. Collected while the cosmic-text `buffer`
+/// is borrowed, so the per-run font-blob lookup (which borrows `self.inner`) can run afterward
+/// without overlapping borrows.
+struct RawRun {
+    id: fontdb::ID,
+    weight: Weight,
+    glyphs: Vec<ShapedGlyph>,
+}
+
 impl CosmicFontSystem {
     /// Create a font system with system fonts loaded and Roboto registered as a bundled fallback.
     pub fn new() -> Self {
         let mut inner = CosmicTextFontSystem::new();
-        inner.db_mut().load_font_data(gosub_shared::ROBOTO_FONT.to_vec());
+        // Load the bundled Roboto without copying: the static bytes already implement
+        // `AsRef<[u8]>`, so hand fontdb a shared reference instead of an owned `Vec`.
+        inner
+            .db_mut()
+            .load_font_source(fontdb::Source::Binary(Arc::new(gosub_shared::ROBOTO_FONT)));
         Self { inner }
     }
 
@@ -158,11 +171,6 @@ impl CosmicFontSystem {
 
         // Collect owned run data first (borrows `buffer`), then look up font blobs afterwards
         // (borrows `self.inner`) so the two borrows don't overlap.
-        struct RawRun {
-            id: fontdb::ID,
-            weight: Weight,
-            glyphs: Vec<ShapedGlyph>,
-        }
         let mut raw: Vec<RawRun> = Vec::new();
         let mut width = 0.0f32;
         let mut height = 0.0f32;
