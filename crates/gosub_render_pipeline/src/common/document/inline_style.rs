@@ -204,6 +204,16 @@ fn apply_border_shorthand(style: &mut NodeStyle, value: &str) {
 }
 
 fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
+    // Inline `style="…"` parsing has no access to custom properties (`--*`), which live in the
+    // stylesheet cascade. A `var(...)` value therefore can't be resolved here; storing its raw
+    // text would produce an invalid keyword that still *overrides* the (correctly resolved)
+    // cascade declaration — e.g. `style="color:var(--accent-glow)"` would paint black instead of
+    // deferring to `.arrow-link { color: var(--accent-light) }`. Per CSS, a declaration we can't
+    // compute is ignored, so skip it and let the cascade win.
+    if value.to_ascii_lowercase().contains("var(") {
+        return;
+    }
+
     match key {
         "display" => style.set(StyleProperty::Display, parse_display(value)),
         "position" => style.set(StyleProperty::Position, parse_position(value)),
@@ -323,6 +333,7 @@ fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
         "overflow-y" => style.set(StyleProperty::OverflowY, parse_style_str(value)),
         "box-sizing" => style.set(StyleProperty::BoxSizing, parse_style_str(value)),
         "white-space" => style.set(StyleProperty::WhiteSpace, parse_style_str(value)),
+        "text-transform" => style.set(StyleProperty::TextTransform, parse_style_str(value)),
         "text-decoration" | "text-decoration-line" => {
             let has_underline = value.contains("underline");
             let has_line_through = value.contains("line-through");
@@ -500,6 +511,22 @@ mod tests {
         assert_eq!(parse_css_url(r#"url("x.gif") no-repeat"#).as_deref(), Some("x.gif"));
         assert_eq!(parse_css_url("#fff no-repeat"), None);
         assert_eq!(parse_css_url("url()"), None);
+    }
+
+    #[test]
+    fn var_inline_declaration_is_ignored() {
+        // `var()` can't be resolved during inline parsing, so the declaration is dropped
+        // (leaving the cascade to supply the color) rather than stored as an invalid keyword
+        // that would paint black.
+        let style = parse_inline_style_attr("color: var(--accent-glow)");
+        assert!(style.get_own(&StyleProperty::Color).is_none());
+
+        // A concrete color alongside the var() one still applies; only the var() part is skipped.
+        let style = parse_inline_style_attr("color: #123456");
+        assert!(matches!(
+            style.get_own(&StyleProperty::Color),
+            Some(Value::Color(0x12, 0x34, 0x56, 255))
+        ));
     }
 
     #[test]

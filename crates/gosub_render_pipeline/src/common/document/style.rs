@@ -308,6 +308,7 @@ pub enum StyleProperty {
     BackgroundImage,
     Content,
     Opacity,
+    TextTransform,
 }
 
 impl StyleProperty {
@@ -388,6 +389,7 @@ impl StyleProperty {
             StyleProperty::BackgroundImage => 71,
             StyleProperty::Content => 72,
             StyleProperty::Opacity => 73,
+            StyleProperty::TextTransform => 74,
         }
     }
 
@@ -899,6 +901,12 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Number(1.0),
     },
+    // 74 text-transform — inherited; initial = none
+    PropertyMeta {
+        name: "text-transform",
+        inherited: true,
+        initial_kind: InitialKind::Keyword("none"),
+    },
 ];
 
 // ── NodeStyle — replaces StylePropertyList ────────────────────────────────────
@@ -1035,6 +1043,7 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         71 => Some(StyleProperty::BackgroundImage),
         72 => Some(StyleProperty::Content),
         73 => Some(StyleProperty::Opacity),
+        74 => Some(StyleProperty::TextTransform),
         _ => None,
     }
 }

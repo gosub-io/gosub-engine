@@ -79,6 +79,36 @@ pub struct TaffyLayouter {
     dom_to_layout_mapping: HashMap<DomNodeId, LayoutElementId>,
 }
 
+/// Apply the CSS `text-transform` keyword to a text run. `uppercase`/`lowercase` map the whole
+/// string; `capitalize` uppercases the first letter of each whitespace-separated word. `none`
+/// (and any unsupported keyword such as `full-width`) leaves the text unchanged.
+fn apply_text_transform(text: String, transform: Value) -> String {
+    let Value::Keyword(id) = transform else {
+        return text;
+    };
+    match lookup(id).as_str() {
+        "uppercase" => text.to_uppercase(),
+        "lowercase" => text.to_lowercase(),
+        "capitalize" => {
+            let mut out = String::with_capacity(text.len());
+            let mut at_word_start = true;
+            for ch in text.chars() {
+                if ch.is_whitespace() {
+                    at_word_start = true;
+                    out.push(ch);
+                } else if at_word_start {
+                    at_word_start = false;
+                    out.extend(ch.to_uppercase());
+                } else {
+                    out.push(ch);
+                }
+            }
+            out
+        }
+        _ => text,
+    }
+}
+
 /// Context structures to pass to taffy measure functions so we can calculate the size of the text or images.
 #[derive(Clone, Debug)]
 pub enum TaffyContext {
@@ -942,6 +972,14 @@ impl TaffyLayouter {
                     taffy_style.flex_shrink = 0.0;
                 }
 
+                // Apply `text-transform` (inherited from the parent element) to the run before it
+                // is measured and painted — TaffyContext::text is the single source used for both,
+                // so transforming here keeps layout width and drawn glyphs in sync.
+                let text = apply_text_transform(
+                    text,
+                    doc.get_style(dom_node.node_id, &StyleProperty::TextTransform),
+                );
+
                 let text_decoration = match doc.get_style(dom_node.node_id, &StyleProperty::TextDecorationLine) {
                     Value::Keyword(id) => lookup(id),
                     _ => String::new(),
@@ -1082,7 +1120,35 @@ pub fn taffy_layout_to_boxmodel(layout: &Layout, offset: Coordinate) -> box_mode
 
 #[cfg(test)]
 mod tests {
-    use super::to_absolute_url;
+    use super::{apply_text_transform, to_absolute_url};
+    use crate::common::document::style::{intern, Value};
+
+    fn kw(s: &str) -> Value {
+        Value::Keyword(intern(s))
+    }
+
+    #[test]
+    fn text_transform_uppercase_lowercase() {
+        assert_eq!(apply_text_transform("Working".to_string(), kw("uppercase")), "WORKING");
+        assert_eq!(apply_text_transform("Working".to_string(), kw("lowercase")), "working");
+    }
+
+    #[test]
+    fn text_transform_capitalize() {
+        assert_eq!(
+            apply_text_transform("early stage".to_string(), kw("capitalize")),
+            "Early Stage"
+        );
+    }
+
+    #[test]
+    fn text_transform_none_and_unsupported_passthrough() {
+        assert_eq!(apply_text_transform("Working".to_string(), kw("none")), "Working");
+        // Unsupported keyword (e.g. full-width) leaves the text untouched.
+        assert_eq!(apply_text_transform("Working".to_string(), kw("full-width")), "Working");
+        // Non-keyword value passes through.
+        assert_eq!(apply_text_transform("Working".to_string(), Value::Number(1.0)), "Working");
+    }
 
     #[test]
     fn relative_ref_replaces_base_last_segment() {
