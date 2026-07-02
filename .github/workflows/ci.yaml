@@ -24,7 +24,10 @@ jobs:
           toolchain: ${{ matrix.rust_version }}
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ matrix.rust_version }}
+          # Key must be unique per job: caches are immutable per key, so if
+          # jobs share one, whichever finishes first on main saves its (possibly
+          # artifact-less) cache and the others rebuild from scratch on every PR.
+          shared-key: test-${{ matrix.rust_version }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
@@ -48,7 +51,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ matrix.rust_version }}
+          shared-key: clippy-${{ matrix.rust_version }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
@@ -83,10 +86,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: stable
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # No rust-cache here: cargo fmt compiles nothing, and saving a cache from
+      # this job would poison the key it shares with compiling jobs.
       - name: Run fmt
         run: cargo fmt --check --all
 
