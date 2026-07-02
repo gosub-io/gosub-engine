@@ -21,6 +21,7 @@ pub fn get_text_layout(
         style: FontStyle::Normal,
         stretch: FontStretch::NORMAL,
         line_height: Some(font_info.line_height as f32),
+        letter_spacing: font_info.letter_spacing as f32,
         max_width: Some(max_width as f32),
         // The layouter works in CSS pixels; DPI scaling is applied later in the pipeline.
         display_scale: 1.0,

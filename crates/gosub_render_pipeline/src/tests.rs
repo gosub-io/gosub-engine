@@ -162,6 +162,52 @@ mod rendertree_from_engine {
         );
     }
 
+    // letter-spacing (em) must resolve to px through the cascade and be inherited by text nodes
+    #[test]
+    fn letter_spacing_em_resolves_to_px_and_inherits() {
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    .m { letter-spacing: 0.14em; font-size: 20px; display: block; }
+                </style>
+            </head>
+            <body><div class="m">HELLO</div></body>
+            </html>
+        "#;
+
+        use crate::common::document::node::NodeType;
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+
+        let root = adapter.doc.root();
+        let m = find_node_by_class_dfs(&adapter.doc, root, "m").expect("find .m");
+
+        // On the element itself: 0.14em * 20px = 2.8px.
+        let ls = adapter.get_style(m, &StyleProperty::LetterSpacing);
+        assert!(
+            matches!(ls, Value::Unit(px, Unit::Px) if (px - 2.8).abs() < 0.1),
+            "expected letter-spacing 2.8px on .m, got {ls:?}"
+        );
+
+        // Inherited by the child text node ("HELLO").
+        let text_child = adapter
+            .children(m)
+            .into_iter()
+            .find(|c| matches!(adapter.get_node_by_id(*c).map(|n| n.node_type), Some(NodeType::Text(_))))
+            .expect("find text child");
+        let ls_text = adapter.get_style(text_child, &StyleProperty::LetterSpacing);
+        assert!(
+            matches!(ls_text, Value::Unit(px, Unit::Px) if (px - 2.8).abs() < 0.1),
+            "expected inherited letter-spacing 2.8px on text node, got {ls_text:?}"
+        );
+    }
+
     // html_node_id / body_node_id resolve to the correct elements
 
     #[test]

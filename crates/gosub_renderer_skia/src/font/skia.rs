@@ -265,6 +265,10 @@ impl FontSystem for SkiaFontSystem {
                     ts.set_height_override(true);
                 }
             }
+            // Apply CSS letter-spacing (px) so the measured width matches the drawn width.
+            if style.letter_spacing != 0.0 {
+                ts.set_letter_spacing(style.letter_spacing);
+            }
             // Pass the pruned family list so Skia's FontCollection reaches the real generic instead
             // of letting an unavailable leading family capture the platform default.
             ts.set_font_families(&resolve_family_list(&style.family));
@@ -321,6 +325,10 @@ pub(crate) fn build_paragraph(text: &str, font_info: &FontInfo, paint: &Paint, l
         ts.set_height(font_info.line_height as f32 / font_size);
         ts.set_height_override(true);
     }
+    // CSS letter-spacing (px). Matches the value applied during measurement so widths agree.
+    if font_info.letter_spacing != 0.0 {
+        ts.set_letter_spacing(font_info.letter_spacing as f32);
+    }
     ts.set_font_families(&resolve_family_list(&font_info.family));
     ts.set_font_style(FontStyle::new(
         skia_safe::font_style::Weight::from(font_info.weight),
@@ -365,6 +373,9 @@ fn to_slant(slant: i32) -> skia_safe::font_style::Slant {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+
 
 
     #[test]

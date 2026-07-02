@@ -24,6 +24,8 @@ pub struct FontInfo {
     pub slant: i32,
     /// Line height in px
     pub line_height: f64,
+    /// Extra spacing between characters in px (CSS `letter-spacing`; 0 = `normal`)
+    pub letter_spacing: f64,
     /// Font alignment
     pub alignment: FontAlignment,
     pub underline: bool,

@@ -34,9 +34,9 @@ fn parse_px_attr(v: &str) -> Option<f32> {
     s.trim().parse::<f32>().ok().filter(|n| *n >= 0.0)
 }
 
-// Cache key: (text, font_family, size_bits, line_height_bits, weight, max_width_bits).
-// Floats are stored as their bit pattern so the tuple is Hash + Eq.
-type MeasureKey = (String, String, u32, u32, i32, u32);
+// Cache key: (text, font_family, size_bits, line_height_bits, weight, max_width_bits,
+// letter_spacing_bits). Floats are stored as their bit pattern so the tuple is Hash + Eq.
+type MeasureKey = (String, String, u32, u32, i32, u32, u32);
 
 /// One entry in a run of inline content awaiting layout. `Item`s are normal inline boxes/text
 /// laid out inside an anonymous flex container; `Break` is a `<br>` that ends the current line box
@@ -270,6 +270,7 @@ impl CanLayout for TaffyLayouter {
                             (text_ctx.font_info.line_height as f32).to_bits(),
                             text_ctx.font_info.weight,
                             (max_width as f32).to_bits(),
+                            (text_ctx.font_info.letter_spacing as f32).to_bits(),
                         );
                         if let Some(&cached) = measure_cache.get(&cache_key) {
                             return cached;
@@ -985,6 +986,13 @@ impl TaffyLayouter {
                     _ => String::new(),
                 };
 
+                // `letter-spacing` arrives already resolved to px (em resolved against font-size in
+                // `get_style`); `normal` (a keyword) means no extra spacing.
+                let letter_spacing = match doc.get_style(dom_node.node_id, &StyleProperty::LetterSpacing) {
+                    Value::Unit(px, Unit::Px) => px as f64,
+                    _ => 0.0,
+                };
+
                 let font_info = FontInfo {
                     family: font_family,
                     size: font_size,
@@ -992,6 +1000,7 @@ impl TaffyLayouter {
                     width: 100, // 100%, normal
                     slant: if font_italic { 1 } else { 0 },
                     line_height,
+                    letter_spacing,
                     alignment,
                     underline: text_decoration.contains("underline"),
                     line_through: text_decoration.contains("line-through"),

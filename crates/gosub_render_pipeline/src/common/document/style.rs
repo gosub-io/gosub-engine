@@ -310,6 +310,7 @@ pub enum StyleProperty {
     Opacity,
     TextTransform,
     ZIndex,
+    LetterSpacing,
 }
 
 impl StyleProperty {
@@ -392,6 +393,7 @@ impl StyleProperty {
             StyleProperty::Opacity => 73,
             StyleProperty::TextTransform => 74,
             StyleProperty::ZIndex => 75,
+            StyleProperty::LetterSpacing => 76,
         }
     }
 
@@ -915,6 +917,12 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("auto"),
     },
+    // 76 letter-spacing — inherited; initial = normal (0)
+    PropertyMeta {
+        name: "letter-spacing",
+        inherited: true,
+        initial_kind: InitialKind::Keyword("normal"),
+    },
 ];
 
 // ── NodeStyle — replaces StylePropertyList ────────────────────────────────────
@@ -1053,6 +1061,7 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         73 => Some(StyleProperty::Opacity),
         74 => Some(StyleProperty::TextTransform),
         75 => Some(StyleProperty::ZIndex),
+        76 => Some(StyleProperty::LetterSpacing),
         _ => None,
     }
 }
