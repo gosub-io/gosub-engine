@@ -6539,8 +6539,22 @@ version = "0.97.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ecfc54fcd40dc5dea15dd2a84f8422cdb0f76c6a51ebb8835ce0b7ef590a21f"
 dependencies = [
+ "base64",
  "bitflags 2.13.0",
+ "percent-encoding",
  "skia-bindings",
+ "skia-svg-macros",
+]
+
+[[package]]
+name = "skia-svg-macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "044dd2233c9717a74f75197f3e7f0a966db2127c0ffb5e05013b480a9b75b2c7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
