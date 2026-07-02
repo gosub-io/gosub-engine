@@ -309,6 +309,7 @@ pub enum StyleProperty {
     Content,
     Opacity,
     TextTransform,
+    ZIndex,
 }
 
 impl StyleProperty {
@@ -390,6 +391,7 @@ impl StyleProperty {
             StyleProperty::Content => 72,
             StyleProperty::Opacity => 73,
             StyleProperty::TextTransform => 74,
+            StyleProperty::ZIndex => 75,
         }
     }
 
@@ -907,6 +909,12 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: true,
         initial_kind: InitialKind::Keyword("none"),
     },
+    // 75 z-index — not inherited; initial = auto (only applies to positioned elements)
+    PropertyMeta {
+        name: "z-index",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("auto"),
+    },
 ];
 
 // ── NodeStyle — replaces StylePropertyList ────────────────────────────────────
@@ -1044,6 +1052,7 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         72 => Some(StyleProperty::Content),
         73 => Some(StyleProperty::Opacity),
         74 => Some(StyleProperty::TextTransform),
+        75 => Some(StyleProperty::ZIndex),
         _ => None,
     }
 }

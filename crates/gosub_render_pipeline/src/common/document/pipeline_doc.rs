@@ -157,6 +157,15 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             None
         }
 
+        // ── z-index: an integer (stacking order) or the `auto` keyword ─────
+        StyleProperty::ZIndex => {
+            if let Some(n) = p.as_number() {
+                Some(Value::Number(n))
+            } else {
+                Some(Value::Keyword(intern(p.as_string()?)))
+            }
+        }
+
         // ── Grid track lists: `repeat(3, 1fr)`, `210px 1fr`, `auto`, … ─────
         // These are stored as a `Function` (repeat/minmax) or a multi-value `List`, neither of
         // which `as_string()` returns, and a bare `1fr` is a `Unit` — so the default branch

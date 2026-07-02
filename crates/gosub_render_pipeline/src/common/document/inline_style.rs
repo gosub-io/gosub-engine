@@ -318,6 +318,13 @@ fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
         "align-content" => style.set(StyleProperty::AlignContent, parse_style_str(value)),
         "text-align" => style.set(StyleProperty::TextAlign, parse_text_align(value)),
         "line-height" => style.set(StyleProperty::LineHeight, parse_line_height(value)),
+        "z-index" => {
+            if let Ok(n) = value.trim().parse::<f32>() {
+                style.set(StyleProperty::ZIndex, Value::Number(n));
+            } else {
+                style.set(StyleProperty::ZIndex, Value::Keyword(intern(value)));
+            }
+        }
         "text-wrap" => style.set(StyleProperty::TextWrap, parse_text_wrap(value)),
 
         "top" | "inset-block-start" => style.set(StyleProperty::InsetBlockStart, parse_style_value(value)),
