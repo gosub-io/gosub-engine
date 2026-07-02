@@ -3,11 +3,13 @@ use gosub_interface::font_system::{FontSystem, TextStyle as GosubTextStyle};
 use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
 use parking_lot::Mutex;
 use skia_safe::textlayout::{
-    FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, TextStyle, TypefaceFontProvider,
+    FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, TextAlign, TextDecoration, TextDirection, TextStyle,
+    TypefaceFontProvider,
 };
 use skia_safe::{FontMgr, FontStyle, Paint};
 use std::any::Any;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 // ── Registered web fonts ──────────────────────────────────────────────────────
@@ -89,7 +91,7 @@ fn base_font_collection() -> FontCollection {
 
 /// Run `f` with this thread's `FontCollection`, after refreshing its asset font manager
 /// (the registered web fonts) if new fonts have been registered since the last call.
-fn with_font_collection<R>(f: impl FnOnce(&FontCollection) -> R) -> R {
+pub(crate) fn with_font_collection<R>(f: impl FnOnce(&FontCollection) -> R) -> R {
     FC.with(|cell| {
         let mut cell = cell.borrow_mut();
         let gen = web_font_generation();
@@ -113,27 +115,106 @@ pub(crate) fn split_font_families(families: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether `name` is a CSS generic family keyword. Generic families are expected to resolve
-/// to whatever the platform font manager maps them to, so a returned typeface that doesn't
-/// name-match is still accepted.
-pub(crate) fn is_generic_family(name: &str) -> bool {
+/// CSS generic families that fontconfig/Skia resolve directly to a concrete family; always kept.
+fn is_real_generic(name: &str) -> bool {
+    ["serif", "sans-serif", "monospace", "cursive", "fantasy", "emoji"]
+        .iter()
+        .any(|generic| name.eq_ignore_ascii_case(generic))
+}
+
+/// Newer CSS generic keywords that fontconfig usually does *not* map. We drop them so resolution
+/// falls through to the real generic (`monospace`, `sans-serif`, …) that CSS font stacks
+/// conventionally end with, instead of letting the platform default masquerade as this family.
+fn is_pseudo_generic(name: &str) -> bool {
     [
-        "serif",
-        "sans-serif",
-        "monospace",
-        "cursive",
-        "fantasy",
         "system-ui",
         "ui-serif",
         "ui-sans-serif",
         "ui-monospace",
         "ui-rounded",
         "math",
-        "emoji",
         "fangsong",
     ]
     .iter()
     .any(|generic| name.eq_ignore_ascii_case(generic))
+}
+
+thread_local! {
+    /// Cache of a CSS family list → the pruned list actually handed to Skia. Keyed alongside the
+    /// web-font generation so newly-registered `@font-face` fonts re-resolve. Family lists repeat
+    /// across nearly every text node, so this avoids re-probing the font manager each measure/draw.
+    static RESOLVED_FAMILIES: RefCell<(u64, HashMap<String, Vec<String>>)> =
+        RefCell::new((u64::MAX, HashMap::new()));
+}
+
+/// Prune a CSS `font-family` list to the entries Skia should actually try, in order.
+///
+/// Skia's `FontCollection` walks the list and, on Linux, fontconfig returns *some* face for *every*
+/// name — even an unknown one like `ui-monospace` — so an unavailable leading family silently
+/// captures the platform default and the real generic (`monospace`) at the end of the chain is never
+/// reached.
+///
+/// We keep an entry when it's a real generic, or when it resolves to a *genuine* face: either an
+/// exact name match, or a fontconfig **alias** to a family other than the bare default fallback
+/// (e.g. `Arial` → Liberation Sans, which is what Firefox uses). We drop the newer pseudo-generics
+/// (`ui-*`, `system-ui`) and any name that only yields the default fallback, so the stack's trailing
+/// real generic decides instead of the platform default impersonating an unavailable family. If
+/// nothing survives, fall back to the original list so text still draws. Applied to both measure and
+/// draw so they stay on the same faces.
+pub(crate) fn resolve_family_list(families: &str) -> Vec<String> {
+    RESOLVED_FAMILIES.with(|cell| {
+        let mut cell = cell.borrow_mut();
+        let gen = web_font_generation();
+        if cell.0 != gen {
+            cell.1.clear();
+            cell.0 = gen;
+        }
+        if let Some(v) = cell.1.get(families) {
+            return v.clone();
+        }
+
+        let fm = FontMgr::new();
+        let web = web_font_mgr();
+        let normal = FontStyle::normal();
+
+        // The face fontconfig hands back for a name it doesn't actually have. A name that resolves
+        // to anything *else* is a real family or a real alias; a name that only yields this is an
+        // unavailable family we should drop.
+        let default_fallback = fm
+            .match_family_style("__gosub_nonexistent_family__", normal)
+            .map(|tf| tf.family_name());
+
+        let resolves_to_real = |name: &str| -> bool {
+            if let Some(tf) = web.as_ref().and_then(|w| w.match_family_style(name, normal)) {
+                if tf.family_name().eq_ignore_ascii_case(name) {
+                    return true;
+                }
+            }
+            match fm.match_family_style(name, normal) {
+                Some(tf) => {
+                    let fam = tf.family_name();
+                    fam.eq_ignore_ascii_case(name) || default_fallback.as_deref() != Some(fam.as_str())
+                }
+                None => false,
+            }
+        };
+
+        let mut out = Vec::new();
+        for name in split_font_families(families) {
+            if is_pseudo_generic(&name) {
+                continue;
+            }
+            if is_real_generic(&name) || resolves_to_real(&name) {
+                out.push(name);
+            }
+        }
+        if out.is_empty() {
+            out = split_font_families(families);
+        }
+
+        cell.1.insert(families.to_string(), out.clone());
+        out
+    })
 }
 
 /// A [`FontSystem`] backed by Skia's `skia_safe` text layout.
@@ -174,8 +255,19 @@ impl FontSystem for SkiaFontSystem {
 
             let mut ts = TextStyle::new();
             ts.set_font_size(style.size);
-            // Pass the full family list so Skia's FontCollection walks the CSS fallback chain.
-            ts.set_font_families(&split_font_families(&style.family));
+            // Apply the CSS line-height (absolute px → multiple of font size) exactly as the draw
+            // path (`build_paragraph`) does, so the measured box height matches what is painted.
+            // Skipping this measured the font's natural ~1.2× box while draw rendered the CSS 1.7×,
+            // overflowing the reserved box into the next element.
+            if let Some(line_height) = style.line_height {
+                if line_height > 0.0 && style.size > 0.0 {
+                    ts.set_height(line_height / style.size);
+                    ts.set_height_override(true);
+                }
+            }
+            // Pass the pruned family list so Skia's FontCollection reaches the real generic instead
+            // of letting an unavailable leading family capture the platform default.
+            ts.set_font_families(&resolve_family_list(&style.family));
             ts.set_font_style(FontStyle::new(
                 skia_safe::font_style::Weight::from(style.weight.0 as i32),
                 skia_safe::font_style::Width::NORMAL,
@@ -200,50 +292,63 @@ impl FontSystem for SkiaFontSystem {
     }
 }
 
-#[allow(dead_code)]
-pub fn get_skia_paragraph(
-    text: &str,
-    font_info: &FontInfo,
-    max_width: f64,
-    paint: Option<&Paint>,
-    _dpi_scale_factor: f32,
-) -> Paragraph {
+/// Build and lay out a Skia `Paragraph` for `text`, drawn with `paint`, wrapped/aligned within
+/// `layout_width`. This is the single text engine for the Skia backend: the same `textlayout`
+/// machinery used by [`SkiaFontSystem::measure`], so draw metrics match the layout metrics. It
+/// honours the CSS features carried on [`FontInfo`] — text alignment, absolute line-height,
+/// `underline`/`line-through`, weight/width/slant — which the previous hand-rolled `draw_str`
+/// path could not. The caller paints the returned paragraph at the text box's top-left.
+pub(crate) fn build_paragraph(text: &str, font_info: &FontInfo, paint: &Paint, layout_width: f32) -> Paragraph {
     let mut paragraph_style = ParagraphStyle::new();
     paragraph_style.set_text_align(match font_info.alignment {
-        FontAlignment::Start => skia_safe::textlayout::TextAlign::Start,
-        FontAlignment::Center => skia_safe::textlayout::TextAlign::Center,
-        FontAlignment::End => skia_safe::textlayout::TextAlign::End,
-        FontAlignment::Justify => skia_safe::textlayout::TextAlign::Justify,
+        FontAlignment::Start => TextAlign::Start,
+        FontAlignment::Center => TextAlign::Center,
+        FontAlignment::End => TextAlign::End,
+        FontAlignment::Justify => TextAlign::Justify,
     });
-    paragraph_style.set_text_direction(skia_safe::textlayout::TextDirection::LTR);
+    paragraph_style.set_text_direction(TextDirection::LTR);
 
-    let mut paragraph_builder = ParagraphBuilder::new(&paragraph_style, with_font_collection(|fc| fc.clone()));
+    let mut builder = ParagraphBuilder::new(&paragraph_style, with_font_collection(|fc| fc.clone()));
 
-    let paint = match paint {
-        Some(p) => p.clone(),
-        None => Paint::default(),
-    };
-
-    let font_size_px = font_info.size;
-    let line_height_px = 1.2 * font_size_px;
+    let font_size = font_info.size as f32;
 
     let mut ts = TextStyle::new();
-    ts.set_foreground_paint(&paint);
-    ts.set_font_size(font_size_px as f32);
-    ts.set_height(line_height_px as f32);
-    ts.set_font_families(&split_font_families(&font_info.family));
+    ts.set_foreground_paint(paint);
+    ts.set_font_size(font_size);
+    // `line_height` is an absolute CSS px value; Skia expects a multiple of the font size, applied
+    // only when height-override is on. Skip it for a non-positive size to avoid a div-by-zero.
+    if font_info.line_height > 0.0 && font_size > 0.0 {
+        ts.set_height(font_info.line_height as f32 / font_size);
+        ts.set_height_override(true);
+    }
+    ts.set_font_families(&resolve_family_list(&font_info.family));
     ts.set_font_style(FontStyle::new(
-        font_info.weight.into(),
-        font_info.width.into(),
-        to_slant(font_info.slant),
+        skia_safe::font_style::Weight::from(font_info.weight),
+        skia_safe::font_style::Width::from((font_info.width / 100).clamp(1, 9)),
+        if font_info.slant > 0 {
+            skia_safe::font_style::Slant::Italic
+        } else {
+            skia_safe::font_style::Slant::Upright
+        },
     ));
-    paragraph_builder.push_style(&ts);
 
-    paragraph_builder.add_text(text);
+    let mut decoration = TextDecoration::NO_DECORATION;
+    if font_info.underline {
+        decoration |= TextDecoration::UNDERLINE;
+    }
+    if font_info.line_through {
+        decoration |= TextDecoration::LINE_THROUGH;
+    }
+    if decoration != TextDecoration::NO_DECORATION {
+        ts.set_decoration_type(decoration);
+        ts.set_decoration_color(paint.color());
+    }
 
-    let mut paragraph = paragraph_builder.build();
-    paragraph.layout(max_width as f32);
+    builder.push_style(&ts);
+    builder.add_text(text);
 
+    let mut paragraph = builder.build();
+    paragraph.layout(layout_width);
     paragraph
 }
 
@@ -261,6 +366,7 @@ fn to_slant(slant: i32) -> skia_safe::font_style::Slant {
 mod tests {
     use super::*;
 
+
     #[test]
     fn splits_and_trims_family_list() {
         assert_eq!(
@@ -276,10 +382,12 @@ mod tests {
 
     #[test]
     fn recognises_generic_families() {
-        assert!(is_generic_family("serif"));
-        assert!(is_generic_family("Sans-Serif"));
-        assert!(is_generic_family("monospace"));
-        assert!(!is_generic_family("Source Serif 4"));
-        assert!(!is_generic_family("Georgia"));
+        assert!(is_real_generic("serif"));
+        assert!(is_real_generic("Sans-Serif"));
+        assert!(is_real_generic("monospace"));
+        assert!(is_pseudo_generic("system-ui"));
+        assert!(is_pseudo_generic("UI-Monospace"));
+        assert!(!is_real_generic("Source Serif 4"));
+        assert!(!is_pseudo_generic("Georgia"));
     }
 }

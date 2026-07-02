@@ -58,11 +58,14 @@ impl Rasterable for SkiaRasterizer {
             return None;
         }
 
+        // Tag the surface sRGB so Skia blends anti-aliased text (and gradients) gamma-correctly, in
+        // linear light, the way browsers do. Without a colour space Skia blends in gamma-encoded
+        // space, which fattens glyph edges and makes text look heavier than Firefox.
         let info = skia_safe::ImageInfo::new(
             skia_safe::ISize::new(width as i32, height as i32),
             skia_safe::ColorType::BGRA8888,
             skia_safe::AlphaType::Premul,
-            None,
+            Some(skia_safe::ColorSpace::new_srgb()),
         );
         let Some(mut surface) = skia_safe::surfaces::raster(&info, None, None) else {
             log::error!("Failed to create Skia surface for tile rasterization");
