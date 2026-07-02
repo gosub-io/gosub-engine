@@ -5,7 +5,7 @@ use gosub_html5::testing::tree_construction::fixture::read_fixtures;
 use gosub_html5::testing::tree_construction::result::ResultStatus;
 use gosub_html5::testing::tree_construction::Harness;
 use gosub_html5::testing::tree_construction::Test;
-use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
+use gosub_interface::config::ModuleConfiguration;
 
 /// Holds the results from all tests that are executed
 #[derive(Default)]
@@ -26,14 +26,9 @@ pub struct TotalTestResults {
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
 
-impl HasCssSystem for Config {
+impl ModuleConfiguration for Config {
     type CssSystem = Css3System;
-}
-impl HasDocument for Config {
     type Document = DocumentImpl<Self>;
-}
-
-impl HasHtmlParser for Config {
     type HtmlParser = Html5Parser<'static, Self>;
 }
 

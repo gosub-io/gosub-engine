@@ -5,6 +5,7 @@ use crate::engine::events::EngineEvent;
 use crate::engine::storage::{StorageService, Subscription};
 use crate::engine::tab::TabId;
 use crate::engine::types::{EventChannel, IoChannel};
+use crate::html::EngineConfig;
 use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::storage::types::PartitionPolicy;
 use crate::tab::services::resolve_tab_services;
@@ -12,7 +13,6 @@ use crate::tab::{create_tab_and_spawn, TabDefaults, TabHandle, TabOverrides, Tab
 use crate::util::spawn_named;
 use crate::zone::ZoneConfig;
 use crate::EngineError;
-use gosub_render_pipeline::render::backend::{CompositorSink, RenderBackend};
 use parking_lot::RwLock;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
@@ -100,7 +100,7 @@ pub struct ZoneServices {
 }
 
 /// Zone context we can share downwards to tabs
-pub struct ZoneContext {
+pub struct ZoneContext<C: EngineConfig = crate::html::DefaultConfig> {
     /// Zone services (storage, cookies, etc)
     pub(crate) services: ZoneServices,
     /// Subscription for session storage changes
@@ -114,10 +114,10 @@ pub struct ZoneContext {
     /// Map of request references to tab IDs, used to route network events back to the right tab
     pub(crate) request_reference_map: Arc<RwLock<RequestReferenceMap>>,
 
-    /// Compositor router to use for this zone
-    pub(crate) compositor: Arc<RwLock<dyn CompositorSink + Send + Sync>>,
-    /// Rendering backend to use for this zone
-    pub(crate) render_backend: Arc<dyn RenderBackend + Send + Sync>,
+    /// Compositor sink to use for this zone (concrete, per the module config).
+    pub(crate) compositor: Arc<RwLock<C::CompositorSink>>,
+    /// Rendering backend to use for this zone (concrete, per the module config).
+    pub(crate) render_backend: Arc<C::RenderBackend>,
 }
 
 // Things that are shared upwards to the engine
@@ -128,11 +128,11 @@ pub struct ZoneSink {
 
 /// This is the zone structure, which contains tabs and shared services. It is only known to the engine
 /// and can be controlled by the user via the engine API.
-pub struct Zone {
+pub struct Zone<C: EngineConfig = crate::html::DefaultConfig> {
     // Shared context from the engine
     pub engine_context: Arc<EngineContext>,
     // Shared context that is passed down to tabs
-    pub context: Arc<ZoneContext>,
+    pub context: Arc<ZoneContext<C>>,
     // Shared state that can be read by anyone with a ZoneSink
     pub sink: Arc<ZoneSink>,
     // List of tabs
@@ -152,7 +152,7 @@ pub struct Zone {
     pub color: [u8; 4],
 }
 
-impl Debug for Zone {
+impl<C: EngineConfig> Debug for Zone<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Zone")
             .field("id", &self.id)
@@ -186,7 +186,7 @@ pub struct SharedFlags {
     pub share_cookiejar: bool,
 }
 
-impl Zone {
+impl<C: EngineConfig> Zone<C> {
     /// Creates a new zone with a specific zone ID
     pub fn new_with_id(
         // Unique ID for the zone
@@ -197,6 +197,9 @@ impl Zone {
         services: ZoneServices,
         // Event channel to send events back to the UI
         engine_context: Arc<EngineContext>,
+        // Render backend / compositor for this engine's config (concrete)
+        render_backend: Arc<C::RenderBackend>,
+        compositor: Arc<RwLock<C::CompositorSink>>,
     ) -> Result<Self, EngineError> {
         // We generate the color by using the zone id as a seed
         let mut rng = StdRng::seed_from_u64(zone_id.0.as_u64_pair().0);
@@ -214,8 +217,6 @@ impl Zone {
             guard.as_ref().cloned().ok_or(EngineError::IoNotStarted)?
         };
         let request_reference_map = engine_context.request_reference_map.clone();
-        let compositor = engine_context.compositor.clone();
-        let render_backend = engine_context.render_backend.clone();
 
         let zone = Self {
             engine_context,
@@ -255,8 +256,17 @@ impl Zone {
         config: ZoneConfig,
         services: ZoneServices,
         engine_context: Arc<EngineContext>,
+        render_backend: Arc<C::RenderBackend>,
+        compositor: Arc<RwLock<C::CompositorSink>>,
     ) -> Result<Self, EngineError> {
-        Self::new_with_id(ZoneId::new(), config, services, engine_context)
+        Self::new_with_id(
+            ZoneId::new(),
+            config,
+            services,
+            engine_context,
+            render_backend,
+            compositor,
+        )
     }
 
     /// Sets the title of the zone
@@ -296,7 +306,7 @@ impl Zone {
         let tab_services = resolve_tab_services(self.id, &self.context.services, &overrides.unwrap_or_default());
 
         let (tab_handle, join_handle) =
-            create_tab_and_spawn(self.id, tab_services, self.context.clone()).map_err(EngineError::CreateTab)?;
+            create_tab_and_spawn::<C>(self.id, tab_services, self.context.clone()).map_err(EngineError::CreateTab)?;
         self.tabs.insert(
             tab_handle.tab_id,
             TabInfo {

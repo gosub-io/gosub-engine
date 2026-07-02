@@ -5,6 +5,7 @@ use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
 use crate::events::{IoCommand, TabCommand};
+use crate::html::EngineConfig;
 use crate::net::req_ref_tracker::RequestReference;
 use crate::net::types::{FetchKeyData, FetchRequest, FetchResult, Initiator, NetError, Priority, ResourceKind};
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
@@ -17,7 +18,9 @@ use crate::util::spawn_named;
 use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
 use gosub_render_pipeline::rasterizer::RasterStrategy;
-use gosub_render_pipeline::render::backend::{ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
+use gosub_render_pipeline::render::backend::{
+    CompositorSink, ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
+};
 use gosub_render_pipeline::render::Viewport;
 use http::{HeaderMap, Method};
 use std::sync::Arc;
@@ -36,12 +39,12 @@ fn about_blank() -> Url {
 }
 
 #[derive(Debug)]
-pub enum NavigationResult {
+pub enum NavigationResult<C: EngineConfig> {
     Ok {
         nav_id: NavigationId,
         final_url: Url,
         title: Option<String>,
-        doc: Arc<crate::html::EngineDocument>,
+        doc: Arc<crate::html::EngineDocument<C>>,
     },
     Err {
         nav_id: NavigationId,
@@ -56,22 +59,22 @@ struct ActiveNav {
     pub url: Url,
 }
 
-struct NavJoin {
+struct NavJoin<C: EngineConfig> {
     // nav_id: NavigationId,
     cancel: CancellationToken,
     // Wrapped in Option so the receiver can be extracted into `pending_nav_rx`
     // without dropping the cancel token from self.load.
-    rx: Option<oneshot::Receiver<NavigationResult>>,
+    rx: Option<oneshot::Receiver<NavigationResult<C>>>,
 }
 
-pub struct TabWorker {
+pub struct TabWorker<C: EngineConfig> {
     /// ID of the tab
     pub tab_id: TabId,
     /// ID of the zone in which this tab resides
     pub zone_id: ZoneId,
 
     /// Shared context from the tab
-    zone_context: Arc<ZoneContext>,
+    zone_context: Arc<ZoneContext<C>>,
     // Effective tab services that we can use
     services: EffectiveTabServices,
 
@@ -82,7 +85,7 @@ pub struct TabWorker {
     cmd_rx: mpsc::Receiver<TabCommand>,
 
     /// Browsing context running for this tab
-    pub context: BrowsingContext,
+    pub context: BrowsingContext<C>,
     /// State of the tab (idle, loading, loaded, etc.)
     pub state: TabState,
     /// Current tab mode (idle, live, background)
@@ -119,7 +122,7 @@ pub struct TabWorker {
     /// Keeps track of the tab worker runtime data
     pub(crate) runtime: TabRuntime,
     /// Current in-flight navigation (if any)
-    load: Option<NavJoin>,
+    load: Option<NavJoin<C>>,
     /// Current active navigation (if any)
     active_nav: Option<ActiveNav>,
 
@@ -130,13 +133,13 @@ pub struct TabWorker {
     internal_rx: mpsc::Receiver<TabInternalCommand>,
 }
 
-impl TabWorker {
+impl<C: EngineConfig> TabWorker<C> {
     /// Creates a new tab. Does NOT spawn the tab worker
     pub fn new(
         tab_id: TabId,
         zone_id: ZoneId,
         services: EffectiveTabServices,
-        zone_context: Arc<ZoneContext>,
+        zone_context: Arc<ZoneContext<C>>,
         sink: Arc<TabSink>,
         cmd_rx: mpsc::Receiver<TabCommand>,
     ) -> Self {
@@ -193,7 +196,7 @@ impl TabWorker {
         // Store the nav-result receiver OUTSIDE the select! loop so it survives across
         // iterations even when another arm fires first.  oneshot::Receiver is Unpin, so
         // `&mut pending_nav_rx.as_mut().unwrap()` is a stable borrow we can reuse.
-        let mut pending_nav_rx: Option<oneshot::Receiver<NavigationResult>> = None;
+        let mut pending_nav_rx: Option<oneshot::Receiver<NavigationResult<C>>> = None;
 
         loop {
             // Sync pending_nav_rx with self.load so a freshly-set load is picked up.
@@ -265,7 +268,7 @@ impl TabWorker {
         self.services.storage.drop_tab(self.zone_id, self.tab_id);
     }
 
-    fn on_nav_result(&mut self, res: NavigationResult) {
+    fn on_nav_result(&mut self, res: NavigationResult<C>) {
         match res {
             NavigationResult::Ok {
                 nav_id,
@@ -553,7 +556,7 @@ impl TabWorker {
             max_bytes: None,
         };
 
-        let (tx_done, rx_done) = oneshot::channel::<NavigationResult>();
+        let (tx_done, rx_done) = oneshot::channel::<NavigationResult<C>>();
 
         let tab_id = self.tab_id;
         let zone_id = self.zone_id;
@@ -625,7 +628,7 @@ impl TabWorker {
                 allow_download_without_user_activation: false,
             };
 
-            let mut hooks = ResourcePipelines::new(zone_id, io_tx.clone());
+            let mut hooks = ResourcePipelines::<C>::new(zone_id, io_tx.clone());
 
             let outcome = route_response_for(
                 RequestDestination::Document,
@@ -739,8 +742,14 @@ impl TabWorker {
         // Install the active backend's rasterizer once (replaces the former per-backend cfg
         // selection and the Vello-specific wgpu_resources extraction).
         if !self.context.has_rasterizer() {
-            self.context
-                .set_rasterizer(render_backend.create_rasterizer(), render_backend.raster_strategy());
+            // `create_rasterizer` is type-erased (the backend trait lives in `gosub_interface`,
+            // which can't name the pipeline's `Rasterable`); recover it here.
+            if let Some(rasterizer) =
+                gosub_render_pipeline::rasterizer::downcast_rasterizer(render_backend.create_rasterizer())
+            {
+                self.context
+                    .set_rasterizer(rasterizer, render_backend.raster_strategy());
+            }
         }
 
         // TileCache path — used by every rasterizing backend (Cairo, Skia, Vello).

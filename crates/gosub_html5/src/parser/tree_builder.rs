@@ -35,20 +35,15 @@ mod tests {
     use crate::testing::tree_construction::fixture::{fixture_root_path, read_fixture_from_path};
     use crate::testing::tree_construction::Harness;
     use gosub_css3::system::Css3System;
-    use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
+    use gosub_interface::config::ModuleConfiguration;
     use test_case::test_case;
 
     #[derive(Clone, Debug, PartialEq)]
     struct Config;
 
-    impl HasCssSystem for Config {
+    impl ModuleConfiguration for Config {
         type CssSystem = Css3System;
-    }
-    impl HasDocument for Config {
         type Document = DocumentImpl<Self>;
-    }
-
-    impl HasHtmlParser for Config {
         type HtmlParser = Html5Parser<'static, Self>;
     }
 

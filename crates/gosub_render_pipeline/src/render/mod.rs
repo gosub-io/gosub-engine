@@ -8,7 +8,7 @@ pub mod viewport;
 
 pub use backend::{
     blend_over_argb_u32, CompositorSink, ErasedSurface, ExternalHandle, GpuPixelFormat, PixelFormat, PresentMode,
-    RenderBackend, RenderBackendRouter, RgbaImage, SurfaceRect, SurfaceSize, WgpuTextureId,
+    RenderBackend, RgbaImage, SurfaceRect, SurfaceSize, WgpuTextureId,
 };
 pub use compositor::DefaultCompositor;
 pub use render_context::RenderContext;

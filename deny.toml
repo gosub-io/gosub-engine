@@ -14,6 +14,14 @@ ignore = [
     # (resvg -> usvg -> fontdb) and font shaping (ab_glyph -> owned_ttf_parser).
     # Nothing we control depends on it directly.
     "RUSTSEC-2026-0192", # ttf-parser unmaintained
+    # `quick-xml` 0.39 DoS advisories. Not exploitable here: the ONLY path to it is
+    # `wayland-scanner` (a build-time proc-macro under winit's Wayland backend) which
+    # parses trusted, crate-shipped Wayland protocol XML at compile time — never
+    # untrusted runtime input. The fix (quick-xml >= 0.41) is semver-incompatible with
+    # `wayland-scanner ^0.39`; adopting it needs a major winit/smithay bump. Revisit
+    # when winit updates its wayland-scanner dependency.
+    "RUSTSEC-2026-0194", # quick-xml quadratic duplicate-attribute check (build-time only)
+    "RUSTSEC-2026-0195", # quick-xml unbounded namespace allocation (build-time only)
 ]
 
 [licenses]

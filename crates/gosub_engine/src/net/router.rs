@@ -4,7 +4,7 @@ use crate::engine::resource_pipeline::js::DummyJsDocument;
 use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::PeekBuf;
 use crate::engine::UaPolicy;
-use crate::html::EngineDocument;
+use crate::html::{EngineConfig, EngineDocument};
 use crate::net::decision::types::BlockReason;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
 use crate::net::{decide_handling, stream_to_bytes, HandlingDecision, RenderTarget, RequestDestination, SharedBody};
@@ -14,9 +14,9 @@ use std::sync::Arc;
 
 /// The outcome of routing a fetch result.
 #[derive(Debug)]
-pub enum RoutedOutcome {
+pub enum RoutedOutcome<C: EngineConfig> {
     /// The main document has been parsed and is ready.
-    MainDocument(Arc<EngineDocument>),
+    MainDocument(Arc<EngineDocument<C>>),
     /// The resource has been rendered in a viewer (text, image, pdf, etc.).
     ViewerRendered(Bytes),
     /// A download has been started (path to file).
@@ -60,14 +60,14 @@ impl BodyContent {
 }
 
 /// Route a fetch result based on its destination and the UA policy.
-pub async fn route_response_for(
+pub async fn route_response_for<C: EngineConfig>(
     dest: RequestDestination,
     handle: FetchHandle,
     request: FetchRequest,
     fetch_result: FetchResult,
     policy: &UaPolicy,
-    hooks: &mut ResourcePipelines,
-) -> anyhow::Result<RoutedOutcome> {
+    hooks: &mut ResourcePipelines<C>,
+) -> anyhow::Result<RoutedOutcome<C>> {
     // Fetch the metadata, peek buffer and content (type)
     let (meta, body_content, peek_buf) = match fetch_result {
         FetchResult::Stream { meta, peek_buf, shared } => (meta, BodyContent::Stream { shared }, peek_buf),

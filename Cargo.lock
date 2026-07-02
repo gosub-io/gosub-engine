@@ -3287,6 +3287,8 @@ dependencies = [
 name = "gosub_interface"
 version = "0.1.2"
 dependencies = [
+ "anyhow",
+ "bytes",
  "gosub_net",
  "gosub_shared",
  "parking_lot",

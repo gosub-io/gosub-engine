@@ -8,7 +8,8 @@ mod rendertree_from_engine {
     use gosub_css3::system::Css3System;
     use gosub_html5::document::document_impl::DocumentImpl;
     use gosub_html5::html_compile;
-    use gosub_interface::config::{HasCssSystem, HasDocument};
+    use gosub_html5::parser::Html5Parser;
+    use gosub_interface::config::ModuleConfiguration;
     use gosub_interface::css3::CssSystem as _;
     use gosub_interface::document::Document as _;
 
@@ -19,11 +20,10 @@ mod rendertree_from_engine {
     #[derive(Clone, Debug, PartialEq)]
     struct Config;
 
-    impl HasCssSystem for Config {
+    impl ModuleConfiguration for Config {
         type CssSystem = Css3System;
-    }
-    impl HasDocument for Config {
         type Document = DocumentImpl<Self>;
+        type HtmlParser = Html5Parser<'static, Self>;
     }
 
     /// Parse HTML (with optional inline `<style>`), add the UA stylesheet, and

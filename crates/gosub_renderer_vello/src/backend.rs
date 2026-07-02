@@ -3,7 +3,7 @@ use crate::backend::font_manager::FontManager;
 use crate::backend::text_renderer::{TextKey, TextRenderer};
 use anyhow::{anyhow, Result};
 use gosub_fontmanager::ParleyFontSystem;
-use gosub_render_pipeline::rasterizer::{RasterStrategy, Rasterable};
+use gosub_render_pipeline::rasterizer::{erase_rasterizer, RasterStrategy};
 use gosub_render_pipeline::render::backend::GpuPixelFormat;
 use gosub_render_pipeline::render::backend::{
     ErasedSurface, ExternalHandle, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
@@ -247,8 +247,8 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
         Some(Arc::clone(&self.resources) as Arc<dyn Any + Send + Sync>)
     }
 
-    fn create_rasterizer(&self) -> Box<dyn Rasterable + Send + Sync> {
-        Box::new(crate::VelloRasterizer::new(Arc::clone(&self.resources)))
+    fn create_rasterizer(&self) -> Box<dyn Any + Send + Sync> {
+        erase_rasterizer(Box::new(crate::VelloRasterizer::new(Arc::clone(&self.resources))))
     }
 
     fn raster_strategy(&self) -> RasterStrategy {

@@ -120,7 +120,7 @@ impl RenderBackend for DynamicRenderBackend {
         self.active_backend().wgpu_resources()
     }
 
-    fn create_rasterizer(&self) -> Box<dyn gosub_render_pipeline::rasterizer::Rasterable + Send + Sync> {
+    fn create_rasterizer(&self) -> Box<dyn std::any::Any + Send + Sync> {
         self.active_backend().create_rasterizer()
     }
 

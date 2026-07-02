@@ -3,7 +3,7 @@ use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_html5::testing::tree_construction::fixture::{fixture_root_path, read_fixture_from_path};
 use gosub_html5::testing::tree_construction::Harness;
-use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
+use gosub_interface::config::ModuleConfiguration;
 use gosub_shared::types::Result;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -12,14 +12,9 @@ use walkdir::WalkDir;
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
 
-impl HasCssSystem for Config {
+impl ModuleConfiguration for Config {
     type CssSystem = Css3System;
-}
-impl HasDocument for Config {
     type Document = DocumentImpl<Self>;
-}
-
-impl HasHtmlParser for Config {
     type HtmlParser = Html5Parser<'static, Self>;
 }
 fn main() -> Result<()> {

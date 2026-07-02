@@ -155,17 +155,16 @@ mod tests {
     use crate::parser::Html5Parser;
     use crate::parser::QuirksMode;
     use gosub_css3::system::Css3System;
-    use gosub_interface::config::{HasCssSystem, HasDocument};
+    use gosub_interface::config::ModuleConfiguration;
     use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 
     #[derive(Clone, Debug, PartialEq)]
     struct Config;
 
-    impl HasCssSystem for Config {
+    impl ModuleConfiguration for Config {
         type CssSystem = Css3System;
-    }
-    impl HasDocument for Config {
         type Document = DocumentImpl<Self>;
+        type HtmlParser = Html5Parser<'static, Self>;
     }
 
     type Parser<'a> = Html5Parser<'a, Config>;
