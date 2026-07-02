@@ -81,7 +81,11 @@ resvg = "0.47.0"
 serde = "1.0.228"
 serde_json = "1.0.150"
 simple_logger = "5.2.0"
-skia-safe = "0.97.2"
+# svg/wayland/x11 make the workspace-wide feature union (with gl, egl,
+# textlayout from the renderer/examples) match a published skia-binaries
+# bundle exactly; any other union silently rebuilds Skia's C++ from source
+# (~14 min per cold CI job).
+skia-safe = { version = "0.97.2", features = ["svg", "wayland", "x11"] }
 softbuffer = "0.4"
 taffy = {version = "0.10.1", default-features = false}
 tempfile = "3.21.0"
