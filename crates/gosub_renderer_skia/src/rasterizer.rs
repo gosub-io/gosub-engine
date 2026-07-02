@@ -95,7 +95,7 @@ impl Rasterable for SkiaRasterizer {
                     // group markers never appear here — ignore them.
                     PaintCommand::PushLayer { .. } | PaintCommand::PopLayer => {}
                     PaintCommand::Rectangle(command) => {
-                        rectangle::do_paint_rectangle(canvas, tile, command);
+                        rectangle::do_paint_rectangle(canvas, tile, command, media_store);
                     }
                     PaintCommand::Text(command) => {
                         let _ = text::do_paint_text(canvas, tile, command, self.dpi_scale_factor);
