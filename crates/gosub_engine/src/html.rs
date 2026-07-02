@@ -8,10 +8,12 @@ pub use parser::parse_main_document_stream;
 pub use parser::{DocumentError, DummyDocument, DummyHtml5Config, ResourceHint};
 
 use gosub_css3::system::Css3System;
+use gosub_fontmanager::ParleyFontSystem;
 use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::ModuleConfiguration;
 use gosub_interface::document::Document as _;
+use gosub_interface::font_system::FontSystem;
 use gosub_interface::node::NodeType;
 use gosub_interface::render::backend::{CompositorSink, RenderBackend};
 use gosub_render_pipeline::render::backends::null::NullBackend;
@@ -20,37 +22,42 @@ use gosub_shared::node::NodeId;
 use std::marker::PhantomData;
 
 /// The engine's default config, wiring the gosub_html5 document implementation together with the
-/// gosub_css3 style system, and parameterized over the render backend `B` and compositor sink `S`.
+/// gosub_css3 style system, parameterized over the render backend `B`, font system `F`, and
+/// compositor sink `S` — in that order, so the rarely-changed compositor falls off as a default.
 ///
-/// Embedders that use the default parse stack only need to pick a backend:
-/// `GosubEngine::<DefaultConfig<CairoBackend>>::new(...)`. With no parameters, `DefaultConfig`
-/// is the headless `DefaultConfig<NullBackend, DefaultCompositor>`. Embedders that also want a
-/// custom CSS/DOM/parser stack implement [`ModuleConfiguration`] + [`EngineConfig`] on their own
-/// type instead.
-pub struct DefaultConfig<B = NullBackend, S = DefaultCompositor>(PhantomData<fn() -> (B, S)>);
+/// Embedders that use the default parse stack pick a backend (and optionally a font system):
+/// `DefaultRenderConfig<CairoBackend, PangoFontSystem>`. With no parameters, `DefaultRenderConfig` is the
+/// headless `DefaultRenderConfig<NullBackend, ParleyFontSystem, DefaultCompositor>`. Embedders that also
+/// want a custom CSS/DOM/parser stack implement [`ModuleConfiguration`] + [`RenderConfiguration`] on their
+/// own type instead.
+#[allow(clippy::type_complexity)] // PhantomData marker carrying the three config type params
+pub struct DefaultRenderConfig<B = NullBackend, F = ParleyFontSystem, S = DefaultCompositor>(
+    PhantomData<fn() -> (B, F, S)>,
+);
 
-// `DefaultConfig` is a zero-sized marker; its Clone/Debug/PartialEq are independent of `B`/`S`
-// (which are never instantiated), so we impl them by hand rather than deriving bounds on B/S.
-impl<B, S> Clone for DefaultConfig<B, S> {
+// `DefaultRenderConfig` is a zero-sized marker; its Clone/Debug/PartialEq are independent of `B`/`S`/`F`
+// (which are never instantiated), so we impl them by hand rather than deriving bounds on them.
+impl<B, F, S> Clone for DefaultRenderConfig<B, F, S> {
     fn clone(&self) -> Self {
         Self(PhantomData)
     }
 }
-impl<B, S> std::fmt::Debug for DefaultConfig<B, S> {
+impl<B, F, S> std::fmt::Debug for DefaultRenderConfig<B, F, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("DefaultConfig")
+        f.write_str("DefaultRenderConfig")
     }
 }
-impl<B, S> PartialEq for DefaultConfig<B, S> {
+impl<B, F, S> PartialEq for DefaultRenderConfig<B, F, S> {
     fn eq(&self, _: &Self) -> bool {
         true
     }
 }
 
-impl<B, S> ModuleConfiguration for DefaultConfig<B, S>
+impl<B, F, S> ModuleConfiguration for DefaultRenderConfig<B, F, S>
 where
     B: RenderBackend + Send + Sync + 'static,
     S: CompositorSink + 'static,
+    F: FontSystem + Default,
 {
     type CssSystem = Css3System;
     type Document = DocumentImpl<Self>;
@@ -63,32 +70,37 @@ where
 /// `RenderBackend`/`CompositorSink` live here rather than on `ModuleConfiguration` so that
 /// parse-only configs (parser test harnesses, fuzz targets) — which never render and must not
 /// depend on the renderer crates — only implement `ModuleConfiguration`. Engine code bounds on
-/// `C: EngineConfig`; the public `ModuleConfiguration` stays render-agnostic.
-pub trait EngineConfig: ModuleConfiguration<Document = DocumentImpl<Self>> {
+/// `C: RenderConfiguration`; the public `ModuleConfiguration` stays render-agnostic.
+pub trait RenderConfiguration: ModuleConfiguration<Document = DocumentImpl<Self>> {
     /// Low-level render backend (Cairo, Skia, Vello, null, …).
     type RenderBackend: RenderBackend + Send + Sync;
     /// Receives finished frames from the render backend.
     type CompositorSink: CompositorSink;
+    /// Font system used for text measurement (layout) and shared with the renderer for drawing.
+    /// The engine owns one instance, created via `Default`, and hands it to both.
+    type FontSystem: FontSystem + Default;
 }
 
-impl<B, S> EngineConfig for DefaultConfig<B, S>
+impl<B, F, S> RenderConfiguration for DefaultRenderConfig<B, F, S>
 where
     B: RenderBackend + Send + Sync + 'static,
     S: CompositorSink + 'static,
+    F: FontSystem + Default,
 {
     type RenderBackend = B;
     type CompositorSink = S;
+    type FontSystem = F;
 }
 
-/// The parsed document type used by the engine for a given config (defaults to [`DefaultConfig`]).
-pub type EngineDocument<C = DefaultConfig> = DocumentImpl<C>;
+/// The parsed document type used by the engine for a given config (defaults to [`DefaultRenderConfig`]).
+pub type EngineDocument<C = DefaultRenderConfig> = DocumentImpl<C>;
 
 /// Extract the text content of the first `<title>` element in the document.
-pub fn document_title<C: EngineConfig>(doc: &EngineDocument<C>) -> Option<String> {
+pub fn document_title<C: RenderConfiguration>(doc: &EngineDocument<C>) -> Option<String> {
     find_title(doc, doc.root())
 }
 
-fn find_title<C: EngineConfig>(doc: &EngineDocument<C>, node_id: NodeId) -> Option<String> {
+fn find_title<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) -> Option<String> {
     for &child in doc.children(node_id) {
         if doc.node_type(child) == NodeType::ElementNode {
             if doc

@@ -1,7 +1,5 @@
-pub mod flatland;
-pub mod font_manager;
+pub mod cosmic_system;
 pub mod parley_system;
 
-pub use font_manager::font_info::FontInfo;
-pub use font_manager::manager::FontManager;
+pub use cosmic_system::CosmicFontSystem;
 pub use parley_system::ParleyFontSystem;

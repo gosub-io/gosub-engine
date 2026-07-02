@@ -10,12 +10,12 @@ use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
-use gosub_engine::DefaultConfig;
+use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
-use gosub_renderer_cairo::CairoBackend;
+use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -24,6 +24,8 @@ use url::Url;
 use uuid::uuid;
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000005");
+
+type AppConfig = DefaultRenderConfig<CairoBackend, PangoFontSystem>;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
     Builder::new_multi_thread()
@@ -43,9 +45,9 @@ enum UiEvent {
 
 struct BrowserApp {
     #[allow(dead_code)]
-    engine: GosubEngine<DefaultConfig<CairoBackend>>,
+    engine: GosubEngine<AppConfig>,
     #[allow(dead_code)]
-    zone: Zone<DefaultConfig<CairoBackend>>,
+    zone: Zone<AppConfig>,
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
@@ -70,7 +72,7 @@ impl BrowserApp {
         })));
 
         let backend = CairoBackend::new();
-        let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
+        let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
         let _join = engine.start().expect("engine start");
 
         let (ui_tx, ui_rx) = std::sync::mpsc::channel::<UiEvent>();

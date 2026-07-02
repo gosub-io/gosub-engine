@@ -20,7 +20,7 @@ use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
-use gosub_engine::DefaultConfig;
+use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
@@ -529,7 +529,7 @@ fn main() {
     // Use a null render backend — TileCache frames are submitted directly by the engine
     // without going through a render backend's display-list pipeline.
     let backend = gosub_render_pipeline::render::backends::null::NullBackend::new();
-    let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
+    let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(None, Arc::new(backend), compositor.clone());
     let _join = engine.start().expect("engine start");
 
     let proxy_ev = proxy.clone();

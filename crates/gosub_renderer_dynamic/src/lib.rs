@@ -120,8 +120,11 @@ impl RenderBackend for DynamicRenderBackend {
         self.active_backend().wgpu_resources()
     }
 
-    fn create_rasterizer(&self) -> Box<dyn std::any::Any + Send + Sync> {
-        self.active_backend().create_rasterizer()
+    fn create_rasterizer(
+        &self,
+        font_system: std::sync::Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>>,
+    ) -> Box<dyn std::any::Any + Send + Sync> {
+        self.active_backend().create_rasterizer(font_system)
     }
 
     fn raster_strategy(&self) -> gosub_render_pipeline::rasterizer::RasterStrategy {

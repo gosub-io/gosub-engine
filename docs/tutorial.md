@@ -74,12 +74,12 @@ tokio = { version = "1", features = ["full"] }
 
 ```rust
 use std::sync::{Arc, RwLock};
-use gosub_engine::{EngineConfig, GosubEngine};
+use gosub_engine::{EngineSettings, GosubEngine};
 use gosub_engine::render::{backends::null::NullBackend, DefaultCompositor};
 
 let backend = NullBackend::new().expect("null backend");
 let mut engine = GosubEngine::new(
-    Some(EngineConfig::default()),
+    Some(EngineSettings::default()),
     Arc::new(backend),
     Arc::new(RwLock::new(DefaultCompositor::default())),
 );
@@ -89,7 +89,8 @@ let join_handle = engine.start().expect("cannot start engine");
 
 `NullBackend` skips all pixel rendering - useful for headless scenarios or
 whenever you just want navigation and events without a visible window. Swap it
-for `CairoBackend` or `VelloBackend` to get an actual rendered surface.
+for `CairoBackend` or `VelloBackend` to get an actual rendered surface — see
+[`configuration.md`](configuration.md) for how to wire a real backend into the engine config.
 
 Subscribe to events **before** creating any zones or tabs, so you don't miss
 events emitted during setup:

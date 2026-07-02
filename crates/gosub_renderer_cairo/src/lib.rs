@@ -5,6 +5,8 @@ pub mod rasterizer;
 
 pub use backend::{CairoBackend, CairoSurface};
 pub use compositor::{CairoCompositor, CairoCompositorConfig};
+#[cfg(feature = "text_pango")]
+pub use font::pango::PangoFontSystem;
 pub use rasterizer::CairoRasterizer;
 
 /// Initialize GTK and Cairo/Pango font resources on the main thread before any

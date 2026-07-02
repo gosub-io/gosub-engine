@@ -15,6 +15,7 @@ use crate::layouter::{
 };
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
+use gosub_interface::font_system::FontSystem;
 use parking_lot::{Mutex, RwLock};
 use std::borrow::Borrow;
 use std::collections::HashMap;
@@ -49,7 +50,10 @@ pub struct TaffyLayouter {
     /// Shared font system used for text measurement. Locking once per measurement
     /// call avoids keeping the guard alive across the full layout pass, which lets
     /// other threads (e.g. the rasterizer) access the font collection between calls.
-    font_system: Arc<Mutex<ParleyFontSystem>>,
+    ///
+    /// `dyn FontSystem` so the same instance can be shared with the rasterizer (and
+    /// swapped for a non-Parley implementation). Measurement goes through the trait.
+    font_system: Arc<Mutex<dyn FontSystem>>,
     /// Memoized text measurements. Taffy calls the measure function 2-4× per node
     /// (MinContent, MaxContent, actual width). Caching by (text, font, max_width)
     /// eliminates the redundant Parley shaping calls.
@@ -120,7 +124,7 @@ impl TaffyLayouter {
     }
 
     /// Create a layouter that shares an existing font system.
-    pub fn with_font_system(font_system: Arc<Mutex<ParleyFontSystem>>) -> Self {
+    pub fn with_font_system(font_system: Arc<Mutex<dyn FontSystem>>) -> Self {
         Self {
             tree: TaffyTree::new(),
             root_id: TaffyNodeId::new(0),
@@ -134,7 +138,7 @@ impl TaffyLayouter {
     }
 
     /// Expose the font system so callers can share it with other components.
-    pub fn font_system(&self) -> Arc<Mutex<ParleyFontSystem>> {
+    pub fn font_system(&self) -> Arc<Mutex<dyn FontSystem>> {
         Arc::clone(&self.font_system)
     }
 
@@ -160,7 +164,8 @@ impl CanLayout for TaffyLayouter {
         &mut self,
         render_tree: RenderTree,
         viewport: Option<geo::Dimension>,
-        dpi_scale_factor: f32,
+        // DPI scaling is applied later in the pipeline; text is measured in CSS pixels.
+        _dpi_scale_factor: f32,
     ) -> LayoutTree {
         let Some(root_id) = render_tree.root_id else {
             log::error!("Render tree has no root node; was parse() called? Returning empty layout.");
@@ -224,19 +229,12 @@ impl CanLayout for TaffyLayouter {
                             return cached;
                         }
 
-                        // Acquire the font context for this measurement. The lock is
-                        // released immediately after the call so other callers
-                        // (e.g. the rasterizer) can interleave without contention.
+                        // Measure through the shared font system. The lock is released
+                        // immediately after the call so other callers (e.g. the
+                        // rasterizer) can interleave without contention.
                         let text_layout = {
                             let mut fs = font_system.lock();
-                            let font_cx = fs.font_cx_mut();
-                            get_text_layout(
-                                text_ctx.text.as_str(),
-                                &text_ctx.font_info,
-                                max_width,
-                                dpi_scale_factor,
-                                font_cx,
-                            )
+                            get_text_layout(text_ctx.text.as_str(), &text_ctx.font_info, max_width, &mut *fs)
                         };
                         match text_layout {
                             Ok(text_layout) => {

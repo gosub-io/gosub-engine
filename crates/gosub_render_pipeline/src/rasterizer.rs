@@ -2,7 +2,10 @@ use crate::common::media::MediaStore;
 use crate::common::texture::TextureId;
 use crate::common::texture_store::TextureStore;
 use crate::tiler::Tile;
+use gosub_interface::font_system::FontSystem;
+use parking_lot::Mutex;
 use std::any::Any;
+use std::sync::Arc;
 
 // `RasterStrategy` lives in `gosub_interface` (it is named by the `RenderBackend` trait);
 // re-exported here so existing `gosub_render_pipeline::rasterizer::RasterStrategy` paths work.
@@ -10,6 +13,16 @@ pub use gosub_interface::render::backend::RasterStrategy;
 
 pub trait Rasterable {
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId>;
+
+    /// The font system this rasterizer draws with, exposed as `dyn FontSystem` so the
+    /// layout engine can share the same instance — text is then measured and drawn against
+    /// one font collection (consistent metrics, fonts loaded once).
+    ///
+    /// Returns `None` for rasterizers that don't shape through a [`FontSystem`] (the null
+    /// rasterizer, or the Pango/Cairo path); the layouter then uses its own instance.
+    fn font_system(&self) -> Option<Arc<Mutex<dyn FontSystem>>> {
+        None
+    }
 }
 
 /// No-op rasterizer for backends that don't rasterize tiles (e.g. the null backend).

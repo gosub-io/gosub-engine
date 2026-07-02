@@ -14,7 +14,7 @@ use gosub_engine::{
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     tab::{TabDefaults, TabHandle},
     zone::{ZoneConfig, ZoneServices},
-    Action, DefaultConfig, EngineError, EngineSettings, GosubEngine,
+    Action, DefaultRenderConfig, EngineError, EngineSettings, GosubEngine,
 };
 use gosub_render_pipeline::render::{backends::null::NullBackend, DefaultCompositor, Viewport};
 use parking_lot::RwLock;
@@ -33,7 +33,7 @@ async fn main() -> Result<(), EngineError> {
     //
     // EngineSettings lets you tune limits like max_zones; Default is fine to start.
     let backend = NullBackend::new();
-    let mut engine = GosubEngine::<DefaultConfig<_>>::new(
+    let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
         Some(EngineSettings::default()),
         Arc::new(backend),
         Arc::new(RwLock::new(DefaultCompositor::default())),

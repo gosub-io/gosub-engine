@@ -6,66 +6,15 @@ authors = ["Gosub Community <info@gosub.io>"]
 description = "Generic font manager"
 license = "MIT"
 
-[[bin]]
-name = "display-fonts"
-path = "src/bin/display-fonts.rs"
-
-[[bin]]
-name = "generate-svg"
-path = "src/bin/generate-svg.rs"
-
-[[bin]]
-name = "gtk-test"
-path = "src/bin/gtk-test.rs"
-required-features = ["gtk"]
-
-[[bin]]
-name = "gtk2-test"
-path = "src/bin/gtk2-test.rs"
-required-features = ["gtk"]
-
-[[bin]]
-name = "vello-test"
-path = "src/bin/vello-test.rs"
-
 [dependencies]
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 parking_lot = { workspace = true }
-env_logger = "0.11.8"
 log = { workspace = true }
 anyhow = { workspace = true }
-prettytable = "0.10.0"
-vello = { workspace = true }
-winit = { workspace = true }
-pollster = { workspace = true }
-image = { workspace = true }
-swash = "0.2.6"
-lazy_static = { workspace = true }
-rand = { workspace = true }
 cow-utils = { workspace = true }
-
-gtk4 = { workspace = true, features = ["v4_6"], optional = true }
 parley = { workspace = true, default-features = true }
-font-kit = { version = "0.14.3" }
-freetype-rs = "0.36.0"
-# 19.4 is the latest version that works with the current version of font-kit (0.14.2)
-cairo-rs = { workspace = true, features = ["use_glib"], optional = true }
-cairo-sys-rs = { version = "0.22.0", features = ["use_glib", "freetype"], optional = true }
-pangocairo = { workspace = true, optional = true }
+cosmic-text = "0.19.0"
 
-[features]
-gtk = ["dep:gtk4", "dep:cairo-rs", "dep:cairo-sys-rs", "dep:pangocairo"]
-
-# Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
-# this crate has justified unsafe (allowed per-site with a SAFETY comment).
-[lints.rust]
-unsafe_code = "deny"
-
-[lints.clippy]
-todo = "deny"
-unimplemented = "deny"
-dbg_macro = "deny"
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
+[lints]
+workspace = true

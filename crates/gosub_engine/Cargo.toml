@@ -14,6 +14,7 @@ gosub_shared = { version = "0.1.1", path = "../gosub_shared" }
 gosub_html5 = { version = "0.1.1", path = "../gosub_html5" }
 gosub_css3 = { version = "0.1.2", path = "../gosub_css3" }
 gosub_interface = { version = "0.1.2", path = "../gosub_interface" }
+gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline" }
 uuid = { workspace = true, features = ["v4", "serde"] }
 reqwest = { workspace = true, default-features = true, features = ["json", "gzip", "brotli", "deflate", "cookies", "rustls", "stream"] }

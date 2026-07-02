@@ -5,8 +5,18 @@ on:
     branches: [ main ]
   pull_request:
 
+# Cancel superseded runs: without this, every push to a PR leaves the previous
+# full CI run burning runners to completion alongside the new one.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
+  # No debuginfo in CI: not needed for pass/fail, and it roughly halves both
+  # cold-build time and cache size for the big dep graphs (skia, vello, gtk).
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
 
 jobs:
   test:
@@ -24,7 +34,10 @@ jobs:
           toolchain: ${{ matrix.rust_version }}
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ matrix.rust_version }}
+          # Key must be unique per job: caches are immutable per key, so if
+          # jobs share one, whichever finishes first on main saves its (possibly
+          # artifact-less) cache and the others rebuild from scratch on every PR.
+          shared-key: test-${{ matrix.rust_version }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
@@ -48,7 +61,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ matrix.rust_version }}
+          shared-key: clippy-${{ matrix.rust_version }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
@@ -83,10 +96,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: stable
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # No rust-cache here: cargo fmt compiles nothing, and saving a cache from
+      # this job would poison the key it shares with compiling jobs.
       - name: Run fmt
         run: cargo fmt --check --all
 

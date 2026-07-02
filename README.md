@@ -2,11 +2,9 @@
 
 An embeddable, async browser engine written in Rust.
 
-Join us at our development [Zulip chat](https://chat.developer.gosub.io)!
-
-For more general information you can also join our [Discord server](https://chat.gosub.io).
-
-If you are interested in contributing to Gosub, please check out the [contribution guide](CONTRIBUTING.md)!
+Join us on our development [Zulip chat](https://chat.developer.gosub.io), or our
+[Discord server](https://chat.gosub.io) for general chat. If you'd like to contribute, start with
+the [contribution guide](CONTRIBUTING.md).
 
 
 ## About
@@ -22,12 +20,17 @@ zone, and an event bus. Your user-agent (UA) drives everything via `TabCommand` 
 | Crate | Role |
 |---|---|
 | `gosub_engine` | `GosubEngine` — the unified entry point |
+| `gosub_interface` | Shared traits wiring the components together (the config system) |
 | `gosub_html5` | HTML5 tokenizer / parser |
 | `gosub_css3` | CSS3 tokenizer / parser |
 | `gosub_net` | Networking stack (async, streaming, per-zone) |
-| `gosub_taffy` | Layout engine (Taffy/flexbox) |
-| `gosub_cairo` | Cairo / GTK4 render backend |
-| `gosub_vello` | Vello / wgpu render backend |
+| `gosub_taffy` | Flexbox / grid layout (Taffy) |
+| `gosub_lattice` | CSS table layout |
+| `gosub_render_pipeline` | Render pipeline — stages, tiling, compositor |
+| `gosub_renderer_cairo` | Cairo render backend (CPU) |
+| `gosub_renderer_skia` | Skia render backend (CPU / GPU) |
+| `gosub_renderer_vello` | Vello / wgpu render backend (GPU) |
+| `gosub_fontmanager` | Font system — text shaping and measurement |
 | `gosub_jsapi` | Browser Web API implementations (console, fetch, DOM, …) |
 | `gosub_v8` | V8 JavaScript engine bindings |
 | `gosub_config` | Configuration store |
@@ -43,208 +46,33 @@ The engine is under active development. What works today:
 - **Async networking** — streaming HTTP fetcher with priority queues, inflight coalescing, redirect handling, and per-zone cookie isolation
 - **Event-driven UA interface** — `EngineEvent` (navigation, resource, redraw) flows out; `TabCommand` / `EngineCommand` flow in
 - **HTML5 and CSS3 parsing** — spec-compliant parsers for both
-- **Pluggable render backends** — Null (headless), Cairo (GTK4), Vello (wgpu)
-
-What is still in progress:
-
-- Full page layout and rendering pipeline (the render backends receive geometry but pixel-perfect output is incomplete)
-- JavaScript execution integration
-- Accessibility tree
+- **Pluggable render backends** — Null (headless), Cairo (GTK4), Skia, Vello (wgpu)
 
 
-## Quick start
+## Documentation
 
-Add `gosub_engine` to your `Cargo.toml`:
+Start here, then dig into the topic you need.
 
-```toml
-[dependencies]
-gosub_engine = { git = "https://github.com/gosub-io/gosub-engine", package = "gosub_engine" }
-tokio = { version = "1", features = ["full"] }
-```
+**Getting started**
 
-Then drive the engine from async code:
+- [Tutorial](docs/tutorial.md) — start the engine, open a tab, navigate, handle events
+- [Configuration](docs/configuration.md) — choosing a render backend and font system
+- [Running the examples](docs/examples.md) — headless, GUI (winit / GTK4 / egui), and component tools
+- [WebAssembly](docs/webassembly.md) — compile and run the engine in the browser
+- [Development](docs/development.md) — tests and benchmarks
 
-```rust
-use std::sync::{Arc, RwLock};
-use gosub_engine::{EngineConfig, GosubEngine, EngineError};
-use gosub_engine::render::{DefaultCompositor, Viewport};
-use gosub_engine::render::backends::null::NullBackend;
-use gosub_engine::events::{EngineEvent, TabCommand};
-use gosub_engine::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
-use gosub_engine::cookies::DefaultCookieJar;
-use gosub_engine::zone::{ZoneConfig, ZoneServices};
-use gosub_engine::tab::TabDefaults;
+**Reference**
 
-#[tokio::main]
-async fn main() -> Result<(), EngineError> {
-    let backend = NullBackend::new().expect("backend");
-    let mut engine = GosubEngine::new(
-        Some(EngineConfig::default()),
-        Arc::new(backend),
-        Arc::new(RwLock::new(DefaultCompositor::default())),
-    );
-    engine.start().expect("start");
+- [Crates](docs/crates.md) — the workspace crate layout
+- [Component tools](docs/binaries.md) — the standalone `cargo run --bin …` tools
 
-    let mut events = engine.subscribe_events();
+**Architecture**
 
-    let services = ZoneServices {
-        storage: Arc::new(StorageService::new(
-            Arc::new(InMemoryLocalStore::new()),
-            Arc::new(InMemorySessionStore::new()),
-        )),
-        cookie_store: None,
-        cookie_jar: Some(DefaultCookieJar::new().into()),
-        partition_policy: PartitionPolicy::None,
-    };
-    let mut zone = engine.create_zone(ZoneConfig::default(), services, None)?;
-
-    let tab = zone.create_tab(TabDefaults {
-        viewport: Some(Viewport::new(0, 0, 1280, 800)),
-        ..Default::default()
-    }, None).await?;
-
-    tab.send(TabCommand::Navigate { url: "https://example.com".into() }).await?;
-
-    while let Ok(ev) = events.recv().await {
-        match ev {
-            EngineEvent::Navigation { tab_id, event } => println!("[{tab_id}] {event:?}"),
-            EngineEvent::Redraw { tab_id, .. }        => println!("[{tab_id}] frame ready"),
-            _ => {}
-        }
-    }
-
-    engine.shutdown().await?;
-    Ok(())
-}
-```
-
-See [`examples/hello-world.rs`](examples/hello-world.rs) for a fuller walkthrough, and
-[`examples/multi-tab.rs`](examples/multi-tab.rs) for a 25-tab stress test with a live progress UI.
-
-
-## Running the examples
-
-<details>
-<summary>Installing dependencies</summary>
-
-This project uses [cargo](https://doc.rust-lang.org/cargo/) and [rustup](https://www.rust-lang.org/tools/install).
-Install `rustup`, then:
-
-```bash
-rustup default stable
-```
-
-Clone and build:
-
-```bash
-git clone https://github.com/gosub-io/gosub-engine.git
-cd gosub-engine
-cargo build
-```
-
-**OS packages required for GTK4 and Cairo examples** (Ubuntu / Debian):
-
-```
-make gcc g++
-libglib2.0-dev libcairo2-dev libpango1.0-dev
-libgdk-pixbuf-2.0-dev libgraphene-1.0-dev libgtk-4-dev
-libsqlite3-dev
-```
-
-The winit-vello, egui-vello, and gosub-screenshot binaries have no system-library
-dependencies and build out of the box on Linux, macOS, and Windows.
-</details>
-
-### Engine examples (no GUI required)
-
-| Command | Description |
-|---|---|
-| `cargo run --example hello-world` | Single tab — navigate a URL, stream events to stdout |
-| `cargo run --example multi-tab` | 25 tabs navigating random sites; live progress bars via `indicatif` |
-
-### GUI examples
-
-All GUI examples accept a URL as the first argument, e.g. `-- https://example.com`.
-
-#### winit (cross-platform, no GTK required)
-
-| Command | Renderer | Notes |
-|---|---|---|
-| `cargo run -p example-winit-vello` | Vello / wgpu | Cross-platform — Metal, DX12, Vulkan |
-| `cargo run -p example-winit-skia` | Skia CPU | softbuffer presentation |
-| `cargo run -p example-winit-skia-gpu` | Skia GPU (OpenGL) | OpenGL compositing |
-| `cargo run -p example-winit-cairo` | Cairo CPU | Linux; needs libcairo |
-
-#### GTK4 (Linux, requires GTK4 system packages)
-
-| Command | Renderer | Notes |
-|---|---|---|
-| `cargo run -p example-gtk4-cairo` | Cairo CPU | Pango text rendering |
-| `cargo run -p example-gtk4-skia` | Skia CPU | |
-| `cargo run -p example-gtk4-skia-gpu` | Skia GPU (OpenGL/GLArea) | Hardware-accelerated compositing |
-
-#### egui
-
-| Command | Renderer | Notes |
-|---|---|---|
-| `cargo run -p example-egui-vello` | Vello / wgpu | Cross-platform |
-| `cargo run -p example-egui-skia` | Skia CPU | |
-| `cargo run -p example-egui-cairo` | Cairo CPU | Linux; needs libcairo |
-
-### Headless tool
-
-| Command | Description |
-|---|---|
-| `cargo run -p gosub-screenshot -- <url> [out.png]` | Render a URL to a PNG without opening a window (Vello/wgpu, cross-platform) |
-
-### Component tools (individual crate testing)
-
-| Command | Description |
-|---|---|
-| `cargo run --bin gosub-parser` | HTML5 parser / tokenizer — prints a document tree |
-| `cargo run --bin css3-parser` | CSS3 parser — prints a CSS tree from a URL |
-| `cargo run --bin display-text-tree` | Text-only render of a page |
-| `cargo run --bin config-store` | Config store smoke test |
-| `cargo run --bin run-js` | Run a JS file (event loop not yet implemented) |
-| `cargo run --bin html5-parser-test` | html5lib tree-builder test suite |
-| `cargo run --bin parser-test` | Parser development test runner |
-
-For more detail on the component tools see [/docs/binaries.md](/docs/binaries.md).
-
-
-## Tests and benchmarks
-
-```bash
-make test
-cargo bench
-# open target/criterion/report/index.html
-```
-
-
-## WebAssembly
-
-The engine can be compiled to WebAssembly via `wasm-pack`:
-
-```bash
-wasm-pack build --target web
-```
-
-Then serve the thin UA wrapper in `wasm/`:
-
-```bash
-cd wasm
-bun run dev   # or: npm run dev
-```
-
-To run the demo you need a Chromium with WebGPU enabled:
-
-```bash
-# Linux only — PRs welcome for Windows / macOS
-chromium --disable-web-security --enable-features=Vulkan \
-         --enable-unsafe-webgpu --user-data-dir=/tmp/chromium-temp-profile
-```
-
-![Browser in browser](resources/images/browser-wasm-hackernews.png)
+- [Networking — architecture](docs/net-architecture.md) and [design notes](docs/net-design.md)
+- [Cookies](docs/cookies.md)
+- [Storage (local / session)](docs/datastores.md)
+- [Pump](docs/pump.md) — moving HTTP stream data to targets
+- [Render pipeline](docs/render-pipeline/README.md)
 
 
 ## Contributing
@@ -254,4 +82,5 @@ We welcome contributions. Because the engine is still taking shape, a lot of wor
 pure coding.
 
 Join us on [Zulip](https://chat.developer.gosub.io) or [Discord](https://chat.gosub.io) before
-diving in; it will save you time and help us keep things coordinated.
+diving in; it will save you time and help us keep things coordinated. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the details.

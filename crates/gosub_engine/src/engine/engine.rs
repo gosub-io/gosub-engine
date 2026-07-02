@@ -23,14 +23,14 @@
 use crate::engine::events::{EngineCommand, EngineEvent};
 use crate::engine::types::{EventChannel, IoChannel};
 use crate::engine::DEFAULT_CHANNEL_CAPACITY;
-use crate::html::EngineConfig as ModuleEngineConfig;
+use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::net::{spawn_io_thread, FetcherConfig, IoHandle};
 use crate::util::spawn_named;
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineError, EngineSettings};
 use anyhow::Result;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -40,13 +40,16 @@ use tokio::time::timeout;
 use tracing::instrument;
 
 /// Main Gosub engine struct
-pub struct GosubEngine<C: ModuleEngineConfig = crate::html::DefaultConfig> {
+pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
     /// Context is what can be shared downstream
     context: Arc<EngineContext>,
     /// Active render backend, concrete per the module config `C`.
     render_backend: Arc<C::RenderBackend>,
     /// Compositor sink that receives finished frames, concrete per the module config `C`.
     compositor: Arc<RwLock<C::CompositorSink>>,
+    /// The engine's single font system (the config's `FontSystem`), shared with the layouter
+    /// (measurement) and the renderer (drawing) so the two agree.
+    font_system: Arc<Mutex<C::FontSystem>>,
     /// Zones managed by this engine, indexed by [`ZoneId`].
     zones: HashMap<ZoneId, Arc<ZoneSink>>,
     /// Command sender used to send commands to the engine run loop.
@@ -86,7 +89,7 @@ impl Default for EngineContext {
     }
 }
 
-impl<C: ModuleEngineConfig> GosubEngine<C> {
+impl<C: RenderConfiguration> GosubEngine<C> {
     /// Create a new engine.
     ///
     /// If `config` is `None`, [`EngineSettings::default`] is used.
@@ -99,7 +102,7 @@ impl<C: ModuleEngineConfig> GosubEngine<C> {
     /// # use gosub_render_pipeline::render::DefaultCompositor;
     /// let backend = NullBackend::new();
     /// let compositor = DefaultCompositor::default();
-    /// let engine = ge::GosubEngine::<ge::DefaultConfig>::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
+    /// let engine = ge::GosubEngine::<ge::DefaultRenderConfig>::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
     /// ```
     pub fn new(
         config: Option<EngineSettings>,
@@ -123,6 +126,7 @@ impl<C: ModuleEngineConfig> GosubEngine<C> {
             }),
             render_backend: backend,
             compositor,
+            font_system: Arc::new(Mutex::new(C::FontSystem::default())),
             zones: HashMap::new(),
             cmd_tx,
             cmd_rx: Some(cmd_rx),
@@ -268,6 +272,7 @@ impl<C: ModuleEngineConfig> GosubEngine<C> {
                 self.context.clone(),
                 self.render_backend.clone(),
                 self.compositor.clone(),
+                self.font_system.clone(),
             )?,
             None => Zone::new(
                 config,
@@ -275,6 +280,7 @@ impl<C: ModuleEngineConfig> GosubEngine<C> {
                 self.context.clone(),
                 self.render_backend.clone(),
                 self.compositor.clone(),
+                self.font_system.clone(),
             )?,
         };
 

@@ -10,12 +10,12 @@ use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
-use gosub_engine::DefaultConfig;
+use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
-use gosub_renderer_cairo::CairoBackend;
+use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use softbuffer::Surface;
@@ -35,6 +35,8 @@ const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000006");
 const ADDRESS_BAR_HEIGHT: u32 = 36;
 const SCROLL_MULTIPLIER: f32 = 12.5;
 
+type AppConfig = DefaultRenderConfig<CairoBackend, PangoFontSystem>;
+
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
     Builder::new_multi_thread()
         .enable_io()
@@ -47,9 +49,9 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 struct BrowserApp {
     // Engine state — set up before the event loop starts.
     #[allow(dead_code)]
-    engine: GosubEngine<DefaultConfig<CairoBackend>>,
+    engine: GosubEngine<AppConfig>,
     #[allow(dead_code)]
-    zone: Zone<DefaultConfig<CairoBackend>>,
+    zone: Zone<AppConfig>,
     tab: TabHandle,
     tab_id: TabId,
     compositor: Arc<RwLock<DefaultCompositor>>,
@@ -72,8 +74,8 @@ struct BrowserApp {
 
 impl BrowserApp {
     fn new(
-        engine: GosubEngine<DefaultConfig<CairoBackend>>,
-        zone: Zone<DefaultConfig<CairoBackend>>,
+        engine: GosubEngine<AppConfig>,
+        zone: Zone<AppConfig>,
         tab: TabHandle,
         tab_id: TabId,
         compositor: Arc<RwLock<DefaultCompositor>>,
@@ -591,7 +593,7 @@ fn main() {
     })));
 
     let backend = CairoBackend::new();
-    let mut engine = GosubEngine::<DefaultConfig<_>>::new(None, Arc::new(backend), compositor.clone());
+    let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
     let _join = engine.start().expect("engine start");
 
     // Forward engine navigation events to update the window title.
