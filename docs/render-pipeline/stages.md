@@ -36,14 +36,15 @@ Result: `HashMap<RenderNodeId, RenderNode>` with a single `root_id`. `RenderNode
 **Input:** `RenderTree`, viewport `Dimension`  
 **Output:** `Arc<LayoutTree>`
 
-Computes the final position and size of every render node using the [Taffy](https://github.com/DioxusLabs/taffy) CSS layout engine.
+Computes the final position and size of every render node using the [Taffy](https://github.com/DioxusLabs/taffy) CSS layout engine. Covered in depth in [layout.md](layout.md); the short version:
 
 ### Steps
 
-1. **Tree conversion** — `generate_tree()` walks the `RenderTree` and builds a parallel `TaffyTree<TaffyContext>`. Each node carries a `TaffyContext` that tells the measure callback what kind of content it holds.
+1. **Tree conversion** — `generate_tree()` walks the `RenderTree` and builds a parallel `TaffyTree<TaffyContext>`. Each node carries a `TaffyContext` that tells the measure callback what kind of content it holds. Inline children (text, inline elements, `<br>`-separated line boxes) are wrapped in anonymous flex containers to emulate inline formatting, which Taffy lacks.
 2. **CSS → Taffy** — `CssTaffyConverter` maps `StylePropertyList` values to Taffy's `Style` struct (flex, grid, box model, sizing, positioning, overflow, typography).
-3. **Measurement callbacks** — Taffy calls back for intrinsic sizes: text nodes call `get_text_layout()` with font descriptor + available width; image/SVG nodes return their intrinsic `Dimension`.
-4. **`populate_boxmodel()`** — Results are stored in `LayoutElementNode.box_model` as four `Edges` (margin, border, padding, content).
+3. **Measurement callbacks** — Taffy calls back for intrinsic sizes: text nodes measure through the shared [font system](../fonts.md) (memoized, since Taffy probes each node 2–4×); image/SVG nodes honour CSS-constrained dimensions and derive the rest from their intrinsic aspect ratio. Image fetches are non-blocking — layout proceeds with placeholder sizes and a reflow lands when the media arrives.
+4. **`populate_boxmodel()`** — Taffy's parent-relative results are converted to absolute page-space `BoxModel`s (margin / border / padding / content rects); after this the pipeline is layout-engine agnostic.
+5. **Table post-processing** — `display: table` subtrees are re-laid-out by `gosub_lattice` in two passes (widths top-down, heights bottom-up for nested tables) and written back over the Taffy results.
 
 ### Output structure
 
@@ -66,18 +67,21 @@ LayoutTree
 **Input:** `Arc<LayoutTree>`  
 **Output:** `Arc<LayerList>`
 
-Assigns layout elements to ordered layers for z-order compositing.
+Assigns layout elements to ordered layers for z-order compositing. Covered in depth in [layering-and-compositing.md](layering-and-compositing.md); the short version:
 
 ### Current behaviour
 
-- All elements go into **layer 0** (base layer, `order = 0`).
-- Any element corresponding to an `<img>` tag gets its own layer at `order = 1`, ensuring images composite on top of normal content.
+- Elements join the enclosing layer by default; the root starts a base layer at `order = 0`.
+- An element is **promoted** to its own layer (subtree included) when it has `opacity < 1`, `position: fixed`, or `position: sticky` — effects the compositor applies per frame to cached tiles — or when a positioned element declares an explicit `z-index`.
+- A promoted `Layer` carries its stacking `order` (from `z-index`), a group `opacity`, and a `TileAnchor` (`Scroll` / `Fixed` / `Sticky(StickyConstraint)`) describing how it responds to scroll at composite time.
+- Standalone `<img>` elements outside a promoted group still get their own layer at their stacking level.
+- After traversal, layers are stably sorted by `order`, so equal-`z-index` layers keep DOM order.
 
-The `LayerList` also provides spatial indexing for hover hit-testing via `find_element_at(x, y)`, which walks layers back-to-front checking element bounding boxes.
+The `LayerList` also provides hover hit-testing via `find_element_at(vp_x, vp_y, scroll_x, scroll_y)`, which walks layers front-to-back and inverts each layer's anchor mapping (a fixed layer is tested at raw viewport coordinates, a scrolling one at `viewport + scroll`).
 
 ### Future work
 
-Full CSS stacking context support (z-index, `position: fixed`, opacity, `mix-blend-mode`) is not yet implemented. The `LayerList` / `Layer` abstraction is ready for it.
+`mix-blend-mode`, transforms, and nested opacity groups are not yet implemented; sticky supports only `top`/`left` insets. See the [limitations section](layering-and-compositing.md#current-limitations).
 
 ---
 
@@ -157,7 +161,7 @@ PaintCommand::Svg(PaintSvg)         // reference to a loaded SVG in MediaStore
 **Input:** `TileList` + `MediaStore`  
 **Output:** `TextureStore` (pixel buffers keyed by `TextureId`)
 
-Executes paint commands and produces raw pixel buffers. The rasterizer is selected at compile time via feature flags.
+Executes paint commands and produces raw pixel buffers. The rasterizer is provided by the configured backend at runtime: the engine calls `RenderBackend::create_rasterizer()` once and drives it per the backend's `RasterStrategy`.
 
 ### Rasterable trait
 
@@ -176,27 +180,27 @@ Returns `None` for tiles with no renderable content (mapped to `TileState::Empty
 
 ### Cairo rasterizer (`crates/gosub_renderer_cairo`)
 
-Feature flag: `backend_cairo`
+Selected by naming `CairoBackend` in the config (see [../configuration.md](../configuration.md)).
 
 - **DPR:** reads `DEVICE_PIXEL_RATIO` static atomic (set by the GTK display thread from `area.scale_factor()`).
 - **Surface size:** `tile_css_width × DPR` by `tile_css_height × DPR` physical pixels.
 - **Context:** creates a `cairo::Context`, scales it by DPR so all CSS-pixel coordinates map to physical pixels, then dispatches commands:
   - `Rectangle` → `rectangle::do_paint_rectangle()` — path + fill; handles borders and border-radius.
-  - `Text` → `text::pango::do_paint_text()` with Pango (`backend_cairo_pango`) or Parley.
+  - `Text` → `text::pango::do_paint_text()` with Pango (the `text_pango` feature, default) or Parley — see [../fonts.md](../fonts.md).
   - `Svg` → `svg::do_paint_svg()` via librsvg.
 - **Output:** premultiplied ARGB32 pixel data (`cairo::Format::ARgb32`), stride = `tile_phys_width × 4`.
 
 ### Skia rasterizer (`crates/gosub_renderer_skia`)
 
-Feature flag: `backend_skia`
+Selected by naming `SkiaBackend` in the config (see [../configuration.md](../configuration.md)).
 
-- **DPR:** takes `dpi_scale_factor: f32` at construction (currently 1.0 — no DPR scaling).
-- **Surface size:** `tile_css_width` by `tile_css_height` (CSS pixel dimensions; no physical scaling).
+- **DPR:** reads the global `DEVICE_PIXEL_RATIO` atomic at rasterize time (like Cairo).
+- **Surface size:** `tile_css_width × DPR` by `tile_css_height × DPR` physical pixels; the canvas is scaled by DPR so paint commands stay in CSS coordinates.
 - **Context:** creates a `skia_safe` raster surface, clips to tile bounds, pre-translates canvas by `-tile.rect.x, -tile.rect.y` so paint commands work in page coordinates, then dispatches:
   - `Rectangle` → `rectangle::do_paint_rectangle()` — `draw_rect` / `draw_round_rect`; handles solid fills and borders.
   - `Text` → `text::do_paint_text()` — word-wraps via `font.measure_str()`, renders with `draw_str()`.
   - `Svg` → `svg::do_paint_svg()`.
-- **Output:** premultiplied BGRA32 (`raster_n32_premul`), stride = `tile_width × 4`. On little-endian Linux `n32 = BGRA8888`, which is byte-for-byte compatible with Cairo's `ARgb32`.
+- **Output:** premultiplied BGRA8888 (a `surfaces::raster` surface with an explicit `BGRA8888`/`Premul` `ImageInfo`), stride = `tile_phys_width × 4` — byte-for-byte compatible with Cairo's `ARgb32`.
 
 ### Pixel format compatibility
 
@@ -235,7 +239,7 @@ for tile in cache.tiles {
 
 ### Skia bypass (TileCache path)
 
-When `backend_skia` is active, `pipeline_composite()` and `RenderBackend::render()` are not called. Instead the engine calls `tile_cache_handle(dpr)` which wraps the same `Arc<Vec<CachedTile>>` into an `ExternalHandle::TileCache` and submits it to the compositor. The host window thread composites the tiles directly — for example, by uploading each tile as a Skia image and calling `draw_image()` on a GPU canvas.
+With the Skia backend, `pipeline_composite()` and `RenderBackend::render()` are not called. Instead the engine calls `tile_cache_handle(dpr)` which wraps the same `Arc<Vec<CachedTile>>` into an `ExternalHandle::TileCache` and submits it to the compositor. The host window thread composites the tiles directly — for example, by uploading each tile as a Skia image and calling `draw_image()` on a GPU canvas.
 
 ---
 
@@ -255,9 +259,9 @@ When `backend_skia` is active, `pipeline_composite()` and `RenderBackend::render
 
 ### Scroll fast paths
 
-**Cairo** (`backend_cairo`): `take_scroll_handle(dpr)` returns `Some(TileCache)` only when `scroll_dirty && !render_dirty`. The tab worker submits the handle immediately (in the scroll event handler, not waiting for the next tick) to eliminate up to 33 ms of latency at 30 fps.
+**Cairo**: `take_scroll_handle(dpr)` returns `Some(TileCache)` only when `scroll_dirty && !render_dirty`. The tab worker submits the handle immediately (in the scroll event handler, not waiting for the next tick) to eliminate up to 33 ms of latency at 30 fps.
 
-**Skia** (`backend_skia`): `tile_cache_handle(dpr)` is called unconditionally after `rebuild_render_list_if_needed()`. The TileCache is always submitted regardless of what triggered the dirty flag.
+**Skia**: `tile_cache_handle(dpr)` is called unconditionally after `rebuild_render_list_if_needed()`. The TileCache is always submitted regardless of what triggered the dirty flag.
 
 ### Hover hit-testing
 

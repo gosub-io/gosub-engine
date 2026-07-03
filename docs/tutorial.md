@@ -75,9 +75,9 @@ tokio = { version = "1", features = ["full"] }
 ```rust
 use std::sync::{Arc, RwLock};
 use gosub_engine::{EngineSettings, GosubEngine};
-use gosub_engine::render::{backends::null::NullBackend, DefaultCompositor};
+use gosub_render_pipeline::render::{backends::null::NullBackend, DefaultCompositor};
 
-let backend = NullBackend::new().expect("null backend");
+let backend = NullBackend::new();
 let mut engine = GosubEngine::new(
     Some(EngineSettings::default()),
     Arc::new(backend),
@@ -128,7 +128,7 @@ disappears when the zone is dropped. For persistent cookies, pass a
 ### 4. Open a tab
 
 ```rust
-use gosub_engine::render::Viewport;
+use gosub_render_pipeline::render::Viewport;
 use gosub_engine::tab::TabDefaults;
 
 let tab = zone.create_tab(
@@ -236,7 +236,7 @@ cargo run --example tutorial -- https://news.ycombinator.com
 | Goal | Where to look |
 |---|---|
 | Handle multiple tabs | [`examples/multi-tab.rs`](../examples/multi-tab.rs) |
-| Render with GTK4 / Cairo | [`examples/gtk-cairo/`](../examples/gtk-cairo/) |
+| Render with GTK4 / Cairo | [`examples/gtk4-cairo/`](../examples/gtk4-cairo/) |
 | Render with wgpu / Vello | [`examples/egui-vello/`](../examples/egui-vello/) |
 | Parse HTML directly (no engine) | [`examples/html5-parser.rs`](../examples/html5-parser.rs) |
 | Understand all the crates | [`docs/crates.md`](crates.md) |

@@ -70,7 +70,10 @@ All GUI examples accept a URL as the first argument, e.g. `-- https://example.co
 
 | Command | Description |
 |---|---|
-| `cargo run -p gosub-screenshot -- <url> [out.png]` | Render a URL to a PNG without opening a window (Vello/wgpu, cross-platform) |
+| `cargo run -p gosub-screenshot -- <url> [out.png]` | Render a URL to a full-page PNG without opening a window (CPU Skia, statically linked — no GPU or system libraries) |
+
+See [headless.md](headless.md) for how the tool drives the engine and how to build your own
+headless integration.
 
 ## Component tools (individual crate testing)
 

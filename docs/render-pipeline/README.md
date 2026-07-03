@@ -2,7 +2,9 @@
 
 The Gosub render pipeline transforms a parsed HTML document into pixel data displayed in a window. It is a **staged, tile-based pipeline** that caches rasterized tiles across frames and only re-runs expensive stages when content actually changes.
 
-The pipeline lives behind the `pipeline` Cargo feature. When that feature is disabled the engine falls back to a placeholder grey clear — no layout or painting occurs.
+The pipeline is always compiled into `gosub_engine` (it is a plain dependency, not a Cargo feature). What varies is the render backend: it is chosen as a config type (see [configuration.md](../configuration.md)), and a backend's capability queries (`raster_strategy()`, `renders_to_gpu_texture()`) decide at runtime which pipeline path a tab uses. With the `NullBackend` the stages up to rasterization still run — there is simply no rasterizer, so no tiles or pixels are produced.
+
+The pipeline uses its own document/style/layout types, separate from the `gosub_interface` world where parsing happens — see [The two worlds](../two-worlds.md) for the split and the adapter that joins them.
 
 ## Quick navigation
 
@@ -10,7 +12,10 @@ The pipeline lives behind the `pipeline` Cargo feature. When that feature is dis
 |---|---|
 | [Stages](stages.md) | Deep dive into each of the 7 pipeline stages |
 | [Data structures](data-structures.md) | Key types and how they flow between stages |
+| [Layout](layout.md) | Stage 2 in depth: Taffy integration, inline emulation, text measurement, tables via lattice |
+| [Layering & compositing](layering-and-compositing.md) | Layer promotion (opacity, fixed, sticky, z-index) and how the compositor realises it |
 | [Backends](backends.md) | Render backends, ExternalHandle, and host compositing |
+| [GPU render flow](gpu-render-flow.md) | CPU tile flow vs. GPU one-shot scene flow |
 
 ## Two-phase design
 
@@ -66,7 +71,7 @@ For the **Skia** path, stage 7 is bypassed entirely. The engine submits an `Exte
       │
       └─► PipelineCache (BakedTile[], CachedTile[])
                │
-               │  rebuild_render_list_if_needed() / tile_cache_handle()
+               │  rebuild_pipeline_cache_if_needed() / tile_cache_handle()
                │                                  ← every frame
                │
         ┌──────┴────────────────────────────────────────────┐
@@ -124,22 +129,22 @@ context.tile_cache_handle(dpr)  -> Option<ExternalHandle::TileCache>
 
 `tick_draw()` in the tab worker applies these optimisations in order:
 
-1. **TileCache path** (`backend_cairo` or `backend_skia`): both backends share one unified block.
+1. **TileCache path** (backends whose `raster_strategy()` is not `None` and that don't render to a GPU texture — Cairo and Skia): one unified block.
    - Scroll-only: `take_scroll_handle(dpr)` → submit `TileCache`, return. Stages 1–6 skipped entirely.
-   - Full render: `rebuild_render_list_if_needed()` → `tile_cache_handle(dpr)` → submit `TileCache`, return. `RenderBackend::render()` is never called.
-2. **Default path** (Vello, Null, or `pipeline` feature disabled): rebuild render list → `render_backend.render()` → `external_handle()` → submit frame.
+   - Full render: `rebuild_pipeline_cache_if_needed()` (stages 1–6, no display list) → `tile_cache_handle(dpr)` → submit `TileCache`, return. `RenderBackend::render()` is never called.
+2. **Default path** (Vello, Null): rebuild render list → `render_backend.render()` → `external_handle()` → submit frame. GPU backends with `renders_to_gpu_texture()` render from the paint scene here (see [gpu-render-flow.md](gpu-render-flow.md)).
 
 ## Feature flags
 
-| Flag | What it enables |
-|---|---|
-| `pipeline` | Enables all 7 stages; required by all backend flags |
-| `backend_cairo` | Cairo rasterizer (stage 6) + Cairo display-list compositor |
-| `backend_cairo_pango` | Pango text layout inside the Cairo rasterizer; requires GTK4 |
-| `backend_skia` | Skia CPU rasterizer (stage 6); host composites tiles directly |
-| `backend_vello` | Vello/wgpu GPU rasterizer |
+Backend selection is **not** a feature flag — backends are separate crates named as config types ([configuration.md](../configuration.md)). The features that do exist:
 
-The `backend_skia_gl` feature on `gosub_render_pipeline` additionally enables `SkiaGpuBackend` for OpenGL compositing (used in `winit-skia-gpu`), but the engine pipeline stages still use `backend_skia`.
+| Crate | Flag | What it enables |
+|---|---|---|
+| `gosub_render_pipeline` | `parley_layout` | Parley shaping path in text layout (default via `gosub_engine`) |
+| `gosub_render_pipeline` | `wayland` / `x11` | GDK platform integration |
+| `gosub_renderer_cairo` | `text_pango` (default) / `text_parley` / `text_skia` | which text rasterizer paints glyphs — see [fonts.md](../fonts.md) |
+| `gosub_renderer_vello` | `text_parley` (default) / `text_skia` / `text_pango` | same, for Vello |
+| `gosub_renderer_vello` | `parley_layout` | Parley shaping in the Vello text renderer (skrifa fallback when off) |
 
 ## Key constants
 
@@ -147,6 +152,6 @@ The `backend_skia_gl` feature on `gosub_render_pipeline` additionally enables `S
 |---|---|---|---|
 | Default tile size | 256 × 256 px | `context.rs` | Grid unit for stage 4 |
 | `DEFAULT_FONT_SIZE` | 16.0 px | `layouter/taffy.rs` | Fallback when CSS font-size absent |
-| `DEFAULT_FONT_FAMILY` | `"Sans"` | `layouter/taffy.rs` | Fallback font family |
-| `DEVICE_PIXEL_RATIO` | `AtomicU32`, default 1 | `render/backends/cairo.rs` | Set by GTK display thread; scales Cairo tile surfaces |
+| `DEFAULT_FONT_FAMILY` | `"sans-serif"` | `layouter/taffy.rs` | Fallback font family |
+| `DEVICE_PIXEL_RATIO` | `AtomicU32`, default 1 | `gosub_interface/src/render/viewport.rs` | Set by the display thread; scales Cairo/Skia tile surfaces |
 | Invisible tags | `head style script meta link title` | `rendertree_builder/tree.rs` | Pruned from render tree before stage 1 |
