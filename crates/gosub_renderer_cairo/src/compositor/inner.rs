@@ -40,8 +40,13 @@ pub fn compose_layer(cr: &cairo::Context, layer_id: LayerId, state: &BrowserStat
             continue;
         };
 
+        // Cairo composites CPU tiles only; a GPU-resident tile has no CPU pixels here.
+        let Some(cpu) = texture.cpu_data() else {
+            continue;
+        };
+
         let surface = match ImageSurface::create_for_data(
-            texture.data.to_vec(),
+            cpu.to_vec(),
             cairo::Format::ARgb32,
             texture.width as i32,
             texture.height as i32,

@@ -11,6 +11,7 @@ path = "main.rs"
 gosub_engine = { path = "../../crates/gosub_engine", features = ["winit"] }
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
 gosub_renderer_vello = { path = "../../crates/gosub_renderer_vello" }
+gosub_shared = { path = "../../crates/gosub_shared" }
 winit = { workspace = true }
 vello = { workspace = true }
 once_cell = { workspace = true }

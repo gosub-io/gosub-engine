@@ -2,8 +2,8 @@ use crate::common::hash::{hash_from_data, hash_from_string, Sha256Hash};
 use crate::common::media::{DecodedMedia, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg};
 use bytes::Bytes;
 use parking_lot::RwLock;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use url::Url;
 
@@ -14,12 +14,25 @@ const FIRST_FREE_IMAGE_ID: u64 = 100;
 const DEFAULT_SVG_DATA: &[u8] = include_bytes!("../../../resources/not-found.svg");
 const DEFAULT_IMAGE_DATA: &[u8] = include_bytes!("../../../resources/default-image.png");
 
+/// Result of a non-blocking media request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaRequest {
+    /// The media is loaded and available under this id.
+    Ready(MediaId),
+    /// The media is being fetched in the background; try again after a reflow.
+    Pending,
+}
+
 /// Media store keeps all the loaded media in memory so it can be referenced by its MediaID
 pub struct MediaStore {
     /// List of all media
     pub entries: RwLock<HashMap<MediaId, Arc<Media>>>,
     /// List of all images by hash(src)
     pub cache: RwLock<HashMap<Sha256Hash, MediaId>>,
+    /// Hashes of resources currently being fetched in the background (dedupes in-flight requests)
+    pending: RwLock<HashSet<Sha256Hash>>,
+    /// Set whenever a background fetch lands, so the engine knows a reflow is needed
+    completed: AtomicBool,
     /// Next media ID (atomic to prevent allocation races)
     next_id: AtomicU64,
     /// Compiled-in placeholder returned when an SVG is missing or failed to load
@@ -70,11 +83,59 @@ impl MediaStore {
         MediaStore {
             entries: RwLock::new(entries),
             cache: RwLock::new(HashMap::new()),
+            pending: RwLock::new(HashSet::new()),
+            completed: AtomicBool::new(false),
             next_id: AtomicU64::new(FIRST_FREE_IMAGE_ID),
             default_svg,
             default_image,
             decoders,
         }
+    }
+
+    /// Non-blocking media load.
+    ///
+    /// Returns [`MediaRequest::Ready`] immediately if the resource is already cached. Otherwise it
+    /// kicks off a background fetch (deduped against other in-flight requests for the same src) and
+    /// returns [`MediaRequest::Pending`] without blocking layout. When the fetch completes it stores
+    /// the media (or the placeholder on failure) and raises the `completed` flag; the engine polls
+    /// [`take_completed`](Self::take_completed) each frame and triggers a reflow so the now-cached
+    /// media is picked up.
+    ///
+    /// Takes `&Arc<Self>` so the background thread can share ownership of the store.
+    pub fn request_media(self: &Arc<Self>, src: &str) -> MediaRequest {
+        let h = hash_from_string(src);
+
+        if let Some(media_id) = self.cache.read().get(&h) {
+            return MediaRequest::Ready(*media_id);
+        }
+
+        // Register as in-flight; if another request already owns this hash, just report Pending.
+        if !self.pending.write().insert(h) {
+            return MediaRequest::Pending;
+        }
+
+        let store = Arc::clone(self);
+        let src_owned = src.to_string();
+        let spawned = std::thread::Builder::new().name("media-fetch".into()).spawn(move || {
+            // `load_media` handles caching, and caches the placeholder on failure so a dead URL
+            // is never re-fetched. We only need to clear the in-flight marker and signal completion.
+            let _ = store.load_media(&src_owned);
+            store.pending.write().remove(&h);
+            store.completed.store(true, Ordering::Relaxed);
+        });
+
+        if spawned.is_err() {
+            // Couldn't spawn — drop the in-flight marker so a later attempt can retry.
+            self.pending.write().remove(&h);
+        }
+
+        MediaRequest::Pending
+    }
+
+    /// Returns and clears the "a background fetch completed" flag. The engine calls this each frame;
+    /// a `true` result means new media is available and the page should be re-laid-out.
+    pub fn take_completed(&self) -> bool {
+        self.completed.swap(false, Ordering::Relaxed)
     }
 
     /// Decode `data` (with an optional MIME hint) through the registry and wrap the result in a

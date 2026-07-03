@@ -10,8 +10,7 @@ path = "main.rs"
 [dependencies]
 gosub_engine = { path = "../../crates/gosub_engine" }
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
-gosub_renderer_vello = { path = "../../crates/gosub_renderer_vello" }
-vello = { workspace = true }
+gosub_renderer_skia = { path = "../../crates/gosub_renderer_skia" }
 image = { workspace = true }
 once_cell = { workspace = true }
 parking_lot = { workspace = true }

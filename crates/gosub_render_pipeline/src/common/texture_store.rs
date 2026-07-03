@@ -1,4 +1,4 @@
-use crate::common::texture::{Texture, TextureId};
+use crate::common::texture::{Texture, TextureId, TilePixels};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -35,7 +35,30 @@ impl TextureStore {
             id: self.next_id(),
             width,
             height,
-            data: data.into(),
+            pixels: TilePixels::Cpu(data.into()),
+            format,
+        };
+
+        let id = texture.id;
+        self.textures.insert(texture.id, Arc::new(texture));
+
+        id
+    }
+
+    /// Register a GPU-resident tile by its opaque backend texture id. Used by GPU backends whose
+    /// rasterizer renders straight into a GPU texture (no CPU readback).
+    pub fn add_gpu(
+        &mut self,
+        width: usize,
+        height: usize,
+        gpu_id: u64,
+        format: crate::render::backend::PixelFormat,
+    ) -> TextureId {
+        let texture = Texture {
+            id: self.next_id(),
+            width,
+            height,
+            pixels: TilePixels::Gpu(gpu_id),
             format,
         };
 

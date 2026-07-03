@@ -45,10 +45,21 @@ use url::Url;
 use crate::html::RenderConfiguration;
 use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
+use gosub_render_pipeline::common::texture::TilePixels;
 use gosub_render_pipeline::layering::layer::LayerList;
 use gosub_render_pipeline::layouter::LayoutElementId;
+use gosub_render_pipeline::painter::{PaintScene, Painter};
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 use gosub_shared::node::NodeId;
+use std::any::Any;
+
+/// GPU-scene cache: the layer list (for hit-testing) plus the whole-page paint command list
+/// (for the backend to render). The GPU equivalent of [`PipelineCache`] — it skips tiling,
+/// rasterization, and tile compositing.
+struct SceneCache {
+    layer_list: Arc<LayerList>,
+    scene: PaintScene,
+}
 
 /// True if `node_id` could be affected by a `:hover` rule, per the [`HoverFingerprints`]
 /// computed by the CSS system. Uses only [`Document`] trait methods so it stays generic.
@@ -89,8 +100,9 @@ struct BakedTile {
     page_y: f64,
     width: u32,
     height: u32,
-    data: bytes::Bytes,
-    /// In-memory byte order of `data`, set by the rasterizer that produced it.
+    /// Tile pixels — CPU bytes (Cairo/Skia) or an opaque GPU texture id (Vello/wgpu).
+    pixels: TilePixels,
+    /// In-memory byte order of the pixels (CPU variant), set by the rasterizer that produced it.
     format: gosub_render_pipeline::render::backend::PixelFormat,
 }
 
@@ -100,7 +112,7 @@ type TileCacheKey = (u64, u64, u64, u64);
 
 /// Rasterized tile cache: maps a [`TileCacheKey`] to `(physical_width, physical_height, pixels)`.
 /// Carried between renders so unchanged tiles skip rasterization.
-type TilePixelCache = std::collections::HashMap<TileCacheKey, (u32, u32, bytes::Bytes)>;
+type TilePixelCache = std::collections::HashMap<TileCacheKey, (u32, u32, TilePixels)>;
 
 /// Cached output of stages 1–6 for the whole page. Re-used on every scroll tick.
 struct PipelineCache {
@@ -113,7 +125,7 @@ struct PipelineCache {
     /// Rasterized tile data keyed by (page_x, page_y, layer_id, content_hash).
     /// Passed to the next render so unchanged tiles skip rasterization.
     /// Value is (physical_width, physical_height, pixel_data).
-    tile_pixel_cache: TilePixelCache,
+    tile_pixel_cache: std::collections::HashMap<TileCacheKey, (u32, u32, TilePixels)>,
 }
 
 /// BrowsingContext dedicated to a specific tab
@@ -160,6 +172,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
 
     /// Cached rasterized tiles for the full page. Valid until render_dirty is set.
     pipeline_cache: Option<PipelineCache>,
+    /// GPU-scene cache (paint commands + layer list) for GPU backends. Mutually exclusive in
+    /// practice with `pipeline_cache`: a tab uses one path or the other per its backend.
+    scene_cache: Option<SceneCache>,
     /// Set when only hover state changed — triggers a paint-only repaint (stages 4–6),
     /// skipping the expensive render-tree rebuild (stage 1) and layout (stage 2).
     hover_dirty: bool,
@@ -213,6 +228,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             scroll_y: 0.0,
             scroll_dirty: false,
             pipeline_cache: None,
+            scene_cache: None,
             hover_dirty: false,
             hover_leaf: None,
             hover_old_lei: None,
@@ -260,6 +276,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.invalidate_render();
         {
             self.pipeline_cache = None;
+            self.scene_cache = None;
             self.hover_dirty = false;
             self.hover_leaf = None;
             self.hover_layout_element = None;
@@ -278,6 +295,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.invalidate_render();
             {
                 self.pipeline_cache = None;
+                self.scene_cache = None;
             }
         }
     }
@@ -287,9 +305,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     pub fn set_scroll(&mut self, x: f64, y: f64) {
         let x = x.max(0.0);
         let max_y = self
-            .pipeline_cache
-            .as_ref()
-            .map(|c| (c.page_height - self.viewport.height as f64).max(0.0))
+            .active_page_height()
+            .map(|ph| (ph - self.viewport.height as f64).max(0.0))
             .unwrap_or(f64::MAX);
         let y = y.max(0.0).min(max_y);
         if (self.scroll_x - x).abs() < 0.5 && (self.scroll_y - y).abs() < 0.5 {
@@ -318,6 +335,19 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     pub fn invalidate_render(&mut self) {
         self.render_dirty = true;
+    }
+
+    /// Poll whether a background media fetch (e.g. an image download started during layout) has
+    /// completed since the last call. When it has, the cached layout is stale, so mark the render
+    /// dirty and report `true` so the caller can also wake its own draw loop. The completion flag
+    /// is consumed (cleared) by this call.
+    pub fn poll_media_completed(&mut self) -> bool {
+        if self.media_store.take_completed() {
+            self.render_dirty = true;
+            true
+        } else {
+            false
+        }
     }
 
     /// Build/refresh the device-agnostic scene if needed.
@@ -448,6 +478,55 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.scene_epoch = self.scene_epoch.wrapping_add(1);
     }
 
+    /// GPU-scene path: rebuild the page's paint-command list when content changed.
+    ///
+    /// Runs stages 1–3 (render tree → layout → layering) and paints every element into one
+    /// ordered command list — no tiling, rasterization, or tile compositing. Scroll-only changes
+    /// don't rebuild anything (the backend re-renders with a new translate); they just advance the
+    /// scene epoch so the worker emits a frame.
+    pub fn rebuild_scene_cache_if_needed(&mut self) {
+        if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty {
+            return;
+        }
+        // Both content changes and hover-style changes rebuild the command list. Hover could reuse
+        // the cached layout (it only changes paint), but a GPU re-paint is cheap and avoids the
+        // tile path's hover-repaint bookkeeping; revisit if hover proves hot.
+        if self.render_dirty || self.hover_dirty {
+            if let Some(doc) = &self.document {
+                self.scene_cache = Some(pipeline_build_scene(
+                    doc.clone(),
+                    &self.viewport,
+                    self.rasterizer.as_deref(),
+                    self.media_store.clone(),
+                ));
+            }
+            self.render_dirty = false;
+            self.hover_dirty = false;
+            self.dom_dirty = false;
+            self.style_dirty = false;
+            self.layout_dirty = false;
+        }
+        self.scroll_dirty = false;
+        self.scene_epoch = self.scene_epoch.wrapping_add(1);
+    }
+
+    /// The active layer list for hit-testing — from the GPU scene cache or the CPU pipeline cache,
+    /// whichever this tab's backend populates.
+    fn active_layer_list(&self) -> Option<&Arc<LayerList>> {
+        self.scene_cache
+            .as_ref()
+            .map(|c| &c.layer_list)
+            .or_else(|| self.pipeline_cache.as_ref().map(|c| &c.layer_list))
+    }
+
+    /// The active full-page height, from whichever cache this tab populates.
+    fn active_page_height(&self) -> Option<f64> {
+        self.scene_cache
+            .as_ref()
+            .map(|c| c.scene.page_height)
+            .or_else(|| self.pipeline_cache.as_ref().map(|c| c.page_height))
+    }
+
     /// If only the scroll offset changed (no content/layout change), returns a zero-copy
     /// `ExternalHandle::TileCache` that the host can composite directly, bypassing the Cairo
     /// render pipeline entirely. Returns `None` when a full render is needed.
@@ -488,9 +567,23 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         })
     }
 
-    /// Returns the full page height from the last pipeline cache (0 if not yet rendered).
+    /// Returns the full page height from whichever cache is active (0 if not yet rendered).
     pub fn page_height(&self) -> f64 {
-        self.pipeline_cache.as_ref().map(|c| c.page_height).unwrap_or(0.0)
+        self.active_page_height().unwrap_or(0.0)
+    }
+
+    /// Placed GPU tiles for the current pipeline cache, in page coordinates. Empty unless the
+    /// active backend rasterized GPU-resident tiles. Handed to `RenderBackend::composite_tiles`.
+    pub fn placed_gpu_tiles(&self) -> Vec<gosub_render_pipeline::render::backend::PlacedGpuTile> {
+        self.pipeline_cache
+            .as_ref()
+            .map(|c| collect_placed_gpu_tiles(&c.tiles))
+            .unwrap_or_default()
+    }
+
+    /// Current scroll offset in CSS pixels.
+    pub fn scroll_xy(&self) -> (f64, f64) {
+        (self.scroll_x, self.scroll_y)
     }
 
     /// Hit-test at viewport coordinates `(vp_x, vp_y)` and update hover state.
@@ -505,16 +598,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let page_x = vp_x + self.scroll_x;
         let page_y = vp_y + self.scroll_y;
 
-        let (new_leaf, new_lei) = self.pipeline_cache.as_ref().map_or((None, None), |cache| {
+        let (new_leaf, new_lei) = self.active_layer_list().map_or((None, None), |layer_list| {
             let _t = gosub_shared::timing_guard!("hover.hit_test");
-            let Some(lei) = cache.layer_list.find_element_at(page_x, page_y) else {
+            let Some(lei) = layer_list.find_element_at(page_x, page_y) else {
                 return (None, None);
             };
-            let dom_node_id = cache
-                .layer_list
-                .layout_tree
-                .get_node_by_id(lei)
-                .map(|el| el.dom_node_id);
+            let dom_node_id = layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id);
             (dom_node_id, Some(lei))
         });
 
@@ -634,6 +723,12 @@ impl<C: RenderConfiguration> RenderContext for BrowsingContext<C> {
     }
     fn render_list(&self) -> &RenderList {
         &self.render_list
+    }
+    fn paint_scene(&self) -> Option<&dyn Any> {
+        self.scene_cache.as_ref().map(|c| &c.scene as &dyn Any)
+    }
+    fn scroll_offset(&self) -> (f64, f64) {
+        (self.scroll_x, self.scroll_y)
     }
 }
 
@@ -858,7 +953,7 @@ fn rasterize_sequential(
                     page_y: tile.rect.y,
                     width: tex.width as u32,
                     height: tex.height as u32,
-                    data: tex.data.clone(),
+                    pixels: tex.pixels.clone(),
                     format: tex.format,
                 });
             }
@@ -873,12 +968,81 @@ fn rasterize_sequential(
 ///
 /// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
 /// re-running layout or rasterization.
+/// GPU-scene build: stages 1–3 (render tree → layout → layering) plus a paint pass over every
+/// element, producing one ordered paint-command list for the whole page. Skips tiling,
+/// rasterization, and compositing — the backend renders the commands into a GPU texture.
+fn pipeline_build_scene<C: RenderConfiguration>(
+    doc: Arc<EngineDocument<C>>,
+    viewport: &Viewport,
+    rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
+    media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
+) -> SceneCache {
+    use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
+    use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
+    use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
+    use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
+    use gosub_render_pipeline::layouter::CanLayout;
+    use gosub_render_pipeline::rendertree_builder::RenderTree;
+
+    // Stage 1: render tree
+    let adapter = GosubDocumentAdapter::<C>::new(doc);
+    let mut render_tree = RenderTree::new(Arc::new(adapter));
+    if let Err(e) = render_tree.parse() {
+        log::error!("Failed to build render tree: {e}");
+    }
+
+    let vp_dim = if viewport.width > 0 && viewport.height > 0 {
+        Some(PipelineDimension::new(viewport.width as f64, viewport.height as f64))
+    } else {
+        None
+    };
+
+    // Stage 2: layout (share the rasterizer's font system, as the tile path does)
+    let mut layouter = match rasterizer.and_then(|r| r.font_system()) {
+        Some(font_system) => TaffyLayouter::with_font_system(font_system),
+        None => TaffyLayouter::new(),
+    };
+    layouter.set_media_store(Arc::clone(&media_store));
+    let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
+    let page_height = layout_tree.root_dimension.height;
+
+    // Stage 3: layering
+    let layer_list = Arc::new(LayerList::new(layout_tree));
+
+    // Stage 5′: paint every element into one ordered list (no tiling). Paint over the full page
+    // so scrolling reveals already-painted content without a rebuild.
+    let layer_count = layer_list.layer_ids.read().len();
+    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, page_height.max(1.0));
+    let state = BrowserState {
+        visible_layer_list: vec![true; layer_count],
+        wireframed: WireframeState::None,
+        debug_hover: false,
+        current_hovered_element: None,
+        show_tilegrid: false,
+        debug_table_cells: std::env::var("GOSUB_DEBUG_TABLE_CELLS").is_ok(),
+        viewport: full_page_rect,
+        tile_list: None,
+        dpi_scale_factor: 1.0,
+    };
+    let painter = Painter::new(Arc::clone(&layer_list));
+    let commands = painter.paint_all(&state);
+
+    SceneCache {
+        layer_list,
+        scene: PaintScene {
+            commands,
+            media_store,
+            page_height,
+        },
+    }
+}
+
 fn pipeline_build_cache<C: RenderConfiguration>(
     doc: Arc<EngineDocument<C>>,
     viewport: &Viewport,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
-    prev_tile_cache: TilePixelCache,
+    prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, TilePixels)>,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
 ) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
@@ -1012,7 +1176,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
             // For each tile: compute a content hash; if it matches the previous render's cached
             // pixels, reuse them (cache hit). Otherwise rasterize on this thread.
             // Result: (tile_id, Option<BakedTile>, Option<new_cache_entry>)
-            type CacheEntry = (TileCacheKey, (u32, u32, bytes::Bytes));
+            type CacheEntry = (TileCacheKey, (u32, u32, TilePixels));
             let results: Vec<(TileId, Option<BakedTile>, Option<CacheEntry>)> = dirty_ids
                 .par_iter()
                 .map(|&tile_id| {
@@ -1029,7 +1193,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
                             page_y: tile.rect.y,
                             width: w,
                             height: h,
-                            data: data.clone(),
+                            pixels: data.clone(),
                             format: tile_format,
                         };
                         return (tile_id, Some(baked), None);
@@ -1045,18 +1209,19 @@ fn pipeline_build_cache<C: RenderConfiguration>(
                             page_y: tile.rect.y,
                             width: tex.width as u32,
                             height: tex.height as u32,
-                            data: tex.data.clone(),
+                            pixels: tex.pixels.clone(),
                             format: tex.format,
                         });
 
-                    let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, b.data.clone())));
+                    let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, b.pixels.clone())));
                     (tile_id, baked, cache_entry)
                 })
                 .collect();
 
             // Phase 3: update tile states, gather BakedTiles, and build the new tile cache.
             let mut tiles: Vec<BakedTile> = Vec::with_capacity(results.len());
-            let mut new_tile_cache: TilePixelCache = std::collections::HashMap::with_capacity(results.len());
+            let mut new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, TilePixels)> =
+                std::collections::HashMap::with_capacity(results.len());
 
             for (tile_id, baked, cache_entry) in results {
                 if let Some(tile) = tile_list.arena.get_mut(&tile_id) {
@@ -1093,19 +1258,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     timing_stop!(ts_total);
 
     // Pre-build the CachedTile list for zero-copy scroll handles.
-    let cached_tiles = Arc::new(
-        baked_tiles
-            .iter()
-            .map(|t| CachedTile {
-                page_x: t.page_x as f32,
-                page_y: t.page_y as f32,
-                width: t.width,
-                height: t.height,
-                data: t.data.clone(),
-                format: t.format,
-            })
-            .collect::<Vec<_>>(),
-    );
+    let cached_tiles = Arc::new(cpu_cached_tiles(&baked_tiles));
 
     PipelineCache {
         tiles: baked_tiles,
@@ -1131,7 +1284,7 @@ fn pipeline_hover_repaint(
     viewport: &gosub_render_pipeline::render::Viewport,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
-    prev_tile_cache: TilePixelCache,
+    prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, TilePixels)>,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
 ) -> PipelineCache {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
@@ -1206,19 +1359,7 @@ fn pipeline_hover_repaint(
     } else {
         // No hover element visible — reuse all previous baked tiles unchanged.
         let all_tiles: Vec<BakedTile> = prev_by_pos.into_values().collect();
-        let cached_tiles = Arc::new(
-            all_tiles
-                .iter()
-                .map(|t| CachedTile {
-                    page_x: t.page_x as f32,
-                    page_y: t.page_y as f32,
-                    width: t.width,
-                    height: t.height,
-                    data: t.data.clone(),
-                    format: t.format,
-                })
-                .collect::<Vec<_>>(),
-        );
+        let cached_tiles = Arc::new(cpu_cached_tiles(&all_tiles));
         return PipelineCache {
             tiles: all_tiles,
             page_height,
@@ -1281,7 +1422,7 @@ fn pipeline_hover_repaint(
                 .filter(|&id| tile_list.arena.get(&id).map_or(false, |t| t.state == TileState::Dirty))
                 .collect();
 
-            type CacheEntry = (TileCacheKey, (u32, u32, bytes::Bytes));
+            type CacheEntry = (TileCacheKey, (u32, u32, TilePixels));
             let results: Vec<(TileId, Option<BakedTile>, Option<CacheEntry>)> = dirty_ids
                 .par_iter()
                 .map(|&tile_id| {
@@ -1297,7 +1438,7 @@ fn pipeline_hover_repaint(
                                 page_y: tile.rect.y,
                                 width: w,
                                 height: h,
-                                data: data.clone(),
+                                pixels: data.clone(),
                                 format: tile_format,
                             }),
                             None,
@@ -1312,16 +1453,17 @@ fn pipeline_hover_repaint(
                             page_y: tile.rect.y,
                             width: tex.width as u32,
                             height: tex.height as u32,
-                            data: tex.data.clone(),
+                            pixels: tex.pixels.clone(),
                             format: tex.format,
                         });
-                    let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, b.data.clone())));
+                    let cache_entry = baked.as_ref().map(|b| (key, (b.width, b.height, b.pixels.clone())));
                     (tile_id, baked, cache_entry)
                 })
                 .collect();
 
             let mut tiles: Vec<BakedTile> = Vec::with_capacity(results.len());
-            let mut new_tile_cache: TilePixelCache = std::collections::HashMap::with_capacity(results.len());
+            let mut new_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, TilePixels)> =
+                std::collections::HashMap::with_capacity(results.len());
             for (tile_id, baked, cache_entry) in results {
                 if let Some(tile) = tile_list.arena.get_mut(&tile_id) {
                     match baked {
@@ -1358,19 +1500,7 @@ fn pipeline_hover_repaint(
     // Merge: newly rasterized hover tiles + clean tiles carried from previous render.
     let all_baked_tiles: Vec<BakedTile> = baked_tiles.into_iter().chain(clean_baked).collect();
 
-    let cached_tiles = Arc::new(
-        all_baked_tiles
-            .iter()
-            .map(|t| gosub_render_pipeline::render::backend::CachedTile {
-                page_x: t.page_x as f32,
-                page_y: t.page_y as f32,
-                width: t.width,
-                height: t.height,
-                data: t.data.clone(),
-                format: t.format,
-            })
-            .collect::<Vec<_>>(),
-    );
+    let cached_tiles = Arc::new(cpu_cached_tiles(&all_baked_tiles));
 
     PipelineCache {
         tiles: all_baked_tiles,
@@ -1379,6 +1509,46 @@ fn pipeline_hover_repaint(
         layer_list,
         tile_pixel_cache: new_tile_cache,
     }
+}
+
+/// Build the CPU `CachedTile` list for the zero-copy scroll handle. GPU-resident tiles have no
+/// CPU pixel buffer (they're composited by the backend), so they're skipped here.
+fn cpu_cached_tiles(baked: &[BakedTile]) -> Vec<CachedTile> {
+    baked
+        .iter()
+        .filter_map(|t| match &t.pixels {
+            TilePixels::Cpu(d) => Some(CachedTile {
+                page_x: t.page_x as f32,
+                page_y: t.page_y as f32,
+                width: t.width,
+                height: t.height,
+                data: d.clone(),
+                format: t.format,
+            }),
+            TilePixels::Gpu(_) => None,
+        })
+        .collect()
+}
+
+/// Placed GPU tiles for the current page, in page coordinates — handed to a GPU backend's
+/// `composite_tiles` step. Empty for CPU backends.
+fn collect_placed_gpu_tiles(baked: &[BakedTile]) -> Vec<gosub_render_pipeline::render::backend::PlacedGpuTile> {
+    baked
+        .iter()
+        .filter_map(|t| {
+            if let TilePixels::Gpu(id) = t.pixels {
+                Some(gosub_render_pipeline::render::backend::PlacedGpuTile {
+                    page_x: t.page_x as f32,
+                    page_y: t.page_y as f32,
+                    width: t.width,
+                    height: t.height,
+                    texture_id: id,
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Stage 7: composite visible tiles from the cache into `rl`.
@@ -1404,14 +1574,18 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
             continue;
         }
 
-        rl.items.push(DisplayItem::Blit {
-            x: (tile.page_x - scroll_x) as f32,
-            y: (tile.page_y - scroll_y) as f32,
-            w: tile.width,
-            h: tile.height,
-            data: tile.data.clone(),
-            format: tile.format,
-        });
+        // The display-list (null/CPU) compositor only handles CPU pixels; GPU-resident tiles are
+        // composited by the backend's `composite_tiles` step instead.
+        if let TilePixels::Cpu(data) = &tile.pixels {
+            rl.items.push(DisplayItem::Blit {
+                x: (tile.page_x - scroll_x) as f32,
+                y: (tile.page_y - scroll_y) as f32,
+                w: tile.width,
+                h: tile.height,
+                data: data.clone(),
+                format: tile.format,
+            });
+        }
     }
 
     timing_stop!(ts7);

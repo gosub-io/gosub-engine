@@ -7,6 +7,9 @@ use vello::Scene;
 
 #[allow(dead_code)]
 pub fn do_paint_text(scene: &mut Scene, cmd: &Text, tile_size: Dimension, affine: Affine) -> Result<(), anyhow::Error> {
+    // Lay out and align within the fragment's own box; `text-align` is applied per box, so using
+    // the parent content width would offset short runs across the whole line. See the matching note
+    // in the parley path.
     let paragraph = get_skia_paragraph(cmd.text.as_str(), &cmd.font_info, cmd.rect.width, None, 1.00);
 
     let info = skia_safe::ImageInfo::new(

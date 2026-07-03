@@ -4,7 +4,7 @@ use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
 use crate::common::geo::Coordinate;
 use crate::common::media::MediaStore;
-use crate::common::media::{Media, MediaId, MediaType};
+use crate::common::media::{Media, MediaId, MediaRequest, MediaType};
 use crate::layouter::box_model::Edges;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
 use crate::layouter::table::post_process_tables;
@@ -25,6 +25,14 @@ use taffy::NodeId as TaffyNodeId;
 
 const DEFAULT_FONT_SIZE: f64 = 16.0;
 const DEFAULT_FONT_FAMILY: &str = "sans-serif";
+
+/// Parse an HTML presentational length attribute (e.g. `<img width="80">`) into pixels.
+/// Accepts a bare integer/float or a trailing `px`; ignores `%` and other units.
+fn parse_px_attr(v: &str) -> Option<f32> {
+    let s = v.trim();
+    let s = s.strip_suffix("px").unwrap_or(s);
+    s.trim().parse::<f32>().ok().filter(|n| *n >= 0.0)
+}
 
 // Cache key: (text, font_family, size_bits, line_height_bits, weight, max_width_bits).
 // Floats are stored as their bit pattern so the tuple is Hash + Eq.
@@ -636,12 +644,11 @@ impl TaffyLayouter {
         }
 
         let abs = to_absolute_url(&url, &doc.base_url());
-        let media_id = match self.media_store.load_media(&abs) {
-            Ok(media_id) => media_id,
-            Err(e) => {
-                log::warn!("Could not load background-image '{}': {}", abs, e);
-                return None;
-            }
+        // Non-blocking: while the background image is still fetching, render without it; the reflow
+        // after the fetch completes paints it in.
+        let media_id = match self.media_store.request_media(&abs) {
+            MediaRequest::Ready(media_id) => media_id,
+            MediaRequest::Pending => return None,
         };
 
         // Pick the renderer based on what was actually stored: an SVG (e.g. HN's
@@ -674,37 +681,53 @@ impl TaffyLayouter {
 
                     log::debug!("Loading (image) resource: {}", src);
 
-                    let Ok(media_id) = self.media_store.load_media(src.as_str()) else {
-                        // Could not load media
-                        log::warn!("Could not load media from path: {}", src);
-                        return None;
-                    };
-
-                    let media = self.media_store.get(media_id, MediaType::Image);
-                    // When the media is a placeholder (load failed), use a small fixed
-                    // size so the broken-image icon doesn't blow up the layout. The
-                    // rasterizer scales the icon to whatever rect the element actually
-                    // occupies, so display quality is unaffected.
-                    let is_placeholder = self.media_store.is_placeholder(media_id);
-                    taffy_context = match media.borrow() {
-                        Media::Svg(media_svg) => {
-                            // Use the SVG's intrinsic size so the element gets a non-zero box.
-                            // A failed/placeholder load uses the same small fixed size as images.
-                            let dimension = if is_placeholder {
-                                geo::Dimension::new(32.0, 32.0)
-                            } else {
-                                let size = media_svg.svg.tree.size();
-                                geo::Dimension::new(size.width() as f64, size.height() as f64)
-                            };
-                            Some(TaffyContext::svg(src.as_str(), media_id, dimension, dom_node.node_id))
+                    // Non-blocking: an uncached image kicks off a background fetch and returns
+                    // Pending without stalling layout. The element is kept with a placeholder size
+                    // (HTML width/height attrs if present, else 0×0); a reflow lands once the fetch
+                    // completes and installs the real intrinsic size.
+                    match self.media_store.request_media(src.as_str()) {
+                        MediaRequest::Ready(media_id) => {
+                            let media = self.media_store.get(media_id, MediaType::Image);
+                            // When the media is a placeholder (load failed), use a small fixed
+                            // size so the broken-image icon doesn't blow up the layout. The
+                            // rasterizer scales the icon to whatever rect the element actually
+                            // occupies, so display quality is unaffected.
+                            let is_placeholder = self.media_store.is_placeholder(media_id);
+                            taffy_context = match media.borrow() {
+                                Media::Svg(media_svg) => {
+                                    // Use the SVG's intrinsic size so the element gets a non-zero box.
+                                    // A failed/placeholder load uses the same small fixed size as images.
+                                    let dimension = if is_placeholder {
+                                        geo::Dimension::new(32.0, 32.0)
+                                    } else {
+                                        let size = media_svg.svg.tree.size();
+                                        geo::Dimension::new(size.width() as f64, size.height() as f64)
+                                    };
+                                    Some(TaffyContext::svg(src.as_str(), media_id, dimension, dom_node.node_id))
+                                }
+                                Media::Image(media_image) => {
+                                    let dimension = if is_placeholder {
+                                        geo::Dimension::new(32.0, 32.0)
+                                    } else {
+                                        geo::Dimension::new(
+                                            media_image.image.width() as f64,
+                                            media_image.image.height() as f64,
+                                        )
+                                    };
+                                    Some(TaffyContext::image(src.as_str(), media_id, dimension, dom_node.node_id))
+                                }
+                            }
                         }
-                        Media::Image(media_image) => {
-                            let dimension = if is_placeholder {
-                                geo::Dimension::new(32.0, 32.0)
-                            } else {
-                                geo::Dimension::new(media_image.image.width() as f64, media_image.image.height() as f64)
-                            };
-                            Some(TaffyContext::image(src.as_str(), media_id, dimension, dom_node.node_id))
+                        MediaRequest::Pending => {
+                            // Placeholder size: honour the HTML width/height attributes if present,
+                            // otherwise leave whatever CSS sizing convert() produced (0×0 for a bare
+                            // <img>). The reflow after the fetch completes installs the real size.
+                            if let Some(w) = data.get_attribute("width").and_then(|s| parse_px_attr(s)) {
+                                taffy_style.size.width = Dimension::from_length(w);
+                            }
+                            if let Some(h) = data.get_attribute("height").and_then(|s| parse_px_attr(s)) {
+                                taffy_style.size.height = Dimension::from_length(h);
+                            }
                         }
                     }
                 }

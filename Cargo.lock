@@ -2190,6 +2190,7 @@ dependencies = [
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_renderer_vello",
+ "gosub_shared",
  "log",
  "once_cell",
  "parking_lot",
@@ -2946,7 +2947,7 @@ dependencies = [
  "clap",
  "gosub_engine",
  "gosub_render_pipeline",
- "gosub_renderer_vello",
+ "gosub_renderer_skia",
  "image",
  "log",
  "once_cell",
@@ -2955,7 +2956,6 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
- "vello",
 ]
 
 [[package]]
@@ -3296,6 +3296,7 @@ dependencies = [
  "gosub_interface",
  "gosub_render_pipeline",
  "gosub_shared",
+ "image",
  "log",
  "parking_lot",
  "parley",

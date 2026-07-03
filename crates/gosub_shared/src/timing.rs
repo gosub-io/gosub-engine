@@ -201,11 +201,15 @@ impl TimingTable {
                 for timer_id in timers {
                     if let Some(timer) = self.timers.get(timer_id) {
                         if timer.has_finished() {
+                            let context = timer.context.clone().unwrap_or_default();
+                            if context.is_empty() {
+                                continue;
+                            }
                             println!(
                                 "                     | {:>8} | {:>10} | {}",
                                 1,
                                 self.scale(timer.duration_us, scale.clone()),
-                                timer.context.clone().unwrap_or_default()
+                                context
                             );
                         }
                     }
@@ -236,6 +240,14 @@ pub fn snapshot_stats() -> Vec<NamespaceStats> {
 /// Clears all recorded timings from the global timing table.
 pub fn reset_stats() {
     TIMING_TABLE.lock().clear();
+}
+
+/// Print the full timing table (all namespaces, aggregated stats) to stdout, auto-scaling units.
+/// When `details` is true, also prints each individual timer's duration and context.
+pub fn dump(details: bool) {
+    println!("\n=== Timing table (all values aggregated since start) ===");
+    TIMING_TABLE.lock().print_timings(details, Scale::Auto);
+    println!();
 }
 
 /// RAII timer guard — stops the timer when dropped, regardless of how the

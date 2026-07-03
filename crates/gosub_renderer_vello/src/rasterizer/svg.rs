@@ -1,7 +1,7 @@
 use gosub_render_pipeline::common::media::{MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
 use resvg::usvg::Transform;
-use vello::kurbo::Affine;
+use vello::kurbo::{Affine, Vec2};
 use vello::peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
 
 pub(crate) fn do_paint_svg(
@@ -14,7 +14,13 @@ pub(crate) fn do_paint_svg(
     log::debug!("Painting SVG: {:?}", media_id);
 
     let media = media_store.get_svg(media_id);
-    let target_dim = rect.rect().dimension();
+    let r = rect.rect();
+    let target_dim = r.dimension();
+    // `draw_image` carries no geometry of its own — it places the image's top-left at the
+    // transform's origin. Fold the element's box position into the affine so the SVG lands at its
+    // layout box, not the viewport origin (the rectangle painter bakes the position into the shape
+    // path instead, so it only needs the bare `affine`).
+    let placement = affine * Affine::translate(Vec2::new(r.x, r.y));
 
     {
         let cached = media.svg.rendered.read();
@@ -26,7 +32,7 @@ pub(crate) fn do_paint_svg(
                 width: cached.dimension.width as u32,
                 height: cached.dimension.height as u32,
             };
-            scene.draw_image(&image, affine);
+            scene.draw_image(&image, placement);
             return;
         }
     }
@@ -63,5 +69,5 @@ pub(crate) fn do_paint_svg(
         width: cached.dimension.width as u32,
         height: cached.dimension.height as u32,
     };
-    scene.draw_image(&image, affine);
+    scene.draw_image(&image, placement);
 }

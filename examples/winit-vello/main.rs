@@ -142,9 +142,9 @@ impl GpuState {
 
     /// Upload a CPU RGBA buffer to a texture and blit it to the swap chain.
     ///
-    /// This is the path the engine actually drives for Vello: the backend's
-    /// `raster_strategy()` is `Sequential`, so frames arrive as `ExternalHandle::TileCache`
-    /// (CPU tiles rasterized by `VelloRasterizer`), not as a GPU texture handle.
+    /// Used only for the `ExternalHandle::TileCache` fallback (tile-rasterizing backends
+    /// such as Cairo/Skia). Vello renders GPU-direct and takes the `WgpuTextureId` path,
+    /// which blits its texture without this CPU round-trip.
     fn present_pixels(&self, device: &wgpu::Device, queue: &wgpu::Queue, rgba: &[u8], w: u32, h: u32) {
         if w == 0 || h == 0 {
             return;
@@ -404,9 +404,9 @@ impl BrowserApp {
         };
 
         match handle {
-            // GPU path — only taken when a backend reports `raster_strategy() == None`.
-            // The Vello backend does not (it rasterizes tiles), so this is here for
-            // completeness / future GPU-direct backends.
+            // GPU path — the engine renders the whole display list into a single GPU
+            // texture (Vello's `raster_strategy() == None`) and hands us its id. Blit it
+            // straight to the swap chain, no CPU round-trip.
             ExternalHandle::WgpuTextureId { id, .. } => {
                 let rt = self.state.as_ref().unwrap();
                 if let Some((_, view)) = rt.context.get_texture(id) {
@@ -414,8 +414,8 @@ impl BrowserApp {
                 }
             }
 
-            // CPU tile path — what the engine produces for Vello today. Composite the
-            // visible tiles into an RGBA buffer, then upload + blit it via wgpu.
+            // CPU tile path — fallback for tile-rasterizing backends (Cairo/Skia). Composite
+            // the visible tiles into an RGBA buffer, then upload + blit it via wgpu.
             ExternalHandle::TileCache {
                 tiles,
                 dpr,
@@ -546,11 +546,18 @@ impl ApplicationHandler<()> for BrowserApp {
 
         // ── 4. Configure surface ──────────────────────────────────────────────
         let caps = surface.get_capabilities(&adapter);
+        // Prefer a NON-sRGB swapchain format. Both the Vello GPU texture and the CPU tile blits
+        // already contain sRGB-encoded bytes; presenting through an sRGB surface format would make
+        // the hardware sRGB-encode them a second time, washing colors out (orange → yellow) and
+        // brightening anti-aliased glyph edges so text looks too thin. A plain Unorm surface passes
+        // the bytes straight through to the (sRGB) display.
         let format = caps
             .formats
-            .first()
+            .iter()
             .copied()
-            .unwrap_or(wgpu::TextureFormat::Bgra8UnormSrgb);
+            .find(|f| !f.is_srgb())
+            .or_else(|| caps.formats.first().copied())
+            .unwrap_or(wgpu::TextureFormat::Bgra8Unorm);
         let alpha_mode = caps
             .alpha_modes
             .first()
@@ -777,6 +784,12 @@ impl ApplicationHandler<()> for BrowserApp {
                     return;
                 }
 
+                // 't' (when not editing the address bar) dumps the full timing table to the terminal.
+                if !self.addr_focused && logical_key == Key::Character("t".into()) {
+                    gosub_shared::timing::dump(true);
+                    return;
+                }
+
                 if self.addr_focused {
                     match &logical_key {
                         Key::Named(NamedKey::Enter) => self.navigate(),
@@ -812,6 +825,8 @@ fn main() {
         .env()
         .init()
         .unwrap_or_default();
+
+    println!("[hint] press 't' in the window to print the timing table to this terminal");
 
     let initial_url = {
         let raw = std::env::args()

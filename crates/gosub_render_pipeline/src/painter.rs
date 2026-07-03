@@ -3,8 +3,9 @@ pub mod commands;
 use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
 use crate::common::document::style::{BorderStyle as CssBorderStyle, Display, StyleProperty, Value};
+use crate::common::media::MediaStore;
 use crate::layering::layer::LayerList;
-use crate::layouter::{BackgroundMedia, ElementContext, LayoutElementNode};
+use crate::layouter::{BackgroundMedia, ElementContext, LayoutElementId, LayoutElementNode};
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::color::Color;
@@ -13,6 +14,20 @@ use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
 use crate::tiler::TiledLayoutElement;
 use std::sync::Arc;
+
+/// A whole-viewport paint command list plus the media store needed to resolve image/SVG ids.
+///
+/// Produced by the engine's GPU-scene path (one ordered list for the entire page, in z-order)
+/// and consumed by a GPU backend's `render`, which translates the commands into its native
+/// scene. This replaces the tile/rasterize/composite stages for GPU backends.
+pub struct PaintScene {
+    /// All paint commands for the page, in paint order (bottom layer first).
+    pub commands: Vec<PaintCommand>,
+    /// Shared media store; commands reference images/SVGs by id and resolve them here.
+    pub media_store: Arc<MediaStore>,
+    /// Full laid-out page height in CSS pixels (for scroll clamping on the host).
+    pub page_height: f64,
+}
 
 /// Painter works with the layout tree and generates paint commands for the renderer. It does not
 /// generate a new data structure as output, but will update the existing layout elements with
@@ -28,9 +43,33 @@ impl Painter {
 
     // Generate paint commands for the given tile
     pub fn paint(&self, element: &TiledLayoutElement, state: &BrowserState) -> Vec<PaintCommand> {
+        self.paint_element(element.id, state)
+    }
+
+    /// Paint every element in the layer list into a single flat command list, in z-order
+    /// (`layer_ids` order) then paint order (`layer.elements` order). Used by GPU-scene
+    /// backends that render the whole viewport in one pass instead of per tile. The result
+    /// matches the z-ordering the tiler produces.
+    pub fn paint_all(&self, state: &BrowserState) -> Vec<PaintCommand> {
+        let mut out = Vec::new();
+        let layer_ids = self.layer_list.layer_ids.read();
+        let layers = self.layer_list.layers.read();
+        for layer_id in layer_ids.iter() {
+            let Some(layer) = layers.get(layer_id) else {
+                continue;
+            };
+            for &element_id in &layer.elements {
+                out.extend(self.paint_element(element_id, state));
+            }
+        }
+        out
+    }
+
+    /// Generate paint commands for a single layout element.
+    pub fn paint_element(&self, element_id: LayoutElementId, state: &BrowserState) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
 
-        let Some(layout_element) = self.layer_list.layout_tree.get_node_by_id(element.id) else {
+        let Some(layout_element) = self.layer_list.layout_tree.get_node_by_id(element_id) else {
             return Vec::new();
         };
         let dom_node_id = layout_element.dom_node_id;

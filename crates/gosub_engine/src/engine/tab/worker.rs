@@ -367,7 +367,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
                 // Submit the scroll frame immediately — don't wait for the next timer tick.
                 // Eliminates up to 33ms of latency at 30fps per scroll event.
-                if self.zone_context.render_backend.raster_strategy() != RasterStrategy::None {
+                // GPU-tile-compositing backends skip this CPU TileCache fast path (their tiles have
+                // no CPU pixels); they re-composite on the next tick via `composite_tiles`.
+                if self.zone_context.render_backend.raster_strategy() != RasterStrategy::None
+                    && !self.zone_context.render_backend.gpu_tile_compositing()
+                {
                     let dpr = self.zone_context.render_backend.device_pixel_ratio();
                     if let Some(handle) = self.context.take_scroll_handle(dpr) {
                         self.runtime.committed_scene_epoch = self.context.scene_epoch();
@@ -733,6 +737,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Do a draw tick. This will be called based on the FPS that is requested
     #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
+        // A background media fetch (e.g. an image that started downloading during layout) landing
+        // must wake the render loop even when nothing else changed, so the now-available image is
+        // laid out and painted. This marks the render dirty under the hood.
+        if self.context.poll_media_completed() {
+            self.runtime.dirty = true;
+        }
+
         // Skip rendering when nothing has changed to avoid burning CPU at the tick rate.
         if !self.runtime.dirty {
             return Ok(());
@@ -754,15 +765,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
         }
 
-        // TileCache path — used by every rasterizing backend (Cairo, Skia, Vello).
+        // TileCache path — used by CPU-compositing rasterizing backends (Cairo, Skia).
         //
         // These backends don't need the display-list render pipeline: tiles are rasterized
         // during stages 1-6 and the host composites them directly. A scroll-only fast path
         // skips stages 1-6 when only the offset changed.
         //
+        // Backends that composite to a GPU texture (Vello) still rasterize tiles, but fall
+        // through to the display-list path below so the backend draws those tiles into a GPU
+        // texture and the host presents a `WgpuTextureId` instead of compositing CPU tiles.
+        //
         // DPR comes from the backend: Cairo rasterizes at physical pixels (DPR > 1 on HiDPI);
         // Skia and Vello rasterize at CSS pixels (DPR = 1).
-        if render_backend.raster_strategy() != RasterStrategy::None {
+        if render_backend.raster_strategy() != RasterStrategy::None && !render_backend.renders_to_gpu_texture() {
             let dpr = render_backend.device_pixel_ratio();
 
             // Scroll-only fast path: tiles are still valid, only the offset changed.
@@ -784,7 +799,77 @@ impl<C: RenderConfiguration> TabWorker<C> {
             return Ok(());
         }
 
-        // Null backend (no rasterizer): fall through to the display-list render path below.
+        // GPU scene path — backends that composite to a GPU texture (Vello).
+        //
+        // Skips tiling/rasterization/compositing: the engine builds one viewport-level paint
+        // command list (stages 1–3 + paint), and the backend renders it into a GPU texture.
+        // The host then presents the resulting `WgpuTextureId`. Scroll re-renders with a new
+        // translate (no rebuild); only content/hover/size changes rebuild the command list.
+        if render_backend.renders_to_gpu_texture() {
+            let surface_recreated =
+                self.ensure_surface_tracked(render_backend.clone(), self.desired_viewport.as_size())?;
+            self.context.set_viewport(self.desired_viewport);
+
+            // Consolidated tile path (opt-in): rather than the one-shot whole-viewport scene, run
+            // the SAME shared tile pipeline the CPU backends use (stages 1-6 → cached tiles). The
+            // backend's rasterizer renders each tile into a GPU texture instead of CPU memory, and
+            // `composite_tiles` blits the resident tiles into the surface. Same pipeline, only the
+            // tile storage + compositor differ between CPU and GPU backends.
+            if render_backend.gpu_tile_compositing() {
+                {
+                    // If `pipeline.rasterize` shows up here during a pure scroll, the page is being
+                    // re-rasterized (it should not be — scroll only re-composites cached tiles).
+                    let _t = gosub_shared::timing_guard!("gputile.rebuild");
+                    self.context.rebuild_pipeline_cache_if_needed();
+                }
+                let scene_epoch = self.context.scene_epoch();
+                if !surface_recreated && scene_epoch == self.runtime.committed_scene_epoch {
+                    return Ok(());
+                }
+                if let Some(ref mut surf) = self.surface {
+                    let _t = gosub_shared::timing_guard!("gputile.composite");
+                    let tiles = self.context.placed_gpu_tiles();
+                    let vp = (self.desired_viewport.width, self.desired_viewport.height);
+                    let (sx, sy) = self.context.scroll_xy();
+                    let page_height = self.context.page_height() as f32;
+                    match render_backend.composite_tiles(surf.as_mut(), &tiles, vp, (sx as f32, sy as f32), page_height)
+                    {
+                        Ok(()) => match render_backend.external_handle(surf.as_mut()) {
+                            Ok(handle) => {
+                                self.runtime.committed_scene_epoch = scene_epoch;
+                                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+                            }
+                            Err(e) => log::warn!("[tick_draw] gpu-tile external_handle error: {e}"),
+                        },
+                        Err(e) => log::warn!("[tick_draw] composite_tiles error: {e}"),
+                    }
+                }
+                self.sink.inc_frame();
+                return Ok(());
+            }
+
+            self.context.rebuild_scene_cache_if_needed();
+
+            let scene_epoch = self.context.scene_epoch();
+            if !surface_recreated && scene_epoch == self.runtime.committed_scene_epoch {
+                return Ok(());
+            }
+
+            if let Some(ref mut surf) = self.surface {
+                render_backend.render(&mut self.context, surf.as_mut())?;
+                match render_backend.external_handle(surf.as_mut()) {
+                    Ok(handle) => {
+                        self.runtime.committed_scene_epoch = scene_epoch;
+                        self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+                    }
+                    Err(e) => log::warn!("[tick_draw] gpu external_handle error: {e}"),
+                }
+            }
+            self.sink.inc_frame();
+            return Ok(());
+        }
+
+        // Display-list render path: reached only by the null backend (no rasterizer).
 
         // Ensure we have a surface of the right size to draw on.
         // Track whether the surface was recreated (meaning pixels are blank and must be re-rendered).

@@ -84,7 +84,7 @@ impl FontSystem for ParleyFontSystem {
         if text.is_empty() {
             return (0.0, 0.0);
         }
-        let families = [style.family.as_str(), "sans-serif"];
+        let families = split_css_families(&style.family);
         let query = FontQuery {
             families: &families,
             style: style.style,
@@ -275,6 +275,26 @@ impl ParleyFontSystem {
             ascent: first_ascent,
         }
     }
+}
+
+/// Split a CSS `font-family` value (e.g. `Verdana, Geneva, sans-serif`) into individual family
+/// names, trimming whitespace and matching quotes. A trailing `sans-serif` generic is appended as
+/// an ultimate fallback if the list doesn't already end in a generic, so resolution always has a
+/// last resort.
+///
+/// Passing the whole comma-joined string as a single family name (the old behaviour) never matches
+/// an installed family like `Verdana`, so resolution silently fell through to the `sans-serif`
+/// generic — picking a different (often thinner) font than the page author intended.
+pub fn split_css_families(families: &str) -> Vec<&str> {
+    let mut out: Vec<&str> = families
+        .split(',')
+        .map(|f| f.trim().trim_matches(|c| c == '\'' || c == '"').trim())
+        .filter(|f| !f.is_empty())
+        .collect();
+    if !out.iter().any(|f| f.eq_ignore_ascii_case("sans-serif")) {
+        out.push("sans-serif");
+    }
+    out
 }
 
 // Conversion helpers
