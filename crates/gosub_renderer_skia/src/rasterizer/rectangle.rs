@@ -2,13 +2,36 @@ use gosub_render_pipeline::common::media::{MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::border::BorderStyle;
 use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::gradient::{Gradient, LinearGradient};
-use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
+use gosub_render_pipeline::painter::commands::rectangle::{BlendMode as CssBlendMode, Rectangle};
 use gosub_render_pipeline::tiler::Tile;
 use skia_safe::gradient::{shaders, Colors as GradientColors, Gradient as SkGradient, Interpolation};
 use skia_safe::{
-    images, AlphaType, Canvas, Color, Color4f, ColorType, Data, FilterMode, ISize, ImageInfo, MipmapMode, Paint,
-    Point, RRect, Rect, SamplingOptions, TileMode,
+    images, AlphaType, BlendMode as SkBlendMode, Canvas, Color, Color4f, ColorType, Data, FilterMode, ISize,
+    ImageInfo, MipmapMode, Paint, Point, RRect, Rect, SamplingOptions, TileMode,
 };
+
+/// CSS `mix-blend-mode` → Skia paint blend mode. The paint blends against the canvas content
+/// already drawn beneath it (the tile backdrop).
+fn to_skia_blend_mode(mode: CssBlendMode) -> SkBlendMode {
+    match mode {
+        CssBlendMode::Normal => SkBlendMode::SrcOver,
+        CssBlendMode::Multiply => SkBlendMode::Multiply,
+        CssBlendMode::Screen => SkBlendMode::Screen,
+        CssBlendMode::Overlay => SkBlendMode::Overlay,
+        CssBlendMode::Darken => SkBlendMode::Darken,
+        CssBlendMode::Lighten => SkBlendMode::Lighten,
+        CssBlendMode::ColorDodge => SkBlendMode::ColorDodge,
+        CssBlendMode::ColorBurn => SkBlendMode::ColorBurn,
+        CssBlendMode::HardLight => SkBlendMode::HardLight,
+        CssBlendMode::SoftLight => SkBlendMode::SoftLight,
+        CssBlendMode::Difference => SkBlendMode::Difference,
+        CssBlendMode::Exclusion => SkBlendMode::Exclusion,
+        CssBlendMode::Hue => SkBlendMode::Hue,
+        CssBlendMode::Saturation => SkBlendMode::Saturation,
+        CssBlendMode::Color => SkBlendMode::Color,
+        CssBlendMode::Luminosity => SkBlendMode::Luminosity,
+    }
+}
 
 pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_store: &MediaStore) {
     let r = cmd.rect();
@@ -30,6 +53,7 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_
         } else {
             let mut paint = Paint::new(brush_to_color4f(brush), None);
             paint.set_anti_alias(true);
+            paint.set_blend_mode(to_skia_blend_mode(cmd.blend_mode()));
             if let Brush::Gradient(Gradient::Linear(g)) = brush {
                 apply_linear_gradient(&mut paint, g, r.x as f32, r.y as f32, r.width as f32, r.height as f32);
             }
@@ -52,6 +76,7 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_
         let brush = border.brush();
         let mut paint = Paint::new(brush_to_color4f(&brush), None);
         paint.set_anti_alias(true);
+        paint.set_blend_mode(to_skia_blend_mode(cmd.blend_mode()));
         paint.set_stroke_width(border.width());
         paint.set_style(skia_safe::paint::Style::Stroke);
         draw_rect_or_rounded(
@@ -98,6 +123,7 @@ fn paint_per_side_border(canvas: &Canvas, cmd: &Rectangle) {
         let (x, y, w, h) = edges[i];
         let mut paint = Paint::new(brush_to_color4f(&brushes[i]), None);
         paint.set_anti_alias(true);
+        paint.set_blend_mode(to_skia_blend_mode(cmd.blend_mode()));
         paint.set_style(skia_safe::paint::Style::Fill);
         canvas.draw_rect(Rect::from_xywh(x, y, w, h), &paint);
     }
@@ -145,6 +171,7 @@ fn draw_image_brush(canvas: &Canvas, cmd: &Rectangle, media_id: MediaId, media_s
     let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
+    paint.set_blend_mode(to_skia_blend_mode(cmd.blend_mode()));
 
     if cmd.is_rounded() {
         let (r_tl, ..) = cmd.radius_x();

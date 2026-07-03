@@ -311,6 +311,7 @@ pub enum StyleProperty {
     TextTransform,
     ZIndex,
     LetterSpacing,
+    MixBlendMode,
 }
 
 impl StyleProperty {
@@ -394,6 +395,7 @@ impl StyleProperty {
             StyleProperty::TextTransform => 74,
             StyleProperty::ZIndex => 75,
             StyleProperty::LetterSpacing => 76,
+            StyleProperty::MixBlendMode => 77,
         }
     }
 
@@ -923,6 +925,12 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: true,
         initial_kind: InitialKind::Keyword("normal"),
     },
+    // 77 mix-blend-mode — not inherited; initial = normal
+    PropertyMeta {
+        name: "mix-blend-mode",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("normal"),
+    },
 ];
 
 // ── NodeStyle — replaces StylePropertyList ────────────────────────────────────
@@ -1062,6 +1070,7 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         74 => Some(StyleProperty::TextTransform),
         75 => Some(StyleProperty::ZIndex),
         76 => Some(StyleProperty::LetterSpacing),
+        77 => Some(StyleProperty::MixBlendMode),
         _ => None,
     }
 }

@@ -868,6 +868,7 @@ fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
                     hf64!(rect.y);
                     hf64!(rect.width);
                     hf64!(rect.height);
+                    fnv!(&[r.blend_mode().id()]);
                     match r.background() {
                         None => hbool!(false),
                         Some(b) => {

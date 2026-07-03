@@ -2,6 +2,58 @@ use crate::common::geo::Rect;
 use crate::painter::commands::border::Border;
 use crate::painter::commands::brush::Brush;
 
+/// CSS `mix-blend-mode` for an element's painted box: how its pixels combine with the
+/// backdrop already painted beneath it. `Normal` is plain source-over.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum BlendMode {
+    #[default]
+    Normal,
+    Multiply,
+    Screen,
+    Overlay,
+    Darken,
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity,
+}
+
+impl BlendMode {
+    /// Parse a CSS `mix-blend-mode` keyword; unknown keywords fall back to `Normal`.
+    pub fn from_css_keyword(keyword: &str) -> Self {
+        match keyword {
+            "multiply" => BlendMode::Multiply,
+            "screen" => BlendMode::Screen,
+            "overlay" => BlendMode::Overlay,
+            "darken" => BlendMode::Darken,
+            "lighten" => BlendMode::Lighten,
+            "color-dodge" => BlendMode::ColorDodge,
+            "color-burn" => BlendMode::ColorBurn,
+            "hard-light" => BlendMode::HardLight,
+            "soft-light" => BlendMode::SoftLight,
+            "difference" => BlendMode::Difference,
+            "exclusion" => BlendMode::Exclusion,
+            "hue" => BlendMode::Hue,
+            "saturation" => BlendMode::Saturation,
+            "color" => BlendMode::Color,
+            "luminosity" => BlendMode::Luminosity,
+            _ => BlendMode::Normal,
+        }
+    }
+
+    /// Stable small integer for content hashing.
+    pub fn id(&self) -> u8 {
+        *self as u8
+    }
+}
+
 #[derive(Clone, Debug, Copy)]
 pub struct Radius {
     pub x: f64,
@@ -39,6 +91,7 @@ pub struct Rectangle {
     radius_right: Radius,
     radius_bottom: Radius,
     radius_left: Radius,
+    blend_mode: BlendMode,
 }
 
 impl Rectangle {
@@ -60,6 +113,7 @@ impl Rectangle {
             radius_right: Radius::NONE,
             radius_bottom: Radius::NONE,
             radius_left: Radius::NONE,
+            blend_mode: BlendMode::Normal,
         }
     }
 
@@ -98,6 +152,15 @@ impl Rectangle {
     pub fn with_border(mut self, border: Border) -> Self {
         self.border = border;
         self
+    }
+
+    pub fn with_blend_mode(mut self, blend_mode: BlendMode) -> Self {
+        self.blend_mode = blend_mode;
+        self
+    }
+
+    pub fn blend_mode(&self) -> BlendMode {
+        self.blend_mode
     }
 
     pub fn rect(&self) -> Rect {

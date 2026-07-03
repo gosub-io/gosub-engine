@@ -341,6 +341,7 @@ fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
         "box-sizing" => style.set(StyleProperty::BoxSizing, parse_style_str(value)),
         "white-space" => style.set(StyleProperty::WhiteSpace, parse_style_str(value)),
         "text-transform" => style.set(StyleProperty::TextTransform, parse_style_str(value)),
+        "mix-blend-mode" => style.set(StyleProperty::MixBlendMode, parse_style_str(value)),
         "text-decoration" | "text-decoration-line" => {
             let has_underline = value.contains("underline");
             let has_line_through = value.contains("line-through");

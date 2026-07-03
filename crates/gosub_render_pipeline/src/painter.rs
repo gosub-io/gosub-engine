@@ -2,14 +2,14 @@ pub mod commands;
 
 use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
-use crate::common::document::style::{BorderStyle as CssBorderStyle, Display, StyleProperty, Value};
+use crate::common::document::style::{lookup, BorderStyle as CssBorderStyle, Display, StyleProperty, Value};
 use crate::common::media::MediaStore;
 use crate::layering::layer::LayerList;
 use crate::layouter::{BackgroundMedia, ElementContext, LayoutElementId, LayoutElementNode};
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::color::Color;
-use crate::painter::commands::rectangle::{Radius, Rectangle};
+use crate::painter::commands::rectangle::{BlendMode, Radius, Rectangle};
 use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
 use crate::render::backend::TileAnchor;
@@ -148,6 +148,18 @@ impl Painter {
         }
     }
 
+    /// The element's CSS `mix-blend-mode`, applied to its painted boxes so backends blend
+    /// them with the backdrop. Blending happens against whatever is already painted
+    /// beneath the element (tile content for canvas backends, the scene for Vello) — the
+    /// spec's stacking-context isolation rules are not modelled.
+    fn mix_blend_mode(&self, node_id: NodeId) -> BlendMode {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        match doc.get_style(node_id, &StyleProperty::MixBlendMode) {
+            Value::Keyword(kw) => BlendMode::from_css_keyword(&lookup(kw)),
+            _ => BlendMode::Normal,
+        }
+    }
+
     /// The fill for an element's background box: a `linear-gradient(...)` if present,
     /// otherwise the solid `background-color` (transparent when unset).
     fn background_brush(&self, node_id: NodeId) -> Brush {
@@ -253,7 +265,9 @@ impl Painter {
         match bg {
             BackgroundMedia::Image(media_id) => {
                 let brush = Brush::image(media_id);
-                let r = Rectangle::new(border_box).with_background(brush);
+                let r = Rectangle::new(border_box)
+                    .with_background(brush)
+                    .with_blend_mode(self.mix_blend_mode(dom_node_id));
                 let r = self.decorate_with_border_and_radius(dom_node_id, r);
                 vec![PaintCommand::rectangle(r)]
             }
@@ -302,13 +316,17 @@ impl Painter {
             }
             ElementContext::Image(image_ctx) => {
                 let brush = Brush::image(image_ctx.media_id);
-                let r = Rectangle::new(layout_element.box_model.border_box).with_background(brush);
+                let r = Rectangle::new(layout_element.box_model.border_box)
+                    .with_background(brush)
+                    .with_blend_mode(self.mix_blend_mode(dom_node_id));
                 let r = self.decorate_with_border_and_radius(dom_node_id, r);
                 commands.push(PaintCommand::rectangle(r));
             }
             ElementContext::None => {
                 let brush = self.background_brush(dom_node_id);
-                let r = Rectangle::new(layout_element.box_model.border_box).with_background(brush);
+                let r = Rectangle::new(layout_element.box_model.border_box)
+                    .with_background(brush)
+                    .with_blend_mode(self.mix_blend_mode(dom_node_id));
                 let r = self.decorate_with_border_and_radius(dom_node_id, r);
                 commands.push(PaintCommand::rectangle(r));
 

@@ -257,6 +257,47 @@ mod rendertree_from_engine {
         }
     }
 
+    // mix-blend-mode must cascade to the element as a keyword the painter can map
+
+    #[test]
+    fn mix_blend_mode_reaches_element_style() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{lookup, StyleProperty, Value};
+        use crate::painter::commands::rectangle::BlendMode;
+
+        let html = r#"
+            <html>
+            <head><style>.wreck { mix-blend-mode: multiply; }</style></head>
+            <body><img class="wreck" src="x.png"></body>
+            </html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+
+        let root = adapter.doc.root();
+        let img = find_node_by_class_dfs(&adapter.doc, root, "wreck").expect("find img");
+
+        let v = adapter.get_style(img, &StyleProperty::MixBlendMode);
+        let kw = match v {
+            Value::Keyword(kw) => lookup(kw),
+            other => panic!("expected keyword for mix-blend-mode, got {other:?}"),
+        };
+        assert_eq!(kw, "multiply");
+        assert_eq!(BlendMode::from_css_keyword(&kw), BlendMode::Multiply);
+
+        // Elements without the property default to Normal.
+        let body = adapter.body_node_id().expect("body");
+        let v = adapter.get_style(body, &StyleProperty::MixBlendMode);
+        let kw = match v {
+            Value::Keyword(kw) => lookup(kw),
+            other => panic!("expected keyword, got {other:?}"),
+        };
+        assert_eq!(BlendMode::from_css_keyword(&kw), BlendMode::Normal);
+    }
+
     // html_node_id / body_node_id resolve to the correct elements
 
     #[test]
