@@ -26,6 +26,26 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::Ident { value }, loc))
     }
 
+    /// Reads a whitespace-separated sequence of idents, e.g. the part name list of `::part(a b)`.
+    fn parse_pseudo_function_ident_sequence(&mut self) -> CssResult<Node> {
+        log::trace!("parse_pseudo_function_ident_sequence");
+
+        let loc = self.tokenizer.current_location();
+
+        let mut children = Vec::new();
+        loop {
+            self.consume_whitespace_comments();
+            if let TokenType::Ident(_) = self.tokenizer.lookahead(0).token_type {
+                let value = self.consume_any_ident()?;
+                children.push(Node::new(NodeType::Ident { value }, loc));
+            } else {
+                break;
+            }
+        }
+
+        Ok(Node::new(NodeType::Value { children }, loc))
+    }
+
     fn parse_pseudo_function_nth(&mut self) -> CssResult<Node> {
         log::trace!("parse_pseudo_function_nth");
 
@@ -100,6 +120,8 @@ impl Css3<'_> {
             "slotted" => self.parse_pseudo_function_selector(),
             "host" => self.parse_pseudo_function_selector(),
             "host-context" => self.parse_pseudo_function_selector(),
+            "part" => self.parse_pseudo_function_ident_sequence(),
+            "highlight" => self.parse_pseudo_function_ident_list(),
             _ => Err(CssError::with_location(
                 format!("Unexpected pseudo function {name:?}").as_str(),
                 self.tokenizer.current_location(),

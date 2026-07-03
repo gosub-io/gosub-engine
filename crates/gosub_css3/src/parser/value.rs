@@ -90,6 +90,11 @@ impl Css3<'_> {
                 let node = Node::new(NodeType::Url { url }, t.location);
                 Ok(Some(node))
             }
+            TokenType::UnicodeRange(value) => {
+                // Stored as a string node (e.g. for the `unicode-range` @font-face descriptor).
+                let node = Node::new(NodeType::String { value }, t.location);
+                Ok(Some(node))
+            }
             TokenType::Ident(value) => {
                 if value.eq_ignore_ascii_case("progid") {
                     let _ = self.consume(TokenType::Colon)?;
