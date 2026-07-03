@@ -338,8 +338,8 @@ mod tests {
             eprintln!("no wgpu adapter — skipping gpu_tile_compositor_smoke");
             return;
         };
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
-            .expect("device");
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).expect("device");
         let renderer = Mutex::new(
             Renderer::new(
                 &device,
@@ -354,7 +354,13 @@ mod tests {
         // Rasterize one 256×256 tile of a given color into a GPU texture.
         let make_tile = |color: Color| -> wgpu::Texture {
             let mut scene = Scene::new();
-            scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &Rect::new(0.0, 0.0, 256.0, 256.0));
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                color,
+                None,
+                &Rect::new(0.0, 0.0, 256.0, 256.0),
+            );
             let tex = create_tile_texture(&device, 256, 256);
             let view = tex.create_view(&Default::default());
             renderer
@@ -435,7 +441,13 @@ mod tests {
         let (r0, g0, b0) = at(128, 128);
         let (r1, g1, b1) = at(384, 128);
         eprintln!("left=({r0},{g0},{b0}) right=({r1},{g1},{b1})");
-        let _ = image::save_buffer("/tmp/gpu_tile_compositor_smoke.png", &pixels, tw, th, image::ColorType::Rgba8);
+        let _ = image::save_buffer(
+            "/tmp/gpu_tile_compositor_smoke.png",
+            &pixels,
+            tw,
+            th,
+            image::ColorType::Rgba8,
+        );
 
         assert!(r0 > 180 && b0 < 80, "left tile should be red, got ({r0},{g0},{b0})");
         assert!(b1 > 180 && r1 < 80, "right tile should be blue, got ({r1},{g1},{b1})");

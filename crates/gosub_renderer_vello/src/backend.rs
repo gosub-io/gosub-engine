@@ -174,7 +174,14 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
             Some(fs) => {
                 let mut guard = fs.lock();
                 let parley = guard.as_any_mut().downcast_mut::<ParleyFontSystem>();
-                crate::rasterizer::paint_commands_to_scene(&mut scene, &ps.commands, size, affine, &ps.media_store, parley);
+                crate::rasterizer::paint_commands_to_scene(
+                    &mut scene,
+                    &ps.commands,
+                    size,
+                    affine,
+                    &ps.media_store,
+                    parley,
+                );
             }
             None => {
                 let mut guard = self.font_system.lock();
@@ -401,7 +408,10 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
         };
 
         // Resolve each visible engine tile id → its resident GPU texture view (rasterized by our rasterizer).
-        let views: Vec<(wgpu::TextureView, &gosub_render_pipeline::render::backend::PlacedGpuTile)> = tiles
+        let views: Vec<(
+            wgpu::TextureView,
+            &gosub_render_pipeline::render::backend::PlacedGpuTile,
+        )> = tiles
             .iter()
             .filter(|t| visible(t))
             .filter_map(|t| self.resources.tile_view(t.texture_id).map(|v| (v, t)))

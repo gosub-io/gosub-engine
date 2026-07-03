@@ -806,7 +806,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // The host then presents the resulting `WgpuTextureId`. Scroll re-renders with a new
         // translate (no rebuild); only content/hover/size changes rebuild the command list.
         if render_backend.renders_to_gpu_texture() {
-            let surface_recreated = self.ensure_surface_tracked(render_backend.clone(), self.desired_viewport.as_size())?;
+            let surface_recreated =
+                self.ensure_surface_tracked(render_backend.clone(), self.desired_viewport.as_size())?;
             self.context.set_viewport(self.desired_viewport);
 
             // Consolidated tile path (opt-in): rather than the one-shot whole-viewport scene, run
@@ -831,7 +832,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     let vp = (self.desired_viewport.width, self.desired_viewport.height);
                     let (sx, sy) = self.context.scroll_xy();
                     let page_height = self.context.page_height() as f32;
-                    match render_backend.composite_tiles(surf.as_mut(), &tiles, vp, (sx as f32, sy as f32), page_height) {
+                    match render_backend.composite_tiles(surf.as_mut(), &tiles, vp, (sx as f32, sy as f32), page_height)
+                    {
                         Ok(()) => match render_backend.external_handle(surf.as_mut()) {
                             Ok(handle) => {
                                 self.runtime.committed_scene_epoch = scene_epoch;
