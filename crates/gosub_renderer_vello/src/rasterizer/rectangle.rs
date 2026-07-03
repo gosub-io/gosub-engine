@@ -9,8 +9,8 @@ use vello::peniko::Fill;
 pub(crate) fn do_paint_rectangle(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine, media_store: &MediaStore) {
     if let Some(brush) = rect.background() {
         let vello_rect = setup_rectangle_path(rect);
-        let vello_brush = set_brush(brush, rect.rect(), media_store);
-        scene.fill(Fill::NonZero, affine, &vello_brush, None, &vello_rect);
+        let (vello_brush, brush_transform) = set_brush(brush, rect.rect(), media_store);
+        scene.fill(Fill::NonZero, affine, &vello_brush, brush_transform, &vello_rect);
     }
 
     // Per-side borders (e.g. `border-bottom` only) are filled edge-by-edge.
@@ -56,9 +56,9 @@ fn paint_per_side_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Aff
             continue;
         }
         let (x, y, w, h) = edges[i];
-        let vello_brush = set_brush(&brushes[i], r, media_store);
+        let (vello_brush, brush_transform) = set_brush(&brushes[i], r, media_store);
         let edge = Rect::new(x, y, x + w, y + h);
-        scene.fill(Fill::NonZero, affine, &vello_brush, None, &edge);
+        scene.fill(Fill::NonZero, affine, &vello_brush, brush_transform, &edge);
     }
 }
 
@@ -74,9 +74,9 @@ fn draw_single_border(
         return;
     };
     let vello_shape = setup_rectangle_path(rect);
-    let vello_brush = set_brush(brush, rect.rect(), media_store);
+    let (vello_brush, brush_transform) = set_brush(brush, rect.rect(), media_store);
     let vello_stroke = kurbo::Stroke::new(rect.border().width() as f64).with_dashes(0.0, dashes);
-    scene.stroke(&vello_stroke, affine, &vello_brush, None, &vello_shape);
+    scene.stroke(&vello_stroke, affine, &vello_brush, brush_transform, &vello_shape);
 }
 
 fn draw_double_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine, media_store: &MediaStore) {
@@ -85,14 +85,14 @@ fn draw_double_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine
         return;
     };
     let vello_shape = setup_rectangle_path(rect);
-    let vello_brush = set_brush(brush, rect.rect(), media_store);
+    let (vello_brush, brush_transform) = set_brush(brush, rect.rect(), media_store);
 
     if rect.border().width() < 3.0 {
         scene.stroke(
             &kurbo::Stroke::new(rect.border().width() as f64),
             affine,
             &vello_brush,
-            None,
+            brush_transform,
             &vello_shape,
         );
         return;
@@ -103,7 +103,7 @@ fn draw_double_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine
         &kurbo::Stroke::new(width as f64),
         affine,
         &vello_brush,
-        None,
+        brush_transform,
         &vello_shape,
     );
 
@@ -136,7 +136,7 @@ fn draw_double_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine
         &kurbo::Stroke::new(width as f64),
         affine,
         &vello_brush,
-        None,
+        brush_transform,
         &inner_border_shape,
     );
 }
