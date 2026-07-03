@@ -42,6 +42,13 @@ pub(crate) fn web_font_generation() -> u64 {
 
 /// Build a `FontMgr` (backed by a `TypefaceFontProvider`) containing every registered web
 /// font, or `None` if none are registered or none could be decoded.
+///
+/// A variable font is registered as one instance per standard CSS weight stop (100–900)
+/// within its `wght` axis range, not just its default instance. Google Fonts serves a single
+/// variable file for a multi-weight `@font-face` set (e.g. `wght@600;700` → one file whose
+/// default instance is 400); registering only the default made every bold-ish weight request
+/// fall back to faux-bold of the 400 instance. With per-weight instances,
+/// `FontCollection::matchStyle` selects the genuinely-instanced weight.
 fn build_web_font_mgr() -> Option<FontMgr> {
     let reg = registry().lock();
     if reg.fonts.is_empty() {
@@ -51,12 +58,53 @@ fn build_web_font_mgr() -> Option<FontMgr> {
     let mut provider = TypefaceFontProvider::new();
     let mut any = false;
     for (family, bytes) in reg.fonts.iter() {
-        if let Some(tf) = fm.new_from_data(bytes, None) {
-            provider.register_typeface(tf, Some(family.as_str()));
+        let Some(tf) = fm.new_from_data(bytes, None) else {
+            continue;
+        };
+        for instance in weight_instances(&tf) {
+            provider.register_typeface(instance, Some(family.as_str()));
             any = true;
         }
     }
     any.then(|| provider.into())
+}
+
+/// The typefaces to register for `tf`: for a variable font with a `wght` axis, one instance
+/// per standard CSS weight stop (100–900, clamped to the axis range, deduplicated); otherwise
+/// just the typeface itself.
+fn weight_instances(tf: &skia_safe::Typeface) -> Vec<skia_safe::Typeface> {
+    use skia_safe::font_arguments::variation_position::Coordinate;
+    use skia_safe::font_arguments::VariationPosition;
+    use skia_safe::{FontArguments, FourByteTag};
+
+    let wght = FourByteTag::from_chars('w', 'g', 'h', 't');
+    let axis = tf
+        .variation_design_parameters()
+        .and_then(|axes| axes.into_iter().find(|a| a.tag == wght));
+    let Some(axis) = axis else {
+        return vec![tf.clone()];
+    };
+
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for stop in (1..=9).map(|i| (i * 100) as f32) {
+        let value = stop.clamp(axis.min, axis.max);
+        if !seen.insert(value as i32) {
+            continue;
+        }
+        let coords = [Coordinate { axis: wght, value }];
+        let args = FontArguments::new().set_variation_design_position(VariationPosition {
+            coordinates: &coords,
+        });
+        if let Some(instance) = tf.clone_with_arguments(&args) {
+            out.push(instance);
+        }
+    }
+    if out.is_empty() {
+        vec![tf.clone()]
+    } else {
+        out
+    }
 }
 
 thread_local! {
@@ -204,7 +252,18 @@ pub(crate) fn resolve_family_list(families: &str) -> Vec<String> {
             if is_pseudo_generic(&name) {
                 continue;
             }
-            if is_real_generic(&name) || resolves_to_real(&name) {
+            if is_real_generic(&name) {
+                // Replace the generic with the concrete family fontconfig picks for it
+                // (what `fc-match` and Firefox use). Skia's textlayout resolves families via
+                // `matchFamily()`, whose fontconfig style-set is ordered differently from
+                // `matchFamilyStyle()` — it hands back e.g. FreeMono for `monospace` and
+                // FreeSerif for `serif` instead of DejaVu Sans Mono / Noto Serif. Concrete
+                // names round-trip through textlayout unchanged, so resolve the generic here.
+                match fm.match_family_style(&name, normal) {
+                    Some(tf) => out.push(tf.family_name()),
+                    None => out.push(name),
+                }
+            } else if resolves_to_real(&name) {
                 out.push(name);
             }
         }
@@ -296,6 +355,25 @@ impl FontSystem for SkiaFontSystem {
     }
 }
 
+/// Map a CSS `font-stretch` percentage (normal = 100) onto Skia's 1–9 width classes
+/// (normal = 5), using the CSS-defined keyword percentages as bucket centres. The previous
+/// `width / 100` mapping sent the default 100% to width class 1 (ultra-condensed), which
+/// disagreed with the measure path's `Width::NORMAL` and could select a condensed face.
+fn width_from_css_percent(pct: i32) -> skia_safe::font_style::Width {
+    let class = match pct {
+        ..=56 => 1,     // ultra-condensed (50%)
+        57..=68 => 2,   // extra-condensed (62.5%)
+        69..=81 => 3,   // condensed (75%)
+        82..=93 => 4,   // semi-condensed (87.5%)
+        94..=106 => 5,  // normal (100%)
+        107..=118 => 6, // semi-expanded (112.5%)
+        119..=137 => 7, // expanded (125%)
+        138..=174 => 8, // extra-expanded (150%)
+        _ => 9,         // ultra-expanded (200%)
+    };
+    skia_safe::font_style::Width::from(class)
+}
+
 /// Build and lay out a Skia `Paragraph` for `text`, drawn with `paint`, wrapped/aligned within
 /// `layout_width`. This is the single text engine for the Skia backend: the same `textlayout`
 /// machinery used by [`SkiaFontSystem::measure`], so draw metrics match the layout metrics. It
@@ -332,7 +410,7 @@ pub(crate) fn build_paragraph(text: &str, font_info: &FontInfo, paint: &Paint, l
     ts.set_font_families(&resolve_family_list(&font_info.family));
     ts.set_font_style(FontStyle::new(
         skia_safe::font_style::Weight::from(font_info.weight),
-        skia_safe::font_style::Width::from((font_info.width / 100).clamp(1, 9)),
+        width_from_css_percent(font_info.width),
         if font_info.slant > 0 {
             skia_safe::font_style::Slant::Italic
         } else {
@@ -400,5 +478,33 @@ mod tests {
         assert!(is_pseudo_generic("UI-Monospace"));
         assert!(!is_real_generic("Source Serif 4"));
         assert!(!is_pseudo_generic("Georgia"));
+    }
+
+    #[test]
+    fn generic_families_resolve_to_concrete_faces() {
+        // Skia textlayout's `matchFamily()` resolves bare generics differently from
+        // `matchFamilyStyle()` (e.g. FreeMono instead of DejaVu Sans Mono for `monospace`),
+        // so `resolve_family_list` must hand textlayout the concrete family name.
+        for stack in ["monospace", "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"] {
+            let resolved = resolve_family_list(stack);
+            assert_eq!(resolved.len(), 1, "stack '{stack}' resolved to {resolved:?}");
+            let name = &resolved[0];
+            // If the system has any monospace font, the generic must have been replaced by
+            // the same concrete family `matchFamilyStyle` (fc-match) picks.
+            if let Some(tf) = FontMgr::new().match_family_style("monospace", FontStyle::normal()) {
+                assert_eq!(name, &tf.family_name(), "stack '{stack}'");
+            } else {
+                assert_eq!(name, "monospace");
+            }
+        }
+    }
+
+    #[test]
+    fn css_stretch_percent_maps_to_skia_width_classes() {
+        assert_eq!(width_from_css_percent(100), skia_safe::font_style::Width::NORMAL);
+        assert_eq!(width_from_css_percent(50), skia_safe::font_style::Width::ULTRA_CONDENSED);
+        assert_eq!(width_from_css_percent(75), skia_safe::font_style::Width::CONDENSED);
+        assert_eq!(width_from_css_percent(125), skia_safe::font_style::Width::EXPANDED);
+        assert_eq!(width_from_css_percent(200), skia_safe::font_style::Width::ULTRA_EXPANDED);
     }
 }

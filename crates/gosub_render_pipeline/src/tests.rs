@@ -208,6 +208,55 @@ mod rendertree_from_engine {
         );
     }
 
+
+
+    // Unitless line-height must survive the cascade as a fractional multiplier
+    // (a regression here rounded `line-height: 1.7` to 2.0, inflating every paragraph).
+
+    #[test]
+    fn unitless_line_height_keeps_fraction() {
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    body { font-size: 17px; line-height: 1.7; }
+                </style>
+            </head>
+            <body><section><p class="zone-intro">Gosub is in active early-stage development.</p></section></body>
+            </html>
+        "#;
+
+        use crate::common::document::node::NodeType;
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+
+        let root = adapter.doc.root();
+        let p = find_node_by_class_dfs(&adapter.doc, root, "zone-intro").expect("find p");
+        let text_child = adapter
+            .children(p)
+            .into_iter()
+            .find(|c| matches!(adapter.get_node_by_id(*c).map(|n| n.node_type), Some(NodeType::Text(_))))
+            .expect("find text child");
+
+        for id in [p, text_child] {
+            let fs = adapter.get_style(id, &StyleProperty::FontSize);
+            assert!(
+                matches!(fs, Value::Unit(px, Unit::Px) if (px - 17.0).abs() < 0.01),
+                "expected font-size 17px, got {fs:?}"
+            );
+            let lh = adapter.get_style(id, &StyleProperty::LineHeight);
+            assert!(
+                matches!(lh, Value::Number(n) if (n - 1.7).abs() < 0.01),
+                "expected line-height Number(1.7), got {lh:?}"
+            );
+        }
+    }
+
     // html_node_id / body_node_id resolve to the correct elements
 
     #[test]

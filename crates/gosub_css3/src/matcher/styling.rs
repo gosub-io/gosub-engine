@@ -510,16 +510,13 @@ impl CssProperty {
 
     fn find_actual_value(&self) -> CssValue {
         // @TODO: stuff like clipping and such should occur as well
-        // `opacity` (and other 0..1 ratios) must keep their fractional value — rounding
-        // `opacity: 0.15` to 0 would make a semi-transparent element vanish entirely.
-        if self.name == "opacity" {
-            return self.used.clone();
-        }
-        // Only round absolute units (px, pt, in, cm, mm). Relative units (em, rem, %, vw, vh)
-        // must NOT be rounded here — 1.5em rounded to 2.0em would make h2 render at h1 size.
+        // Bare numbers and percentages are ratios/multipliers and must keep their fractional
+        // value: rounding `opacity: 0.15` to 0 makes an element vanish, `line-height: 1.7`
+        // to 2.0 inflates every paragraph, `flex-grow: 0.5` to 1 doubles an item's share.
+        // Relative units (em, rem, vw, vh) must not be rounded either — 1.5em rounded to
+        // 2.0em would make h2 render at h1 size. Only absolute lengths (px, pt, in, cm, mm)
+        // are snapped to whole values here.
         match &self.used {
-            CssValue::Number(len) => CssValue::Number(len.round()),
-            CssValue::Percentage(perc) => CssValue::Percentage(perc.round()),
             CssValue::Unit(value, unit) => {
                 let absolute = matches!(unit.as_str(), "px" | "pt" | "in" | "cm" | "mm" | "pc" | "q");
                 if absolute {
