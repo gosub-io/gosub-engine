@@ -161,6 +161,9 @@ pub use engine::{BrowsingContext, EngineError, GosubEngine};
 /// without a custom config. See the crate-level "Configuration" section for how to pick a backend.
 pub use html::DefaultRenderConfig;
 
+/// Builds a [`gosub_config::Config`] seeded with the engine's built-in settings schema.
+pub use engine::default_settings;
+
 pub use engine::types::Action;
 pub use engine::types::NavigationId;
 

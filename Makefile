@@ -66,7 +66,7 @@ test-smoke: ## CLI smoke tests
 	run_section "CLI smoke tests" bash -c '\
 		cargo run --bin html5-parser-test >/dev/null && \
 		cargo run --bin parser-test >/dev/null && \
-		cargo run --bin config-store list >/dev/null && \
+		cargo run --example config-store -- list >/dev/null && \
 		cargo run --bin gosub-parser file://tests/data/tree_iterator/stackoverflow.html >/dev/null && \
 		cargo run --example html5-parser >/dev/null && \
 		cargo run --example pipeline-test \

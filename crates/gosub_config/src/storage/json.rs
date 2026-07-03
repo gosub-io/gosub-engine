@@ -52,6 +52,12 @@ impl StorageAdapter for JsonStorageAdapter {
         Ok(())
     }
 
+    fn remove(&self, key: &str) -> Result<()> {
+        self.elements.lock().remove(key);
+        self.write_file()?;
+        Ok(())
+    }
+
     fn all(&self) -> Result<HashMap<String, Setting>> {
         let lock = self.elements.lock();
         Ok(lock.clone())

@@ -36,6 +36,7 @@
 
 use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::EngineDocument;
+use gosub_config::{Config, HasConfig};
 use gosub_render_pipeline::rasterizer::{RasterStrategy, Rasterable};
 use gosub_render_pipeline::render::{Color, DisplayItem, RenderContext, RenderList, Viewport};
 use std::sync::Arc;
@@ -187,11 +188,15 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// images/SVGs into it by id; the rasterizer resolves the same ids back. It persists
     /// across renders so paint-only repaints (e.g. hover) still find previously loaded media.
     media_store: std::sync::Arc<gosub_render_pipeline::common::media::MediaStore>,
+
+    /// Per-engine settings store (cloned from the zone/engine). Read settings or subscribe to
+    /// changes via [`HasConfig::config`].
+    config_store: Config,
 }
 
 impl<C: RenderConfiguration> BrowsingContext<C> {
-    /// Creates a new runtime browsing context.
-    pub(crate) fn new() -> BrowsingContext<C> {
+    /// Creates a new runtime browsing context, sharing the given per-engine settings store.
+    pub(crate) fn new(config_store: Config) -> BrowsingContext<C> {
         Self {
             current_url: None,
             document: None,
@@ -219,6 +224,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+            config_store,
         }
     }
 
@@ -613,6 +619,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Returns the current loaded the tab (or None when nothing has loaded yet)
     pub fn current_url(&self) -> Option<&Url> {
         self.current_url.as_ref()
+    }
+}
+
+impl<C: RenderConfiguration> HasConfig for BrowsingContext<C> {
+    fn config(&self) -> &Config {
+        &self.config_store
     }
 }
 

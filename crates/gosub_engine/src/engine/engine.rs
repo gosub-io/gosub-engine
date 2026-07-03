@@ -30,6 +30,7 @@ use crate::util::spawn_named;
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineError, EngineSettings};
 use anyhow::Result;
+use gosub_config::Config;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -72,6 +73,9 @@ pub struct EngineContext {
     pub event_tx: EventChannel,
     /// Global engine configuration
     pub config: Arc<EngineSettings>,
+    /// Per-engine settings store (key/value config with persistence and change subscriptions).
+    /// A clone of this handle is threaded down to each zone and tab.
+    pub config_store: Config,
     /// I/O thread handle
     pub io_tx: Arc<RwLock<Option<IoChannel>>>,
     /// Map for requests to tabs
@@ -83,6 +87,7 @@ impl Default for EngineContext {
         Self {
             event_tx: broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY).0,
             config: Arc::new(EngineSettings::default()),
+            config_store: crate::engine::settings_store::default_config(),
             io_tx: Arc::new(RwLock::new(None)),
             request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
         }
@@ -121,6 +126,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             context: Arc::new(EngineContext {
                 event_tx: event_tx.clone(),
                 config: Arc::new(resolved_config),
+                config_store: crate::engine::settings_store::default_config(),
                 io_tx: Arc::new(RwLock::new(None)),
                 request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
             }),

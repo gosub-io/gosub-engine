@@ -127,6 +127,10 @@ path = "examples/multi-tab.rs"
 name = "metrics-cli"
 path = "examples/metrics_cli.rs"
 
+[[example]]
+name = "config-store"
+path = "examples/config-store.rs"
+
 [[bench]]
 name = "tree_iterator"
 harness = false

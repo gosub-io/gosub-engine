@@ -18,12 +18,14 @@ pub mod config;
 #[cfg(not(target_arch = "wasm32"))]
 mod downloader;
 mod policy;
+pub mod settings_store;
 pub mod types;
 
 pub use context::BrowsingContext;
 pub use engine::EngineContext;
 pub use engine::GosubEngine;
 pub use errors::EngineError;
+pub use settings_store::default_config as default_settings;
 
 pub use policy::UaPolicy;
 

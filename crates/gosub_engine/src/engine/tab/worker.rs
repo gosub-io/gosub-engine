@@ -145,6 +145,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
     ) -> Self {
         let (internal_tx, internal_rx) = mpsc::channel::<TabInternalCommand>(32);
 
+        let context = BrowsingContext::new(zone_context.config_store.clone());
+
         Self {
             tab_id,
             zone_id,
@@ -152,7 +154,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             zone_context,
             sink,
             cmd_rx,
-            context: BrowsingContext::new(),
+            context,
             state: TabState::Idle,
             mode: TabActivityMode::Active,
             favicon: vec![],
