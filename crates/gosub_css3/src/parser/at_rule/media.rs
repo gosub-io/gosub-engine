@@ -157,7 +157,10 @@ impl Css3<'_> {
         // Optional second comparison for a double-ended range, e.g. `400px <= width <= 700px`.
         // It is introduced by another comparison operator (`<`, `>` or `=`), not a parenthesis.
         self.consume_whitespace_comments();
-        if matches!(self.tokenizer.lookahead_sc(0).token_type, TokenType::Delim('<' | '>' | '=')) {
+        if matches!(
+            self.tokenizer.lookahead_sc(0).token_type,
+            TokenType::Delim('<' | '>' | '=')
+        ) {
             right_comparison = Some(self.parse_media_read_comparison()?);
             right = Some(self.parse_media_read_term()?);
         }

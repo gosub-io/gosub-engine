@@ -247,7 +247,10 @@ mod tests {
         // entire `{ ... }` block (brace-balanced) so the following rule parses cleanly.
         let out = parse_recovering(".bad { @#$ {nested junk} } .good { color: blue }");
 
-        assert!(out.contains("[ClassSelector] good"), "expected .good rule to parse:\n{out}");
+        assert!(
+            out.contains("[ClassSelector] good"),
+            "expected .good rule to parse:\n{out}"
+        );
         assert!(out.contains("property: color"), "expected .good's declaration:\n{out}");
     }
 }

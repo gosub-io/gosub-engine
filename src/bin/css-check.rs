@@ -24,8 +24,12 @@ fn main() -> Result<()> {
     // Accept either a real URL or a local file path.
     let url = match url::Url::parse(&source) {
         Ok(u) if matches!(u.scheme(), "http" | "https" | "file") => u,
-        _ => url::Url::from_file_path(Path::new(&source).canonicalize().unwrap_or_else(|_| source.clone().into()))
-            .map_err(|_| anyhow!("not a valid URL or file path: {source}"))?,
+        _ => url::Url::from_file_path(
+            Path::new(&source)
+                .canonicalize()
+                .unwrap_or_else(|_| source.clone().into()),
+        )
+        .map_err(|_| anyhow!("not a valid URL or file path: {source}"))?,
     };
 
     let response = gosub_net::net::simple::sync_fetch(&url)?;

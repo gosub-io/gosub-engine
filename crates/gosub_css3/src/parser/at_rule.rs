@@ -62,7 +62,15 @@ impl Css3<'_> {
 
         Ok(Node::new(
             NodeType::Value {
-                children: vec![Node::new(NodeType::Ident { value: format!(":{name}") }, loc), selectors],
+                children: vec![
+                    Node::new(
+                        NodeType::Ident {
+                            value: format!(":{name}"),
+                        },
+                        loc,
+                    ),
+                    selectors,
+                ],
             },
             loc,
         ))
