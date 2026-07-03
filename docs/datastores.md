@@ -4,6 +4,10 @@
 - Web Storage runtime for per\-origin key/value maps: `localStorage` (persistent) and `sessionStorage` (ephemeral).
 - Service layer that routes reads/writes, enforces scoping, and emits storage events.
 
+Storage is a **zone service**: each zone gets its own `StorageService` via `ZoneServices`, which
+is how two zones browsing the same site stay isolated. See
+[`zones-and-tabs.md`](zones-and-tabs.md) for how services reach tabs.
+
 ## Directory layout
 - `src/engine/storage/area.rs`: storage area abstraction (key/value operations).
 - `src/engine/storage/service.rs`: orchestration, lookup by zone/tab/origin, event wiring.
@@ -24,6 +28,21 @@
 - Stores and durability
     - Local: in\-memory (ephemeral) or SQLite (durable across runs).
     - Session: in\-memory only; discarded when the tab/session ends.
+
+## Partitioning
+
+Storage areas are keyed by **(partition key, origin)**, not origin alone. The zone's
+`PartitionPolicy` (part of `ZoneServices`) controls the partition key:
+
+- `PartitionPolicy::None` — no partitioning; one global state per origin.
+- `PartitionPolicy::TopLevelOrigin` (the default) — the key is the top-level origin of the
+  navigated URL, so `site-a.com` and `site-b.com` embedding the same third party see
+  *different* storage for it.
+
+The tab worker computes the key on every navigation (`compute_partition_key` in
+`storage/types.rs`, called from `prepare_storage_for`) and resolves its local/session
+handles for that (partition, origin) pair. Cookies do not use this mechanism; their
+isolation is per-zone via the cookie store (see [`cookies.md`](cookies.md)).
 
 ## Concurrency model
 - Areas and stores are `Send + Sync`; implementations perform internal synchronization.

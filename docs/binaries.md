@@ -10,8 +10,8 @@ bus), run the engine examples instead:
 ```bash
 cargo run --example hello-world    # single tab, headless
 cargo run --example multi-tab      # 25 tabs, live progress bars
-cargo run --example gtk-cairo      # GTK4 window
-cargo run --example egui-vello     # egui/wgpu window
+cargo run -p example-gtk4-cairo    # GTK4 window
+cargo run -p example-egui-vello    # egui/wgpu window
 ```
 
 See [`examples/README.md`](../examples/README.md) for details.

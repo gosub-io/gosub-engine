@@ -5,6 +5,10 @@
 - Persistence and restoration across runs using a `CookieStore`.
 - Type‑erased handles for safe and concurrent access by the engine.
 
+Cookies are a **zone service**: the jar/store handles live in `ZoneServices`, so each zone
+is its own cookie universe (the profile/container model). See
+[`zones-and-tabs.md`](zones-and-tabs.md) for how services reach tabs.
+
 ## Directory layout
 - `src/engine/cookies/cookies.rs`: type‑erased handles and serializable `Cookie`.
 - `src/engine/cookies/cookie_jar.rs`: `CookieJar` trait and default behaviors.

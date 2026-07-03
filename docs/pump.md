@@ -20,4 +20,4 @@ If a stream in the shared body is not read fast enough, the pump will close and
 remove the target. This is to prevent a slow reader from blocking the entire
 system.
 
-![pump flow](img.png)
+![pump flow](../img.png)

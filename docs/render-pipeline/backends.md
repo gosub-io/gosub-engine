@@ -22,7 +22,7 @@ When only the scroll offset changed (no content or layout change), `take_scroll_
 
 ### Note on `SkiaBackend::render()`
 
-`SkiaBackend` (in `render/backends/skia.rs`) is wired up as the `RenderBackend` in all Skia examples and does implement `render()` against the display list. However, when `pipeline + backend_skia` are both active, `tick_draw` returns early via the TileCache path and never reaches `render_backend.render()`. `SkiaBackend::render()` is therefore dead code in normal operation — it exists as a fallback for non-pipeline builds or future headless snapshot use.
+`SkiaBackend` (in `crates/gosub_renderer_skia/src/backend.rs`) is wired up as the `RenderBackend` in all Skia examples and does implement `render()` against the display list. However, because its `raster_strategy()` is `ParallelCached` (and it does not render to a GPU texture), `tick_draw` returns early via the TileCache path and never reaches `render_backend.render()`. `SkiaBackend::render()` is therefore dead code in normal operation — it exists as a fallback for headless snapshot use.
 
 ---
 
@@ -74,7 +74,7 @@ Tiles outside `[0, viewport_width) × [0, viewport_height)` after this transform
 
 ## The `RenderBackend` trait
 
-**File:** `crates/gosub_render_pipeline/src/render/backend.rs`
+**File:** `crates/gosub_interface/src/render/backend.rs` (re-exported via `gosub_render_pipeline::render::backend`)
 
 ```rust
 pub trait RenderBackend: Send {
@@ -96,9 +96,7 @@ pub trait RenderBackend: Send {
 
 ## Cairo backend
 
-**Crate:** `crates/gosub_renderer_cairo`  
-**File:** `crates/gosub_render_pipeline/src/render/backends/cairo.rs`  
-**Feature:** `backend_cairo`  
+**Crate:** `crates/gosub_renderer_cairo` (backend in `src/backend.rs`)  
 **Surface format:** premultiplied ARgb32 (= BGRA8888 on little-endian)
 
 ### Surface creation
@@ -141,14 +139,12 @@ On GTK, `draw_tile_cache()` blits each tile using `cairo::ImageSurface::create_f
 
 ## Skia CPU backend
 
-**Crate:** `crates/gosub_renderer_skia`  
-**File:** `crates/gosub_render_pipeline/src/render/backends/skia.rs`  
-**Feature:** `backend_skia`  
-**Surface format:** premultiplied BGRA32 (`raster_n32_premul`)
+**Crate:** `crates/gosub_renderer_skia` (backend in `src/backend.rs`)  
+**Surface format:** premultiplied BGRA8888
 
 ### Pipeline integration
 
-The Skia backend **bypasses the display-list render pipeline entirely**. After stages 1–6 produce a `PipelineCache`, the engine calls `tile_cache_handle(1)` and submits `TileCache` directly to the compositor. The host composites tiles on its own thread (where the GL context is current if GPU compositing is used).
+The Skia backend **bypasses the display-list render pipeline entirely**. After stages 1–6 produce a `PipelineCache`, the engine calls `tile_cache_handle(dpr)` (with `dpr = render_backend.device_pixel_ratio()`, which reads the `DEVICE_PIXEL_RATIO` atomic) and submits `TileCache` directly to the compositor. The host composites tiles on its own thread (where the GL context is current if GPU compositing is used).
 
 `SkiaBackend::render()` and `external_handle()` exist and return `CpuPixelsOwned` for cases where the display-list path is needed (e.g. egui integration), but they are not called in the normal Skia render loop.
 
@@ -156,7 +152,7 @@ The Skia backend **bypasses the display-list render pipeline entirely**. After s
 
 `SkiaRasterizer` (in `crates/gosub_renderer_skia/src/rasterizer.rs`) runs during stage 6:
 
-- Creates a `skia_safe::surfaces::raster_n32_premul` surface sized to the tile in CSS pixels.
+- Creates a `skia_safe::surfaces::raster` surface (explicit `BGRA8888`/`Premul` `ImageInfo`) sized to the tile in CSS pixels × `DEVICE_PIXEL_RATIO`.
 - Pre-translates the canvas by `(-tile.rect.x, -tile.rect.y)` so paint commands work in page coordinates.
 - Dispatches `PaintCommand` variants:
   - `Rectangle`: `draw_rect` / `draw_round_rect` with solid colour fills and stroke borders.
@@ -183,56 +179,41 @@ Blit implementations by host:
 
 ---
 
-## Skia GPU backend
+## Skia with GPU compositing (`winit-skia-gpu`, `gtk4-skia-gpu`)
 
-**File:** `crates/gosub_render_pipeline/src/render/backends/skia_gpu.rs`  
-**Feature:** `backend_skia_gl` (on `gosub_render_pipeline`)  
-**Used by:** `winit-skia-gpu`
+**Backend:** the regular `SkiaBackend` — there is no separate GPU backend type.  
+**Where the GPU work lives:** the host example (`examples/winit-skia-gpu/main.rs`)
 
-### Purpose
+### How it works
 
-`SkiaGpuBackend` provides GPU-accelerated compositing of pre-rasterized CPU tiles. Stage 6 still runs `SkiaRasterizer` on the CPU (tiles are BGRA32 buffers). The GPU compositing happens in the host window's GL context, not in the backend's `render()` method.
+The engine side is identical to the Skia CPU setup: `SkiaBackend` rasterizes tiles on the
+CPU (BGRA32 buffers) and the tab worker ships them out as an `ExternalHandle::TileCache`.
+What changes is the *host's* compositing: instead of blitting tiles into a CPU softbuffer,
+the example composites them on the GPU through Skia's Ganesh/GL backend.
 
-### Thread affinity
-
-OpenGL contexts are thread-affine. The `GlContextProvider` trait abstracts context management:
-
-```rust
-pub trait GlContextProvider: Send + Sync {
-    fn make_current(&self);
-    fn get_proc_address(&self, name: &str) -> *const c_void;
-}
-```
-
-In `winit-skia-gpu`, the GL context is created on and stays current on the main thread (event loop). All compositing happens in `BrowserApp::redraw()` on that same thread — no `make_current()` call needed across threads.
-
-### Compositing in `winit-skia-gpu`
-
-`redraw()` creates a Skia GPU surface wrapping the default OpenGL framebuffer (FBO 0):
+OpenGL contexts are thread-affine; in `winit-skia-gpu` the GL context is created on and
+stays current on the main (event-loop) thread, where all compositing happens. Each redraw
+wraps the window's default framebuffer (FBO 0) in a Skia GPU surface:
 
 ```rust
-let fb_info = FramebufferInfo { fboid: 0, format: RGBA8, .. };
 let render_target = backend_render_targets::make_gl((w, h), None, 8, fb_info);
 let surface = surface_ganesh::wrap_backend_render_target(
     &mut direct_context, &render_target, BottomLeft, RGBA8888, ..,
 );
 ```
 
-It then composites tiles by uploading each one as a `skia_safe::Image` and calling `canvas.draw_image()`. After all tiles and the address bar are drawn, `direct_context.flush_and_submit()` + `gl_surface.swap_buffers()` presents to the window.
+then uploads each cached tile as a `skia_safe::Image` and draws it with
+`canvas.draw_image()`. After all tiles and the address bar are drawn,
+`direct_context.flush_and_submit()` + `swap_buffers()` presents to the window.
 
 **No CPU readback occurs.** Tile pixels go directly from CPU → GPU texture → framebuffer.
-
-### `SkiaGpuBackend::render()`
-
-The `render()` method falls back to CPU compositing (using `raster_n32_premul`) for the display-list path. This is only used in egui / GTK variants that call `external_handle()`.
 
 ---
 
 ## Vello backend
 
-**File:** `crates/gosub_render_pipeline/src/render/backends/vello.rs`  
-**Feature:** `backend_vello`  
-**Used by:** `egui-vello`, `egui-vello-paned`, `winit-vello`
+**Crate:** `crates/gosub_renderer_vello` (backend in `src/backend.rs`)  
+**Used by:** `egui-vello`, `winit-vello`
 
 Vello is a GPU vector-graphics renderer built on wgpu. It processes the display list differently from the Blit-based backends: it rebuilds a `Scene` every frame from the `RenderList` rather than consuming pre-rasterized pixel tiles.
 
@@ -276,7 +257,7 @@ Used when the engine needs a valid backend but no rendering is desired (headless
 | `egui-cairo` | egui/eframe | Cairo | No (display list) | In-memory |
 | `egui-skia` | egui/eframe | Skia CPU | Yes (always) | In-memory |
 | `egui-vello` | egui/eframe | Vello | No (display list) | In-memory |
-| `pipeline-screenshot` | Headless | Cairo | No (PNG snapshot) | In-memory |
+| `gosub-screenshot` (bin) | Headless | Skia CPU | Yes (tiles composited in-process → PNG) | In-memory |
 
 ---
 
@@ -287,4 +268,4 @@ Used when the engine needs a valid backend but no rendering is desired (headless
 3. Return an appropriate `ExternalHandle` variant from `external_handle()`.
 4. Wire it up in your example's `main()` behind a feature flag.
 
-If your backend composites on a thread where a GPU context is always current (like `winit-skia-gpu`), consider the **TileCache path**: add `#[cfg(feature = "backend_yourbackend")]` to `tick_draw()` in `worker.rs` to call `tile_cache_handle()` and return early, bypassing the display-list pipeline entirely.
+If your backend should use the **TileCache path** (pre-rasterized CPU tiles composited by the host), no engine changes are needed: return `RasterStrategy::ParallelCached` from `raster_strategy()`, provide a rasterizer via `create_rasterizer()`, and leave `renders_to_gpu_texture()` at `false` — `tick_draw()` selects the path from those capability queries.

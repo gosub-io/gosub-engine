@@ -18,6 +18,9 @@ in the renderer crates.
 `RenderConfiguration` extends `ModuleConfiguration`, so a rendering config satisfies both. Parser
 test harnesses and fuzz targets implement just `ModuleConfiguration` and stay renderer-free.
 
+How the trait machinery works underneath (the auto-derived `Has*` view traits, why subsystems
+bound on those instead of the full config) is covered in [`interface.md`](interface.md).
+
 ## The ready-made config
 
 You almost never implement those traits by hand. `DefaultRenderConfig<B, F, S>` is a zero-sized

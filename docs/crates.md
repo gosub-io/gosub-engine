@@ -11,7 +11,8 @@ stack, cookie and storage isolation, and the `EngineEvent` / `TabCommand` event 
 what you depend on if you are building a user agent or embedding the browser engine.
 
 See [`examples/hello-world.rs`](../examples/hello-world.rs) for a minimal integration example,
-and [`configuration.md`](configuration.md) for how to choose a render backend.
+[`configuration.md`](configuration.md) for how to choose a render backend, and
+[`zones-and-tabs.md`](zones-and-tabs.md) for the zone/tab runtime model.
 
 ---
 
@@ -19,12 +20,14 @@ and [`configuration.md`](configuration.md) for how to choose a render backend.
 
 ### gosub_html5
 HTML5 tokenizer and parser. Produces a `Document` / DOM tree. Conforms to the HTML5 spec,
-including error recovery. Also holds the `Document`, `Node`, and related DOM types.
+including error recovery. Also holds the `Document`, `Node`, and related DOM types. See
+[`html5.md`](html5.md) for the tokenizer/tree-builder structure and the html5lib test harness.
 
 ### gosub_css3
 CSS3 tokenizer and parser. Parses stylesheets into a `CssStylesheet` (rules, selectors,
 declarations). Includes a property-value syntax checker for validating CSS property values
-against their formal grammar.
+against their formal grammar. See [`css.md`](css.md) for the full parse → match → cascade →
+computed-value flow.
 
 ---
 
@@ -32,10 +35,13 @@ against their formal grammar.
 
 ### gosub_taffy
 Flexbox / grid layout backed by the [Taffy](https://github.com/DioxusLabs/taffy) library.
-Implements the layout traits from `gosub_interface`.
+Implements the layout traits from `gosub_interface`. Currently dormant: the live rendering
+path uses `gosub_render_pipeline`'s own layouter instead — see
+[`two-worlds.md`](two-worlds.md).
 
 ### gosub_lattice
 CSS table layout engine — handles the table layout algorithm that Taffy does not cover.
+See [`lattice.md`](lattice.md) for the algorithm and the `TableTree` adapter contract.
 
 ### gosub_render_pipeline
 The render pipeline. Converts the DOM + CSSOM into a render tree with resolved styles and
@@ -89,6 +95,9 @@ redirect handling, and per-zone cookie isolation, plus lower-level helpers. Cons
 
 ## JavaScript
 
+See [`javascript.md`](javascript.md) for how these crates stack together. Note: the whole
+scripting stack is currently **built but not wired** — no page script is executed yet.
+
 ### gosub_v8
 Rust bindings to the V8 JavaScript engine.
 
@@ -115,6 +124,7 @@ Nearly every other crate depends on this.
 ### gosub_interface
 Trait definitions for the major engine components (render backend, layout, CSS system, font
 system, document, etc.). Crates implement these traits; `gosub_engine` wires them together. See
+[`interface.md`](interface.md) for the trait families and type-erasure seams, and
 [`configuration.md`](configuration.md) for how `ModuleConfiguration` / `RenderConfiguration` use
 them.
 

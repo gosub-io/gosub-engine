@@ -10,6 +10,8 @@ descriptions say what they should cover so we can decide what to write next.
   `DefaultRenderConfig`, and going fully custom.
 - [Running the examples](examples.md) — headless engine examples and the GUI toolkit examples
   (winit, GTK4, egui).
+- [Headless usage](headless.md) — rendering real pages without a window, with
+  `gosub-screenshot` as the worked reference (CPU Skia, tile-cache compositing).
 - [Development](development.md) — running tests and benchmarks.
 - [WebAssembly](webassembly.md) — building for wasm.
 - [Component tools](binaries.md) — the small per-crate CLI tools (`css3-parser`,
@@ -19,14 +21,38 @@ descriptions say what they should cover so we can decide what to write next.
 
 - [Crates overview](crates.md) — one section per workspace crate and how they depend on
   each other. Start here to find where something lives.
+- [The two worlds](two-worlds.md) — why there are two parallel document/style/layout
+  stacks (the `gosub_interface` world and the pipeline's own types), and the
+  `GosubDocumentAdapter` seam that joins them. Read this before diving into either.
+- [Interface trait families](interface.md) — `gosub_interface` as the dependency-inversion
+  crate: `ModuleConfiguration` and the `Has*` view traits, the per-component contracts,
+  and the deliberate type-erasure escape hatches.
+- [CSS internals](css.md) — `gosub_css3` from text to computed value: parsing, selector
+  matching, the value-grammar validator, shorthand expansion, and the cascade.
+- [HTML5 parsing](html5.md) — `gosub_html5`: the spec tokenizer state machine, the
+  insertion-mode tree builder, the arena DOM, and the html5lib test harness.
+- [Lattice table layout](lattice.md) — `gosub_lattice`: the CSS table algorithm that works
+  in conjunction with Taffy via the `TableTree` adapter (grid geometry by lattice, cell
+  contents by the host engine).
+- [JavaScript stack](javascript.md) — the five scripting crates (`webexecutor` abstraction,
+  V8 bindings, proc-macro glue, web APIs, event loop) and their built-but-not-wired status.
 - [Fonts](fonts.md) — the two font backend families: *font systems* (measure text for
   layout) vs *text rasterizers* (draw glyphs), and how one shared font collection keeps
   them consistent.
 - [Render pipeline](render-pipeline/README.md) — the rasterize-and-composite pipeline:
   - [Stages](render-pipeline/stages.md) — render tree → layout → paint → tile → rasterize → composite.
   - [Data structures](render-pipeline/data-structures.md)
+  - [Layout](render-pipeline/layout.md) — Stage 2 in depth: Taffy integration, the
+    anonymous-flex inline emulation, text measurement, and table layout via `gosub_lattice`.
+  - [Layering & compositing](render-pipeline/layering-and-compositing.md) — layer promotion
+    (opacity, fixed, sticky, z-index), scroll anchors, and group opacity at composite time.
   - [Backends](render-pipeline/backends.md) — Cairo, Skia (CPU/GPU), Vello, and the dynamic backend.
   - [GPU render flow](render-pipeline/gpu-render-flow.md)
+- [Zones and tabs](zones-and-tabs.md) — the engine's runtime model: zones as isolated
+  profiles, tabs as independent worker tasks, and the command/event flow between them.
+- [Resource pipelines](resource-pipeline.md) — how fetched bytes become typed assets
+  (HTML/CSS/JS/images/fonts), including parser-driven sub-resource discovery and
+  hierarchical fetch cancellation.
 - [Cookies](cookies.md) — the cookie subsystem inside `gosub_engine`.
 - [Storage](datastores.md) — localStorage / sessionStorage architecture.
 
@@ -39,27 +65,6 @@ own project, **gosub_sonar**, which carries its own documentation. The pages her
 
 ## Planned
 
-Pages we still want to write, roughly in priority order:
-
-- **The two worlds** — `gosub_render_pipeline` has its own document/style/layout types and
-  its own Taffy layouter, parallel to the `gosub_html5`/`gosub_css3`/`gosub_taffy` world
-  behind `gosub_interface`. Both bridge tables to `gosub_lattice`. Explain the split and
-  where the seam is.
-- **`gosub_interface` trait families** — the dependency-inversion crate:
-  `ModuleConfiguration` and the `Has*` view traits, `CssSystem`, `Document`, `Layouter`,
-  `FontSystem`, `RenderBackend`, and the deliberate type-erasure escape hatches
-  (`create_rasterizer → Box<dyn Any>`, `FontSystem::as_any_mut`).
-- **Tiling & compositing** (extend `render-pipeline/`) — self-describing pixel formats
-  (`PreMulArgb32` vs `Rgba8` and why), `TileAnchor` scroll/fixed/sticky compositing,
-  layer promotion and group opacity, `RasterStrategy`.
-- **CSS system internals** — parse → match → cascade → computed values, and the formal
-  property-value grammar validator (`syntax_matcher`).
-- **Layout** — Taffy integration (`LayoutDocument` implements Taffy's traits over the real
-  DOM), inline layout, and `gosub_lattice` table layout with its two-pass write-back.
-- **HTML5 parsing** — tokenizer / tree-builder structure, the html5lib test harness, and
-  the current limitation that parsing is not incremental.
-- **JavaScript stack** — `gosub_webexecutor` (abstraction) → `gosub_v8` (bindings) →
-  `gosub_webinterop` (proc-macro glue) → `gosub_jsapi` (web APIs), plus
-  `gosub_web_platform` (event loop, timers).
-- **Headless usage** — `bin/gosub-screenshot` as the reference for driving the engine
-  without a window (tile-cache compositing, no GPU texture-size limit).
+Nothing at the moment — all originally planned pages exist. Candidates for later:
+`EngineSettings` (a section in [configuration.md](configuration.md)), and networking docs
+once the **gosub_sonar** move completes.
