@@ -56,8 +56,18 @@ fn paint_per_side_border(canvas: &Canvas, cmd: &Rectangle) {
 
     let edges = [
         (r.x as f32, r.y as f32, r.width as f32, widths[0]),
-        (r.x as f32 + r.width as f32 - widths[1], r.y as f32, widths[1], r.height as f32),
-        (r.x as f32, r.y as f32 + r.height as f32 - widths[2], r.width as f32, widths[2]),
+        (
+            r.x as f32 + r.width as f32 - widths[1],
+            r.y as f32,
+            widths[1],
+            r.height as f32,
+        ),
+        (
+            r.x as f32,
+            r.y as f32 + r.height as f32 - widths[2],
+            r.width as f32,
+            widths[2],
+        ),
         (r.x as f32, r.y as f32, widths[3], r.height as f32),
     ];
 

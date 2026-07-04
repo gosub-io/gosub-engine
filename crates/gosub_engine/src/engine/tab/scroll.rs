@@ -65,8 +65,14 @@ impl ScrollState {
 
         // Animated: spin up per-axis animators from the current position if not already running.
         if self.anim.is_none() {
-            let ax = self.behavior.make_animator(self.pos.0).expect("non-instant behavior yields an animator");
-            let ay = self.behavior.make_animator(self.pos.1).expect("non-instant behavior yields an animator");
+            let ax = self
+                .behavior
+                .make_animator(self.pos.0)
+                .expect("non-instant behavior yields an animator");
+            let ay = self
+                .behavior
+                .make_animator(self.pos.1)
+                .expect("non-instant behavior yields an animator");
             self.anim = Some((ax, ay));
         }
         None

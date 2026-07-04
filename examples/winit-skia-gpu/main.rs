@@ -366,7 +366,13 @@ fn composite_tiles(
 
     for tile in tiles.iter() {
         // anchored_tile_pos handles scroll / fixed / sticky uniformly from the engine's scroll.
-        let (vx, vy) = anchored_tile_pos(tile.page_x as f64, tile.page_y as f64, *sx as f64, *sy as f64, tile.anchor);
+        let (vx, vy) = anchored_tile_pos(
+            tile.page_x as f64,
+            tile.page_y as f64,
+            *sx as f64,
+            *sy as f64,
+            tile.anchor,
+        );
         let screen_x = vx as f32;
         let screen_y = vy as f32 + addr_h;
 

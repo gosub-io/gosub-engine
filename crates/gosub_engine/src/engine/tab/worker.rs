@@ -181,7 +181,11 @@ fn decode_web_font(bytes: Vec<u8>, font_url: &Url) -> Vec<u8> {
     }
     match woff2_to_sfnt(&bytes) {
         Ok(sfnt) => {
-            log::debug!("Decoded WOFF2 web font from {font_url} ({} → {} bytes)", bytes.len(), sfnt.len());
+            log::debug!(
+                "Decoded WOFF2 web font from {font_url} ({} → {} bytes)",
+                bytes.len(),
+                sfnt.len()
+            );
             sfnt
         }
         Err(e) => {
@@ -275,7 +279,17 @@ fn parse_hex_bound(s: &str, high: bool) -> Option<u32> {
     }
     let filled: String = s
         .chars()
-        .map(|c| if c == '?' { if high { 'F' } else { '0' } } else { c })
+        .map(|c| {
+            if c == '?' {
+                if high {
+                    'F'
+                } else {
+                    '0'
+                }
+            } else {
+                c
+            }
+        })
         .collect();
     u32::from_str_radix(&filled, 16).ok()
 }

@@ -200,10 +200,7 @@ fn main() {
         let local_scroll_draw = local_scroll.clone();
         drawing_area.set_draw_func(move |area, cr, w, h| {
             // Keep the published DPR current (e.g. after a move to a different-scale monitor).
-            DEVICE_PIXEL_RATIO.store(
-                render_dpr(area),
-                std::sync::atomic::Ordering::Relaxed,
-            );
+            DEVICE_PIXEL_RATIO.store(render_dpr(area), std::sync::atomic::Ordering::Relaxed);
             // Fast path: use cached tiles with local scroll position.
             let tiles_opt = local_tiles_draw.borrow();
             if let Some(state) = tiles_opt.as_ref() {

@@ -95,10 +95,20 @@ fn paint_per_side_border(cr: &Context, rectangle: &Rectangle, media_store: &Medi
 
     // (x, y, w, h) for each side's edge rectangle.
     let edges = [
-        (rect.x, rect.y, rect.width, widths[0] as f64),                              // top
-        (rect.x + rect.width - widths[1] as f64, rect.y, widths[1] as f64, rect.height), // right
-        (rect.x, rect.y + rect.height - widths[2] as f64, rect.width, widths[2] as f64), // bottom
-        (rect.x, rect.y, widths[3] as f64, rect.height),                             // left
+        (rect.x, rect.y, rect.width, widths[0] as f64), // top
+        (
+            rect.x + rect.width - widths[1] as f64,
+            rect.y,
+            widths[1] as f64,
+            rect.height,
+        ), // right
+        (
+            rect.x,
+            rect.y + rect.height - widths[2] as f64,
+            rect.width,
+            widths[2] as f64,
+        ), // bottom
+        (rect.x, rect.y, widths[3] as f64, rect.height), // left
     ];
 
     for i in 0..4 {

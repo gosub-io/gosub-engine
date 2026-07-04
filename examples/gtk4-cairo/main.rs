@@ -660,7 +660,7 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
                         argb = scale_premul_argb_u32(argb, tile.opacity);
                     }
                     match argb >> 24 {
-                        0 => {} // fully transparent: keep the destination
+                        0 => {}                                                      // fully transparent: keep the destination
                         0xFF => data[d..d + 4].copy_from_slice(&argb.to_le_bytes()), // opaque: overwrite
                         _ => {
                             let dst_px = u32::from_le_bytes([data[d], data[d + 1], data[d + 2], data[d + 3]]);

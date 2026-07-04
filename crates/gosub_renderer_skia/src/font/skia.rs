@@ -2,7 +2,9 @@ use gosub_interface::font::{FontError, FontStyle as CssFontStyle};
 use gosub_interface::font_system::{FontSystem, TextStyle as GosubTextStyle};
 use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
 use parking_lot::Mutex;
-use skia_safe::textlayout::{FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, TextStyle, TypefaceFontProvider};
+use skia_safe::textlayout::{
+    FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, TextStyle, TypefaceFontProvider,
+};
 use skia_safe::{FontMgr, FontStyle, Paint};
 use std::any::Any;
 use std::cell::RefCell;
@@ -255,7 +257,10 @@ mod tests {
             vec!["Source Serif 4", "Georgia", "serif"]
         );
         assert_eq!(split_font_families("Arial"), vec!["Arial"]);
-        assert_eq!(split_font_families(" 'My Font' , , monospace "), vec!["My Font", "monospace"]);
+        assert_eq!(
+            split_font_families(" 'My Font' , , monospace "),
+            vec!["My Font", "monospace"]
+        );
     }
 
     #[test]

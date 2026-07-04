@@ -1049,14 +1049,21 @@ mod test {
         assert!((c.a - 127.5).abs() < 0.5);
 
         // rgb() without alpha is fully opaque.
-        let c = parse_css_color_function("rgb", &[CssValue::Number(255.0), CssValue::Number(0.0), CssValue::Number(0.0)])
-            .unwrap();
+        let c = parse_css_color_function(
+            "rgb",
+            &[CssValue::Number(255.0), CssValue::Number(0.0), CssValue::Number(0.0)],
+        )
+        .unwrap();
         assert_eq!((c.r, c.g, c.b, c.a), (255.0, 0.0, 0.0, 255.0));
 
         // hsl(0 100% 50%) == red.
         let c = parse_css_color_function(
             "hsl",
-            &[CssValue::Number(0.0), CssValue::Percentage(100.0), CssValue::Percentage(50.0)],
+            &[
+                CssValue::Number(0.0),
+                CssValue::Percentage(100.0),
+                CssValue::Percentage(50.0),
+            ],
         )
         .unwrap();
         assert!((c.r - 255.0).abs() < 1.0 && c.g < 1.0 && c.b < 1.0, "hsl red got {c:?}");

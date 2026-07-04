@@ -367,7 +367,10 @@ pub enum ScrollBehavior {
     /// Jump straight to the target — no animation (CSS `scroll-behavior: auto`, reduced-motion).
     Instant,
     /// Fixed-duration tween reparameterized by `easing`.
-    Tween { duration: std::time::Duration, easing: Easing },
+    Tween {
+        duration: std::time::Duration,
+        easing: Easing,
+    },
     /// Open-ended damped spring (carries velocity; retargets seamlessly).
     Spring { stiffness: f64, damping: f64 },
     /// Embedder-supplied animator factory, called with the axis's start position. In-process only.
@@ -478,7 +481,13 @@ mod tests {
     /// The standard ease curves are monotonically non-decreasing.
     #[test]
     fn named_curves_are_monotonic() {
-        for c in [Easing::Ease, Easing::EaseIn, Easing::EaseOut, Easing::EaseInOut, Easing::Smoothstep] {
+        for c in [
+            Easing::Ease,
+            Easing::EaseIn,
+            Easing::EaseOut,
+            Easing::EaseInOut,
+            Easing::Smoothstep,
+        ] {
             let mut prev = c.eval(0.0);
             for i in 1..=100 {
                 let v = c.eval(i as f32 / 100.0);
@@ -584,7 +593,7 @@ mod animator_tests {
     fn tween_retarget_rebases_from_current() {
         let mut t = Tween::new(0.0, Easing::Linear, ms(200));
         assert!((t.step(100.0, 0.05) - 25.0).abs() < 1e-6); // now at 25, heading to 100
-        // New target 0: rebase from 25, 25% of the way back toward 0 → 18.75.
+                                                            // New target 0: rebase from 25, 25% of the way back toward 0 → 18.75.
         assert!((t.step(0.0, 0.05) - 18.75).abs() < 1e-6);
     }
 

@@ -36,7 +36,10 @@ pub enum PaintCommand {
     /// as a unit — fading it by `opacity` and positioning it per `anchor`. Only the GPU-scene path
     /// (`Painter::paint_all`) emits these; the tile path applies opacity/anchor at composite instead
     /// and never produces them (so tile rasterizers can ignore both variants).
-    PushLayer { opacity: f32, anchor: TileAnchor },
+    PushLayer {
+        opacity: f32,
+        anchor: TileAnchor,
+    },
     /// End the most recent [`PaintCommand::PushLayer`] group.
     PopLayer,
 }
