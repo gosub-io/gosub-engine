@@ -90,7 +90,7 @@ impl<'a> CssTaffyConverter<'a> {
         ts.align_items = self.get_align_items(StyleProperty::AlignItems, ts.align_items);
         ts.align_self = self.get_align_self(StyleProperty::AlignSelf, ts.align_self);
         // Default align-content to FlexStart rather than Taffy's None (= Stretch).
-        ts.align_content = self.get_align_content(StyleProperty::AlignContent, Some(AlignContent::FlexStart));
+        ts.align_content = self.get_align_content(StyleProperty::AlignContent, Some(AlignContent::FLEX_START));
         ts.justify_items = self.get_align_items(StyleProperty::JustifyItems, ts.justify_items);
         ts.justify_self = self.get_align_self(StyleProperty::JustifySelf, ts.justify_self);
         ts.justify_content = self.get_align_content(StyleProperty::JustifyContent, ts.justify_content);
@@ -144,7 +144,7 @@ impl<'a> CssTaffyConverter<'a> {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Row;
                 ts.flex_wrap = FlexWrap::Wrap;
-                ts.align_items = Some(AlignItems::Baseline);
+                ts.align_items = Some(AlignItems::BASELINE);
             }
             // inline-flex / inline-grid: internally flex/grid, but participates inline.
             Some(Value::Display(CssDisplay::InlineFlex)) => {
@@ -280,13 +280,13 @@ impl<'a> CssTaffyConverter<'a> {
     fn get_align_items(&self, prop: StyleProperty, default: Option<AlignItems>) -> Option<AlignItems> {
         match self.get_own(&prop) {
             Some(Value::Keyword(id)) => match lookup(id).as_str() {
-                "start" => Some(AlignItems::Start),
-                "end" => Some(AlignItems::End),
-                "flex-start" => Some(AlignItems::FlexStart),
-                "flex-end" => Some(AlignItems::FlexEnd),
-                "center" => Some(AlignItems::Center),
-                "baseline" => Some(AlignItems::Baseline),
-                "stretch" => Some(AlignItems::Stretch),
+                "start" => Some(AlignItems::START),
+                "end" => Some(AlignItems::END),
+                "flex-start" => Some(AlignItems::FLEX_START),
+                "flex-end" => Some(AlignItems::FLEX_END),
+                "center" => Some(AlignItems::CENTER),
+                "baseline" => Some(AlignItems::BASELINE),
+                "stretch" => Some(AlignItems::STRETCH),
                 _ => default,
             },
             _ => default,
@@ -297,13 +297,13 @@ impl<'a> CssTaffyConverter<'a> {
         match self.get_own(&prop) {
             Some(Value::Keyword(id)) => match lookup(id).as_str() {
                 "auto" => None,
-                "start" => Some(AlignSelf::Start),
-                "end" => Some(AlignSelf::End),
-                "flex-start" => Some(AlignSelf::FlexStart),
-                "flex-end" => Some(AlignSelf::FlexEnd),
-                "center" => Some(AlignSelf::Center),
-                "baseline" => Some(AlignSelf::Baseline),
-                "stretch" => Some(AlignSelf::Stretch),
+                "start" => Some(AlignSelf::START),
+                "end" => Some(AlignSelf::END),
+                "flex-start" => Some(AlignSelf::FLEX_START),
+                "flex-end" => Some(AlignSelf::FLEX_END),
+                "center" => Some(AlignSelf::CENTER),
+                "baseline" => Some(AlignSelf::BASELINE),
+                "stretch" => Some(AlignSelf::STRETCH),
                 _ => default,
             },
             _ => default,
@@ -314,15 +314,15 @@ impl<'a> CssTaffyConverter<'a> {
         match self.get_own(&prop) {
             Some(Value::Keyword(id)) => match lookup(id).as_str() {
                 "normal" => default,
-                "start" => Some(AlignContent::Start),
-                "end" => Some(AlignContent::End),
-                "flex-start" => Some(AlignContent::FlexStart),
-                "flex-end" => Some(AlignContent::FlexEnd),
-                "center" => Some(AlignContent::Center),
-                "stretch" => Some(AlignContent::Stretch),
-                "space-between" => Some(AlignContent::SpaceBetween),
-                "space-evenly" => Some(AlignContent::SpaceEvenly),
-                "space-around" => Some(AlignContent::SpaceAround),
+                "start" => Some(AlignContent::START),
+                "end" => Some(AlignContent::END),
+                "flex-start" => Some(AlignContent::FLEX_START),
+                "flex-end" => Some(AlignContent::FLEX_END),
+                "center" => Some(AlignContent::CENTER),
+                "stretch" => Some(AlignContent::STRETCH),
+                "space-between" => Some(AlignContent::SPACE_BETWEEN),
+                "space-evenly" => Some(AlignContent::SPACE_EVENLY),
+                "space-around" => Some(AlignContent::SPACE_AROUND),
                 _ => default,
             },
             _ => default,

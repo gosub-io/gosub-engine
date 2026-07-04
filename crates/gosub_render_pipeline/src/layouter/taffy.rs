@@ -517,11 +517,11 @@ impl TaffyLayouter {
             display: Display::Flex,
             flex_direction: FlexDirection::Row,
             flex_wrap: FlexWrap::Wrap,
-            align_self: Some(AlignSelf::FlexStart),
+            align_self: Some(AlignSelf::FLEX_START),
             // FlexStart ensures multi-row intrinsic height = sum of all row heights.
             // Taffy's default (None = Stretch) fails to include wrapped rows in the
             // container's auto height, causing rows beyond the first to overflow.
-            align_content: Some(AlignContent::FlexStart),
+            align_content: Some(AlignContent::FLEX_START),
             gap: Size {
                 width: LengthPercentage::length(0.0),
                 height: LengthPercentage::length(0.0),

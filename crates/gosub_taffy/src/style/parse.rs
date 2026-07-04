@@ -117,13 +117,13 @@ pub fn parse_align_i<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) 
     let value = display.as_string()?;
 
     match value {
-        "start" => Some(AlignItems::Start),
-        "end" => Some(AlignItems::End),
-        "flex-start" => Some(AlignItems::FlexStart),
-        "flex-end" => Some(AlignItems::FlexEnd),
-        "center" => Some(AlignItems::Center),
-        "baseline" => Some(AlignItems::Baseline),
-        "stretch" => Some(AlignItems::Stretch),
+        "start" => Some(AlignItems::START),
+        "end" => Some(AlignItems::END),
+        "flex-start" => Some(AlignItems::FLEX_START),
+        "flex-end" => Some(AlignItems::FLEX_END),
+        "center" => Some(AlignItems::CENTER),
+        "baseline" => Some(AlignItems::BASELINE),
+        "stretch" => Some(AlignItems::STRETCH),
         _ => None,
     }
 }
@@ -134,14 +134,14 @@ pub fn parse_align_c<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) 
     let value = display.as_string()?;
 
     match value {
-        "start" => Some(AlignContent::Start),
-        "end" => Some(AlignContent::End),
-        "flex-start" => Some(AlignContent::FlexStart),
-        "flex-end" => Some(AlignContent::FlexEnd),
-        "center" => Some(AlignContent::Center),
-        "stretch" => Some(AlignContent::Stretch),
-        "space-between" => Some(AlignContent::SpaceBetween),
-        "space-around" => Some(AlignContent::SpaceAround),
+        "start" => Some(AlignContent::START),
+        "end" => Some(AlignContent::END),
+        "flex-start" => Some(AlignContent::FLEX_START),
+        "flex-end" => Some(AlignContent::FLEX_END),
+        "center" => Some(AlignContent::CENTER),
+        "stretch" => Some(AlignContent::STRETCH),
+        "space-between" => Some(AlignContent::SPACE_BETWEEN),
+        "space-around" => Some(AlignContent::SPACE_AROUND),
         _ => None,
     }
 }
