@@ -10,10 +10,11 @@ use std::collections::HashMap;
 // FontMgr is the font resolver; the typeface cache avoids repeated family-style lookups.
 // Key: (family, weight, width, slant_nonzero, web_font_generation) — the generation evicts
 // stale entries when an @font-face web font is registered. Size is baked into the Font.
+type TypefaceCacheKey = (String, i32, i32, bool, u64);
+
 thread_local! {
     static FONT_MGR: FontMgr = FontMgr::new();
-    static TYPEFACE_CACHE: RefCell<HashMap<(String, i32, i32, bool, u64), Typeface>> =
-        RefCell::new(HashMap::new());
+    static TYPEFACE_CACHE: RefCell<HashMap<TypefaceCacheKey, Typeface>> = RefCell::new(HashMap::new());
 }
 
 fn get_font(family: &str, weight: i32, width: i32, slant: i32, size: f32) -> Option<Font> {

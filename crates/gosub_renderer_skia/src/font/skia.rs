@@ -117,22 +117,23 @@ pub(crate) fn split_font_families(families: &str) -> Vec<String> {
 /// to whatever the platform font manager maps them to, so a returned typeface that doesn't
 /// name-match is still accepted.
 pub(crate) fn is_generic_family(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "serif"
-            | "sans-serif"
-            | "monospace"
-            | "cursive"
-            | "fantasy"
-            | "system-ui"
-            | "ui-serif"
-            | "ui-sans-serif"
-            | "ui-monospace"
-            | "ui-rounded"
-            | "math"
-            | "emoji"
-            | "fangsong"
-    )
+    [
+        "serif",
+        "sans-serif",
+        "monospace",
+        "cursive",
+        "fantasy",
+        "system-ui",
+        "ui-serif",
+        "ui-sans-serif",
+        "ui-monospace",
+        "ui-rounded",
+        "math",
+        "emoji",
+        "fangsong",
+    ]
+    .iter()
+    .any(|generic| name.eq_ignore_ascii_case(generic))
 }
 
 /// A [`FontSystem`] backed by Skia's `skia_safe` text layout.
@@ -246,6 +247,16 @@ pub fn get_skia_paragraph(
     paragraph
 }
 
+#[allow(dead_code)]
+fn to_slant(slant: i32) -> skia_safe::font_style::Slant {
+    match slant {
+        0 => skia_safe::font_style::Slant::Upright,
+        1 => skia_safe::font_style::Slant::Italic,
+        2 => skia_safe::font_style::Slant::Oblique,
+        _ => skia_safe::font_style::Slant::Upright,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,15 +281,5 @@ mod tests {
         assert!(is_generic_family("monospace"));
         assert!(!is_generic_family("Source Serif 4"));
         assert!(!is_generic_family("Georgia"));
-    }
-}
-
-#[allow(dead_code)]
-fn to_slant(slant: i32) -> skia_safe::font_style::Slant {
-    match slant {
-        0 => skia_safe::font_style::Slant::Upright,
-        1 => skia_safe::font_style::Slant::Italic,
-        2 => skia_safe::font_style::Slant::Oblique,
-        _ => skia_safe::font_style::Slant::Upright,
     }
 }

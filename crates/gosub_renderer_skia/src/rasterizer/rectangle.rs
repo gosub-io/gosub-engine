@@ -3,7 +3,8 @@ use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::gradient::{Gradient, LinearGradient};
 use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
 use gosub_render_pipeline::tiler::Tile;
-use skia_safe::{gradient_shader, Canvas, Color, Color4f, Paint, Point, Rect, TileMode};
+use skia_safe::gradient::{shaders, Colors as GradientColors, Gradient as SkGradient, Interpolation};
+use skia_safe::{Canvas, Color, Color4f, Paint, Point, Rect, TileMode};
 
 pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle) {
     let r = cmd.rect();
@@ -107,19 +108,20 @@ fn apply_linear_gradient(paint: &mut Paint, g: &LinearGradient, x: f32, y: f32, 
         return;
     }
     let ((x0, y0), (x1, y1)) = g.line(w, h);
-    let colors: Vec<Color> = g
+    let colors: Vec<Color4f> = g
         .stops
         .iter()
-        .map(|s| Color::from_argb(s.color.a8(), s.color.r8(), s.color.g8(), s.color.b8()))
+        .map(|s| Color::from_argb(s.color.a8(), s.color.r8(), s.color.g8(), s.color.b8()).into())
         .collect();
     let positions: Vec<f32> = g.stops.iter().map(|s| s.offset).collect();
 
-    let shader = gradient_shader::linear(
+    let gradient = SkGradient::new(
+        GradientColors::new(colors.as_slice(), Some(positions.as_slice()), TileMode::Clamp, None),
+        Interpolation::default(),
+    );
+    let shader = shaders::linear_gradient(
         (Point::new(x + x0, y + y0), Point::new(x + x1, y + y1)),
-        colors.as_slice(),
-        Some(positions.as_slice()),
-        TileMode::Clamp,
-        None,
+        &gradient,
         None,
     );
     if let Some(shader) = shader {

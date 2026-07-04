@@ -1,3 +1,4 @@
+use cow_utils::CowUtils;
 use log::warn;
 
 use crate::node::{Node as CssNode, NodeType};
@@ -244,7 +245,7 @@ fn collect_font_face(nodes: &[CssNode]) -> Option<FontFace> {
             continue;
         }
         let (property, value_nodes, _important) = decl.as_declaration();
-        match property.to_ascii_lowercase().as_str() {
+        match property.cow_to_ascii_lowercase().as_ref() {
             "font-family" => {
                 let name: String = value_nodes
                     .iter()

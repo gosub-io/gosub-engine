@@ -6,6 +6,7 @@ use crate::matcher::shorthands::{FixList, FixListInfo};
 use crate::matcher::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
 use crate::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, Css3};
+use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap, CssSystem, HoverFingerprints};
 use gosub_interface::document::Document;
@@ -72,9 +73,7 @@ impl CssSystem for Css3System {
         let map = compute_properties::<C>(doc, id, sheets, Some(pseudo))?;
         // A pseudo-element only generates a box when a matching rule sets `content`. With no
         // `content` declaration there is nothing to render, so report "no pseudo-element".
-        if <CssProperties as CssPropertyMap<Css3System>>::get(&map, "content").is_none() {
-            return None;
-        }
+        <CssProperties as CssPropertyMap<Css3System>>::get(&map, "content")?;
         Some(map)
     }
 
@@ -454,7 +453,7 @@ fn find_background_url(value: &CssValue) -> Option<CssValue> {
 /// `<bg-layer>` grammar the value matcher does not yet support.
 fn find_background_gradient(value: &CssValue) -> Option<CssValue> {
     match value {
-        CssValue::Function(name, _) if name.to_ascii_lowercase().ends_with("gradient") => Some(value.clone()),
+        CssValue::Function(name, _) if name.cow_to_ascii_lowercase().ends_with("gradient") => Some(value.clone()),
         CssValue::List(list) => list.iter().find_map(find_background_gradient),
         _ => None,
     }
