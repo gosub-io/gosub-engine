@@ -159,7 +159,7 @@ impl TileLayer {
     // Find all tile ids in this layer that intersects with the given rect
     pub fn intersects_with(&self, rect: Rect) -> Vec<TileId> {
         self.rstar_tree
-            .locate_in_envelope_intersecting(&AABB::from_corners(
+            .locate_in_envelope_intersecting(AABB::from_corners(
                 [rect.x, rect.y],
                 [rect.x + rect.width, rect.y + rect.height],
             ))
