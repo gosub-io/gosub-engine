@@ -1,3 +1,27 @@
+//! Vello render backend.
+//!
+//! Vello is a **compute-based scene renderer**, not a canvas — so this backend works fundamentally
+//! differently from the canvas backends (Cairo, Skia), which tile + composite.
+//!
+//! - **No tile cache.** Nothing here caches rasterized tiles. The engine builds one whole-viewport
+//!   paint-command list (`Painter::paint_all`) and `render()` turns it into a single Vello `Scene`
+//!   drawn in one GPU pass. Vello is immediate-mode / stateless between frames, so **every frame
+//!   re-renders the entire scene from scratch**: a hover or any content change rebuilds the command
+//!   list and redraws everything; a scroll re-renders the cached commands with a translate
+//!   transform. There is no dirty-region / per-tile incremental update (that's the tile path).
+//!
+//! - **Compositing is fused into the render.** Group opacity and fixed/sticky/scroll positioning are
+//!   applied *during* the Vello pass via native layer push/pop (`scene.push_layer` with the group
+//!   alpha; a per-anchor transform for placement), driven by the `PaintCommand::PushLayer`/`PopLayer`
+//!   markers the painter emits around each promoted layer — not by a separate tile compositor.
+//!
+//! This trades the tile cache's incremental-update efficiency for "re-render the whole scene fast on
+//! the GPU," which is how Vello-native engines (e.g. Blitz) work. Cost scales with total scene size
+//! rather than visible content, so the tile path remains the better fit for the canvas backends.
+//!
+//! (An opt-in `GOSUB_VELLO_GPU_TILES=1` mode instead routes Vello through the shared GPU tile
+//! compositor like Skia-GPU — that path *does* tile. The default is the scene path described here.)
+
 use crate::backend::font_cache::FontCache;
 use crate::backend::font_manager::FontManager;
 use crate::backend::text_renderer::{TextKey, TextRenderer};
@@ -179,6 +203,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                     &ps.commands,
                     size,
                     affine,
+                    (sx, sy),
                     &ps.media_store,
                     parley,
                 );
@@ -190,6 +215,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                     &ps.commands,
                     size,
                     affine,
+                    (sx, sy),
                     &ps.media_store,
                     Some(&mut guard),
                 );
@@ -272,11 +298,20 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                     h,
                     data,
                     format,
+                    opacity,
                 } => {
                     // peniko ImageFormat::Rgba8 expects [R, G, B, A]. The tile may be premultiplied
                     // ARGB32 (Cairo/Skia, [B, G, R, A]) or already RGBA (Vello); `to_rgba` swaps only
                     // when needed, so colors are correct regardless of which rasterizer produced it.
-                    let rgba = format.to_rgba(data).into_owned();
+                    let mut rgba = format.to_rgba(data).into_owned();
+                    // Fade the whole tile by the group opacity. Pixels are premultiplied, so scaling
+                    // all four channels keeps them premultiplied — the same factor the GPU tile path
+                    // applies in its blit shader.
+                    if *opacity < 1.0 {
+                        for b in rgba.iter_mut() {
+                            *b = (*b as f32 * *opacity).round() as u8;
+                        }
+                    }
                     let blob = vello::peniko::Blob::<u8>::new(Arc::new(rgba));
                     let image = ImageData {
                         data: blob,
@@ -400,11 +435,24 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
         // tall page), which makes scrolling crawl. Mirrors the CPU path's `pipeline_composite`.
         let (vw, vh) = (viewport.0 as f32, viewport.1 as f32);
         let (sx, sy) = scroll;
+        use gosub_render_pipeline::render::backend::TileAnchor;
         let visible = |t: &gosub_render_pipeline::render::backend::PlacedGpuTile| {
-            t.page_x + t.width as f32 > sx
-                && t.page_x < sx + vw
-                && t.page_y + t.height as f32 > sy
-                && t.page_y < sy + vh
+            // Fixed tiles are pinned to the viewport, so cull them against [0, viewport] in page
+            // space (page == viewport for fixed); scrolling tiles cull against [scroll, +viewport].
+            let (ox, oy) = match t.anchor {
+                TileAnchor::Fixed => (0.0, 0.0),
+                TileAnchor::Scroll => (sx, sy),
+                // A sticky tile lands at `page - scroll + offset`, so cull its page box against
+                // the inverse-mapped window `[scroll - offset, +viewport]`.
+                TileAnchor::Sticky(c) => {
+                    let (dx, dy) = c.offset(sx as f64, sy as f64);
+                    (sx - dx as f32, sy - dy as f32)
+                }
+            };
+            t.page_x + t.width as f32 > ox
+                && t.page_x < ox + vw
+                && t.page_y + t.height as f32 > oy
+                && t.page_y < oy + vh
         };
 
         // Resolve each visible engine tile id → its resident GPU texture view (rasterized by our rasterizer).
@@ -424,6 +472,8 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
                 page_y: t.page_y,
                 width: t.width,
                 height: t.height,
+                opacity: t.opacity,
+                anchor: t.anchor,
             })
             .collect();
 

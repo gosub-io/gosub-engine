@@ -28,10 +28,12 @@ impl<'a> CssTaffyConverter<'a> {
         self.doc.get_own_style(self.node_id, prop)
     }
 
-    /// Returns this element's own font-size in px, or 16px if not set.
+    /// Returns this element's *computed* font-size in px (resolving inheritance and
+    /// em/rem), or 16px if unresolvable. Used to resolve font-relative lengths such as
+    /// `em`/`ch` on other properties (e.g. `max-width: 17ch`).
     fn font_size_px(&self) -> f32 {
-        match self.get_own(&StyleProperty::FontSize) {
-            Some(Value::Unit(v, CssUnit::Px)) => v,
+        match self.doc.get_style(self.node_id, &StyleProperty::FontSize) {
+            Value::Unit(v, CssUnit::Px) => v,
             _ => 16.0,
         }
     }

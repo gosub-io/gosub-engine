@@ -135,6 +135,9 @@ pub struct LayoutElementNode {
     pub dom_node_id: DomNodeId,
     /// ID of the node in the render tree. This is normally the same node ID as the dom node ID
     pub render_node_id: RenderNodeId,
+    /// Parent in the layout tree (`None` for the root). Populated during tree construction; used to
+    /// walk up to an element's containing block (e.g. the cage for `position: sticky`).
+    pub parent: Option<LayoutElementId>,
     /// Children of this node
     pub children: Vec<LayoutElementId>,
     /// Generated box model for this node

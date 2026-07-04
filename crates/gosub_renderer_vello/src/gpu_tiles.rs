@@ -14,6 +14,7 @@
 //! is host-created with only `RENDER_ATTACHMENT` (not `COPY_DST`), so a render pass is the portable
 //! choice — and it gives correct premultiplied-alpha blending for free.
 
+use gosub_render_pipeline::render::backend::{anchored_tile_pos, TileAnchor};
 use vello::wgpu;
 
 /// A placed, GPU-resident tile to composite: a texture view plus its page-space rectangle.
@@ -23,6 +24,10 @@ pub struct PlacedTileTex<'a> {
     pub page_y: f32,
     pub width: u32,
     pub height: u32,
+    /// Group opacity (1.0 = opaque) of the tile's layer; the blit shader fades the tile by it.
+    pub opacity: f32,
+    /// How the tile responds to scroll (normal flow vs. `position: fixed`).
+    pub anchor: TileAnchor,
 }
 
 /// Uniform handed to the blit shader for one tile: destination rect in target pixels plus the
@@ -30,6 +35,7 @@ pub struct PlacedTileTex<'a> {
 struct BlitUniform {
     dst: [f32; 4],      // x, y, w, h  (target pixels)
     viewport: [f32; 2], // target width, height
+    opacity: f32,       // group opacity for the tile's layer
 }
 
 impl BlitUniform {
@@ -42,7 +48,7 @@ impl BlitUniform {
             self.dst[3],
             self.viewport[0],
             self.viewport[1],
-            0.0,
+            self.opacity,
             0.0,
         ];
         for (i, f) in floats.iter().enumerate() {
@@ -63,7 +69,8 @@ const BLIT_WGSL: &str = r#"
 struct Uniforms {
     dst: vec4<f32>,
     viewport: vec2<f32>,
-    pad: vec2<f32>,
+    opacity: f32,
+    pad: f32,
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var tex: texture_2d<f32>;
@@ -91,7 +98,9 @@ fn vs(@builtin(vertex_index) vid: u32) -> VsOut {
 
 @fragment
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
-    return textureSample(tex, samp, in.uv);
+    // Tiles are premultiplied; scaling all four channels by opacity keeps them premultiplied and
+    // fades the whole layer as a group.
+    return textureSample(tex, samp, in.uv) * u.opacity;
 }
 "#;
 
@@ -107,7 +116,9 @@ impl BlitPipeline {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    // The uniform is read by both stages: the vertex shader uses dst/viewport,
+                    // the fragment shader fades the tile by `opacity`.
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -249,14 +260,20 @@ impl GpuTileCompositor {
             // Transient per-tile uniform buffers + bind groups, kept alive until the pass ends.
             let mut keep_alive: Vec<(wgpu::Buffer, wgpu::BindGroup)> = Vec::with_capacity(tiles.len());
             for tile in tiles {
+                // Fixed tiles pin to the viewport; sticky tiles get a clamped catch-up offset. The
+                // shared helper keeps this in lock-step with the CPU compositor.
+                let (ex, ey) = anchored_tile_pos(
+                    tile.page_x as f64,
+                    tile.page_y as f64,
+                    scroll_x as f64,
+                    scroll_y as f64,
+                    tile.anchor,
+                );
+                let (ex, ey) = (ex as f32, ey as f32);
                 let uniform = BlitUniform {
-                    dst: [
-                        tile.page_x - scroll_x,
-                        tile.page_y - scroll_y,
-                        tile.width as f32,
-                        tile.height as f32,
-                    ],
+                    dst: [ex, ey, tile.width as f32, tile.height as f32],
                     viewport: [target_w as f32, target_h as f32],
+                    opacity: tile.opacity,
                 };
                 let ubuf = device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("gpu-tiles-uniform"),
@@ -410,6 +427,8 @@ mod tests {
                 page_y: 0.0,
                 width: 256,
                 height: 256,
+                opacity: 1.0,
+                anchor: TileAnchor::Scroll,
             },
             PlacedTileTex {
                 view: &blue_view,
@@ -417,6 +436,8 @@ mod tests {
                 page_y: 0.0,
                 width: 256,
                 height: 256,
+                opacity: 1.0,
+                anchor: TileAnchor::Scroll,
             },
         ];
 

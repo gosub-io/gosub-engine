@@ -1,15 +1,11 @@
 [registries]
 gosub = { index = "sparse+https://registry.gosub.io/" }
 
-# Faster linker for the large binaries (gosub-screenshot, the example browsers).
-# mold is typically several times faster than the default bfd/gold linker on the
-# big link steps. Install it first:  apt install mold   (or  dnf/pacman install mold)
-# then uncomment the block below. Verify with:  mold --version
-#
-# [target.x86_64-unknown-linux-gnu]
-# linker = "clang"
-# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
-#
-# If you don't have clang, use rustc's bundled cc driver instead:
-# [target.x86_64-unknown-linux-gnu]
-# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+# Faster linking for the large binaries (gosub-screenshot, the example browsers).
+# The linker is a small wrapper (.cargo/linker.sh) that uses mold when it (and
+# clang) are installed — several times faster on the big link steps — and falls
+# back to the system default linker otherwise, so this works for everyone with no
+# per-developer setup. To benefit, just install mold:
+#   apt install mold      (or dnf/pacman install mold)   then verify: mold --version
+[target.x86_64-unknown-linux-gnu]
+linker = ".cargo/linker.sh"

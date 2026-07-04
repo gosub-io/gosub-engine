@@ -12,6 +12,7 @@ use crate::painter::commands::color::Color;
 use crate::painter::commands::rectangle::{Radius, Rectangle};
 use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
+use crate::render::backend::TileAnchor;
 use crate::tiler::TiledLayoutElement;
 use std::sync::Arc;
 
@@ -58,8 +59,21 @@ impl Painter {
             let Some(layer) = layers.get(layer_id) else {
                 continue;
             };
+            // A promoted layer (faded by group opacity, or pinned/sticky) becomes a compositing
+            // group the scene backend fades + positions as a unit. The base scroll layer at full
+            // opacity needs no wrapper.
+            let promoted = layer.opacity < 1.0 || !matches!(layer.anchor, TileAnchor::Scroll);
+            if promoted {
+                out.push(PaintCommand::PushLayer {
+                    opacity: layer.opacity,
+                    anchor: layer.anchor,
+                });
+            }
             for &element_id in &layer.elements {
                 out.extend(self.paint_element(element_id, state));
+            }
+            if promoted {
+                out.push(PaintCommand::PopLayer);
             }
         }
         out
@@ -101,10 +115,51 @@ impl Painter {
 
     fn get_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        match doc.get_style(node_id, css_prop) {
+        let brush = match doc.get_style(node_id, css_prop) {
             Value::Color(r, g, b, a) => Brush::solid(Color::from_rgba8(r, g, b, a)),
             _ => default,
+        };
+        self.apply_opacity(node_id, brush)
+    }
+
+    /// Scales a brush's alpha by the element's `opacity`. This is a per-element approximation
+    /// (it does not group-composite the element with its descendants), which is exact for
+    /// leaf boxes such as a 1px `::before` divider and a reasonable approximation otherwise.
+    fn apply_opacity(&self, node_id: NodeId, brush: Brush) -> Brush {
+        // Elements promoted into an opacity compositing group are faded as a whole layer at
+        // composite time; applying opacity per-element here too would darken them twice.
+        if self.layer_list.is_opacity_grouped(node_id) {
+            return brush;
         }
+
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let opacity = match doc.get_style(node_id, &StyleProperty::Opacity) {
+            Value::Number(n) | Value::Unit(n, _) => n,
+            _ => 1.0,
+        };
+        if opacity >= 1.0 {
+            return brush;
+        }
+        let op = opacity.clamp(0.0, 1.0);
+        match brush {
+            Brush::Solid(c) => Brush::Solid(Color::from_rgba(c.r(), c.g(), c.b(), c.a() * op)),
+            // Gradient/image opacity (true group compositing) is not yet modelled.
+            other => other,
+        }
+    }
+
+    /// The fill for an element's background box: a `linear-gradient(...)` if present,
+    /// otherwise the solid `background-color` (transparent when unset).
+    fn background_brush(&self, node_id: NodeId) -> Brush {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        if let Some(gradient) = doc.background_gradient(node_id) {
+            return Brush::gradient(gradient);
+        }
+        self.get_brush(
+            node_id,
+            &StyleProperty::BackgroundColor,
+            Brush::solid(Color::TRANSPARENT),
+        )
     }
 
     fn get_parent_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
@@ -223,6 +278,7 @@ impl Painter {
         match &layout_element.context {
             ElementContext::Text(ctx) => {
                 let brush = self.get_parent_brush(dom_node_id, &StyleProperty::Color, Brush::solid(Color::BLACK));
+                let brush = self.apply_opacity(dom_node_id, brush);
 
                 let r = layout_element.box_model.content_box;
                 let avail_w = if ctx.available_width > 0.0 {
@@ -251,11 +307,7 @@ impl Painter {
                 commands.push(PaintCommand::rectangle(r));
             }
             ElementContext::None => {
-                let brush = self.get_brush(
-                    dom_node_id,
-                    &StyleProperty::BackgroundColor,
-                    Brush::solid(Color::TRANSPARENT),
-                );
+                let brush = self.background_brush(dom_node_id);
                 let r = Rectangle::new(layout_element.box_model.border_box).with_background(brush);
                 let r = self.decorate_with_border_and_radius(dom_node_id, r);
                 commands.push(PaintCommand::rectangle(r));
@@ -309,13 +361,23 @@ impl Painter {
             let border_left_color =
                 self.get_brush(dom_node_id, &StyleProperty::BorderLeftColor, Brush::solid(Color::BLACK));
 
-            let border_style = match doc.get_style(dom_node_id, &StyleProperty::BorderTopStyle) {
+            let side_style = |prop: &StyleProperty| match doc.get_style(dom_node_id, prop) {
                 Value::BorderStyle(s) => css_border_style_to_paint(&s),
                 _ => BorderStyle::Solid,
             };
-            let border = Border::new(
-                border_top_width,
-                border_style,
+            let border = Border::new_per_side(
+                [
+                    border_top_width,
+                    border_right_width,
+                    border_bottom_width,
+                    border_left_width,
+                ],
+                [
+                    side_style(&StyleProperty::BorderTopStyle),
+                    side_style(&StyleProperty::BorderRightStyle),
+                    side_style(&StyleProperty::BorderBottomStyle),
+                    side_style(&StyleProperty::BorderLeftStyle),
+                ],
                 [
                     border_top_color,
                     border_right_color,

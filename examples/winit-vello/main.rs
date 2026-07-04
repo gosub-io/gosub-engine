@@ -16,7 +16,9 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
+use gosub_render_pipeline::render::backend::{
+    anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle,
+};
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use gosub_renderer_vello::{VelloBackend, WgpuContextProvider};
 use once_cell::sync::Lazy;
@@ -31,12 +33,15 @@ use vello::wgpu;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000007");
-const SCROLL_MULTIPLIER: f32 = 12.5;
+/// CSS pixels scrolled per wheel notch. winit delivers a mouse wheel as `LineDelta(0, ±1)` (1.0
+/// per notch), so this is the per-tick distance directly. Calibrated to Firefox's ~134 CSS px/tick
+/// (measured, and constant across zoom). Trackpad `PixelDelta` is handled separately, unscaled.
+const SCROLL_MULTIPLIER: f32 = 134.0;
 
 type AppConfig = DefaultRenderConfig<VelloBackend<WinitWgpuContextProvider>>;
 
@@ -311,19 +316,31 @@ var<private> VERTS: array<vec2<f32>, 3> = array<vec2<f32>, 3>(
     vec2<f32>(-1.0,  3.0),
 );
 
+struct VsOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
 @vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
-    return vec4<f32>(VERTS[vi], 0.0, 1.0);
+fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
+    let p = VERTS[vi];
+    var out: VsOut;
+    out.pos = vec4<f32>(p, 0.0, 1.0);
+    // Derive UV from the NDC position so the whole source texture is stretched across the
+    // surface regardless of their relative sizes. This matters when the source is a logical-px
+    // frame (on a fractionally scaled display) and the surface is larger physical px; mapping
+    // texel-for-pixel would otherwise leave the texture 1:1 in a corner. When sizes match it is
+    // identical to a 1:1 blit. Y is flipped (NDC +1 = top of screen = texture row 0).
+    out.uv = vec2<f32>(p.x * 0.5 + 0.5, p.y * -0.5 + 0.5);
+    return out;
 }
 
 @group(0) @binding(0) var t: texture_2d<f32>;
 @group(0) @binding(1) var s: sampler;
 
 @fragment
-fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
-    let dims = vec2<f32>(textureDimensions(t));
-    let uv   = pos.xy / dims;
-    return textureSample(t, s, uv);
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    return textureSample(t, s, in.uv);
 }
 "#;
 
@@ -360,15 +377,21 @@ struct BrowserApp {
     addr_focused: bool,
     current_url: String,
     modifiers: ModifiersState,
+    /// Cursor position in physical pixels, as winit reports it.
     cursor: PhysicalPosition<f64>,
-    scroll: (f32, f32),
-    page_height: f32,
+    /// Engine viewport in *logical* (CSS) pixels — physical window size ÷ `scale`.
     viewport: (u32, u32),
+    /// Display scale factor (physical ÷ logical px). The wgpu surface stays at physical size;
+    /// the engine lays out and paints in logical px, and the full-screen blit upscales the
+    /// resulting texture to the physical surface. Keeps page content the same on-screen size as
+    /// DPR-aware browsers on fractionally scaled displays instead of rendering everything smaller.
+    scale: f64,
 }
 
 impl BrowserApp {
     fn navigate(&mut self) {
         let Some(rt) = &self.state else { return };
+        let tab = rt.tab.clone();
         let mut s = self.url_input.clone();
         if !s.starts_with("http://") && !s.starts_with("https://") {
             s = format!("https://{s}");
@@ -376,12 +399,11 @@ impl BrowserApp {
         let Ok(_) = Url::parse(&s) else { return };
         self.url_input = s.clone();
         self.addr_focused = false;
-        self.scroll = (0.0, 0.0);
         self.update_title();
-        let tab = rt.tab.clone();
         TOKIO_RT.spawn(async move {
             let _ = tab.send(TabCommand::Navigate { url: s }).await;
-            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+            // 60fps so the per-frame smooth-scroll deltas render as a smooth glide, not ~5 steps.
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
         });
     }
 
@@ -393,6 +415,16 @@ impl BrowserApp {
             format!("Gosub Browser — {}", self.current_url)
         };
         rt.gpu.window.set_title(&title);
+    }
+
+    /// Convert a physical pixel length to logical (CSS) pixels for the engine.
+    fn to_logical(&self, physical: u32) -> u32 {
+        ((physical as f64 / self.scale).round() as u32).max(1)
+    }
+
+    /// Convert a physical cursor coordinate to logical (CSS) pixels for the engine.
+    fn cursor_logical(&self, physical: f64) -> f32 {
+        (physical / self.scale) as f32
     }
 
     fn redraw(&mut self) {
@@ -421,30 +453,32 @@ impl BrowserApp {
                 dpr,
                 viewport_width,
                 viewport_height,
-                page_height,
+                scroll_x,
+                scroll_y,
                 ..
             } => {
-                self.page_height = page_height;
-
                 let dpr_f = dpr as f32;
                 let w = (viewport_width * dpr) as usize;
                 let h = (viewport_height * dpr) as usize;
                 if w == 0 || h == 0 {
                     return;
                 }
-                // Use the locally-tracked scroll so scrolling feels instant without waiting
-                // for the engine to acknowledge the scroll command.
-                let sx = (self.scroll.0 * dpr_f) as i64;
-                let sy = (self.scroll.1 * dpr_f) as i64;
-
+                // Composite at the engine's authoritative (animated) scroll, carried on the handle.
                 // Opaque white background: a valid premultiplied base for source-over blending.
                 // Each u32 holds [R, G, B, A] little-endian (R in the low byte).
                 let mut buf = vec![0xFFFF_FFFFu32; w * h];
                 for tile in tiles.iter() {
-                    let px = (tile.page_x * dpr_f) as i64;
-                    let py = (tile.page_y * dpr_f) as i64;
-                    let screen_x = px - sx;
-                    let screen_y = py - sy;
+                    // Resolve the tile's viewport position in CSS px — this handles scroll, fixed
+                    // and sticky uniformly — then scale to device px.
+                    let (vx, vy) = anchored_tile_pos(
+                        tile.page_x as f64,
+                        tile.page_y as f64,
+                        scroll_x as f64,
+                        scroll_y as f64,
+                        tile.anchor,
+                    );
+                    let screen_x = (vx * dpr_f as f64) as i64;
+                    let screen_y = (vy * dpr_f as f64) as i64;
                     let tw = tile.width as i64;
                     let th = tile.height as i64;
                     if screen_x >= w as i64 || screen_y >= h as i64 || screen_x + tw <= 0 || screen_y + th <= 0 {
@@ -473,7 +507,10 @@ impl BrowserApp {
                         let src_off = tile_row * tw + tile_start_col;
                         let dst_off = dst_y * w + dst_x;
                         for col in 0..copy_w {
-                            buf[dst_off + col] = blend_over_argb_u32(tile_u32[src_off + col], buf[dst_off + col]);
+                            buf[dst_off + col] = blend_over_argb_u32(
+                                scale_premul_argb_u32(tile_u32[src_off + col], tile.opacity),
+                                buf[dst_off + col],
+                            );
                         }
                     }
                 }
@@ -639,26 +676,41 @@ impl ApplicationHandler<()> for BrowserApp {
             .create_zone(zone_cfg, zone_services, Some(ZoneId::from(DEFAULT_ZONE)))
             .expect("create_zone");
 
+        // The wgpu surface (configured above) stays at physical `size`; the engine works in
+        // logical (CSS) px so content matches DPR-aware browsers on fractionally scaled displays.
+        self.scale = gpu.window.scale_factor();
+        eprintln!(
+            "DPR_DEBUG scale={} physical={}x{} logical={}x{}",
+            self.scale,
+            size.width,
+            size.height,
+            self.to_logical(size.width),
+            self.to_logical(size.height)
+        );
+        let logical_w = self.to_logical(size.width);
+        let logical_h = self.to_logical(size.height);
+
         let tab = TOKIO_RT
             .block_on(zone.create_tab(
                 TabDefaults {
                     url: None,
                     title: Some("Gosub".to_string()),
-                    viewport: Some(Viewport::new(0, 0, size.width, size.height)),
+                    viewport: Some(Viewport::new(0, 0, logical_w, logical_h)),
                 },
                 None,
             ))
             .expect("create_tab");
 
         let tab_id = tab.tab_id;
-        self.viewport = (size.width, size.height);
+        self.viewport = (logical_w, logical_h);
 
         // Navigate + start drawing.
         let nav_tab = tab.clone();
         let nav_url = self.initial_url.clone();
         TOKIO_RT.spawn(async move {
             let _ = nav_tab.send(TabCommand::Navigate { url: nav_url }).await;
-            let _ = nav_tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+            // 60fps so the per-frame smooth-scroll deltas render as a smooth glide, not ~5 steps.
+            let _ = nav_tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
         });
 
         self.state = Some(RuntimeState {
@@ -681,6 +733,22 @@ impl ApplicationHandler<()> for BrowserApp {
         }
     }
 
+    /// Drive a steady present cadence so engine-side updates (window resize, scroll, hover,
+    /// animations) appear live, the way the GTK example's 16ms `queue_draw` timer does.
+    ///
+    /// Without this the window only repainted when a navigation event woke the proxy, so a
+    /// resize re-laid-out the page in the engine but never presented the new frame. Re-arming a
+    /// redraw every ~16ms (capped via `WaitUntil`, so the loop still sleeps rather than busy-
+    /// spinning) keeps the swap chain showing the latest compositor frame at ~60fps.
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(rt) = &self.state {
+            rt.gpu.window.request_redraw();
+        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(
+            std::time::Instant::now() + std::time::Duration::from_millis(16),
+        ));
+    }
+
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
@@ -691,6 +759,8 @@ impl ApplicationHandler<()> for BrowserApp {
                 if width == 0 || height == 0 {
                     return;
                 }
+                // Surface follows the physical framebuffer; the engine viewport is logical.
+                let (lw, lh) = (self.to_logical(width), self.to_logical(height));
                 if let Some(rt) = &mut self.state {
                     rt.gpu.resize(&rt.device, width, height);
                     let tab = rt.tab.clone();
@@ -699,21 +769,42 @@ impl ApplicationHandler<()> for BrowserApp {
                             .send(TabCommand::SetViewport {
                                 x: 0,
                                 y: 0,
-                                width,
-                                height,
+                                width: lw,
+                                height: lh,
                             })
                             .await;
                     });
                 }
-                self.viewport = (width, height);
-                self.scroll = (0.0, 0.0);
+                self.viewport = (lw, lh);
+            }
+
+            // The window moved to a display with a different scale (e.g. dragged between
+            // monitors). Re-derive logical size from the new scale and re-send the viewport.
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                self.scale = scale_factor;
+                if let Some(rt) = &self.state {
+                    let size = rt.gpu.window.inner_size();
+                    let (lw, lh) = (self.to_logical(size.width), self.to_logical(size.height));
+                    self.viewport = (lw, lh);
+                    let tab = rt.tab.clone();
+                    TOKIO_RT.spawn(async move {
+                        let _ = tab
+                            .send(TabCommand::SetViewport {
+                                x: 0,
+                                y: 0,
+                                width: lw,
+                                height: lh,
+                            })
+                            .await;
+                    });
+                }
             }
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = position;
                 if let Some(rt) = &self.state {
-                    let x = position.x as f32;
-                    let y = position.y as f32;
+                    let x = self.cursor_logical(position.x);
+                    let y = self.cursor_logical(position.y);
                     let tab = rt.tab.clone();
                     TOKIO_RT.spawn(async move {
                         let _ = tab.send(TabCommand::MouseMove { x, y }).await;
@@ -727,8 +818,8 @@ impl ApplicationHandler<()> for BrowserApp {
                 ..
             } => {
                 if let Some(rt) = &self.state {
-                    let x = self.cursor.x as f32;
-                    let y = self.cursor.y as f32;
+                    let x = self.cursor_logical(self.cursor.x);
+                    let y = self.cursor_logical(self.cursor.y);
                     let tab = rt.tab.clone();
                     TOKIO_RT.spawn(async move {
                         let _ = tab
@@ -745,11 +836,11 @@ impl ApplicationHandler<()> for BrowserApp {
             WindowEvent::MouseWheel { delta, .. } => {
                 let (dx, dy) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_MULTIPLIER, y * SCROLL_MULTIPLIER),
-                    MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
+                    // Trackpad pixel deltas are physical; the engine scrolls in logical (CSS) px.
+                    MouseScrollDelta::PixelDelta(p) => (self.cursor_logical(p.x), self.cursor_logical(p.y)),
                 };
-                let max_y = (self.page_height - self.viewport.1 as f32).max(0.0);
-                self.scroll.0 = (self.scroll.0 + dx).max(0.0);
-                self.scroll.1 = (self.scroll.1 + dy).clamp(0.0, max_y);
+                // Fire-and-forget one delta per wheel event; the engine accumulates the target,
+                // clamps it to the page, and animates the scroll itself.
                 if let Some(rt) = &self.state {
                     let tab = rt.tab.clone();
                     TOKIO_RT.spawn(async move {
@@ -870,9 +961,8 @@ fn main() {
         current_url,
         modifiers: ModifiersState::empty(),
         cursor: PhysicalPosition::default(),
-        scroll: (0.0, 0.0),
-        page_height: 0.0,
         viewport: (1024, 768),
+        scale: 1.0,
     };
 
     event_loop.run_app(&mut app).expect("event loop");

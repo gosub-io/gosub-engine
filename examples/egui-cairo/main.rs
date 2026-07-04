@@ -12,7 +12,9 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, ExternalHandle};
+use gosub_render_pipeline::render::backend::{
+    anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle,
+};
 use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
@@ -208,7 +210,8 @@ impl BrowserApp {
                 viewport_width,
                 viewport_height,
                 page_height,
-                ..
+                scroll_x,
+                scroll_y,
             } => {
                 // Update page_height so scroll clamping stays accurate.
                 self.page_height = page_height;
@@ -219,19 +222,21 @@ impl BrowserApp {
                 if w == 0 || h == 0 {
                     return;
                 }
-                // Physical-pixel scroll offset using local state (no async roundtrip).
-                let sx = (self.scroll_x * dpr_f) as i64;
-                let sy = (self.scroll_y * dpr_f) as i64;
                 // Opaque white: a valid premultiplied background for source-over blending.
                 let mut buf = vec![0xFFFF_FFFFu32; w * h];
 
                 for tile in tiles.iter() {
-                    // Physical-pixel position of this tile on the page.
-                    let px = (tile.page_x * dpr_f) as i64;
-                    let py = (tile.page_y * dpr_f) as i64;
-                    // Screen position — may be negative when tile starts above/left of viewport.
-                    let screen_x = px - sx;
-                    let screen_y = py - sy;
+                    // Resolve the tile's viewport position in CSS px from the engine's authoritative
+                    // scroll (handles scroll, fixed and sticky uniformly), then scale to device px.
+                    let (vx, vy) = anchored_tile_pos(
+                        tile.page_x as f64,
+                        tile.page_y as f64,
+                        scroll_x as f64,
+                        scroll_y as f64,
+                        tile.anchor,
+                    );
+                    let screen_x = (vx * dpr_f as f64) as i64;
+                    let screen_y = (vy * dpr_f as f64) as i64;
                     let tw = tile.width as i64;
                     let th = tile.height as i64;
                     // Cull tiles fully outside the viewport.
@@ -265,7 +270,8 @@ impl BrowserApp {
                         // content beneath, instead of overwriting it.
                         for col in 0..copy_w {
                             let src_argb = tile.format.pixel_to_argb_u32(tile_u32[src_off + col]);
-                            buf[dst_off + col] = blend_over_argb_u32(src_argb, buf[dst_off + col]);
+                            buf[dst_off + col] =
+                                blend_over_argb_u32(scale_premul_argb_u32(src_argb, tile.opacity), buf[dst_off + col]);
                         }
                     }
                 }
@@ -326,8 +332,10 @@ impl eframe::App for BrowserApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
-        // Keep Cairo's DPR in sync with egui's pixel ratio.
-        let dpr = ctx.pixels_per_point().round() as u32;
+        // Keep Cairo's DPR in sync with egui's pixel ratio. Use ceil (not round) so fractional
+        // scaling (e.g. 1.25) rasterizes tiles at 2x and egui *downscales* to the display — far
+        // crisper than rounding to 1x and letting egui upscale (which blurs). Matches gtk4-cairo.
+        let dpr = ctx.pixels_per_point().ceil() as u32;
         DEVICE_PIXEL_RATIO.store(dpr.max(1), std::sync::atomic::Ordering::Relaxed);
 
         // Drain engine events.
@@ -341,7 +349,33 @@ impl eframe::App for BrowserApp {
         }
 
         // Update local scroll synchronously so refresh_texture composites at the new position.
-        let scroll_delta = ctx.input(|i| i.smooth_scroll_delta);
+        // Raw mouse-wheel deltas (NOT egui's smoothed scroll): the engine owns scroll smoothing
+        // now, so forwarding egui's `smooth_scroll_delta` double-smooths (slow ramp, no ease-out,
+        // drawn out). Read raw wheel events and convert lines → px (~134/notch, like the others).
+        let scroll_delta = ctx.input(|i| {
+            let mut acc = egui::Vec2::ZERO;
+            for e in &i.events {
+                if let egui::Event::MouseWheel { unit, delta, .. } = e {
+                    let mult = match unit {
+                        egui::MouseWheelUnit::Line => 134.0,
+                        // macOS reports a mouse-wheel notch as an integer Point delta (±1), while a
+                        // trackpad reports precise fractional deltas. Treat whole-number notches like
+                        // Line events (×134) so the wheel matches the other backends; pass precise
+                        // (fractional) trackpad deltas through unscaled.
+                        egui::MouseWheelUnit::Point => {
+                            if delta.x.fract() == 0.0 && delta.y.fract() == 0.0 {
+                                134.0
+                            } else {
+                                1.0
+                            }
+                        }
+                        egui::MouseWheelUnit::Page => 800.0,
+                    };
+                    acc += *delta * mult;
+                }
+            }
+            acc
+        });
         if scroll_delta != egui::Vec2::ZERO {
             let dx = -scroll_delta.x;
             let dy = -scroll_delta.y;

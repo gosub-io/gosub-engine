@@ -1,5 +1,6 @@
 mod handle;
 mod options;
+mod scroll;
 pub mod services;
 mod sink;
 mod state;

@@ -38,6 +38,14 @@ fn parse_px_attr(v: &str) -> Option<f32> {
 // Floats are stored as their bit pattern so the tuple is Hash + Eq.
 type MeasureKey = (String, String, u32, u32, i32, u32);
 
+/// One entry in a run of inline content awaiting layout. `Item`s are normal inline boxes/text
+/// laid out inside an anonymous flex container; `Break` is a `<br>` that ends the current line box
+/// and, when standing alone, contributes an empty line of the carried line-height.
+enum InlineEntry {
+    Item(LayoutElementId, TaffyNodeId),
+    Break(f64),
+}
+
 /// Layouter structure that uses taffy as layout engine
 pub struct TaffyLayouter {
     /// Generated taffy tree
@@ -276,17 +284,14 @@ impl CanLayout for TaffyLayouter {
                             Err(_) => Size::ZERO,
                         }
                     }
-                    // Return image intrinsic dimensions; CSS width/height constraints applied by taffy
-                    Some(TaffyContext::Image(image_ctx)) => Size {
-                        width: image_ctx.dimension.width as f32,
-                        height: image_ctx.dimension.height as f32,
-                    },
+                    // Replaced elements: honour whichever dimension CSS has constrained and
+                    // derive the other from the intrinsic aspect ratio, so e.g. an
+                    // `height: 30px` logo keeps its shape instead of stretching to its full
+                    // intrinsic width.
+                    Some(TaffyContext::Image(image_ctx)) => measure_replaced(v_kd, image_ctx.dimension),
                     // SVG-backed <img> elements carry their intrinsic size the same way.
                     // Without this arm they measured as 0×0 and collapsed (e.g. the HN logo).
-                    Some(TaffyContext::Svg(svg_ctx)) => Size {
-                        width: svg_ctx.dimension.width as f32,
-                        height: svg_ctx.dimension.height as f32,
-                    },
+                    Some(TaffyContext::Svg(svg_ctx)) => measure_replaced(v_kd, svg_ctx.dimension),
                     _ => Size::ZERO,
                 }
             })
@@ -422,11 +427,13 @@ impl TaffyLayouter {
         layout_tree
     }
 
-    // Process inline elements by adding them to the taffy tree and element_node children vec. It will
-    // automatically create an anonymous taffy block element to store multiple inline elements.
+    // Process inline elements by adding them to the taffy tree, wrapped in anonymous flex
+    // containers. A run with no `<br>` produces a single wrapping container (the old behaviour); a
+    // run containing `<br>` is split into one container per line box, which the block parent stacks
+    // vertically — that is how a `<br>` becomes a line break.
     fn process_inlines(
         &mut self,
-        current_inline_group: &Vec<(LayoutElementId, TaffyNodeId)>,
+        current_inline_group: &[InlineEntry],
         element_node: &mut LayoutElementNode,
         leaf_id: TaffyNodeId,
     ) {
@@ -437,11 +444,43 @@ impl TaffyLayouter {
             return;
         }
 
+        // Split the run into line boxes at `<br>` boundaries. An empty segment (consecutive `<br>`s
+        // or a leading `<br>`) still emits a line box of the break's line-height, so runs of `<br>`
+        // produce blank lines rather than collapsing.
+        let mut segment: Vec<(LayoutElementId, TaffyNodeId)> = Vec::new();
+        for entry in current_inline_group {
+            match entry {
+                InlineEntry::Item(id, taffy) => segment.push((*id, *taffy)),
+                InlineEntry::Break(lh) => {
+                    if segment.is_empty() {
+                        self.emit_line(&[], Some(*lh), element_node, leaf_id);
+                    } else {
+                        self.emit_line(&segment, None, element_node, leaf_id);
+                        segment.clear();
+                    }
+                }
+            }
+        }
+        if !segment.is_empty() {
+            self.emit_line(&segment, None, element_node, leaf_id);
+        }
+    }
+
+    /// Emit one line box as an anonymous flex container holding `items`. When `items` is empty and
+    /// `empty_line_height` is `Some`, the container is pinned to that height so a blank line (from a
+    /// standalone `<br>`) keeps its vertical extent; an empty line with no height is skipped.
+    fn emit_line(
+        &mut self,
+        items: &[(LayoutElementId, TaffyNodeId)],
+        empty_line_height: Option<f64>,
+        element_node: &mut LayoutElementNode,
+        leaf_id: TaffyNodeId,
+    ) {
         // All inline elements (even a single one) are wrapped in an anonymous flex container.
         // This ensures the text measure function always receives AvailableSpace::Definite from
         // the flex algorithm, preventing single-child text nodes from getting MaxContent width
         // (which would make them lay out on one line and overflow their block parent).
-        let Ok(taffy_container_id) = self.tree.new_leaf(Style {
+        let mut style = Style {
             display: Display::Flex,
             flex_direction: FlexDirection::Row,
             flex_wrap: FlexWrap::Wrap,
@@ -459,7 +498,16 @@ impl TaffyLayouter {
                 height: Dimension::auto(),
             },
             ..Default::default()
-        }) else {
+        };
+        if items.is_empty() {
+            match empty_line_height {
+                // No child can give the line height, so pin it to the break's line-height.
+                Some(lh) => style.size.height = Dimension::from_length(lh as f32),
+                None => return,
+            }
+        }
+
+        let Ok(taffy_container_id) = self.tree.new_leaf(style) else {
             return;
         };
         if let Err(e) = self.tree.add_child(leaf_id, taffy_container_id) {
@@ -467,7 +515,7 @@ impl TaffyLayouter {
         }
 
         // and add all the inline elements to the anonymous element
-        for (inline_layout_element_id, inline_taffy_node_id) in current_inline_group {
+        for (inline_layout_element_id, inline_taffy_node_id) in items {
             if let Err(e) = self.tree.add_child(taffy_container_id, *inline_taffy_node_id) {
                 log::warn!("Failed to add inline child to taffy tree: {:?}", e);
             }
@@ -526,6 +574,8 @@ impl TaffyLayouter {
             id: layout_tree.next_node_id(),
             dom_node_id: dom_node.node_id,
             render_node_id,
+            // Back-patched below once all children are attached (covers block + inline children).
+            parent: None,
             box_model: box_model::BoxModel::ZERO,
             children: vec![],
             context: element_context,
@@ -573,6 +623,25 @@ impl TaffyLayouter {
 
             // Don't add inline elements to the taffy tree yet. We need to group them first and possibly wrap inside a block
             if child_node.is_inline_element() || child_node.is_inline_block_element() || child_node.is_text() {
+                // <br> is a forced line break, not a paintable inline item. Record a break marker
+                // carrying the line-height (for the case it stands alone as an empty line) and skip
+                // adding its taffy node as a flex item; process_inlines splits the run here.
+                if matches!(&child_node.node_type, NodeType::Element(d) if d.tag_name.eq_ignore_ascii_case("br")) {
+                    let doc = &layout_tree.render_tree.doc;
+                    let nid = child_node.node_id;
+                    let font_size = match doc.get_style(nid, &StyleProperty::FontSize) {
+                        Value::Unit(v, Unit::Px) => v as f64,
+                        _ => DEFAULT_FONT_SIZE,
+                    };
+                    let line_height = match doc.get_style(nid, &StyleProperty::LineHeight) {
+                        Value::Unit(v, Unit::Px) => v as f64,
+                        Value::Number(ratio) => font_size * ratio as f64,
+                        _ => font_size * 1.4,
+                    };
+                    current_inline_group.push(InlineEntry::Break(line_height));
+                    trailing_ws_count = 0;
+                    continue;
+                }
                 let is_ws = if let NodeType::Text(text) = &child_node.node_type {
                     if text.trim().is_empty() {
                         // Drop leading whitespace (before any inline sibling). Keep inter-element
@@ -590,7 +659,7 @@ impl TaffyLayouter {
                 };
 
                 log::debug!("Pushing element as inline: {:?}", child_node.node_id);
-                current_inline_group.push((child_layout_element_id, child_taffy_id));
+                current_inline_group.push(InlineEntry::Item(child_layout_element_id, child_taffy_id));
                 if is_ws {
                     trailing_ws_count += 1;
                 } else {
@@ -620,7 +689,15 @@ impl TaffyLayouter {
         // The layout-tree is the structure handed to the rest of the pipeline; taffy stays
         // internal to this layouter so other layout engines can be swapped in.
         let layout_element_id = element_node.id;
+        let child_ids = element_node.children.clone();
         layout_tree.arena.insert(layout_element_id, element_node);
+        // Point every child (block and inline) back at this node so the containing block can be
+        // found by walking up — e.g. the cage for `position: sticky`.
+        for child_id in child_ids {
+            if let Some(child) = layout_tree.arena.get_mut(&child_id) {
+                child.parent = Some(layout_element_id);
+            }
+        }
 
         // Create a mapping between the layout element id and the taffy node id. We need this to generate
         // the boxmodel at a later time in this pipeline stage.
@@ -920,6 +997,28 @@ fn to_absolute_url(uri: &str, base_uri: &str) -> String {
         Ok(joined) => joined.to_string(),
         // Base URL unusable (e.g. empty for an inline document) — fall back to the raw reference.
         Err(_) => uri.to_string(),
+    }
+}
+
+/// Measure a replaced element (image / SVG) honouring any dimension CSS has already
+/// constrained. When only one of width/height is known, the other is derived from the
+/// intrinsic aspect ratio so the element keeps its shape; when neither is known the
+/// intrinsic size is used as-is. (The both-known case is short-circuited before the
+/// measure callback reaches this point, but is handled here for completeness.)
+fn measure_replaced(known: Size<Option<f32>>, intrinsic: geo::Dimension) -> Size<f32> {
+    let iw = intrinsic.width as f32;
+    let ih = intrinsic.height as f32;
+    match (known.width, known.height) {
+        (Some(w), Some(h)) => Size { width: w, height: h },
+        (Some(w), None) => Size {
+            width: w,
+            height: if iw > 0.0 { w * ih / iw } else { ih },
+        },
+        (None, Some(h)) => Size {
+            width: if ih > 0.0 { h * iw / ih } else { iw },
+            height: h,
+        },
+        (None, None) => Size { width: iw, height: ih },
     }
 }
 

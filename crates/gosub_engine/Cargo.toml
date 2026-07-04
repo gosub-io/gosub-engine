@@ -73,6 +73,7 @@ mimetype-detector = "0.2.2"
 image = { workspace = true }
 async-trait = "0.1.89"
 async-channel = "2.5.0"
+allsorts = "0.17"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gdk4-wayland = { workspace = true, features = [

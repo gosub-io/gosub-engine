@@ -18,10 +18,13 @@ parking_lot = { workspace = true }
 cairo-rs = { workspace = true }
 gtk4 = { workspace = true, optional = true }
 pangocairo = { workspace = true, optional = true }
+# `@font-face` web-font registration: add fetched fonts to fontconfig at runtime so Pango
+# discovers them. Works with the system Pango (no 1.56 dependency).
+fontconfig-sys = { package = "yeslogic-fontconfig-sys", version = "6", optional = true }
 
 [features]
 default = ["text_pango"]
-text_pango = ["dep:pangocairo", "dep:gtk4"]
+text_pango = ["dep:pangocairo", "dep:gtk4", "dep:fontconfig-sys"]
 text_parley = []
 text_skia = []
 

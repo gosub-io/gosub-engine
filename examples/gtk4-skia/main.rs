@@ -12,8 +12,10 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, CachedTile, ExternalHandle};
-use gosub_render_pipeline::render::DefaultCompositor;
+use gosub_render_pipeline::render::backend::{
+    anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, CachedTile, ExternalHandle,
+};
+use gosub_render_pipeline::render::{DefaultCompositor, DEVICE_PIXEL_RATIO};
 use gosub_renderer_skia::SkiaFontSystem;
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -30,7 +32,7 @@ use uuid::uuid;
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-00000000000b");
 /// CSS pixels scrolled per raw GTK scroll unit.  Lower = more dampened.
-const SCROLL_MULTIPLIER: f32 = 12.5;
+const SCROLL_MULTIPLIER: f32 = 134.0;
 
 type AppConfig = DefaultRenderConfig<gosub_renderer_skia::SkiaBackend, SkiaFontSystem>;
 
@@ -196,7 +198,9 @@ fn main() {
         let compositor_draw = compositor.clone();
         let local_tiles_draw = local_tiles.clone();
         let local_scroll_draw = local_scroll.clone();
-        drawing_area.set_draw_func(move |_area, cr, w, h| {
+        drawing_area.set_draw_func(move |area, cr, w, h| {
+            // Keep the published DPR current (e.g. after a move to a different-scale monitor).
+            DEVICE_PIXEL_RATIO.store(render_dpr(area), std::sync::atomic::Ordering::Relaxed);
             // Fast path: use cached tiles with local scroll position.
             let tiles_opt = local_tiles_draw.borrow();
             if let Some(state) = tiles_opt.as_ref() {
@@ -478,7 +482,9 @@ fn main() {
             let local_tiles = local_tiles.clone();
             let local_scroll = local_scroll.clone();
             move |area, w, h| {
-                let _scale = area.scale_factor() as u32;
+                // Publish the host DPR so the engine rasterizes physical-resolution (crisp) tiles
+                // for the new viewport and reports the same DPR back in the tile-cache handle.
+                DEVICE_PIXEL_RATIO.store(render_dpr(area), std::sync::atomic::Ordering::Relaxed);
 
                 // Clear cached tiles — they were rasterized for the old viewport size.
                 *local_tiles.borrow_mut() = None;
@@ -634,6 +640,14 @@ fn main() {
 }
 
 /// Composite a TileDrawState at the given scroll position into `cr`.
+/// Resolve the host device-pixel-ratio. Prefer the surface's *fractional* Wayland scale (e.g. 1.5)
+/// over `scale_factor()`, which reports an integer (often 1) under fractional scaling and would make
+/// us rasterize at logical resolution. Round up so a 1.5x surface renders at 2x then downscales —
+/// crisp — matching the Cairo backend.
+fn render_dpr(widget: &impl IsA<gtk4::Widget>) -> u32 {
+    (widget.scale_factor() as u32).max(1)
+}
+
 fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawState, scroll_x: f32, scroll_y: f32) {
     let dpr_i = state.dpr as i32;
     let dpr_f = state.dpr as f64;
@@ -662,12 +676,18 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
             b[3] = 0xFF;
         }
 
-        let sx = (scroll_x * state.dpr as f32).round() as i64;
-        let sy = (scroll_y * state.dpr as f32).round() as i64;
-
         for tile in state.tiles.iter() {
-            let px = (tile.page_x * state.dpr as f32).round() as i64 - sx;
-            let py = (tile.page_y * state.dpr as f32).round() as i64 - sy;
+            // Viewport position in CSS px from the engine's scroll (handles scroll, fixed and
+            // sticky uniformly), then scaled to device px.
+            let (vx, vy) = anchored_tile_pos(
+                tile.page_x as f64,
+                tile.page_y as f64,
+                scroll_x as f64,
+                scroll_y as f64,
+                tile.anchor,
+            );
+            let px = (vx * dpr_f).round() as i64;
+            let py = (vy * dpr_f).round() as i64;
             let tw = tile.width as i64;
             let th = tile.height as i64;
 
@@ -705,7 +725,7 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
                         u32::from_le_bytes([tile.data[s], tile.data[s + 1], tile.data[s + 2], tile.data[s + 3]]);
                     let src_argb = tile.format.pixel_to_argb_u32(src_px);
                     let dst_px = u32::from_le_bytes([data[d], data[d + 1], data[d + 2], data[d + 3]]);
-                    let out = blend_over_argb_u32(src_argb, dst_px);
+                    let out = blend_over_argb_u32(scale_premul_argb_u32(src_argb, tile.opacity), dst_px);
                     data[d..d + 4].copy_from_slice(&out.to_le_bytes());
                 }
             }

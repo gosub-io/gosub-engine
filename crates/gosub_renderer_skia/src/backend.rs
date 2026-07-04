@@ -5,6 +5,7 @@ use gosub_render_pipeline::render::backend::{
 };
 use gosub_render_pipeline::render::render_context::RenderContext;
 use gosub_render_pipeline::render::render_list::DisplayItem;
+use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use skia_safe::{Color4f, Font, FontMgr, FontStyle, Paint, Rect};
 use std::any::Any;
 
@@ -24,6 +25,14 @@ impl SkiaBackend {
 impl RenderBackend for SkiaBackend {
     fn name(&self) -> &'static str {
         "skia"
+    }
+
+    /// Honour the host's device-pixel-ratio (set via the shared `DEVICE_PIXEL_RATIO`) so the engine
+    /// rasterizes tiles at physical resolution and reports the same DPR in the tile-cache handle —
+    /// the host then composites physical tiles at physical positions. Without this the default of 1
+    /// makes everything render at logical resolution and the window upscales it (blurry on HiDPI).
+    fn device_pixel_ratio(&self) -> u32 {
+        DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed).max(1)
     }
 
     fn create_surface(&self, size: SurfaceSize, present: PresentMode) -> Result<Box<dyn ErasedSurface + Send>> {
@@ -84,6 +93,7 @@ impl RenderBackend for SkiaBackend {
                         h,
                         data,
                         format,
+                        opacity,
                     } => {
                         let stride = (*w * 4) as usize;
                         let expected = *h as usize * stride;
@@ -102,7 +112,16 @@ impl RenderBackend for SkiaBackend {
                         if let Some(image) =
                             skia_safe::images::raster_from_data(&info, skia_safe::Data::new_copy(&data), stride)
                         {
-                            canvas.draw_image(&image, (*x, *y), None);
+                            // Fade the whole tile by the group opacity (paint alpha applies to the
+                            // premultiplied image); skip the paint entirely when fully opaque.
+                            let paint = if *opacity < 1.0 {
+                                let mut p = Paint::default();
+                                p.set_alpha_f(*opacity);
+                                Some(p)
+                            } else {
+                                None
+                            };
+                            canvas.draw_image(&image, (*x, *y), paint.as_ref());
                         }
                     }
                 }

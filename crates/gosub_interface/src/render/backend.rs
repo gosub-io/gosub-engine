@@ -101,7 +101,7 @@ impl PixelFormat {
     /// On little-endian hosts, `PreMulArgb32` bytes `[B, G, R, A]` already read as
     /// `0xAARRGGBB`, while `Rgba8` bytes `[R, G, B, A]` read as `0xAABBGGRR` and need
     /// their red/blue channels swapped.
-    #[inline]
+    #[inline(always)] // hot per-pixel compositor helper; force-inline even in debug (-O0)
     pub fn pixel_to_argb_u32(self, px: u32) -> u32 {
         match self {
             PixelFormat::PreMulArgb32 => px,
@@ -122,7 +122,7 @@ impl PixelFormat {
 /// This is the "source-over" Porter-Duff operator: `out = src + dst * (1 - src_alpha)`.
 /// Compositing tiles with this (rather than overwriting the destination) lets a
 /// transparent upper-layer tile reveal the content of lower layers beneath it.
-#[inline]
+#[inline(always)] // hot per-pixel compositor helper; force-inline even in debug (-O0)
 pub fn blend_over_argb_u32(src: u32, dst: u32) -> u32 {
     let sa = src >> 24;
     if sa == 0xFF {
@@ -139,9 +139,24 @@ pub fn blend_over_argb_u32(src: u32, dst: u32) -> u32 {
     (rb & 0x00FF_00FF) | ((ag & 0x00FF_00FF) << 8)
 }
 
+/// Scale a premultiplied `0xAARRGGBB` pixel by `opacity` (0.0..=1.0), returning a premultiplied
+/// pixel. All four channels (alpha included) are multiplied by the same factor, which keeps the
+/// pixel premultiplied and realises CSS group opacity for an opacity-promoted layer. Apply this to
+/// a tile's source pixel before [`blend_over_argb_u32`] to fade the whole layer as a unit.
+#[inline(always)] // hot per-pixel compositor helper; force-inline even in debug (-O0)
+pub fn scale_premul_argb_u32(argb: u32, opacity: f32) -> u32 {
+    if opacity >= 1.0 {
+        return argb;
+    }
+    let factor = (opacity.clamp(0.0, 1.0) * 255.0 + 0.5) as u32;
+    let rb = mul_div255_pair(argb & 0x00FF_00FF, factor);
+    let ag = mul_div255_pair((argb >> 8) & 0x00FF_00FF, factor);
+    (rb & 0x00FF_00FF) | ((ag & 0x00FF_00FF) << 8)
+}
+
 /// Multiply each of the two 8-bit channels packed in `pair` (`0x00XX00YY`) by `factor`
 /// (0..=255) and divide by 255 with rounding, returning the packed result.
-#[inline]
+#[inline(always)] // hot per-pixel compositor helper; force-inline even in debug (-O0)
 fn mul_div255_pair(pair: u32, factor: u32) -> u32 {
     // Process both channels at once: add rounding bias, then the classic
     // `(x + (x >> 8) + 128) >> 8` approximation of `x / 255`.
@@ -158,6 +173,90 @@ pub enum GpuPixelFormat {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct WgpuTextureId(pub u64);
 
+/// Geometry to resolve a `position: sticky` layer's offset at composite time. All values are in
+/// page space (the same space as a tile's `page_x`/`page_y`). The sticky element lays out in normal
+/// flow (like `relative`); this constraint shifts its whole promoted layer by a scroll-dependent,
+/// cage-clamped translation when it would otherwise scroll past one of its insets. Insets are `None`
+/// when `auto` (that edge does not stick). `bottom`/`right` are not represented yet — they need the
+/// viewport extent, which this struct does not carry.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StickyConstraint {
+    /// `top` sticky inset in CSS px, `None` when `auto`.
+    pub inset_top: Option<f64>,
+    /// `left` sticky inset in CSS px, `None` when `auto`.
+    pub inset_left: Option<f64>,
+    /// The sticky element's own natural (in-flow) margin box, page space.
+    pub natural_x: f64,
+    pub natural_y: f64,
+    pub natural_w: f64,
+    pub natural_h: f64,
+    /// The containing block's content box (the cage the element may not escape), page space.
+    pub cage_x: f64,
+    pub cage_y: f64,
+    pub cage_w: f64,
+    pub cage_h: f64,
+}
+
+impl StickyConstraint {
+    /// Page-space translation to add on top of normal `page - scroll` placement. The same value
+    /// applies to every tile in the layer, so the layer translates as a rigid unit. The clamp
+    /// yields all three sticky regimes: flowing (0), stuck (tracking the inset), and shoved off by
+    /// the containing block (pinned to the cage edge).
+    #[inline]
+    pub fn offset(&self, scroll_x: f64, scroll_y: f64) -> (f64, f64) {
+        let mut dy = 0.0;
+        if let Some(top) = self.inset_top {
+            // Where the element's top edge would sit in the viewport under plain scrolling.
+            let natural_vp_y = self.natural_y - scroll_y;
+            // Push down so the top rests at `top`; never negative (never pulled above flow).
+            let want = (top - natural_vp_y).max(0.0);
+            // Cage slack: how far it may move before its bottom hits the container bottom. Scroll
+            // cancels here, so this is pure geometry.
+            let slack = ((self.cage_y + self.cage_h) - (self.natural_y + self.natural_h)).max(0.0);
+            dy = want.min(slack);
+        }
+
+        let mut dx = 0.0;
+        if let Some(left) = self.inset_left {
+            let natural_vp_x = self.natural_x - scroll_x;
+            let want = (left - natural_vp_x).max(0.0);
+            let slack = ((self.cage_x + self.cage_w) - (self.natural_x + self.natural_w)).max(0.0);
+            dx = want.min(slack);
+        }
+
+        (dx, dy)
+    }
+}
+
+/// How a tile's layer responds to page scroll at composite time.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum TileAnchor {
+    /// Normal flow: the tile scrolls with the page (composited at `page - scroll`).
+    #[default]
+    Scroll,
+    /// `position: fixed`: the tile is pinned to the viewport and ignores scroll
+    /// (composited at its page position, which equals its viewport position).
+    Fixed,
+    /// `position: sticky`: the tile scrolls normally until it would cross one of its insets, then
+    /// it sticks at the inset, clamped so it never leaves its containing block.
+    Sticky(StickyConstraint),
+}
+
+/// Effective top-left of a tile in viewport coordinates, given its page-space position, the current
+/// scroll offset and its anchor. Fixed tiles ignore scroll so they stay pinned to the viewport;
+/// sticky tiles scroll normally plus a clamped catch-up translation.
+#[inline]
+pub fn anchored_tile_pos(page_x: f64, page_y: f64, scroll_x: f64, scroll_y: f64, anchor: TileAnchor) -> (f64, f64) {
+    match anchor {
+        TileAnchor::Scroll => (page_x - scroll_x, page_y - scroll_y),
+        TileAnchor::Fixed => (page_x, page_y),
+        TileAnchor::Sticky(c) => {
+            let (dx, dy) = c.offset(scroll_x, scroll_y);
+            (page_x - scroll_x + dx, page_y - scroll_y + dy)
+        }
+    }
+}
+
 /// A single pre-rasterized tile for direct compositing in the host draw callback.
 /// Pixel data is reference-counted (`Bytes`) so handing out a handle is zero-copy.
 #[derive(Clone, Debug)]
@@ -169,6 +268,15 @@ pub struct CachedTile {
     pub data: bytes::Bytes,
     /// In-memory byte order of `data`, set by the rasterizer that produced it.
     pub format: PixelFormat,
+    /// Group opacity (1.0 = opaque) of the tile's layer. The compositor scales the tile's
+    /// premultiplied pixels by this before the source-over blend, fading opacity-promoted layers
+    /// (e.g. a translucent fixed navbar) as a whole.
+    pub opacity: f32,
+    /// How this tile's layer responds to scroll (normal flow vs. `position: fixed`).
+    pub anchor: TileAnchor,
+    /// True when every pixel is fully opaque (alpha == 255). Computed once when the tile is cached;
+    /// lets a CPU compositor blit the tile with a plain row copy instead of a per-pixel source-over.
+    pub opaque: bool,
 }
 
 /// A rasterized tile that lives in a GPU backend's texture store, positioned in page coordinates.
@@ -181,6 +289,10 @@ pub struct PlacedGpuTile {
     pub width: u32,
     pub height: u32,
     pub texture_id: u64,
+    /// Group opacity (1.0 = opaque) of the tile's layer, applied by the GPU compositor.
+    pub opacity: f32,
+    /// How this tile's layer responds to scroll (normal flow vs. `position: fixed`).
+    pub anchor: TileAnchor,
 }
 
 /// Safety: `ExternalHandle` can be sent between threads, but not shared.
@@ -418,6 +530,38 @@ mod tests {
 
     const WHITE: u32 = 0xFFFF_FFFF; // opaque white, premultiplied
     const BLACK: u32 = 0xFF00_0000; // opaque black, premultiplied
+
+    #[test]
+    fn sticky_top_three_regimes() {
+        // A 60px-tall navbar with natural top at y=220, top:0 inset, inside a 1000px-tall cage
+        // starting at y=200. Cage bottom = 1200; element bottom = 280; slack = 920.
+        let c = StickyConstraint {
+            inset_top: Some(0.0),
+            inset_left: None,
+            natural_x: 0.0,
+            natural_y: 220.0,
+            natural_w: 100.0,
+            natural_h: 60.0,
+            cage_x: 0.0,
+            cage_y: 200.0,
+            cage_w: 100.0,
+            cage_h: 1000.0,
+        };
+
+        // Phase 1 — flowing: scrolled less than the natural top, element still below the inset.
+        let (_, dy) = c.offset(0.0, 100.0); // natural_vp_y = 120 > 0 → no stick
+        assert_eq!(dy, 0.0);
+
+        // Phase 2 — stuck: scrolled past the natural top, element pinned at inset 0.
+        let (_, dy) = c.offset(0.0, 500.0); // natural_vp_y = -280; want = 280, < slack 920
+        assert_eq!(dy, 280.0);
+        // viewport top = natural_y - scroll + dy = 220 - 500 + 280 = 0 (pinned at top:0).
+        assert_eq!(220.0 - 500.0 + dy, 0.0);
+
+        // Phase 3 — shoved off: scrolled so far the cage bottom drags it; offset clamps to slack.
+        let (_, dy) = c.offset(0.0, 5000.0); // want = 4780, clamped to slack 920
+        assert_eq!(dy, 920.0);
+    }
 
     #[test]
     fn transparent_source_preserves_destination() {

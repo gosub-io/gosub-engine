@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  .navbar {
+    position: fixed;            /* Phase 1: pinned to the viewport, ignores scroll */
+    top: 0; left: 0; right: 0;
+    height: 56px;
+    background: #1763a6;
+    color: white;
+    font-size: 26px;
+    padding: 15px 24px;
+  }
+  .content { padding-top: 80px; }
+  .row { height: 120px; margin: 10px 24px; background: #e8e8e8; font-size: 22px; padding: 8px; }
+  .row.alt { background: #d24b4b; color: white; }
+</style>
+</head>
+<body>
+  <div class="navbar">Fixed navbar — should stay pinned while you scroll</div>
+  <div class="content">
+    <div class="row">Row 1 — scroll down…</div>
+    <div class="row alt">Row 2</div>
+    <div class="row">Row 3</div>
+    <div class="row alt">Row 4</div>
+    <div class="row">Row 5</div>
+    <div class="row alt">Row 6</div>
+    <div class="row">Row 7</div>
+    <div class="row alt">Row 8</div>
+    <div class="row">Row 9</div>
+    <div class="row alt">Row 10</div>
+    <div class="row">Row 11</div>
+    <div class="row alt">Row 12</div>
+    <div class="row">Row 13 — the blue bar above must NOT have scrolled away</div>
+  </div>
+</body>
+</html>

@@ -11,6 +11,7 @@ use crate::net::types::{FetchKeyData, FetchRequest, FetchResult, Initiator, NetE
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
 use crate::storage::types::compute_partition_key;
 use crate::storage::{StorageEvent, StorageHandles};
+use crate::tab::scroll::{default_text_scroll, ScrollState};
 use crate::tab::services::EffectiveTabServices;
 use crate::tab::state::{TabActivityMode, TabRuntime, TabState};
 use crate::tab::{TabId, TabSink};
@@ -116,9 +117,15 @@ pub struct TabWorker<C: RenderConfiguration> {
     present_mode: PresentMode,
     /// The newest viewport requested by the tab, which may differ from the committed one.
     desired_viewport: Viewport,
-    /// Current scroll offset in CSS pixels (updated by MouseScroll).
+    /// Current scroll offset in CSS pixels (updated by MouseScroll). Mirrors the integer-rounded
+    /// position held by `scroll`; the rest of the worker reads these.
     scroll_x: i32,
     scroll_y: i32,
+    /// Engine-side scroll position + smooth-scroll animation. Defaults to `Instant`, so behaviour is
+    /// unchanged until the engine takes scrolling over from the embedder (see [`ScrollBehavior`]).
+    scroll: ScrollState,
+    /// Timestamp of the last scroll-animation step, for computing `dt`. `None` when not animating.
+    scroll_anim_last: Option<std::time::Instant>,
     /// Keeps track of the tab worker runtime data
     pub(crate) runtime: TabRuntime,
     /// Current in-flight navigation (if any)
@@ -131,6 +138,160 @@ pub struct TabWorker<C: RenderConfiguration> {
     internal_tx: mpsc::Sender<TabInternalCommand>,
     // Receive channel for internal commands
     internal_rx: mpsc::Receiver<TabInternalCommand>,
+}
+
+/// Whether a CSS `unicode-range` descriptor (e.g. `"U+0000-00FF, U+0131"`) includes the
+/// Basic-Latin letter `U+0041` ('A') — our proxy for "covers Latin-script text".
+fn unicode_range_covers_basic_latin(range: &str) -> bool {
+    const TARGET: u32 = 0x41; // 'A'
+    for token in range.split([',', ' ', '\t', '\n', '\r']).filter(|t| !t.is_empty()) {
+        let Some(hex) = token
+            .trim()
+            .strip_prefix("U+")
+            .or_else(|| token.trim().strip_prefix("u+"))
+        else {
+            continue;
+        };
+        let (lo, hi) = match hex.split_once('-') {
+            Some((a, b)) => (parse_hex_bound(a, false), parse_hex_bound(b, true)),
+            None => (parse_hex_bound(hex, false), parse_hex_bound(hex, true)),
+        };
+        if let (Some(lo), Some(hi)) = (lo, hi) {
+            if lo <= TARGET && TARGET <= hi {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Unwrap a downloaded web-font payload into raw SFNT bytes the font backends can decode.
+///
+/// WOFF2 (magic `wOF2`) is a Brotli-compressed wrapper around an OpenType/TrueType font,
+/// with the `glyf`/`loca` tables stored in a transformed form. Skia and fontconfig don't
+/// decode it (e.g. Google Fonts serves WOFF2 to modern UAs like ours), so we decompress it
+/// to a flat SFNT here. Bare SFNT (`OTTO`/`true`/`ttcf`/`0x00010000`) and anything we don't
+/// recognise are returned unchanged — including WOFF1, which the backends already handle.
+/// On a decode error we log and return the original bytes so the subsequent `register_font`
+/// surfaces a single, consistent failure path.
+fn decode_web_font(bytes: Vec<u8>, font_url: &Url) -> Vec<u8> {
+    const WOFF2_MAGIC: &[u8; 4] = b"wOF2";
+    if bytes.len() < 4 || &bytes[0..4] != WOFF2_MAGIC {
+        return bytes;
+    }
+    match woff2_to_sfnt(&bytes) {
+        Ok(sfnt) => {
+            log::debug!(
+                "Decoded WOFF2 web font from {font_url} ({} → {} bytes)",
+                bytes.len(),
+                sfnt.len()
+            );
+            sfnt
+        }
+        Err(e) => {
+            log::warn!("Failed to decode WOFF2 web font from {font_url}: {e}");
+            bytes
+        }
+    }
+}
+
+/// Decompress a WOFF2 font to a flat SFNT (TTF/OTF) byte buffer. allsorts handles the Brotli
+/// decompression and the `glyf`/`loca` transform reconstruction; we then re-assemble the
+/// reconstructed tables into the on-disk SFNT layout (offset table + table directory + 4-byte
+/// aligned table data) that font backends expect.
+fn woff2_to_sfnt(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    use allsorts::binary::read::ReadScope;
+    use allsorts::woff2::Woff2Font;
+
+    let font = ReadScope::new(bytes)
+        .read::<Woff2Font<'_>>()
+        .map_err(|e| format!("parse: {e:?}"))?;
+    let sfnt_version = font.flavor();
+    let tables = font
+        .table_provider(0)
+        .map_err(|e| format!("reconstruct: {e:?}"))?
+        .into_tables();
+
+    Ok(assemble_sfnt(sfnt_version, tables))
+}
+
+/// Pack a set of font tables into an SFNT byte buffer per the OpenType spec: a 12-byte offset
+/// table, a 16-byte directory entry per table (sorted by tag), then each table's data padded to
+/// a 4-byte boundary. Per-table checksums are computed; the `head` table's `checkSumAdjustment`
+/// is left as-is (font backends parse without validating it).
+fn assemble_sfnt(sfnt_version: u32, tables: std::collections::HashMap<u32, Box<[u8]>>) -> Vec<u8> {
+    let mut entries: Vec<(u32, Box<[u8]>)> = tables.into_iter().collect();
+    entries.sort_by_key(|(tag, _)| *tag);
+    let num_tables = entries.len() as u16;
+
+    // Binary-search hint fields: largest power of two <= num_tables.
+    let mut entry_selector = 0u16;
+    while (1u16 << (entry_selector + 1)) <= num_tables {
+        entry_selector += 1;
+    }
+    let search_range = (1u16 << entry_selector) * 16;
+    let range_shift = num_tables.wrapping_mul(16).wrapping_sub(search_range);
+
+    let mut directory = Vec::with_capacity(16 * entries.len());
+    let mut data = Vec::new();
+    let mut offset = 12 + 16 * entries.len();
+    for (tag, table) in &entries {
+        directory.extend_from_slice(&tag.to_be_bytes());
+        directory.extend_from_slice(&sfnt_table_checksum(table).to_be_bytes());
+        directory.extend_from_slice(&(offset as u32).to_be_bytes());
+        directory.extend_from_slice(&(table.len() as u32).to_be_bytes());
+        data.extend_from_slice(table);
+        while data.len() % 4 != 0 {
+            data.push(0);
+        }
+        offset += (table.len() + 3) & !3;
+    }
+
+    let mut out = Vec::with_capacity(12 + directory.len() + data.len());
+    out.extend_from_slice(&sfnt_version.to_be_bytes());
+    out.extend_from_slice(&num_tables.to_be_bytes());
+    out.extend_from_slice(&search_range.to_be_bytes());
+    out.extend_from_slice(&entry_selector.to_be_bytes());
+    out.extend_from_slice(&range_shift.to_be_bytes());
+    out.extend_from_slice(&directory);
+    out.extend_from_slice(&data);
+    out
+}
+
+/// SFNT table checksum: the sum of the table's contents read as big-endian `u32`s, with the
+/// final partial word zero-padded, in wrapping (mod 2^32) arithmetic.
+fn sfnt_table_checksum(data: &[u8]) -> u32 {
+    let mut sum = 0u32;
+    for chunk in data.chunks(4) {
+        let mut word = [0u8; 4];
+        word[..chunk.len()].copy_from_slice(chunk);
+        sum = sum.wrapping_add(u32::from_be_bytes(word));
+    }
+    sum
+}
+
+/// Parse a `unicode-range` hex bound, expanding `?` wildcards to `0` (low bound) or `F`
+/// (high bound), e.g. `U+00??` → `0x0000..=0x00FF`.
+fn parse_hex_bound(s: &str, high: bool) -> Option<u32> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let filled: String = s
+        .chars()
+        .map(|c| {
+            if c == '?' {
+                if high {
+                    'F'
+                } else {
+                    '0'
+                }
+            } else {
+                c
+            }
+        })
+        .collect();
+    u32::from_str_radix(&filled, 16).ok()
 }
 
 impl<C: RenderConfiguration> TabWorker<C> {
@@ -171,6 +332,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
             desired_viewport: Default::default(),
             scroll_x: 0,
             scroll_y: 0,
+            // The engine owns wheel-scroll smoothing; embedders send one delta per notch.
+            scroll: ScrollState::new(default_text_scroll()),
+            scroll_anim_last: None,
             runtime,
             load: None,
             active_nav: None,
@@ -272,6 +436,68 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.services.storage.drop_tab(self.zone_id, self.tab_id);
     }
 
+    /// Fetch and register any `@font-face` web fonts declared in the document's stylesheets
+    /// so the first layout/paint can use them. Runs once per navigation, before the first
+    /// render, and deduplicates by resolved font URL. Fetches are synchronous (blocking this
+    /// worker briefly during initial load); each face is registered under its CSS family so
+    /// the font system selects the right weight/style from the font's own metadata.
+    fn load_web_fonts(&self, doc: &C::Document, base_url: &Url) {
+        use gosub_interface::css3::CssStylesheet as _;
+        use gosub_interface::document::Document as _;
+        use gosub_interface::font_system::FontSystem as _;
+
+        let mut fetched: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for sheet in doc.stylesheets() {
+            let sheet_url = Url::parse(sheet.url()).ok();
+            for (family, sources, unicode_range) in sheet.font_faces() {
+                // Google-style web fonts split a family into many `unicode-range` subsets
+                // (latin, cyrillic, greek, …). We don't do per-glyph subset fallback, so
+                // register only subsets covering Basic Latin (and ranges with no descriptor),
+                // which covers Latin-script content without piling unusable subsets onto the
+                // same family.
+                if let Some(range) = &unicode_range {
+                    if !unicode_range_covers_basic_latin(range) {
+                        continue;
+                    }
+                }
+                for src in &sources {
+                    let resolved = sheet_url
+                        .as_ref()
+                        .unwrap_or(base_url)
+                        .join(src)
+                        .or_else(|_| base_url.join(src));
+                    let Ok(font_url) = resolved else { continue };
+                    if !fetched.insert(font_url.to_string()) {
+                        break; // this exact font file is already registered
+                    }
+                    match gosub_net::net::simple::sync_fetch(&font_url) {
+                        Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
+                            // Web fonts are commonly served as WOFF2 (e.g. Google Fonts content-
+                            // negotiates WOFF2 for modern UAs like ours). The font backends
+                            // (Skia/fontconfig) only decode raw SFNT (TTF/OTF), so unwrap WOFF2
+                            // to TTF first. Other formats pass through unchanged.
+                            let font_bytes = decode_web_font(resp.body, &font_url);
+                            match self
+                                .zone_context
+                                .font_system
+                                .lock()
+                                .register_font(font_bytes, Some(&family))
+                            {
+                                Ok(()) => {
+                                    log::debug!("Registered web font '{family}' from {font_url}");
+                                    break; // family face loaded; skip remaining sources
+                                }
+                                Err(e) => log::warn!("Failed to register web font '{family}': {e:?}"),
+                            }
+                        }
+                        Ok(resp) => log::warn!("Web font fetch {font_url} returned status {}", resp.status),
+                        Err(e) => log::warn!("Web font fetch {font_url} failed: {e}"),
+                    }
+                }
+            }
+        }
+    }
+
     fn on_nav_result(&mut self, res: NavigationResult<C>) {
         match res {
             NavigationResult::Ok {
@@ -281,6 +507,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 doc,
             } => {
                 self.context.set_document(Arc::clone(&doc));
+                self.load_web_fonts(&doc, &final_url);
                 self.current_url = Some(final_url.clone());
                 if let Some(t) = title {
                     self.title = t;
@@ -356,36 +583,45 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 let max_y = {
                     let ph = self.context.page_height();
                     if ph > 0.0 {
-                        (ph - self.desired_viewport.height as f64).max(0.0) as i32
+                        (ph - self.desired_viewport.height as f64).max(0.0)
                     } else {
-                        i32::MAX / 2
+                        f64::MAX
                     }
                 };
-                let prev_x = self.scroll_x;
-                let prev_y = self.scroll_y;
-                self.scroll_x = (self.scroll_x + delta_x as i32).max(0);
-                self.scroll_y = (self.scroll_y + delta_y as i32).clamp(0, max_y);
-                self.context.set_scroll(self.scroll_x as f64, self.scroll_y as f64);
 
-                // Submit the scroll frame immediately — don't wait for the next timer tick.
-                // Eliminates up to 33ms of latency at 30fps per scroll event.
-                // GPU-tile-compositing backends skip this CPU TileCache fast path (their tiles have
-                // no CPU pixels); they re-composite on the next tick via `composite_tiles`.
-                if self.zone_context.render_backend.raster_strategy() != RasterStrategy::None
-                    && !self.zone_context.render_backend.gpu_tile_compositing()
-                {
-                    let dpr = self.zone_context.render_backend.device_pixel_ratio();
-                    if let Some(handle) = self.context.take_scroll_handle(dpr) {
-                        self.runtime.committed_scene_epoch = self.context.scene_epoch();
-                        self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
-                        return ControlFlow::Continue;
+                match self.scroll.scroll_by(delta_x as f64, delta_y as f64, f64::MAX, max_y) {
+                    // Instant behavior: apply the new offset now and keep the immediate-submit fast
+                    // path (avoids up to 1/fps of latency per scroll event).
+                    Some((x, y)) => {
+                        let moved = x != self.scroll_x || y != self.scroll_y;
+                        self.scroll_x = x;
+                        self.scroll_y = y;
+                        self.context.set_scroll(x as f64, y as f64);
+
+                        // GPU-tile-compositing backends skip this CPU TileCache fast path (their
+                        // tiles have no CPU pixels); they re-composite on the next tick.
+                        if self.zone_context.render_backend.raster_strategy() != RasterStrategy::None
+                            && !self.zone_context.render_backend.gpu_tile_compositing()
+                        {
+                            let dpr = self.zone_context.render_backend.device_pixel_ratio();
+                            if let Some(handle) = self.context.take_scroll_handle(dpr) {
+                                self.runtime.committed_scene_epoch = self.context.scene_epoch();
+                                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+                                return ControlFlow::Continue;
+                            }
+                        }
+
+                        // TileCache not ready yet; fall back to the timer path. Only mark dirty if
+                        // the integer offset actually moved (sub-pixel deltas are no-ops).
+                        if moved {
+                            self.runtime.dirty = true;
+                        }
                     }
-                }
-
-                // TileCache not ready yet (first render hasn't completed); fall back to timer path.
-                // Only mark dirty if the scroll position actually moved (sub-pixel deltas are no-ops).
-                if self.scroll_x != prev_x || self.scroll_y != prev_y {
-                    self.runtime.dirty = true;
+                    // Animated behavior: tick_draw advances the ease toward the new target. Request
+                    // an immediate tick so the first frame lands without waiting up to 1/fps.
+                    None => {
+                        self.runtime.render_now = true;
+                    }
                 }
                 ControlFlow::Continue
             }
@@ -483,6 +719,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
     fn navigate_to(&mut self, url: impl Into<String>, _ignore_cache: bool) {
         self.scroll_x = 0;
         self.scroll_y = 0;
+        self.scroll.reset(0.0, 0.0);
+        self.scroll_anim_last = None;
         self.context.reset_scroll();
         // Cancel any previous running navigation in this tab
         self.cancel_current_nav();
@@ -739,6 +977,30 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Do a draw tick. This will be called based on the FPS that is requested
     #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
+        // Advance an in-flight smooth scroll: ease the engine scroll one step toward its target and
+        // keep the frame loop alive (mark dirty) until it settles exactly on the target. Dormant
+        // unless the scroll behavior is animated — `Instant` applies moves synchronously in the
+        // MouseScroll handler, so `animating()` stays false there.
+        if self.scroll.animating() {
+            let now = std::time::Instant::now();
+            let dt = self
+                .scroll_anim_last
+                .map(|t| now.duration_since(t).as_secs_f64())
+                .unwrap_or(1.0 / self.runtime.fps.max(1) as f64);
+            self.scroll_anim_last = Some(now);
+            if let Some((x, y)) = self.scroll.tick(dt) {
+                if x != self.scroll_x || y != self.scroll_y {
+                    self.scroll_x = x;
+                    self.scroll_y = y;
+                    self.context.set_scroll(x as f64, y as f64);
+                    self.runtime.dirty = true;
+                }
+            }
+            if !self.scroll.animating() {
+                self.scroll_anim_last = None;
+            }
+        }
+
         // A background media fetch (e.g. an image that started downloading during layout) landing
         // must wake the render loop even when nothing else changed, so the now-available image is
         // laid out and painted. This marks the render dirty under the hood.
@@ -1127,6 +1389,36 @@ mod tests {
     use crate::net::SharedBody;
     use bytes::Bytes;
     use futures_util::TryStreamExt;
+
+    /// Verify `decode_web_font` turns a real WOFF2 payload into an SFNT the font stack can
+    /// parse. Reads the fixture path from `GOSUB_WOFF2_FIXTURE` so we neither hit the network
+    /// nor commit a binary font; skips when unset.
+    #[test]
+    fn decode_web_font_woff2_roundtrips_to_sfnt() {
+        let Ok(path) = std::env::var("GOSUB_WOFF2_FIXTURE") else {
+            eprintln!("skipping: set GOSUB_WOFF2_FIXTURE to a .woff2 file to run");
+            return;
+        };
+        let woff2 = std::fs::read(&path).expect("read fixture");
+        assert_eq!(&woff2[0..4], b"wOF2", "fixture must be WOFF2");
+
+        let url = url::Url::parse("https://example.test/font.woff2").unwrap();
+        let sfnt = super::decode_web_font(woff2, &url);
+
+        // Output must be a different, valid SFNT (TrueType `0x00010000` or OpenType `OTTO`).
+        let magic = u32::from_be_bytes([sfnt[0], sfnt[1], sfnt[2], sfnt[3]]);
+        assert!(magic == 0x0001_0000 || magic == 0x4F54_544F, "not SFNT: {magic:#010x}");
+
+        // It must re-parse and expose the core tables a backend reads.
+        use allsorts::binary::read::ReadScope;
+        use allsorts::font_data::FontData;
+        use allsorts::tables::FontTableProvider;
+        let font = ReadScope::new(&sfnt).read::<FontData<'_>>().expect("parse SFNT");
+        let provider = font.table_provider(0).expect("table provider");
+        for tag in [allsorts::tag::HEAD, allsorts::tag::CMAP, allsorts::tag::GLYF] {
+            assert!(provider.has_table(tag), "missing table {tag:#010x}");
+        }
+    }
 
     #[tokio::test]
     async fn shared_body_streamreader_eof() {

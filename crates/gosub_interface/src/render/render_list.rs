@@ -181,6 +181,10 @@ pub enum DisplayItem {
         data: bytes::Bytes,
         /// In-memory byte order of `data`, set by the rasterizer that produced it.
         format: crate::render::backend::PixelFormat,
+        /// Group opacity to fade the whole tile by at composite time (1.0 = fully opaque). Carries
+        /// the tile's promoted-layer opacity so CPU backends realise CSS group `opacity` at blit
+        /// time (the GPU tile path applies the same factor in its blit shader).
+        opacity: f32,
     },
 }
 

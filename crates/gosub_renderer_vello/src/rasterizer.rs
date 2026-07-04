@@ -6,14 +6,29 @@ use gosub_render_pipeline::common::texture::TextureId;
 use gosub_render_pipeline::common::TextureStore;
 use gosub_render_pipeline::painter::commands::PaintCommand;
 use gosub_render_pipeline::rasterizer::Rasterable;
+use gosub_render_pipeline::render::backend::TileAnchor;
 use gosub_render_pipeline::tiler::Tile;
 
 use crate::backend::WgpuResources;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use vello::kurbo::{Affine, Rect, Vec2};
-use vello::peniko::{Color, Fill};
+use vello::peniko::{Color, Fill, Mix};
 use vello::{AaConfig, RenderParams, Scene};
+
+/// The transform a promoted layer's commands draw under, given its anchor and the current scroll.
+/// Mirrors `anchored_tile_pos`: normal layers scroll, fixed layers ignore scroll, sticky layers get
+/// the clamped catch-up offset.
+fn layer_affine(anchor: TileAnchor, sx: f64, sy: f64) -> Affine {
+    match anchor {
+        TileAnchor::Scroll => Affine::translate(Vec2::new(-sx, -sy)),
+        TileAnchor::Fixed => Affine::IDENTITY,
+        TileAnchor::Sticky(c) => {
+            let (dx, dy) = c.offset(sx, sy);
+            Affine::translate(Vec2::new(-sx + dx, -sy + dy))
+        }
+    }
+}
 
 mod brush;
 mod rectangle;
@@ -31,20 +46,49 @@ pub(crate) fn paint_commands_to_scene(
     commands: &[PaintCommand],
     size: Dimension,
     affine: Affine,
+    scroll: (f64, f64),
     media_store: &MediaStore,
     mut parley: Option<&mut ParleyFontSystem>,
 ) {
+    let (sx, sy) = scroll;
+    // The transform the current commands draw under. Starts at the caller's affine (per-tile
+    // translate for the tile path, `−scroll` for the whole-page scene path) and is swapped to a
+    // layer's anchor transform between PushLayer/PopLayer. The tile path never emits those, so it
+    // simply paints everything under the initial affine.
+    let mut cur = affine;
+    // (transform to restore, whether we pushed an opacity group) for each open PushLayer.
+    let mut stack: Vec<(Affine, bool)> = Vec::new();
     for command in commands {
         match command {
+            PaintCommand::PushLayer { opacity, anchor } => {
+                // Fade only when actually translucent (avoids a wasted offscreen group at α=1).
+                let faded = *opacity < 1.0;
+                if faded {
+                    // Clip to the viewport so the group's backing buffer stays viewport-sized; the
+                    // commands position themselves via `cur`, so the layer transform is identity.
+                    let clip = Rect::new(0.0, 0.0, size.width, size.height);
+                    scene.push_layer(Fill::NonZero, Mix::Normal, *opacity, Affine::IDENTITY, &clip);
+                }
+                stack.push((cur, faded));
+                cur = layer_affine(*anchor, sx, sy);
+            }
+            PaintCommand::PopLayer => {
+                if let Some((prev, faded)) = stack.pop() {
+                    if faded {
+                        scene.pop_layer();
+                    }
+                    cur = prev;
+                }
+            }
             PaintCommand::Svg(command) => {
-                svg::do_paint_svg(scene, command.media_id, &command.rect, affine, media_store);
+                svg::do_paint_svg(scene, command.media_id, &command.rect, cur, media_store);
             }
             PaintCommand::Rectangle(command) => {
-                rectangle::do_paint_rectangle(scene, command, affine, media_store);
+                rectangle::do_paint_rectangle(scene, command, cur, media_store);
             }
             PaintCommand::Text(command) => {
                 if let Some(parley) = parley.as_deref_mut() {
-                    if let Err(e) = text::do_paint_text(scene, command, size, affine, media_store, parley) {
+                    if let Err(e) = text::do_paint_text(scene, command, size, cur, media_store, parley) {
                         log::warn!("Failed to paint text: {:?}", e);
                     }
                 }
@@ -100,11 +144,14 @@ impl Rasterable for VelloRasterizer {
         }
 
         for element in &tile.elements {
+            // The tile path applies opacity/anchor at composite, so per-element commands carry no
+            // PushLayer/PopLayer — scroll is irrelevant here.
             paint_commands_to_scene(
                 &mut scene,
                 &element.paint_commands,
                 tile_size,
                 affine,
+                (0.0, 0.0),
                 media_store,
                 parley.as_deref_mut(),
             );

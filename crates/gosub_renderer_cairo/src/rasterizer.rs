@@ -87,6 +87,9 @@ impl Rasterable for CairoRasterizer {
             for element in &tile.elements {
                 for command in &element.paint_commands {
                     match command {
+                        // The tile path applies layer opacity/anchor at composite, so these
+                        // scene-only group markers never appear here — ignore them.
+                        PaintCommand::PushLayer { .. } | PaintCommand::PopLayer => {}
                         PaintCommand::Svg(command) => {
                             svg::do_paint_svg(&cr.clone(), tile, &command.rect, command.media_id, media_store, dpr);
                         }
