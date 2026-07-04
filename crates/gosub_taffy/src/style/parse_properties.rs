@@ -195,13 +195,13 @@ pub fn parse_align_items<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Optio
     let value = display.as_string()?;
 
     match value {
-        "start" => Some(AlignItems::Start),
-        "end" => Some(AlignItems::End),
-        "flex-start" => Some(AlignItems::FlexStart),
-        "flex-end" => Some(AlignItems::FlexEnd),
-        "center" => Some(AlignItems::Center),
-        "baseline" => Some(AlignItems::Baseline),
-        "stretch" => Some(AlignItems::Stretch),
+        "start" => Some(AlignItems::START),
+        "end" => Some(AlignItems::END),
+        "flex-start" => Some(AlignItems::FLEX_START),
+        "flex-end" => Some(AlignItems::FLEX_END),
+        "center" => Some(AlignItems::CENTER),
+        "baseline" => Some(AlignItems::BASELINE),
+        "stretch" => Some(AlignItems::STRETCH),
         _ => None,
     }
 }
