@@ -21,6 +21,169 @@
       "values": "-1,0-9999",
       "default": "i:-1",
       "description": "Defines how many tabs may be opened inside a window. -1 means unlimited."
+    },
+    {
+      "key": "default_title",
+      "type": "s",
+      "default": "s:New Tab",
+      "description": "Title shown for a newly created tab before a page loads."
+    }
+  ],
+  "zoom": [
+    {
+      "key": "default",
+      "type": "f",
+      "default": "f:1.0",
+      "description": "Default page zoom factor (1.0 = 100%). Range 0.25 to 5.0."
+    },
+    {
+      "key": "min",
+      "type": "f",
+      "default": "f:0.25",
+      "description": "Minimum allowed page zoom factor."
+    },
+    {
+      "key": "max",
+      "type": "f",
+      "default": "f:5.0",
+      "description": "Maximum allowed page zoom factor."
+    }
+  ],
+  "fonts": [
+    {
+      "key": "default_size",
+      "type": "u",
+      "default": "u:16",
+      "description": "Default font size in CSS pixels."
+    },
+    {
+      "key": "minimum_size",
+      "type": "u",
+      "default": "u:0",
+      "description": "Minimum enforced font size in CSS pixels. 0 disables the minimum."
+    },
+    {
+      "key": "scale",
+      "type": "f",
+      "default": "f:1.0",
+      "description": "Text scale factor applied on top of font sizes. Range 0.25 to 10.0."
+    },
+    {
+      "key": "family.standard",
+      "type": "s",
+      "default": "s:sans-serif",
+      "description": "Default font family used when a page specifies none."
+    },
+    {
+      "key": "family.serif",
+      "type": "s",
+      "default": "s:serif",
+      "description": "Font family bound to the generic 'serif' family."
+    },
+    {
+      "key": "family.sans_serif",
+      "type": "s",
+      "default": "s:sans-serif",
+      "description": "Font family bound to the generic 'sans-serif' family."
+    },
+    {
+      "key": "family.monospace",
+      "type": "s",
+      "default": "s:monospace",
+      "description": "Font family bound to the generic 'monospace' family."
+    },
+    {
+      "key": "fallback_list",
+      "type": "m",
+      "default": "m:Inter,Noto Sans",
+      "description": "Ordered list of fallback font families used when a requested font is unavailable."
+    }
+  ],
+  "content": [
+    {
+      "key": "javascript_enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "Execute JavaScript on pages."
+    },
+    {
+      "key": "images_enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "Load and display images."
+    },
+    {
+      "key": "plugins_enabled",
+      "type": "b",
+      "default": "b:false",
+      "description": "Enable browser plugins."
+    }
+  ],
+  "privacy": [
+    {
+      "key": "do_not_track",
+      "type": "b",
+      "default": "b:false",
+      "description": "Send the 'DNT: 1' header with requests."
+    },
+    {
+      "key": "accept_languages",
+      "type": "s",
+      "default": "s:en-US,en",
+      "description": "Value of the Accept-Language header sent with requests."
+    },
+    {
+      "key": "third_party_cookies",
+      "type": "s",
+      "values": "allow,block,samesite_none_only",
+      "default": "s:allow",
+      "description": "How third-party cookies are handled."
+    }
+  ],
+  "security": [
+    {
+      "key": "local_file_access",
+      "type": "b",
+      "default": "b:false",
+      "description": "Allow pages to access file:// URLs."
+    }
+  ],
+  "scroll": [
+    {
+      "key": "wheel.multiplier",
+      "type": "f",
+      "default": "f:12.5",
+      "description": "CSS pixels scrolled per raw mouse-wheel unit (sensitivity)."
+    },
+    {
+      "key": "smooth.enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "Animate scrolling smoothly instead of jumping instantly."
+    },
+    {
+      "key": "subpixel.threshold",
+      "type": "f",
+      "default": "f:0.5",
+      "description": "Minimum scroll delta (CSS px) before a repaint is triggered."
+    },
+    {
+      "key": "kinetic.friction",
+      "type": "f",
+      "default": "f:0.93",
+      "description": "Per-frame velocity decay for momentum scrolling (closer to 1.0 = longer glide)."
+    },
+    {
+      "key": "kinetic.min_velocity",
+      "type": "f",
+      "default": "f:2.0",
+      "description": "Velocity (px/frame) below which momentum scrolling stops."
+    },
+    {
+      "key": "kinetic.interval_ms",
+      "type": "u",
+      "default": "u:16",
+      "description": "Tick interval (milliseconds) of the momentum-scroll loop."
     }
   ]
 }

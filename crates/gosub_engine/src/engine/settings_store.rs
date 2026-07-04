@@ -111,4 +111,41 @@ mod test {
             .set("useragent.tab.close_button", Setting::Map(vec!["nope".into()]))
             .is_err());
     }
+
+    #[test]
+    fn both_schemas_parse_without_fallback() {
+        // An empty result would mean a malformed JSON triggered the error fallback.
+        assert!(!parse_schema(SETTINGS_JSON).unwrap().is_empty());
+        assert!(!parse_schema(USERAGENT_SETTINGS_JSON).unwrap().is_empty());
+    }
+
+    #[test]
+    fn every_default_satisfies_its_own_constraint() {
+        // Guards against typos in the JSON, e.g. a default value not in its own `values` list.
+        let cfg = default_config();
+        for key in cfg.find("*") {
+            let info = cfg.get_info(&key).unwrap();
+            if let Some(constraint) = &info.constraint {
+                assert!(
+                    constraint.allows(&info.default),
+                    "default for `{key}` violates its constraint: {:?} not allowed by {:?}",
+                    info.default,
+                    constraint
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn new_settings_are_present_and_typed() {
+        let cfg = default_config();
+        // Engine settings.
+        assert_eq!(cfg.get_uint("renderer.tile.size"), 256);
+        assert_eq!(cfg.get_uint("engine.channel_capacity"), 512);
+        assert_eq!(cfg.get_string("security.sandbox_mode"), "balanced");
+        // User-agent settings (namespaced via merge).
+        assert_eq!(cfg.get_float("useragent.zoom.default"), 1.0);
+        assert_eq!(cfg.get_float("useragent.scroll.wheel.multiplier"), 12.5);
+        assert_eq!(cfg.get_uint("useragent.fonts.default_size"), 16);
+    }
 }
