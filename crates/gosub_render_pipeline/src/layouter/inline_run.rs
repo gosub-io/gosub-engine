@@ -11,6 +11,7 @@
 //! whitespace-collapsing and line-box-splitting logic is pure and unit-tested below.
 #![allow(dead_code)]
 
+use cow_utils::CowUtils;
 use std::sync::Arc;
 
 use crate::common::document::node::NodeType;
@@ -254,8 +255,8 @@ fn finish_box(entries: Vec<TextEntry>) -> Vec<InlineSegment> {
 fn apply_transform(text: &str, transform: TextTransform) -> String {
     match transform {
         TextTransform::None => text.to_string(),
-        TextTransform::Uppercase => text.to_uppercase(),
-        TextTransform::Lowercase => text.to_lowercase(),
+        TextTransform::Uppercase => text.cow_to_uppercase().into_owned(),
+        TextTransform::Lowercase => text.cow_to_lowercase().into_owned(),
         TextTransform::Capitalize => {
             // First letter of each whitespace-separated word. Word boundaries are not tracked across
             // segment boundaries (a word split by an inline element is a Stage-3+ concern).
@@ -377,8 +378,14 @@ mod tests {
 
     #[test]
     fn applies_text_transform_per_segment() {
-        assert_eq!(finish_box(vec![te_tf("working", TextTransform::Uppercase)])[0].text, "WORKING");
-        assert_eq!(finish_box(vec![te_tf("WORKING", TextTransform::Lowercase)])[0].text, "working");
+        assert_eq!(
+            finish_box(vec![te_tf("working", TextTransform::Uppercase)])[0].text,
+            "WORKING"
+        );
+        assert_eq!(
+            finish_box(vec![te_tf("WORKING", TextTransform::Lowercase)])[0].text,
+            "working"
+        );
         assert_eq!(
             finish_box(vec![te_tf("early stage", TextTransform::Capitalize)])[0].text,
             "Early Stage"

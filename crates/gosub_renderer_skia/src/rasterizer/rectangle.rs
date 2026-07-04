@@ -6,8 +6,8 @@ use gosub_render_pipeline::painter::commands::rectangle::{BlendMode as CssBlendM
 use gosub_render_pipeline::tiler::Tile;
 use skia_safe::gradient::{shaders, Colors as GradientColors, Gradient as SkGradient, Interpolation};
 use skia_safe::{
-    images, AlphaType, BlendMode as SkBlendMode, Canvas, Color, Color4f, ColorType, Data, FilterMode, ISize,
-    ImageInfo, MipmapMode, Paint, Point, RRect, Rect, SamplingOptions, TileMode,
+    images, AlphaType, BlendMode as SkBlendMode, Canvas, Color, Color4f, ColorType, Data, FilterMode, ISize, ImageInfo,
+    MipmapMode, Paint, Point, RRect, Rect, SamplingOptions, TileMode,
 };
 
 /// CSS `mix-blend-mode` → Skia paint blend mode. The paint blends against the canvas content
@@ -143,7 +143,16 @@ fn draw_rect_or_rounded(canvas: &Canvas, cmd: &Rectangle, x: f32, y: f32, w: f32
 /// `(x, y)`×`w`×`h`. The decoded buffer is unpremultiplied RGBA; Skia scales it to the box with
 /// linear sampling, and a rounded box clips the draw to its corner radius.
 #[allow(clippy::too_many_arguments)]
-fn draw_image_brush(canvas: &Canvas, cmd: &Rectangle, media_id: MediaId, media_store: &MediaStore, x: f32, y: f32, w: f32, h: f32) {
+fn draw_image_brush(
+    canvas: &Canvas,
+    cmd: &Rectangle,
+    media_id: MediaId,
+    media_store: &MediaStore,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+) {
     if w <= 0.0 || h <= 0.0 {
         return;
     }

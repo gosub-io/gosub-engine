@@ -12,7 +12,14 @@ use skia_safe::{images, AlphaType, Canvas, ColorType, Data, ImageInfo, Paint, Re
 /// and let that scale map it 1:1 onto device pixels — crisp on HiDPI instead of upscaled from
 /// CSS resolution. The rendered physical pixels are cached on the `Svg` (keyed by physical
 /// dimension) and shared with the Cairo backend, which uses the same premultiplied-BGRA byte order.
-pub fn do_paint_svg(canvas: &Canvas, _tile: &Tile, media_id: MediaId, rect: &Rectangle, media_store: &MediaStore, dpr: i32) {
+pub fn do_paint_svg(
+    canvas: &Canvas,
+    _tile: &Tile,
+    media_id: MediaId,
+    rect: &Rectangle,
+    media_store: &MediaStore,
+    dpr: i32,
+) {
     let media = media_store.get_svg(media_id);
     let target_dim = rect.rect().dimension();
     let dpr = dpr.max(1) as u32;

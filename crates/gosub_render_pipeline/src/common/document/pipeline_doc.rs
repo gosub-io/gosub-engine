@@ -180,10 +180,7 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             } else if let Some((name, args)) = p.as_function() {
                 format!("{name}({})", join_grid_args::<S>(args))
             } else if let Some(list) = p.as_list() {
-                list.iter()
-                    .map(grid_value_to_string::<S>)
-                    .collect::<Vec<_>>()
-                    .join(" ")
+                list.iter().map(grid_value_to_string::<S>).collect::<Vec<_>>().join(" ")
             } else if let Some((val, unit)) = p.as_unit() {
                 format!("{val}{unit}")
             } else if let Some(pct) = p.as_percentage() {

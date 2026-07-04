@@ -93,9 +93,7 @@ fn weight_instances(tf: &skia_safe::Typeface) -> Vec<skia_safe::Typeface> {
             continue;
         }
         let coords = [Coordinate { axis: wght, value }];
-        let args = FontArguments::new().set_variation_design_position(VariationPosition {
-            coordinates: &coords,
-        });
+        let args = FontArguments::new().set_variation_design_position(VariationPosition { coordinates: &coords });
         if let Some(instance) = tf.clone_with_arguments(&args) {
             out.push(instance);
         }
@@ -452,10 +450,6 @@ fn to_slant(slant: i32) -> skia_safe::font_style::Slant {
 mod tests {
     use super::*;
 
-
-
-
-
     #[test]
     fn splits_and_trims_family_list() {
         assert_eq!(
@@ -502,9 +496,15 @@ mod tests {
     #[test]
     fn css_stretch_percent_maps_to_skia_width_classes() {
         assert_eq!(width_from_css_percent(100), skia_safe::font_style::Width::NORMAL);
-        assert_eq!(width_from_css_percent(50), skia_safe::font_style::Width::ULTRA_CONDENSED);
+        assert_eq!(
+            width_from_css_percent(50),
+            skia_safe::font_style::Width::ULTRA_CONDENSED
+        );
         assert_eq!(width_from_css_percent(75), skia_safe::font_style::Width::CONDENSED);
         assert_eq!(width_from_css_percent(125), skia_safe::font_style::Width::EXPANDED);
-        assert_eq!(width_from_css_percent(200), skia_safe::font_style::Width::ULTRA_EXPANDED);
+        assert_eq!(
+            width_from_css_percent(200),
+            skia_safe::font_style::Width::ULTRA_EXPANDED
+        );
     }
 }

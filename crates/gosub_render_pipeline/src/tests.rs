@@ -208,8 +208,6 @@ mod rendertree_from_engine {
         );
     }
 
-
-
     // Unitless line-height must survive the cascade as a fractional multiplier
     // (a regression here rounded `line-height: 1.7` to 2.0, inflating every paragraph).
 

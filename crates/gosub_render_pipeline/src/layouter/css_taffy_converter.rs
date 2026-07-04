@@ -533,10 +533,7 @@ fn parse_grid_template(s: &str) -> Option<Vec<GridTemplateComponent<String>>> {
         // copies of its track list. `auto-fill`/`auto-fit` counts are not supported yet and
         // cause the whole value to be ignored (falls back to the default) rather than
         // mis-rendering.
-        if let Some(inner) = token
-            .strip_prefix("repeat(")
-            .and_then(|t| t.strip_suffix(')'))
-        {
+        if let Some(inner) = token.strip_prefix("repeat(").and_then(|t| t.strip_suffix(')')) {
             let (count_str, track_str) = inner.split_once(',')?;
             let count: u16 = count_str.trim().parse().ok()?;
             let inner_tracks = parse_grid_template(track_str)?;

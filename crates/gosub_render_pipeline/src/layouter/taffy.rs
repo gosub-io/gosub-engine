@@ -1,3 +1,5 @@
+use cow_utils::CowUtils;
+
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
 use crate::common::document::style::{lookup, FontWeight, StyleProperty, TextAlign, Unit, Value};
 use crate::common::font::{FontAlignment, FontInfo};
@@ -87,8 +89,8 @@ fn apply_text_transform(text: String, transform: Value) -> String {
         return text;
     };
     match lookup(id).as_str() {
-        "uppercase" => text.to_uppercase(),
-        "lowercase" => text.to_lowercase(),
+        "uppercase" => text.cow_to_uppercase().into_owned(),
+        "lowercase" => text.cow_to_lowercase().into_owned(),
         "capitalize" => {
             let mut out = String::with_capacity(text.len());
             let mut at_word_start = true;
@@ -976,10 +978,7 @@ impl TaffyLayouter {
                 // Apply `text-transform` (inherited from the parent element) to the run before it
                 // is measured and painted — TaffyContext::text is the single source used for both,
                 // so transforming here keeps layout width and drawn glyphs in sync.
-                let text = apply_text_transform(
-                    text,
-                    doc.get_style(dom_node.node_id, &StyleProperty::TextTransform),
-                );
+                let text = apply_text_transform(text, doc.get_style(dom_node.node_id, &StyleProperty::TextTransform));
 
                 let text_decoration = match doc.get_style(dom_node.node_id, &StyleProperty::TextDecorationLine) {
                     Value::Keyword(id) => lookup(id),
@@ -1156,7 +1155,10 @@ mod tests {
         // Unsupported keyword (e.g. full-width) leaves the text untouched.
         assert_eq!(apply_text_transform("Working".to_string(), kw("full-width")), "Working");
         // Non-keyword value passes through.
-        assert_eq!(apply_text_transform("Working".to_string(), Value::Number(1.0)), "Working");
+        assert_eq!(
+            apply_text_transform("Working".to_string(), Value::Number(1.0)),
+            "Working"
+        );
     }
 
     #[test]
