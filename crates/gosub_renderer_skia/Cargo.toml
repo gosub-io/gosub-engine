@@ -12,6 +12,7 @@ gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub"
 log = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
+resvg = { workspace = true }
 
 skia-safe = { workspace = true, features = ["textlayout"] }
 

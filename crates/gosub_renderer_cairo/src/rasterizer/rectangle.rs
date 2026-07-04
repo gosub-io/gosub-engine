@@ -1,12 +1,40 @@
 use crate::rasterizer::brush::set_brush;
-use cairo::Context;
+use cairo::{Context, Operator};
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::border::BorderStyle;
-use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
+use gosub_render_pipeline::painter::commands::rectangle::{BlendMode, Rectangle};
 use gosub_render_pipeline::tiler::Tile;
+
+/// CSS `mix-blend-mode` → cairo compositing operator. The operator blends against the tile
+/// surface content already painted beneath the element.
+fn to_cairo_operator(mode: BlendMode) -> Operator {
+    match mode {
+        BlendMode::Normal => Operator::Over,
+        BlendMode::Multiply => Operator::Multiply,
+        BlendMode::Screen => Operator::Screen,
+        BlendMode::Overlay => Operator::Overlay,
+        BlendMode::Darken => Operator::Darken,
+        BlendMode::Lighten => Operator::Lighten,
+        BlendMode::ColorDodge => Operator::ColorDodge,
+        BlendMode::ColorBurn => Operator::ColorBurn,
+        BlendMode::HardLight => Operator::HardLight,
+        BlendMode::SoftLight => Operator::SoftLight,
+        BlendMode::Difference => Operator::Difference,
+        BlendMode::Exclusion => Operator::Exclusion,
+        BlendMode::Hue => Operator::HslHue,
+        BlendMode::Saturation => Operator::HslSaturation,
+        BlendMode::Color => Operator::HslColor,
+        BlendMode::Luminosity => Operator::HslLuminosity,
+    }
+}
 
 pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangle, media_store: &MediaStore) {
     _ = cr.save();
+
+    // Element-level mix-blend-mode; cr.restore() at the end returns the operator to Over.
+    if rectangle.blend_mode() != BlendMode::Normal {
+        cr.set_operator(to_cairo_operator(rectangle.blend_mode()));
+    }
 
     // Translate so the tile origin maps to the surface origin.
     // No explicit clip: Cairo's image surface boundary clips to exact pixel boundaries

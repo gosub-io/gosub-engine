@@ -502,10 +502,20 @@ pub fn resolve_functions<C: HasDocument>(
     }
 
     if let CssValue::List(list) = value {
-        let resolved = list
-            .iter()
-            .map(|val| resolve::<C>(val, doc, id, custom_props))
-            .collect();
+        // Flatten each element's resolution back into this list. `resolve` wraps a function's
+        // result in a `CssValue::List`, so without this a `var()`/`attr()` used *inside* a
+        // multi-token value (e.g. `border: 1px solid var(--rule)`) would nest as
+        // `[1px, solid, [color]]`. The `<color>` component of the shorthand matcher only sees a
+        // top-level `Color`, so the nested list is dropped and the border falls back to black.
+        // Splicing the inner tokens in keeps `border-color` (and any other shorthand part that
+        // comes from a variable) matchable.
+        let mut resolved = Vec::with_capacity(list.len());
+        for val in list {
+            match resolve::<C>(val, doc, id, custom_props) {
+                CssValue::List(inner) => resolved.extend(inner),
+                other => resolved.push(other),
+            }
+        }
         CssValue::List(resolved)
     } else {
         resolve::<C>(value, doc, id, custom_props)

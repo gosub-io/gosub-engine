@@ -308,6 +308,10 @@ pub enum StyleProperty {
     BackgroundImage,
     Content,
     Opacity,
+    TextTransform,
+    ZIndex,
+    LetterSpacing,
+    MixBlendMode,
 }
 
 impl StyleProperty {
@@ -388,6 +392,10 @@ impl StyleProperty {
             StyleProperty::BackgroundImage => 71,
             StyleProperty::Content => 72,
             StyleProperty::Opacity => 73,
+            StyleProperty::TextTransform => 74,
+            StyleProperty::ZIndex => 75,
+            StyleProperty::LetterSpacing => 76,
+            StyleProperty::MixBlendMode => 77,
         }
     }
 
@@ -899,6 +907,30 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Number(1.0),
     },
+    // 74 text-transform — inherited; initial = none
+    PropertyMeta {
+        name: "text-transform",
+        inherited: true,
+        initial_kind: InitialKind::Keyword("none"),
+    },
+    // 75 z-index — not inherited; initial = auto (only applies to positioned elements)
+    PropertyMeta {
+        name: "z-index",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("auto"),
+    },
+    // 76 letter-spacing — inherited; initial = normal (0)
+    PropertyMeta {
+        name: "letter-spacing",
+        inherited: true,
+        initial_kind: InitialKind::Keyword("normal"),
+    },
+    // 77 mix-blend-mode — not inherited; initial = normal
+    PropertyMeta {
+        name: "mix-blend-mode",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("normal"),
+    },
 ];
 
 // ── NodeStyle — replaces StylePropertyList ────────────────────────────────────
@@ -1035,6 +1067,10 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         71 => Some(StyleProperty::BackgroundImage),
         72 => Some(StyleProperty::Content),
         73 => Some(StyleProperty::Opacity),
+        74 => Some(StyleProperty::TextTransform),
+        75 => Some(StyleProperty::ZIndex),
+        76 => Some(StyleProperty::LetterSpacing),
+        77 => Some(StyleProperty::MixBlendMode),
         _ => None,
     }
 }

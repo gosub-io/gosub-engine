@@ -162,6 +162,140 @@ mod rendertree_from_engine {
         );
     }
 
+    // letter-spacing (em) must resolve to px through the cascade and be inherited by text nodes
+    #[test]
+    fn letter_spacing_em_resolves_to_px_and_inherits() {
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    .m { letter-spacing: 0.14em; font-size: 20px; display: block; }
+                </style>
+            </head>
+            <body><div class="m">HELLO</div></body>
+            </html>
+        "#;
+
+        use crate::common::document::node::NodeType;
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+
+        let root = adapter.doc.root();
+        let m = find_node_by_class_dfs(&adapter.doc, root, "m").expect("find .m");
+
+        // On the element itself: 0.14em * 20px = 2.8px.
+        let ls = adapter.get_style(m, &StyleProperty::LetterSpacing);
+        assert!(
+            matches!(ls, Value::Unit(px, Unit::Px) if (px - 2.8).abs() < 0.1),
+            "expected letter-spacing 2.8px on .m, got {ls:?}"
+        );
+
+        // Inherited by the child text node ("HELLO").
+        let text_child = adapter
+            .children(m)
+            .into_iter()
+            .find(|c| matches!(adapter.get_node_by_id(*c).map(|n| n.node_type), Some(NodeType::Text(_))))
+            .expect("find text child");
+        let ls_text = adapter.get_style(text_child, &StyleProperty::LetterSpacing);
+        assert!(
+            matches!(ls_text, Value::Unit(px, Unit::Px) if (px - 2.8).abs() < 0.1),
+            "expected inherited letter-spacing 2.8px on text node, got {ls_text:?}"
+        );
+    }
+
+    // Unitless line-height must survive the cascade as a fractional multiplier
+    // (a regression here rounded `line-height: 1.7` to 2.0, inflating every paragraph).
+
+    #[test]
+    fn unitless_line_height_keeps_fraction() {
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    body { font-size: 17px; line-height: 1.7; }
+                </style>
+            </head>
+            <body><section><p class="zone-intro">Gosub is in active early-stage development.</p></section></body>
+            </html>
+        "#;
+
+        use crate::common::document::node::NodeType;
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+
+        let root = adapter.doc.root();
+        let p = find_node_by_class_dfs(&adapter.doc, root, "zone-intro").expect("find p");
+        let text_child = adapter
+            .children(p)
+            .into_iter()
+            .find(|c| matches!(adapter.get_node_by_id(*c).map(|n| n.node_type), Some(NodeType::Text(_))))
+            .expect("find text child");
+
+        for id in [p, text_child] {
+            let fs = adapter.get_style(id, &StyleProperty::FontSize);
+            assert!(
+                matches!(fs, Value::Unit(px, Unit::Px) if (px - 17.0).abs() < 0.01),
+                "expected font-size 17px, got {fs:?}"
+            );
+            let lh = adapter.get_style(id, &StyleProperty::LineHeight);
+            assert!(
+                matches!(lh, Value::Number(n) if (n - 1.7).abs() < 0.01),
+                "expected line-height Number(1.7), got {lh:?}"
+            );
+        }
+    }
+
+    // mix-blend-mode must cascade to the element as a keyword the painter can map
+
+    #[test]
+    fn mix_blend_mode_reaches_element_style() {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{lookup, StyleProperty, Value};
+        use crate::painter::commands::rectangle::BlendMode;
+
+        let html = r#"
+            <html>
+            <head><style>.wreck { mix-blend-mode: multiply; }</style></head>
+            <body><img class="wreck" src="x.png"></body>
+            </html>
+        "#;
+
+        let mut doc = html_compile::<Config>(html);
+        let ua = Css3System::load_default_useragent_stylesheet();
+        doc.add_stylesheet(ua);
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+
+        let root = adapter.doc.root();
+        let img = find_node_by_class_dfs(&adapter.doc, root, "wreck").expect("find img");
+
+        let v = adapter.get_style(img, &StyleProperty::MixBlendMode);
+        let kw = match v {
+            Value::Keyword(kw) => lookup(kw),
+            other => panic!("expected keyword for mix-blend-mode, got {other:?}"),
+        };
+        assert_eq!(kw, "multiply");
+        assert_eq!(BlendMode::from_css_keyword(&kw), BlendMode::Multiply);
+
+        // Elements without the property default to Normal.
+        let body = adapter.body_node_id().expect("body");
+        let v = adapter.get_style(body, &StyleProperty::MixBlendMode);
+        let kw = match v {
+            Value::Keyword(kw) => lookup(kw),
+            other => panic!("expected keyword, got {other:?}"),
+        };
+        assert_eq!(BlendMode::from_css_keyword(&kw), BlendMode::Normal);
+    }
+
     // html_node_id / body_node_id resolve to the correct elements
 
     #[test]

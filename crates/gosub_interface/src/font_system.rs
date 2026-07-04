@@ -157,6 +157,9 @@ pub struct TextStyle {
     pub stretch: FontStretch,
     /// `Some(px)` forces an absolute line-box height; `None` = the font's natural height.
     pub line_height: Option<f32>,
+    /// Extra spacing between characters in px (CSS `letter-spacing`; 0 = `normal`). Affects the
+    /// measured width, so it must match what the renderer draws.
+    pub letter_spacing: f32,
     /// `Some(px)` soft-wraps at that width; `None` = a single unbroken line.
     pub max_width: Option<f32>,
     /// Device-pixel scale (DPI). `1.0` = CSS pixels.
@@ -173,6 +176,7 @@ impl TextStyle {
             style: FontStyle::Normal,
             stretch: FontStretch::NORMAL,
             line_height: None,
+            letter_spacing: 0.0,
             max_width: None,
             display_scale: 1.0,
         }

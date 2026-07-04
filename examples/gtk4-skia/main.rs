@@ -645,7 +645,13 @@ fn main() {
 /// us rasterize at logical resolution. Round up so a 1.5x surface renders at 2x then downscales —
 /// crisp — matching the Cairo backend.
 fn render_dpr(widget: &impl IsA<gtk4::Widget>) -> u32 {
-    (widget.scale_factor() as u32).max(1)
+    let fractional = widget
+        .native()
+        .and_then(|n| n.surface())
+        .map(|s| s.scale())
+        .filter(|s| *s > 0.0)
+        .unwrap_or_else(|| widget.scale_factor() as f64);
+    fractional.ceil().max(1.0) as u32
 }
 
 fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawState, scroll_x: f32, scroll_y: f32) {
@@ -736,7 +742,12 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
     dst.set_device_scale(dpr_f, dpr_f);
 
     cr.set_source_surface(&dst, 0.0, 0.0).unwrap_or_default();
-    cr.source().set_filter(gtk4::cairo::Filter::Nearest);
+    // `dst` is rendered at an integer DPR that is the ceil of the display's (possibly
+    // fractional) scale, so the draw context resamples it to the real device resolution.
+    // `Good` keeps that down/up-scale smooth (on a 1.5× display we rasterize at 2× then
+    // downscale — `Nearest` would alias that badly). All tiles were already CPU-blitted into
+    // this single surface, so there are no internal tile seams to worry about.
+    cr.source().set_filter(gtk4::cairo::Filter::Good);
     cr.paint().unwrap_or_default();
 }
 

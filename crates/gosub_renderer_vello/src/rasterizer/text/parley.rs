@@ -77,7 +77,9 @@ fn render_glyph_run(
     affine: Affine,
     media_store: &MediaStore,
 ) {
-    let vello_brush = set_brush(brush, *rect, media_store);
+    // Glyph runs take only the brush; an image brush transform has no meaningful mapping onto
+    // individual glyphs, so it is intentionally dropped here.
+    let (vello_brush, _) = set_brush(brush, *rect, media_store);
 
     let mut x = glyph_run.offset() + rect.x as f32;
     let y = glyph_run.baseline() + rect.y as f32;

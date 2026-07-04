@@ -103,11 +103,14 @@ impl RenderBackend for SkiaBackend {
                         }
                         // BGRA8888 wants [B, G, R, A]; convert (no-op when already in that order).
                         let data = format.to_argb32(data);
+                        // Tag the tile bytes sRGB to match the tile rasterizer and the destination
+                        // surface, so compositing is a straight copy in a single, defined colour
+                        // space rather than an implicit legacy (unmanaged) blit.
                         let info = skia_safe::ImageInfo::new(
                             skia_safe::ISize::new(*w as i32, *h as i32),
                             skia_safe::ColorType::BGRA8888,
                             skia_safe::AlphaType::Premul,
-                            None,
+                            Some(skia_safe::ColorSpace::new_srgb()),
                         );
                         if let Some(image) =
                             skia_safe::images::raster_from_data(&info, skia_safe::Data::new_copy(&data), stride)
@@ -207,10 +210,14 @@ impl SkiaSurface {
     }
 
     fn with_canvas(&mut self, f: impl FnOnce(&skia_safe::Canvas)) {
-        let Some(mut surface) = skia_safe::surfaces::raster_n32_premul(skia_safe::ISize::new(
-            self.size.width as i32,
-            self.size.height as i32,
-        )) else {
+        // Match the tile surfaces' sRGB colour space so compositing and any direct draws blend
+        // gamma-correctly (linear light), the same as the tile rasterizer. `raster_n32_premul`
+        // would create a colour-space-less surface and blend text/edges too heavily.
+        let info = skia_safe::ImageInfo::new_n32_premul(
+            skia_safe::ISize::new(self.size.width as i32, self.size.height as i32),
+            Some(skia_safe::ColorSpace::new_srgb()),
+        );
+        let Some(mut surface) = skia_safe::surfaces::raster(&info, None, None) else {
             log::error!(
                 "SkiaBackend: failed to create raster surface {}x{}",
                 self.size.width,

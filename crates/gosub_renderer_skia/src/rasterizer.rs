@@ -46,7 +46,7 @@ impl Rasterable for SkiaRasterizer {
         self.font_system.clone()
     }
 
-    fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, _media_store: &MediaStore) -> Option<TextureId> {
+    fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId> {
         // Rasterize at physical resolution (CSS px × DPR) so text/edges are crisp on HiDPI. The
         // compositor places these physical-sized tiles at physical positions (mirrors Cairo); at
         // DPR=1 this is a no-op.
@@ -58,11 +58,14 @@ impl Rasterable for SkiaRasterizer {
             return None;
         }
 
+        // Tag the surface sRGB so Skia blends anti-aliased text (and gradients) gamma-correctly, in
+        // linear light, the way browsers do. Without a colour space Skia blends in gamma-encoded
+        // space, which fattens glyph edges and makes text look heavier than Firefox.
         let info = skia_safe::ImageInfo::new(
             skia_safe::ISize::new(width as i32, height as i32),
             skia_safe::ColorType::BGRA8888,
             skia_safe::AlphaType::Premul,
-            None,
+            Some(skia_safe::ColorSpace::new_srgb()),
         );
         let Some(mut surface) = skia_safe::surfaces::raster(&info, None, None) else {
             log::error!("Failed to create Skia surface for tile rasterization");
@@ -95,13 +98,13 @@ impl Rasterable for SkiaRasterizer {
                     // group markers never appear here — ignore them.
                     PaintCommand::PushLayer { .. } | PaintCommand::PopLayer => {}
                     PaintCommand::Rectangle(command) => {
-                        rectangle::do_paint_rectangle(canvas, tile, command);
+                        rectangle::do_paint_rectangle(canvas, tile, command, media_store);
                     }
                     PaintCommand::Text(command) => {
                         let _ = text::do_paint_text(canvas, tile, command, self.dpi_scale_factor);
                     }
                     PaintCommand::Svg(command) => {
-                        svg::do_paint_svg(canvas, tile, command.media_id, &command.rect);
+                        svg::do_paint_svg(canvas, tile, command.media_id, &command.rect, media_store, dpr as i32);
                     }
                 }
             }

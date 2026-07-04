@@ -36,8 +36,8 @@ impl std::fmt::Display for LayerId {
 pub struct Layer {
     /// Layer ID
     pub layer_id: LayerId,
-    /// Order of the layer
-    #[allow(unused)]
+    /// Stacking order of the layer (from the promoting element's `z-index`; 0 by default). The
+    /// layer list is sorted by this so higher-`z-index` layers composite in front.
     pub order: isize,
     /// Group opacity applied to the whole layer at composite time (1.0 = fully opaque). Set when
     /// the layer is promoted because its source element has CSS `opacity < 1` (a compositing
@@ -280,24 +280,40 @@ impl LayerList {
         let root_id = self.layout_tree.root_id;
         let default_layer_id = self.new_layer(0);
 
-        self.traverse(default_layer_id, root_id, false, false);
+        self.traverse(default_layer_id, root_id, false, false, 0);
+
+        // Composite order = stacking order. Sort layers by their `order` (z-index level); the sort is
+        // stable, so layers at the same level keep DOM/creation order (the correct tie-break for
+        // equal z-index). The compositor and hit-test both walk `layer_ids` in this order.
+        let layers = self.layers.read();
+        self.layer_ids
+            .write()
+            .sort_by_key(|id| layers.get(id).map(|l| l.order).unwrap_or(0));
     }
 
     /// Walk the layout tree assigning each element to a layer.
     ///
     /// An element is *promoted* to its own layer (taking its whole subtree with it) when it
-    /// establishes a stacking context we handle: CSS `opacity < 1` (the layer is faded as a group)
-    /// or `position: fixed` (an independent/overlay layer). `in_promoted_group` is true while we
-    /// are inside such a subtree; there we deliberately do NOT spin off separate image layers, so
-    /// the image stays in the group layer and moves/fades together with it instead of floating on
-    /// top at full opacity. `group_faded` is true only when the enclosing group's layer has
+    /// establishes a stacking context we handle:
+    /// - `opacity < 1` (faded as a group), `position: fixed`/`sticky` (overlay/scroll-pinned): these
+    ///   are *compositing* reasons and promote even when already inside a group — a faded or pinned
+    ///   child must composite on its own so its fade/anchor is not lost into the parent layer.
+    /// - a positioned element with an explicit `z-index`: this only *re-levels* its subtree, so it
+    ///   promotes once (at the top of a group) and otherwise just passes its level down.
+    ///
+    /// `in_promoted_group` is true while inside such a subtree; there we deliberately do NOT spin off
+    /// separate image layers, so an image with no compositing reason stays in the group layer and
+    /// moves/fades with it. `group_faded` is true only when the enclosing group's layer has
     /// `opacity < 1`; it gates the per-element opacity skip (see [`LayerList::is_opacity_grouped`]).
+    /// `inherited_order` is the stacking level of the enclosing context; an element without its own
+    /// `z-index` composites at this level.
     fn traverse(
         &self,
         layer_id: LayerId,
         layout_element_node_id: LayoutElementId,
         in_promoted_group: bool,
         group_faded: bool,
+        inherited_order: isize,
     ) {
         let Some(layout_element) = self.layout_tree.get_node_by_id(layout_element_node_id) else {
             return;
@@ -320,12 +336,33 @@ impl LayerList {
         // containing block, both already laid out by the time layering runs.
         let sticky = self.sticky_constraint(layout_element);
 
-        // Promote a not-yet-grouped element with opacity < 1 or position: fixed to its own layer
-        // and pull its whole subtree into that layer. The layer's opacity (1.0 for an opaque fixed
-        // element) is realised at composite time. (Nested groups are not separately promoted in
-        // this pass; a descendant's own opacity still applies per-element on top of any group fade.)
-        // TODO: derive layer order from the element's CSS z-index / stacking context instead of 1.
-        if !in_promoted_group && (own_opacity < 1.0 || is_fixed || sticky.is_some()) {
+        // `z-index` only takes effect on positioned elements. An explicit integer establishes a
+        // stacking context whose layer must composite at that level (negative = behind, higher =
+        // in front) rather than in DOM order; `auto`/non-positioned leaves the level at 0.
+        let is_positioned = matches!(
+            doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Position),
+            Some(Value::Keyword(id)) if matches!(lookup(id).as_str(), "relative" | "absolute" | "fixed" | "sticky")
+        );
+        let z_index: Option<isize> = if is_positioned {
+            match doc.get_own_style(layout_element.dom_node_id, &StyleProperty::ZIndex) {
+                Some(Value::Number(n)) => Some(n as isize),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        // Stacking level for this element (and its promoted layer). The layer list is sorted by this
+        // after traversal, so e.g. a `z-index: 0` shipwreck composites below a `z-index: 1` text
+        // layer instead of on top of it (their DOM order alone would get this wrong). Without an own
+        // `z-index` an element composites at the enclosing context's level.
+        let order = z_index.unwrap_or(inherited_order);
+
+        // A *compositing* reason (fade/overlay) forces a layer even when nested, so the effect is not
+        // swallowed by the parent layer — e.g. a faded `<img>` inside a `z-index` container still
+        // gets its own faded layer. A plain positioned `z-index` only re-levels its subtree, so it
+        // promotes once at the top of a group and otherwise just carries `order` downward.
+        let compositing = own_opacity < 1.0 || is_fixed || sticky.is_some();
+        if compositing || (z_index.is_some() && !in_promoted_group) {
             let layer_opacity = own_opacity.clamp(0.0, 1.0);
             // `sticky` resolves its position from scroll at composite time; `fixed` pins to the
             // viewport; opacity-only promotion still scrolls normally. (Opacity is realised via
@@ -337,7 +374,7 @@ impl LayerList {
             } else {
                 TileAnchor::Scroll
             };
-            let group_layer_id = self.new_promoted_layer(1, layer_opacity, anchor);
+            let group_layer_id = self.new_promoted_layer(order, layer_opacity, anchor);
             self.add_to_layer(group_layer_id, layout_element.id);
             let faded = layer_opacity < 1.0;
             // Only a faded layer risks double-darkening, so only then skip the element's per-element
@@ -346,7 +383,7 @@ impl LayerList {
                 self.opacity_group_nodes.write().insert(layout_element.dom_node_id);
             }
             for &child_id in &layout_element.children {
-                self.traverse(group_layer_id, child_id, true, faded);
+                self.traverse(group_layer_id, child_id, true, faded, order);
             }
             return;
         }
@@ -357,8 +394,9 @@ impl LayerList {
             .unwrap_or(false);
 
         if is_image && !in_promoted_group {
-            // Standalone image: give it its own layer (existing behaviour).
-            let image_layer_id = self.new_layer(1);
+            // Standalone image: give it its own layer at its stacking level (its own `z-index` if
+            // positioned, otherwise the enclosing context's level).
+            let image_layer_id = self.new_layer(order);
             self.add_to_layer(image_layer_id, layout_element.id);
         } else {
             self.add_to_layer(layer_id, layout_element.id);
@@ -371,7 +409,7 @@ impl LayerList {
         }
 
         for &child_id in &layout_element.children {
-            self.traverse(layer_id, child_id, in_promoted_group, group_faded);
+            self.traverse(layer_id, child_id, in_promoted_group, group_faded, order);
         }
     }
 

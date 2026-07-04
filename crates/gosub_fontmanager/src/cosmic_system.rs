@@ -164,6 +164,7 @@ impl CosmicFontSystem {
             style: font.style,
             stretch: font.stretch,
             line_height,
+            letter_spacing: 0.0,
             max_width,
             display_scale,
         };

@@ -1,3 +1,5 @@
+use cow_utils::CowUtils;
+
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
 use crate::common::document::style::{lookup, FontWeight, StyleProperty, TextAlign, Unit, Value};
 use crate::common::font::{FontAlignment, FontInfo};
@@ -34,9 +36,9 @@ fn parse_px_attr(v: &str) -> Option<f32> {
     s.trim().parse::<f32>().ok().filter(|n| *n >= 0.0)
 }
 
-// Cache key: (text, font_family, size_bits, line_height_bits, weight, max_width_bits).
-// Floats are stored as their bit pattern so the tuple is Hash + Eq.
-type MeasureKey = (String, String, u32, u32, i32, u32);
+// Cache key: (text, font_family, size_bits, line_height_bits, weight, max_width_bits,
+// letter_spacing_bits). Floats are stored as their bit pattern so the tuple is Hash + Eq.
+type MeasureKey = (String, String, u32, u32, i32, u32, u32);
 
 /// One entry in a run of inline content awaiting layout. `Item`s are normal inline boxes/text
 /// laid out inside an anonymous flex container; `Break` is a `<br>` that ends the current line box
@@ -77,6 +79,36 @@ pub struct TaffyLayouter {
     /// Reverse index: DOM node ID → layout element ID.
     /// Built during generate_taffy_element and used by the table post-processing pass.
     dom_to_layout_mapping: HashMap<DomNodeId, LayoutElementId>,
+}
+
+/// Apply the CSS `text-transform` keyword to a text run. `uppercase`/`lowercase` map the whole
+/// string; `capitalize` uppercases the first letter of each whitespace-separated word. `none`
+/// (and any unsupported keyword such as `full-width`) leaves the text unchanged.
+fn apply_text_transform(text: String, transform: Value) -> String {
+    let Value::Keyword(id) = transform else {
+        return text;
+    };
+    match lookup(id).as_str() {
+        "uppercase" => text.cow_to_uppercase().into_owned(),
+        "lowercase" => text.cow_to_lowercase().into_owned(),
+        "capitalize" => {
+            let mut out = String::with_capacity(text.len());
+            let mut at_word_start = true;
+            for ch in text.chars() {
+                if ch.is_whitespace() {
+                    at_word_start = true;
+                    out.push(ch);
+                } else if at_word_start {
+                    at_word_start = false;
+                    out.extend(ch.to_uppercase());
+                } else {
+                    out.push(ch);
+                }
+            }
+            out
+        }
+        _ => text,
+    }
 }
 
 /// Context structures to pass to taffy measure functions so we can calculate the size of the text or images.
@@ -240,6 +272,7 @@ impl CanLayout for TaffyLayouter {
                             (text_ctx.font_info.line_height as f32).to_bits(),
                             text_ctx.font_info.weight,
                             (max_width as f32).to_bits(),
+                            (text_ctx.font_info.letter_spacing as f32).to_bits(),
                         );
                         if let Some(&cached) = measure_cache.get(&cache_key) {
                             return cached;
@@ -942,9 +975,21 @@ impl TaffyLayouter {
                     taffy_style.flex_shrink = 0.0;
                 }
 
+                // Apply `text-transform` (inherited from the parent element) to the run before it
+                // is measured and painted — TaffyContext::text is the single source used for both,
+                // so transforming here keeps layout width and drawn glyphs in sync.
+                let text = apply_text_transform(text, doc.get_style(dom_node.node_id, &StyleProperty::TextTransform));
+
                 let text_decoration = match doc.get_style(dom_node.node_id, &StyleProperty::TextDecorationLine) {
                     Value::Keyword(id) => lookup(id),
                     _ => String::new(),
+                };
+
+                // `letter-spacing` arrives already resolved to px (em resolved against font-size in
+                // `get_style`); `normal` (a keyword) means no extra spacing.
+                let letter_spacing = match doc.get_style(dom_node.node_id, &StyleProperty::LetterSpacing) {
+                    Value::Unit(px, Unit::Px) => px as f64,
+                    _ => 0.0,
                 };
 
                 let font_info = FontInfo {
@@ -954,6 +999,7 @@ impl TaffyLayouter {
                     width: 100, // 100%, normal
                     slant: if font_italic { 1 } else { 0 },
                     line_height,
+                    letter_spacing,
                     alignment,
                     underline: text_decoration.contains("underline"),
                     line_through: text_decoration.contains("line-through"),
@@ -1082,7 +1128,38 @@ pub fn taffy_layout_to_boxmodel(layout: &Layout, offset: Coordinate) -> box_mode
 
 #[cfg(test)]
 mod tests {
-    use super::to_absolute_url;
+    use super::{apply_text_transform, to_absolute_url};
+    use crate::common::document::style::{intern, Value};
+
+    fn kw(s: &str) -> Value {
+        Value::Keyword(intern(s))
+    }
+
+    #[test]
+    fn text_transform_uppercase_lowercase() {
+        assert_eq!(apply_text_transform("Working".to_string(), kw("uppercase")), "WORKING");
+        assert_eq!(apply_text_transform("Working".to_string(), kw("lowercase")), "working");
+    }
+
+    #[test]
+    fn text_transform_capitalize() {
+        assert_eq!(
+            apply_text_transform("early stage".to_string(), kw("capitalize")),
+            "Early Stage"
+        );
+    }
+
+    #[test]
+    fn text_transform_none_and_unsupported_passthrough() {
+        assert_eq!(apply_text_transform("Working".to_string(), kw("none")), "Working");
+        // Unsupported keyword (e.g. full-width) leaves the text untouched.
+        assert_eq!(apply_text_transform("Working".to_string(), kw("full-width")), "Working");
+        // Non-keyword value passes through.
+        assert_eq!(
+            apply_text_transform("Working".to_string(), Value::Number(1.0)),
+            "Working"
+        );
+    }
 
     #[test]
     fn relative_ref_replaces_base_last_segment() {
