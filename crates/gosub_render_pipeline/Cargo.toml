@@ -15,7 +15,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 csscolorparser = "0.8.3"
 regex = { workspace = true }
-rstar = "0.12.2"
+rstar = "0.13.0"
 gosub_net = { version = "0.1.1", path = "../gosub_net", registry = "gosub" }
 url = { workspace = true }
 resvg = { workspace = true }
