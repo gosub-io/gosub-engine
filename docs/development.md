@@ -2,20 +2,20 @@
 
 Run the test suite:
 
-```bash
+``` bash
 make test
 ```
 
 Run the benchmarks (Criterion):
 
-```bash
+``` bash
 cargo bench
 # open target/criterion/report/index.html
 ```
 
 Build everything in the workspace, including all examples and GUI binaries:
 
-```bash
+``` bash
 cargo build --workspace --examples --bins
 ```
 

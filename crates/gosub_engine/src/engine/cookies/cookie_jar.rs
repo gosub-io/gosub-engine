@@ -9,10 +9,10 @@
 //! and parses a subset of RFC 6265 `Set-Cookie` semantics.
 //!
 //! ## Notes & limitations
-//! - Parsing is intentionally **minimal**: attributes like `Expires`, `Path`,
-//!   `Domain`, `Secure`, `HttpOnly`, and `SameSite` are handled; `Max-Age`,
-//!   priorities, size limits, eviction policies, and expiration enforcement are
-//!   not (yet) implemented.
+//! - The attributes `Expires`, `Max-Age`, `Path`, `Domain`, `Secure`,
+//!   `HttpOnly`, and `SameSite` are parsed and enforced; expired cookies are
+//!   filtered on read and can be removed via [`CookieJar::purge_expired`].
+//!   Priorities, size limits, and eviction policies are not (yet) implemented.
 //! - Cookies are bucketed by **origin** (`url.origin().ascii_serialization()`).
 //!   Within a bucket, simple host/subdomain and path prefix checks are applied.
 //! - This module is **not** internally synchronized. Use it via a

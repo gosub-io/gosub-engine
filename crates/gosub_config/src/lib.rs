@@ -411,6 +411,7 @@ impl ConfigStore {
         };
 
         self.storage.remove(key)?;
+
         // Revert the in-memory value back to the default so subsequent reads return the default.
         let default = info.default.clone();
         let changed = {
