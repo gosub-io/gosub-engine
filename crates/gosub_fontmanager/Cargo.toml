@@ -9,12 +9,9 @@ license = "MIT"
 [dependencies]
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
-parking_lot = { workspace = true }
-log = { workspace = true }
-anyhow = { workspace = true }
 cow-utils = { workspace = true }
 parley = { workspace = true, default-features = true }
-cosmic-text = "0.19.0"
+cosmic-text = { workspace = true }
 
 [lints]
 workspace = true

@@ -109,6 +109,9 @@ impl FontSystem for ParleyFontSystem {
         if let Some(lh) = style.line_height {
             builder.push_default(parley::StyleProperty::LineHeight(parley::LineHeight::Absolute(lh)));
         }
+        if style.letter_spacing != 0.0 {
+            builder.push_default(parley::StyleProperty::LetterSpacing(style.letter_spacing));
+        }
         builder.push_default(parley::StyleProperty::Brush(()));
 
         let mut layout = builder.build(text);
@@ -336,5 +339,25 @@ fn style_to_parley(s: FontStyle) -> ParleyStyle {
         FontStyle::Normal => ParleyStyle::Normal,
         FontStyle::Italic => ParleyStyle::Italic,
         FontStyle::Oblique => ParleyStyle::Oblique(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn letter_spacing_widens_measurement() {
+        let mut fs = ParleyFontSystem::new();
+        let mut style = TextStyle::new("sans-serif", 16.0);
+        let (base_width, _) = fs.measure("Hello", &style);
+        assert!(base_width > 0.0, "expected a non-zero base width");
+
+        style.letter_spacing = 2.0;
+        let (spaced_width, _) = fs.measure("Hello", &style);
+        assert!(
+            spaced_width > base_width,
+            "letter-spacing should widen the measurement: {base_width} -> {spaced_width}"
+        );
     }
 }

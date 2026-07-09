@@ -38,6 +38,9 @@ pub fn get_parley_layout(
     if font_info.slant != 0 {
         builder.push_default(StyleProperty::FontStyle(parley::FontStyle::Italic));
     }
+    if font_info.letter_spacing != 0.0 {
+        builder.push_default(StyleProperty::LetterSpacing(font_info.letter_spacing as f32));
+    }
 
     let align = match font_info.alignment {
         FontAlignment::Start => Alignment::Start,

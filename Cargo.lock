@@ -3207,13 +3207,10 @@ dependencies = [
 name = "gosub_fontmanager"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "cosmic-text",
  "cow-utils",
  "gosub_interface",
  "gosub_shared",
- "log",
- "parking_lot",
  "parley",
 ]
 
