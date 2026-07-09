@@ -46,7 +46,7 @@ fn main() -> Result<()> {
 
     println!("Parsing url: {url:?}");
 
-    let response = gosub_net::net::simple::sync_fetch(&url)?;
+    let response = gosub_sonar::net::simple::sync_fetch(&url)?;
     if !response.is_ok() {
         bail!("Could not get url. Status code {}", response.status);
     }

@@ -58,10 +58,10 @@ descriptions say what they should cover so we can decide what to write next.
 
 ## Networking
 
-The networking stack (`gosub_net` and the docs under [network/](network/)) is moving to its
-own project, **gosub_sonar**, which carries its own documentation. The pages here
+The networking stack now lives in its own project, **gosub-sonar**, which carries its own
+documentation; the engine consumes it from crates.io. The pages here
 ([net-architecture](network/net-architecture.md), [net-design](network/net-design.md),
-[pump](network/pump.md)) describe the in-tree crate until the move completes.
+[pump](network/pump.md)) describe that stack as it was in-tree and remain useful background.
 
 ## Planned
 

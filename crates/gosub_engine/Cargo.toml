@@ -9,7 +9,7 @@ name = "gosub_engine"
 crate-type = ["rlib"]
 
 [dependencies]
-gosub_net = { version = "0.1.1", path = "../gosub_net" }
+gosub-sonar = "0.1.0"
 gosub_shared = { version = "0.1.1", path = "../gosub_shared" }
 gosub_config = { version = "0.1.1", path = "../gosub_config" }
 gosub_html5 = { version = "0.1.1", path = "../gosub_html5" }

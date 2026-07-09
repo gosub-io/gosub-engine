@@ -7,8 +7,8 @@
 //! ## What this module provides
 //! - A **dedicated Tokio I/O thread** for network work isolation
 //!   ([`spawn_io_thread`], [`IoHandle`], [`submit_to_io`]).
-//! - A **fetcher** with inflight de-duplication to avoid duplicate downloads
-//!   ([`FetchInflightMap`], [`FetcherConfig`]).
+//! - A **fetcher** (from the external `gosub-sonar` crate) with priority scheduling and
+//!   inflight de-duplication to avoid duplicate downloads ([`FetcherConfig`]).
 //! - A **shared, back-pressure-aware body** abstraction for streamed responses
 //!   ([`SharedBody`]).
 //! - A **router** that classifies responses and decides how the engine should handle them
@@ -33,7 +33,7 @@
 //! ## Typical flow
 //! 1. A tab (or engine) requests a URL; you **submit** the work to the I/O thread with
 //!    [`submit_to_io`] using your [`IoHandle`].
-//! 2. The **fetcher** consults [`FetchInflightMap`] to join an existing request or start a new one,
+//! 2. The **fetcher** coalesces identical in-flight requests internally,
 //!    producing either a **buffered** or **streamed** body (via [`SharedBody`]).
 //! 3. The result is **routed** by [`route_response_for`] into a [`RoutedOutcome`] that carries type
 //!    and metadata for downstream handling.
@@ -92,7 +92,6 @@
 //! - **Never block** the I/O thread with CPU-heavy work; keep it for sockets, TLS, and disk I/O.
 //! - Prefer **streaming** (`SharedBody`) for large responses; use **buffered** only when you need
 //!   random access or small payloads.
-//! - Use [`FetchInflightMap`] per runtime/zone to **coalesce identical requests** (same method+URL+Vary).
 //! - Emit and listen to [`events`] to keep UI and diagnostics reactive.
 //!
 //! ## Modules
@@ -145,7 +144,3 @@ pub use router::route_response_for;
 
 /// The routed outcome (MIME, sniffed type, charset, next steps).
 pub use router::RoutedOutcome;
-
-/// Map that **coalesces identical inflight requests**, letting late callers join
-/// an existing transfer instead of starting a new one.
-pub use fetcher::FetchInflightMap;

@@ -3,10 +3,9 @@ use crate::engine::types::{EventChannel, RequestId};
 use crate::events::{EngineEvent, NavigationEvent};
 use crate::net::emitter::NetObserver;
 use crate::net::events::NetEvent;
-use crate::net::req_ref_tracker::RequestReference;
-use crate::net::types::{FetchResultMeta, Initiator, ResourceKind};
+use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
+use crate::net::types::{Initiator, ResourceKind};
 use crate::tab::TabId;
-use http::StatusCode;
 
 /// Converts NetEvents into EngineEvents and send them over to the event_tx channel back to the UA
 pub struct EngineEventEmitter {
@@ -47,6 +46,11 @@ impl EngineEventEmitter {
     }
 
     /// Emit a navigation event
+    ///
+    /// Currently unused: the NetEvent::DecisionRequired arm moved out of the net layer when
+    /// fetching moved to the gosub-sonar crate. The engine-side decide step will emit
+    /// NavigationEvent::DecisionRequired through here once it is wired up.
+    #[allow(dead_code)]
     fn emit_navigation_event(&self, ev: NavigationEvent) {
         let _ = self.event_tx.send(EngineEvent::Navigation {
             tab_id: self.tab_id,
@@ -122,6 +126,7 @@ impl NetObserver for EngineEventEmitter {
                 received_bytes,
                 elapsed,
             } => {
+                REF_REGISTRY.forget_request(self.req_id);
                 self.emit(ResourceEvent::Finished {
                     request_id: self.req_id,
                     reference: self.reference,
@@ -131,6 +136,7 @@ impl NetObserver for EngineEventEmitter {
                 });
             }
             NetEvent::Failed { url, error } => {
+                REF_REGISTRY.forget_request(self.req_id);
                 self.emit(ResourceEvent::Failed {
                     request_id: self.req_id,
                     reference: self.reference,
@@ -139,6 +145,7 @@ impl NetObserver for EngineEventEmitter {
                 });
             }
             NetEvent::Cancelled { url, reason } => {
+                REF_REGISTRY.forget_request(self.req_id);
                 self.emit(ResourceEvent::Cancelled {
                     request_id: self.req_id,
                     reference: self.reference,
@@ -152,42 +159,6 @@ impl NetObserver for EngineEventEmitter {
             }
             NetEvent::Warning { .. } => {
                 // Do nothing
-            }
-            NetEvent::DecisionRequired {
-                url,
-                status,
-                headers,
-                content_length,
-                content_type,
-                peek_buf,
-                token,
-            } => {
-                let RequestReference::Navigation(nav_id) = self.reference else {
-                    // Only navigation requests can trigger decision required events
-                    log::warn!(
-                        "Received DecisionRequired event for non-navigation request: {:?}",
-                        self.reference
-                    );
-                    return;
-                };
-
-                let has_body = !peek_buf.is_empty();
-
-                self.emit_navigation_event(NavigationEvent::DecisionRequired {
-                    nav_id,
-                    decision_token: token,
-                    meta: FetchResultMeta {
-                        final_url: url.clone(),
-                        status,
-                        status_text: StatusCode::from_u16(status)
-                            .map(|s| s.canonical_reason().unwrap_or("").to_string())
-                            .unwrap_or_default(),
-                        headers: headers.clone(),
-                        content_length,
-                        content_type,
-                        has_body,
-                    },
-                });
             }
         }
     }

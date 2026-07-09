@@ -96,9 +96,9 @@ Survivors are sorted longest-path-first, ties broken by creation time
 (RFC 6265bis §5.5), and joined into a single `name=value; name=value` string.
 
 One more protection lives in the network layer rather than the jar: on a
-cross-domain redirect, `gosub_net` strips the `Cookie` header from the
-follow-up request so cookies never leak to a different host
-(`crates/gosub_net/src/net/fetch.rs`).
+cross-domain redirect, the fetcher (the external `gosub-sonar` crate) strips
+the `Cookie` header from the follow-up request so cookies never leak to a
+different host.
 
 ### 3. Persistence
 

@@ -1,1 +1,1 @@
-pub use gosub_net::net::events::NetEvent;
+pub use gosub_sonar::net::events::NetEvent;

@@ -1,6 +1,7 @@
 use crate::engine::types::IoChannel;
 use crate::engine::EngineContext;
 use crate::events::IoCommand;
+use crate::net::decision_hub::DecisionHub;
 use crate::net::fetcher::{EngineNetContext, Fetcher, FetcherConfig};
 use crate::net::req_ref_tracker::RequestRefTracker;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
@@ -80,6 +81,9 @@ pub struct IoRouter {
     cfg: FetcherConfig,
     /// Shared engine context for event broadcasting and request tracking
     engine_ctx: Arc<EngineContext>,
+    /// Pending UA decisions (render/download/...) keyed by decision token.
+    /// Tokens are process-wide unique, so one hub serves all zones.
+    decision_hub: Arc<DecisionHub>,
     // // Send "true" when we want to shut down the IO thread including ALL zone fetchers
     // io_shutdown_rx: watch::Receiver<bool>,
 }
@@ -90,6 +94,7 @@ impl IoRouter {
             zones: DashMap::new(),
             cfg,
             engine_ctx,
+            decision_hub: Arc::new(DecisionHub::new()),
         }
     }
 
@@ -227,11 +232,10 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                                 Err(e) => log::error!("Failed to create fetcher for zone {zone_id}: {e}"),
                             }
                         }
-                        Some(IoCommand::Decision { zone_id, token, action }) => {
-                            match router.get_or_spawn_zone_fetcher(zone_id) {
-                                Ok(fetcher) => fetcher.fulfill(token, action).await,
-                                Err(e) => log::error!("Failed to create fetcher for zone {zone_id}: {e}"),
-                            }
+                        Some(IoCommand::Decision { zone_id: _, token, action }) => {
+                            // Decisions are engine-owned (gosub-sonar has no decision hub);
+                            // tokens are unique so a single hub covers every zone.
+                            router.decision_hub.fulfill(token, action);
                         }
                         Some(IoCommand::ShutdownZone { zone_id, reply_tx }) => {
                             let _ = router.shutdown_zone(zone_id).await;
@@ -269,6 +273,7 @@ mod tests {
             req_timeout: Duration::from_millis(100),
             read_idle_timeout: Duration::from_millis(100),
             total_body_timeout: Some(Duration::from_millis(150)),
+            ..FetcherConfig::default()
         }
     }
 
