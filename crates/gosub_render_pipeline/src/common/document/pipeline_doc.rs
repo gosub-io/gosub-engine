@@ -183,10 +183,9 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
                 list.iter().map(grid_value_to_string::<S>).collect::<Vec<_>>().join(" ")
             } else if let Some((val, unit)) = p.as_unit() {
                 format!("{val}{unit}")
-            } else if let Some(pct) = p.as_percentage() {
-                format!("{pct}%")
             } else {
-                return None;
+                let pct = p.as_percentage()?;
+                format!("{pct}%")
             };
             Some(Value::Keyword(intern(&s)))
         }
