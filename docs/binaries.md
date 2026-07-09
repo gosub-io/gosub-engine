@@ -1,11 +1,8 @@
 # Component tool reference
 
-These binaries each exercise a single crate in isolation — the HTML5 parser, CSS3 parser,
-config store, etc. They are useful for development and debugging but are not the primary way to
-drive the engine.
+These binaries each exercise a single crate in isolation --- the HTML5 parser, CSS3 parser, config store, etc. They are useful for development and debugging but are not the primary way to drive the engine.
 
-To see the full `GosubEngine` stack in action (multi-zone/tab model, async networking, event
-bus), run the engine examples instead:
+To see the full `GosubEngine` stack in action (multi-zone/tab model, async networking, event bus), run the engine examples instead:
 
 ```bash
 cargo run --example hello-world    # single tab, headless
@@ -16,7 +13,7 @@ cargo run -p example-egui-vello    # egui/wgpu window
 
 See [`examples/README.md`](../examples/README.md) for details.
 
----
+------------------------------------------------------------------------
 
 ## config-store
 
@@ -39,11 +36,9 @@ useragent.tab.close_button              : m: left
 useragent.tab.max_opened                : i:-1
 ```
 
-
 ## css3-parser
 
-Parse a CSS stylesheet and print the parse tree (or any errors encountered). Does not validate
-property value syntax — `color: 1%` will parse without error.
+Parse a CSS stylesheet and print the parse tree (or any errors encountered). Does not validate property value syntax --- `color: 1%` will parse without error.
 
 ```bash
 $ cargo run -r --bin css3-parser file://tests/data/css3-data/test.css
@@ -62,7 +57,6 @@ Running css3 parser of (54.00 B) took 0 ms.
       [Declaration] border
         List([Unit(1.0, "px"), String("solid"), String("black")])
 ```
-
 
 ## gosub-parser
 
@@ -86,41 +80,33 @@ html5.parse          |        1 |      605ms |      605ms |      605ms |      60
 css3.parse           |        1 |      613µs |      613µs |      613µs |      613µs
 ```
 
-
 ## display-text-tree
 
-Fetch a URL and print a plain-text representation — all text nodes from the parsed document,
-with no layout or styling applied. Useful for a quick sanity check on what the parser sees.
+Fetch a URL and print a plain-text representation --- all text nodes from the parsed document, with no layout or styling applied. Useful for a quick sanity check on what the parser sees.
 
 ```bash
 $ cargo run -r --bin display-text-tree https://gosub.io
 ```
 
-
 ## html5-parser-test
 
-Run the html5lib tree-builder test suite from the command line. The test data files must be
-reachable from the working directory; run from the repo root.
+Run the html5lib tree-builder test suite from the command line. The test data files must be reachable from the working directory; run from the repo root.
 
 ```bash
 $ cargo run -r --bin html5-parser-test
 ```
 
-
 ## parser-test
 
-A focused parser development harness for running specific HTML5 parser tests during development.
-Intended for use while actively working on the parser; not a substitute for the full test suite.
+A focused parser development harness for running specific HTML5 parser tests during development. Intended for use while actively working on the parser; not a substitute for the full test suite.
 
 ```bash
 $ cargo run -r --bin parser-test
 ```
 
-
 ## run-js
 
-Run a JavaScript file through the V8 engine. There is no DOM or Web API binding, so browser
-globals (`console`, `document`, `fetch`, etc.) are not available.
+Run a JavaScript file through the V8 engine. There is no DOM or Web API binding, so browser globals (`console`, `document`, `fetch`, etc.) are not available.
 
 ```javascript
 var a = 1 + 3
