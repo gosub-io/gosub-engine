@@ -74,9 +74,7 @@ impl Type {
                 ty: TypeT::Generic(parse_impl(&p.bounds)?),
             }),
 
-            t => {
-                panic!("Invalid argument type: {}", t.into_token_stream());
-            }
+            _ => Err("invalid argument type"),
         }
     }
 

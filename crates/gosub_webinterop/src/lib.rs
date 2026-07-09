@@ -35,7 +35,11 @@ pub fn web_interop(args: TokenStream, item: TokenStream) -> TokenStream {
     let mut input: ItemStruct = syn::parse_macro_input!(item);
 
     for field in &mut input.fields {
-        if let Some(property) = FieldProperty::parse(&mut field.attrs) {
+        let property = match FieldProperty::parse(&mut field.attrs) {
+            Ok(property) => property,
+            Err(e) => return e.to_compile_error().into(),
+        };
+        if let Some(property) = property {
             let f = Field {
                 name: property.rename.unwrap_or(field.ident.as_ref().unwrap().to_string()),
                 executor: property.executor,
@@ -83,15 +87,22 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
         if let syn::ImplItem::Fn(method) = func {
             let args = &method.sig.inputs;
 
-            let property = FunctionProperty::parse(&mut method.attrs).unwrap_or_default();
+            let property = match FunctionProperty::parse(&mut method.attrs) {
+                Ok(property) => property.unwrap_or_default(),
+                Err(e) => return e.to_compile_error().into(),
+            };
 
             let name = property.rename.unwrap_or(method.sig.ident.to_string());
+            let return_type = match ReturnType::parse(&method.sig.output) {
+                Ok(return_type) => return_type,
+                Err(e) => return syn::Error::new_spanned(&method.sig.output, e).to_compile_error().into(),
+            };
             let mut func = Function {
                 ident: Ident::new(&name, method.sig.ident.span()),
                 name,
                 arguments: Vec::with_capacity(args.len()), // we don't know if the first is self, so no args.len() - 1
                 self_type: SelfType::NoSelf,
-                return_type: ReturnType::parse(&method.sig.output).expect("failed to parse return type"),
+                return_type,
                 executor: property.executor,
                 generics: GenericsMatcher::get_matchers(property.generics, method),
                 func_generics: method.sig.generics.clone(),
@@ -111,7 +122,10 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut index = 0;
             for arg in args {
                 if let FnArg::Typed(arg) = arg {
-                    let arg = Arg::parse(&arg.ty, index, &func.generics).expect("failed to parse arg");
+                    let arg = match Arg::parse(&arg.ty, index, &func.generics) {
+                        Ok(arg) => arg,
+                        Err(e) => return syn::Error::new_spanned(&arg.ty, e).to_compile_error().into(),
+                    };
                     if arg.variant == ArgVariant::Variadic {
                         func.variadic = true;
                     } else if arg.variant == ArgVariant::Context {

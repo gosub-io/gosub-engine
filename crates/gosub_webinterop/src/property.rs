@@ -35,7 +35,7 @@ impl Default for FunctionProperty {
 }
 
 impl FieldProperty {
-    pub(crate) fn parse(attrs: &mut Vec<Attribute>) -> Option<FieldProperty> {
+    pub(crate) fn parse(attrs: &mut Vec<Attribute>) -> syn::Result<Option<FieldProperty>> {
         let mut remove_attrs = None;
         let mut property = None;
 
@@ -88,11 +88,13 @@ impl FieldProperty {
                             }
 
                             Ok(())
-                        })
-                        .unwrap();
+                        })?;
                     }
                     Meta::NameValue(_) => {
-                        panic!("Unexpected NameValue in property attribute");
+                        return Err(syn::Error::new_spanned(
+                            attr,
+                            "unexpected name-value in property attribute",
+                        ));
                     }
                 }
 
@@ -104,12 +106,12 @@ impl FieldProperty {
             attrs.remove(index);
         }
 
-        property
+        Ok(property)
     }
 }
 
 impl FunctionProperty {
-    pub(crate) fn parse(attrs: &mut Vec<Attribute>) -> Option<FunctionProperty> {
+    pub(crate) fn parse(attrs: &mut Vec<Attribute>) -> syn::Result<Option<FunctionProperty>> {
         let mut remove_attrs = Vec::new();
         let mut property = None;
 
@@ -159,11 +161,13 @@ impl FunctionProperty {
                             }
 
                             Ok(())
-                        })
-                        .unwrap();
+                        })?;
                     }
                     Meta::NameValue(_) => {
-                        panic!("Unexpected NameValue in property attribute");
+                        return Err(syn::Error::new_spanned(
+                            attr,
+                            "unexpected name-value in property attribute",
+                        ));
                     }
                 }
 
@@ -192,10 +196,10 @@ impl FunctionProperty {
                             name_found = true;
                         }
                         Ok(())
-                    })
-                    .unwrap();
+                    })?;
 
-                    let param = param.expect("Expected param in generic attribute");
+                    let param =
+                        param.ok_or_else(|| syn::Error::new_spanned(attr, "expected param in generic attribute"))?;
 
                     property
                         .as_mut()
@@ -203,7 +207,10 @@ impl FunctionProperty {
                         .generics
                         .push(GenericProperty { param, types });
                 } else {
-                    panic!("Unexpected NameValue in generic attribute");
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        "unexpected name-value in generic attribute",
+                    ));
                 }
 
                 remove_attrs.push(index);
@@ -214,6 +221,6 @@ impl FunctionProperty {
             attrs.remove(index);
         }
 
-        property
+        Ok(property)
     }
 }
