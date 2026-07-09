@@ -3104,18 +3104,14 @@ dependencies = [
 name = "gosub_config"
 version = "0.1.1"
 dependencies = [
- "anyhow",
  "cow-utils",
- "gosub_shared",
  "log",
  "parking_lot",
  "rusqlite",
  "serde",
- "serde_derive",
  "serde_json",
  "testing_logger",
  "thiserror 2.0.18",
- "url",
  "wildmatch",
 ]
 
