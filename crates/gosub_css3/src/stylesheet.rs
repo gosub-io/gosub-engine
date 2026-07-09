@@ -574,10 +574,7 @@ impl CssValue {
             crate::node::NodeType::Function { name, arguments } => {
                 let mut list = vec![];
                 for node in &arguments {
-                    match CssValue::parse_ast_node(node) {
-                        Ok(value) => list.push(value),
-                        Err(e) => return Err(e),
-                    }
+                    list.push(CssValue::parse_ast_node(node)?);
                 }
                 // Color functions (rgb/rgba/hsl/hsla/oklch/…) collapse to a concrete `Color`
                 // at parse time. This lets `<color>` syntax matching (which only recognises
