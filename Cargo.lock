@@ -3303,7 +3303,6 @@ name = "gosub_lattice"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "log",
 ]
 
 [[package]]

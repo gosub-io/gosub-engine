@@ -27,6 +27,10 @@ pub struct MockCell {
     pub border: f32,
     /// Uniform padding on all sides.
     pub padding: f32,
+    /// Natural (pre-pass) border-box width reported via `cell_content_width`.
+    pub content_width: f32,
+    /// Content height reported by `layout_cell` (as if children were laid out).
+    pub content_height: f32,
 }
 
 impl MockCell {
@@ -39,6 +43,8 @@ impl MockCell {
             height: None,
             border: 0.0,
             padding: 1.0,
+            content_width: 0.0,
+            content_height: 0.0,
         }
     }
 
@@ -64,6 +70,14 @@ impl MockCell {
     }
     pub fn padding(mut self, p: f32) -> Self {
         self.padding = p;
+        self
+    }
+    pub fn content_width(mut self, w: f32) -> Self {
+        self.content_width = w;
+        self
+    }
+    pub fn content_height(mut self, h: f32) -> Self {
+        self.content_height = h;
         self
     }
 }
@@ -136,16 +150,7 @@ impl MockTable {
                 let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
                 tree.add_child(hg, row);
                 for mc in row_cells {
-                    let cell_id = tree.alloc(
-                        TableRole::Cell,
-                        Some(mc.label),
-                        mc.colspan,
-                        mc.rowspan,
-                        mc.width,
-                        mc.height,
-                        mc.border,
-                        mc.padding,
-                    );
+                    let cell_id = tree.alloc_cell(mc);
                     tree.add_child(row, cell_id);
                 }
             }
@@ -158,16 +163,7 @@ impl MockTable {
                 let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
                 tree.add_child(bg, row);
                 for mc in row_cells {
-                    let cell_id = tree.alloc(
-                        TableRole::Cell,
-                        Some(mc.label),
-                        mc.colspan,
-                        mc.rowspan,
-                        mc.width,
-                        mc.height,
-                        mc.border,
-                        mc.padding,
-                    );
+                    let cell_id = tree.alloc_cell(mc);
                     tree.add_child(row, cell_id);
                 }
             }
@@ -180,16 +176,7 @@ impl MockTable {
                 let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
                 tree.add_child(fg, row);
                 for mc in row_cells {
-                    let cell_id = tree.alloc(
-                        TableRole::Cell,
-                        Some(mc.label),
-                        mc.colspan,
-                        mc.rowspan,
-                        mc.width,
-                        mc.height,
-                        mc.border,
-                        mc.padding,
-                    );
+                    let cell_id = tree.alloc_cell(mc);
                     tree.add_child(row, cell_id);
                 }
             }
@@ -212,6 +199,8 @@ struct MockNode {
     height: Option<f32>,
     border: f32,
     padding: f32,
+    content_width: f32,
+    content_height: f32,
 }
 
 pub struct MockTree {
@@ -222,7 +211,7 @@ pub struct MockTree {
 }
 
 impl MockTree {
-    fn new(border_spacing_x: f32, border_spacing_y: f32) -> Self {
+    pub fn new(border_spacing_x: f32, border_spacing_y: f32) -> Self {
         Self {
             nodes: HashMap::new(),
             next_id: 0,
@@ -232,7 +221,7 @@ impl MockTree {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn alloc(
+    pub fn alloc(
         &mut self,
         role: TableRole,
         label: Option<String>,
@@ -258,12 +247,33 @@ impl MockTree {
                 height,
                 border,
                 padding,
+                content_width: 0.0,
+                content_height: 0.0,
             },
         );
         id
     }
 
-    fn add_child(&mut self, parent: u32, child: u32) {
+    /// Allocate a cell node from a [`MockCell`] spec.
+    pub fn alloc_cell(&mut self, mc: MockCell) -> u32 {
+        let id = self.alloc(
+            TableRole::Cell,
+            Some(mc.label),
+            mc.colspan,
+            mc.rowspan,
+            mc.width,
+            mc.height,
+            mc.border,
+            mc.padding,
+        );
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.content_width = mc.content_width;
+            node.content_height = mc.content_height;
+        }
+        id
+    }
+
+    pub fn add_child(&mut self, parent: u32, child: u32) {
         if let Some(node) = self.nodes.get_mut(&parent) {
             node.children.push(child);
         }
@@ -336,10 +346,16 @@ impl TableTree for MockTree {
         }
     }
 
-    fn layout_cell(&mut self, _id: u32, _available_width: f32) -> f32 {
-        // MockTree carries no real child content — row heights are driven by
-        // explicit CSS `height` values set on the cell nodes instead.
-        0.0
+    fn layout_cell(&mut self, id: u32, _available_width: f32) -> f32 {
+        // MockTree carries no real child content; a cell's `content_height`
+        // spec field stands in for the height its children would occupy.
+        // Cells without one (the default 0.0) are driven by explicit CSS
+        // `height` instead (see rows.rs).
+        self.nodes.get(&id).map(|n| n.content_height).unwrap_or(0.0)
+    }
+
+    fn cell_content_width(&self, id: u32) -> f32 {
+        self.nodes.get(&id).map(|n| n.content_width).unwrap_or(0.0)
     }
 }
 

@@ -1,6 +1,10 @@
 /// Console table renderer — run with:
 ///   cargo run --bin table_console -p gosub_lattice
-use gosub_lattice::mock::{cell, MockTable};
+///
+/// Each demo mirrors an integration test in `src/tests.rs`, so the same
+/// scenarios the tests assert numerically can be eyeballed here.
+use gosub_lattice::mock::{cell, render_tree, MockTable, MockTree};
+use gosub_lattice::{compute_table_layout, TableRole};
 
 fn main() {
     // 1. Simple 3-column table, no spanning
@@ -56,4 +60,89 @@ fn main() {
         .footer_row(vec![cell("Footer").colspan(3)])
         .render();
     println!("{out}");
+
+    // 6. Content-driven column widths (tests 18/19): narrow columns keep their
+    //    natural width (with a 14px floor), the wide content column absorbs the
+    //    rest. Column sizing scans the first row, so content widths go there.
+    println!("=== content-proportional columns (narrow cols keep natural width) ===");
+    let out = MockTable::new(80.0)
+        .body_row(vec![
+            cell("1.").content_width(3.0),
+            cell("A story title that wants all the room").content_width(52.0),
+            cell("312").content_width(6.0),
+        ])
+        .body_row(vec![cell("2."), cell("Shorter title"), cell("41")])
+        .render();
+    println!("{out}");
+
+    // 7. Explicit width clamped to content (test 20): width=6 on a cell whose
+    //    content is naturally 12 wide — the column comes out 12, not 6.
+    println!("=== explicit width clamped up to content width ===");
+    let out = MockTable::new(50.0)
+        .body_row(vec![
+            cell("img w=6 c=12").width(6.0).content_width(12.0),
+            cell("caption gets the rest"),
+        ])
+        .render();
+    println!("{out}");
+
+    // 8. Anonymous-box fixups (tests 14/15): bare rows directly under the table
+    //    get an anonymous body group — the table renders as if wrapped in <tbody>.
+    println!("=== anonymous group: bare rows directly under the table ===");
+    let mut tree = MockTree::new(1.0, 0.0);
+    let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
+    for labels in [["bare", "row"], ["no", "tbody"]] {
+        let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, row);
+        for label in labels {
+            let c = tree.alloc_cell(cell(label));
+            tree.add_child(row, c);
+        }
+    }
+    if compute_table_layout(&mut tree, root, 30.0, None).is_ok() {
+        println!("{}", render_tree(&tree, root));
+    }
+
+    // 9. Section order normalization (test 13): source order is tfoot, tbody,
+    //    thead — the layout renders header → body → footer regardless.
+    println!("=== source order tfoot/tbody/thead → renders head/body/foot ===");
+    let mut tree = MockTree::new(1.0, 0.0);
+    let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
+    for (role, label) in [
+        (TableRole::FooterGroup, "footer (first in source)"),
+        (TableRole::RowGroup, "body (second in source)"),
+        (TableRole::HeaderGroup, "header (last in source)"),
+    ] {
+        let group = tree.alloc(role, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, group);
+        let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(group, row);
+        let c = tree.alloc_cell(cell(label));
+        tree.add_child(row, c);
+    }
+    if compute_table_layout(&mut tree, root, 40.0, None).is_ok() {
+        println!("{}", render_tree(&tree, root));
+    }
+
+    // 10. Nested table (test 23): the outer host column's width flows down as
+    //     the inner table's available width. The real engine recurses through
+    //     `layout_cell`; here the inner table is rendered separately at the
+    //     width the outer layout assigned to its host column.
+    println!("=== nested table: inner table laid out at the host column's width ===");
+    let (mut outer, outer_root) = MockTable::new(60.0)
+        .body_row(vec![cell("nested table below"), cell("plain cell")])
+        .into_tree();
+    if compute_table_layout(&mut outer, outer_root, 60.0, None).is_ok() {
+        println!("{}", render_tree(&outer, outer_root));
+        let host = outer.nodes_with_role(TableRole::Cell)[0];
+        if let Some(layout) = outer.layout(host) {
+            let host_w = layout.size.width;
+            println!("inner table, rendered at the host column's {host_w}px:");
+            let out = MockTable::new(host_w)
+                .body_row(vec![cell("in"), cell("ner")])
+                .body_row(vec![cell("ta"), cell("ble")])
+                .render();
+            println!("{out}");
+        }
+    }
 }
