@@ -1,1 +1,1 @@
-pub use gosub_net::net::shared_body::SharedBody;
+pub use gosub_sonar::net::shared_body::SharedBody;

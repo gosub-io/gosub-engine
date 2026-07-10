@@ -207,7 +207,7 @@ gosub_webexecutor = { version = "0.1.1", path = "./crates/gosub_webexecutor", fe
 gosub_config = { version = "0.1.1", path = "./crates/gosub_config", features = [], registry = "gosub" }
 gosub_jsapi = { version = "0.1.1", path = "./crates/gosub_jsapi", features = [], registry = "gosub" }
 gosub_taffy = { version = "0.1.1", path = "./crates/gosub_taffy", features = [], registry = "gosub" }
-gosub_net = { version = "0.1.1", path = "./crates/gosub_net", features = [], registry = "gosub" }
+gosub-sonar = "0.1.0"
 futures = { workspace = true }
 cookie = { workspace = true, features = ["secure", "private"] }
 clap = { workspace = true, features = ["derive"] }

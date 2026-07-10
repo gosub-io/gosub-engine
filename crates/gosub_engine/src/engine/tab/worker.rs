@@ -6,8 +6,8 @@ use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
 use crate::events::{IoCommand, TabCommand};
 use crate::html::RenderConfiguration;
-use crate::net::req_ref_tracker::RequestReference;
-use crate::net::types::{FetchKeyData, FetchRequest, FetchResult, Initiator, NetError, Priority, ResourceKind};
+use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
+use crate::net::types::{FetchRequest, FetchResult, Initiator, NetError, Priority, ResourceKind};
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
 use crate::storage::types::compute_partition_key;
 use crate::storage::{StorageEvent, StorageHandles};
@@ -470,7 +470,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     if !fetched.insert(font_url.to_string()) {
                         break; // this exact font file is already registered
                     }
-                    match gosub_net::net::simple::sync_fetch(&font_url) {
+                    match gosub_sonar::net::simple::sync_fetch(&font_url) {
                         Ok(resp) if resp.status == 200 && !resp.body.is_empty() => {
                             // Web fonts are commonly served as WOFF2 (e.g. Google Fonts content-
                             // negotiates WOFF2 for modern UAs like ours). The font backends
@@ -783,24 +783,21 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
         }
 
-        let req = FetchRequest {
-            reference: RequestReference::Navigation(nav_id),
-            req_id: RequestId::new(),
-            key_data: FetchKeyData {
-                url: url.clone(),
-                method: Method::GET,
-                headers: fetch_headers,
-            },
-            priority: Priority::High,
-            kind: ResourceKind::Document,
-            initiator: Initiator::Navigation,
+        let req_id = RequestId::new();
+        REF_REGISTRY.register_request(req_id, ResourceKind::Document, Initiator::Navigation);
+        let req = FetchRequest::builder(Method::GET, url.clone())
+            .with_reference(REF_REGISTRY.to_net(RequestReference::Navigation(nav_id)))
+            .with_req_id(req_id)
+            .with_headers(fetch_headers)
+            .with_priority(Priority::High)
+            .with_kind(ResourceKind::Document.to_net())
+            .with_initiator(Initiator::Navigation.to_net())
             // Use buffered mode so the full document body is available before parsing.
             // The streaming path has a race where SharedBody can close before parse_stream
             // subscribes, causing truncated HTML (only the 5 KB peek buffer is parsed).
-            streaming: false,
-            auto_decode: true,
-            max_bytes: None,
-        };
+            .with_streaming(false)
+            .with_auto_decode(true)
+            .build();
 
         let (tx_done, rx_done) = oneshot::channel::<NavigationResult<C>>();
 

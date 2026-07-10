@@ -32,7 +32,7 @@ fn main() -> Result<()> {
         .map_err(|_| anyhow!("not a valid URL or file path: {source}"))?,
     };
 
-    let response = gosub_net::net::simple::sync_fetch(&url)?;
+    let response = gosub_sonar::net::simple::sync_fetch(&url)?;
     if !response.is_ok() {
         bail!("could not fetch {source} (status {})", response.status);
     }

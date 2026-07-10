@@ -8,7 +8,6 @@ license = "MIT"
 
 [dependencies]
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
-gosub_net = { version = "0.1.1", path = "../gosub_net", registry = "gosub" }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
 url = { workspace = true }

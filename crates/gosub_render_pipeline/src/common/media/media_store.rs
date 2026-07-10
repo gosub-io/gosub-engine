@@ -291,7 +291,7 @@ impl MediaStore {
     /// magic-byte sniffing. This is blocking.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(Option<String>, Bytes)> {
         let url = Url::parse(src)?;
-        let response = gosub_net::net::simple::sync_fetch(&url)?;
+        let response = gosub_sonar::net::simple::sync_fetch(&url)?;
 
         if !response.is_ok() {
             anyhow::bail!("HTTP {} fetching resource", response.status);

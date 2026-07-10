@@ -1,6 +1,7 @@
 use crate::engine::types::{IoChannel, PeekBuf, RequestId};
 use crate::html::{parse_main_document_stream, EngineDocument, RenderConfiguration, ResourceHint};
-use crate::net::types::{FetchHandle, FetchKeyData, FetchRequest, FetchResultMeta, Initiator};
+use crate::net::req_ref_tracker::REF_REGISTRY;
+use crate::net::types::{FetchHandle, FetchRequest, FetchResultMeta, Initiator};
 use crate::net::{submit_to_io, SharedBody};
 use crate::util::spawn_named;
 use crate::zone::ZoneId;
@@ -71,21 +72,17 @@ impl HtmlPipelineImpl {
         let child_tasks_for_closure = child_tasks.clone();
 
         let mut on_discover = |hint: ResourceHint| {
-            let sub_req = FetchRequest {
-                req_id: RequestId::new(),
-                reference: parent_ref,
-                key_data: FetchKeyData {
-                    url: hint.url,
-                    method: Method::GET,
-                    headers: Default::default(),
-                },
-                priority: hint.priority,
-                initiator: Initiator::Parser,
-                kind: hint.kind,
-                streaming: true,
-                auto_decode: true,
-                max_bytes: None,
-            };
+            let sub_req_id = RequestId::new();
+            REF_REGISTRY.register_request(sub_req_id, hint.kind, Initiator::Parser);
+            let sub_req = FetchRequest::builder(Method::GET, hint.url)
+                .with_req_id(sub_req_id)
+                .with_reference(parent_ref)
+                .with_priority(hint.priority)
+                .with_initiator(Initiator::Parser.to_net())
+                .with_kind(hint.kind.to_net())
+                .with_streaming(true)
+                .with_auto_decode(true)
+                .build();
 
             let io_tx_cloned = io_tx.clone();
             let parent_cancel_cloned = parent_cancel.clone();
@@ -215,21 +212,15 @@ mod tests {
     }
 
     fn test_request(base: &str) -> (FetchRequest, FetchHandle) {
-        let req = FetchRequest {
-            req_id: RequestId::new(),
-            reference: RequestReference::Navigation(NavigationId::new()), // or whatever your reference type needs
-            key_data: FetchKeyData {
-                url: Url::parse(base).unwrap(),
-                method: Method::GET,
-                headers: Default::default(),
-            },
-            priority: Priority::High,
-            kind: ResourceKind::Document,
-            initiator: Initiator::Parser,
-            streaming: true,
-            auto_decode: true,
-            max_bytes: None,
-        };
+        let req = FetchRequest::builder(Method::GET, Url::parse(base).unwrap())
+            .with_req_id(RequestId::new())
+            .with_reference(REF_REGISTRY.to_net(RequestReference::Navigation(NavigationId::new())))
+            .with_priority(Priority::High)
+            .with_kind(ResourceKind::Document.to_net())
+            .with_initiator(Initiator::Parser.to_net())
+            .with_streaming(true)
+            .with_auto_decode(true)
+            .build();
 
         let handle = FetchHandle {
             req_id: req.req_id,

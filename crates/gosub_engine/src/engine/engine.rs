@@ -159,6 +159,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             read_idle_timeout: Duration::from_secs(cfg.get_uint("net.timeout.read_idle_secs") as u64),
             // A body timeout of 0 means "no limit".
             total_body_timeout: (body_secs > 0).then(|| Duration::from_secs(body_secs as u64)),
+            // Take the default user agent (and any future knobs) from gosub-sonar.
+            ..FetcherConfig::default()
         };
         let io_handle = spawn_io_thread(io_cfg, self.context.clone());
         let io_tx = io_handle.subscribe();

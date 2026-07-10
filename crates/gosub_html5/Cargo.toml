@@ -24,7 +24,7 @@ serde = { workspace = true, features = ["derive"] }
 cow-utils = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-gosub_net = { version = "0.1.1", registry = "gosub", path = "../gosub_net" }
+gosub-sonar = "0.1.0"
 
 [dev-dependencies]
 test-case = { workspace = true }

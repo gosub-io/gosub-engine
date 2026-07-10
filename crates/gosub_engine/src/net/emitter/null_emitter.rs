@@ -1,1 +1,1 @@
-pub use gosub_net::net::null_emitter::NullEmitter;
+pub use gosub_sonar::net::null_emitter::NullEmitter;

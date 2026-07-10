@@ -80,7 +80,7 @@ fn main() {
 
 fn fetch_html(url: &str) -> anyhow::Result<String> {
     let parsed = url::Url::parse(url)?;
-    let response = gosub_net::net::simple::sync_fetch(&parsed)?;
+    let response = gosub_sonar::net::simple::sync_fetch(&parsed)?;
     Ok(String::from_utf8_lossy(&response.body).into_owned())
 }
 

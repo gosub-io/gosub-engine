@@ -72,11 +72,9 @@ Runtime-selectable backend that bundles Cairo, Skia, and Vello behind a single `
 
 ## Networking
 
-### gosub_net
+### gosub-sonar (external)
 
-The async networking stack: streaming HTTP fetcher with priority queues, inflight coalescing, redirect handling, and per-zone cookie isolation, plus lower-level helpers. Consumed by `gosub_engine`.
-
-> Note: this crate is moving to its own project, **gosub_sonar**, which carries its own documentation. The [network docs](network/) here describe the in-tree crate until the move completes.
+The async networking stack: streaming HTTP fetcher with priority queues, inflight coalescing, and redirect handling. It lives in its own project, [**gosub-sonar**](https://github.com/gosub-io/gosub-sonar), and is consumed from crates.io by `gosub_engine` (and by the other crates for one-shot fetches). Engine-specific networking concerns that sonar does not know about — UA decision requests, rich resource classification, request-reference tracking — live in `gosub_engine::net`.
 
 ------------------------------------------------------------------------
 
@@ -131,7 +129,7 @@ flowchart TD
     shared("gosub_shared")
     interface("gosub_interface")
     config("gosub_config")
-    net("gosub_net")
+    net("gosub-sonar (external)")
     css3("gosub_css3")
     html5("gosub_html5")
     svg("gosub_svg")
