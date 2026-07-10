@@ -169,18 +169,15 @@ impl Css3<'_> {
     pub fn parse_at_rule(&mut self, is_declaration: bool) -> CssResult<Option<Node>> {
         log::trace!("parse_at_rule");
 
-        let result = self.parse_at_rule_internal(is_declaration);
-        if result.is_err() && self.config.ignore_errors {
-            self.parse_until_rule_end();
-            log::warn!("Ignoring error in parse_at_rule: {result:?}");
-            return Ok(None);
+        match self.parse_at_rule_internal(is_declaration) {
+            Ok(at_rule_node) => Ok(Some(at_rule_node)),
+            Err(err) if self.config.ignore_errors => {
+                self.parse_until_rule_end();
+                log::warn!("Ignoring error in parse_at_rule: {err:?}");
+                Ok(None)
+            }
+            Err(err) => Err(err),
         }
-
-        if let Ok(at_rule_node) = result {
-            return Ok(Some(at_rule_node));
-        }
-
-        Ok(None)
     }
 
     fn parse_at_rule_internal(&mut self, is_declaration: bool) -> CssResult<Node> {
