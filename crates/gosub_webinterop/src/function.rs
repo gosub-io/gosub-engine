@@ -22,9 +22,8 @@ pub(crate) struct Function {
 }
 
 impl Function {
-    pub(crate) fn implement(&self, name: &Ident) -> TokenStream {
-        assert!(self.executor.is_js());
-
+    pub(crate) fn implement(&self, name: &Ident) -> syn::Result<TokenStream> {
+        // `implement` is only ever called for JS executors (filtered by `impl_js_functions`).
         let ident = &self.ident;
         let func_name = &self.name;
         let mut num_args = self.arguments.len();
@@ -40,7 +39,7 @@ impl Function {
             quote! { set_method }
         };
 
-        let args_call = self.args_and_call(name);
+        let args_call = self.args_and_call(name)?;
 
         if self.needs_ctx {
             num_args -= 1;
@@ -76,7 +75,7 @@ impl Function {
             quote! { let args = cb.args(); }
         };
 
-        quote! {
+        Ok(quote! {
         let #ident = {
             #clone
             RT::#var_func::new(ctx.clone(), move |cb| {
@@ -91,10 +90,10 @@ impl Function {
         };
 
         obj.#set_method(#func_name, &#ident)?;
-        }
+        })
     }
 
-    fn args_and_call(&self, name: &Ident) -> TokenStream {
+    fn args_and_call(&self, name: &Ident) -> syn::Result<TokenStream> {
         if !self.generics.is_empty() {
             return self.generic_call(name);
         }
@@ -102,11 +101,11 @@ impl Function {
         let prepare_args = self.prepare_args();
 
         let call = self.call(name);
-        quote! {
+        Ok(quote! {
         #prepare_args
 
         #call
-        }
+        })
     }
 
     fn prepare_args(&self) -> TokenStream {
@@ -125,7 +124,7 @@ impl Function {
         }
     }
 
-    fn generic_call(&self, name: &Ident) -> TokenStream {
+    fn generic_call(&self, name: &Ident) -> syn::Result<TokenStream> {
         let non_generic = self.prepare_args();
         let call = self.call(name);
 
@@ -137,21 +136,23 @@ impl Function {
             }
         }
 
-        let generic = self.generic(&mut generic_args, call);
+        let generic = self.generic(&mut generic_args, call)?;
 
-        quote! {
+        Ok(quote! {
             #non_generic
 
             #generic
-        }
+        })
     }
 
-    fn match_generics(&self, arg: &Arg) -> Vec<(Path, Primitive)> {
+    fn match_generics(&self, arg: &Arg) -> syn::Result<Vec<(Path, Primitive)>> {
+        let arg_generics = arg.ty.ty.generics();
         let matches: Vec<_> = self
             .generics
             .iter()
             .filter_map(|matcher| {
-                if matcher.matcher.is_match(&arg.ty.ty.generics().unwrap(), arg.index) {
+                let generics = arg_generics.as_ref()?;
+                if matcher.matcher.is_match(generics, arg.index) {
                     Some(matcher.types.clone())
                 } else {
                     None
@@ -159,25 +160,25 @@ impl Function {
             })
             .collect();
 
-        assert_eq!(
-            matches.len(),
-            1,
-            "Multiple or no matches found for generic type: {} matches, expected 1",
-            matches.len()
-        );
-
-        matches.first().unwrap().clone()
+        let mut iter = matches.into_iter();
+        match (iter.next(), iter.next()) {
+            (Some(types), None) => Ok(types),
+            _ => Err(syn::Error::new(
+                proc_macro2::Span::call_site(),
+                "expected exactly one generic match for argument type",
+            )),
+        }
     }
 
-    fn generic(&self, args: &mut Vec<&Arg>, prev: TokenStream) -> TokenStream {
+    fn generic(&self, args: &mut Vec<&Arg>, prev: TokenStream) -> syn::Result<TokenStream> {
         let Some(arg) = args.pop() else {
-            return prev;
+            return Ok(prev);
         };
         let arg_name = format_ident!("arg{}", arg.index);
 
         let mut out = TokenStream::new();
 
-        let js_types = self.match_generics(arg);
+        let js_types = self.match_generics(arg)?;
 
         for js_ty in js_types {
             let check = js_ty.1.get_check(&arg_name);
