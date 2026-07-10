@@ -2,24 +2,20 @@ use crate::node::{Node, NodeType};
 use std::io::Write;
 
 /// The walker is used to walk the AST and print it to stdout.
-#[allow(dead_code)]
 pub struct Walker<'a> {
     root: &'a Node,
 }
 
 impl<'a> Walker<'a> {
-    #[allow(dead_code)]
     #[must_use]
     pub fn new(root: &'a Node) -> Self {
         Self { root }
     }
 
-    #[allow(dead_code)]
     pub fn walk_stdout(&self) {
         let _ = inner_walk(self.root, 0, &mut std::io::stdout());
     }
 
-    #[allow(dead_code)]
     #[must_use]
     pub fn walk_to_string(&self) -> String {
         let mut output: Vec<u8> = Vec::new();
@@ -42,7 +38,6 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
         }
         NodeType::Rule { prelude, block } => {
             writeln!(f, "{prefix}[Rule]")?;
-            // writeln!(f, "{}  - prelude: ", prefix)?;
             if let Some(prelude) = prelude {
                 inner_walk(prelude, depth + 1, f)?;
             }
@@ -76,8 +71,6 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
             }
         }
         NodeType::Comment { .. } => {}
-        // NodeType::Cdo => {}
-        // NodeType::Cdc => {}
         NodeType::IdSelector { .. } => {}
         NodeType::Ident { value } => {
             writeln!(f, "{prefix}[Ident] {value}")?;

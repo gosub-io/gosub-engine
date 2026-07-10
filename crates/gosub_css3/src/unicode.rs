@@ -1,6 +1,4 @@
-// note: file should be in a shared lib
-
-// note: should be shared
+// @todo: this belongs in a shared library.
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub enum UnicodeChar {
     Null,

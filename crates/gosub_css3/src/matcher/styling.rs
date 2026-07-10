@@ -1,6 +1,5 @@
 use core::fmt::Debug;
 use cow_utils::CowUtils;
-use itertools::Itertools;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -293,7 +292,7 @@ fn match_selector_part<C: HasDocument>(
 
                 let children = doc.children(parent_id);
 
-                let Some(my_index) = children.iter().find_position(|&&c| c == current_id).map(|(i, _)| i) else {
+                let Some(my_index) = children.iter().position(|&c| c == current_id) else {
                     return false;
                 };
 

@@ -84,10 +84,7 @@ impl Css3<'_> {
                 self.consume_delim('+')?;
                 false
             }
-            TokenType::Number(_) => {
-                // self.tokenizer.reconsume();
-                false
-            }
+            TokenType::Number(_) => false,
             _ => {
                 return Err(CssError::with_location(
                     format!(
@@ -190,7 +187,6 @@ impl Css3<'_> {
         match t.token_type {
             TokenType::Number(_) => {
                 self.tokenizer.reconsume();
-                // self.check_integer(value, 0, true);
                 b = self.consume_any_number()?.to_string();
             }
             TokenType::Ident(value) if value.starts_with('-') => {

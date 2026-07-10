@@ -1,4 +1,7 @@
-extern crate core;
+//! CSS3 parser for Gosub.
+//!
+//! This parser is heavily based on the MIT-licensed `CssTree` parser written by Roman Dvornov
+//! (<https://github.com/lahmatiy>). The original can be found at <https://github.com/csstree/csstree>.
 
 use crate::ast::convert_ast_to_stylesheet;
 use crate::stylesheet::CssStylesheet;
@@ -12,13 +15,8 @@ use gosub_shared::errors::{CssError, CssResult};
 use gosub_shared::{timing_start, timing_stop};
 
 pub mod ast;
-/// This CSS3 parser is heavily based on the MIT licensed `CssTree` parser written by
-/// Roman Dvornov (<https://github.com/lahmatiy>).
-/// The original version can be found at <https://github.com/csstree/csstree>
 pub mod colors;
-pub mod errors;
 mod functions;
-#[allow(dead_code)]
 pub mod matcher;
 // The as_* accessors panic by contract when called on the wrong node type;
 // callers are expected to check the matching is_* predicate first.
@@ -117,10 +115,6 @@ impl<'stream> Css3<'stream> {
 
         let t_id = timing_start!("css3.parse", self.config.source.as_deref().unwrap_or(""));
 
-        // let mut stream = ByteStream::new(Encoding::UTF8, None);
-        // stream.read_from_str(data, Some(Encoding::UTF8));
-        // stream.close();
-
         let node_tree = match self.config.context {
             Context::Stylesheet => self.parse_stylesheet_internal(),
             Context::Rule => self.parse_rule(),
@@ -158,7 +152,6 @@ pub fn load_default_useragent_stylesheet() -> CssStylesheet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // use crate::walker::Walker;
     use simple_logger::SimpleLogger;
 
     #[test]
@@ -179,9 +172,5 @@ mod tests {
         if res.is_err() {
             println!("{:?}", res.err().unwrap());
         }
-
-        // let binding = res.unwrap();
-        // let w = Walker::new(&binding);
-        // w.walk_stdout();
     }
 }

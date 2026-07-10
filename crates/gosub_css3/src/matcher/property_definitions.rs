@@ -133,23 +133,6 @@ impl PropertyDefinition {
     }
 
     #[must_use]
-    pub fn check_expanded_properties(&self, _values: &[CssValue]) -> bool {
-        // if values.len() != self.expanded_properties.len() {
-        //     return false;
-        // }
-        //
-        // for (i, value) in values.iter().enumerate() {
-        //     let prop = self.expanded_properties.get(i).unwrap();
-        //     let prop_def = parse_definition_file().find(prop).unwrap();
-        //     if !prop_def.matches(&[value.clone()]) {
-        //         return false;
-        //     }
-        // }
-
-        true
-    }
-
-    #[must_use]
     pub fn is_shorthand(&self) -> bool {
         self.computed.len() > 1
     }
@@ -552,12 +535,6 @@ fn parse_property_file<M: Map<String, PropertyDefinition>>(json: serde_json::Val
 
         let initial_value = if obj["initial_value"].is_array() {
             warn!("Initial value is an array, not supported {obj:?}");
-            // obj["initial_value"]
-            //     .as_array()
-            //     .unwrap()
-            //     .iter()
-            //     .map(|v| CssValue::from(v))
-            //     .collect()
             None
         } else if obj["initial_value"].is_string() {
             match CssValue::parse_str(obj["initial_value"].as_str().unwrap()) {
@@ -568,7 +545,6 @@ fn parse_property_file<M: Map<String, PropertyDefinition>>(json: serde_json::Val
                 }
             }
         } else {
-            // warn!("Initial value is not a string or array {:?}", obj);
             None
         };
 
@@ -744,7 +720,6 @@ mod tests {
         let definitions = get_css_definitions();
         let def = definitions.find_property("background-color").unwrap();
 
-        // assert_some!(def.clone().matches(&CssValue::Inherit));
         assert_true!(def.clone().matches(&[str!("transparent")]));
 
         assert_true!(def.clone().matches(&[str!("red")]));
@@ -766,7 +741,6 @@ mod tests {
         let definitions = get_css_definitions();
         let def = definitions.find_property("background-attachment").unwrap();
 
-        // assert_true!(def.clone().matches(&CssValue::Inherit));
         assert_true!(def.clone().matches(&[str!("scroll")]));
         assert_true!(def.clone().matches(&[str!("fixed")]));
 

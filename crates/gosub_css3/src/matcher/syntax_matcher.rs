@@ -14,7 +14,6 @@ pub struct MatchResult<'a> {
     pub matched_values: Vec<CssValue>,
 }
 
-#[allow(dead_code)]
 const LENGTH_UNITS: [&str; 31] = [
     "cap", "ch", "em", "ex", "ic", "lh", "rcap", "rch", "rem", "rex", "ric", "rlh", "vh", "vw", "vmax", "vmin", "vb",
     "vi", "cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax", "px", "cm", "mm", "Q", "in", "pc", "pt",
@@ -158,8 +157,6 @@ fn match_component<'a>(
     component: &SyntaxComponent,
     mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
-    let _gid = rand::random::<u8>();
-
     let mut input = raw_input;
 
     // Set some additional values when we are dealing with a comma separated lists (the # multiplier)
@@ -194,7 +191,7 @@ fn match_component<'a>(
 
         input = inner_result.remainder;
 
-        // It's the end, do doo doo doo.
+        // End of input.
         if input.is_empty() {
             break;
         }
@@ -234,18 +231,14 @@ fn match_component_group<'a>(
     match &component {
         SyntaxComponent::Group {
             components, combinator, ..
-        } => {
-            // println!("We need to do a group match on {:?}, our value is: {:?}", combinator, input);
-
-            match combinator {
-                GroupCombinators::Juxtaposition => match_group_juxtaposition(input, components, shorthand_resolver),
-                GroupCombinators::AllAnyOrder => match_group_all_any_order(input, components, shorthand_resolver),
-                GroupCombinators::AtLeastOneAnyOrder => {
-                    match_group_at_least_one_any_order(input, components, shorthand_resolver)
-                }
-                GroupCombinators::ExactlyOne => match_group_exactly_one(input, components, shorthand_resolver),
+        } => match combinator {
+            GroupCombinators::Juxtaposition => match_group_juxtaposition(input, components, shorthand_resolver),
+            GroupCombinators::AllAnyOrder => match_group_all_any_order(input, components, shorthand_resolver),
+            GroupCombinators::AtLeastOneAnyOrder => {
+                match_group_at_least_one_any_order(input, components, shorthand_resolver)
             }
-        }
+            GroupCombinators::ExactlyOne => match_group_exactly_one(input, components, shorthand_resolver),
+        },
         _ => no_match(input),
     }
 }
@@ -257,15 +250,12 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
         return no_match(input);
     };
 
-    // println!("\n\n match_component: {:?} against {:?}", value, component);
-
     match &component {
         SyntaxComponent::GenericKeyword { keyword, .. } => match value {
             CssValue::None if keyword.eq_ignore_ascii_case("none") => {
                 return first_match(input);
             }
             CssValue::String(v) if v.eq_ignore_ascii_case(keyword) => {
-                // println!("keyword {:?} match!", v);
                 return first_match(input);
             }
             _ => {}
@@ -318,8 +308,6 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 _ => {}
             },
             _ => {
-                // println!("unknown datatype: {datatype:?}");
-
                 return first_match(input);
             } // _ => panic!("Unknown built-in datatype: {:?}", datatype),
         },
@@ -375,9 +363,7 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 return first_match(input);
             }
 
-            // todo!("Function not implemented yet. We must match the arguments");
-            // let list = CssValue::List(c_args.clone());
-            // return match_internal(&list, arguments);
+            // @todo: function arguments are not matched against the syntax yet.
         }
         SyntaxComponent::Value { value: css_value, .. } => {
             if value == css_value {

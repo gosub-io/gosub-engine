@@ -99,7 +99,7 @@ impl Css3<'_> {
             let t = self.tokenizer.consume();
             match t.token_type {
                 TokenType::Whitespace(_) | TokenType::Comment(_) => {
-                    // just eat it
+                    // discard and keep consuming
                 }
                 _ => {
                     self.tokenizer.reconsume();
