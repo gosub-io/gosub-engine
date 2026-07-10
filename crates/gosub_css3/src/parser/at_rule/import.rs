@@ -55,20 +55,6 @@ impl Css3<'_> {
         }
 
         self.consume_whitespace_comments();
-        // let nt = self.tokenizer.lookahead_sc(0);
-        // match nt.token_type {
-        //     TokenType::Ident(_) => {
-        //         self.tokenizer.reconsume();
-        //         let list = self.parse_media_query_list()?;
-        //         children.push(list);
-        //     }
-        //     TokenType::LParen => {
-        //         self.tokenizer.reconsume();
-        //         let list = self.parse_media_query_list()?;
-        //         children.push(list);
-        //     }
-        //     _ => {}
-        // }
 
         Ok(Node::new(NodeType::ImportList { children }, loc))
     }

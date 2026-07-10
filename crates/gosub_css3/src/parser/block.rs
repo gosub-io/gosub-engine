@@ -145,7 +145,7 @@ impl Css3<'_> {
                     return Ok(n);
                 }
                 TokenType::Whitespace(_) | TokenType::Comment(_) => {
-                    // just eat the token
+                    // discard and keep consuming
                 }
 
                 TokenType::AtKeyword(_) => {

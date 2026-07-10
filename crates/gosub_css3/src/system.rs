@@ -359,22 +359,7 @@ pub fn add_property_to_map(
     declaration: &CssDeclaration,
 ) {
     let property_name = declaration.property.clone();
-    // let entry = CssProperty::new(property_name.as_str());
 
-    // If the property is a shorthand css property, we need fetch the individual properties
-    // It's possible that need to recurse here as these individual properties can be shorthand as well
-    // if entry.is_shorthand() {
-    //     for property_name in entry.get_props_from_shorthand() {
-    //         let decl = CssDeclaration {
-    //             property: property_name.to_string(),
-    //             value: declaration.value.clone(),
-    //             important: declaration.important,
-    //         };
-    //
-    //         add_property_to_map(css_map_entry, sheet, selector, &decl);
-    //     }
-    // }
-    //
     let declaration = DeclarationProperty {
         // @todo: this seems wrong. We only get the first values from the declared values
         value: declaration.value.clone(),

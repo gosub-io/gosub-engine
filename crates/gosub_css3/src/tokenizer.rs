@@ -61,13 +61,13 @@ pub enum TokenType {
     Colon,
     /// A `;` `<semicolon-token>`
     Semicolon,
-    // A `<!--` `<CDO-token>`
+    /// A `<!--` `<CDO-token>`
     Cdo,
-    // A `-->` `<CDC-token>`
+    /// A `-->` `<CDC-token>`
     Cdc,
-    // // A `<EOF-token>`
+    /// A `<EOF-token>`
     Eof,
-    // A comment
+    /// A comment
     Comment(String),
 }
 
@@ -168,12 +168,10 @@ impl Token {
         matches!(self.token_type, TokenType::Ident(_))
     }
 
-    #[allow(dead_code)]
     pub(crate) fn is_comment(&self) -> bool {
         matches!(self.token_type, TokenType::Comment(_))
     }
 
-    #[allow(dead_code)]
     pub(crate) fn is_whitespace(&self) -> bool {
         matches!(self.token_type, TokenType::Whitespace(_))
     }
@@ -224,15 +222,12 @@ impl fmt::Display for Token {
 }
 
 /// CSS Tokenizer according to the [w3 specification](https://www.w3.org/TR/css-syntax-3/#tokenization)
-#[allow(dead_code)]
 pub struct Tokenizer<'stream> {
     stream: &'stream mut ByteStream,
     /// Position on the NEXT TOKEN read to consume. If it's outside the vec list, it will return EOF
     token_position: usize,
     /// Full list of all tokens produced by the tokenizer
     tokens: Vec<Token>,
-    /// When true, the stream is closed and no more tokens can be produced
-    eof: bool,
 }
 
 impl<'stream> Tokenizer<'stream> {
@@ -244,7 +239,6 @@ impl<'stream> Tokenizer<'stream> {
             stream,
             token_position: 0,
             tokens: Vec::new(),
-            eof: false,
         }
     }
 

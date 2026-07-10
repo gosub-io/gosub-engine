@@ -390,20 +390,6 @@ impl CssValue {
 mod test {
     use super::*;
 
-    // #[test]
-    // fn test_css_value_to_color() {
-    //     assert_eq!(CssValue::from_str("color(#ff0000)").unwrap().to_color().unwrap(), RgbColor::from("#ff0000"));
-    //     assert_eq!(CssValue::from_str("'Hello'").unwrap().to_color().unwrap(), RgbColor::from("#000000"));
-    // }
-    //
-    // #[test]
-    // fn test_css_value_unit_to_px() {
-    //     assert_eq!(CssValue::from_str("10px").unwrap().unit_to_px(), 10.0);
-    //     assert_eq!(CssValue::from_str("10em").unwrap().unit_to_px(), 160.0);
-    //     assert_eq!(CssValue::from_str("10rem").unwrap().unit_to_px(), 160.0);
-    //     assert_eq!(CssValue::from_str("10").unwrap().unit_to_px(), 0.0);
-    // }
-
     #[test]
     fn test_css_rule() {
         let rule = CssRule {

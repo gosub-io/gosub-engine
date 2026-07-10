@@ -290,7 +290,6 @@ impl Css3<'_> {
                 continue;
             }
 
-            // let t = self.consume_any()?;
             let child = match t.token_type {
                 TokenType::LBracket => {
                     self.tokenizer.reconsume();

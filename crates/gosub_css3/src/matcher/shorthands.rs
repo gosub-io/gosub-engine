@@ -671,18 +671,6 @@ impl CssDefinitions {
             }
         }
 
-        // if !found_props.is_empty() {
-        //     println!("Found partial expanded properties for shorthand: {}", name);
-        // } else {
-        // println!("Missing properties for shorthand: {}", name);
-        // }
-        // let missing = computed
-        //     .iter()
-        //     .filter(|computed| !found_props.iter().any(|p| p.name == **computed))
-        //     .collect::<Vec<_>>();
-        //
-        // println!("Missing properties: {:?}", missing);
-
         None
     }
 }
