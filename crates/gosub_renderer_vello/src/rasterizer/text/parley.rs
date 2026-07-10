@@ -2,7 +2,7 @@ use crate::font::parley::get_parley_layout;
 use crate::rasterizer::brush::set_brush;
 use gosub_fontmanager::ParleyFontSystem;
 use gosub_interface::font::FontStyle;
-use gosub_interface::font_system::{FontQuery, FontStretch, FontWeight};
+use gosub_interface::font_system::{FontQuery, FontStretch, FontSystem, FontWeight};
 use gosub_render_pipeline::common::geo::{Dimension, Rect};
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::brush::Brush;

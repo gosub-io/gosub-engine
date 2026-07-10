@@ -1,12 +1,10 @@
 //! A second [`FontSystem`] implementation, backed by **cosmic-text** (fontdb discovery +
 //! rustybuzz shaping + swash). It implements exactly the same trait as [`crate::ParleyFontSystem`],
-//! demonstrating that the font abstraction is engine-agnostic — the layouter can measure with it
-//! today, and a backend that draws its glyphs could render with it.
+//! demonstrating that the font abstraction is engine-agnostic — the layouter can measure with it,
+//! and a backend that paints [`ShapedText`] glyph runs can render with it.
 //!
-//! Note: the current `FontSystem` trait is Parley-shaped (its `resolve`/`shape` are built around a
-//! raw `FontBlob` + glyph runs). cosmic-text doesn't natively hand back raw blobs, so `blob_for`
-//! copies the font bytes. That awkwardness is expected — it's the signal that the trait should be
-//! slimmed (measure-centric) once a second engine is in place.
+//! Note: cosmic-text doesn't expose the underlying shared font bytes, so `blob_for` copies them
+//! when filling a [`FontBlob`] (cached upstream by whoever holds the `ResolvedFont`).
 
 use cosmic_text::{
     fontdb, Attrs, Buffer, Family, FontSystem as CosmicTextFontSystem, Metrics, Shaping, Stretch, Style, Weight,
@@ -108,11 +106,9 @@ impl FontSystem for CosmicFontSystem {
         }
         (width, height)
     }
-}
 
-impl CosmicFontSystem {
-    /// Resolve a CSS font query to a concrete font (engine-specific; not on the `FontSystem` trait).
-    pub fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
+    /// Resolve a CSS font query to a concrete font via fontdb.
+    fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
         let mut families: Vec<Family> = query.families.iter().map(|f| css_family(f)).collect();
         // Bundled last-resort fallback so resolution always succeeds even with no system fonts
         // (e.g. headless/CI) — Roboto is registered in `new()`.
@@ -143,32 +139,13 @@ impl CosmicFontSystem {
         })
     }
 
-    /// Shape `text` into positioned glyph runs (engine-specific; not on the `FontSystem` trait).
-    pub fn shape(
-        &mut self,
-        text: &str,
-        font: &ResolvedFont,
-        size: f32,
-        line_height: Option<f32>,
-        max_width: Option<f32>,
-        display_scale: f32,
-    ) -> ShapedText {
+    /// Shape `text` into positioned glyph runs.
+    fn shape(&mut self, text: &str, style: &TextStyle) -> ShapedText {
         if text.is_empty() {
             return ShapedText::empty();
         }
 
-        let style = TextStyle {
-            family: font.family.clone(),
-            size,
-            weight: font.weight,
-            style: font.style,
-            stretch: font.stretch,
-            line_height,
-            letter_spacing: 0.0,
-            max_width,
-            display_scale,
-        };
-        let buffer = self.shaped_buffer(text, &style);
+        let buffer = self.shaped_buffer(text, style);
 
         // Collect owned run data first (borrows `buffer`), then look up font blobs afterwards
         // (borrows `self.inner`) so the two borrows don't overlap.
@@ -219,13 +196,13 @@ impl CosmicFontSystem {
                 let blob = self.blob_for(r.id, r.weight)?;
                 Some(ShapedRun {
                     font: ResolvedFont {
-                        family: font.family.clone(),
-                        style: font.style,
-                        weight: font.weight,
-                        stretch: font.stretch,
+                        family: style.family.clone(),
+                        style: style.style,
+                        weight: style.weight,
+                        stretch: style.stretch,
                         blob,
                     },
-                    font_size: size,
+                    font_size: style.size,
                     glyphs: r.glyphs,
                 })
             })
@@ -296,12 +273,14 @@ mod tests {
         let query = FontQuery::new(&["sans-serif"]);
         let resolved = fs.resolve(&query).expect("sans-serif should resolve (Roboto fallback)");
 
+        assert!(!resolved.blob.as_u8().is_empty(), "resolved font must carry its bytes");
+
         let mut style = TextStyle::new("sans-serif", 16.0);
         style.line_height = Some(19.2);
         let (w, h) = fs.measure("Hello", &style);
         assert!(w > 0.0 && h > 0.0, "expected a non-zero measurement, got {w} x {h}");
 
-        let shaped = fs.shape("Hello", &resolved, 16.0, Some(19.2), None, 1.0);
+        let shaped = fs.shape("Hello", &style);
         assert!(!shaped.runs.is_empty(), "expected at least one shaped run");
         let glyphs: usize = shaped.runs.iter().map(|r| r.glyphs.len()).sum();
         assert!(glyphs >= 5, "expected >= 5 glyphs for \"Hello\", got {glyphs}");

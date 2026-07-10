@@ -76,6 +76,66 @@ impl FontSystem for ParleyFontSystem {
         Ok(())
     }
 
+    /// Resolve a CSS font query to a concrete font + its bytes via fontique.
+    fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
+        let families: Vec<QueryFamily> = query.families.iter().map(|&name| css_family_to_query(name)).collect();
+
+        let attrs = Attributes::new(
+            stretch_to_width(query.stretch),
+            style_to_fontique(query.style),
+            weight_to_fontique(query.weight),
+        );
+
+        let mut col_clone = self.font_cx.collection.clone();
+        let mut q = self.font_cx.collection.query(&mut self.source_cache);
+        q.set_families(families);
+        q.set_attributes(attrs);
+
+        let mut found: Option<ResolvedFont> = None;
+        q.matches_with(|cand| {
+            // Extract the inner Arc from fontique's Blob<u8> without copying bytes.
+            let (data_arc, _) = cand.blob.clone().into_raw_parts();
+            let blob = FontBlob::new(data_arc, cand.index);
+
+            let (fam_id, _) = cand.family;
+            let family = col_clone
+                .family(fam_id)
+                .map(|f| f.name().to_string())
+                .unwrap_or_else(|| query.families.first().copied().unwrap_or("sans-serif").to_string());
+
+            found = Some(ResolvedFont {
+                family,
+                style: query.style,
+                weight: query.weight,
+                stretch: query.stretch,
+                blob,
+            });
+
+            QueryStatus::Stop
+        });
+
+        found.ok_or_else(|| FontError::FontNotFound(query.families.join(", ")))
+    }
+
+    /// Shape `text` into positioned glyph runs, resolving `style.family` first so shaping starts
+    /// from the same concrete font that [`FontSystem::measure`] used.
+    fn shape(&mut self, text: &str, style: &TextStyle) -> ShapedText {
+        if text.is_empty() {
+            return ShapedText::empty();
+        }
+        let families = split_css_families(&style.family);
+        let query = FontQuery {
+            families: &families,
+            style: style.style,
+            weight: style.weight,
+            stretch: style.stretch,
+        };
+        let Ok(font) = self.resolve(&query) else {
+            return ShapedText::empty();
+        };
+        self.shape_resolved(text, &font, style)
+    }
+
     /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
     ///
     /// Resolves the family (mapping generics, appending a `sans-serif` fallback) then lays it out
@@ -133,67 +193,18 @@ impl FontSystem for ParleyFontSystem {
 }
 
 impl ParleyFontSystem {
-    /// Resolve a CSS font query to a concrete font + its bytes.
-    ///
-    /// Engine-specific (not on the `FontSystem` trait) — for the glyph-based draw path.
-    pub fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
-        let families: Vec<QueryFamily> = query.families.iter().map(|&name| css_family_to_query(name)).collect();
-
-        let attrs = Attributes::new(
-            stretch_to_width(query.stretch),
-            style_to_fontique(query.style),
-            weight_to_fontique(query.weight),
-        );
-
-        let mut col_clone = self.font_cx.collection.clone();
-        let mut q = self.font_cx.collection.query(&mut self.source_cache);
-        q.set_families(families);
-        q.set_attributes(attrs);
-
-        let mut found: Option<ResolvedFont> = None;
-        q.matches_with(|cand| {
-            // Extract the inner Arc from fontique's Blob<u8> without copying bytes.
-            let (data_arc, _) = cand.blob.clone().into_raw_parts();
-            let blob = FontBlob::new(data_arc, cand.index);
-
-            let (fam_id, _) = cand.family;
-            let family = col_clone
-                .family(fam_id)
-                .map(|f| f.name().to_string())
-                .unwrap_or_else(|| query.families.first().copied().unwrap_or("sans-serif").to_string());
-
-            found = Some(ResolvedFont {
-                family,
-                style: query.style,
-                weight: query.weight,
-                stretch: query.stretch,
-                blob,
-            });
-
-            QueryStatus::Stop
-        });
-
-        found.ok_or_else(|| FontError::FontNotFound(query.families.join(", ")))
-    }
-
-    /// Shape `text` into positioned glyph runs (engine-specific; for glyph-based rendering).
-    pub fn shape(
-        &mut self,
-        text: &str,
-        font: &ResolvedFont,
-        size: f32,
-        line_height: Option<f32>,
-        max_width: Option<f32>,
-        display_scale: f32,
-    ) -> ShapedText {
+    /// Shape `text` with an already-resolved font. Layout parameters (size, line height, wrap
+    /// width, letter spacing, display scale) come from `style`; the font identity comes from
+    /// `font` — which is why measurement and drawing agree when both go through this path.
+    fn shape_resolved(&mut self, text: &str, font: &ResolvedFont, style: &TextStyle) -> ShapedText {
         if text.is_empty() {
             return ShapedText::empty();
         }
 
         let mut builder = self
             .layout_cx
-            .ranged_builder(&mut self.font_cx, text, display_scale, false);
-        builder.push_default(parley::StyleProperty::FontSize(size));
+            .ranged_builder(&mut self.font_cx, text, style.display_scale, false);
+        builder.push_default(parley::StyleProperty::FontSize(style.size));
         builder.push_default(parley::StyleProperty::FontFamily(parley::FontFamily::Source(
             font.family.as_str().into(),
         )));
@@ -201,13 +212,18 @@ impl ParleyFontSystem {
             font.weight.0 as f32,
         )));
         builder.push_default(parley::StyleProperty::FontStyle(style_to_parley(font.style)));
-        if let Some(lh) = line_height {
+        if let Some(lh) = style.line_height {
             builder.push_default(parley::StyleProperty::LineHeight(parley::LineHeight::Absolute(lh)));
+        }
+        // Applied during measurement too — shaping without it would draw narrower than the
+        // layout box that measurement reserved.
+        if style.letter_spacing != 0.0 {
+            builder.push_default(parley::StyleProperty::LetterSpacing(style.letter_spacing));
         }
         builder.push_default(parley::StyleProperty::Brush(()));
 
         let mut layout = builder.build(text);
-        layout.break_all_lines(Some(max_width.unwrap_or(f32::INFINITY)));
+        layout.break_all_lines(Some(style.max_width.unwrap_or(f32::INFINITY)));
         layout.align(Alignment::Start, AlignmentOptions::default());
 
         let mut runs: Vec<ShapedRun> = Vec::new();
@@ -260,7 +276,7 @@ impl ParleyFontSystem {
                         };
                         runs.push(ShapedRun {
                             font: run_resolved,
-                            font_size: size,
+                            font_size: style.size,
                             glyphs,
                         });
                     }
@@ -345,6 +361,31 @@ fn style_to_parley(s: FontStyle) -> ParleyStyle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shape_agrees_with_measure_and_applies_letter_spacing() {
+        let mut fs = ParleyFontSystem::new();
+        let mut style = TextStyle::new("sans-serif", 16.0);
+
+        let shaped = fs.shape("Hello", &style);
+        assert!(!shaped.runs.is_empty(), "expected at least one shaped run");
+        let (w, h) = fs.measure("Hello", &style);
+        assert!(
+            (w - shaped.width).abs() < 0.01 && (h - shaped.height).abs() < 0.01,
+            "measure ({w} x {h}) must agree with shape ({} x {})",
+            shaped.width,
+            shaped.height
+        );
+
+        style.letter_spacing = 2.0;
+        let spaced = fs.shape("Hello", &style);
+        assert!(
+            spaced.width > shaped.width,
+            "letter-spacing must widen shaping: {} -> {}",
+            shaped.width,
+            spaced.width
+        );
+    }
 
     #[test]
     fn letter_spacing_widens_measurement() {

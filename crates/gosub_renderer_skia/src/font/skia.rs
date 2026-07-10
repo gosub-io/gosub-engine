@@ -1,5 +1,7 @@
-use gosub_interface::font::{FontError, FontStyle as CssFontStyle};
-use gosub_interface::font_system::{FontSystem, TextStyle as GosubTextStyle};
+use gosub_interface::font::{FontBlob, FontError, FontStyle as CssFontStyle};
+use gosub_interface::font_system::{
+    FontQuery, FontSystem, ResolvedFont, ShapedGlyph, ShapedRun, ShapedText, TextStyle as GosubTextStyle,
+};
 use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
 use parking_lot::Mutex;
 use skia_safe::textlayout::{
@@ -10,7 +12,7 @@ use skia_safe::{FontMgr, FontStyle, Paint};
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 // ── Registered web fonts ──────────────────────────────────────────────────────
 //
@@ -274,12 +276,85 @@ pub(crate) fn resolve_family_list(families: &str) -> Vec<String> {
     })
 }
 
+thread_local! {
+    /// Per-thread cache of typeface file bytes: `to_font_data` copies the whole font file, and
+    /// shaping asks once per glyph run. `None` results are cached too, so faces whose bytes Skia
+    /// can't hand back aren't retried on every run.
+    static TYPEFACE_BLOBS: RefCell<HashMap<skia_safe::typeface::TypefaceId, Option<(Arc<Vec<u8>>, u32)>>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Raw file bytes + collection index for a typeface, as a [`FontBlob`].
+fn typeface_blob(typeface: &skia_safe::Typeface) -> Option<FontBlob> {
+    TYPEFACE_BLOBS.with(|cell| {
+        let mut map = cell.borrow_mut();
+        let entry = map
+            .entry(typeface.unique_id())
+            .or_insert_with(|| typeface.to_font_data().map(|(data, index)| (Arc::new(data), index as u32)));
+        entry.as_ref().map(|(data, index)| {
+            let bytes: Arc<Vec<u8>> = Arc::clone(data);
+            FontBlob::new(bytes, *index)
+        })
+    })
+}
+
+fn to_skia_slant(style: CssFontStyle) -> skia_safe::font_style::Slant {
+    match style {
+        CssFontStyle::Normal => skia_safe::font_style::Slant::Upright,
+        CssFontStyle::Italic => skia_safe::font_style::Slant::Italic,
+        CssFontStyle::Oblique => skia_safe::font_style::Slant::Oblique,
+    }
+}
+
+/// Build and lay out the measurement/shaping paragraph for `text` in `style`.
+///
+/// This is the single source of truth for how a [`GosubTextStyle`] maps onto Skia's textlayout —
+/// `measure` reads this paragraph's extents and `shape` exports its glyph runs, so the two can't
+/// disagree.
+fn build_style_paragraph(fc: &FontCollection, text: &str, style: &GosubTextStyle) -> Paragraph {
+    let paragraph_style = ParagraphStyle::new();
+    let mut builder = ParagraphBuilder::new(&paragraph_style, fc.clone());
+
+    let mut ts = TextStyle::new();
+    ts.set_font_size(style.size);
+    // Apply the CSS line-height (absolute px → multiple of font size) exactly as the draw
+    // path (`build_paragraph`) does, so the measured box height matches what is painted.
+    // Skipping this measured the font's natural ~1.2× box while draw rendered the CSS 1.7×,
+    // overflowing the reserved box into the next element.
+    if let Some(line_height) = style.line_height {
+        if line_height > 0.0 && style.size > 0.0 {
+            ts.set_height(line_height / style.size);
+            ts.set_height_override(true);
+        }
+    }
+    // Apply CSS letter-spacing (px) so the measured width matches the drawn width.
+    if style.letter_spacing != 0.0 {
+        ts.set_letter_spacing(style.letter_spacing);
+    }
+    // Pass the pruned family list so Skia's FontCollection reaches the real generic instead
+    // of letting an unavailable leading family capture the platform default.
+    ts.set_font_families(&resolve_family_list(&style.family));
+    ts.set_font_style(FontStyle::new(
+        skia_safe::font_style::Weight::from(style.weight.0 as i32),
+        skia_safe::font_style::Width::NORMAL,
+        to_skia_slant(style.style),
+    ));
+    builder.push_style(&ts);
+    builder.add_text(text);
+
+    let mut paragraph = builder.build();
+    // `None` = no wrap; use a large finite advance (Skia dislikes INFINITY).
+    paragraph.layout(style.max_width.unwrap_or(1.0e9));
+    paragraph
+}
+
 /// A [`FontSystem`] backed by Skia's `skia_safe` text layout.
 ///
-/// Opaque / backend-coupled like Pango: it measures (and the Skia rasterizer draws) through the
-/// same thread-local [`FontCollection`], so measurement matches what Skia paints. Lives in the
-/// Skia backend crate for the same reason Pango lives in the Cairo crate — it's tied to its
-/// renderer and isn't a portable glyph emitter.
+/// Measurement, shaping, and the Skia rasterizer's own drawing all go through the same
+/// thread-local [`FontCollection`], so they can't disagree. `resolve`/`shape` export concrete
+/// fonts (via `Typeface::to_font_data`) and positioned glyph runs in the neutral trait types, so
+/// a [`ShapedText`]-painting backend can consume this font system like any other; the Skia
+/// rasterizer itself still draws through textlayout natively.
 #[derive(Debug, Default)]
 pub struct SkiaFontSystem;
 
@@ -302,48 +377,106 @@ impl FontSystem for SkiaFontSystem {
         Ok(())
     }
 
+    fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
+        let font_style = FontStyle::new(
+            skia_safe::font_style::Weight::from(query.weight.0 as i32),
+            width_from_css_percent((query.stretch.0 * 100.0).round() as i32),
+            to_skia_slant(query.style),
+        );
+
+        let joined = query.families.join(", ");
+        // Prune the list the same way measure/draw do, and end on the sans-serif generic so
+        // resolution always has a last resort.
+        let mut names = resolve_family_list(&joined);
+        if !names.iter().any(|n| n.eq_ignore_ascii_case("sans-serif")) {
+            names.push("sans-serif".to_string());
+        }
+
+        let web = web_font_mgr();
+        let fm = FontMgr::new();
+        for name in &names {
+            let typeface = web
+                .as_ref()
+                .and_then(|w| w.match_family_style(name.as_str(), font_style))
+                .or_else(|| fm.match_family_style(name.as_str(), font_style));
+            if let Some(typeface) = typeface {
+                if let Some(blob) = typeface_blob(&typeface) {
+                    return Ok(ResolvedFont {
+                        family: typeface.family_name(),
+                        style: query.style,
+                        weight: query.weight,
+                        stretch: query.stretch,
+                        blob,
+                    });
+                }
+            }
+        }
+        Err(FontError::FontNotFound(joined))
+    }
+
+    fn shape(&mut self, text: &str, style: &GosubTextStyle) -> ShapedText {
+        if text.is_empty() {
+            return ShapedText::empty();
+        }
+        with_font_collection(|fc| {
+            let mut paragraph = build_style_paragraph(fc, text, style);
+            let width = paragraph.longest_line();
+            let height = paragraph.height();
+            let (ascent, line_height) = paragraph
+                .get_line_metrics()
+                .first()
+                .map(|m| (m.baseline as f32, m.height as f32))
+                .unwrap_or((0.0, 0.0));
+
+            let mut runs: Vec<ShapedRun> = Vec::new();
+            paragraph.visit(|_, info| {
+                let Some(info) = info else { return };
+                let font = info.font();
+                let typeface = font.typeface();
+                let Some(blob) = typeface_blob(&typeface) else { return };
+                let origin = info.origin();
+                let glyphs: Vec<ShapedGlyph> = info
+                    .glyphs()
+                    .iter()
+                    .zip(info.positions())
+                    .map(|(glyph, pos)| ShapedGlyph {
+                        id: u32::from(*glyph),
+                        x: origin.x + pos.x,
+                        y: origin.y + pos.y,
+                    })
+                    .collect();
+                if glyphs.is_empty() {
+                    return;
+                }
+                runs.push(ShapedRun {
+                    font: ResolvedFont {
+                        family: typeface.family_name(),
+                        style: style.style,
+                        weight: style.weight,
+                        stretch: style.stretch,
+                        blob,
+                    },
+                    font_size: font.size(),
+                    glyphs,
+                });
+            });
+
+            ShapedText {
+                runs,
+                width,
+                height,
+                line_height,
+                ascent,
+            }
+        })
+    }
+
     fn measure(&mut self, text: &str, style: &GosubTextStyle) -> (f32, f32) {
         if text.is_empty() {
             return (0.0, 0.0);
         }
         with_font_collection(|fc| {
-            let paragraph_style = ParagraphStyle::new();
-            let mut builder = ParagraphBuilder::new(&paragraph_style, fc.clone());
-
-            let mut ts = TextStyle::new();
-            ts.set_font_size(style.size);
-            // Apply the CSS line-height (absolute px → multiple of font size) exactly as the draw
-            // path (`build_paragraph`) does, so the measured box height matches what is painted.
-            // Skipping this measured the font's natural ~1.2× box while draw rendered the CSS 1.7×,
-            // overflowing the reserved box into the next element.
-            if let Some(line_height) = style.line_height {
-                if line_height > 0.0 && style.size > 0.0 {
-                    ts.set_height(line_height / style.size);
-                    ts.set_height_override(true);
-                }
-            }
-            // Apply CSS letter-spacing (px) so the measured width matches the drawn width.
-            if style.letter_spacing != 0.0 {
-                ts.set_letter_spacing(style.letter_spacing);
-            }
-            // Pass the pruned family list so Skia's FontCollection reaches the real generic instead
-            // of letting an unavailable leading family capture the platform default.
-            ts.set_font_families(&resolve_family_list(&style.family));
-            ts.set_font_style(FontStyle::new(
-                skia_safe::font_style::Weight::from(style.weight.0 as i32),
-                skia_safe::font_style::Width::NORMAL,
-                match style.style {
-                    CssFontStyle::Normal => skia_safe::font_style::Slant::Upright,
-                    CssFontStyle::Italic => skia_safe::font_style::Slant::Italic,
-                    CssFontStyle::Oblique => skia_safe::font_style::Slant::Oblique,
-                },
-            ));
-            builder.push_style(&ts);
-            builder.add_text(text);
-
-            let mut paragraph = builder.build();
-            // `None` = no wrap; use a large finite advance (Skia dislikes INFINITY).
-            paragraph.layout(style.max_width.unwrap_or(1.0e9));
+            let paragraph = build_style_paragraph(fc, text, style);
             (paragraph.longest_line(), paragraph.height())
         })
     }
@@ -449,6 +582,33 @@ fn to_slant(slant: i32) -> skia_safe::font_style::Slant {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// End-to-end resolve + shape through Skia: the resolved font must carry its file bytes,
+    /// shaping must produce glyph runs, and the shape bounding box must agree with `measure`
+    /// (both read the same textlayout paragraph).
+    #[test]
+    fn resolves_and_shapes_via_skia() {
+        let mut fs = SkiaFontSystem;
+
+        let query = FontQuery::new(&["sans-serif"]);
+        let resolved = fs.resolve(&query).expect("sans-serif must resolve");
+        assert!(!resolved.blob.as_u8().is_empty(), "resolved font must carry file bytes");
+
+        let style = GosubTextStyle::new("sans-serif", 16.0);
+        let shaped = fs.shape("Hello", &style);
+        assert!(!shaped.runs.is_empty(), "expected at least one glyph run");
+        let glyph_count: usize = shaped.runs.iter().map(|r| r.glyphs.len()).sum();
+        assert!(glyph_count >= 4, "expected >= 4 glyphs for \"Hello\", got {glyph_count}");
+        assert!(shaped.ascent > 0.0 && shaped.ascent <= shaped.height);
+
+        let (w, h) = fs.measure("Hello", &style);
+        assert!(
+            (w - shaped.width).abs() < 0.01 && (h - shaped.height).abs() < 0.01,
+            "measure ({w} x {h}) must agree with shape ({} x {})",
+            shaped.width,
+            shaped.height
+        );
+    }
 
     #[test]
     fn splits_and_trims_family_list() {

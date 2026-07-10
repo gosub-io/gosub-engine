@@ -2,38 +2,43 @@
 
 Text handling in Gosub is split across **two independent backend families** that are easy to confuse, because both come in `pango`, `parley`, and `skia` flavours:
 
-1.  **Font systems** --- implement the `FontSystem` trait. They register fonts and *measure* text so the layouter can size boxes. They never draw anything.
+1.  **Font systems** --- implement the `FontSystem` trait. They register fonts, *resolve* CSS font queries to concrete fonts (with their raw bytes), *shape* text into positioned glyph runs, and *measure* it so the layouter can size boxes. They never draw anything.
 2.  **Text rasterizers** --- the code that actually *renders glyphs* onto a surface. Selected per render-backend crate at compile time with `text_*` cargo features. They have no shared trait; each exposes a `do_paint_text(...)` function.
 
 You pick a font system at runtime (it's a type parameter on your config); you pick a text rasterizer at build time (it's a cargo feature on the renderer crate). The two must agree --- the whole design exists to guarantee that text is **measured and drawn against the same font collection**, so a layout box is never sized with one font and painted with another.
 
 ## Family 1: font systems (`FontSystem`)
 
-The trait lives in [`gosub_interface/src/font_system.rs`](../crates/gosub_interface/src/font_system.rs) and is deliberately small:
+The trait lives in [`gosub_interface/src/font_system.rs`](../crates/gosub_interface/src/font_system.rs):
 
 ``` rust
 pub trait FontSystem: Send + Sync + 'static {
     /// Register a font from raw bytes (`@font-face` web fonts, bundled fallbacks).
     fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError>;
+    /// Resolve a CSS font query to a concrete font, including its raw bytes.
+    fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError>;
+    /// Shape `text` laid out in `style` into positioned glyph runs.
+    fn shape(&mut self, text: &str, style: &TextStyle) -> ShapedText;
     /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
-    fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32);
-    /// Recover the concrete type so a render backend can call its native shaping/draw path.
+    /// Provided: shapes and reads the bounding box; implementations may override.
+    fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32) { … }
+    /// Transitional: recover the concrete type for a backend's native draw path.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 ```
 
-Shaping and drawing are intentionally **not** on the trait: the shaped representation and the draw target are backend-specific. A render backend that wants more than measurement downcasts via `as_any_mut` and calls the concrete type's own inherent methods.
+Every implementation exposes the full lookup → shape → measure pipeline through the trait; each returned `ShapedRun` names the font (bytes included) that was *actually* used for its glyphs, mid-string fallback included. Drawing is the one job that stays outside: painting a `ShapedText` is the render backend's business. Backends that still draw through their engine natively (Pango via pangocairo, Skia via textlayout) downcast with `as_any_mut`; that escape hatch is transitional and disappears once every backend paints `ShapedText` directly.
 
-The trait file also defines the shared value types: `TextStyle` (family, size, weight, style, stretch, optional line-height and wrap width, display scale), `FontQuery` / `ResolvedFont` (family resolution with raw `FontBlob` bytes), and `ShapedText` / `ShapedRun` / `ShapedGlyph` (positioned glyph runs, produced by implementations that shape natively).
+The trait file also defines the shared value types: `TextStyle` (family, size, weight, style, stretch, optional line-height and wrap width, letter spacing, display scale), `FontQuery` / `ResolvedFont` (family resolution with raw `FontBlob` bytes), and `ShapedText` / `ShapedRun` / `ShapedGlyph` (positioned glyph runs).
 
 ### Implementations
 
 | Implementation     | Crate / file                                                                                 | Backed by                                  | Notes |
 |--------------------|----------------------------------------------------------------------------------------------|--------------------------------------------|-------|
 | `ParleyFontSystem` | [`gosub_fontmanager/src/parley_system.rs`](../crates/gosub_fontmanager/src/parley_system.rs) | Parley + Fontique                          | The default; portable, not tied to a renderer. |
-| `CosmicFontSystem` | [`gosub_fontmanager/src/cosmic_system.rs`](../crates/gosub_fontmanager/src/cosmic_system.rs) | cosmic-text, fontdb, rustybuzz, swash      | A second implementation proving the trait is engine-agnostic; see its module doc for why the trait is still somewhat “Parley-shaped”. |
-| `PangoFontSystem`  | [`gosub_renderer_cairo/src/font/pango.rs`](../crates/gosub_renderer_cairo/src/font/pango.rs) | Pango / fontconfig                         | Registers web fonts into process-global fontconfig. Requires one-time init from the GTK main thread, `init_from_gtk_thread`, to resolve `system-ui`; a process-wide singleton exists for this reason. |
-| `SkiaFontSystem`   | [`gosub_renderer_skia/src/font/skia.rs`](../crates/gosub_renderer_skia/src/font/skia.rs)     | Skia, `skia_safe`, paragraph layout        | Measures through the same thread-local `FontCollection` the Skia rasterizer draws with. |
+| `CosmicFontSystem` | [`gosub_fontmanager/src/cosmic_system.rs`](../crates/gosub_fontmanager/src/cosmic_system.rs) | cosmic-text, fontdb, rustybuzz, swash      | A second implementation proving the trait is engine-agnostic. |
+| `PangoFontSystem`  | [`gosub_renderer_cairo/src/font/pango.rs`](../crates/gosub_renderer_cairo/src/font/pango.rs) | Pango / fontconfig                         | `resolve` queries fontconfig directly (the same database Pango picks from); `shape` exports the `PangoLayout` glyph runs. Registers web fonts into process-global fontconfig. Requires one-time init from the GTK main thread, `init_from_gtk_thread`, to resolve `system-ui`; a process-wide singleton exists for this reason. |
+| `SkiaFontSystem`   | [`gosub_renderer_skia/src/font/skia.rs`](../crates/gosub_renderer_skia/src/font/skia.rs)     | Skia, `skia_safe`, paragraph layout        | Measures and shapes through the same thread-local `FontCollection` the Skia rasterizer draws with; `resolve`/`shape` export font bytes via `Typeface::to_font_data`. |
 
 `ParleyFontSystem` and `CosmicFontSystem` live in `gosub_fontmanager` because they are renderer-independent. `PangoFontSystem` and `SkiaFontSystem` live inside their renderer crates because they are inherently coupled to that renderer's text engine.
 

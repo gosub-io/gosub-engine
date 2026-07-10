@@ -187,14 +187,17 @@ impl TextStyle {
 
 /// A swappable font system — the entire surface the engine and layouter need.
 ///
-/// It registers fonts and **measures** text. Measuring goes through whichever font system the
-/// engine was configured with, so layout boxes are sized by the very engine that will draw the
-/// text (Parley, Pango, Skia, …) — measurement and drawing can't disagree.
+/// It registers fonts, **resolves** CSS font queries to concrete fonts (with their raw bytes),
+/// **shapes** text into positioned glyph runs, and **measures** it. All of it goes through
+/// whichever font system the engine was configured with, so layout boxes are sized by the very
+/// engine whose glyphs will be drawn (Parley, Pango, Skia, cosmic-text, …) — measurement,
+/// shaping, and drawing can't disagree.
 ///
-/// Engine-native *shaping* and *drawing* are deliberately **not** on this trait: the shaped
-/// representation and the draw target are backend-specific. A render backend recovers its concrete
-/// font system via [`FontSystem::as_any_mut`] and calls that type's own (inherent) shaping/draw
-/// methods.
+/// Drawing itself is *not* on this trait: painting the [`ShapedText`] returned by
+/// [`FontSystem::shape`] is the render backend's job (glyph IDs + a [`crate::font::FontBlob`]
+/// are everything a rasterizer needs). Until every backend consumes `ShapedText`, backends with
+/// an engine-native draw path recover their concrete font system via [`FontSystem::as_any_mut`];
+/// that escape hatch is scheduled for removal.
 ///
 /// # Threading
 /// `Send + Sync` so it can live behind `Arc<Mutex<dyn FontSystem>>`, shared between the layouter
@@ -205,10 +208,38 @@ pub trait FontSystem: Send + Sync + 'static {
     /// `family_override` assigns a logical name CSS can reference; `None` uses the font's own name.
     fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError>;
 
-    /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
-    fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32);
+    /// Resolve a CSS font query to a concrete font, including its raw bytes.
+    ///
+    /// Walks `query.families` in priority order (generic keywords like `sans-serif` map to the
+    /// engine's platform fallback) and returns the first matching face. The returned
+    /// [`ResolvedFont::family`] is the family that was actually selected, which may differ from
+    /// every requested name when the engine fell back.
+    fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError>;
 
-    /// Recover the concrete font system so a render backend can call its native shaping/draw path.
+    /// Shape `text` laid out in `style` into positioned glyph runs.
+    ///
+    /// Handles family resolution, line breaking (at `style.max_width`), and mid-string font
+    /// fallback internally; each returned [`ShapedRun`] names the font that was *actually* used
+    /// for its glyphs, so a rasterizer can draw the runs without consulting the font system
+    /// again. Returns [`ShapedText::empty`] for empty input or when no font resolves.
+    fn shape(&mut self, text: &str, style: &TextStyle) -> ShapedText;
+
+    /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
+    ///
+    /// The default implementation shapes and reads the bounding box, guaranteeing measurement
+    /// agrees with what [`FontSystem::shape`] produces; implementations may override with a
+    /// cheaper path as long as they preserve that agreement.
+    fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32) {
+        if text.is_empty() {
+            return (0.0, 0.0);
+        }
+        let shaped = self.shape(text, style);
+        (shaped.width, shaped.height)
+    }
+
+    /// Recover the concrete font system so a render backend can call its native draw path.
+    ///
+    /// Transitional: goes away once every backend paints [`ShapedText`] instead.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
