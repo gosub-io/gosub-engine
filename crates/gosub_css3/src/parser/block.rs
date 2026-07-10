@@ -121,7 +121,13 @@ impl Css3<'_> {
         }
     }
 
+    /// Blocks nest through `parse_block` -> `parse_at_rule`/`parse_rule` -> `parse_block`, so the
+    /// body runs one recursion level deeper.
     pub fn parse_block(&mut self, mode: BlockParseMode) -> CssResult<Node> {
+        self.recurse(|parser| parser.parse_block_inner(mode))
+    }
+
+    fn parse_block_inner(&mut self, mode: BlockParseMode) -> CssResult<Node> {
         log::trace!("parse_block with parse mode: {mode:?}");
 
         let loc = self.tokenizer.current_location();
@@ -212,6 +218,7 @@ impl Css3<'_> {
 #[cfg(test)]
 mod tests {
     use crate::walker::Walker;
+    use crate::MAX_RECURSION_DEPTH;
     use crate::{CssOrigin, ParserConfig};
     use gosub_shared::byte_stream::{ByteStream, Encoding};
 
@@ -239,6 +246,71 @@ mod tests {
         // The following rule is not swallowed by the cascade.
         assert!(out.contains("[ClassSelector] b"), "expected .b rule to parse:\n{out}");
         assert!(out.contains("property: top"), "expected .b's declaration:\n{out}");
+    }
+
+    /// Parses a stylesheet without error recovery, surfacing the first error.
+    fn parse_strict(input: &str) -> gosub_shared::errors::CssResult<Option<String>> {
+        let mut stream = ByteStream::from_str(input, Encoding::UTF8);
+        let mut parser = crate::Css3::new(&mut stream, ParserConfig::default(), CssOrigin::Author, "");
+        Ok(parser
+            .parse_stylesheet_internal()?
+            .map(|node| Walker::new(&node).walk_to_string()))
+    }
+
+    /// `n` levels of `@media screen{ ... }` wrapped around a single declaration.
+    fn nested_media(n: usize) -> String {
+        format!("{}a{{color:red}}{}", "@media screen{".repeat(n), "}".repeat(n))
+    }
+
+    /// Number of nested `@media` levels the parser kept in the AST.
+    fn media_levels(ast: &str) -> usize {
+        ast.matches("[AtRule] name: media").count()
+    }
+
+    #[test]
+    fn block_nesting_at_the_limit_is_kept_whole() {
+        // The innermost `a{...}` is a style rule whose own block costs a level, so the deepest
+        // document that survives intact has one fewer `@media` than the cap.
+        let ast = parse_strict(&nested_media(MAX_RECURSION_DEPTH - 1))
+            .expect("within the cap")
+            .expect("expected an AST");
+
+        assert_eq!(media_levels(&ast), MAX_RECURSION_DEPTH - 1);
+        assert!(ast.contains("property: color"), "innermost declaration lost:\n{ast}");
+    }
+
+    #[test]
+    fn block_nesting_beyond_the_limit_is_an_error() {
+        let err = parse_strict(&nested_media(MAX_RECURSION_DEPTH + 1)).expect_err("expected a depth error");
+
+        assert!(err.to_string().contains("nesting too deep"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn block_nesting_beyond_the_limit_is_truncated_when_recovering() {
+        // With error recovery each enclosing at-rule absorbs the depth error and keeps its own
+        // (now empty) block, so the document is truncated at the cap rather than rejected.
+        let ast = parse_recovering(&nested_media(MAX_RECURSION_DEPTH + 1));
+
+        assert_eq!(media_levels(&ast), MAX_RECURSION_DEPTH);
+        assert!(
+            !ast.contains("property: color"),
+            "content past the cap should be discarded:\n{ast}"
+        );
+    }
+
+    #[test]
+    fn pathological_block_nesting_does_not_overflow_the_stack() {
+        // Without the depth cap this recursed one stack frame per level and aborted the process
+        // with a stack overflow -- an abort that no `Result` or `catch_unwind` can intercept.
+        // Runs on a test thread's 2 MiB stack, the same size the engine's workers get.
+        assert!(parse_strict(&nested_media(50_000)).is_err());
+
+        // The recovering path walks the same depth without unwinding, so exercise it too.
+        assert_eq!(
+            media_levels(&parse_recovering(&nested_media(50_000))),
+            MAX_RECURSION_DEPTH
+        );
     }
 
     #[test]

@@ -101,7 +101,13 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::Nth { nth, selector }, loc))
     }
 
+    /// `:is(...)`, `:not(...)` and friends take a selector list, which may contain further pseudo
+    /// functions, so the body parses one recursion level deeper.
     pub(crate) fn parse_pseudo_function(&mut self, name: &str) -> CssResult<Node> {
+        self.recurse(|parser| parser.parse_pseudo_function_inner(name))
+    }
+
+    fn parse_pseudo_function_inner(&mut self, name: &str) -> CssResult<Node> {
         log::trace!("parse_pseudo_function");
         match name {
             "dir" => self.parse_pseudo_function_ident_list(),

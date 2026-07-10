@@ -31,6 +31,15 @@ pub mod tokenizer;
 mod unicode;
 pub mod walker;
 
+/// Cap on recursive-descent depth, shared by every recursive cycle in the parser.
+///
+/// Each level costs a stack frame, so unbounded input (`@media screen{` or `:is(` repeated) would
+/// overflow the stack and abort the process -- an abort no `Result` or `catch_unwind` can
+/// intercept. A debug frame measures ~9 KiB and a 2 MiB stack (what the threads we parse on get)
+/// overflows between 192 and 256 levels, so the cap has to leave room for a stack the callers above
+/// us have already partly consumed. 64 levels is far beyond the handful real stylesheets nest.
+const MAX_RECURSION_DEPTH: usize = 64;
+
 pub struct Css3<'stream> {
     /// The tokenizer is responsible for reading the input stream and
     pub tokenizer: Tokenizer<'stream>,
@@ -42,8 +51,8 @@ pub struct Css3<'stream> {
     origin: CssOrigin,
     /// Source of the stream (filename, url, etc.)
     source: String,
-    /// Current function nesting depth; capped to prevent stack overflow on adversarial input.
-    function_depth: usize,
+    /// Current recursive-descent depth; capped to prevent stack overflow on adversarial input.
+    recursion_depth: usize,
 }
 
 impl<'stream> Css3<'stream> {
@@ -55,8 +64,28 @@ impl<'stream> Css3<'stream> {
             config,
             origin,
             source: source.to_string(),
-            function_depth: 0,
+            recursion_depth: 0,
         }
+    }
+
+    /// Runs `f` one level deeper, refusing to descend past [`MAX_RECURSION_DEPTH`].
+    ///
+    /// Every recursive cycle in the parser (blocks, functions, `calc()` parentheses, selector
+    /// lists inside `:is()` and friends) routes through here, so a document that mixes them cannot
+    /// sum their individual depths into an overflow.
+    fn recurse<T>(&mut self, f: impl FnOnce(&mut Self) -> CssResult<T>) -> CssResult<T> {
+        if self.recursion_depth >= MAX_RECURSION_DEPTH {
+            return Err(CssError::with_location(
+                "nesting too deep",
+                self.tokenizer.current_location(),
+            ));
+        }
+
+        self.recursion_depth += 1;
+        let result = f(self);
+        self.recursion_depth -= 1;
+
+        result
     }
 
     /// Parses a direct string to a `CssStyleSheet`
