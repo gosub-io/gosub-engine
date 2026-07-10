@@ -1,3 +1,5 @@
+// Example code: panicking on bad input is the desired behavior, as in any test code.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use derive_more::Display;

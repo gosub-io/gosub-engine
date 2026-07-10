@@ -67,19 +67,21 @@ fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
         declarations: vec![],
     };
 
-    let (prelude, declarations) = node.as_rule();
+    let Some((prelude, declarations)) = node.as_rule() else {
+        return Ok(None);
+    };
     if let Some(node) = prelude {
-        if !node.is_selector_list() {
+        let Some(selectors) = node.as_selector_list() else {
             return Ok(None);
-        }
+        };
 
         let mut selector = CssSelector { parts: vec![vec![]] };
-        for node in node.as_selector_list() {
-            if !node.is_selector() {
+        for node in selectors {
+            let Some(selector_children) = node.as_selector() else {
                 continue;
-            }
+            };
 
-            for node in node.as_selector() {
+            for node in selector_children {
                 let part = match &*node.node_type {
                     NodeType::Ident { value } => CssSelectorPart::Type(value.clone()),
                     NodeType::ClassSelector { value } => CssSelectorPart::Class(value.clone()),
@@ -159,17 +161,13 @@ fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
     }
 
     if let Some(declaration) = declarations {
-        if !declaration.is_block() {
+        let Some(block) = declaration.as_block() else {
             return Ok(None);
-        }
-
-        let block = declaration.as_block();
+        };
         for declaration in block {
-            if !declaration.is_declaration() {
+            let Some((property, nodes, important)) = declaration.as_declaration() else {
                 continue;
-            }
-
-            let (property, nodes, important) = declaration.as_declaration();
+            };
 
             // Convert the nodes into CSS Values
             let mut css_values = vec![];
@@ -216,15 +214,19 @@ fn collect_rules(nodes: &[CssNode], rules: &mut Vec<CssRule>, font_faces: &mut V
                 block: Some(block),
                 ..
             } if name.eq_ignore_ascii_case("layer") => {
-                collect_rules(block.as_block(), rules, font_faces)?;
+                if let Some(children) = block.as_block() {
+                    collect_rules(children, rules, font_faces)?;
+                }
             }
             NodeType::AtRule {
                 name,
                 block: Some(block),
                 ..
             } if name.eq_ignore_ascii_case("font-face") => {
-                if let Some(face) = collect_font_face(block.as_block()) {
-                    font_faces.push(face);
+                if let Some(children) = block.as_block() {
+                    if let Some(face) = collect_font_face(children) {
+                        font_faces.push(face);
+                    }
                 }
             }
             _ => {}
@@ -241,10 +243,9 @@ fn collect_font_face(nodes: &[CssNode]) -> Option<FontFace> {
     let mut unicode_range: Option<String> = None;
 
     for decl in nodes {
-        if !decl.is_declaration() {
+        let Some((property, value_nodes, _important)) = decl.as_declaration() else {
             continue;
-        }
-        let (property, value_nodes, _important) = decl.as_declaration();
+        };
         match property.cow_to_ascii_lowercase().as_ref() {
             "font-family" => {
                 let name: String = value_nodes
@@ -324,9 +325,9 @@ fn collect_src_urls(value: &CssValue, out: &mut Vec<String>) {
 
 /// Converts a CSS AST to a CSS stylesheet structure
 pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str) -> CssResult<CssStylesheet> {
-    if !css_ast.is_stylesheet() {
+    let Some(children) = css_ast.as_stylesheet() else {
         return Err(CssError::new("CSS AST must start with a stylesheet node"));
-    }
+    };
 
     let mut sheet = CssStylesheet {
         rules: vec![],
@@ -336,7 +337,7 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
         parse_log: vec![],
     };
 
-    collect_rules(css_ast.as_stylesheet(), &mut sheet.rules, &mut sheet.font_faces)?;
+    collect_rules(children, &mut sheet.rules, &mut sheet.font_faces)?;
     Ok(sheet)
 }
 

@@ -11,6 +11,9 @@ readme = "README.md"
 keywords = ["html5", "parser", "browser", "Rust", "DOM"]
 autoexamples = false
 
+[lints]
+workspace = true
+
 [workspace]
 members = [
     "crates/*",

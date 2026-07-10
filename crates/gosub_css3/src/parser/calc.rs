@@ -25,11 +25,9 @@ impl Css3<'_> {
             let t = self.consume_any()?;
             match t.token_type {
                 TokenType::Eof => break,
-                TokenType::Function(_) => {
-                    self.parse_calc_expr()?;
-                }
-                TokenType::LParen => {
-                    self.parse_calc_expr()?;
+                // A nested function or `(` opens a sub-expression, one recursion level deeper.
+                TokenType::Function(_) | TokenType::LParen => {
+                    self.recurse(Self::parse_calc_expr)?;
                 }
                 TokenType::RParen => break,
                 _ => {

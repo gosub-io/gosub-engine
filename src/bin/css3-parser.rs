@@ -48,7 +48,10 @@ fn main() -> Result<()> {
     let debug = matches.get_flag("debug");
     let ignore_errors = matches.get_flag("ignore-errors");
     let match_values = matches.get_flag("match-values");
-    let url: String = matches.get_one::<String>("url").expect("url").to_string();
+    let url: String = matches
+        .get_one::<String>("url")
+        .ok_or_else(|| anyhow!("Missing url"))?
+        .to_string();
     let display_tokenizer = matches.get_flag("tokenizer");
 
     let parsed_url = match url::Url::parse(&url) {
@@ -68,7 +71,7 @@ fn main() -> Result<()> {
     let css = String::from_utf8_lossy(&response.body).into_owned();
 
     if debug {
-        SimpleLogger::new().init().unwrap();
+        SimpleLogger::new().init()?;
     }
 
     let config = ParserConfig {
@@ -92,16 +95,15 @@ fn main() -> Result<()> {
         elapsed_time.as_millis()
     );
 
-    if result.is_err() {
-        // Err is a anyhow::Error, which wraps a Css3::Error
-        let err = result.err().unwrap();
-        let message = err.to_string();
-        display_snippet(&css, err);
+    let tree = match result {
+        Ok(tree) => tree,
+        Err(err) => {
+            let message = err.to_string();
+            display_snippet(&css, err);
 
-        return Err(anyhow!(message));
-    }
-
-    let tree = result.unwrap();
+            return Err(anyhow!(message));
+        }
+    };
 
     print_stylesheet(&tree);
 

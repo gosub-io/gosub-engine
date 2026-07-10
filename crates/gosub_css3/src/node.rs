@@ -185,10 +185,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_block(&self) -> &Vec<Node> {
+    pub fn as_block(&self) -> Option<&Vec<Node>> {
         match &&*self.node_type {
-            &NodeType::Block { children } => children,
-            _ => panic!("Node is not a block"),
+            &NodeType::Block { children } => Some(children),
+            _ => None,
         }
     }
 
@@ -203,18 +203,18 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_stylesheet(&self) -> &Vec<Node> {
+    pub fn as_stylesheet(&self) -> Option<&Vec<Node>> {
         match &&*self.node_type {
-            &NodeType::StyleSheet { children } => children,
-            _ => panic!("Node is not a stylesheet"),
+            &NodeType::StyleSheet { children } => Some(children),
+            _ => None,
         }
     }
 
     #[must_use]
-    pub fn as_rule(&self) -> (&Option<Node>, &Option<Node>) {
+    pub fn as_rule(&self) -> Option<(&Option<Node>, &Option<Node>)> {
         match &&*self.node_type {
-            &NodeType::Rule { prelude, block } => (prelude, block),
-            _ => panic!("Node is not a rule"),
+            &NodeType::Rule { prelude, block } => Some((prelude, block)),
+            _ => None,
         }
     }
 
@@ -224,10 +224,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_selector_list(&self) -> &Vec<Node> {
+    pub fn as_selector_list(&self) -> Option<&Vec<Node>> {
         match &&*self.node_type {
-            &NodeType::SelectorList { selectors } => selectors,
-            _ => panic!("Node is not a selector list"),
+            &NodeType::SelectorList { selectors } => Some(selectors),
+            _ => None,
         }
     }
 
@@ -237,10 +237,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_selector(&self) -> &Vec<Node> {
+    pub fn as_selector(&self) -> Option<&Vec<Node>> {
         match &&*self.node_type {
-            &NodeType::Selector { children } => children,
-            _ => panic!("Node is not a selector"),
+            &NodeType::Selector { children } => Some(children),
+            _ => None,
         }
     }
 
@@ -250,10 +250,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_ident(&self) -> &String {
+    pub fn as_ident(&self) -> Option<&String> {
         match &&*self.node_type {
-            &NodeType::Ident { value } => value,
-            _ => panic!("Node is not an ident"),
+            &NodeType::Ident { value } => Some(value),
+            _ => None,
         }
     }
 
@@ -263,10 +263,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_number(&self) -> &Number {
+    pub fn as_number(&self) -> Option<&Number> {
         match &&*self.node_type {
-            &NodeType::Number { value } => value,
-            _ => panic!("Node is not a number"),
+            &NodeType::Number { value } => Some(value),
+            _ => None,
         }
     }
 
@@ -276,18 +276,18 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_hash(&self) -> &String {
+    pub fn as_hash(&self) -> Option<&String> {
         match &&*self.node_type {
-            &NodeType::Hash { value } => value,
-            _ => panic!("Node is not a hash"),
+            &NodeType::Hash { value } => Some(value),
+            _ => None,
         }
     }
 
     #[must_use]
-    pub fn as_class_selector(&self) -> &String {
+    pub fn as_class_selector(&self) -> Option<&String> {
         match &&*self.node_type {
-            &NodeType::ClassSelector { value } => value,
-            _ => panic!("Node is not a class selector"),
+            &NodeType::ClassSelector { value } => Some(value),
+            _ => None,
         }
     }
 
@@ -305,10 +305,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_type_selector(&self) -> &String {
+    pub fn as_type_selector(&self) -> Option<&String> {
         match &&*self.node_type {
-            &NodeType::TypeSelector { value, .. } => value,
-            _ => panic!("Node is not a type selector"),
+            &NodeType::TypeSelector { value, .. } => Some(value),
+            _ => None,
         }
     }
 
@@ -326,15 +326,15 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_attribute_selector(&self) -> (&String, &Option<Node>, &String, &String) {
+    pub fn as_attribute_selector(&self) -> Option<(&String, &Option<Node>, &String, &String)> {
         match &&*self.node_type {
             &NodeType::AttributeSelector {
                 name,
                 matcher,
                 value,
                 flags,
-            } => (name, matcher, value, flags),
-            _ => panic!("Node is not an attribute selector"),
+            } => Some((name, matcher, value, flags)),
+            _ => None,
         }
     }
 
@@ -344,10 +344,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_pseudo_class_selector(&self) -> String {
+    pub fn as_pseudo_class_selector(&self) -> Option<String> {
         match &&*self.node_type {
-            &NodeType::PseudoClassSelector { value } => value.to_string(),
-            _ => panic!("Node is not a pseudo class selector"),
+            &NodeType::PseudoClassSelector { value } => Some(value.to_string()),
+            _ => None,
         }
     }
 
@@ -357,10 +357,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_pseudo_element_selector(&self) -> &String {
+    pub fn as_pseudo_element_selector(&self) -> Option<&String> {
         match &&*self.node_type {
-            &NodeType::PseudoElementSelector { value } => value,
-            _ => panic!("Node is not a pseudo element selector"),
+            &NodeType::PseudoElementSelector { value } => Some(value),
+            _ => None,
         }
     }
 
@@ -370,10 +370,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_combinator(&self) -> &String {
+    pub fn as_combinator(&self) -> Option<&String> {
         match &&*self.node_type {
-            &NodeType::Combinator { value } => value,
-            _ => panic!("Node is not a combinator"),
+            &NodeType::Combinator { value } => Some(value),
+            _ => None,
         }
     }
 
@@ -383,10 +383,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_dimension(&self) -> (&Number, &String) {
+    pub fn as_dimension(&self) -> Option<(&Number, &String)> {
         match &&*self.node_type {
-            &NodeType::Dimension { value, unit } => (value, unit),
-            _ => panic!("Node is not a dimension"),
+            &NodeType::Dimension { value, unit } => Some((value, unit)),
+            _ => None,
         }
     }
 
@@ -396,10 +396,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_id_selector(&self) -> &String {
+    pub fn as_id_selector(&self) -> Option<&String> {
         match &&*self.node_type {
-            &NodeType::IdSelector { value } => value,
-            _ => panic!("Node is not an id selector"),
+            &NodeType::IdSelector { value } => Some(value),
+            _ => None,
         }
     }
 
@@ -409,14 +409,14 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_declaration(&self) -> (&String, &Vec<Node>, &bool) {
+    pub fn as_declaration(&self) -> Option<(&String, &Vec<Node>, &bool)> {
         match &&*self.node_type {
             &NodeType::Declaration {
                 property,
                 value,
                 important,
-            } => (property, value, important),
-            _ => panic!("Node is not a declaration"),
+            } => Some((property, value, important)),
+            _ => None,
         }
     }
 }

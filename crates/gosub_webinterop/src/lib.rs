@@ -35,12 +35,21 @@ pub fn web_interop(args: TokenStream, item: TokenStream) -> TokenStream {
     let mut input: ItemStruct = syn::parse_macro_input!(item);
 
     for field in &mut input.fields {
-        if let Some(property) = FieldProperty::parse(&mut field.attrs) {
+        let property = match FieldProperty::parse(&mut field.attrs) {
+            Ok(property) => property,
+            Err(e) => return e.to_compile_error().into(),
+        };
+        if let Some(property) = property {
+            let Some(ident) = field.ident.as_ref() else {
+                return syn::Error::new_spanned(&*field, "#[property] is only supported on named struct fields")
+                    .to_compile_error()
+                    .into();
+            };
             let f = Field {
-                name: property.rename.unwrap_or(field.ident.as_ref().unwrap().to_string()),
+                name: property.rename.unwrap_or(ident.to_string()),
                 executor: property.executor,
                 ty: field.ty.clone(),
-                ident: field.ident.as_ref().unwrap().clone(),
+                ident: ident.clone(),
             };
 
             fields.push(f);
@@ -83,24 +92,39 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
         if let syn::ImplItem::Fn(method) = func {
             let args = &method.sig.inputs;
 
-            let property = FunctionProperty::parse(&mut method.attrs).unwrap_or_default();
+            let property = match FunctionProperty::parse(&mut method.attrs) {
+                Ok(property) => property.unwrap_or_default(),
+                Err(e) => return e.to_compile_error().into(),
+            };
 
             let name = property.rename.unwrap_or(method.sig.ident.to_string());
+            let return_type = match ReturnType::parse(&method.sig.output) {
+                Ok(return_type) => return_type,
+                Err(e) => return syn::Error::new_spanned(&method.sig.output, e).to_compile_error().into(),
+            };
+            let generics = match GenericsMatcher::get_matchers(property.generics, method) {
+                Ok(generics) => generics,
+                Err(e) => return e.to_compile_error().into(),
+            };
             let mut func = Function {
                 ident: Ident::new(&name, method.sig.ident.span()),
                 name,
                 arguments: Vec::with_capacity(args.len()), // we don't know if the first is self, so no args.len() - 1
                 self_type: SelfType::NoSelf,
-                return_type: ReturnType::parse(&method.sig.output).expect("failed to parse return type"),
+                return_type,
                 executor: property.executor,
-                generics: GenericsMatcher::get_matchers(property.generics, method),
+                generics,
                 func_generics: method.sig.generics.clone(),
                 variadic: false,
                 needs_ctx: false,
             };
 
             if let Some(FnArg::Receiver(self_arg)) = args.first() {
-                assert!(self_arg.reference.is_some(), "Self must be a reference");
+                if self_arg.reference.is_none() {
+                    return syn::Error::new_spanned(self_arg, "self must be a reference")
+                        .to_compile_error()
+                        .into();
+                }
 
                 match self_arg.mutability {
                     Some(_) => func.self_type = SelfType::SelfMutRef,
@@ -111,7 +135,10 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut index = 0;
             for arg in args {
                 if let FnArg::Typed(arg) = arg {
-                    let arg = Arg::parse(&arg.ty, index, &func.generics).expect("failed to parse arg");
+                    let arg = match Arg::parse(&arg.ty, index, &func.generics) {
+                        Ok(arg) => arg,
+                        Err(e) => return syn::Error::new_spanned(&arg.ty, e).to_compile_error().into(),
+                    };
                     if arg.variant == ArgVariant::Variadic {
                         func.variadic = true;
                     } else if arg.variant == ArgVariant::Context {
@@ -125,20 +152,32 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
             if func.variadic {
                 if let Some(arg) = func.arguments.last() {
                     if arg.variant != ArgVariant::Variadic {
-                        assert!(
-                            !(arg.variant != ArgVariant::Context),
-                            "Variadic argument must be the last argument"
-                        );
+                        if arg.variant != ArgVariant::Context {
+                            return syn::Error::new_spanned(
+                                &method.sig.ident,
+                                "variadic argument must be the last argument",
+                            )
+                            .to_compile_error()
+                            .into();
+                        }
                         //get second last
-                        assert!(
-                            (func.arguments.len() > 1),
-                            "Variadic argument must be the last argument"
-                        );
+                        if func.arguments.len() <= 1 {
+                            return syn::Error::new_spanned(
+                                &method.sig.ident,
+                                "variadic argument must be the last argument",
+                            )
+                            .to_compile_error()
+                            .into();
+                        }
                         if let Some(arg) = func.arguments.get(func.arguments.len() - 2) {
-                            assert!(
-                                !(arg.variant != ArgVariant::Variadic),
-                                "Variadic argument must be the last argument"
-                            );
+                            if arg.variant != ArgVariant::Variadic {
+                                return syn::Error::new_spanned(
+                                    &method.sig.ident,
+                                    "variadic argument must be the last argument",
+                                )
+                                .to_compile_error()
+                                .into();
+                            }
                         }
                     }
                 }
@@ -146,10 +185,14 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
 
             if func.needs_ctx {
                 if let Some(arg) = func.arguments.last() {
-                    assert!(
-                        !(arg.variant != ArgVariant::Context),
-                        "Context argument must be the last argument"
-                    );
+                    if arg.variant != ArgVariant::Context {
+                        return syn::Error::new_spanned(
+                            &method.sig.ident,
+                            "context argument must be the last argument",
+                        )
+                        .to_compile_error()
+                        .into();
+                    }
                 }
             }
 
@@ -161,7 +204,10 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let options = parse_attrs(attr);
 
-    let extend = impl_js_functions(&functions, &name, &options);
+    let extend = match impl_js_functions(&functions, &name, &options) {
+        Ok(extend) => extend,
+        Err(e) => return e.to_compile_error().into(),
+    };
 
     let mut out = input.into_token_stream();
     out.extend(extend);

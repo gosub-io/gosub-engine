@@ -32,7 +32,7 @@ impl GenericsMatcher {
         }
     }
 
-    pub(crate) fn new(generic: Path, func: &syn::ImplItemFn) -> GenericsMatcher {
+    pub(crate) fn new(generic: Path, func: &syn::ImplItemFn) -> syn::Result<GenericsMatcher> {
         let mut generic_params = Vec::new();
 
         for generic in &func.sig.generics.params {
@@ -43,26 +43,28 @@ impl GenericsMatcher {
 
         // check if it is a number
         if let Ok(a) = generic.to_token_stream().to_string().parse::<usize>() {
-            return GenericsMatcher::Index(a);
+            return Ok(GenericsMatcher::Index(a));
         }
 
-        if generic_params.contains(generic.get_ident().unwrap()) {
-            return GenericsMatcher::Param(generic);
+        let ident = generic
+            .get_ident()
+            .ok_or_else(|| syn::Error::new_spanned(&generic, "generic parameter must be a plain identifier"))?;
+        if generic_params.contains(ident) {
+            return Ok(GenericsMatcher::Param(generic));
         }
 
-        GenericsMatcher::Trait(generic)
+        Ok(GenericsMatcher::Trait(generic))
     }
 
-    pub(crate) fn get_matchers(generics: Vec<GenericProperty>, func: &syn::ImplItemFn) -> Vec<Generics> {
+    pub(crate) fn get_matchers(generics: Vec<GenericProperty>, func: &syn::ImplItemFn) -> syn::Result<Vec<Generics>> {
         let mut gen = Vec::new();
 
         for generic in generics {
-            let matcher = GenericsMatcher::new(generic.param, func);
+            let matcher = GenericsMatcher::new(generic.param, func)?;
 
-            assert!(
-                !gen.iter().any(|g: &Generics| g.matcher == matcher),
-                "Duplicate generic matcher"
-            );
+            if gen.iter().any(|g: &Generics| g.matcher == matcher) {
+                return Err(syn::Error::new_spanned(&func.sig.ident, "duplicate generic matcher"));
+            }
 
             gen.push(Generics {
                 matcher,
@@ -70,6 +72,6 @@ impl GenericsMatcher {
             });
         }
 
-        gen
+        Ok(gen)
     }
 }

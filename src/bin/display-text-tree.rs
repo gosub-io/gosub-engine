@@ -21,13 +21,10 @@ impl ModuleConfiguration for Config {
 }
 
 fn main() -> Result<()> {
-    let url = std::env::args()
-        .nth(1)
-        .or_else(|| {
-            println!("Usage: display-text-tree <url>");
-            exit(1);
-        })
-        .unwrap();
+    let Some(url) = std::env::args().nth(1) else {
+        println!("Usage: display-text-tree <url>");
+        exit(1);
+    };
 
     // Fetch the html from the url
     let parsed_url = url::Url::parse(&url)?;

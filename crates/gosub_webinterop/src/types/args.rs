@@ -72,7 +72,7 @@ impl Arg {
         if self.variant == ArgVariant::Context {
             return match self.ty.reference {
                 Reference::Ref => quote! { &ctx },
-                Reference::MutRef => panic!("Context argument cannot be referenced mutable"),
+                Reference::MutRef => quote! { compile_error!("Context argument cannot be referenced mutable") },
                 Reference::None => quote! { ctx.clone() },
             };
         }
@@ -162,7 +162,7 @@ pub(crate) fn parse_impl(bounds: &Punctuated<TypeParamBound, Token![+]>) -> Resu
             TypeParamBound::Trait(t) => {
                 out.push(t.path.clone());
             }
-            TypeParamBound::Verbatim(_) => panic!("Verbatim not supported"),
+            TypeParamBound::Verbatim(_) => return Err("verbatim trait bounds are not supported"),
             _ => {} //ignore, they will just be lifetimes
         }
     }

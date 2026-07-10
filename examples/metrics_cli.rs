@@ -7,6 +7,8 @@
 //!   cargo run --example metrics_cli -- --json         # raw JSON output
 //!   cargo run --example metrics_cli -- --host 0.0.0.0 --port 9090
 //!   cargo run --example metrics_cli -- --watch 2      # poll every 2 seconds
+// Example code: panicking on bad input is the desired behavior, as in any test code.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::collections::BTreeMap;
 use std::time::Duration;

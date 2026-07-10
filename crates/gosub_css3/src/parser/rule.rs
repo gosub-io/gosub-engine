@@ -11,18 +11,15 @@ impl Css3<'_> {
     pub fn parse_rule(&mut self) -> CssResult<Option<Node>> {
         log::trace!("parse_rule");
 
-        let result = self.parse_rule_internal();
-        if result.is_err() && self.config.ignore_errors {
-            self.parse_until_rule_end();
-            log::warn!("Ignoring error in parse_rule: {result:?}");
-            return Ok(None);
+        match self.parse_rule_internal() {
+            Ok(rule_node) => Ok(Some(rule_node)),
+            Err(err) if self.config.ignore_errors => {
+                self.parse_until_rule_end();
+                log::warn!("Ignoring error in parse_rule: {err:?}");
+                Ok(None)
+            }
+            Err(err) => Err(err),
         }
-
-        if let Ok(rule_node) = result {
-            return Ok(Some(rule_node));
-        }
-
-        Ok(None)
     }
 
     fn parse_rule_internal(&mut self) -> CssResult<Node> {

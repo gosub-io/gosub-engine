@@ -35,16 +35,16 @@ impl Default for FunctionProperty {
 }
 
 impl FieldProperty {
-    pub(crate) fn parse(attrs: &mut Vec<Attribute>) -> Option<FieldProperty> {
+    pub(crate) fn parse(attrs: &mut Vec<Attribute>) -> syn::Result<Option<FieldProperty>> {
         let mut remove_attrs = None;
         let mut property = None;
 
         for (index, attr) in attrs.iter().enumerate() {
             if attr.path().is_ident("property") {
-                property = Some(FieldProperty {
+                let mut prop = FieldProperty {
                     rename: None,
                     executor: Executor::Both,
-                });
+                };
 
                 //rename = "____", js => rename to name, and it is a js only property
                 //rename = "____", wasm => rename to name, and it is a wasm only property
@@ -61,41 +61,50 @@ impl FieldProperty {
                                 path if path.is_ident("rename") => {
                                     let lit: LitStr = meta.value()?.parse()?;
 
-                                    property.as_mut().unwrap().rename = Some(lit.value());
+                                    prop.rename = Some(lit.value());
                                 }
                                 path if path.is_ident("js") => {
-                                    assert!(
-                                        !(property.as_mut().unwrap().executor != Executor::Both),
-                                        "Executor cannot be specified twice!"
-                                    );
-                                    property.as_mut().unwrap().executor = Executor::JS;
+                                    if prop.executor != Executor::Both {
+                                        return Err(syn::Error::new_spanned(
+                                            &meta.path,
+                                            "executor cannot be specified twice",
+                                        ));
+                                    }
+                                    prop.executor = Executor::JS;
                                 }
                                 path if path.is_ident("wasm") => {
-                                    assert!(
-                                        !(property.as_mut().unwrap().executor != Executor::Both),
-                                        "Executor cannot be specified twice!"
-                                    );
-                                    property.as_mut().unwrap().executor = Executor::WASM;
+                                    if prop.executor != Executor::Both {
+                                        return Err(syn::Error::new_spanned(
+                                            &meta.path,
+                                            "executor cannot be specified twice",
+                                        ));
+                                    }
+                                    prop.executor = Executor::WASM;
                                 }
                                 path if path.is_ident("none") => {
-                                    assert!(
-                                        !(property.as_mut().unwrap().executor != Executor::Both),
-                                        "Executor cannot be specified twice!"
-                                    );
-                                    property.as_mut().unwrap().executor = Executor::None;
+                                    if prop.executor != Executor::Both {
+                                        return Err(syn::Error::new_spanned(
+                                            &meta.path,
+                                            "executor cannot be specified twice",
+                                        ));
+                                    }
+                                    prop.executor = Executor::None;
                                 }
                                 _ => Err(syn::Error::new_spanned(attr, "Unknown attribute in property attribute"))?,
                             }
 
                             Ok(())
-                        })
-                        .unwrap();
+                        })?;
                     }
                     Meta::NameValue(_) => {
-                        panic!("Unexpected NameValue in property attribute");
+                        return Err(syn::Error::new_spanned(
+                            attr,
+                            "unexpected name-value in property attribute",
+                        ));
                     }
                 }
 
+                property = Some(prop);
                 remove_attrs = Some(index);
             }
         }
@@ -104,18 +113,18 @@ impl FieldProperty {
             attrs.remove(index);
         }
 
-        property
+        Ok(property)
     }
 }
 
 impl FunctionProperty {
-    pub(crate) fn parse(attrs: &mut Vec<Attribute>) -> Option<FunctionProperty> {
+    pub(crate) fn parse(attrs: &mut Vec<Attribute>) -> syn::Result<Option<FunctionProperty>> {
         let mut remove_attrs = Vec::new();
         let mut property = None;
 
         for (index, attr) in attrs.iter().enumerate() {
             if attr.path().is_ident("property") {
-                property = Some(FunctionProperty::default());
+                let mut prop = FunctionProperty::default();
 
                 match &attr.meta {
                     Meta::Path(_) => {}
@@ -125,28 +134,34 @@ impl FunctionProperty {
                                 path if path.is_ident("rename") => {
                                     let lit: LitStr = meta.value()?.parse()?;
 
-                                    property.as_mut().unwrap().rename = Some(lit.value());
+                                    prop.rename = Some(lit.value());
                                 }
                                 path if path.is_ident("js") => {
-                                    assert!(
-                                        !(property.as_mut().unwrap().executor != Executor::Both),
-                                        "Executor cannot be specified twice!"
-                                    );
-                                    property.as_mut().unwrap().executor = Executor::JS;
+                                    if prop.executor != Executor::Both {
+                                        return Err(syn::Error::new_spanned(
+                                            &meta.path,
+                                            "executor cannot be specified twice",
+                                        ));
+                                    }
+                                    prop.executor = Executor::JS;
                                 }
                                 path if path.is_ident("wasm") => {
-                                    assert!(
-                                        !(property.as_mut().unwrap().executor != Executor::Both),
-                                        "Executor cannot be specified twice!"
-                                    );
-                                    property.as_mut().unwrap().executor = Executor::WASM;
+                                    if prop.executor != Executor::Both {
+                                        return Err(syn::Error::new_spanned(
+                                            &meta.path,
+                                            "executor cannot be specified twice",
+                                        ));
+                                    }
+                                    prop.executor = Executor::WASM;
                                 }
                                 path if path.is_ident("none") => {
-                                    assert!(
-                                        !(property.as_mut().unwrap().executor != Executor::Both),
-                                        "Executor cannot be specified twice!"
-                                    );
-                                    property.as_mut().unwrap().executor = Executor::None;
+                                    if prop.executor != Executor::Both {
+                                        return Err(syn::Error::new_spanned(
+                                            &meta.path,
+                                            "executor cannot be specified twice",
+                                        ));
+                                    }
+                                    prop.executor = Executor::None;
                                 }
 
                                 path => Err(syn::Error::new_spanned(
@@ -159,14 +174,17 @@ impl FunctionProperty {
                             }
 
                             Ok(())
-                        })
-                        .unwrap();
+                        })?;
                     }
                     Meta::NameValue(_) => {
-                        panic!("Unexpected NameValue in property attribute");
+                        return Err(syn::Error::new_spanned(
+                            attr,
+                            "unexpected name-value in property attribute",
+                        ));
                     }
                 }
 
+                property = Some(prop);
                 remove_attrs.push(index);
             }
 
@@ -182,28 +200,31 @@ impl FunctionProperty {
                     attr.parse_nested_meta(|meta| {
                         if name_found {
                             let prim = Primitive::get(&meta.path.to_token_stream().to_string());
-                            assert!(
-                                !types.iter().any(|(_, p)| p == &prim),
-                                "Cannot have multiple {prim:?}s in generic attribute"
-                            );
+                            if types.iter().any(|(_, p)| p == &prim) {
+                                return Err(syn::Error::new_spanned(
+                                    &meta.path,
+                                    format!("cannot have multiple {prim:?}s in generic attribute"),
+                                ));
+                            }
                             types.push((meta.path, prim));
                         } else {
                             param = Some(meta.path);
                             name_found = true;
                         }
                         Ok(())
-                    })
-                    .unwrap();
+                    })?;
 
-                    let param = param.expect("Expected param in generic attribute");
+                    let param =
+                        param.ok_or_else(|| syn::Error::new_spanned(attr, "expected param in generic attribute"))?;
 
-                    property
-                        .as_mut()
-                        .unwrap()
-                        .generics
-                        .push(GenericProperty { param, types });
+                    if let Some(property) = property.as_mut() {
+                        property.generics.push(GenericProperty { param, types });
+                    }
                 } else {
-                    panic!("Unexpected NameValue in generic attribute");
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        "unexpected name-value in generic attribute",
+                    ));
                 }
 
                 remove_attrs.push(index);
@@ -214,6 +235,6 @@ impl FunctionProperty {
             attrs.remove(index);
         }
 
-        property
+        Ok(property)
     }
 }
