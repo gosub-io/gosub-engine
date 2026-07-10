@@ -1,3 +1,5 @@
+// Example code: panicking on bad input is the desired behavior, as in any test code.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use cow_utils::CowUtils;
 use gosub_engine::events::{MouseButton, NavigationEvent, ResourceEvent, TabCommand};
 use gosub_engine::net::types::FetchResultMeta;

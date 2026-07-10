@@ -1,3 +1,5 @@
+// Benchmark code: panicking on bad input is the desired behavior, as in any test code.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::fs::File;
 
 use criterion::{criterion_group, criterion_main, Criterion};

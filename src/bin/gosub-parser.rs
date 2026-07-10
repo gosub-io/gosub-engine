@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
@@ -38,8 +38,7 @@ fn main() -> Result<()> {
 
     let url = matches
         .get_one::<String>("url")
-        .ok_or("Missing url")
-        .unwrap()
+        .ok_or_else(|| anyhow!("Missing url"))?
         .to_string();
 
     let url = Url::from_str(&url).unwrap_or_else(|_| fatal("Invalid url"));

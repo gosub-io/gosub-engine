@@ -1,3 +1,5 @@
+// Example code: panicking on bad input is the desired behavior, as in any test code.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;

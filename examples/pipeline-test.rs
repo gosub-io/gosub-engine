@@ -1,3 +1,5 @@
+// Example code: panicking on bad input is the desired behavior, as in any test code.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 /// End-to-end pipeline smoke test.
 ///
 /// Spins up a tiny local HTTP server that serves a known HTML page (with a

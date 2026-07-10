@@ -6,6 +6,7 @@ use gosub_html5::testing::tree_construction::result::ResultStatus;
 use gosub_html5::testing::tree_construction::Harness;
 use gosub_html5::testing::tree_construction::Test;
 use gosub_interface::config::ModuleConfiguration;
+use gosub_shared::types::Result;
 
 /// Holds the results from all tests that are executed
 #[derive(Default)]
@@ -32,7 +33,7 @@ impl ModuleConfiguration for Config {
     type HtmlParser = Html5Parser<'static, Self>;
 }
 
-fn main() {
+fn main() -> Result<()> {
     let mut results = TotalTestResults::default();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -42,7 +43,7 @@ fn main() {
     } else {
         Some(filename_refs.as_slice())
     };
-    let fixtures = read_fixtures(filenames).expect("fixtures");
+    let fixtures = read_fixtures(filenames)?;
 
     for fixture_file in fixtures {
         println!(
@@ -53,7 +54,7 @@ fn main() {
 
         for (test_idx, test) in (1..).zip(fixture_file.tests) {
             for &scripting_enabled in test.script_modes() {
-                run_test(test_idx, test.clone(), scripting_enabled, &mut results);
+                run_test(test_idx, test.clone(), scripting_enabled, &mut results)?;
             }
         }
 
@@ -76,18 +77,18 @@ fn main() {
             println!("    {data}");
         }
     }
+
+    Ok(())
 }
 
-fn run_test(test_idx: usize, test: Test, scripting_enabled: bool, all_results: &mut TotalTestResults) {
+fn run_test(test_idx: usize, test: Test, scripting_enabled: bool, all_results: &mut TotalTestResults) -> Result<()> {
     #[cfg(all(feature = "debug_parser_verbose", test))]
     println!("🧪 Running test #{test_idx}: {}:{}", test.file_path, test.line);
 
     all_results.tests += 1;
 
     let mut harness = Harness::new();
-    let result = harness
-        .run_test::<Config>(test.clone(), scripting_enabled)
-        .expect("problem parsing");
+    let result = harness.run_test::<Config>(test.clone(), scripting_enabled)?;
 
     // #[cfg(all(feature = "debug_parser", not(test)))]
     // print_test_result(&result);
@@ -190,4 +191,6 @@ fn run_test(test_idx: usize, test: Test, scripting_enabled: bool, all_results: &
             test.document_as_str().to_string(),
         ));
     }
+
+    Ok(())
 }

@@ -7,6 +7,8 @@
 //!   cargo run --example tutorial -- https://example.com
 //!
 //! See docs/tutorial.md for a step-by-step walkthrough.
+// Example code: panicking on bad input is the desired behavior, as in any test code.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use gosub_engine::{
     cookies::DefaultCookieJar,

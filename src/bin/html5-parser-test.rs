@@ -38,9 +38,7 @@ fn main() -> Result<()> {
         // Run tests
         for test in &fixture.tests {
             for &scripting_enabled in test.script_modes() {
-                let result = harness
-                    .run_test::<Config>(test.clone(), scripting_enabled)
-                    .expect("problem parsing");
+                let result = harness.run_test::<Config>(test.clone(), scripting_enabled)?;
 
                 total += 1;
 
@@ -74,11 +72,13 @@ fn get_files_from_path(dir: PathBuf) -> Vec<String> {
         if entry.file_type().is_file() {
             if let Some(extension) = entry.path().extension() {
                 if extension == "dat" {
-                    if let Ok(relative_path) = entry
+                    // Skips fixtures whose path is not valid UTF-8.
+                    if let Some(relative_path) = entry
                         .path()
                         .strip_prefix(dir.clone())
-                        .map(Path::to_str)
-                        .map(|s| s.unwrap().to_string())
+                        .ok()
+                        .and_then(Path::to_str)
+                        .map(str::to_string)
                     {
                         files.push(relative_path);
                     }
