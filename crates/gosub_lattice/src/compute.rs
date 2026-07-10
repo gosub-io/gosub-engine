@@ -104,7 +104,11 @@ pub fn compute_table_layout<T: TableTree>(
     //    Each cell is positioned relative to its row.
     let inner_width = col_widths.iter().sum::<f32>() + (n_cols as f32 + 1.0) * spacing_x;
 
-    let mut group_y = spacing_y; // Y offset of the next group, relative to the table
+    // Y offset of the next group, relative to the table. Vertically the table is one
+    // flat stack of rows: one gutter above the first row, one between any two adjacent
+    // rows (also across group boundaries), one below the last. Groups therefore carry
+    // only the (n_rows - 1) *internal* gutters; the shared boundary gutters live here.
+    let mut group_y = spacing_y;
 
     #[allow(clippy::type_complexity)]
     let section_data: &[(&[RowGroup<T::NodeId>], &[SectionGrid<T::NodeId>], &[Vec<f32>])] = &[
@@ -129,18 +133,28 @@ pub fn compute_table_layout<T: TableTree>(
                 );
             }
 
-            place_rows(tree, group, grid, row_heights, &col_x, &col_widths, spacing_y);
+            place_rows(
+                tree,
+                group,
+                grid,
+                row_heights,
+                &col_x,
+                &col_widths,
+                spacing_x,
+                spacing_y,
+            );
 
-            group_y += group_height;
+            group_y += group_height + spacing_y;
         }
     }
 
-    let total_height = group_y + spacing_y;
+    let total_height = group_y;
 
     Ok((table_width, total_height))
 }
 
 /// Write layouts for every row and cell within one section.
+#[allow(clippy::too_many_arguments)]
 fn place_rows<T: TableTree>(
     tree: &mut T,
     group: &RowGroup<T::NodeId>,
@@ -148,6 +162,7 @@ fn place_rows<T: TableTree>(
     row_heights: &[f32],
     col_x: &[f32],
     col_widths: &[f32],
+    spacing_x: f32,
     spacing_y: f32,
 ) {
     // Precompute y offset of each row within the group.
@@ -172,12 +187,13 @@ fn place_rows<T: TableTree>(
 
         // Cells for this row.
         for cell in grid.cells_in_row(row_idx) {
-            place_cell(tree, cell, row_heights, col_x, col_widths, &row_y);
+            place_cell(tree, cell, row_heights, col_x, col_widths, &row_y, spacing_x, spacing_y);
         }
     }
 }
 
 /// Write the layout for one placed cell.
+#[allow(clippy::too_many_arguments)]
 fn place_cell<T: TableTree>(
     tree: &mut T,
     cell: &PlacedCell<T::NodeId>,
@@ -185,20 +201,18 @@ fn place_cell<T: TableTree>(
     col_x: &[f32],
     col_widths: &[f32],
     row_y: &[f32],
+    spacing_x: f32,
+    spacing_y: f32,
 ) {
-    // Width = sum of spanned column widths (col_widths already excludes spacing).
-    let cell_width: f32 = col_widths
-        .get(cell.col..cell.col + cell.colspan)
-        .unwrap_or(&[])
-        .iter()
-        .sum();
+    // Width = sum of spanned column widths, plus the border-spacing gutters the
+    // spanning cell covers (a colspan=2 cell runs across the gutter between its
+    // two columns). `col_widths` itself excludes spacing.
+    let spanned_cols = col_widths.get(cell.col..cell.col + cell.colspan).unwrap_or(&[]);
+    let cell_width: f32 = spanned_cols.iter().sum::<f32>() + spacing_x * spanned_cols.len().saturating_sub(1) as f32;
 
-    // Height = sum of spanned row heights.
-    let cell_height: f32 = row_heights
-        .get(cell.row..cell.row + cell.rowspan)
-        .unwrap_or(&[])
-        .iter()
-        .sum();
+    // Height = sum of spanned row heights, plus the gutters between them.
+    let spanned_rows = row_heights.get(cell.row..cell.row + cell.rowspan).unwrap_or(&[]);
+    let cell_height: f32 = spanned_rows.iter().sum::<f32>() + spacing_y * spanned_rows.len().saturating_sub(1) as f32;
 
     let x = col_x.get(cell.col).copied().unwrap_or(0.0);
 
@@ -236,9 +250,11 @@ fn col_x_offsets(col_widths: &[f32], spacing_x: f32) -> Vec<f32> {
 }
 
 /// `row_y[i]` = y of the top edge of row `i` within its group, in px.
+/// The first row starts at 0 — the gutter above it belongs to the table
+/// (or to the previous group's bottom boundary), not to this group.
 fn row_y_offsets(row_heights: &[f32], spacing_y: f32) -> Vec<f32> {
     let mut offsets = Vec::with_capacity(row_heights.len());
-    let mut y = spacing_y;
+    let mut y = 0.0;
     for &h in row_heights {
         offsets.push(y);
         y += h + spacing_y;
@@ -246,10 +262,12 @@ fn row_y_offsets(row_heights: &[f32], spacing_y: f32) -> Vec<f32> {
     offsets
 }
 
-/// Total height of a section including surrounding border-spacing gutters.
+/// Total height of a section: its rows plus the gutters *between* them.
+/// Boundary gutters (above the first row / below the last) are added by the
+/// caller when stacking groups, so they are not counted here.
 fn section_height(row_heights: &[f32], spacing_y: f32) -> f32 {
     let rows_h: f32 = row_heights.iter().sum();
-    let gaps = (row_heights.len() as f32 + 1.0) * spacing_y;
+    let gaps = spacing_y * row_heights.len().saturating_sub(1) as f32;
     rows_h + gaps
 }
 

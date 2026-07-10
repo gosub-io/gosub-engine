@@ -8,7 +8,6 @@ description = "CSS table layout engine for Gosub"
 
 [dependencies]
 anyhow = { workspace = true }
-log = { workspace = true }
 
 [lints]
 workspace = true

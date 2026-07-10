@@ -1,4 +1,4 @@
-    # Lattice: the table layout engine (`gosub_lattice`)
+# Lattice: the table layout engine (`gosub_lattice`)
 
 Taffy covers flexbox, grid, and block layout --- but not CSS tables. `gosub_lattice` fills that gap: a standalone implementation of the CSS table layout algorithm that works *in conjunction with* a general layout engine rather than replacing it. Taffy (or any host) lays out everything, tables included, as ordinary boxes; lattice then recomputes the table grid geometry --- column widths, row heights, cell positions --- and writes it back, while delegating the layout *inside* each cell right back to the host engine.
 
@@ -29,7 +29,7 @@ One call per table; returns the table's `(width, height)` border-box size (the c
 3.  **Column widths** (`sizing/columns.rs`) --- available space is the table width minus all border-spacing gutters. The first non-empty row is scanned: single-column cells with an explicit CSS width get it (clamped to at least their content's natural width --- a `width: 18px` cell holding a 20 px image must not clip it). Remaining space goes to the auto columns **proportionally to their natural content width** (from `cell_content_width`), with a threshold heuristic: narrow columns (\< 50 px intrinsic --- rank numbers, vote buttons) keep their natural width with a 14 px floor, wide content columns share what's left. Equal distribution is the fallback when no content-width data exists (mock trees).
 4.  **Row heights** (`sizing/rows.rs`) --- per non-spanning cell: `layout_cell(inner_width)` asks the host to lay out the cell's children at the now-final column width; the row height is the max over its cells of \`max(content height, explicit CSS height) + border
     -   padding\`. Explicit height is a *minimum* --- content can grow past it.
-5.  **Placement** (`compute.rs`) --- sections render header → body → footer regardless of source order, per CSS. Groups are positioned relative to the table, rows relative to their group, cells relative to their row; spanning cells sum the widths/heights of the columns/rows they cover. Everything is written back through `set_layout` as *relative* positions --- the adapter converts to absolute coordinates (the pipeline's does so in `apply_positions`).
+5.  **Placement** (`compute.rs`) --- sections render header → body → footer regardless of source order, per CSS. Groups are positioned relative to the table, rows relative to their group, cells relative to their row; spanning cells sum the widths/heights of the columns/rows they cover, plus the border-spacing gutters between them. Everything is written back through `set_layout` as *relative* positions --- the adapter converts to absolute coordinates (the pipeline's does so in `apply_positions`).
 
 ## Trying it standalone
 
