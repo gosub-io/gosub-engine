@@ -1,71 +1,73 @@
-# Bytestream 
+# ByteStream
 
-A bytestream allows you to read characters from a series of bytes without worrying about their encoding. For instance,
-a bytestream can have a series of bytes that represent a UTF-16 encoded string, but you can read it as if it were a
-UTF-8 encoded string. The bytestream will take care of any conversions from the actual encoding into the actual output 
-of the bytestream a `Character` enum.
+`gosub_shared::byte_stream::ByteStream` turns a buffer of raw bytes into a stream of decoded
+characters, so parsers can read text without caring about the source encoding. It is the input
+type for both the HTML5 tokenizer and the CSS3 parser. Bytes are decoded eagerly into an internal
+character array, and every character remembers its byte offset, so the stream can report exact
+`Location`s (line/column/offset) for parse errors and can re-decode mid-parse when a document
+declares its real encoding late (e.g. a `<meta charset>` tag).
 
-Note that a bytestream can either be open or closed. When a stream is open, it is allowed to add more bytes to it. When
-you have read all the bytes from the stream, it will return a `Character::StreamEmpty`. At this point you can either fill
-up the stream with more bytes, or close the stream. Once a stream is closed, it will not accept any more bytes and reading
-at the end of the stream will return a `Character::StreamEnd`.
+Reading yields a `Character`:
+
+- `Ch(char)` — a decoded character
+- `Surrogate(u16)` — an unpaired UTF-16 surrogate (0xD800–0xDFFF), which cannot be stored in a
+  Rust `char`; it's up to the caller to deal with it
+- `StreamEnd` — the read position is past the last decoded character
 
 ## Encodings
-The `bytestream` can handle the following encodings:
 
-- UTF-8 (1-4 characters)
-- UTF-16 Big Endian (2 characters)
-- UTF-16 Little Endian (2 characters)
-- ASCII (1 character)
+- `Unknown` — decodes nothing until a real encoding is set
+- `Latin1` — each byte is one character
+- `UTF8` — invalid sequences decode to U+FFFD (one replacement character per rejected sequence)
+- `UTF16LE` / `UTF16BE` — unpaired surrogates come out as `Character::Surrogate`
 
-When you read into the stream, the stream will return the next character based on the bytes in the stream. 
+## Creating and filling a stream
 
-## Examples
+The one-shot constructor covers most uses — it decodes the string and closes the stream:
+
 ```rust
-use bytestream::{ByteStream, Encoding, Config};
+use gosub_shared::byte_stream::{ByteStream, Character, Encoding, Stream};
 
-fn main() {
-
-    let mut stream = ByteStream::new(
-        Encoding::UTF8,
-        Some(Config {
-            cr_lf_as_one: true,
-            replace_high_ascii: false,
-        }),
-    );
-    stream.read_from_bytes(&[0x48, 0x65, 0x6C, 0x6C, 0x6F]); // "Hello"
-    stream.close();
-
-    assert_eq!(stream.read_and_next(), Character::Char('H'));
-    assert_eq!(stream.read_and_next(), Character::Char('e'));
-    assert_eq!(stream.read_and_next(), Character::Char('l'));
-    assert_eq!(stream.read_and_next(), Character::Char('l'));
-    assert_eq!(stream.read_and_next(), Character::Char('o'));
-    assert_eq!(stream.read_and_next(), Character::StreamEnd);
-}
+let mut stream = ByteStream::from_str("Hello", Encoding::UTF8);
+assert_eq!(stream.read_and_next(), Character::Ch('H'));
+assert_eq!(stream.look_ahead(2), Character::Ch('l'));
 ```
 
-Note that in theory it's possible to switch encoding during the reading of the bytestream. The read functions will try and 
-read the next bytes as the given encoding. We strongly advice you to not do this, as it can lead to unexpected results.
+For other sources, build with `new(encoding, config)` and fill with `read_from_bytes(&[u8])`,
+`read_from_file(impl Read)` (both return `io::Result` and close the stream), or
+`read_from_str(&str, Option<Encoding>)` (leaves the stream open).
 
-## Dealing with surrogates
-Rust characters are UTF8 encoded and do not allow surrogate characters (0xD800 - 0xDFFF). If you try to read a surrogate 
-character you will get a `Character::Surrogate`. It's up to the caller to deal with this if needed.
+An **open** stream can still grow via `append_str`; an incomplete UTF-8 sequence at the end of an
+open buffer is held back until more bytes arrive. `close()` marks the stream complete and
+re-decodes, so a trailing incomplete sequence resolves to U+FFFD. Reading past the end returns
+`StreamEnd` either way — use `eof()` (`closed() && exhausted()`) to tell "really finished" from
+"waiting for more data".
 
+## Reading
 
-## Configuration settings
-It's possible to add a configuration to the bytestream. This will set certain settings for the bytestream. The following
-settings are available:
+`ByteStream` implements the `Stream` trait:
 
-    - cr_lf_as_one: bool,
-    This will treat a CR LF sequence as one character and will return only LF. By default, a CR LF sequence is treated as two characters.
- 
-    - replace_high_ascii: bool,
-    If high-ascii (> 127) characters are found, they will be replaced with a `?` character. By default, high-ascii characters are not replaced.
+- `read()` / `read_and_next()` — current character, without/with advancing
+- `look_ahead(offset)` — peek `offset` characters ahead
+- `next()` / `next_n(n)` / `prev()` / `prev_n(n)` — move the position
+- `get_slice(len)` — the next `len` characters, without advancing
+- `mark()` / `reset_to_mark(mark)` — save and restore a position (inherent methods)
+- `seek_bytes(offset)` / `tell_bytes()` — position in bytes rather than characters
+- `reset_stream()` — back to the start
+- `location()` — current `Location { line, column, offset }` (1-based line/column), amortized O(1)
 
+## Configuration
 
-## Detecting the encoding
-It's possible to detect the encoding of a bytestream. This can be done by calling the `detect_encoding` function. This function
-will return the detected encoding which you can manually set.
+`new` takes an optional `Config`:
 
-Note that the encoder detector will only work on the first 64Kb of bytes in the bytestream.
+- `cr_lf_as_one` (default `true`) — a CRLF pair is consumed as a single LF; `prev_n` steps back
+  over the pair as one unit
+- `replace_cr_as_lf` (default `false`) — a lone CR (not followed by LF) is returned as LF
+- `replace_high_ascii` (default `false`) — Latin1 only: bytes above 127 decode to `?`
+
+## Detecting and switching the encoding
+
+`detect_encoding()` sniffs a BOM first (UTF-8, UTF-16LE, UTF-16BE), then runs `chardetng` over at
+most the first 64KB of the buffer; anything that isn't UTF-16 is reported as UTF-8. It only
+returns the guess — apply it with `set_encoding(e)`, which re-decodes the buffer and remaps the
+current position to the same byte offset, so switching encodings mid-parse keeps your place.

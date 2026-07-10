@@ -378,7 +378,7 @@ pub enum ScrollBehavior {
 }
 
 impl ScrollBehavior {
-    /// Build a fresh animator for one axis starting at `start`. Returns `None` for [`Instant`],
+    /// Build a fresh animator for one axis starting at `start`. Returns `None` for [`ScrollBehavior::Instant`],
     /// which the caller realises by setting the position directly.
     pub fn make_animator(&self, start: f64) -> Option<Box<dyn ScrollAnimator>> {
         match self {
