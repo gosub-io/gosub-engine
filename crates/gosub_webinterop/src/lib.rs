@@ -153,21 +153,30 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
                 if let Some(arg) = func.arguments.last() {
                     if arg.variant != ArgVariant::Variadic {
                         if arg.variant != ArgVariant::Context {
-                            return syn::Error::new_spanned(&method.sig.ident, "variadic argument must be the last argument")
-                                .to_compile_error()
-                                .into();
+                            return syn::Error::new_spanned(
+                                &method.sig.ident,
+                                "variadic argument must be the last argument",
+                            )
+                            .to_compile_error()
+                            .into();
                         }
                         //get second last
                         if func.arguments.len() <= 1 {
-                            return syn::Error::new_spanned(&method.sig.ident, "variadic argument must be the last argument")
-                                .to_compile_error()
-                                .into();
+                            return syn::Error::new_spanned(
+                                &method.sig.ident,
+                                "variadic argument must be the last argument",
+                            )
+                            .to_compile_error()
+                            .into();
                         }
                         if let Some(arg) = func.arguments.get(func.arguments.len() - 2) {
                             if arg.variant != ArgVariant::Variadic {
-                                return syn::Error::new_spanned(&method.sig.ident, "variadic argument must be the last argument")
-                                    .to_compile_error()
-                                    .into();
+                                return syn::Error::new_spanned(
+                                    &method.sig.ident,
+                                    "variadic argument must be the last argument",
+                                )
+                                .to_compile_error()
+                                .into();
                             }
                         }
                     }
@@ -177,9 +186,12 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
             if func.needs_ctx {
                 if let Some(arg) = func.arguments.last() {
                     if arg.variant != ArgVariant::Context {
-                        return syn::Error::new_spanned(&method.sig.ident, "context argument must be the last argument")
-                            .to_compile_error()
-                            .into();
+                        return syn::Error::new_spanned(
+                            &method.sig.ident,
+                            "context argument must be the last argument",
+                        )
+                        .to_compile_error()
+                        .into();
                     }
                 }
             }
