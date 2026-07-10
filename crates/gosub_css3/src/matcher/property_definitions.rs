@@ -10,20 +10,19 @@ use crate::matcher::syntax::{CssSyntax, SyntaxComponent};
 use crate::matcher::syntax_matcher::CssSyntaxTree;
 use crate::stylesheet::CssValue;
 
-/// List of elements that are built-in data types in the CSS specification. These will be handled
-/// by the syntax matcher as built-in types.
-const BUILTIN_DATA_TYPES: [&str; 49] = [
-    "absolute-size",
+/// Terminal data types that have no expandable grammar and are matched directly by
+/// the syntax matcher rather than resolved from a value definition. This holds only:
+/// genuine token primitives (`length`, `number`, `angle`, …), types with dedicated
+/// match logic (`named-color`, `system-color`, `color()`, `hex-color`, `alpha()`),
+/// and a few legacy/niche types no data source defines. Every value type that *does*
+/// have a grammar is resolved from the definitions (webref / MDN `syntaxes.json`), so
+/// it must NOT be listed here.
+const BUILTIN_DATA_TYPES: [&str; 34] = [
     "age",
     "angle",
-    "basic-shape",
-    "calc-size()",
-    "counter-name",
-    "counter-style-name",
     "custom-ident",
     "dashed-ident",
     "decibel",
-    "feature-tag-value",
     "flex",
     "frequency",
     "gender",
@@ -37,31 +36,25 @@ const BUILTIN_DATA_TYPES: [&str; 49] = [
     "named-color",
     "semitones",
     "system-color",
-    "outline-line-style",
-    "palette-identifier",
     "percentage",
-    "relative-size",
     "string",
     "target-name",
     "time",
-    "timeline-range-name",
-    "transform-function",
     "uri",
     "url-set",
     "url-token",
     "x",
     "y",
-    "color()",
-    "attr()",    //TODO: this is not a builtin!
-    "element()", //TODO: this is not a builtin!
-    "dynamic-range-limit-mix()",
-    "palette-mix()",
     "declaration-value",
     "number-token",
     "autospace",
     "dimension",
     "resolution",
     "url",
+    // An alpha value is a numeric leaf (`<number> | <percentage>`) with no
+    // expandable grammar; matched explicitly in syntax_matcher so it can't act as
+    // a wildcard inside `<color-function>`.
+    "alpha()",
 ];
 
 /// A CSS property definition including its type and initial value and optional expanded values if it's a shorthand property
@@ -601,7 +594,7 @@ mod tests {
             .with_level(log::LevelFilter::Warn)
             .init()
             .unwrap();
-        assert_eq!(CSS_DEFINITIONS.len(), 664);
+        assert_eq!(CSS_DEFINITIONS.len(), 666);
     }
 
     #[test]

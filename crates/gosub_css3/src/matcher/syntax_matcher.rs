@@ -296,15 +296,17 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                     }
                 }
             }
-            "color()" => match value {
-                // @TODO: fix this according to what the spec says
+            "hex-color" => match value {
                 CssValue::Color(_) => return first_match(input),
                 CssValue::String(v) if v.starts_with('#') => return first_match(input),
                 _ => {}
             },
-            "hex-color" => match value {
-                CssValue::Color(_) => return first_match(input),
-                CssValue::String(v) if v.starts_with('#') => return first_match(input),
+            // An alpha value is numeric (`<number> | <percentage>`). It must not fall
+            // through to the permissive catch-all below: `<alpha()>` is part of
+            // `<color-function>`, so accepting arbitrary strings here would make any
+            // string match `<color>` and defeat color validation.
+            "alpha()" => match value {
+                CssValue::Zero | CssValue::Number(_) | CssValue::Percentage(_) => return first_match(input),
                 _ => {}
             },
             _ => {

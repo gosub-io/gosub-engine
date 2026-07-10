@@ -717,7 +717,7 @@
       "name": "-webkit-border-after-width",
       "syntax": "<'border-top-width'>",
       "computed": [
-        "absoluteLength"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
@@ -759,7 +759,7 @@
       "name": "-webkit-border-before-width",
       "syntax": "<'border-top-width'>",
       "computed": [
-        "absoluteLength"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
@@ -801,7 +801,7 @@
       "name": "-webkit-border-end-width",
       "syntax": "<'border-top-width'>",
       "computed": [
-        "absoluteLength"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
@@ -843,7 +843,7 @@
       "name": "-webkit-border-start-width",
       "syntax": "<'border-top-width'>",
       "computed": [
-        "absoluteLength"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
@@ -868,7 +868,7 @@
     },
     {
       "name": "-webkit-mask",
-      "syntax": "[ <mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || [ <visual-box> | border | padding | content | text ] || [ <visual-box> | border | padding | content ] ]#",
+      "syntax": "<mask-layer>#",
       "computed": [
         "-webkit-mask-image",
         "-webkit-mask-repeat",
@@ -898,7 +898,7 @@
     },
     {
       "name": "-webkit-mask-clip",
-      "syntax": "[ <coord-box> | no-clip | border | padding | content | text ]#",
+      "syntax": "[ <coord-box> | no-clip ]#",
       "computed": [
         "asSpecified"
       ],
@@ -907,7 +907,7 @@
     },
     {
       "name": "-webkit-mask-composite",
-      "syntax": "<composite-style>#",
+      "syntax": "<compositing-operator>#",
       "computed": [
         "asSpecified"
       ],
@@ -925,7 +925,7 @@
     },
     {
       "name": "-webkit-mask-origin",
-      "syntax": "[ <coord-box> | border | padding | content ]#",
+      "syntax": "<coord-box>#",
       "computed": [
         "asSpecified"
       ],
@@ -1024,7 +1024,7 @@
     },
     {
       "name": "-webkit-text-stroke",
-      "syntax": "<length> || <color>",
+      "syntax": "<line-width> || <color>",
       "computed": [
         "-webkit-text-stroke-width",
         "-webkit-text-stroke-color"
@@ -1046,7 +1046,7 @@
     },
     {
       "name": "-webkit-text-stroke-width",
-      "syntax": "<length>",
+      "syntax": "<line-width>",
       "computed": [
         "absoluteLength"
       ],
@@ -1073,7 +1073,7 @@
     },
     {
       "name": "-webkit-user-select",
-      "syntax": "auto | text | none | all",
+      "syntax": "auto | text | none | contain | all",
       "computed": [
         "asSpecified"
       ],
@@ -1100,7 +1100,7 @@
     },
     {
       "name": "align-items",
-      "syntax": "normal | stretch | <baseline-position> | [ <overflow-position>? <self-position> ] | anchor-center",
+      "syntax": "normal | stretch | <baseline-position> | <overflow-position>? <self-position>",
       "computed": [
         "asSpecified"
       ],
@@ -1109,7 +1109,7 @@
     },
     {
       "name": "align-self",
-      "syntax": "auto | normal | stretch | <baseline-position> | <overflow-position>? <self-position> | anchor-center",
+      "syntax": "auto | <overflow-position>? [ normal | <self-position> ]| stretch | <baseline-position> | anchor-center",
       "computed": [
         "autoOnAbsolutelyPositionedElementsValueOfAlignItemsOnParent"
       ],
@@ -1127,7 +1127,7 @@
     },
     {
       "name": "alignment-baseline",
-      "syntax": "baseline | alphabetic | ideographic | middle | central | mathematical | text-before-edge | text-after-edge",
+      "syntax": "baseline | <baseline-metric>",
       "computed": [
         "theSpecifiedKeyword"
       ],
@@ -1136,7 +1136,7 @@
     },
     {
       "name": "all",
-      "syntax": "initial | inherit | unset | revert | revert-layer",
+      "syntax": "initial | inherit | unset | revert | revert-layer | revert-rule",
       "computed": [
         "asSpecifiedAppliesToEachProperty"
       ],
@@ -1145,7 +1145,7 @@
     },
     {
       "name": "anchor-name",
-      "syntax": "none | <dashed-ident>#",
+      "syntax": "none | <anchor-name>#",
       "computed": [
         "asSpecified"
       ],
@@ -1154,7 +1154,7 @@
     },
     {
       "name": "anchor-scope",
-      "syntax": "none | all | <dashed-ident>#",
+      "syntax": "none | all | <anchor-name>#",
       "computed": [
         "asSpecified"
       ],
@@ -1217,7 +1217,7 @@
     },
     {
       "name": "animation-duration",
-      "syntax": "[ auto | <time [0s,∞]> ]#",
+      "syntax": "<time [0s,∞]>#",
       "computed": [
         "asSpecified"
       ],
@@ -1320,7 +1320,7 @@
     },
     {
       "name": "appearance",
-      "syntax": "none | auto | <compat-auto> | <compat-special>",
+      "syntax": "none | auto | base | base-select | <compat-auto> | <compat-special> | base",
       "computed": [
         "asSpecified"
       ],
@@ -1390,7 +1390,7 @@
     },
     {
       "name": "background-blend-mode",
-      "syntax": "<blend-mode>#",
+      "syntax": "<'mix-blend-mode'>#",
       "computed": [
         "asSpecified"
       ],
@@ -1399,7 +1399,7 @@
     },
     {
       "name": "background-clip",
-      "syntax": "<bg-clip>#",
+      "syntax": "<visual-box>#",
       "computed": [
         "asSpecified"
       ],
@@ -1481,7 +1481,7 @@
     },
     {
       "name": "baseline-shift",
-      "syntax": "<length-percentage> | sub | super | baseline",
+      "syntax": "<length-percentage> | sub | super | top | center | bottom",
       "computed": [
         "theSpecifiedKeywordOrAComputedLengthPercentageValue"
       ],
@@ -1523,7 +1523,7 @@
     },
     {
       "name": "border-block",
-      "syntax": "<'border-top'>",
+      "syntax": "<'border-block-start'>",
       "computed": [
         "border-block-width",
         "border-block-style",
@@ -1551,7 +1551,7 @@
     },
     {
       "name": "border-block-end",
-      "syntax": "<'border-top'>",
+      "syntax": "<line-width> || <line-style> || <color>",
       "computed": [
         "border-block-end-width",
         "border-block-end-style",
@@ -1566,7 +1566,7 @@
     },
     {
       "name": "border-block-end-color",
-      "syntax": "<'border-top-color'>",
+      "syntax": "<color> | <image-1D>",
       "computed": [
         "computedColor"
       ],
@@ -1575,7 +1575,7 @@
     },
     {
       "name": "border-block-end-style",
-      "syntax": "<'border-top-style'>",
+      "syntax": "<line-style>",
       "computed": [
         "asSpecified"
       ],
@@ -1584,16 +1584,16 @@
     },
     {
       "name": "border-block-end-width",
-      "syntax": "<'border-top-width'>",
+      "syntax": "<line-width>",
       "computed": [
-        "absoluteLengthZeroIfBorderStyleNoneOrHidden"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
     },
     {
       "name": "border-block-start",
-      "syntax": "<'border-top'>",
+      "syntax": "<line-width> || <line-style> || <color>",
       "computed": [
         "border-block-start-width",
         "border-block-start-style",
@@ -1608,7 +1608,7 @@
     },
     {
       "name": "border-block-start-color",
-      "syntax": "<'border-top-color'>",
+      "syntax": "<color> | <image-1D>",
       "computed": [
         "computedColor"
       ],
@@ -1617,7 +1617,7 @@
     },
     {
       "name": "border-block-start-style",
-      "syntax": "<'border-top-style'>",
+      "syntax": "<line-style>",
       "computed": [
         "asSpecified"
       ],
@@ -1626,9 +1626,9 @@
     },
     {
       "name": "border-block-start-width",
-      "syntax": "<'border-top-width'>",
+      "syntax": "<line-width>",
       "computed": [
-        "absoluteLengthZeroIfBorderStyleNoneOrHidden"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
@@ -1676,7 +1676,7 @@
     },
     {
       "name": "border-bottom-color",
-      "syntax": "<'border-top-color'>",
+      "syntax": "<color> | <image-1D>",
       "computed": [
         "computedColor"
       ],
@@ -1685,7 +1685,7 @@
     },
     {
       "name": "border-bottom-left-radius",
-      "syntax": "<length-percentage [0,∞]>{1,2}",
+      "syntax": "<border-radius>",
       "computed": [
         "twoAbsoluteLengthOrPercentages"
       ],
@@ -1694,7 +1694,7 @@
     },
     {
       "name": "border-bottom-right-radius",
-      "syntax": "<length-percentage [0,∞]>{1,2}",
+      "syntax": "<border-radius>",
       "computed": [
         "twoAbsoluteLengthOrPercentages"
       ],
@@ -1714,7 +1714,7 @@
       "name": "border-bottom-width",
       "syntax": "<line-width>",
       "computed": [
-        "absoluteLengthOr0IfBorderBottomStyleNoneOrHidden"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
@@ -1730,7 +1730,7 @@
     },
     {
       "name": "border-color",
-      "syntax": "<color>{1,4}",
+      "syntax": "[ <color> | <image-1D> ]{1,4}",
       "computed": [
         "border-top-color",
         "border-right-color",
@@ -1747,7 +1747,7 @@
     },
     {
       "name": "border-end-end-radius",
-      "syntax": "<'border-top-left-radius'>",
+      "syntax": "<border-radius>",
       "computed": [
         "twoAbsoluteLengthOrPercentages"
       ],
@@ -1756,7 +1756,7 @@
     },
     {
       "name": "border-end-start-radius",
-      "syntax": "<'border-top-left-radius'>",
+      "syntax": "<border-radius>",
       "computed": [
         "twoAbsoluteLengthOrPercentages"
       ],
@@ -1802,7 +1802,7 @@
     },
     {
       "name": "border-image-slice",
-      "syntax": "[ <number [0,∞]> | <percentage [0,∞]> ]{1,4} && fill?",
+      "syntax": "[<number [0,∞]> | <percentage [0,∞]>]{1,4} && fill?",
       "computed": [
         "oneToFourPercentagesOrAbsoluteLengthsPlusFill"
       ],
@@ -1829,7 +1829,7 @@
     },
     {
       "name": "border-inline",
-      "syntax": "<'border-top'>",
+      "syntax": "<'border-block-start'>",
       "computed": [
         "border-inline-width",
         "border-inline-style",
@@ -1857,7 +1857,7 @@
     },
     {
       "name": "border-inline-end",
-      "syntax": "<'border-top'>",
+      "syntax": "<line-width> || <line-style> || <color>",
       "computed": [
         "border-inline-end-width",
         "border-inline-end-style",
@@ -1872,7 +1872,7 @@
     },
     {
       "name": "border-inline-end-color",
-      "syntax": "<'border-top-color'>",
+      "syntax": "<color> | <image-1D>",
       "computed": [
         "computedColor"
       ],
@@ -1881,7 +1881,7 @@
     },
     {
       "name": "border-inline-end-style",
-      "syntax": "<'border-top-style'>",
+      "syntax": "<line-style>",
       "computed": [
         "asSpecified"
       ],
@@ -1890,16 +1890,16 @@
     },
     {
       "name": "border-inline-end-width",
-      "syntax": "<'border-top-width'>",
+      "syntax": "<line-width>",
       "computed": [
-        "absoluteLengthZeroIfBorderStyleNoneOrHidden"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
     },
     {
       "name": "border-inline-start",
-      "syntax": "<'border-top'>",
+      "syntax": "<line-width> || <line-style> || <color>",
       "computed": [
         "border-inline-start-width",
         "border-inline-start-style",
@@ -1914,7 +1914,7 @@
     },
     {
       "name": "border-inline-start-color",
-      "syntax": "<'border-top-color'>",
+      "syntax": "<color> | <image-1D>",
       "computed": [
         "computedColor"
       ],
@@ -1923,7 +1923,7 @@
     },
     {
       "name": "border-inline-start-style",
-      "syntax": "<'border-top-style'>",
+      "syntax": "<line-style>",
       "computed": [
         "asSpecified"
       ],
@@ -1932,9 +1932,9 @@
     },
     {
       "name": "border-inline-start-width",
-      "syntax": "<'border-top-width'>",
+      "syntax": "<line-width>",
       "computed": [
-        "absoluteLengthZeroIfBorderStyleNoneOrHidden"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
@@ -1982,7 +1982,7 @@
     },
     {
       "name": "border-left-color",
-      "syntax": "<color>",
+      "syntax": "<color> | <image-1D>",
       "computed": [
         "computedColor"
       ],
@@ -2002,7 +2002,7 @@
       "name": "border-left-width",
       "syntax": "<line-width>",
       "computed": [
-        "absoluteLengthOr0IfBorderLeftStyleNoneOrHidden"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
@@ -2041,7 +2041,7 @@
     },
     {
       "name": "border-right-color",
-      "syntax": "<color>",
+      "syntax": "<color> | <image-1D>",
       "computed": [
         "computedColor"
       ],
@@ -2061,7 +2061,7 @@
       "name": "border-right-width",
       "syntax": "<line-width>",
       "computed": [
-        "absoluteLengthOr0IfBorderRightStyleNoneOrHidden"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
@@ -2077,7 +2077,7 @@
     },
     {
       "name": "border-spacing",
-      "syntax": "<length>{1,2}",
+      "syntax": "<length [0,∞]>{1,2}",
       "computed": [
         "twoAbsoluteLengths"
       ],
@@ -2086,7 +2086,7 @@
     },
     {
       "name": "border-start-end-radius",
-      "syntax": "<'border-top-left-radius'>",
+      "syntax": "<border-radius>",
       "computed": [
         "twoAbsoluteLengthOrPercentages"
       ],
@@ -2095,7 +2095,7 @@
     },
     {
       "name": "border-start-start-radius",
-      "syntax": "<'border-top-left-radius'>",
+      "syntax": "<border-radius>",
       "computed": [
         "twoAbsoluteLengthOrPercentages"
       ],
@@ -2104,7 +2104,7 @@
     },
     {
       "name": "border-style",
-      "syntax": "<line-style>{1,4}",
+      "syntax": "<'border-top-style'>{1,4}",
       "computed": [
         "border-top-style",
         "border-right-style",
@@ -2136,7 +2136,7 @@
     },
     {
       "name": "border-top-color",
-      "syntax": "<color>",
+      "syntax": "<color> | <image-1D>",
       "computed": [
         "computedColor"
       ],
@@ -2145,7 +2145,7 @@
     },
     {
       "name": "border-top-left-radius",
-      "syntax": "<length-percentage [0,∞]>{1,2}",
+      "syntax": "<border-radius>",
       "computed": [
         "twoAbsoluteLengthOrPercentages"
       ],
@@ -2154,7 +2154,7 @@
     },
     {
       "name": "border-top-right-radius",
-      "syntax": "<length-percentage [0,∞]>{1,2}",
+      "syntax": "<border-radius>",
       "computed": [
         "twoAbsoluteLengthOrPercentages"
       ],
@@ -2174,14 +2174,14 @@
       "name": "border-top-width",
       "syntax": "<line-width>",
       "computed": [
-        "absoluteLengthOr0IfBorderTopStyleNoneOrHidden"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
     },
     {
       "name": "border-width",
-      "syntax": "<line-width>{1,4}",
+      "syntax": "<'border-top-width'>{1,4}",
       "computed": [
         "border-top-width",
         "border-right-width",
@@ -2288,7 +2288,7 @@
     },
     {
       "name": "box-shadow",
-      "syntax": "none | <shadow>#",
+      "syntax": "<spread-shadow>#",
       "computed": [
         "absoluteLengthsSpecifiedColorAsSpecified"
       ],
@@ -2366,7 +2366,7 @@
     },
     {
       "name": "caret-color",
-      "syntax": "auto | <color>",
+      "syntax": "auto | <color> [auto | <color>]?",
       "computed": [
         "asAutoOrColor"
       ],
@@ -2384,7 +2384,7 @@
     },
     {
       "name": "clear",
-      "syntax": "none | left | right | both | inline-start | inline-end",
+      "syntax": "inline-start | inline-end | block-start | block-end | left | right | top | bottom | both-inline | both-block | both | none",
       "computed": [
         "asSpecified"
       ],
@@ -2393,7 +2393,7 @@
     },
     {
       "name": "clip",
-      "syntax": "<shape> | auto",
+      "syntax": "<rect()> | auto",
       "computed": [
         "autoOrRectangle"
       ],
@@ -2447,7 +2447,7 @@
     },
     {
       "name": "column-count",
-      "syntax": "<integer> | auto",
+      "syntax": "auto | <integer [1,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -2456,7 +2456,7 @@
     },
     {
       "name": "column-fill",
-      "syntax": "auto | balance",
+      "syntax": "auto | balance | balance-all",
       "computed": [
         "asSpecified"
       ],
@@ -2465,7 +2465,7 @@
     },
     {
       "name": "column-gap",
-      "syntax": "normal | <length-percentage>",
+      "syntax": "normal | <length-percentage [0,∞]> | <line-width>",
       "computed": [
         "asSpecifiedWithLengthsAbsoluteAndNormalComputingToZeroExceptMultiColumn"
       ],
@@ -2483,7 +2483,7 @@
     },
     {
       "name": "column-rule",
-      "syntax": "<'column-rule-width'> || <'column-rule-style'> || <'column-rule-color'>",
+      "syntax": "<gap-rule-list> | <gap-auto-rule-list>",
       "computed": [
         "column-rule-width",
         "column-rule-style",
@@ -2498,7 +2498,7 @@
     },
     {
       "name": "column-rule-color",
-      "syntax": "<color>",
+      "syntax": "<line-color-list> | <auto-line-color-list>",
       "computed": [
         "computedColor"
       ],
@@ -2507,7 +2507,7 @@
     },
     {
       "name": "column-rule-style",
-      "syntax": "<line-style>",
+      "syntax": "<line-style-list> | <auto-line-style-list>",
       "computed": [
         "asSpecified"
       ],
@@ -2516,16 +2516,16 @@
     },
     {
       "name": "column-rule-width",
-      "syntax": "<line-width>",
+      "syntax": "<line-width-list> | <auto-line-width-list>",
       "computed": [
-        "absoluteLength0IfColumnRuleStyleNoneOrHidden"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
     },
     {
       "name": "column-span",
-      "syntax": "none | all",
+      "syntax": "none | <integer [1,∞]> | all | auto",
       "computed": [
         "asSpecified"
       ],
@@ -2534,7 +2534,7 @@
     },
     {
       "name": "column-width",
-      "syntax": "auto | <length [0,∞]>",
+      "syntax": "auto | <length [0,∞]> | min-content | max-content | fit-content(<length-percentage>)",
       "computed": [
         "autoOrAbsoluteLength"
       ],
@@ -2567,7 +2567,7 @@
     },
     {
       "name": "contain",
-      "syntax": "none | strict | content | [ [ size || inline-size ] || layout || style || paint ]",
+      "syntax": "none | strict | content | [ [size | inline-size] || layout || style || paint ]",
       "computed": [
         "asSpecified"
       ],
@@ -2656,7 +2656,7 @@
     },
     {
       "name": "content",
-      "syntax": "normal | none | [ <content-replacement> | <content-list> ] [ / [ <string> | <counter> | <attr()> ]+ ]?",
+      "syntax": "normal | none | [ <content-replacement> | <content-list> ] [/ [ <string> | <counter> | <attr()> ]+ ]? | <element()>",
       "computed": [
         "normalOnElementsForPseudosNoneAbsoluteURIStringOrAsSpecified"
       ],
@@ -2674,7 +2674,7 @@
     },
     {
       "name": "corner-block-end-shape",
-      "syntax": "<corner-shape-value>{1,2}",
+      "syntax": "<'corner-top-left-shape'>{1,2}",
       "computed": [
         "corner-end-start-shape",
         "corner-end-end-shape"
@@ -2687,7 +2687,7 @@
     },
     {
       "name": "corner-block-start-shape",
-      "syntax": "<corner-shape-value>{1,2}",
+      "syntax": "<'corner-top-left-shape'>{1,2}",
       "computed": [
         "corner-start-start-shape",
         "corner-start-end-shape"
@@ -2718,7 +2718,7 @@
     },
     {
       "name": "corner-bottom-shape",
-      "syntax": "<corner-shape-value>{1,2}",
+      "syntax": "<'corner-top-left-shape'>{1,2}",
       "computed": [
         "corner-bottom-left-shape",
         "corner-bottom-right-shape"
@@ -2749,7 +2749,7 @@
     },
     {
       "name": "corner-inline-end-shape",
-      "syntax": "<corner-shape-value>{1,2}",
+      "syntax": "<'corner-top-left-shape'>{1,2}",
       "computed": [
         "corner-start-end-shape",
         "corner-end-end-shape"
@@ -2762,7 +2762,7 @@
     },
     {
       "name": "corner-inline-start-shape",
-      "syntax": "<corner-shape-value>{1,2}",
+      "syntax": "<'corner-top-left-shape'>{1,2}",
       "computed": [
         "corner-start-start-shape",
         "corner-start-end-shape"
@@ -2775,7 +2775,7 @@
     },
     {
       "name": "corner-left-shape",
-      "syntax": "<corner-shape-value>{1,2}",
+      "syntax": "<'corner-top-left-shape'>{1,2}",
       "computed": [
         "corner-top-left-shape",
         "corner-bottom-left-shape"
@@ -2788,7 +2788,7 @@
     },
     {
       "name": "corner-right-shape",
-      "syntax": "<corner-shape-value>{1,2}",
+      "syntax": "<'corner-top-left-shape'>{1,2}",
       "computed": [
         "corner-top-right-shape",
         "corner-bottom-right-shape"
@@ -2801,7 +2801,7 @@
     },
     {
       "name": "corner-shape",
-      "syntax": "<corner-shape-value>{1,4}",
+      "syntax": "<'corner-top-left-shape'>{1,4}",
       "computed": [
         "corner-top-left-shape",
         "corner-top-right-shape",
@@ -2854,7 +2854,7 @@
     },
     {
       "name": "corner-top-shape",
-      "syntax": "<corner-shape-value>{1,2}",
+      "syntax": "<'corner-top-left-shape'>{1,2}",
       "computed": [
         "corner-top-left-shape",
         "corner-top-right-shape"
@@ -2894,7 +2894,7 @@
     },
     {
       "name": "cursor",
-      "syntax": "[ [ <url> [ <x> <y> ]? , ]* <cursor-predefined> ]",
+      "syntax": "[<cursor-image>,]* <cursor-predefined>",
       "computed": [
         "asSpecifiedURLsAbsolute"
       ],
@@ -2903,7 +2903,7 @@
     },
     {
       "name": "cx",
-      "syntax": "<length> | <percentage>",
+      "syntax": "<length-percentage>",
       "computed": [
         "percentageAsSpecifiedOrAbsoluteLength"
       ],
@@ -2912,7 +2912,7 @@
     },
     {
       "name": "cy",
-      "syntax": "<length> | <percentage>",
+      "syntax": "<length-percentage>",
       "computed": [
         "percentageAsSpecifiedOrAbsoluteLength"
       ],
@@ -2921,7 +2921,7 @@
     },
     {
       "name": "d",
-      "syntax": "none | path(<string>)",
+      "syntax": "none | <string>",
       "computed": [
         "asSpecified"
       ],
@@ -2939,7 +2939,7 @@
     },
     {
       "name": "display",
-      "syntax": "[ <display-outside> || <display-inside> ] | <display-listitem> | <display-internal> | <display-box> | <display-legacy>",
+      "syntax": "[ <display-outside> || <display-inside> ] | <display-listitem> | <display-internal> | <display-box> | <display-legacy> | <display-outside> || [ <display-inside> | math ]",
       "computed": [
         "asSpecifiedExceptPositionedFloatingAndRootElementsKeywordMaybeDifferent"
       ],
@@ -2948,7 +2948,7 @@
     },
     {
       "name": "dominant-baseline",
-      "syntax": "auto | text-bottom | alphabetic | ideographic | middle | central | mathematical | hanging | text-top",
+      "syntax": "auto | <baseline-metric>",
       "computed": [
         "asSpecified"
       ],
@@ -2975,7 +2975,7 @@
     },
     {
       "name": "field-sizing",
-      "syntax": "content | fixed",
+      "syntax": "fixed | content",
       "computed": [
         "asSpecified"
       ],
@@ -3066,7 +3066,7 @@
     },
     {
       "name": "flex-grow",
-      "syntax": "<number>",
+      "syntax": "<number [0,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -3075,7 +3075,7 @@
     },
     {
       "name": "flex-shrink",
-      "syntax": "<number>",
+      "syntax": "<number [0,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -3084,7 +3084,7 @@
     },
     {
       "name": "flex-wrap",
-      "syntax": "nowrap | wrap | wrap-reverse",
+      "syntax": "nowrap | [ wrap | wrap-reverse ] || balance",
       "computed": [
         "asSpecified"
       ],
@@ -3093,7 +3093,7 @@
     },
     {
       "name": "float",
-      "syntax": "left | right | none | inline-start | inline-end",
+      "syntax": "block-start | block-end | inline-start | inline-end | snap-block | <snap-block()> | snap-inline | <snap-inline()> | left | right | top | bottom | none | footnote",
       "computed": [
         "asSpecified"
       ],
@@ -3120,7 +3120,7 @@
     },
     {
       "name": "font",
-      "syntax": "[ [ <'font-style'> || <font-variant-css2> || <'font-weight'> || <font-width-css3> ]? <'font-size'> [ / <'line-height'> ]? <'font-family'># ] | <system-family-name>",
+      "syntax": "[ [ <'font-style'> || <font-variant-css2> || <'font-weight'> || <font-width-css3> ]? <'font-size'> [ / <'line-height'> ]? <'font-family'># ] | <system-font-family-name>",
       "computed": [
         "font-style",
         "font-variant",
@@ -3143,7 +3143,7 @@
     },
     {
       "name": "font-family",
-      "syntax": "[ <family-name> | <generic-family> ]#",
+      "syntax": "[ <font-family-name> | <generic-font-family> ]#",
       "computed": [
         "asSpecified"
       ],
@@ -3206,7 +3206,7 @@
     },
     {
       "name": "font-size-adjust",
-      "syntax": "none | [ ex-height | cap-height | ch-width | ic-width | ic-height ]? [ from-font | <number> ]",
+      "syntax": "none | <number [0,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -3224,7 +3224,7 @@
     },
     {
       "name": "font-stretch",
-      "syntax": "<font-stretch-absolute>",
+      "syntax": "normal | <percentage [0,∞]> | ultra-condensed | extra-condensed | condensed | semi-condensed | semi-expanded | expanded | extra-expanded | ultra-expanded",
       "computed": [
         "asSpecified"
       ],
@@ -3233,7 +3233,7 @@
     },
     {
       "name": "font-style",
-      "syntax": "normal | italic | oblique <angle>?",
+      "syntax": "normal | italic | left | right | oblique <angle [-90deg,90deg]>?",
       "computed": [
         "asSpecified"
       ],
@@ -3269,7 +3269,7 @@
     },
     {
       "name": "font-synthesis-style",
-      "syntax": "auto | none",
+      "syntax": "auto | none | oblique-only",
       "computed": [
         "asSpecified"
       ],
@@ -3287,7 +3287,7 @@
     },
     {
       "name": "font-variant",
-      "syntax": "normal | none | [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> || stylistic( <feature-value-name> ) || historical-forms || styleset( <feature-value-name># ) || character-variant( <feature-value-name># ) || swash( <feature-value-name> ) || ornaments( <feature-value-name> ) || annotation( <feature-value-name> ) || [ small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps ] || <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> || ordinal || slashed-zero || <east-asian-variant-values> || <east-asian-width-values> || ruby ]",
+      "syntax": "normal | none | [ [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> ] || [ small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps ] || [ stylistic(<font-feature-value-name>) || historical-forms || styleset(<font-feature-value-name>#) || character-variant(<font-feature-value-name>#) || swash(<font-feature-value-name>) || ornaments(<font-feature-value-name>) || annotation(<font-feature-value-name>) ] || [ <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> || ordinal || slashed-zero ] || [ <east-asian-variant-values> || <east-asian-width-values> || ruby ] || [ sub | super ] || [ text | emoji | unicode ] ]",
       "computed": [
         "asSpecified"
       ],
@@ -3296,7 +3296,7 @@
     },
     {
       "name": "font-variant-alternates",
-      "syntax": "normal | [ stylistic( <feature-value-name> ) || historical-forms || styleset( <feature-value-name># ) || character-variant( <feature-value-name># ) || swash( <feature-value-name> ) || ornaments( <feature-value-name> ) || annotation( <feature-value-name> ) ]",
+      "syntax": "normal | [ stylistic(<font-feature-value-name>) || historical-forms || styleset(<font-feature-value-name>#) || character-variant(<font-feature-value-name>#) || swash(<font-feature-value-name>) || ornaments(<font-feature-value-name>) || annotation(<font-feature-value-name>) ]",
       "computed": [
         "asSpecified"
       ],
@@ -3359,7 +3359,7 @@
     },
     {
       "name": "font-variation-settings",
-      "syntax": "normal | [ <string> <number> ]#",
+      "syntax": "normal | [ <opentype-tag> <number> ]#",
       "computed": [
         "asSpecified"
       ],
@@ -3392,6 +3392,15 @@
       ],
       "initial": "auto",
       "inherited": true
+    },
+    {
+      "name": "frame-sizing",
+      "syntax": "auto | content-width | content-height | content-block-size | content-inline-size",
+      "computed": [
+        "asSpecified"
+      ],
+      "initial": "auto",
+      "inherited": false
     },
     {
       "name": "gap",
@@ -3503,7 +3512,7 @@
     },
     {
       "name": "grid-column-gap",
-      "syntax": "<length-percentage>",
+      "syntax": "normal | <length-percentage [0,∞]> | <line-width>",
       "computed": [
         "percentageAsSpecifiedOrAbsoluteLength"
       ],
@@ -3521,7 +3530,7 @@
     },
     {
       "name": "grid-gap",
-      "syntax": "<'grid-row-gap'> <'grid-column-gap'>?",
+      "syntax": "<'row-gap'> <'column-gap'>?",
       "computed": [
         "grid-row-gap",
         "grid-column-gap"
@@ -3556,7 +3565,7 @@
     },
     {
       "name": "grid-row-gap",
-      "syntax": "<length-percentage>",
+      "syntax": "normal | <length-percentage [0,∞]> | <line-width>",
       "computed": [
         "percentageAsSpecifiedOrAbsoluteLength"
       ],
@@ -3625,7 +3634,7 @@
     },
     {
       "name": "height",
-      "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+      "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
       "computed": [
         "percentageAutoOrAbsoluteLength"
       ],
@@ -3661,7 +3670,7 @@
     },
     {
       "name": "image-orientation",
-      "syntax": "from-image | <angle> | [ <angle>? flip ]",
+      "syntax": "from-image | none | [ <angle> || flip ]",
       "computed": [
         "angleRoundedToNextQuarter"
       ],
@@ -3670,7 +3679,7 @@
     },
     {
       "name": "image-rendering",
-      "syntax": "auto | crisp-edges | pixelated | smooth",
+      "syntax": "auto | smooth | high-quality | pixelated | crisp-edges",
       "computed": [
         "asSpecified"
       ],
@@ -3697,7 +3706,7 @@
     },
     {
       "name": "initial-letter",
-      "syntax": "normal | [ <number> <integer>? ]",
+      "syntax": "normal | <number [1,∞]> <integer [1,∞]> | <number [1,∞]> && [ drop | raise ]?",
       "computed": [
         "asSpecified"
       ],
@@ -3706,7 +3715,7 @@
     },
     {
       "name": "initial-letter-align",
-      "syntax": "[ auto | alphabetic | hanging | ideographic ]",
+      "syntax": "[ border-box? [ alphabetic | ideographic | hanging | leading ]? ]!",
       "computed": [
         "asSpecified"
       ],
@@ -3754,7 +3763,7 @@
     },
     {
       "name": "inset-block-end",
-      "syntax": "<'top'>",
+      "syntax": "auto | <length-percentage>",
       "computed": [
         "sameAsBoxOffsets"
       ],
@@ -3763,7 +3772,7 @@
     },
     {
       "name": "inset-block-start",
-      "syntax": "<'top'>",
+      "syntax": "auto | <length-percentage>",
       "computed": [
         "sameAsBoxOffsets"
       ],
@@ -3785,7 +3794,7 @@
     },
     {
       "name": "inset-inline-end",
-      "syntax": "<'top'>",
+      "syntax": "auto | <length-percentage>",
       "computed": [
         "sameAsBoxOffsets"
       ],
@@ -3794,7 +3803,7 @@
     },
     {
       "name": "inset-inline-start",
-      "syntax": "<'top'>",
+      "syntax": "auto | <length-percentage>",
       "computed": [
         "sameAsBoxOffsets"
       ],
@@ -3852,7 +3861,7 @@
     },
     {
       "name": "isolation",
-      "syntax": "auto | isolate",
+      "syntax": "<isolation-mode>",
       "computed": [
         "asSpecified"
       ],
@@ -3870,7 +3879,7 @@
     },
     {
       "name": "justify-items",
-      "syntax": "normal | stretch | <baseline-position> | <overflow-position>? [ <self-position> | left | right ] | legacy | legacy && [ left | right | center ] | anchor-center",
+      "syntax": "normal | stretch | <baseline-position> | <overflow-position>? [ <self-position> | left | right ] | legacy | legacy && [ left | right | center ]",
       "computed": [
         "asSpecified"
       ],
@@ -3879,7 +3888,7 @@
     },
     {
       "name": "justify-self",
-      "syntax": "auto | normal | stretch | <baseline-position> | <overflow-position>? [ <self-position> | left | right ] | anchor-center",
+      "syntax": "auto | <overflow-position>? [ normal | <self-position> | left | right ] | stretch | <baseline-position> | anchor-center",
       "computed": [
         "asSpecified"
       ],
@@ -3942,7 +3951,7 @@
     },
     {
       "name": "line-height",
-      "syntax": "normal | <number> | <length> | <percentage>",
+      "syntax": "normal | <number [0,∞]> | <length-percentage [0,∞]>",
       "computed": [
         "absoluteLengthOrAsSpecified"
       ],
@@ -3951,7 +3960,7 @@
     },
     {
       "name": "line-height-step",
-      "syntax": "<length>",
+      "syntax": "<length [0,∞]>",
       "computed": [
         "absoluteLength"
       ],
@@ -3960,7 +3969,7 @@
     },
     {
       "name": "list-style",
-      "syntax": "<'list-style-type'> || <'list-style-position'> || <'list-style-image'>",
+      "syntax": "<'list-style-position'> || <'list-style-image'> || <'list-style-type'>",
       "computed": [
         "list-style-image",
         "list-style-position",
@@ -4117,7 +4126,7 @@
     },
     {
       "name": "margin-trim",
-      "syntax": "none | in-flow | all",
+      "syntax": "none | [ block || inline ] | [ block-start || inline-start || block-end || inline-end ]",
       "computed": [
         "asSpecified"
       ],
@@ -4126,7 +4135,7 @@
     },
     {
       "name": "marker",
-      "syntax": "none | <url>",
+      "syntax": "none | <marker-ref>",
       "computed": [
         "asSpecified"
       ],
@@ -4139,7 +4148,7 @@
     },
     {
       "name": "marker-end",
-      "syntax": "none | <url>",
+      "syntax": "none | <marker-ref>",
       "computed": [
         "asSpecifiedURLsAbsolute"
       ],
@@ -4148,7 +4157,7 @@
     },
     {
       "name": "marker-mid",
-      "syntax": "none | <url>",
+      "syntax": "none | <marker-ref>",
       "computed": [
         "asSpecifiedURLsAbsolute"
       ],
@@ -4157,7 +4166,7 @@
     },
     {
       "name": "marker-start",
-      "syntax": "none | <url>",
+      "syntax": "none | <marker-ref>",
       "computed": [
         "asSpecifiedURLsAbsolute"
       ],
@@ -4221,7 +4230,7 @@
     },
     {
       "name": "mask-border-outset",
-      "syntax": "[ <length> | <number> ]{1,4}",
+      "syntax": "<'border-image-outset'>",
       "computed": [
         "asSpecifiedRelativeToAbsoluteLengths"
       ],
@@ -4230,7 +4239,7 @@
     },
     {
       "name": "mask-border-repeat",
-      "syntax": "[ stretch | repeat | round | space ]{1,2}",
+      "syntax": "<'border-image-repeat'>",
       "computed": [
         "asSpecified"
       ],
@@ -4239,7 +4248,7 @@
     },
     {
       "name": "mask-border-slice",
-      "syntax": "<number-percentage>{1,4} fill?",
+      "syntax": "<'border-image-slice'>",
       "computed": [
         "asSpecified"
       ],
@@ -4248,7 +4257,7 @@
     },
     {
       "name": "mask-border-source",
-      "syntax": "none | <image>",
+      "syntax": "<'border-image-source'>",
       "computed": [
         "asSpecifiedURLsAbsolute"
       ],
@@ -4257,7 +4266,7 @@
     },
     {
       "name": "mask-border-width",
-      "syntax": "[ <length-percentage> | <number> | auto ]{1,4}",
+      "syntax": "<'border-image-width'>",
       "computed": [
         "asSpecifiedRelativeToAbsoluteLengths"
       ],
@@ -4392,7 +4401,7 @@
     },
     {
       "name": "max-height",
-      "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+      "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
       "computed": [
         "percentageAsSpecifiedAbsoluteLengthOrNone"
       ],
@@ -4419,7 +4428,7 @@
     },
     {
       "name": "max-width",
-      "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+      "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
       "computed": [
         "percentageAsSpecifiedAbsoluteLengthOrNone"
       ],
@@ -4437,7 +4446,7 @@
     },
     {
       "name": "min-height",
-      "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+      "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
       "computed": [
         "percentageAsSpecifiedOrAbsoluteLength"
       ],
@@ -4455,7 +4464,7 @@
     },
     {
       "name": "min-width",
-      "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+      "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
       "computed": [
         "percentageAsSpecifiedOrAbsoluteLength"
       ],
@@ -4464,7 +4473,7 @@
     },
     {
       "name": "mix-blend-mode",
-      "syntax": "<blend-mode> | plus-darker | plus-lighter",
+      "syntax": "<blend-mode> | plus-lighter",
       "computed": [
         "asSpecified"
       ],
@@ -4487,7 +4496,7 @@
         "asSpecified"
       ],
       "initial": "50% 50%",
-      "inherited": true
+      "inherited": false
     },
     {
       "name": "object-view-box",
@@ -4582,7 +4591,7 @@
     },
     {
       "name": "orphans",
-      "syntax": "<integer>",
+      "syntax": "<integer [1,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -4606,7 +4615,7 @@
     },
     {
       "name": "outline-color",
-      "syntax": "auto | <color>",
+      "syntax": "auto | <'border-top-color'>",
       "computed": [
         "autoForTranslucentColorRGBAOtherwiseRGB"
       ],
@@ -4617,7 +4626,7 @@
       "name": "outline-offset",
       "syntax": "<length>",
       "computed": [
-        "asSpecifiedRelativeToAbsoluteLengths"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "0",
       "inherited": false
@@ -4635,14 +4644,14 @@
       "name": "outline-width",
       "syntax": "<line-width>",
       "computed": [
-        "absoluteLength0ForNone"
+        "absoluteLengthSnappedAsLineWidth"
       ],
       "initial": "medium",
       "inherited": false
     },
     {
       "name": "overflow",
-      "syntax": "[ visible | hidden | clip | scroll | auto ]{1,2}",
+      "syntax": "<'overflow-block'>{1,2}",
       "computed": [
         "overflow-x",
         "overflow-y"
@@ -4679,7 +4688,7 @@
     },
     {
       "name": "overflow-clip-margin",
-      "syntax": "<visual-box> || <length [0,∞]>",
+      "syntax": "<visual-box> || <length>",
       "computed": [
         "theComputedLengthAndVisualBox"
       ],
@@ -4733,7 +4742,7 @@
     },
     {
       "name": "overscroll-behavior",
-      "syntax": "[ contain | none | auto ]{1,2}",
+      "syntax": "[ contain | none | auto | chain ]{1,2}",
       "computed": [
         "overscroll-behavior-x",
         "overscroll-behavior-y"
@@ -4743,7 +4752,7 @@
     },
     {
       "name": "overscroll-behavior-block",
-      "syntax": "contain | none | auto",
+      "syntax": "contain | none | auto | chain",
       "computed": [
         "asSpecified"
       ],
@@ -4752,7 +4761,7 @@
     },
     {
       "name": "overscroll-behavior-inline",
-      "syntax": "contain | none | auto",
+      "syntax": "contain | none | auto | chain",
       "computed": [
         "asSpecified"
       ],
@@ -4761,7 +4770,7 @@
     },
     {
       "name": "overscroll-behavior-x",
-      "syntax": "contain | none | auto",
+      "syntax": "contain | none | auto | chain",
       "computed": [
         "asSpecified"
       ],
@@ -4770,7 +4779,7 @@
     },
     {
       "name": "overscroll-behavior-y",
-      "syntax": "contain | none | auto",
+      "syntax": "contain | none | auto | chain",
       "computed": [
         "asSpecified"
       ],
@@ -4903,7 +4912,7 @@
     },
     {
       "name": "page-break-after",
-      "syntax": "auto | always | avoid | left | right | recto | verso",
+      "syntax": "auto | always | avoid | left | right | inherit",
       "computed": [
         "asSpecified"
       ],
@@ -4912,7 +4921,7 @@
     },
     {
       "name": "page-break-before",
-      "syntax": "auto | always | avoid | left | right | recto | verso",
+      "syntax": "auto | always | avoid | left | right | inherit",
       "computed": [
         "asSpecified"
       ],
@@ -4921,7 +4930,7 @@
     },
     {
       "name": "page-break-inside",
-      "syntax": "auto | avoid",
+      "syntax": "avoid | auto | inherit",
       "computed": [
         "asSpecified"
       ],
@@ -4996,7 +5005,7 @@
     },
     {
       "name": "pointer-events",
-      "syntax": "auto | none | visiblePainted | visibleFill | visibleStroke | visible | painted | fill | stroke | all | inherit",
+      "syntax": "auto | bounding-box | visiblePainted | visibleFill | visibleStroke | visible | painted | fill | stroke | all | none",
       "computed": [
         "asSpecified"
       ],
@@ -5005,7 +5014,7 @@
     },
     {
       "name": "position",
-      "syntax": "static | relative | absolute | sticky | fixed",
+      "syntax": "static | relative | absolute | sticky | fixed | <running()>",
       "computed": [
         "asSpecified"
       ],
@@ -5014,7 +5023,7 @@
     },
     {
       "name": "position-anchor",
-      "syntax": "normal | auto | none | <anchor-name> | match-parent",
+      "syntax": "normal | none | auto | <anchor-name> | match-parent",
       "computed": [
         "asSpecified"
       ],
@@ -5045,7 +5054,7 @@
     },
     {
       "name": "position-try-fallbacks",
-      "syntax": "none | [ [<dashed-ident> || <try-tactic>] | <'position-area'> ]#",
+      "syntax": "none | [ [<dashed-ident> || <try-tactic>] | <position-area> ]#",
       "computed": [
         "asSpecified"
       ],
@@ -5063,7 +5072,7 @@
     },
     {
       "name": "position-visibility",
-      "syntax": "always | [ anchors-valid || anchors-visible || no-overflow ]",
+      "syntax": "always | [ anchor-valid || anchor-visible || no-overflow ]",
       "computed": [
         "asSpecified"
       ],
@@ -5081,7 +5090,7 @@
     },
     {
       "name": "quotes",
-      "syntax": "none | auto | [ <string> <string> ]+",
+      "syntax": "auto | none | match-parent | [ <string> <string> ]+",
       "computed": [
         "asSpecified"
       ],
@@ -5090,7 +5099,7 @@
     },
     {
       "name": "r",
-      "syntax": "<length> | <percentage>",
+      "syntax": "<length-percentage>",
       "computed": [
         "percentageAsSpecifiedOrAbsoluteLength"
       ],
@@ -5144,7 +5153,7 @@
     },
     {
       "name": "row-gap",
-      "syntax": "normal | <length-percentage>",
+      "syntax": "normal | <length-percentage [0,∞]> | <line-width>",
       "computed": [
         "asSpecifiedWithLengthsAbsoluteAndNormalComputingToZeroExceptMultiColumn"
       ],
@@ -5162,7 +5171,7 @@
     },
     {
       "name": "ruby-merge",
-      "syntax": "separate | collapse | auto",
+      "syntax": "separate | merge | auto",
       "computed": [
         "asSpecified"
       ],
@@ -5171,7 +5180,7 @@
     },
     {
       "name": "ruby-overhang",
-      "syntax": "auto | none",
+      "syntax": "auto | spaces",
       "computed": [
         "theSpecifiedKeyword"
       ],
@@ -5358,7 +5367,7 @@
     },
     {
       "name": "scroll-padding",
-      "syntax": "[ auto | <length-percentage> ]{1,4}",
+      "syntax": "[ auto | <length-percentage [0,∞]> ]{1,4}",
       "computed": [
         "scroll-padding-bottom",
         "scroll-padding-left",
@@ -5375,7 +5384,7 @@
     },
     {
       "name": "scroll-padding-block",
-      "syntax": "[ auto | <length-percentage> ]{1,2}",
+      "syntax": "[ auto | <length-percentage [0,∞]> ]{1,2}",
       "computed": [
         "scroll-padding-block-start",
         "scroll-padding-block-end"
@@ -5388,7 +5397,7 @@
     },
     {
       "name": "scroll-padding-block-end",
-      "syntax": "auto | <length-percentage>",
+      "syntax": "auto | <length-percentage [0,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -5397,7 +5406,7 @@
     },
     {
       "name": "scroll-padding-block-start",
-      "syntax": "auto | <length-percentage>",
+      "syntax": "auto | <length-percentage [0,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -5406,7 +5415,7 @@
     },
     {
       "name": "scroll-padding-bottom",
-      "syntax": "auto | <length-percentage>",
+      "syntax": "auto | <length-percentage [0,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -5415,7 +5424,7 @@
     },
     {
       "name": "scroll-padding-inline",
-      "syntax": "[ auto | <length-percentage> ]{1,2}",
+      "syntax": "[ auto | <length-percentage [0,∞]> ]{1,2}",
       "computed": [
         "scroll-padding-inline-start",
         "scroll-padding-inline-end"
@@ -5428,7 +5437,7 @@
     },
     {
       "name": "scroll-padding-inline-end",
-      "syntax": "auto | <length-percentage>",
+      "syntax": "auto | <length-percentage [0,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -5437,7 +5446,7 @@
     },
     {
       "name": "scroll-padding-inline-start",
-      "syntax": "auto | <length-percentage>",
+      "syntax": "auto | <length-percentage [0,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -5446,7 +5455,7 @@
     },
     {
       "name": "scroll-padding-left",
-      "syntax": "auto | <length-percentage>",
+      "syntax": "auto | <length-percentage [0,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -5455,7 +5464,7 @@
     },
     {
       "name": "scroll-padding-right",
-      "syntax": "auto | <length-percentage>",
+      "syntax": "auto | <length-percentage [0,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -5464,7 +5473,7 @@
     },
     {
       "name": "scroll-padding-top",
-      "syntax": "auto | <length-percentage>",
+      "syntax": "auto | <length-percentage [0,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -5630,7 +5639,7 @@
     },
     {
       "name": "shape-margin",
-      "syntax": "<length-percentage>",
+      "syntax": "<length-percentage [0,∞]>",
       "computed": [
         "asSpecifiedRelativeToAbsoluteLengths"
       ],
@@ -5639,7 +5648,7 @@
     },
     {
       "name": "shape-outside",
-      "syntax": "none | [ <shape-box> || <basic-shape> ] | <image>",
+      "syntax": "none | [ <basic-shape> || <shape-box> ] | <image>",
       "computed": [
         "asDefinedForBasicShapeWithAbsoluteURIOtherwiseAsSpecified"
       ],
@@ -5701,7 +5710,7 @@
     },
     {
       "name": "stroke-color",
-      "syntax": "<color>",
+      "syntax": "<color>#",
       "computed": [
         "computedColor"
       ],
@@ -5710,7 +5719,7 @@
     },
     {
       "name": "stroke-dasharray",
-      "syntax": "none | <dasharray>",
+      "syntax": "none | [<length-percentage> | <number>]+#",
       "computed": [
         "listEachItemConsistingOfAbsoluteLengthPercentageOrKeyword"
       ],
@@ -5737,7 +5746,7 @@
     },
     {
       "name": "stroke-linejoin",
-      "syntax": "miter | miter-clip | round | bevel | arcs",
+      "syntax": "[ crop | arcs | miter ] || [ bevel | round | fallback ]",
       "computed": [
         "asSpecified"
       ],
@@ -5764,7 +5773,7 @@
     },
     {
       "name": "stroke-width",
-      "syntax": "<length-percentage> | <number>",
+      "syntax": "[ <length-percentage> | <line-width> | <number> ]#",
       "computed": [
         "absoluteLengthOrPercentageNumbersConverted"
       ],
@@ -5773,7 +5782,7 @@
     },
     {
       "name": "tab-size",
-      "syntax": "<integer> | <length>",
+      "syntax": "<number [0,∞]> | <length [0,∞]>",
       "computed": [
         "specifiedIntegerOrAbsoluteLength"
       ],
@@ -5791,7 +5800,7 @@
     },
     {
       "name": "text-align",
-      "syntax": "start | end | left | right | center | justify | match-parent",
+      "syntax": "start | end | left | right | center | justify | match-parent | justify-all",
       "computed": [
         "asSpecifiedExceptMatchParent"
       ],
@@ -5800,7 +5809,7 @@
     },
     {
       "name": "text-align-last",
-      "syntax": "auto | start | end | left | right | center | justify",
+      "syntax": "auto | start | end | left | right | center | justify | match-parent",
       "computed": [
         "asSpecified"
       ],
@@ -5854,7 +5863,7 @@
     },
     {
       "name": "text-combine-upright",
-      "syntax": "none | all | [ digits <integer>? ]",
+      "syntax": "none | all | [ digits <integer [2,4]>? ]",
       "computed": [
         "keywordPlusIntegerIfDigits"
       ],
@@ -5863,7 +5872,7 @@
     },
     {
       "name": "text-decoration",
-      "syntax": "<'text-decoration-line'> || <'text-decoration-style'> || <'text-decoration-color'> || <'text-decoration-thickness'>",
+      "syntax": "<'text-decoration-line'> || <'text-decoration-style'> || <'text-decoration-color'>",
       "computed": [
         "text-decoration-line",
         "text-decoration-style",
@@ -5897,7 +5906,7 @@
     },
     {
       "name": "text-decoration-line",
-      "syntax": "none | [ underline || overline || line-through || blink ] | spelling-error | grammar-error",
+      "syntax": "none | [ underline || overline || line-through || blink ]",
       "computed": [
         "asSpecified"
       ],
@@ -5964,7 +5973,7 @@
     },
     {
       "name": "text-emphasis-position",
-      "syntax": "auto | [ over | under ] && [ right | left ]?",
+      "syntax": "[ over | under ] && [ right | left ]?",
       "computed": [
         "asSpecified"
       ],
@@ -5982,7 +5991,7 @@
     },
     {
       "name": "text-indent",
-      "syntax": "<length-percentage> && hanging? && each-line?",
+      "syntax": "[ <length-percentage> ] && hanging? && each-line?",
       "computed": [
         "percentageOrAbsoluteLengthPlusKeywords"
       ],
@@ -5991,7 +6000,7 @@
     },
     {
       "name": "text-justify",
-      "syntax": "auto | inter-character | inter-word | none",
+      "syntax": "auto | none | inter-word | inter-character",
       "computed": [
         "asSpecified"
       ],
@@ -6009,7 +6018,7 @@
     },
     {
       "name": "text-overflow",
-      "syntax": "[ clip | ellipsis | <string> ]{1,2}",
+      "syntax": "clip | ellipsis",
       "computed": [
         "asSpecified"
       ],
@@ -6027,7 +6036,7 @@
     },
     {
       "name": "text-shadow",
-      "syntax": "none | <shadow-t>#",
+      "syntax": "none | [ <color>? && [ <length>{2} <length [0,∞]>? ] ]#",
       "computed": [
         "colorPlusThreeAbsoluteLengths"
       ],
@@ -6036,7 +6045,7 @@
     },
     {
       "name": "text-size-adjust",
-      "syntax": "none | auto | <percentage>",
+      "syntax": "auto | none | <percentage [0,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -6054,7 +6063,7 @@
     },
     {
       "name": "text-transform",
-      "syntax": "none | [ capitalize | uppercase | lowercase ] || full-width || full-size-kana | math-auto",
+      "syntax": "none | [capitalize | uppercase | lowercase ] || full-width || full-size-kana",
       "computed": [
         "asSpecified"
       ],
@@ -6072,7 +6081,7 @@
     },
     {
       "name": "text-underline-position",
-      "syntax": "auto | from-font | [ under || [ left | right ] ]",
+      "syntax": "auto | [ under || [ left | right ] ]",
       "computed": [
         "asSpecified"
       ],
@@ -6109,7 +6118,7 @@
     },
     {
       "name": "timeline-scope",
-      "syntax": "none | <dashed-ident>#",
+      "syntax": "none | all | <dashed-ident>#",
       "computed": [
         "noneOrOrderedListOfIdentifiers"
       ],
@@ -6118,7 +6127,7 @@
     },
     {
       "name": "timeline-trigger",
-      "syntax": "none | [ <'timeline-trigger-name'> <'timeline-trigger-source'> <'timeline-trigger-activation-range'> [ '/' <'timeline-trigger-active-range'> ]? ]#",
+      "syntax": "none | [ <'timeline-trigger-name'> <'timeline-trigger-source'> <'timeline-trigger-activation-range'> [ / <'timeline-trigger-active-range'> ]? ]#",
       "computed": [
         "timeline-trigger-name",
         "timeline-trigger-source",
@@ -6251,7 +6260,7 @@
     },
     {
       "name": "transform-origin",
-      "syntax": "[ <length-percentage> | left | center | right | top | bottom ] | [ [ <length-percentage> | left | center | right ] && [ <length-percentage> | top | center | bottom ] ] <length>?",
+      "syntax": "[ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] <length>? | [ [ center | left | right ] && [ center | top | bottom ] ] <length>?",
       "computed": [
         "forLengthAbsoluteValueOtherwisePercentage"
       ],
@@ -6306,7 +6315,7 @@
     },
     {
       "name": "transition-duration",
-      "syntax": "<time>#",
+      "syntax": "<time [0s,∞]>#",
       "computed": [
         "asSpecified"
       ],
@@ -6360,7 +6369,7 @@
     },
     {
       "name": "user-select",
-      "syntax": "auto | text | none | all",
+      "syntax": "auto | text | none | contain | all",
       "computed": [
         "asSpecified"
       ],
@@ -6378,7 +6387,7 @@
     },
     {
       "name": "vertical-align",
-      "syntax": "baseline | sub | super | text-top | text-bottom | middle | top | bottom | <percentage> | <length>",
+      "syntax": "[ first | last] || <'alignment-baseline'> || <'baseline-shift'>",
       "computed": [
         "asLonghands"
       ],
@@ -6436,7 +6445,16 @@
     },
     {
       "name": "view-transition-name",
-      "syntax": "none | <custom-ident> | match-element",
+      "syntax": "none | <custom-ident>",
+      "computed": [
+        "asSpecified"
+      ],
+      "initial": "none",
+      "inherited": false
+    },
+    {
+      "name": "view-transition-scope",
+      "syntax": "none | all",
       "computed": [
         "asSpecified"
       ],
@@ -6445,7 +6463,7 @@
     },
     {
       "name": "visibility",
-      "syntax": "visible | hidden | collapse",
+      "syntax": "visible | hidden | force-hidden | collapse",
       "computed": [
         "asSpecified"
       ],
@@ -6454,7 +6472,7 @@
     },
     {
       "name": "white-space",
-      "syntax": "normal | pre | pre-wrap | pre-line | <'white-space-collapse'> || <'text-wrap-mode'>",
+      "syntax": "normal | pre | nowrap | pre-wrap | break-spaces | pre-line",
       "computed": [
         "asSpecified"
       ],
@@ -6472,7 +6490,7 @@
     },
     {
       "name": "widows",
-      "syntax": "<integer>",
+      "syntax": "<integer [1,∞]>",
       "computed": [
         "asSpecified"
       ],
@@ -6481,7 +6499,7 @@
     },
     {
       "name": "width",
-      "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+      "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
       "computed": [
         "percentageAutoOrAbsoluteLength"
       ],
@@ -6499,7 +6517,7 @@
     },
     {
       "name": "word-break",
-      "syntax": "normal | break-all | keep-all | break-word | auto-phrase",
+      "syntax": "normal | keep-all | break-all | break-word",
       "computed": [
         "asSpecified"
       ],
@@ -6517,7 +6535,7 @@
     },
     {
       "name": "word-wrap",
-      "syntax": "normal | break-word",
+      "syntax": "normal | break-word | anywhere",
       "computed": [
         "asSpecified"
       ],
@@ -6535,7 +6553,7 @@
     },
     {
       "name": "x",
-      "syntax": "<length> | <percentage>",
+      "syntax": "<length-percentage>",
       "computed": [
         "percentageAsSpecifiedOrAbsoluteLength"
       ],
@@ -6544,7 +6562,7 @@
     },
     {
       "name": "y",
-      "syntax": "<length> | <percentage>",
+      "syntax": "<length-percentage>",
       "computed": [
         "percentageAsSpecifiedOrAbsoluteLength"
       ],
@@ -6553,7 +6571,7 @@
     },
     {
       "name": "z-index",
-      "syntax": "auto | <integer>",
+      "syntax": "auto | <integer> | inherit",
       "computed": [
         "asSpecified"
       ],
@@ -6562,7 +6580,7 @@
     },
     {
       "name": "zoom",
-      "syntax": "normal | reset | <number [0,∞]> || <percentage [0,∞]>",
+      "syntax": "<number [0,∞]> | <percentage [0,∞]>",
       "computed": [
         "asSpecifiedButWithPercentageConvertedToTheEquivalentNumber"
       ],
@@ -6572,8 +6590,20 @@
   ],
   "values": [
     {
+      "name": "<a-n-plus-b>",
+      "syntax": "odd | even | <integer> | <n-dimension> | '+'? n | -n | <ndashdigit-dimension> | '+'? <ndashdigit-ident> | <dashndashdigit-ident> | <n-dimension> <signed-integer> | '+'? n <signed-integer> | -n <signed-integer> | <ndash-dimension> <signless-integer> | '+'? n- <signless-integer> | -n- <signless-integer> | <n-dimension> ['+' | '-'] <signless-integer> | '+'? n ['+' | '-'] <signless-integer> | -n ['+' | '-'] <signless-integer>"
+    },
+    {
+      "name": "<abs()>",
+      "syntax": "abs( <calc-sum> )"
+    },
+    {
       "name": "<absolute-size>",
-      "syntax": "xx-small | x-small | small | medium | large | x-large | xx-large | xxx-large"
+      "syntax": "[ xx-small | x-small | small | medium | large | x-large | xx-large | xxx-large ]"
+    },
+    {
+      "name": "<acos()>",
+      "syntax": "acos( <calc-sum> )"
     },
     {
       "name": "<alpha-value>",
@@ -6581,7 +6611,11 @@
     },
     {
       "name": "<an+b>",
-      "syntax": "odd | even | <integer> | <n-dimension> | '+'? n | -n | <ndashdigit-dimension> | '+'? <ndashdigit-ident> | <dashndashdigit-ident> | <n-dimension> <signed-integer> | '+'? n <signed-integer> | -n <signed-integer> | <ndash-dimension> <signless-integer> | '+'? n- <signless-integer> | -n- <signless-integer> | <n-dimension> ['+' | '-'] <signless-integer> | '+'? n ['+' | '-'] <signless-integer> | -n ['+' | '-'] <signless-integer>"
+      "syntax": "odd | even | <integer> | <n-dimension> | '+'?† n | -n | <ndashdigit-dimension> | '+'?† <ndashdigit-ident> | <dashndashdigit-ident> | <n-dimension> <signed-integer> | '+'?† n <signed-integer> | -n <signed-integer> | <ndash-dimension> <signless-integer> | '+'?† n- <signless-integer> | -n- <signless-integer> | <n-dimension> ['+' | '-'] <signless-integer> | '+'?† n ['+' | '-'] <signless-integer> | -n ['+' | '-'] <signless-integer>"
+    },
+    {
+      "name": "<anchor()>",
+      "syntax": "anchor( <anchor-name>? && <anchor-side>, <length-percentage>? )"
     },
     {
       "name": "<anchor-name>",
@@ -6592,16 +6626,16 @@
       "syntax": "inside | outside | top | left | right | bottom | start | end | self-start | self-end | <percentage> | center"
     },
     {
+      "name": "<anchor-size()>",
+      "syntax": "anchor-size( [ <anchor-name> || <anchor-size> ]? , <length-percentage>? )"
+    },
+    {
       "name": "<anchor-size>",
       "syntax": "width | height | block | inline | self-block | self-inline"
     },
     {
       "name": "<angle-percentage>",
-      "syntax": "<angle> | <percentage>"
-    },
-    {
-      "name": "<angle>",
-      "syntax": ""
+      "syntax": "[ <angle> | <percentage> ]"
     },
     {
       "name": "<angular-color-hint>",
@@ -6624,8 +6658,36 @@
       "syntax": "none | play | play-once | play-forwards | play-backwards | pause | reset | replay"
     },
     {
+      "name": "<arc-command>",
+      "syntax": "arc <command-end-point> [ [ of <length-percentage>{1,2} ] && <arc-sweep>? && <arc-size>? && [rotate <angle>]? ]"
+    },
+    {
+      "name": "<arc-size>",
+      "syntax": "large | small"
+    },
+    {
+      "name": "<arc-sweep>",
+      "syntax": "cw | ccw"
+    },
+    {
+      "name": "<asin()>",
+      "syntax": "asin( <calc-sum> )"
+    },
+    {
+      "name": "<atan()>",
+      "syntax": "atan( <calc-sum> )"
+    },
+    {
+      "name": "<atan2()>",
+      "syntax": "atan2( <calc-sum>, <calc-sum> )"
+    },
+    {
       "name": "<attachment>",
       "syntax": "scroll | fixed | local"
+    },
+    {
+      "name": "<attr()>",
+      "syntax": "attr( <attr-name> <attr-type>? , <declaration-value>? )"
     },
     {
       "name": "<attr-matcher>",
@@ -6644,20 +6706,52 @@
       "syntax": "'[' <wq-name> ']' | '[' <wq-name> <attr-matcher> [ <string-token> | <ident-token> ] <attr-modifier>? ']'"
     },
     {
+      "name": "<auto-line-color-list>",
+      "syntax": "<line-color-or-repeat>#? ',' <auto-repeat-line-color> ',' <line-color-or-repeat>#?"
+    },
+    {
+      "name": "<auto-line-style-list>",
+      "syntax": "<line-style-or-repeat>#? ',' <auto-repeat-line-style> ',' <line-style-or-repeat>#?"
+    },
+    {
+      "name": "<auto-line-width-list>",
+      "syntax": "<line-width-or-repeat>#? ',' <auto-repeat-line-width> ',' <line-width-or-repeat>#?"
+    },
+    {
+      "name": "<auto-repeat-line-color>",
+      "syntax": "repeat( auto ',' [ <color> ]# )"
+    },
+    {
+      "name": "<auto-repeat-line-style>",
+      "syntax": "repeat( auto ',' [ <line-style> ]# )"
+    },
+    {
+      "name": "<auto-repeat-line-width>",
+      "syntax": "repeat( auto ',' [ <line-width> ]# )"
+    },
+    {
       "name": "<auto-repeat>",
-      "syntax": "repeat( [ auto-fill | auto-fit ] , [ <line-names>? <fixed-size> ]+ <line-names>? )"
+      "syntax": "repeat( [ auto-fill | auto-fit ] ',' [ <line-names>? <fixed-size> ]+ <line-names>? )"
     },
     {
       "name": "<auto-track-list>",
-      "syntax": "[ <line-names>? [ <fixed-size> | <fixed-repeat> ] ]* <line-names>? <auto-repeat>\n[ <line-names>? [ <fixed-size> | <fixed-repeat> ] ]* <line-names>?"
+      "syntax": "[ <line-names>? [ <fixed-size> | <fixed-repeat> ] ]* <line-names>? <auto-repeat> [ <line-names>? [ <fixed-size> | <fixed-repeat> ] ]* <line-names>?"
     },
     {
       "name": "<axis>",
       "syntax": "block | inline | x | y"
     },
     {
+      "name": "<base-descriptor>",
+      "syntax": "base-url ':' stylesheet | document | <url>"
+    },
+    {
+      "name": "<baseline-metric>",
+      "syntax": "text-bottom | alphabetic | ideographic | middle | central | mathematical | hanging | text-top"
+    },
+    {
       "name": "<baseline-position>",
-      "syntax": "[ first | last ]? baseline"
+      "syntax": "[ first | last ]? && baseline"
     },
     {
       "name": "<basic-shape-rect>",
@@ -6665,7 +6759,7 @@
     },
     {
       "name": "<basic-shape>",
-      "syntax": "<inset()> | <xywh()> | <rect()> | <circle()> | <ellipse()> | <polygon()> | <path()> | shape()"
+      "syntax": "<basic-shape-rect> | <circle()> | <ellipse()> | <polygon()> | <path()> | <shape()>"
     },
     {
       "name": "<bg-clip>",
@@ -6689,15 +6783,55 @@
     },
     {
       "name": "<blend-mode>",
-      "syntax": "normal | multiply | screen | overlay | darken | lighten | color-dodge | color-burn | hard-light | soft-light | difference | exclusion | hue | saturation | color | luminosity"
+      "syntax": "normal | darken | multiply | color-burn | lighten | screen | color-dodge | overlay | soft-light | hard-light | difference | exclusion | hue | saturation | color | luminosity"
+    },
+    {
+      "name": "<blur()>",
+      "syntax": "blur( <length>? )"
+    },
+    {
+      "name": "<border-radius>",
+      "syntax": "<slash-separated-border-radius-syntax> | <legacy-border-radius-syntax>"
+    },
+    {
+      "name": "<box-shadow-blur>",
+      "syntax": "<length [0,∞]>#"
+    },
+    {
+      "name": "<box-shadow-color>",
+      "syntax": "<color>#"
+    },
+    {
+      "name": "<box-shadow-position>",
+      "syntax": "[ outset | inset ]#"
+    },
+    {
+      "name": "<box-shadow-spread>",
+      "syntax": "<length>#"
+    },
+    {
+      "name": "<brightness()>",
+      "syntax": "brightness( [ <number> | <percentage> ]? )"
+    },
+    {
+      "name": "<calc()>",
+      "syntax": "calc( <calc-sum> )"
     },
     {
       "name": "<calc-constant>",
       "syntax": "e | pi | infinity | -infinity | NaN"
     },
     {
+      "name": "<calc-keyword>",
+      "syntax": "e | pi | infinity | -infinity | NaN"
+    },
+    {
       "name": "<calc-product>",
-      "syntax": "<calc-value> [ '*' <calc-value> | '/' <number> ]*"
+      "syntax": "<calc-value> [ [ '*' | / ] <calc-value> ]*"
+    },
+    {
+      "name": "<calc-size()>",
+      "syntax": "calc-size( <calc-size-basis>, <calc-sum> )"
     },
     {
       "name": "<calc-size-basis>",
@@ -6709,7 +6843,7 @@
     },
     {
       "name": "<calc-value>",
-      "syntax": "<number> | <dimension> | <percentage> | <calc-constant> | ( <calc-sum> )"
+      "syntax": "<number> | <dimension> | <percentage> | <calc-keyword> | '(' <calc-sum> ')'"
     },
     {
       "name": "<cf-final-image>",
@@ -6720,6 +6854,14 @@
       "syntax": "<percentage>? && <image>"
     },
     {
+      "name": "<circle()>",
+      "syntax": "circle( <radial-size>? [ at <position> ]? )"
+    },
+    {
+      "name": "<clamp()>",
+      "syntax": "clamp( <calc-sum>#{3} )"
+    },
+    {
       "name": "<class-selector>",
       "syntax": "'.' <ident-token>"
     },
@@ -6728,16 +6870,32 @@
       "syntax": "<url>"
     },
     {
+      "name": "<color()>",
+      "syntax": "color( [ from <color> ]? <colorspace-params> [ / [ <alpha-value> | none ] ]? )"
+    },
+    {
       "name": "<color-base>",
-      "syntax": "<hex-color> | <color-function> | <named-color> | <color-mix()> | transparent"
+      "syntax": "<hex-color> | <color-function> | <named-color> | transparent"
+    },
+    {
+      "name": "<color-font-tech>",
+      "syntax": "[ color-COLRv0 | color-COLRv1 | color-SVG | color-sbix | color-CBDT ]"
     },
     {
       "name": "<color-function>",
-      "syntax": "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <color()>"
+      "syntax": "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <ictcp()> | <jzazbz()> | <jzczhz()> | <alpha()> | <color()> | <hdr-color()>"
     },
     {
       "name": "<color-interpolation-method>",
-      "syntax": "in [ <rectangular-color-space> | <polar-color-space> <hue-interpolation-method>? | <custom-color-space> ]"
+      "syntax": "in [ <rectangular-color-space> | <polar-color-space> <hue-interpolation-method>? ]"
+    },
+    {
+      "name": "<color-mix()>",
+      "syntax": "color-mix( <color-interpolation-method> , [ <color> && <percentage [0,100]>? ]#{2})"
+    },
+    {
+      "name": "<color-space>",
+      "syntax": "<rectangular-color-space> | <polar-color-space>"
     },
     {
       "name": "<color-stop-angle>",
@@ -6749,7 +6907,7 @@
     },
     {
       "name": "<color-stop-list>",
-      "syntax": "<linear-color-stop> , [ <linear-color-hint>? , <linear-color-stop> ]#?"
+      "syntax": "<linear-color-stop> ',' [ <linear-color-hint>? ',' <linear-color-stop> ]#?"
     },
     {
       "name": "<color-stop>",
@@ -6757,15 +6915,19 @@
     },
     {
       "name": "<color>",
-      "syntax": "<color-base> | currentColor | <system-color> | <light-dark()> | <deprecated-system-color>"
+      "syntax": "<color-base> | currentColor | <system-color>"
     },
     {
       "name": "<colorspace-params>",
-      "syntax": "[<custom-params> | <predefined-rgb-params> | <xyz-params>]"
+      "syntax": "[ <predefined-rgb-params> | <xyz-params>]"
     },
     {
       "name": "<combinator>",
-      "syntax": "'>' | '+' | '~' | [ '||' ]"
+      "syntax": "'>' | '+' | '~'"
+    },
+    {
+      "name": "<command-end-point>",
+      "syntax": "[ to <position> | by <coordinate-pair> ]"
     },
     {
       "name": "<common-lig-values>",
@@ -6780,12 +6942,28 @@
       "syntax": "textfield | menulist-button"
     },
     {
+      "name": "<complex-real-selector-list>",
+      "syntax": "<complex-real-selector>#"
+    },
+    {
+      "name": "<complex-real-selector>",
+      "syntax": "<compound-selector> [ <combinator>? <compound-selector> ]*"
+    },
+    {
       "name": "<complex-selector-list>",
       "syntax": "<complex-selector>#"
     },
     {
+      "name": "<complex-selector-unit>",
+      "syntax": "[ <compound-selector>? <pseudo-compound-selector>* ]!"
+    },
+    {
       "name": "<complex-selector>",
-      "syntax": "<compound-selector> [ <combinator>? <compound-selector> ]*"
+      "syntax": "<complex-selector-unit> [ <combinator>? <complex-selector-unit> ]*"
+    },
+    {
+      "name": "<composite-mode>",
+      "syntax": "clear | copy | source-over | destination-over | source-in | destination-in | source-out | destination-out | source-atop | destination-atop | xor | lighter | plus-darker | plus-lighter"
     },
     {
       "name": "<composite-style>",
@@ -6801,7 +6979,11 @@
     },
     {
       "name": "<compound-selector>",
-      "syntax": "[ <type-selector>? <subclass-selector>* [ <pseudo-element-selector> <pseudo-class-selector>* ]* ]!"
+      "syntax": "[ <type-selector>? <subclass-selector>* ]!"
+    },
+    {
+      "name": "<conic-gradient()>",
+      "syntax": "conic-gradient( [ <conic-gradient-syntax> ] )"
     },
     {
       "name": "<conic-gradient-syntax>",
@@ -6825,7 +7007,7 @@
     },
     {
       "name": "<content-list>",
-      "syntax": "[ <string> | <image> | <attr()> | <quote> | <counter> ]+"
+      "syntax": "[ <string> | <image> | <attr()> | contents | <quote> | <leader()> | <target> | <string()> | <content()> | <counter> ]+"
     },
     {
       "name": "<content-position>",
@@ -6840,12 +7022,32 @@
       "syntax": "[ contextual | no-contextual ]"
     },
     {
+      "name": "<contrast()>",
+      "syntax": "contrast( [ <number> | <percentage> ]? )"
+    },
+    {
+      "name": "<control-point>",
+      "syntax": "[ <position> | <relative-control-point> ]"
+    },
+    {
       "name": "<coord-box>",
       "syntax": "<paint-box> | view-box"
     },
     {
+      "name": "<coordinate-pair>",
+      "syntax": "<length-percentage>{2}"
+    },
+    {
       "name": "<corner-shape-value>",
       "syntax": "round | scoop | bevel | notch | square | squircle | <superellipse()>"
+    },
+    {
+      "name": "<cos()>",
+      "syntax": "cos( <calc-sum> )"
+    },
+    {
+      "name": "<counter()>",
+      "syntax": "counter( <counter-name>, <counter-style>? )"
     },
     {
       "name": "<counter-name>",
@@ -6857,51 +7059,79 @@
     },
     {
       "name": "<counter-style>",
-      "syntax": "<counter-style-name> | symbols()"
+      "syntax": "<counter-style-name> | <symbols()>"
     },
     {
       "name": "<counter>",
       "syntax": "<counter()> | <counters()>"
     },
     {
+      "name": "<counters()>",
+      "syntax": "counters( <counter-name>, <string>, <counter-style>? )"
+    },
+    {
+      "name": "<cross-fade()>",
+      "syntax": "cross-fade( <cf-mixing-image> , <cf-final-image>? )"
+    },
+    {
+      "name": "<css-type>",
+      "syntax": "<syntax-component> | <type()>"
+    },
+    {
+      "name": "<cubic-bezier()>",
+      "syntax": "cubic-bezier( [ <number [0,1]>, <number> ]#{2} )"
+    },
+    {
       "name": "<cubic-bezier-easing-function>",
       "syntax": "ease | ease-in | ease-out | ease-in-out | <cubic-bezier()>"
     },
     {
+      "name": "<cursor-image>",
+      "syntax": "[ <url> | <url-set> ] <number>{2}?"
+    },
+    {
       "name": "<cursor-predefined>",
-      "syntax": "auto | default | none | context-menu | help | pointer | progress | wait | cell | crosshair | text | vertical-text | alias | copy | move | no-drop | not-allowed | e-resize | n-resize | ne-resize | nw-resize | s-resize | se-resize | sw-resize | w-resize | ew-resize | ns-resize | nesw-resize | nwse-resize | col-resize | row-resize | all-scroll | zoom-in | zoom-out | grab | grabbing"
+      "syntax": "auto | default | none | context-menu | help | pointer | progress | wait | cell | crosshair | text | vertical-text | alias | copy | move | no-drop | not-allowed | grab | grabbing | e-resize | n-resize | ne-resize | nw-resize | s-resize | se-resize | sw-resize | w-resize | ew-resize | ns-resize | nesw-resize | nwse-resize | col-resize | row-resize | all-scroll | zoom-in | zoom-out"
+    },
+    {
+      "name": "<curve-command>",
+      "syntax": "curve [ [ to <position> with <control-point> [ / <control-point> ]? ] | [ by <coordinate-pair> with <relative-control-point> [ / <relative-control-point> ]? ] ]"
+    },
+    {
+      "name": "<custom-arg>",
+      "syntax": "'$' <ident-token>"
     },
     {
       "name": "<custom-color-space>",
       "syntax": "<dashed-ident>"
     },
     {
-      "name": "<custom-ident>",
-      "syntax": ""
-    },
-    {
       "name": "<custom-params>",
       "syntax": "<dashed-ident> [ <number> | <percentage> | none ]+"
+    },
+    {
+      "name": "<custom-selector>",
+      "syntax": "<custom-arg>? ':' <extension-name> [ '(' <custom-arg>+#? ')' ]?"
     },
     {
       "name": "<dasharray>",
       "syntax": "[ [ <length-percentage> | <number> ]+ ]#"
     },
     {
-      "name": "<dashed-ident>",
-      "syntax": ""
-    },
-    {
       "name": "<dashndashdigit-ident>",
       "syntax": "<ident-token>"
     },
     {
-      "name": "<deprecated-system-color>",
+      "name": "<default-value>",
+      "syntax": "<declaration-value>"
+    },
+    {
+      "name": "<deprecated-color>",
       "syntax": "ActiveBorder | ActiveCaption | AppWorkspace | Background | ButtonHighlight | ButtonShadow | CaptionText | InactiveBorder | InactiveCaption | InactiveCaptionText | InfoBackground | InfoText | Menu | MenuText | Scrollbar | ThreeDDarkShadow | ThreeDFace | ThreeDHighlight | ThreeDLightShadow | ThreeDShadow | Window | WindowFrame | WindowText"
     },
     {
-      "name": "<dimension>",
-      "syntax": ""
+      "name": "<deprecated-system-color>",
+      "syntax": "ActiveBorder | ActiveCaption | AppWorkspace | Background | ButtonHighlight | ButtonShadow | CaptionText | InactiveBorder | InactiveCaption | InactiveCaptionText | InfoBackground | InfoText | Menu | MenuText | Scrollbar | ThreeDDarkShadow | ThreeDFace | ThreeDHighlight | ThreeDLightShadow | ThreeDShadow | Window | WindowFrame | WindowText"
     },
     {
       "name": "<discretionary-lig-values>",
@@ -6921,7 +7151,7 @@
     },
     {
       "name": "<display-legacy>",
-      "syntax": "inline-block | inline-list-item | inline-table | inline-flex | inline-grid"
+      "syntax": "inline-block | inline-table | inline-flex | inline-grid"
     },
     {
       "name": "<display-listitem>",
@@ -6930,6 +7160,14 @@
     {
       "name": "<display-outside>",
       "syntax": "block | inline | run-in"
+    },
+    {
+      "name": "<drop-shadow()>",
+      "syntax": "drop-shadow( [ <color>? && <length>{2,3} ] )"
+    },
+    {
+      "name": "<dynamic-range-limit-mix()>",
+      "syntax": "dynamic-range-limit-mix( [ <'dynamic-range-limit'> && <percentage [0,100]> ]#{2,} )"
     },
     {
       "name": "<easing-function>",
@@ -6944,6 +7182,30 @@
       "syntax": "[ full-width | proportional-width ]"
     },
     {
+      "name": "<element()>",
+      "syntax": "element( <id-selector> )"
+    },
+    {
+      "name": "<ellipse()>",
+      "syntax": "ellipse( <radial-size>? [ at <position> ]? )"
+    },
+    {
+      "name": "<env()>",
+      "syntax": "env( <custom-ident> , <declaration-value>? )"
+    },
+    {
+      "name": "<env-args>",
+      "syntax": "env( <declaration-value>, <declaration-value>? )"
+    },
+    {
+      "name": "<event-trigger-event>",
+      "syntax": "activate | interest | click | touch | dblclick | keypress(<string>) | ..."
+    },
+    {
+      "name": "<exp()>",
+      "syntax": "exp( <calc-sum> )"
+    },
+    {
       "name": "<explicit-track-list>",
       "syntax": "[ <line-names>? <track-size> ]+ <line-names>?"
     },
@@ -6953,7 +7215,7 @@
     },
     {
       "name": "<feature-tag-value>",
-      "syntax": "<string> [ <integer> | on | off ]?"
+      "syntax": "<opentype-tag> [ <integer [0,∞]> | on | off ]?"
     },
     {
       "name": "<feature-type>",
@@ -6981,7 +7243,7 @@
     },
     {
       "name": "<filter-function>",
-      "syntax": "<blur()> | <brightness()> | <contrast()> | <drop-shadow()> | <grayscale()> | <hue-rotate()> | <invert()> | <opacity()> | <saturate()> | <sepia()>"
+      "syntax": "<blur()> | <brightness()> | <contrast()> | <drop-shadow()> | <grayscale()> | <hue-rotate()> | <invert()> | <opacity()> | <sepia()> | <saturate()>"
     },
     {
       "name": "<filter-value-list>",
@@ -6992,24 +7254,52 @@
       "syntax": "<bg-image> || <bg-position> [ / <bg-size> ]? || <repeat-style> || <attachment> || <visual-box> || <visual-box> || <'background-color'>"
     },
     {
+      "name": "<fit-content()>",
+      "syntax": "fit-content( <length-percentage [0,∞]> )"
+    },
+    {
       "name": "<fixed-breadth>",
-      "syntax": "<length-percentage>"
+      "syntax": "<length-percentage [0,∞]>"
     },
     {
       "name": "<fixed-repeat>",
-      "syntax": "repeat( [ <integer [1,∞]> ] , [ <line-names>? <fixed-size> ]+ <line-names>? )"
+      "syntax": "repeat( [ <integer [1,∞]> ] ',' [ <line-names>? <fixed-size> ]+ <line-names>? )"
     },
     {
       "name": "<fixed-size>",
-      "syntax": "<fixed-breadth> | minmax( <fixed-breadth> , <track-breadth> ) | minmax( <inflexible-breadth> , <fixed-breadth> )"
+      "syntax": "<fixed-breadth> | minmax( <fixed-breadth> ',' <track-breadth> ) | minmax( <inflexible-breadth> ',' <fixed-breadth> )"
     },
     {
-      "name": "<flex>",
-      "syntax": ""
+      "name": "<font-family-name>",
+      "syntax": "<string> | <custom-ident>+"
+    },
+    {
+      "name": "<font-feature-index>",
+      "syntax": "<integer>"
+    },
+    {
+      "name": "<font-feature-value-name>",
+      "syntax": "<ident>"
+    },
+    {
+      "name": "<font-features-tech>",
+      "syntax": "[ features-opentype | features-aat | features-graphite ]"
+    },
+    {
+      "name": "<font-format>",
+      "syntax": "[ <string> | collection | embedded-opentype | opentype | svg | truetype | woff | woff2 ]"
+    },
+    {
+      "name": "<font-src>",
+      "syntax": "<url> [ format( <font-format> ) ]? [ tech( <font-tech># ) ]? | local( <font-family-name> )"
     },
     {
       "name": "<font-stretch-absolute>",
       "syntax": "normal | ultra-condensed | extra-condensed | condensed | semi-condensed | semi-expanded | expanded | extra-expanded | ultra-expanded | <percentage>"
+    },
+    {
+      "name": "<font-tech>",
+      "syntax": "[ <font-features-tech> | <color-font-tech> | variations | palettes | incremental ]"
     },
     {
       "name": "<font-variant-css2>",
@@ -7017,7 +7307,7 @@
     },
     {
       "name": "<font-weight-absolute>",
-      "syntax": "normal | bold | <number [1,1000]>"
+      "syntax": "[ normal | bold | <number [1,1000]> ]"
     },
     {
       "name": "<font-width-css3>",
@@ -7029,15 +7319,39 @@
     },
     {
       "name": "<frequency-percentage>",
-      "syntax": "<frequency> | <percentage>"
+      "syntax": "[ <frequency> | <percentage> ]"
     },
     {
-      "name": "<frequency>",
-      "syntax": ""
+      "name": "<function-parameter>",
+      "syntax": "<custom-property-name> <css-type>? [ ':' <default-value> ]?"
+    },
+    {
+      "name": "<gap-auto-repeat-rule>",
+      "syntax": "repeat( auto ',' <gap-rule># )"
+    },
+    {
+      "name": "<gap-auto-rule-list>",
+      "syntax": "<gap-rule-or-repeat>#? ',' <gap-auto-repeat-rule> ',' <gap-rule-or-repeat>#?"
+    },
+    {
+      "name": "<gap-repeat-rule>",
+      "syntax": "repeat( <integer [1,∞]> ',' <gap-rule># )"
+    },
+    {
+      "name": "<gap-rule-list>",
+      "syntax": "<gap-rule-or-repeat>#"
+    },
+    {
+      "name": "<gap-rule-or-repeat>",
+      "syntax": "<gap-rule> | <gap-repeat-rule>"
+    },
+    {
+      "name": "<gap-rule>",
+      "syntax": "<line-width> || <line-style> || <color>"
     },
     {
       "name": "<general-enclosed>",
-      "syntax": "[ <function-token> <any-value> ) ] | ( <ident> <any-value> )"
+      "syntax": "[ <function-token> <any-value>? ')' ] | [ '(' <any-value>? ')' ]"
     },
     {
       "name": "<generic-complete>",
@@ -7048,8 +7362,28 @@
       "syntax": "<generic-complete> | <generic-incomplete> | emoji | fangsong"
     },
     {
+      "name": "<generic-font-complete>",
+      "syntax": "serif | sans-serif | system-ui | cursive | fantasy | math | monospace"
+    },
+    {
+      "name": "<generic-font-family>",
+      "syntax": "<generic-font-script-specific>| <generic-font-complete> | <generic-font-incomplete>"
+    },
+    {
+      "name": "<generic-font-incomplete>",
+      "syntax": "ui-serif | ui-sans-serif | ui-monospace | ui-rounded"
+    },
+    {
+      "name": "<generic-font-script-specific>",
+      "syntax": "generic(fangsong) | generic(kai) | generic(khmer-mul) | generic(nastaliq)"
+    },
+    {
       "name": "<generic-incomplete>",
       "syntax": "ui-serif | ui-sans-serif | ui-monospace | ui-rounded"
+    },
+    {
+      "name": "<generic-voice>",
+      "syntax": "<age>? <gender> <integer [1,∞]>?"
     },
     {
       "name": "<geometry-box>",
@@ -7057,31 +7391,63 @@
     },
     {
       "name": "<gradient>",
-      "syntax": "<linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()> | <repeating-radial-gradient()> | <conic-gradient()> | <repeating-conic-gradient()>"
+      "syntax": "<linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()> | <repeating-radial-gradient()>"
+    },
+    {
+      "name": "<grayscale()>",
+      "syntax": "grayscale( [ <number> | <percentage> ]? )"
     },
     {
       "name": "<grid-line>",
-      "syntax": "auto | <custom-ident> | [ <integer> && <custom-ident>? ] | [ span && [ <integer> || <custom-ident> ] ]"
+      "syntax": "auto | <custom-ident> | [ [ <integer [-∞,-1]> | <integer [1,∞]> ] && <custom-ident>? ] | [ span && [ <integer [1,∞]> || <custom-ident> ] ]"
     },
     {
       "name": "<historical-lig-values>",
       "syntax": "[ historical-ligatures | no-historical-ligatures ]"
     },
     {
+      "name": "<horizontal-line-command>",
+      "syntax": "hline [ to [ <length-percentage> | left | center | right | x-start | x-end ] | by <length-percentage> ]"
+    },
+    {
+      "name": "<hsl()>",
+      "syntax": "hsl( <hue>, <percentage>, <percentage>, <alpha-value>? ) | hsl( [ <hue> | none ] [ <percentage> | <number> | none ] [ <percentage> | <number> | none ] [ / [ <alpha-value> | none ] ]? )"
+    },
+    {
+      "name": "<hsla()>",
+      "syntax": "hsla( <hue>, <percentage>, <percentage>, <alpha-value>? ) | hsla( [ <hue> | none ] [ <percentage> | <number> | none ] [ <percentage> | <number> | none ] [ / [ <alpha-value> | none ] ]? )"
+    },
+    {
       "name": "<hue-interpolation-method>",
       "syntax": "[ shorter | longer | increasing | decreasing ] hue"
+    },
+    {
+      "name": "<hue-rotate()>",
+      "syntax": "hue-rotate( [ <angle> | <zero> ]? )"
     },
     {
       "name": "<hue>",
       "syntax": "<number> | <angle>"
     },
     {
+      "name": "<hwb()>",
+      "syntax": "hwb( [ <hue> | none ] [ <percentage> | <number> | none ] [ <percentage> | <number> | none ] [ / [ <alpha-value> | none ] ]? )"
+    },
+    {
+      "name": "<hypot()>",
+      "syntax": "hypot( <calc-sum># )"
+    },
+    {
       "name": "<id-selector>",
       "syntax": "<hash-token>"
     },
     {
-      "name": "<ident>",
-      "syntax": ""
+      "name": "<image()>",
+      "syntax": "image( <image-tags>? [ <image-src>? , <color>? ]! )"
+    },
+    {
+      "name": "<image-set()>",
+      "syntax": "image-set( <image-set-option># )"
     },
     {
       "name": "<image-set-option>",
@@ -7097,43 +7463,127 @@
     },
     {
       "name": "<image>",
-      "syntax": "<url> | <image()> | <image-set()> | <element()> | <paint()> | <cross-fade()> | <gradient>"
+      "syntax": "<url> | <gradient>"
+    },
+    {
+      "name": "<import-conditions>",
+      "syntax": "[ supports( [ <supports-condition> | <declaration> ] ) ]? <media-query-list>?"
     },
     {
       "name": "<inflexible-breadth>",
-      "syntax": "<length-percentage> | min-content | max-content | auto"
+      "syntax": "<length-percentage [0,∞]> | min-content | max-content | auto"
+    },
+    {
+      "name": "<init-descriptor-name>",
+      "syntax": "protocol | hostname | port | pathname | search | hash"
+    },
+    {
+      "name": "<init-descriptor>",
+      "syntax": "<init-descriptor-name> ':' <string>"
+    },
+    {
+      "name": "<inset()>",
+      "syntax": "inset( <length-percentage>{1,4} [ round <'border-radius'> ]? )"
+    },
+    {
+      "name": "<inset-value>",
+      "syntax": "<length-percentage> | overlap-join"
     },
     {
       "name": "<integer>",
       "syntax": "<number-token>"
     },
     {
+      "name": "<invert()>",
+      "syntax": "invert( [ <number> | <percentage> ]? )"
+    },
+    {
+      "name": "<isolation-mode>",
+      "syntax": "auto | isolate"
+    },
+    {
       "name": "<keyframe-block>",
-      "syntax": "<keyframe-selector># {\n  <declaration-list>\n}"
+      "syntax": "<keyframe-selector># '{' <declaration-list> '}'"
     },
     {
       "name": "<keyframe-selector>",
-      "syntax": "from | to | <percentage [0,100]> | <timeline-range-name> <percentage>"
+      "syntax": "from | to | <percentage [0,100]>"
     },
     {
       "name": "<keyframes-name>",
       "syntax": "<custom-ident> | <string>"
     },
     {
+      "name": "<lab()>",
+      "syntax": "lab( [<percentage> | <number> | none] [ <percentage> | <number> | none] [ <percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
+    },
+    {
+      "name": "<layer()>",
+      "syntax": "layer( <layer-name> )"
+    },
+    {
       "name": "<layer-name>",
       "syntax": "<ident> [ '.' <ident> ]*"
+    },
+    {
+      "name": "<layout-box>",
+      "syntax": "<visual-box> | margin-box"
+    },
+    {
+      "name": "<lch()>",
+      "syntax": "lch( [<percentage> | <number> | none] [ <percentage> | <number> | none] [ <hue> | none] [ / [<alpha-value> | none] ]? )"
+    },
+    {
+      "name": "<leader()>",
+      "syntax": "leader( <leader-type> )"
     },
     {
       "name": "<leader-type>",
       "syntax": "dotted | solid | space | <string>"
     },
     {
-      "name": "<length-percentage>",
-      "syntax": "<length> | <percentage>"
+      "name": "<legacy-border-radius-syntax>",
+      "syntax": "<length-percentage [0,∞]>{1,2}"
     },
     {
-      "name": "<length>",
-      "syntax": ""
+      "name": "<legacy-hsl-syntax>",
+      "syntax": "hsl( <hue>, <percentage>, <percentage>, <alpha-value>? )"
+    },
+    {
+      "name": "<legacy-hsla-syntax>",
+      "syntax": "hsla( <hue>, <percentage>, <percentage>, <alpha-value>? )"
+    },
+    {
+      "name": "<legacy-pseudo-element-selector>",
+      "syntax": "':' [before | after | first-line | first-letter]"
+    },
+    {
+      "name": "<legacy-rgb-syntax>",
+      "syntax": "rgb( <percentage>#{3} ',' <alpha-value>? ) | rgb( <number>#{3} ',' <alpha-value>? )"
+    },
+    {
+      "name": "<legacy-rgba-syntax>",
+      "syntax": "rgba( <percentage>#{3} ',' <alpha-value>? ) | rgba( <number>#{3} ',' <alpha-value>? )"
+    },
+    {
+      "name": "<length-percentage>",
+      "syntax": "[ <length> | <percentage> ]"
+    },
+    {
+      "name": "<light-dark()>",
+      "syntax": "light-dark( <color>, <color> )"
+    },
+    {
+      "name": "<line-color-list>",
+      "syntax": "<line-color-or-repeat>#"
+    },
+    {
+      "name": "<line-color-or-repeat>",
+      "syntax": "[ <color> | <repeat-line-color> ]"
+    },
+    {
+      "name": "<line-command>",
+      "syntax": "line <command-end-point>"
     },
     {
       "name": "<line-name-list>",
@@ -7144,12 +7594,32 @@
       "syntax": "'[' <custom-ident>* ']'"
     },
     {
+      "name": "<line-style-list>",
+      "syntax": "<line-style-or-repeat>#"
+    },
+    {
+      "name": "<line-style-or-repeat>",
+      "syntax": "[ <line-style> | <repeat-line-style> ]"
+    },
+    {
       "name": "<line-style>",
       "syntax": "none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset"
     },
     {
+      "name": "<line-width-list>",
+      "syntax": "<line-width-or-repeat>#"
+    },
+    {
+      "name": "<line-width-or-repeat>",
+      "syntax": "[ <line-width> | <repeat-line-width> ]"
+    },
+    {
       "name": "<line-width>",
-      "syntax": "<length> | thin | medium | thick"
+      "syntax": "<length [0,∞]> | hairline | thin | medium | thick"
+    },
+    {
+      "name": "<linear()>",
+      "syntax": "linear( [ <number> && <percentage>{0,2} ]# )"
     },
     {
       "name": "<linear-color-hint>",
@@ -7157,15 +7627,27 @@
     },
     {
       "name": "<linear-color-stop>",
-      "syntax": "<color> <color-stop-length>?"
+      "syntax": "<color> <length-percentage>?"
     },
     {
       "name": "<linear-easing-function>",
       "syntax": "linear | <linear()>"
     },
     {
+      "name": "<linear-gradient()>",
+      "syntax": "linear-gradient( [ <linear-gradient-syntax> ] )"
+    },
+    {
       "name": "<linear-gradient-syntax>",
-      "syntax": "[ [ <angle> | <zero> | to <side-or-corner> ] || <color-interpolation-method> ]? , <color-stop-list>"
+      "syntax": "[ <angle> | <zero> | to <side-or-corner> ]? ',' <color-stop-list>"
+    },
+    {
+      "name": "<log()>",
+      "syntax": "log( <calc-sum>, <calc-sum>? )"
+    },
+    {
+      "name": "<marker-ref>",
+      "syntax": "<url>"
     },
     {
       "name": "<mask-layer>",
@@ -7188,24 +7670,36 @@
       "syntax": "alpha | luminance | match-source"
     },
     {
+      "name": "<matrix()>",
+      "syntax": "matrix( <number>#{6} )"
+    },
+    {
+      "name": "<matrix3d()>",
+      "syntax": "matrix3d( <number>#{16} )"
+    },
+    {
+      "name": "<max()>",
+      "syntax": "max( <calc-sum># )"
+    },
+    {
       "name": "<media-and>",
-      "syntax": "<media-in-parens> [ and <media-in-parens> ]+"
+      "syntax": "and <media-in-parens>"
     },
     {
       "name": "<media-condition-without-or>",
-      "syntax": "<media-not> | <media-and> | <media-in-parens>"
+      "syntax": "<media-not> | <media-in-parens> <media-and>*"
     },
     {
       "name": "<media-condition>",
-      "syntax": "<media-not> | <media-and> | <media-or> | <media-in-parens>"
+      "syntax": "<media-not> | <media-in-parens> [ <media-and>* | <media-or>* ]"
     },
     {
       "name": "<media-feature>",
-      "syntax": "( [ <mf-plain> | <mf-boolean> | <mf-range> ] )"
+      "syntax": "[ <mf-plain> | <mf-boolean> | <mf-range> ]"
     },
     {
       "name": "<media-in-parens>",
-      "syntax": "( <media-condition> ) | <media-feature> | <general-enclosed>"
+      "syntax": "'(' <media-condition> ')' | '(' <media-feature> ')' | <general-enclosed>"
     },
     {
       "name": "<media-not>",
@@ -7213,7 +7707,7 @@
     },
     {
       "name": "<media-or>",
-      "syntax": "<media-in-parens> [ or <media-in-parens> ]+"
+      "syntax": "or <media-in-parens>"
     },
     {
       "name": "<media-query-list>",
@@ -7232,20 +7726,72 @@
       "syntax": "<mf-name>"
     },
     {
+      "name": "<mf-comparison>",
+      "syntax": "<mf-lt> | <mf-gt> | <mf-eq>"
+    },
+    {
+      "name": "<mf-eq>",
+      "syntax": "'='"
+    },
+    {
+      "name": "<mf-gt>",
+      "syntax": "'>' '='?"
+    },
+    {
+      "name": "<mf-lt>",
+      "syntax": "'<' '='?"
+    },
+    {
       "name": "<mf-name>",
       "syntax": "<ident>"
     },
     {
       "name": "<mf-plain>",
-      "syntax": "<mf-name> : <mf-value>"
+      "syntax": "<mf-name> ':' <mf-value>"
     },
     {
       "name": "<mf-range>",
-      "syntax": "<mf-name> [ '<' | '>' ]? '='? <mf-value>\n| <mf-value> [ '<' | '>' ]? '='? <mf-name>\n| <mf-value> '<' '='? <mf-name> '<' '='? <mf-value>\n| <mf-value> '>' '='? <mf-name> '>' '='? <mf-value>"
+      "syntax": "<mf-name> <mf-comparison> <mf-value> | <mf-value> <mf-comparison> <mf-name> | <mf-value> <mf-lt> <mf-name> <mf-lt> <mf-value> | <mf-value> <mf-gt> <mf-name> <mf-gt> <mf-value>"
     },
     {
       "name": "<mf-value>",
       "syntax": "<number> | <dimension> | <ident> | <ratio>"
+    },
+    {
+      "name": "<min()>",
+      "syntax": "min( <calc-sum># )"
+    },
+    {
+      "name": "<minmax()>",
+      "syntax": "minmax( [ <length-percentage> | min-content | max-content | auto ] , [ <length-percentage> | <flex> | min-content | max-content | auto ] )"
+    },
+    {
+      "name": "<mod()>",
+      "syntax": "mod( <calc-sum>, <calc-sum> )"
+    },
+    {
+      "name": "<modern-hsl-syntax>",
+      "syntax": "hsl( [<hue> | none] [<percentage> | <number> | none] [<percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
+    },
+    {
+      "name": "<modern-hsla-syntax>",
+      "syntax": "hsla( [<hue> | none] [<percentage> | <number> | none] [<percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
+    },
+    {
+      "name": "<modern-rgb-syntax>",
+      "syntax": "rgb( [ <number> | <percentage> | none]{3} [ / [<alpha-value> | none] ]? )"
+    },
+    {
+      "name": "<modern-rgba-syntax>",
+      "syntax": "rgba( [ <number> | <percentage> | none]{3} [ / [<alpha-value> | none] ]? )"
+    },
+    {
+      "name": "<move-command>",
+      "syntax": "move <command-end-point>"
+    },
+    {
+      "name": "<mq-boolean>",
+      "syntax": "<integer [0,1]>"
     },
     {
       "name": "<n-dimension>",
@@ -7253,15 +7799,55 @@
     },
     {
       "name": "<name-repeat>",
-      "syntax": "repeat( [ <integer [1,∞]> | auto-fill ], <line-names>+ )"
+      "syntax": "repeat( [ <integer [1,∞]> | auto-fill ], <line-names>+)"
     },
     {
       "name": "<named-color>",
-      "syntax": "aliceblue | antiquewhite | aqua | aquamarine | azure | beige | bisque | black | blanchedalmond | blue | blueviolet | brown | burlywood | cadetblue | chartreuse | chocolate | coral | cornflowerblue | cornsilk | crimson | cyan | darkblue | darkcyan | darkgoldenrod | darkgray | darkgreen | darkgrey | darkkhaki | darkmagenta | darkolivegreen | darkorange | darkorchid | darkred | darksalmon | darkseagreen | darkslateblue | darkslategray | darkslategrey | darkturquoise | darkviolet | deeppink | deepskyblue | dimgray | dimgrey | dodgerblue | firebrick | floralwhite | forestgreen | fuchsia | gainsboro | ghostwhite | gold | goldenrod | gray | green | greenyellow | grey | honeydew | hotpink | indianred | indigo | ivory | khaki | lavender | lavenderblush | lawngreen | lemonchiffon | lightblue | lightcoral | lightcyan | lightgoldenrodyellow | lightgray | lightgreen | lightgrey | lightpink | lightsalmon | lightseagreen | lightskyblue | lightslategray | lightslategrey | lightsteelblue | lightyellow | lime | limegreen | linen | magenta | maroon | mediumaquamarine | mediumblue | mediumorchid | mediumpurple | mediumseagreen | mediumslateblue | mediumspringgreen | mediumturquoise | mediumvioletred | midnightblue | mintcream | mistyrose | moccasin | navajowhite | navy | oldlace | olive | olivedrab | orange | orangered | orchid | palegoldenrod | palegreen | paleturquoise | palevioletred | papayawhip | peachpuff | peru | pink | plum | powderblue | purple | rebeccapurple | red | rosybrown | royalblue | saddlebrown | salmon | sandybrown | seagreen | seashell | sienna | silver | skyblue | slateblue | slategray | slategrey | snow | springgreen | steelblue | tan | teal | thistle | tomato | turquoise | violet | wheat | white | whitesmoke | yellow | yellowgreen"
+      "syntax": "aliceblue | antiquewhite | aqua | aquamarine | azure | beige | bisque | black | blanchedalmond | blue | blueviolet | brown | burlywood | cadetblue | chartreuse | chocolate | coral | cornflowerblue | cornsilk | crimson | cyan | darkblue | darkcyan | darkgoldenrod | darkgray | darkgreen | darkgrey | darkkhaki | darkmagenta | darkolivegreen | darkorange | darkorchid | darkred | darksalmon | darkseagreen | darkslateblue | darkslategray | darkslategrey | darkturquoise | darkviolet | deeppink | deepskyblue | dimgray | dimgrey | dodgerblue | firebrick | floralwhite | forestgreen | fuchsia | gainsboro | ghostwhite | gold | goldenrod | gray | green | greenyellow | grey | honeydew | hotpink | indianred | indigo | ivory | khaki | lavender | lavenderblush | lawngreen | lemonchiffon | lightblue | lightcoral | lightcyan | lightgoldenrodyellow | lightgray | lightgreen | lightgrey | lightpink | lightsalmon | lightseagreen | lightskyblue | lightslategray | lightslategrey | lightsteelblue | lightyellow | lime | limegreen | linen | magenta | maroon | mediumaquamarine | mediumblue | mediumorchid | mediumpurple | mediumseagreen | mediumslateblue | mediumspringgreen | mediumturquoise | mediumvioletred | midnightblue | mintcream | mistyrose | moccasin | navajowhite | navy | oldlace | olive | olivedrab | orange | orangered | orchid | palegoldenrod | palegreen | paleturquoise | palevioletred | papayawhip | peachpuff | peru | pink | plum | powderblue | purple | rebeccapurple | red | rosybrown | royalblue | saddlebrown | salmon | sandybrown | seagreen | seashell | sienna | silver | skyblue | slateblue | slategray | slategrey | snow | springgreen | steelblue | tan | teal | thistle | tomato | turquoise | violet | wheat | white | whitesmoke | yellow | yellowgreen | transparent"
     },
     {
       "name": "<namespace-prefix>",
       "syntax": "<ident>"
+    },
+    {
+      "name": "<navigation-condition>",
+      "syntax": "not <navigation-in-parens> | <navigation-in-parens> [ and <navigation-in-parens> ]* | <navigation-in-parens> [ or <navigation-in-parens> ]*"
+    },
+    {
+      "name": "<navigation-in-parens>",
+      "syntax": "'(' <navigation-condition> ')' | '(' <navigation-test> ')' | <general-enclosed>"
+    },
+    {
+      "name": "<navigation-location-between-test>",
+      "syntax": "between ':' <route-location> and <route-location>"
+    },
+    {
+      "name": "<navigation-location-test>",
+      "syntax": "<navigation-relation> ':' <route-location>"
+    },
+    {
+      "name": "<navigation-phase-keyword>",
+      "syntax": "loading | ready | committed"
+    },
+    {
+      "name": "<navigation-phase-test>",
+      "syntax": "phase ':' <navigation-phase-keyword>"
+    },
+    {
+      "name": "<navigation-relation>",
+      "syntax": "at | with | from | to"
+    },
+    {
+      "name": "<navigation-test>",
+      "syntax": "<navigation-location-test> | <navigation-location-between-test> | <navigation-type-test> | <navigation-phase-test>"
+    },
+    {
+      "name": "<navigation-type-keyword>",
+      "syntax": "traverse | back | forward | reload"
+    },
+    {
+      "name": "<navigation-type-test>",
+      "syntax": "history ':' <navigation-type-keyword>"
     },
     {
       "name": "<ndash-dimension>",
@@ -7280,12 +7866,12 @@
       "syntax": "[ <ident-token> | '*' ]? '|'"
     },
     {
-      "name": "<number-percentage>",
-      "syntax": "<number> | <percentage>"
+      "name": "<number-optional-number>",
+      "syntax": "<number> <number>?"
     },
     {
-      "name": "<number>",
-      "syntax": ""
+      "name": "<number-percentage>",
+      "syntax": "<number> | <percentage>"
     },
     {
       "name": "<numeric-figure-values>",
@@ -7304,12 +7890,28 @@
       "syntax": "<ray()> | <url> | <basic-shape>"
     },
     {
+      "name": "<oklab()>",
+      "syntax": "oklab( [ <percentage> | <number> | none] [ <percentage> | <number> | none] [ <percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
+    },
+    {
+      "name": "<oklch()>",
+      "syntax": "oklch( [ <percentage> | <number> | none] [ <percentage> | <number> | none] [ <hue> | none] [ / [<alpha-value> | none] ]? )"
+    },
+    {
+      "name": "<opacity()>",
+      "syntax": "opacity( [ <number> | <percentage> ]? )"
+    },
+    {
       "name": "<opacity-value>",
       "syntax": "<number> | <percentage>"
     },
     {
+      "name": "<opentype-tag>",
+      "syntax": "<string>"
+    },
+    {
       "name": "<outline-line-style>",
-      "syntax": "none | dotted | dashed | solid | double | groove | ridge | inset | outset"
+      "syntax": "none | auto | dotted | dashed | solid | double | groove | ridge | inset | outset"
     },
     {
       "name": "<outline-radius>",
@@ -7318,10 +7920,6 @@
     {
       "name": "<overflow-position>",
       "syntax": "unsafe | safe"
-    },
-    {
-      "name": "<overflow>",
-      "syntax": ""
     },
     {
       "name": "<page-body>",
@@ -7337,15 +7935,19 @@
     },
     {
       "name": "<page-selector-list>",
-      "syntax": "[ <page-selector># ]?"
+      "syntax": "<page-selector>#"
     },
     {
       "name": "<page-selector>",
-      "syntax": "<pseudo-page>+ | <ident> <pseudo-page>*"
+      "syntax": "[ <ident-token>? <pseudo-page>* ]!"
     },
     {
       "name": "<page-size>",
       "syntax": "A5 | A4 | A3 | B5 | B4 | JIS-B5 | JIS-B4 | letter | legal | ledger"
+    },
+    {
+      "name": "<paint()>",
+      "syntax": "paint( <ident>, <declaration-value>? )"
     },
     {
       "name": "<paint-box>",
@@ -7353,27 +7955,59 @@
     },
     {
       "name": "<paint>",
-      "syntax": "none | <color> | <url> [none | <color>]? | context-fill | context-stroke"
+      "syntax": "none | <image> | <svg-paint>"
     },
     {
       "name": "<palette-identifier>",
       "syntax": "<dashed-ident>"
     },
     {
-      "name": "<percentage>",
-      "syntax": ""
+      "name": "<palette-mix()>",
+      "syntax": "palette-mix(<color-interpolation-method> , [ [normal | light | dark | <palette-identifier> | <palette-mix()> ] && <percentage [0,100]>? ]#{2})"
+    },
+    {
+      "name": "<path()>",
+      "syntax": "path( <'fill-rule'>? , <string> )"
+    },
+    {
+      "name": "<pattern-descriptor>",
+      "syntax": "pattern ':' <url-pattern()>"
+    },
+    {
+      "name": "<perspective()>",
+      "syntax": "perspective( [ <length [0,∞]> | none ] )"
+    },
+    {
+      "name": "<pointer-axis>",
+      "syntax": "block | inline | x | y"
+    },
+    {
+      "name": "<pointer-source>",
+      "syntax": "root | nearest | self"
+    },
+    {
+      "name": "<points>",
+      "syntax": "[ <number>+ ]#"
     },
     {
       "name": "<polar-color-space>",
       "syntax": "hsl | hwb | lch | oklch"
     },
     {
+      "name": "<polygon()>",
+      "syntax": "polygon( <'fill-rule'>? , [ <length-percentage> <length-percentage> ]# )"
+    },
+    {
       "name": "<position-area>",
-      "syntax": "[ left | center | right | span-left | span-right | x-start | x-end | span-x-start | span-x-end | x-self-start | x-self-end | span-x-self-start | span-x-self-end | span-all ] || [ top | center | bottom | span-top | span-bottom | y-start | y-end | span-y-start | span-y-end | y-self-start | y-self-end | span-y-self-start | span-y-self-end | span-all ] | [ block-start | center | block-end | span-block-start | span-block-end | span-all ] || [ inline-start | center | inline-end | span-inline-start | span-inline-end | span-all ] | [ self-block-start | center | self-block-end | span-self-block-start | span-self-block-end | span-all ] || [ self-inline-start | center | self-inline-end | span-self-inline-start | span-self-inline-end | span-all ] | [ start | center | end | span-start | span-end | span-all ]{1,2} | [ self-start | center | self-end | span-self-start | span-self-end | span-all ]{1,2}"
+      "syntax": "[ [ left | center | right | span-left | span-right | x-start | x-end | span-x-start | span-x-end | self-x-start | self-x-end | span-self-x-start | span-self-x-end | span-all ] || [ top | center | bottom | span-top | span-bottom | y-start | y-end | span-y-start | span-y-end | self-y-start | self-y-end | span-self-y-start | span-self-y-end | span-all ] | [ block-start | center | block-end | span-block-start | span-block-end | span-all ] || [ inline-start | center | inline-end | span-inline-start | span-inline-end | span-all ] | [ self-block-start | center | self-block-end | span-self-block-start | span-self-block-end | span-all ] || [ self-inline-start | center | self-inline-end | span-self-inline-start | span-self-inline-end | span-all ] | [ start | center | end | span-start | span-end | span-all ]{1,2} | [ self-start | center | self-end | span-self-start | span-self-end | span-all ]{1,2} ]"
     },
     {
       "name": "<position>",
-      "syntax": "[ [ left | center | right ] || [ top | center | bottom ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ]? | [ [ left | right ] <length-percentage> ] && [ [ top | bottom ] <length-percentage> ] ]"
+      "syntax": "[ [ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right ] && [ top | center | bottom ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] | [ [ left | right ] <length-percentage> ] && [ [ top | bottom ] <length-percentage> ] ]"
+    },
+    {
+      "name": "<pow()>",
+      "syntax": "pow( <calc-sum>, <calc-sum> )"
     },
     {
       "name": "<predefined-rgb-params>",
@@ -7381,19 +8015,35 @@
     },
     {
       "name": "<predefined-rgb>",
-      "syntax": "srgb | srgb-linear | display-p3 | display-p3-linear | a98-rgb | prophoto-rgb | rec2020"
+      "syntax": "srgb | srgb-linear | display-p3 | display-p3-linear | a98-rgb | prophoto-rgb | rec2020 | rec2100-pq | rec2100-hlg | rec2100-linear"
     },
     {
       "name": "<pseudo-class-selector>",
       "syntax": "':' <ident-token> | ':' <function-token> <any-value> ')'"
     },
     {
+      "name": "<pseudo-compound-selector>",
+      "syntax": "<pseudo-element-selector> <pseudo-class-selector>*"
+    },
+    {
       "name": "<pseudo-element-selector>",
-      "syntax": "':' <pseudo-class-selector>"
+      "syntax": "':' <pseudo-class-selector> | <legacy-pseudo-element-selector>"
     },
     {
       "name": "<pseudo-page>",
-      "syntax": ": [ left | right | first | blank ]"
+      "syntax": "':' [ left | right | first | blank ]"
+    },
+    {
+      "name": "<pt-class-selector>",
+      "syntax": "['.' <custom-ident>]+"
+    },
+    {
+      "name": "<pt-name-and-class-selector>",
+      "syntax": "<pt-name-selector> <pt-class-selector>? | <pt-class-selector>"
+    },
+    {
+      "name": "<pt-name-selector>",
+      "syntax": "'*' | <custom-ident>"
     },
     {
       "name": "<query-in-parens>",
@@ -7408,8 +8058,12 @@
       "syntax": "closest-corner | closest-side | farthest-corner | farthest-side"
     },
     {
+      "name": "<radial-gradient()>",
+      "syntax": "radial-gradient( [ <radial-gradient-syntax> ] )"
+    },
+    {
       "name": "<radial-gradient-syntax>",
-      "syntax": "[ [ [ <radial-shape> || <radial-size> ]? [ at <position> ]? ] || <color-interpolation-method> ]? , <color-stop-list>"
+      "syntax": "[ <radial-shape> || <radial-size> ]? [ at <position> ]? ',' <color-stop-list>"
     },
     {
       "name": "<radial-shape>",
@@ -7424,12 +8078,32 @@
       "syntax": "<number [0,∞]> [ / <number [0,∞]> ]?"
     },
     {
+      "name": "<ray()>",
+      "syntax": "ray( <angle> && <ray-size>? && contain? && [at <position>]? )"
+    },
+    {
       "name": "<ray-size>",
-      "syntax": "closest-side | closest-corner | farthest-side | farthest-corner | sides"
+      "syntax": "<radial-extent> | sides"
+    },
+    {
+      "name": "<rect()>",
+      "syntax": "rect( [ <length-percentage> | auto ]{4} [ round <'border-radius'> ]? )"
     },
     {
       "name": "<rectangular-color-space>",
-      "syntax": "srgb | srgb-linear | display-p3 | display-p3-linear | a98-rgb | prophoto-rgb | rec2020 | lab | oklab | xyz | xyz-d50 | xyz-d65"
+      "syntax": "srgb | srgb-linear | display-p3 | display-p3-linear | a98-rgb | prophoto-rgb | rec2020 | lab | oklab | <xyz-space>"
+    },
+    {
+      "name": "<relative-control-point>",
+      "syntax": "<coordinate-pair> [ from [ start | end | origin ] ]?"
+    },
+    {
+      "name": "<relative-real-selector-list>",
+      "syntax": "<relative-real-selector>#"
+    },
+    {
+      "name": "<relative-real-selector>",
+      "syntax": "<combinator>? <complex-real-selector>"
     },
     {
       "name": "<relative-selector-list>",
@@ -7441,23 +8115,119 @@
     },
     {
       "name": "<relative-size>",
-      "syntax": "larger | smaller"
+      "syntax": "[ larger | smaller ]"
+    },
+    {
+      "name": "<rem()>",
+      "syntax": "rem( <calc-sum>, <calc-sum> )"
+    },
+    {
+      "name": "<repeat-line-color>",
+      "syntax": "repeat( [ <integer [1,∞]> ] ',' [ <color> ]# )"
+    },
+    {
+      "name": "<repeat-line-style>",
+      "syntax": "repeat( [ <integer [1,∞]> ] ',' [ <line-style> ]# )"
+    },
+    {
+      "name": "<repeat-line-width>",
+      "syntax": "repeat( [ <integer [1,∞]> ] ',' [ <line-width> ]# )"
     },
     {
       "name": "<repeat-style>",
-      "syntax": "repeat-x | repeat-y | [ repeat | space | round | no-repeat ]{1,2}"
+      "syntax": "repeat-x | repeat-y | [repeat | space | round | no-repeat]{1,2}"
     },
     {
-      "name": "<resolution>",
-      "syntax": ""
+      "name": "<repeating-conic-gradient()>",
+      "syntax": "repeating-conic-gradient( [ <conic-gradient-syntax> ] )"
+    },
+    {
+      "name": "<repeating-linear-gradient()>",
+      "syntax": "repeating-linear-gradient( [ <linear-gradient-syntax> ] )"
+    },
+    {
+      "name": "<repeating-radial-gradient()>",
+      "syntax": "repeating-radial-gradient( [ <radial-gradient-syntax> ] )"
     },
     {
       "name": "<reversed-counter-name>",
       "syntax": "reversed( <counter-name> )"
     },
     {
+      "name": "<rgb()>",
+      "syntax": "rgb( <percentage>#{3} , <alpha-value>? ) | rgb( <number>#{3} , <alpha-value>? ) | rgb( [ <number> | <percentage> | none ]{3} [ / [ <alpha-value> | none ] ]? )"
+    },
+    {
+      "name": "<rgba()>",
+      "syntax": "rgba( <percentage>#{3} , <alpha-value>? ) | rgba( <number>#{3} , <alpha-value>? ) | rgba( [ <number> | <percentage> | none ]{3} [ / [ <alpha-value> | none ] ]? )"
+    },
+    {
+      "name": "<rotate()>",
+      "syntax": "rotate( [ <angle> | <zero> ] )"
+    },
+    {
+      "name": "<rotate3d()>",
+      "syntax": "rotate3d( <number> , <number> , <number> , [ <angle> | <zero> ] )"
+    },
+    {
+      "name": "<rotateX()>",
+      "syntax": "rotateX( [ <angle> | <zero> ] )"
+    },
+    {
+      "name": "<rotateY()>",
+      "syntax": "rotateY( [ <angle> | <zero> ] )"
+    },
+    {
+      "name": "<rotateZ()>",
+      "syntax": "rotateZ( [ <angle> | <zero> ] )"
+    },
+    {
+      "name": "<round()>",
+      "syntax": "round( <rounding-strategy>?, <calc-sum>, <calc-sum> )"
+    },
+    {
       "name": "<rounding-strategy>",
-      "syntax": "nearest | up | down | to-zero"
+      "syntax": "nearest | up | down | to-zero | line-width"
+    },
+    {
+      "name": "<route-descriptor>",
+      "syntax": "<pattern-descriptor> | <init-descriptor> | <base-descriptor>"
+    },
+    {
+      "name": "<route-location>",
+      "syntax": "<url> | [ <route-name> | <url-pattern()> ]"
+    },
+    {
+      "name": "<route-name>",
+      "syntax": "<dashed-ident>"
+    },
+    {
+      "name": "<route-rule>",
+      "syntax": "@route <dashed-ident> '{' <declaration-list> '}'"
+    },
+    {
+      "name": "<saturate()>",
+      "syntax": "saturate( [ <number> | <percentage> ]? )"
+    },
+    {
+      "name": "<scale()>",
+      "syntax": "scale( [ <number> | <percentage> ]#{1,2} )"
+    },
+    {
+      "name": "<scale3d()>",
+      "syntax": "scale3d( [ <number> | <percentage> ]#{3} )"
+    },
+    {
+      "name": "<scaleX()>",
+      "syntax": "scaleX( [ <number> | <percentage> ] )"
+    },
+    {
+      "name": "<scaleY()>",
+      "syntax": "scaleY( [ <number> | <percentage> ] )"
+    },
+    {
+      "name": "<scaleZ()>",
+      "syntax": "scaleZ( [ <number> | <percentage> ] )"
     },
     {
       "name": "<scope-end>",
@@ -7466,6 +8236,10 @@
     {
       "name": "<scope-start>",
       "syntax": "<selector-list>"
+    },
+    {
+      "name": "<scroll()>",
+      "syntax": "scroll( [ <scroller> || <axis> ]? )"
     },
     {
       "name": "<scroll-state-feature>",
@@ -7492,16 +8266,24 @@
       "syntax": "center | start | end | self-start | self-end | flex-start | flex-end"
     },
     {
+      "name": "<sepia()>",
+      "syntax": "sepia( [ <number> | <percentage> ]? )"
+    },
+    {
       "name": "<shadow-t>",
       "syntax": "[ <length>{2,3} && <color>? ]"
     },
     {
       "name": "<shadow>",
-      "syntax": "inset? && <length>{2,4} && <color>?"
+      "syntax": "<color>? && [ <length>{2} [ <length [0,∞]> <length>? ]? ] && inset?"
     },
     {
       "name": "<shape-box>",
-      "syntax": "<visual-box> | margin-box"
+      "syntax": "<visual-box> | margin-box | half-border-box"
+    },
+    {
+      "name": "<shape-command>",
+      "syntax": "<move-command> | <line-command> | close | <horizontal-line-command> | <vertical-line-command> | <curve-command> | <smooth-command> | <arc-command>"
     },
     {
       "name": "<shape>",
@@ -7509,7 +8291,11 @@
     },
     {
       "name": "<side-or-corner>",
-      "syntax": "[ left | right ] || [ top | bottom ]"
+      "syntax": "[left | right] || [top | bottom]"
+    },
+    {
+      "name": "<sign()>",
+      "syntax": "sign( <calc-sum> )"
     },
     {
       "name": "<signed-integer>",
@@ -7518,6 +8304,18 @@
     {
       "name": "<signless-integer>",
       "syntax": "<number-token>"
+    },
+    {
+      "name": "<simple-selector-list>",
+      "syntax": "<simple-selector>#"
+    },
+    {
+      "name": "<simple-selector>",
+      "syntax": "<type-selector> | <subclass-selector>"
+    },
+    {
+      "name": "<sin()>",
+      "syntax": "sin( <calc-sum> )"
     },
     {
       "name": "<single-animation-composition>",
@@ -7533,7 +8331,7 @@
     },
     {
       "name": "<single-animation-iteration-count>",
-      "syntax": "infinite | <number>"
+      "syntax": "infinite | <number [0,∞]>"
     },
     {
       "name": "<single-animation-play-state>",
@@ -7545,7 +8343,7 @@
     },
     {
       "name": "<single-animation>",
-      "syntax": "<'animation-duration'> || <easing-function> || <'animation-delay'> || <single-animation-iteration-count> || <single-animation-direction> || <single-animation-fill-mode> || <single-animation-play-state> || [ none | <keyframes-name> ] || <single-animation-timeline>"
+      "syntax": "<time [0s,∞]> || <easing-function> || <time> || <single-animation-iteration-count> || <single-animation-direction> || <single-animation-fill-mode> || <single-animation-play-state> || [ none | <keyframes-name> ]"
     },
     {
       "name": "<single-transition-property>",
@@ -7553,7 +8351,7 @@
     },
     {
       "name": "<single-transition>",
-      "syntax": "[ none | <single-transition-property> ] || <time> || <easing-function> || <time> || <transition-behavior-value>"
+      "syntax": "[ none | <single-transition-property> ] || <time> || <easing-function> || <time>"
     },
     {
       "name": "<size-feature>",
@@ -7564,6 +8362,46 @@
       "syntax": "closest-side | farthest-side | closest-corner | farthest-corner | <length> | <length-percentage>{2}"
     },
     {
+      "name": "<skew()>",
+      "syntax": "skew( [ <angle> | <zero> ] , [ <angle> | <zero> ]? )"
+    },
+    {
+      "name": "<skewX()>",
+      "syntax": "skewX( [ <angle> | <zero> ] )"
+    },
+    {
+      "name": "<skewY()>",
+      "syntax": "skewY( [ <angle> | <zero> ] )"
+    },
+    {
+      "name": "<slash-separated-border-radius-syntax>",
+      "syntax": "<length-percentage [0,∞]> [ / <length-percentage [0,∞]> ]?"
+    },
+    {
+      "name": "<smooth-command>",
+      "syntax": "smooth [ [ to <position> [ with <control-point> ]? ] | [ by <coordinate-pair> [ with <relative-control-point> ]? ] ]"
+    },
+    {
+      "name": "<source-size-list>",
+      "syntax": "<source-size>#? ',' <source-size-value>"
+    },
+    {
+      "name": "<source-size-value>",
+      "syntax": "<length> | auto"
+    },
+    {
+      "name": "<source-size>",
+      "syntax": "<media-condition> <source-size-value> | auto"
+    },
+    {
+      "name": "<spread-shadow>",
+      "syntax": "<'box-shadow-color'>? && [ [ none | <length>{2} ] [ <'box-shadow-blur'> <'box-shadow-spread'>? ]? ] && <'box-shadow-position'>?"
+    },
+    {
+      "name": "<sqrt()>",
+      "syntax": "sqrt( <calc-sum> )"
+    },
+    {
       "name": "<step-easing-function>",
       "syntax": "step-start | step-end | <steps()>"
     },
@@ -7572,8 +8410,8 @@
       "syntax": "jump-start | jump-end | jump-none | jump-both | start | end"
     },
     {
-      "name": "<string>",
-      "syntax": ""
+      "name": "<steps()>",
+      "syntax": "steps( <integer>, <step-position>? )"
     },
     {
       "name": "<style-feature>",
@@ -7592,28 +8430,40 @@
       "syntax": "<id-selector> | <class-selector> | <attribute-selector> | <pseudo-class-selector>"
     },
     {
+      "name": "<superellipse()>",
+      "syntax": "superellipse( [ <number> | infinity | -infinity ] )"
+    },
+    {
       "name": "<supports-condition>",
       "syntax": "not <supports-in-parens> | <supports-in-parens> [ and <supports-in-parens> ]* | <supports-in-parens> [ or <supports-in-parens> ]*"
     },
     {
       "name": "<supports-decl>",
-      "syntax": "( <declaration> )"
+      "syntax": "'(' <declaration> ')'"
     },
     {
       "name": "<supports-feature>",
-      "syntax": "<supports-decl> | <supports-selector-fn>"
+      "syntax": "<supports-decl>"
     },
     {
       "name": "<supports-in-parens>",
-      "syntax": "( <supports-condition> ) | <supports-feature> | <general-enclosed>"
+      "syntax": "'(' <supports-condition> ')' | <supports-feature> | <general-enclosed>"
     },
     {
       "name": "<supports-selector-fn>",
       "syntax": "selector( <complex-selector> )"
     },
     {
+      "name": "<svg-paint>",
+      "syntax": "child | child( <integer> )"
+    },
+    {
       "name": "<symbol>",
       "syntax": "<string> | <image> | <custom-ident>"
+    },
+    {
+      "name": "<symbols()>",
+      "syntax": "symbols( <symbols-type>? [ <string> | <image> ]+ )"
     },
     {
       "name": "<symbols-type>",
@@ -7621,11 +8471,31 @@
     },
     {
       "name": "<system-color>",
-      "syntax": "AccentColor | AccentColorText | ActiveText | ButtonBorder | ButtonFace | ButtonText | Canvas | CanvasText | Field | FieldText | GrayText | Highlight | HighlightText | LinkText | Mark | MarkText | SelectedItem | SelectedItemText | VisitedText"
+      "syntax": "AccentColor | AccentColorText | ActiveText | ButtonBorder | ButtonFace | ButtonText | Canvas | CanvasText | Field | FieldText | GrayText | Highlight | HighlightText | LinkText | Mark | MarkText | SelectedItem | SelectedItemText | VisitedText | <deprecated-color>"
     },
     {
       "name": "<system-family-name>",
       "syntax": "caption | icon | menu | message-box | small-caption | status-bar"
+    },
+    {
+      "name": "<system-font-family-name>",
+      "syntax": "caption | icon | menu | message-box | small-caption | status-bar"
+    },
+    {
+      "name": "<tan()>",
+      "syntax": "tan( <calc-sum> )"
+    },
+    {
+      "name": "<target-counter()>",
+      "syntax": "target-counter( [ <string> | <url> ] , <custom-ident> , <counter-style>? )"
+    },
+    {
+      "name": "<target-counters()>",
+      "syntax": "target-counters( [ <string> | <url> ] , <custom-ident> , <string> , <counter-style>? )"
+    },
+    {
+      "name": "<target-text()>",
+      "syntax": "target-text( [ <string> | <url> ] , [ content | before | after | first-letter ]? )"
     },
     {
       "name": "<target>",
@@ -7633,15 +8503,11 @@
     },
     {
       "name": "<text-edge>",
-      "syntax": "[ text | cap | ex | ideographic | ideographic-ink ] [ text | alphabetic | ideographic | ideographic-ink ]?"
+      "syntax": "[ text | ideographic | ideographic-ink ] | [ text | ideographic | ideographic-ink | cap | ex ] [ text | ideographic | ideographic-ink | alphabetic ]"
     },
     {
       "name": "<time-percentage>",
-      "syntax": "<time> | <percentage>"
-    },
-    {
-      "name": "<time>",
-      "syntax": ""
+      "syntax": "[ <time> | <percentage> ]"
     },
     {
       "name": "<timeline-range-name>",
@@ -7649,7 +8515,7 @@
     },
     {
       "name": "<track-breadth>",
-      "syntax": "<length-percentage> | <flex> | min-content | max-content | auto"
+      "syntax": "<length-percentage [0,∞]> | <flex [0,∞]> | min-content | max-content | auto"
     },
     {
       "name": "<track-list>",
@@ -7657,11 +8523,11 @@
     },
     {
       "name": "<track-repeat>",
-      "syntax": "repeat( [ <integer [1,∞]> ] , [ <line-names>? <track-size> ]+ <line-names>? )"
+      "syntax": "repeat( [ <integer [1,∞]> ] ',' [ <line-names>? <track-size> ]+ <line-names>? )"
     },
     {
       "name": "<track-size>",
-      "syntax": "<track-breadth> | minmax( <inflexible-breadth> , <track-breadth> ) | fit-content( <length-percentage> )"
+      "syntax": "<track-breadth> | minmax( <inflexible-breadth> ',' <track-breadth> ) | fit-content( <length-percentage [0,∞]> )"
     },
     {
       "name": "<transform-function>",
@@ -7676,12 +8542,32 @@
       "syntax": "normal | allow-discrete"
     },
     {
+      "name": "<translate()>",
+      "syntax": "translate( <length-percentage> , <length-percentage>? )"
+    },
+    {
+      "name": "<translate3d()>",
+      "syntax": "translate3d( <length-percentage> , <length-percentage> , <length> )"
+    },
+    {
+      "name": "<translateX()>",
+      "syntax": "translateX( <length-percentage> )"
+    },
+    {
+      "name": "<translateY()>",
+      "syntax": "translateY( <length-percentage> )"
+    },
+    {
+      "name": "<translateZ()>",
+      "syntax": "translateZ( <length> )"
+    },
+    {
       "name": "<try-size>",
       "syntax": "most-width | most-height | most-block-size | most-inline-size"
     },
     {
       "name": "<try-tactic>",
-      "syntax": "flip-block || flip-inline || flip-start"
+      "syntax": "flip-block || flip-inline || flip-start || flip-x || flip-y"
     },
     {
       "name": "<type-or-unit>",
@@ -7692,8 +8578,28 @@
       "syntax": "<wq-name> | <ns-prefix>? '*'"
     },
     {
+      "name": "<type>",
+      "syntax": "'<' [ number | string ] '>'"
+    },
+    {
       "name": "<url>",
-      "syntax": ""
+      "syntax": "<url()> | <src()>"
+    },
+    {
+      "name": "<var()>",
+      "syntax": "var( <custom-property-name> , <declaration-value>? )"
+    },
+    {
+      "name": "<var-args>",
+      "syntax": "var( <declaration-value> ',' <declaration-value>? )"
+    },
+    {
+      "name": "<vertical-line-command>",
+      "syntax": "vline [ to [ <length-percentage> | top | center | bottom | y-start | y-end ] | by <length-percentage> ]"
+    },
+    {
+      "name": "<view()>",
+      "syntax": "view([<axis> || <'view-timeline-inset'>]?)"
     },
     {
       "name": "<viewport-length>",
@@ -7708,8 +8614,16 @@
       "syntax": "<ns-prefix>? <ident-token>"
     },
     {
+      "name": "<xywh()>",
+      "syntax": "xywh( <length-percentage>{2} <length-percentage [0,∞]>{2} [ round <'border-radius'> ]? )"
+    },
+    {
       "name": "<xyz-params>",
-      "syntax": "<xyz> [ <number> | <percentage> | none ]{3}"
+      "syntax": "<xyz-space> [ <number> | <percentage> | none ]{3}"
+    },
+    {
+      "name": "<xyz-space>",
+      "syntax": "xyz | xyz-d50 | xyz-d65"
     },
     {
       "name": "<xyz>",
@@ -7729,7 +8643,7 @@
     },
     {
       "name": "anchor-size()",
-      "syntax": "anchor-size( [ <anchor-name> || <anchor-size> ]? , <length-percentage>? )"
+      "syntax": "anchor-size( [ <anchor-name> || <anchor-size> ]? ',' <length-percentage>? )"
     },
     {
       "name": "asin()",
@@ -7744,10 +8658,6 @@
       "syntax": "atan2( <calc-sum>, <calc-sum> )"
     },
     {
-      "name": "attr()",
-      "syntax": "attr( <attr-name> <attr-type>? , <declaration-value>? )"
-    },
-    {
       "name": "blur()",
       "syntax": "blur( <length>? )"
     },
@@ -7760,32 +8670,28 @@
       "syntax": "calc( <calc-sum> )"
     },
     {
-      "name": "calc-size()",
-      "syntax": "calc-size( <calc-size-basis>, <calc-sum> )"
-    },
-    {
       "name": "circle()",
       "syntax": "circle( <radial-size>? [ at <position> ]? )"
     },
     {
       "name": "clamp()",
-      "syntax": "clamp( <calc-sum>#{3} )"
+      "syntax": "clamp( [ <calc-sum> | none ], <calc-sum>, [ <calc-sum> | none ] )"
     },
     {
       "name": "color()",
-      "syntax": "color( [ from <color> ]? <colorspace-params> [ / [ <alpha-value> | none ] ]? )"
+      "syntax": "color( <colorspace-params> [ / [ <alpha-value> | none ] ]? )"
     },
     {
-      "name": "color-mix()",
-      "syntax": "color-mix( <color-interpolation-method> , [ <color> && <percentage [0,100]>? ]#{2})"
-    },
-    {
-      "name": "conic-gradient()",
-      "syntax": "conic-gradient( [ <conic-gradient-syntax> ] )"
+      "name": "content()",
+      "syntax": "content( [ text | before | after | first-letter | marker ]? )"
     },
     {
       "name": "contrast()",
       "syntax": "contrast( [ <number> | <percentage> ]? )"
+    },
+    {
+      "name": "control-value()",
+      "syntax": "control-value( <type>? )"
     },
     {
       "name": "cos()",
@@ -7800,10 +8706,6 @@
       "syntax": "counters( <counter-name>, <string>, <counter-style>? )"
     },
     {
-      "name": "cross-fade()",
-      "syntax": "cross-fade( <cf-mixing-image> , <cf-final-image>? )"
-    },
-    {
       "name": "cubic-bezier()",
       "syntax": "cubic-bezier( [ <number [0,1]>, <number> ]#{2} )"
     },
@@ -7816,36 +8718,40 @@
       "syntax": "dynamic-range-limit-mix( [ <'dynamic-range-limit'> && <percentage [0,100]> ]#{2,} )"
     },
     {
-      "name": "element()",
-      "syntax": "element( <id-selector> )"
-    },
-    {
       "name": "ellipse()",
       "syntax": "ellipse( <radial-size>? [ at <position> ]? )"
     },
     {
       "name": "env()",
-      "syntax": "env( <custom-ident> , <declaration-value>? )"
+      "syntax": "env( <custom-ident> <integer [0,∞]>*, <declaration-value>? )"
     },
     {
       "name": "exp()",
       "syntax": "exp( <calc-sum> )"
     },
     {
+      "name": "filter()",
+      "syntax": "filter( [ <image> | <string> ], <filter-value-list> )"
+    },
+    {
       "name": "fit-content()",
-      "syntax": "fit-content( <length-percentage [0,∞]> )"
+      "syntax": "fit-content(<length-percentage [0,∞]>)"
     },
     {
       "name": "grayscale()",
       "syntax": "grayscale( [ <number> | <percentage> ]? )"
     },
     {
+      "name": "hdr-color()",
+      "syntax": "color-hdr([ <color> && <number [0,∞]>? ]#{2})"
+    },
+    {
       "name": "hsl()",
-      "syntax": "hsl( <hue>, <percentage>, <percentage>, <alpha-value>? ) | hsl( [ <hue> | none ] [ <percentage> | <number> | none ] [ <percentage> | <number> | none ] [ / [ <alpha-value> | none ] ]? )"
+      "syntax": "[ <legacy-hsl-syntax> | <modern-hsl-syntax> ]"
     },
     {
       "name": "hsla()",
-      "syntax": "hsla( <hue>, <percentage>, <percentage>, <alpha-value>? ) | hsla( [ <hue> | none ] [ <percentage> | <number> | none ] [ <percentage> | <number> | none ] [ / [ <alpha-value> | none ] ]? )"
+      "syntax": "[ <legacy-hsla-syntax> | <modern-hsla-syntax> ]"
     },
     {
       "name": "hue-rotate()",
@@ -7853,19 +8759,15 @@
     },
     {
       "name": "hwb()",
-      "syntax": "hwb( [ <hue> | none ] [ <percentage> | <number> | none ] [ <percentage> | <number> | none ] [ / [ <alpha-value> | none ] ]? )"
+      "syntax": "hwb( [<hue> | none] [<percentage> | <number> | none] [<percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
     },
     {
       "name": "hypot()",
       "syntax": "hypot( <calc-sum># )"
     },
     {
-      "name": "image()",
-      "syntax": "image( <image-tags>? [ <image-src>? , <color>? ]! )"
-    },
-    {
-      "name": "image-set()",
-      "syntax": "image-set( <image-set-option># )"
+      "name": "ictcp()",
+      "syntax": "ictcp([from <color>]? [<percentage> | <number> | none] [<percentage> | <number> | none] [<percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
     },
     {
       "name": "inset()",
@@ -7876,12 +8778,16 @@
       "syntax": "invert( [ <number> | <percentage> ]? )"
     },
     {
-      "name": "lab()",
-      "syntax": "lab( [<percentage> | <number> | none] [ <percentage> | <number> | none] [ <percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
+      "name": "jzazbz()",
+      "syntax": "jzazbz([from <color>]? [<percentage> | <number> | none] [<percentage> | <number> | none] [<percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
     },
     {
-      "name": "layer()",
-      "syntax": "layer( <layer-name> )"
+      "name": "jzczhz()",
+      "syntax": "jzczhz([from <color>]? [<percentage> | <number> | none] [<percentage> | <number> | none] [<hue> | none] [ / [<alpha-value> | none] ]? )"
+    },
+    {
+      "name": "lab()",
+      "syntax": "lab( [<percentage> | <number> | none] [ <percentage> | <number> | none] [ <percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
     },
     {
       "name": "lch()",
@@ -7890,10 +8796,6 @@
     {
       "name": "leader()",
       "syntax": "leader( <leader-type> )"
-    },
-    {
-      "name": "light-dark()",
-      "syntax": "light-dark( <color>, <color> )"
     },
     {
       "name": "linear()",
@@ -7912,10 +8814,6 @@
       "syntax": "matrix( <number>#{6} )"
     },
     {
-      "name": "matrix3d()",
-      "syntax": "matrix3d( <number>#{16} )"
-    },
-    {
       "name": "max()",
       "syntax": "max( <calc-sum># )"
     },
@@ -7925,7 +8823,7 @@
     },
     {
       "name": "minmax()",
-      "syntax": "minmax( [ <length-percentage> | min-content | max-content | auto ] , [ <length-percentage> | <flex> | min-content | max-content | auto ] )"
+      "syntax": "minmax(min, max)"
     },
     {
       "name": "mod()",
@@ -7949,19 +8847,23 @@
     },
     {
       "name": "palette-mix()",
-      "syntax": "palette-mix(<color-interpolation-method> , [ [normal | light | dark | <palette-identifier> | <palette-mix()> ] && <percentage [0,100]>? ]#{2})"
+      "syntax": "palette-mix(<color-interpolation-method> ',' [ [normal | light | dark | <palette-identifier> | <palette-mix()> ] && <percentage [0,100]>? ]#{2})"
+    },
+    {
+      "name": "param()",
+      "syntax": "param( <dashed-ident> ',' <declaration-value>? )"
     },
     {
       "name": "path()",
-      "syntax": "path( <'fill-rule'>? , <string> )"
+      "syntax": "path( <'fill-rule'>? ',' <string> )"
     },
     {
-      "name": "perspective()",
-      "syntax": "perspective( [ <length [0,∞]> | none ] )"
+      "name": "pointer()",
+      "syntax": "pointer( [ <pointer-source> || <pointer-axis> ]? )"
     },
     {
       "name": "polygon()",
-      "syntax": "polygon( <'fill-rule'>? , [ <length-percentage> <length-percentage> ]# )"
+      "syntax": "polygon( <'fill-rule'>? [ round <length> ]? ',' [<length-percentage> <length-percentage>]# )"
     },
     {
       "name": "pow()",
@@ -7984,10 +8886,6 @@
       "syntax": "rem( <calc-sum>, <calc-sum> )"
     },
     {
-      "name": "repeating-conic-gradient()",
-      "syntax": "repeating-conic-gradient( [ <conic-gradient-syntax> ] )"
-    },
-    {
       "name": "repeating-linear-gradient()",
       "syntax": "repeating-linear-gradient( [ <linear-gradient-syntax> ] )"
     },
@@ -7997,35 +8895,23 @@
     },
     {
       "name": "rgb()",
-      "syntax": "rgb( <percentage>#{3} , <alpha-value>? ) | rgb( <number>#{3} , <alpha-value>? ) | rgb( [ <number> | <percentage> | none ]{3} [ / [ <alpha-value> | none ] ]? )"
+      "syntax": "[ <legacy-rgb-syntax> | <modern-rgb-syntax> ]"
     },
     {
       "name": "rgba()",
-      "syntax": "rgba( <percentage>#{3} , <alpha-value>? ) | rgba( <number>#{3} , <alpha-value>? ) | rgba( [ <number> | <percentage> | none ]{3} [ / [ <alpha-value> | none ] ]? )"
+      "syntax": "[ <legacy-rgba-syntax> | <modern-rgba-syntax> ]"
     },
     {
       "name": "rotate()",
       "syntax": "rotate( [ <angle> | <zero> ] )"
     },
     {
-      "name": "rotate3d()",
-      "syntax": "rotate3d( <number> , <number> , <number> , [ <angle> | <zero> ] )"
-    },
-    {
-      "name": "rotateX()",
-      "syntax": "rotateX( [ <angle> | <zero> ] )"
-    },
-    {
-      "name": "rotateY()",
-      "syntax": "rotateY( [ <angle> | <zero> ] )"
-    },
-    {
-      "name": "rotateZ()",
-      "syntax": "rotateZ( [ <angle> | <zero> ] )"
-    },
-    {
       "name": "round()",
-      "syntax": "round( <rounding-strategy>?, <calc-sum>, <calc-sum> )"
+      "syntax": "round( <rounding-strategy>?, <calc-sum>, <calc-sum>? )"
+    },
+    {
+      "name": "running()",
+      "syntax": "running( <custom-ident> )"
     },
     {
       "name": "saturate()",
@@ -8033,23 +8919,15 @@
     },
     {
       "name": "scale()",
-      "syntax": "scale( [ <number> | <percentage> ]#{1,2} )"
-    },
-    {
-      "name": "scale3d()",
-      "syntax": "scale3d( [ <number> | <percentage> ]#{3} )"
+      "syntax": "scale( <number> ',' <number>? )"
     },
     {
       "name": "scaleX()",
-      "syntax": "scaleX( [ <number> | <percentage> ] )"
+      "syntax": "scaleX( <number> )"
     },
     {
       "name": "scaleY()",
-      "syntax": "scaleY( [ <number> | <percentage> ] )"
-    },
-    {
-      "name": "scaleZ()",
-      "syntax": "scaleZ( [ <number> | <percentage> ] )"
+      "syntax": "scaleY( <number> )"
     },
     {
       "name": "scroll()",
@@ -8058,6 +8936,10 @@
     {
       "name": "sepia()",
       "syntax": "sepia( [ <number> | <percentage> ]? )"
+    },
+    {
+      "name": "shape()",
+      "syntax": "shape( <'fill-rule'>? from <position> ',' <shape-command># )"
     },
     {
       "name": "sign()",
@@ -8069,7 +8951,7 @@
     },
     {
       "name": "skew()",
-      "syntax": "skew( [ <angle> | <zero> ] , [ <angle> | <zero> ]? )"
+      "syntax": "skew( [ <angle> | <zero> ] ',' [ <angle> | <zero> ]? )"
     },
     {
       "name": "skewX()",
@@ -8080,16 +8962,32 @@
       "syntax": "skewY( [ <angle> | <zero> ] )"
     },
     {
+      "name": "snap-block()",
+      "syntax": "snap-block( <length> ',' [ start | end | near ]? )"
+    },
+    {
+      "name": "snap-inline()",
+      "syntax": "snap-inline( <length> ',' [ left | right | near ]? )"
+    },
+    {
       "name": "sqrt()",
       "syntax": "sqrt( <calc-sum> )"
     },
     {
+      "name": "src()",
+      "syntax": "src( <string> <url-modifier>* )"
+    },
+    {
       "name": "steps()",
-      "syntax": "steps( <integer>, <step-position>? )"
+      "syntax": "steps( <integer>, <step-position>?)"
+    },
+    {
+      "name": "string()",
+      "syntax": "string( <custom-ident> ',' [ first | start | last | first-except ]? )"
     },
     {
       "name": "superellipse()",
-      "syntax": "superellipse( [ <number> | infinity | -infinity ] )"
+      "syntax": "superellipse(<number> | infinity | -infinity)"
     },
     {
       "name": "symbols()",
@@ -8101,23 +8999,19 @@
     },
     {
       "name": "target-counter()",
-      "syntax": "target-counter( [ <string> | <url> ] , <custom-ident> , <counter-style>? )"
+      "syntax": "target-counter( [ <string> | <url> ] ',' <custom-ident> ',' <counter-style>? )"
     },
     {
       "name": "target-counters()",
-      "syntax": "target-counters( [ <string> | <url> ] , <custom-ident> , <string> , <counter-style>? )"
+      "syntax": "target-counters( [ <string> | <url> ] ',' <custom-ident> ',' <string> ',' <counter-style>? )"
     },
     {
       "name": "target-text()",
-      "syntax": "target-text( [ <string> | <url> ] , [ content | before | after | first-letter ]? )"
+      "syntax": "target-text( [ <string> | <url> ] ',' [ content | before | after | first-letter ]? )"
     },
     {
       "name": "translate()",
-      "syntax": "translate( <length-percentage> , <length-percentage>? )"
-    },
-    {
-      "name": "translate3d()",
-      "syntax": "translate3d( <length-percentage> , <length-percentage> , <length> )"
+      "syntax": "translate( <length-percentage> ',' <length-percentage>? )"
     },
     {
       "name": "translateX()",
@@ -8128,16 +9022,20 @@
       "syntax": "translateY( <length-percentage> )"
     },
     {
-      "name": "translateZ()",
-      "syntax": "translateZ( <length> )"
+      "name": "url()",
+      "syntax": "url( <string> <url-modifier>* ) | <url-token>"
+    },
+    {
+      "name": "url-pattern()",
+      "syntax": "url-pattern( <string> )"
     },
     {
       "name": "var()",
-      "syntax": "var( <custom-property-name> , <declaration-value>? )"
+      "syntax": "var( <custom-property-name> ',' <declaration-value>? )"
     },
     {
       "name": "view()",
-      "syntax": "view([<axis> || <'view-timeline-inset'>]?)"
+      "syntax": "view( [ <axis> || <'view-timeline-inset'> ]? )"
     },
     {
       "name": "xywh()",
@@ -8146,12 +9044,47 @@
   ],
   "atrules": [
     {
+      "name": "@-webkit-keyframes",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@apply",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@bottom-center",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@bottom-left",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@bottom-left-corner",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@bottom-right",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@bottom-right-corner",
+      "descriptors": [],
+      "Values": null
+    },
+    {
       "name": "@charset",
       "descriptors": [],
       "Values": null
     },
     {
-      "name": "@container",
+      "name": "@contents",
       "descriptors": [],
       "Values": null
     },
@@ -8159,24 +9092,14 @@
       "name": "@counter-style",
       "descriptors": [
         {
-          "name": "additive-symbols",
-          "syntax": "[ <integer [0,∞]> && <symbol> ]#",
-          "initial": ""
-        },
-        {
-          "name": "fallback",
-          "syntax": "<counter-style-name>",
-          "initial": "decimal"
+          "name": "system",
+          "syntax": "cyclic | numeric | alphabetic | symbolic | additive | [fixed <integer>?] | [ extends <counter-style-name> ]",
+          "initial": "symbolic"
         },
         {
           "name": "negative",
           "syntax": "<symbol> <symbol>?",
-          "initial": "\"-\" hyphen-minus"
-        },
-        {
-          "name": "pad",
-          "syntax": "<integer [0,∞]> && <symbol>",
-          "initial": "0 \"\""
+          "initial": "\"-\""
         },
         {
           "name": "prefix",
@@ -8184,19 +9107,24 @@
           "initial": "\"\""
         },
         {
+          "name": "suffix",
+          "syntax": "<symbol>",
+          "initial": "\". \""
+        },
+        {
           "name": "range",
           "syntax": "[ [ <integer> | infinite ]{2} ]# | auto",
           "initial": "auto"
         },
         {
-          "name": "speak-as",
-          "syntax": "auto | bullets | numbers | words | spell-out | <counter-style-name>",
-          "initial": "auto"
+          "name": "pad",
+          "syntax": "<integer [0,∞]> && <symbol>",
+          "initial": "0 \"\""
         },
         {
-          "name": "suffix",
-          "syntax": "<symbol>",
-          "initial": "\". \""
+          "name": "fallback",
+          "syntax": "<counter-style-name>",
+          "initial": "decimal"
         },
         {
           "name": "symbols",
@@ -8204,15 +9132,20 @@
           "initial": ""
         },
         {
-          "name": "system",
-          "syntax": "cyclic | numeric | alphabetic | symbolic | additive | [ fixed <integer>? ] | [ extends <counter-style-name> ]",
-          "initial": "symbolic"
+          "name": "additive-symbols",
+          "syntax": "[ <integer [0,∞]> && <symbol> ]#",
+          "initial": ""
+        },
+        {
+          "name": "speak-as",
+          "syntax": "auto | bullets | numbers | words | spell-out | <counter-style-name>",
+          "initial": "auto"
         }
       ],
       "Values": null
     },
     {
-      "name": "@document",
+      "name": "@custom-selector",
       "descriptors": [],
       "Values": null
     },
@@ -8220,14 +9153,49 @@
       "name": "@font-face",
       "descriptors": [
         {
-          "name": "ascent-override",
-          "syntax": "normal | <percentage>",
-          "initial": "normal"
+          "name": "font-family",
+          "syntax": "<font-family-name>",
+          "initial": ""
         },
         {
-          "name": "descent-override",
-          "syntax": "normal | <percentage>",
-          "initial": "normal"
+          "name": "src",
+          "syntax": "<font-src-list>",
+          "initial": ""
+        },
+        {
+          "name": "font-style",
+          "syntax": "auto | normal | italic | left | right | oblique [ <angle [-90deg,90deg]>{1,2} ]?",
+          "initial": "auto"
+        },
+        {
+          "name": "font-weight",
+          "syntax": "auto | <font-weight-absolute>{1,2}",
+          "initial": "auto"
+        },
+        {
+          "name": "font-width",
+          "syntax": "auto | <'font-width'>{1,2}",
+          "initial": "auto"
+        },
+        {
+          "name": "unicode-range",
+          "syntax": "<unicode-range-token>#",
+          "initial": "U+0-10FFFF"
+        },
+        {
+          "name": "font-feature-settings",
+          "syntax": "normal | <feature-tag-value>#",
+          "initial": ""
+        },
+        {
+          "name": "font-variation-settings",
+          "syntax": "normal | [ <string> <number>]#",
+          "initial": ""
+        },
+        {
+          "name": "font-named-instance",
+          "syntax": "auto | <string>",
+          "initial": "auto"
         },
         {
           "name": "font-display",
@@ -8235,74 +9203,90 @@
           "initial": "auto"
         },
         {
-          "name": "font-family",
-          "syntax": "<family-name>",
+          "name": "font-language-override",
+          "syntax": "normal | <string>",
           "initial": ""
         },
         {
-          "name": "font-feature-settings",
-          "syntax": "normal | <feature-tag-value>#",
-          "initial": "normal"
+          "name": "ascent-override",
+          "syntax": "normal | <percentage [0,∞]>",
+          "initial": ""
         },
         {
-          "name": "font-stretch",
-          "syntax": "<font-stretch-absolute>{1,2}",
-          "initial": "normal"
-        },
-        {
-          "name": "font-style",
-          "syntax": "normal | italic | oblique <angle>{0,2}",
-          "initial": "normal"
-        },
-        {
-          "name": "font-variation-settings",
-          "syntax": "normal | [ <string> <number> ]#",
-          "initial": "normal"
-        },
-        {
-          "name": "font-weight",
-          "syntax": "<font-weight-absolute>{1,2}",
-          "initial": "normal"
+          "name": "descent-override",
+          "syntax": "normal | <percentage [0,∞]>",
+          "initial": ""
         },
         {
           "name": "line-gap-override",
-          "syntax": "normal | <percentage>",
-          "initial": "normal"
-        },
-        {
-          "name": "size-adjust",
-          "syntax": "<percentage>",
-          "initial": "100%"
-        },
-        {
-          "name": "src",
-          "syntax": "[ <url> [ format( <string># ) ]? | local( <family-name> ) ]#",
+          "syntax": "normal | <percentage [0,∞]>",
           "initial": ""
-        },
-        {
-          "name": "unicode-range",
-          "syntax": "<unicode-range-token>#",
-          "initial": "U+0-10FFFF"
         }
       ],
       "Values": null
     },
     {
       "name": "@font-feature-values",
-      "descriptors": [],
-      "Values": null
+      "descriptors": [
+        {
+          "name": "font-display",
+          "syntax": "auto | block | swap | fallback | optional",
+          "initial": "auto"
+        },
+        {
+          "name": "@stylistic",
+          "syntax": "@stylistic { <declaration-list> }",
+          "initial": ""
+        },
+        {
+          "name": "@historical-forms",
+          "syntax": "@historical-forms { <declaration-list> }",
+          "initial": ""
+        },
+        {
+          "name": "@styleset",
+          "syntax": "@styleset { <declaration-list> }",
+          "initial": ""
+        },
+        {
+          "name": "@character-variant",
+          "syntax": "@character-variant { <declaration-list> }",
+          "initial": ""
+        },
+        {
+          "name": "@swash",
+          "syntax": "@swash { <declaration-list> }",
+          "initial": ""
+        },
+        {
+          "name": "@ornaments",
+          "syntax": "@ornaments { <declaration-list> }",
+          "initial": ""
+        },
+        {
+          "name": "@annotation",
+          "syntax": "@annotation { <declaration-list> }",
+          "initial": ""
+        }
+      ],
+      "Values": [
+        {
+          "name": "<font-feature-value-type>",
+          "Values": null
+        }
+      ]
     },
     {
       "name": "@font-palette-values",
       "descriptors": [
         {
-          "name": "base-palette",
-          "syntax": "light | dark | <integer [0,∞]>",
+          "name": "font-family",
+          "syntax": "<font-family-name>#",
           "initial": ""
         },
         {
-          "name": "font-family",
-          "syntax": "<family-name>#",
+          "name": "base-palette",
+          "syntax": "light | dark | <integer [0,∞]>",
           "initial": ""
         },
         {
@@ -8312,6 +9296,23 @@
         }
       ],
       "Values": null
+    },
+    {
+      "name": "@function",
+      "descriptors": [
+        {
+          "name": "result",
+          "syntax": "<declaration-value>?",
+          "initial": ""
+        }
+      ],
+      "Values": [
+        {
+          "name": "type()",
+          "value": "type( <syntax> )",
+          "Values": null
+        }
+      ]
     },
     {
       "name": "@import",
@@ -8329,7 +9330,284 @@
       "Values": null
     },
     {
+      "name": "@left-bottom",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@left-middle",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@left-top",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@macro",
+      "descriptors": [],
+      "Values": null
+    },
+    {
       "name": "@media",
+      "descriptors": [
+        {
+          "name": "display-state",
+          "syntax": "normal | minimized | maximized | fullscreen",
+          "initial": ""
+        },
+        {
+          "name": "resizable",
+          "syntax": "true | false",
+          "initial": ""
+        },
+        {
+          "name": "-webkit-device-pixel-ratio",
+          "syntax": "<number>",
+          "initial": ""
+        },
+        {
+          "name": "-webkit-transform-3d",
+          "syntax": "<mq-boolean>",
+          "initial": ""
+        },
+        {
+          "name": "shape",
+          "syntax": "rect | round",
+          "initial": ""
+        },
+        {
+          "name": "width",
+          "syntax": "<length>",
+          "initial": ""
+        },
+        {
+          "name": "height",
+          "syntax": "<length>",
+          "initial": ""
+        },
+        {
+          "name": "aspect-ratio",
+          "syntax": "<ratio>",
+          "initial": ""
+        },
+        {
+          "name": "orientation",
+          "syntax": "portrait | landscape",
+          "initial": ""
+        },
+        {
+          "name": "resolution",
+          "syntax": "<resolution> | infinite",
+          "initial": ""
+        },
+        {
+          "name": "scan",
+          "syntax": "interlace | progressive",
+          "initial": ""
+        },
+        {
+          "name": "grid",
+          "syntax": "<mq-boolean>",
+          "initial": ""
+        },
+        {
+          "name": "update",
+          "syntax": "none | slow | fast",
+          "initial": ""
+        },
+        {
+          "name": "overflow-block",
+          "syntax": "none | scroll | paged",
+          "initial": ""
+        },
+        {
+          "name": "overflow-inline",
+          "syntax": "none | scroll",
+          "initial": ""
+        },
+        {
+          "name": "color",
+          "syntax": "<integer>",
+          "initial": ""
+        },
+        {
+          "name": "color-index",
+          "syntax": "<integer>",
+          "initial": ""
+        },
+        {
+          "name": "monochrome",
+          "syntax": "<integer>",
+          "initial": ""
+        },
+        {
+          "name": "color-gamut",
+          "syntax": "srgb | p3 | rec2020",
+          "initial": ""
+        },
+        {
+          "name": "pointer",
+          "syntax": "none | coarse | fine",
+          "initial": ""
+        },
+        {
+          "name": "hover",
+          "syntax": "none | hover",
+          "initial": ""
+        },
+        {
+          "name": "any-pointer",
+          "syntax": "none | coarse | fine",
+          "initial": ""
+        },
+        {
+          "name": "any-hover",
+          "syntax": "none | hover",
+          "initial": ""
+        },
+        {
+          "name": "device-width",
+          "syntax": "<length>",
+          "initial": ""
+        },
+        {
+          "name": "device-height",
+          "syntax": "<length>",
+          "initial": ""
+        },
+        {
+          "name": "device-aspect-ratio",
+          "syntax": "<ratio>",
+          "initial": ""
+        }
+      ],
+      "Values": [
+        {
+          "name": "all",
+          "value": "all",
+          "Values": [
+            {
+              "name": "inherit",
+              "value": "inherit"
+            }
+          ]
+        },
+        {
+          "name": "braille",
+          "value": "braille",
+          "Values": null
+        },
+        {
+          "name": "embossed",
+          "value": "embossed",
+          "Values": null
+        },
+        {
+          "name": "handheld",
+          "value": "handheld",
+          "Values": null
+        },
+        {
+          "name": "print",
+          "value": "print",
+          "Values": null
+        },
+        {
+          "name": "projection",
+          "value": "projection",
+          "Values": null
+        },
+        {
+          "name": "screen",
+          "value": "screen",
+          "Values": null
+        },
+        {
+          "name": "speech",
+          "value": "speech",
+          "Values": null
+        },
+        {
+          "name": "tty",
+          "value": "tty",
+          "Values": null
+        },
+        {
+          "name": "tv",
+          "value": "tv",
+          "Values": null
+        },
+        {
+          "name": "not",
+          "value": "not",
+          "Values": null
+        },
+        {
+          "name": "only",
+          "value": "only",
+          "Values": null
+        },
+        {
+          "name": "all",
+          "value": "all",
+          "Values": null
+        },
+        {
+          "name": "print",
+          "value": "print",
+          "Values": null
+        },
+        {
+          "name": "screen",
+          "value": "screen",
+          "Values": null
+        },
+        {
+          "name": "tty",
+          "value": "tty",
+          "Values": null
+        },
+        {
+          "name": "tv",
+          "value": "tv",
+          "Values": null
+        },
+        {
+          "name": "projection",
+          "value": "projection",
+          "Values": null
+        },
+        {
+          "name": "handheld",
+          "value": "handheld",
+          "Values": null
+        },
+        {
+          "name": "braille",
+          "value": "braille",
+          "Values": null
+        },
+        {
+          "name": "embossed",
+          "value": "embossed",
+          "Values": null
+        },
+        {
+          "name": "aural",
+          "value": "aural",
+          "Values": null
+        },
+        {
+          "name": "speech",
+          "value": "speech",
+          "Values": null
+        }
+      ]
+    },
+    {
+      "name": "@mixin",
       "descriptors": [],
       "Values": null
     },
@@ -8339,17 +9617,17 @@
       "Values": null
     },
     {
+      "name": "@navigation",
+      "descriptors": [],
+      "Values": null
+    },
+    {
       "name": "@page",
       "descriptors": [
         {
-          "name": "bleed",
-          "syntax": "auto | <length>",
+          "name": "size",
+          "syntax": "<length [0,∞]>{1,2} | auto | [ <page-size> || [ portrait | landscape ] ]",
           "initial": "auto"
-        },
-        {
-          "name": "marks",
-          "syntax": "none | [ crop || cross ]",
-          "initial": "none"
         },
         {
           "name": "page-orientation",
@@ -8357,12 +9635,43 @@
           "initial": "upright"
         },
         {
-          "name": "size",
-          "syntax": "<length [0,∞]>{1,2} | auto | [ <page-size> || [ portrait | landscape ] ]",
+          "name": "marks",
+          "syntax": "none | [ crop || cross ]",
+          "initial": ""
+        },
+        {
+          "name": "bleed",
+          "syntax": "auto | <length>",
+          "initial": "auto"
+        },
+        {
+          "name": "page-margin-safety",
+          "syntax": "none | clamp | add",
           "initial": "auto"
         }
       ],
-      "Values": null
+      "Values": [
+        {
+          "name": ":left",
+          "value": ":left",
+          "Values": null
+        },
+        {
+          "name": ":right",
+          "value": ":right",
+          "Values": null
+        },
+        {
+          "name": ":first",
+          "value": ":first",
+          "Values": null
+        },
+        {
+          "name": ":blank",
+          "value": ":blank",
+          "Values": null
+        }
+      ]
     },
     {
       "name": "@position-try",
@@ -8373,30 +9682,45 @@
       "name": "@property",
       "descriptors": [
         {
+          "name": "syntax",
+          "syntax": "<string>",
+          "initial": ""
+        },
+        {
           "name": "inherits",
           "syntax": "true | false",
-          "initial": "auto"
+          "initial": ""
         },
         {
           "name": "initial-value",
           "syntax": "<declaration-value>?",
-          "initial": ""
-        },
-        {
-          "name": "syntax",
-          "syntax": "<string>",
-          "initial": ""
+          "initial": "the guaranteed-invalid value (but see prose)"
         }
       ],
       "Values": null
     },
     {
-      "name": "@scope",
+      "name": "@result",
       "descriptors": [],
       "Values": null
     },
     {
-      "name": "@starting-style",
+      "name": "@right-bottom",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@right-middle",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@right-top",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@route",
       "descriptors": [],
       "Values": null
     },
@@ -8406,17 +9730,42 @@
       "Values": null
     },
     {
+      "name": "@top-center",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@top-left",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@top-left-corner",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@top-right",
+      "descriptors": [],
+      "Values": null
+    },
+    {
+      "name": "@top-right-corner",
+      "descriptors": [],
+      "Values": null
+    },
+    {
       "name": "@view-transition",
       "descriptors": [
         {
           "name": "navigation",
           "syntax": "auto | none",
-          "initial": "none"
+          "initial": ""
         },
         {
           "name": "types",
-          "syntax": "none | <custom-ident>+",
-          "initial": "none"
+          "syntax": "none | <view-transition-type>+",
+          "initial": ""
         }
       ],
       "Values": null
@@ -8424,85 +9773,28 @@
   ],
   "selectors": [
     {
-      "name": "::-moz-progress-bar"
+      "name": "&"
     },
     {
-      "name": "::-moz-range-progress"
-    },
-    {
-      "name": "::-moz-range-thumb"
-    },
-    {
-      "name": "::-moz-range-track"
-    },
-    {
-      "name": "::-ms-browse"
-    },
-    {
-      "name": "::-ms-check"
-    },
-    {
-      "name": "::-ms-clear"
-    },
-    {
-      "name": "::-ms-expand"
-    },
-    {
-      "name": "::-ms-fill"
-    },
-    {
-      "name": "::-ms-fill-lower"
-    },
-    {
-      "name": "::-ms-fill-upper"
-    },
-    {
-      "name": "::-ms-reveal"
-    },
-    {
-      "name": "::-ms-thumb"
-    },
-    {
-      "name": "::-ms-ticks-after"
-    },
-    {
-      "name": "::-ms-ticks-before"
-    },
-    {
-      "name": "::-ms-tooltip"
-    },
-    {
-      "name": "::-ms-track"
-    },
-    {
-      "name": "::-ms-value"
-    },
-    {
-      "name": "::-webkit-progress-bar"
-    },
-    {
-      "name": "::-webkit-progress-inner-value"
-    },
-    {
-      "name": "::-webkit-progress-value"
-    },
-    {
-      "name": "::-webkit-slider-runnable-track"
-    },
-    {
-      "name": "::-webkit-slider-thumb"
+      "name": "+"
     },
     {
       "name": "::after"
-    },
-    {
-      "name": "::backdrop"
     },
     {
       "name": "::before"
     },
     {
       "name": "::checkmark"
+    },
+    {
+      "name": "::clear-icon"
+    },
+    {
+      "name": "::color-swatch"
+    },
+    {
+      "name": "::column"
     },
     {
       "name": "::cue"
@@ -8518,6 +9810,15 @@
     },
     {
       "name": "::details-content"
+    },
+    {
+      "name": "::field-component"
+    },
+    {
+      "name": "::field-separator"
+    },
+    {
+      "name": "::field-text"
     },
     {
       "name": "::file-selector-button"
@@ -8550,19 +9851,37 @@
       "name": "::placeholder"
     },
     {
-      "name": "::scroll-marker"
+      "name": "::reveal-icon"
     },
     {
-      "name": "::scroll-marker-group"
+      "name": "::search-text"
     },
     {
       "name": "::selection"
+    },
+    {
+      "name": "::slider-fill"
+    },
+    {
+      "name": "::slider-thumb"
+    },
+    {
+      "name": "::slider-track"
     },
     {
       "name": "::slotted()"
     },
     {
       "name": "::spelling-error"
+    },
+    {
+      "name": "::step-control"
+    },
+    {
+      "name": "::step-down"
+    },
+    {
+      "name": "::step-up"
     },
     {
       "name": "::target-text"
@@ -8572,6 +9891,9 @@
     },
     {
       "name": "::view-transition-group()"
+    },
+    {
+      "name": "::view-transition-group-children()"
     },
     {
       "name": "::view-transition-image-pair()"
@@ -8592,22 +9914,25 @@
       "name": ":active-view-transition-type()"
     },
     {
+      "name": ":after"
+    },
+    {
+      "name": ":animated-image"
+    },
+    {
       "name": ":any-link"
     },
     {
       "name": ":autofill"
     },
     {
-      "name": ":blank"
+      "name": ":before"
     },
     {
       "name": ":buffering"
     },
     {
       "name": ":checked"
-    },
-    {
-      "name": ":current"
     },
     {
       "name": ":default"
@@ -8634,6 +9959,12 @@
       "name": ":first-child"
     },
     {
+      "name": ":first-letter"
+    },
+    {
+      "name": ":first-line"
+    },
+    {
       "name": ":first-of-type"
     },
     {
@@ -8649,13 +9980,13 @@
       "name": ":fullscreen"
     },
     {
-      "name": ":future"
-    },
-    {
       "name": ":has()"
     },
     {
       "name": ":has-slotted"
+    },
+    {
+      "name": ":high-value"
     },
     {
       "name": ":host"
@@ -8697,7 +10028,13 @@
       "name": ":link"
     },
     {
-      "name": ":local-link"
+      "name": ":link-to()"
+    },
+    {
+      "name": ":low-value"
+    },
+    {
+      "name": ":matches()"
     },
     {
       "name": ":modal"
@@ -8706,7 +10043,13 @@
       "name": ":muted"
     },
     {
+      "name": ":nav-source"
+    },
+    {
       "name": ":not()"
+    },
+    {
+      "name": ":nth()"
     },
     {
       "name": ":nth-child()"
@@ -8730,13 +10073,13 @@
       "name": ":open"
     },
     {
+      "name": ":optimal-value"
+    },
+    {
       "name": ":optional"
     },
     {
       "name": ":out-of-range"
-    },
-    {
-      "name": ":past"
     },
     {
       "name": ":paused"
@@ -8778,16 +10121,10 @@
       "name": ":stalled"
     },
     {
-      "name": ":state()"
-    },
-    {
       "name": ":target"
     },
     {
-      "name": ":target-current"
-    },
-    {
-      "name": ":target-within"
+      "name": ":unchecked"
     },
     {
       "name": ":user-invalid"
@@ -8809,6 +10146,12 @@
     },
     {
       "name": ":xr-overlay"
+    },
+    {
+      "name": ">"
+    },
+    {
+      "name": "~"
     }
   ]
 }

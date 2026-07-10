@@ -716,7 +716,7 @@
     "name": "-webkit-border-after-width",
     "syntax": "<'border-top-width'>",
     "computed": [
-      "absoluteLength"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
@@ -758,7 +758,7 @@
     "name": "-webkit-border-before-width",
     "syntax": "<'border-top-width'>",
     "computed": [
-      "absoluteLength"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
@@ -800,7 +800,7 @@
     "name": "-webkit-border-end-width",
     "syntax": "<'border-top-width'>",
     "computed": [
-      "absoluteLength"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
@@ -842,7 +842,7 @@
     "name": "-webkit-border-start-width",
     "syntax": "<'border-top-width'>",
     "computed": [
-      "absoluteLength"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
@@ -867,7 +867,7 @@
   },
   {
     "name": "-webkit-mask",
-    "syntax": "[ <mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || [ <visual-box> | border | padding | content | text ] || [ <visual-box> | border | padding | content ] ]#",
+    "syntax": "<mask-layer>#",
     "computed": [
       "-webkit-mask-image",
       "-webkit-mask-repeat",
@@ -897,7 +897,7 @@
   },
   {
     "name": "-webkit-mask-clip",
-    "syntax": "[ <coord-box> | no-clip | border | padding | content | text ]#",
+    "syntax": "[ <coord-box> | no-clip ]#",
     "computed": [
       "asSpecified"
     ],
@@ -906,7 +906,7 @@
   },
   {
     "name": "-webkit-mask-composite",
-    "syntax": "<composite-style>#",
+    "syntax": "<compositing-operator>#",
     "computed": [
       "asSpecified"
     ],
@@ -924,7 +924,7 @@
   },
   {
     "name": "-webkit-mask-origin",
-    "syntax": "[ <coord-box> | border | padding | content ]#",
+    "syntax": "<coord-box>#",
     "computed": [
       "asSpecified"
     ],
@@ -1023,7 +1023,7 @@
   },
   {
     "name": "-webkit-text-stroke",
-    "syntax": "<length> || <color>",
+    "syntax": "<line-width> || <color>",
     "computed": [
       "-webkit-text-stroke-width",
       "-webkit-text-stroke-color"
@@ -1045,7 +1045,7 @@
   },
   {
     "name": "-webkit-text-stroke-width",
-    "syntax": "<length>",
+    "syntax": "<line-width>",
     "computed": [
       "absoluteLength"
     ],
@@ -1072,7 +1072,7 @@
   },
   {
     "name": "-webkit-user-select",
-    "syntax": "auto | text | none | all",
+    "syntax": "auto | text | none | contain | all",
     "computed": [
       "asSpecified"
     ],
@@ -1099,7 +1099,7 @@
   },
   {
     "name": "align-items",
-    "syntax": "normal | stretch | <baseline-position> | [ <overflow-position>? <self-position> ] | anchor-center",
+    "syntax": "normal | stretch | <baseline-position> | <overflow-position>? <self-position>",
     "computed": [
       "asSpecified"
     ],
@@ -1108,7 +1108,7 @@
   },
   {
     "name": "align-self",
-    "syntax": "auto | normal | stretch | <baseline-position> | <overflow-position>? <self-position> | anchor-center",
+    "syntax": "auto | <overflow-position>? [ normal | <self-position> ]| stretch | <baseline-position> | anchor-center",
     "computed": [
       "autoOnAbsolutelyPositionedElementsValueOfAlignItemsOnParent"
     ],
@@ -1126,7 +1126,7 @@
   },
   {
     "name": "alignment-baseline",
-    "syntax": "baseline | alphabetic | ideographic | middle | central | mathematical | text-before-edge | text-after-edge",
+    "syntax": "baseline | <baseline-metric>",
     "computed": [
       "theSpecifiedKeyword"
     ],
@@ -1135,7 +1135,7 @@
   },
   {
     "name": "all",
-    "syntax": "initial | inherit | unset | revert | revert-layer",
+    "syntax": "initial | inherit | unset | revert | revert-layer | revert-rule",
     "computed": [
       "asSpecifiedAppliesToEachProperty"
     ],
@@ -1144,7 +1144,7 @@
   },
   {
     "name": "anchor-name",
-    "syntax": "none | <dashed-ident>#",
+    "syntax": "none | <anchor-name>#",
     "computed": [
       "asSpecified"
     ],
@@ -1153,7 +1153,7 @@
   },
   {
     "name": "anchor-scope",
-    "syntax": "none | all | <dashed-ident>#",
+    "syntax": "none | all | <anchor-name>#",
     "computed": [
       "asSpecified"
     ],
@@ -1216,7 +1216,7 @@
   },
   {
     "name": "animation-duration",
-    "syntax": "[ auto | <time [0s,∞]> ]#",
+    "syntax": "<time [0s,∞]>#",
     "computed": [
       "asSpecified"
     ],
@@ -1319,7 +1319,7 @@
   },
   {
     "name": "appearance",
-    "syntax": "none | auto | <compat-auto> | <compat-special>",
+    "syntax": "none | auto | base | base-select | <compat-auto> | <compat-special> | base",
     "computed": [
       "asSpecified"
     ],
@@ -1389,7 +1389,7 @@
   },
   {
     "name": "background-blend-mode",
-    "syntax": "<blend-mode>#",
+    "syntax": "<'mix-blend-mode'>#",
     "computed": [
       "asSpecified"
     ],
@@ -1398,7 +1398,7 @@
   },
   {
     "name": "background-clip",
-    "syntax": "<bg-clip>#",
+    "syntax": "<visual-box>#",
     "computed": [
       "asSpecified"
     ],
@@ -1480,7 +1480,7 @@
   },
   {
     "name": "baseline-shift",
-    "syntax": "<length-percentage> | sub | super | baseline",
+    "syntax": "<length-percentage> | sub | super | top | center | bottom",
     "computed": [
       "theSpecifiedKeywordOrAComputedLengthPercentageValue"
     ],
@@ -1522,7 +1522,7 @@
   },
   {
     "name": "border-block",
-    "syntax": "<'border-top'>",
+    "syntax": "<'border-block-start'>",
     "computed": [
       "border-block-width",
       "border-block-style",
@@ -1550,7 +1550,7 @@
   },
   {
     "name": "border-block-end",
-    "syntax": "<'border-top'>",
+    "syntax": "<line-width> || <line-style> || <color>",
     "computed": [
       "border-block-end-width",
       "border-block-end-style",
@@ -1565,7 +1565,7 @@
   },
   {
     "name": "border-block-end-color",
-    "syntax": "<'border-top-color'>",
+    "syntax": "<color> | <image-1D>",
     "computed": [
       "computedColor"
     ],
@@ -1574,7 +1574,7 @@
   },
   {
     "name": "border-block-end-style",
-    "syntax": "<'border-top-style'>",
+    "syntax": "<line-style>",
     "computed": [
       "asSpecified"
     ],
@@ -1583,16 +1583,16 @@
   },
   {
     "name": "border-block-end-width",
-    "syntax": "<'border-top-width'>",
+    "syntax": "<line-width>",
     "computed": [
-      "absoluteLengthZeroIfBorderStyleNoneOrHidden"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
   },
   {
     "name": "border-block-start",
-    "syntax": "<'border-top'>",
+    "syntax": "<line-width> || <line-style> || <color>",
     "computed": [
       "border-block-start-width",
       "border-block-start-style",
@@ -1607,7 +1607,7 @@
   },
   {
     "name": "border-block-start-color",
-    "syntax": "<'border-top-color'>",
+    "syntax": "<color> | <image-1D>",
     "computed": [
       "computedColor"
     ],
@@ -1616,7 +1616,7 @@
   },
   {
     "name": "border-block-start-style",
-    "syntax": "<'border-top-style'>",
+    "syntax": "<line-style>",
     "computed": [
       "asSpecified"
     ],
@@ -1625,9 +1625,9 @@
   },
   {
     "name": "border-block-start-width",
-    "syntax": "<'border-top-width'>",
+    "syntax": "<line-width>",
     "computed": [
-      "absoluteLengthZeroIfBorderStyleNoneOrHidden"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
@@ -1675,7 +1675,7 @@
   },
   {
     "name": "border-bottom-color",
-    "syntax": "<'border-top-color'>",
+    "syntax": "<color> | <image-1D>",
     "computed": [
       "computedColor"
     ],
@@ -1684,7 +1684,7 @@
   },
   {
     "name": "border-bottom-left-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2}",
+    "syntax": "<border-radius>",
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
@@ -1693,7 +1693,7 @@
   },
   {
     "name": "border-bottom-right-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2}",
+    "syntax": "<border-radius>",
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
@@ -1713,7 +1713,7 @@
     "name": "border-bottom-width",
     "syntax": "<line-width>",
     "computed": [
-      "absoluteLengthOr0IfBorderBottomStyleNoneOrHidden"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
@@ -1729,7 +1729,7 @@
   },
   {
     "name": "border-color",
-    "syntax": "<color>{1,4}",
+    "syntax": "[ <color> | <image-1D> ]{1,4}",
     "computed": [
       "border-top-color",
       "border-right-color",
@@ -1746,7 +1746,7 @@
   },
   {
     "name": "border-end-end-radius",
-    "syntax": "<'border-top-left-radius'>",
+    "syntax": "<border-radius>",
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
@@ -1755,7 +1755,7 @@
   },
   {
     "name": "border-end-start-radius",
-    "syntax": "<'border-top-left-radius'>",
+    "syntax": "<border-radius>",
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
@@ -1801,7 +1801,7 @@
   },
   {
     "name": "border-image-slice",
-    "syntax": "[ <number [0,∞]> | <percentage [0,∞]> ]{1,4} && fill?",
+    "syntax": "[<number [0,∞]> | <percentage [0,∞]>]{1,4} && fill?",
     "computed": [
       "oneToFourPercentagesOrAbsoluteLengthsPlusFill"
     ],
@@ -1828,7 +1828,7 @@
   },
   {
     "name": "border-inline",
-    "syntax": "<'border-top'>",
+    "syntax": "<'border-block-start'>",
     "computed": [
       "border-inline-width",
       "border-inline-style",
@@ -1856,7 +1856,7 @@
   },
   {
     "name": "border-inline-end",
-    "syntax": "<'border-top'>",
+    "syntax": "<line-width> || <line-style> || <color>",
     "computed": [
       "border-inline-end-width",
       "border-inline-end-style",
@@ -1871,7 +1871,7 @@
   },
   {
     "name": "border-inline-end-color",
-    "syntax": "<'border-top-color'>",
+    "syntax": "<color> | <image-1D>",
     "computed": [
       "computedColor"
     ],
@@ -1880,7 +1880,7 @@
   },
   {
     "name": "border-inline-end-style",
-    "syntax": "<'border-top-style'>",
+    "syntax": "<line-style>",
     "computed": [
       "asSpecified"
     ],
@@ -1889,16 +1889,16 @@
   },
   {
     "name": "border-inline-end-width",
-    "syntax": "<'border-top-width'>",
+    "syntax": "<line-width>",
     "computed": [
-      "absoluteLengthZeroIfBorderStyleNoneOrHidden"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
   },
   {
     "name": "border-inline-start",
-    "syntax": "<'border-top'>",
+    "syntax": "<line-width> || <line-style> || <color>",
     "computed": [
       "border-inline-start-width",
       "border-inline-start-style",
@@ -1913,7 +1913,7 @@
   },
   {
     "name": "border-inline-start-color",
-    "syntax": "<'border-top-color'>",
+    "syntax": "<color> | <image-1D>",
     "computed": [
       "computedColor"
     ],
@@ -1922,7 +1922,7 @@
   },
   {
     "name": "border-inline-start-style",
-    "syntax": "<'border-top-style'>",
+    "syntax": "<line-style>",
     "computed": [
       "asSpecified"
     ],
@@ -1931,9 +1931,9 @@
   },
   {
     "name": "border-inline-start-width",
-    "syntax": "<'border-top-width'>",
+    "syntax": "<line-width>",
     "computed": [
-      "absoluteLengthZeroIfBorderStyleNoneOrHidden"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
@@ -1981,7 +1981,7 @@
   },
   {
     "name": "border-left-color",
-    "syntax": "<color>",
+    "syntax": "<color> | <image-1D>",
     "computed": [
       "computedColor"
     ],
@@ -2001,7 +2001,7 @@
     "name": "border-left-width",
     "syntax": "<line-width>",
     "computed": [
-      "absoluteLengthOr0IfBorderLeftStyleNoneOrHidden"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
@@ -2040,7 +2040,7 @@
   },
   {
     "name": "border-right-color",
-    "syntax": "<color>",
+    "syntax": "<color> | <image-1D>",
     "computed": [
       "computedColor"
     ],
@@ -2060,7 +2060,7 @@
     "name": "border-right-width",
     "syntax": "<line-width>",
     "computed": [
-      "absoluteLengthOr0IfBorderRightStyleNoneOrHidden"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
@@ -2076,7 +2076,7 @@
   },
   {
     "name": "border-spacing",
-    "syntax": "<length>{1,2}",
+    "syntax": "<length [0,∞]>{1,2}",
     "computed": [
       "twoAbsoluteLengths"
     ],
@@ -2085,7 +2085,7 @@
   },
   {
     "name": "border-start-end-radius",
-    "syntax": "<'border-top-left-radius'>",
+    "syntax": "<border-radius>",
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
@@ -2094,7 +2094,7 @@
   },
   {
     "name": "border-start-start-radius",
-    "syntax": "<'border-top-left-radius'>",
+    "syntax": "<border-radius>",
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
@@ -2103,7 +2103,7 @@
   },
   {
     "name": "border-style",
-    "syntax": "<line-style>{1,4}",
+    "syntax": "<'border-top-style'>{1,4}",
     "computed": [
       "border-top-style",
       "border-right-style",
@@ -2135,7 +2135,7 @@
   },
   {
     "name": "border-top-color",
-    "syntax": "<color>",
+    "syntax": "<color> | <image-1D>",
     "computed": [
       "computedColor"
     ],
@@ -2144,7 +2144,7 @@
   },
   {
     "name": "border-top-left-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2}",
+    "syntax": "<border-radius>",
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
@@ -2153,7 +2153,7 @@
   },
   {
     "name": "border-top-right-radius",
-    "syntax": "<length-percentage [0,∞]>{1,2}",
+    "syntax": "<border-radius>",
     "computed": [
       "twoAbsoluteLengthOrPercentages"
     ],
@@ -2173,14 +2173,14 @@
     "name": "border-top-width",
     "syntax": "<line-width>",
     "computed": [
-      "absoluteLengthOr0IfBorderTopStyleNoneOrHidden"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
   },
   {
     "name": "border-width",
-    "syntax": "<line-width>{1,4}",
+    "syntax": "<'border-top-width'>{1,4}",
     "computed": [
       "border-top-width",
       "border-right-width",
@@ -2287,7 +2287,7 @@
   },
   {
     "name": "box-shadow",
-    "syntax": "none | <shadow>#",
+    "syntax": "<spread-shadow>#",
     "computed": [
       "absoluteLengthsSpecifiedColorAsSpecified"
     ],
@@ -2365,7 +2365,7 @@
   },
   {
     "name": "caret-color",
-    "syntax": "auto | <color>",
+    "syntax": "auto | <color> [auto | <color>]?",
     "computed": [
       "asAutoOrColor"
     ],
@@ -2383,7 +2383,7 @@
   },
   {
     "name": "clear",
-    "syntax": "none | left | right | both | inline-start | inline-end",
+    "syntax": "inline-start | inline-end | block-start | block-end | left | right | top | bottom | both-inline | both-block | both | none",
     "computed": [
       "asSpecified"
     ],
@@ -2392,7 +2392,7 @@
   },
   {
     "name": "clip",
-    "syntax": "<shape> | auto",
+    "syntax": "<rect()> | auto",
     "computed": [
       "autoOrRectangle"
     ],
@@ -2446,7 +2446,7 @@
   },
   {
     "name": "column-count",
-    "syntax": "<integer> | auto",
+    "syntax": "auto | <integer [1,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -2455,7 +2455,7 @@
   },
   {
     "name": "column-fill",
-    "syntax": "auto | balance",
+    "syntax": "auto | balance | balance-all",
     "computed": [
       "asSpecified"
     ],
@@ -2464,7 +2464,7 @@
   },
   {
     "name": "column-gap",
-    "syntax": "normal | <length-percentage>",
+    "syntax": "normal | <length-percentage [0,∞]> | <line-width>",
     "computed": [
       "asSpecifiedWithLengthsAbsoluteAndNormalComputingToZeroExceptMultiColumn"
     ],
@@ -2482,7 +2482,7 @@
   },
   {
     "name": "column-rule",
-    "syntax": "<'column-rule-width'> || <'column-rule-style'> || <'column-rule-color'>",
+    "syntax": "<gap-rule-list> | <gap-auto-rule-list>",
     "computed": [
       "column-rule-width",
       "column-rule-style",
@@ -2497,7 +2497,7 @@
   },
   {
     "name": "column-rule-color",
-    "syntax": "<color>",
+    "syntax": "<line-color-list> | <auto-line-color-list>",
     "computed": [
       "computedColor"
     ],
@@ -2506,7 +2506,7 @@
   },
   {
     "name": "column-rule-style",
-    "syntax": "<line-style>",
+    "syntax": "<line-style-list> | <auto-line-style-list>",
     "computed": [
       "asSpecified"
     ],
@@ -2515,16 +2515,16 @@
   },
   {
     "name": "column-rule-width",
-    "syntax": "<line-width>",
+    "syntax": "<line-width-list> | <auto-line-width-list>",
     "computed": [
-      "absoluteLength0IfColumnRuleStyleNoneOrHidden"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
   },
   {
     "name": "column-span",
-    "syntax": "none | all",
+    "syntax": "none | <integer [1,∞]> | all | auto",
     "computed": [
       "asSpecified"
     ],
@@ -2533,7 +2533,7 @@
   },
   {
     "name": "column-width",
-    "syntax": "auto | <length [0,∞]>",
+    "syntax": "auto | <length [0,∞]> | min-content | max-content | fit-content(<length-percentage>)",
     "computed": [
       "autoOrAbsoluteLength"
     ],
@@ -2566,7 +2566,7 @@
   },
   {
     "name": "contain",
-    "syntax": "none | strict | content | [ [ size || inline-size ] || layout || style || paint ]",
+    "syntax": "none | strict | content | [ [size | inline-size] || layout || style || paint ]",
     "computed": [
       "asSpecified"
     ],
@@ -2655,7 +2655,7 @@
   },
   {
     "name": "content",
-    "syntax": "normal | none | [ <content-replacement> | <content-list> ] [ / [ <string> | <counter> | <attr()> ]+ ]?",
+    "syntax": "normal | none | [ <content-replacement> | <content-list> ] [/ [ <string> | <counter> | <attr()> ]+ ]? | <element()>",
     "computed": [
       "normalOnElementsForPseudosNoneAbsoluteURIStringOrAsSpecified"
     ],
@@ -2673,7 +2673,7 @@
   },
   {
     "name": "corner-block-end-shape",
-    "syntax": "<corner-shape-value>{1,2}",
+    "syntax": "<'corner-top-left-shape'>{1,2}",
     "computed": [
       "corner-end-start-shape",
       "corner-end-end-shape"
@@ -2686,7 +2686,7 @@
   },
   {
     "name": "corner-block-start-shape",
-    "syntax": "<corner-shape-value>{1,2}",
+    "syntax": "<'corner-top-left-shape'>{1,2}",
     "computed": [
       "corner-start-start-shape",
       "corner-start-end-shape"
@@ -2717,7 +2717,7 @@
   },
   {
     "name": "corner-bottom-shape",
-    "syntax": "<corner-shape-value>{1,2}",
+    "syntax": "<'corner-top-left-shape'>{1,2}",
     "computed": [
       "corner-bottom-left-shape",
       "corner-bottom-right-shape"
@@ -2748,7 +2748,7 @@
   },
   {
     "name": "corner-inline-end-shape",
-    "syntax": "<corner-shape-value>{1,2}",
+    "syntax": "<'corner-top-left-shape'>{1,2}",
     "computed": [
       "corner-start-end-shape",
       "corner-end-end-shape"
@@ -2761,7 +2761,7 @@
   },
   {
     "name": "corner-inline-start-shape",
-    "syntax": "<corner-shape-value>{1,2}",
+    "syntax": "<'corner-top-left-shape'>{1,2}",
     "computed": [
       "corner-start-start-shape",
       "corner-start-end-shape"
@@ -2774,7 +2774,7 @@
   },
   {
     "name": "corner-left-shape",
-    "syntax": "<corner-shape-value>{1,2}",
+    "syntax": "<'corner-top-left-shape'>{1,2}",
     "computed": [
       "corner-top-left-shape",
       "corner-bottom-left-shape"
@@ -2787,7 +2787,7 @@
   },
   {
     "name": "corner-right-shape",
-    "syntax": "<corner-shape-value>{1,2}",
+    "syntax": "<'corner-top-left-shape'>{1,2}",
     "computed": [
       "corner-top-right-shape",
       "corner-bottom-right-shape"
@@ -2800,7 +2800,7 @@
   },
   {
     "name": "corner-shape",
-    "syntax": "<corner-shape-value>{1,4}",
+    "syntax": "<'corner-top-left-shape'>{1,4}",
     "computed": [
       "corner-top-left-shape",
       "corner-top-right-shape",
@@ -2853,7 +2853,7 @@
   },
   {
     "name": "corner-top-shape",
-    "syntax": "<corner-shape-value>{1,2}",
+    "syntax": "<'corner-top-left-shape'>{1,2}",
     "computed": [
       "corner-top-left-shape",
       "corner-top-right-shape"
@@ -2893,7 +2893,7 @@
   },
   {
     "name": "cursor",
-    "syntax": "[ [ <url> [ <x> <y> ]? , ]* <cursor-predefined> ]",
+    "syntax": "[<cursor-image>,]* <cursor-predefined>",
     "computed": [
       "asSpecifiedURLsAbsolute"
     ],
@@ -2902,7 +2902,7 @@
   },
   {
     "name": "cx",
-    "syntax": "<length> | <percentage>",
+    "syntax": "<length-percentage>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -2911,7 +2911,7 @@
   },
   {
     "name": "cy",
-    "syntax": "<length> | <percentage>",
+    "syntax": "<length-percentage>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -2920,7 +2920,7 @@
   },
   {
     "name": "d",
-    "syntax": "none | path(<string>)",
+    "syntax": "none | <string>",
     "computed": [
       "asSpecified"
     ],
@@ -2938,7 +2938,7 @@
   },
   {
     "name": "display",
-    "syntax": "[ <display-outside> || <display-inside> ] | <display-listitem> | <display-internal> | <display-box> | <display-legacy>",
+    "syntax": "[ <display-outside> || <display-inside> ] | <display-listitem> | <display-internal> | <display-box> | <display-legacy> | <display-outside> || [ <display-inside> | math ]",
     "computed": [
       "asSpecifiedExceptPositionedFloatingAndRootElementsKeywordMaybeDifferent"
     ],
@@ -2947,7 +2947,7 @@
   },
   {
     "name": "dominant-baseline",
-    "syntax": "auto | text-bottom | alphabetic | ideographic | middle | central | mathematical | hanging | text-top",
+    "syntax": "auto | <baseline-metric>",
     "computed": [
       "asSpecified"
     ],
@@ -2974,7 +2974,7 @@
   },
   {
     "name": "field-sizing",
-    "syntax": "content | fixed",
+    "syntax": "fixed | content",
     "computed": [
       "asSpecified"
     ],
@@ -3065,7 +3065,7 @@
   },
   {
     "name": "flex-grow",
-    "syntax": "<number>",
+    "syntax": "<number [0,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -3074,7 +3074,7 @@
   },
   {
     "name": "flex-shrink",
-    "syntax": "<number>",
+    "syntax": "<number [0,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -3083,7 +3083,7 @@
   },
   {
     "name": "flex-wrap",
-    "syntax": "nowrap | wrap | wrap-reverse",
+    "syntax": "nowrap | [ wrap | wrap-reverse ] || balance",
     "computed": [
       "asSpecified"
     ],
@@ -3092,7 +3092,7 @@
   },
   {
     "name": "float",
-    "syntax": "left | right | none | inline-start | inline-end",
+    "syntax": "block-start | block-end | inline-start | inline-end | snap-block | <snap-block()> | snap-inline | <snap-inline()> | left | right | top | bottom | none | footnote",
     "computed": [
       "asSpecified"
     ],
@@ -3119,7 +3119,7 @@
   },
   {
     "name": "font",
-    "syntax": "[ [ <'font-style'> || <font-variant-css2> || <'font-weight'> || <font-width-css3> ]? <'font-size'> [ / <'line-height'> ]? <'font-family'># ] | <system-family-name>",
+    "syntax": "[ [ <'font-style'> || <font-variant-css2> || <'font-weight'> || <font-width-css3> ]? <'font-size'> [ / <'line-height'> ]? <'font-family'># ] | <system-font-family-name>",
     "computed": [
       "font-style",
       "font-variant",
@@ -3142,7 +3142,7 @@
   },
   {
     "name": "font-family",
-    "syntax": "[ <family-name> | <generic-family> ]#",
+    "syntax": "[ <font-family-name> | <generic-font-family> ]#",
     "computed": [
       "asSpecified"
     ],
@@ -3205,7 +3205,7 @@
   },
   {
     "name": "font-size-adjust",
-    "syntax": "none | [ ex-height | cap-height | ch-width | ic-width | ic-height ]? [ from-font | <number> ]",
+    "syntax": "none | <number [0,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -3223,7 +3223,7 @@
   },
   {
     "name": "font-stretch",
-    "syntax": "<font-stretch-absolute>",
+    "syntax": "normal | <percentage [0,∞]> | ultra-condensed | extra-condensed | condensed | semi-condensed | semi-expanded | expanded | extra-expanded | ultra-expanded",
     "computed": [
       "asSpecified"
     ],
@@ -3232,7 +3232,7 @@
   },
   {
     "name": "font-style",
-    "syntax": "normal | italic | oblique <angle>?",
+    "syntax": "normal | italic | left | right | oblique <angle [-90deg,90deg]>?",
     "computed": [
       "asSpecified"
     ],
@@ -3268,7 +3268,7 @@
   },
   {
     "name": "font-synthesis-style",
-    "syntax": "auto | none",
+    "syntax": "auto | none | oblique-only",
     "computed": [
       "asSpecified"
     ],
@@ -3286,7 +3286,7 @@
   },
   {
     "name": "font-variant",
-    "syntax": "normal | none | [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> || stylistic( <feature-value-name> ) || historical-forms || styleset( <feature-value-name># ) || character-variant( <feature-value-name># ) || swash( <feature-value-name> ) || ornaments( <feature-value-name> ) || annotation( <feature-value-name> ) || [ small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps ] || <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> || ordinal || slashed-zero || <east-asian-variant-values> || <east-asian-width-values> || ruby ]",
+    "syntax": "normal | none | [ [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> ] || [ small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps ] || [ stylistic(<font-feature-value-name>) || historical-forms || styleset(<font-feature-value-name>#) || character-variant(<font-feature-value-name>#) || swash(<font-feature-value-name>) || ornaments(<font-feature-value-name>) || annotation(<font-feature-value-name>) ] || [ <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> || ordinal || slashed-zero ] || [ <east-asian-variant-values> || <east-asian-width-values> || ruby ] || [ sub | super ] || [ text | emoji | unicode ] ]",
     "computed": [
       "asSpecified"
     ],
@@ -3295,7 +3295,7 @@
   },
   {
     "name": "font-variant-alternates",
-    "syntax": "normal | [ stylistic( <feature-value-name> ) || historical-forms || styleset( <feature-value-name># ) || character-variant( <feature-value-name># ) || swash( <feature-value-name> ) || ornaments( <feature-value-name> ) || annotation( <feature-value-name> ) ]",
+    "syntax": "normal | [ stylistic(<font-feature-value-name>) || historical-forms || styleset(<font-feature-value-name>#) || character-variant(<font-feature-value-name>#) || swash(<font-feature-value-name>) || ornaments(<font-feature-value-name>) || annotation(<font-feature-value-name>) ]",
     "computed": [
       "asSpecified"
     ],
@@ -3358,7 +3358,7 @@
   },
   {
     "name": "font-variation-settings",
-    "syntax": "normal | [ <string> <number> ]#",
+    "syntax": "normal | [ <opentype-tag> <number> ]#",
     "computed": [
       "asSpecified"
     ],
@@ -3391,6 +3391,15 @@
     ],
     "initial": "auto",
     "inherited": true
+  },
+  {
+    "name": "frame-sizing",
+    "syntax": "auto | content-width | content-height | content-block-size | content-inline-size",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
   },
   {
     "name": "gap",
@@ -3502,7 +3511,7 @@
   },
   {
     "name": "grid-column-gap",
-    "syntax": "<length-percentage>",
+    "syntax": "normal | <length-percentage [0,∞]> | <line-width>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -3520,7 +3529,7 @@
   },
   {
     "name": "grid-gap",
-    "syntax": "<'grid-row-gap'> <'grid-column-gap'>?",
+    "syntax": "<'row-gap'> <'column-gap'>?",
     "computed": [
       "grid-row-gap",
       "grid-column-gap"
@@ -3555,7 +3564,7 @@
   },
   {
     "name": "grid-row-gap",
-    "syntax": "<length-percentage>",
+    "syntax": "normal | <length-percentage [0,∞]> | <line-width>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -3624,7 +3633,7 @@
   },
   {
     "name": "height",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAutoOrAbsoluteLength"
     ],
@@ -3660,7 +3669,7 @@
   },
   {
     "name": "image-orientation",
-    "syntax": "from-image | <angle> | [ <angle>? flip ]",
+    "syntax": "from-image | none | [ <angle> || flip ]",
     "computed": [
       "angleRoundedToNextQuarter"
     ],
@@ -3669,7 +3678,7 @@
   },
   {
     "name": "image-rendering",
-    "syntax": "auto | crisp-edges | pixelated | smooth",
+    "syntax": "auto | smooth | high-quality | pixelated | crisp-edges",
     "computed": [
       "asSpecified"
     ],
@@ -3696,7 +3705,7 @@
   },
   {
     "name": "initial-letter",
-    "syntax": "normal | [ <number> <integer>? ]",
+    "syntax": "normal | <number [1,∞]> <integer [1,∞]> | <number [1,∞]> && [ drop | raise ]?",
     "computed": [
       "asSpecified"
     ],
@@ -3705,7 +3714,7 @@
   },
   {
     "name": "initial-letter-align",
-    "syntax": "[ auto | alphabetic | hanging | ideographic ]",
+    "syntax": "[ border-box? [ alphabetic | ideographic | hanging | leading ]? ]!",
     "computed": [
       "asSpecified"
     ],
@@ -3753,7 +3762,7 @@
   },
   {
     "name": "inset-block-end",
-    "syntax": "<'top'>",
+    "syntax": "auto | <length-percentage>",
     "computed": [
       "sameAsBoxOffsets"
     ],
@@ -3762,7 +3771,7 @@
   },
   {
     "name": "inset-block-start",
-    "syntax": "<'top'>",
+    "syntax": "auto | <length-percentage>",
     "computed": [
       "sameAsBoxOffsets"
     ],
@@ -3784,7 +3793,7 @@
   },
   {
     "name": "inset-inline-end",
-    "syntax": "<'top'>",
+    "syntax": "auto | <length-percentage>",
     "computed": [
       "sameAsBoxOffsets"
     ],
@@ -3793,7 +3802,7 @@
   },
   {
     "name": "inset-inline-start",
-    "syntax": "<'top'>",
+    "syntax": "auto | <length-percentage>",
     "computed": [
       "sameAsBoxOffsets"
     ],
@@ -3851,7 +3860,7 @@
   },
   {
     "name": "isolation",
-    "syntax": "auto | isolate",
+    "syntax": "<isolation-mode>",
     "computed": [
       "asSpecified"
     ],
@@ -3869,7 +3878,7 @@
   },
   {
     "name": "justify-items",
-    "syntax": "normal | stretch | <baseline-position> | <overflow-position>? [ <self-position> | left | right ] | legacy | legacy && [ left | right | center ] | anchor-center",
+    "syntax": "normal | stretch | <baseline-position> | <overflow-position>? [ <self-position> | left | right ] | legacy | legacy && [ left | right | center ]",
     "computed": [
       "asSpecified"
     ],
@@ -3878,7 +3887,7 @@
   },
   {
     "name": "justify-self",
-    "syntax": "auto | normal | stretch | <baseline-position> | <overflow-position>? [ <self-position> | left | right ] | anchor-center",
+    "syntax": "auto | <overflow-position>? [ normal | <self-position> | left | right ] | stretch | <baseline-position> | anchor-center",
     "computed": [
       "asSpecified"
     ],
@@ -3941,7 +3950,7 @@
   },
   {
     "name": "line-height",
-    "syntax": "normal | <number> | <length> | <percentage>",
+    "syntax": "normal | <number [0,∞]> | <length-percentage [0,∞]>",
     "computed": [
       "absoluteLengthOrAsSpecified"
     ],
@@ -3950,7 +3959,7 @@
   },
   {
     "name": "line-height-step",
-    "syntax": "<length>",
+    "syntax": "<length [0,∞]>",
     "computed": [
       "absoluteLength"
     ],
@@ -3959,7 +3968,7 @@
   },
   {
     "name": "list-style",
-    "syntax": "<'list-style-type'> || <'list-style-position'> || <'list-style-image'>",
+    "syntax": "<'list-style-position'> || <'list-style-image'> || <'list-style-type'>",
     "computed": [
       "list-style-image",
       "list-style-position",
@@ -4116,7 +4125,7 @@
   },
   {
     "name": "margin-trim",
-    "syntax": "none | in-flow | all",
+    "syntax": "none | [ block || inline ] | [ block-start || inline-start || block-end || inline-end ]",
     "computed": [
       "asSpecified"
     ],
@@ -4125,7 +4134,7 @@
   },
   {
     "name": "marker",
-    "syntax": "none | <url>",
+    "syntax": "none | <marker-ref>",
     "computed": [
       "asSpecified"
     ],
@@ -4138,7 +4147,7 @@
   },
   {
     "name": "marker-end",
-    "syntax": "none | <url>",
+    "syntax": "none | <marker-ref>",
     "computed": [
       "asSpecifiedURLsAbsolute"
     ],
@@ -4147,7 +4156,7 @@
   },
   {
     "name": "marker-mid",
-    "syntax": "none | <url>",
+    "syntax": "none | <marker-ref>",
     "computed": [
       "asSpecifiedURLsAbsolute"
     ],
@@ -4156,7 +4165,7 @@
   },
   {
     "name": "marker-start",
-    "syntax": "none | <url>",
+    "syntax": "none | <marker-ref>",
     "computed": [
       "asSpecifiedURLsAbsolute"
     ],
@@ -4220,7 +4229,7 @@
   },
   {
     "name": "mask-border-outset",
-    "syntax": "[ <length> | <number> ]{1,4}",
+    "syntax": "<'border-image-outset'>",
     "computed": [
       "asSpecifiedRelativeToAbsoluteLengths"
     ],
@@ -4229,7 +4238,7 @@
   },
   {
     "name": "mask-border-repeat",
-    "syntax": "[ stretch | repeat | round | space ]{1,2}",
+    "syntax": "<'border-image-repeat'>",
     "computed": [
       "asSpecified"
     ],
@@ -4238,7 +4247,7 @@
   },
   {
     "name": "mask-border-slice",
-    "syntax": "<number-percentage>{1,4} fill?",
+    "syntax": "<'border-image-slice'>",
     "computed": [
       "asSpecified"
     ],
@@ -4247,7 +4256,7 @@
   },
   {
     "name": "mask-border-source",
-    "syntax": "none | <image>",
+    "syntax": "<'border-image-source'>",
     "computed": [
       "asSpecifiedURLsAbsolute"
     ],
@@ -4256,7 +4265,7 @@
   },
   {
     "name": "mask-border-width",
-    "syntax": "[ <length-percentage> | <number> | auto ]{1,4}",
+    "syntax": "<'border-image-width'>",
     "computed": [
       "asSpecifiedRelativeToAbsoluteLengths"
     ],
@@ -4391,7 +4400,7 @@
   },
   {
     "name": "max-height",
-    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAsSpecifiedAbsoluteLengthOrNone"
     ],
@@ -4418,7 +4427,7 @@
   },
   {
     "name": "max-width",
-    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAsSpecifiedAbsoluteLengthOrNone"
     ],
@@ -4436,7 +4445,7 @@
   },
   {
     "name": "min-height",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -4454,7 +4463,7 @@
   },
   {
     "name": "min-width",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -4463,7 +4472,7 @@
   },
   {
     "name": "mix-blend-mode",
-    "syntax": "<blend-mode> | plus-darker | plus-lighter",
+    "syntax": "<blend-mode> | plus-lighter",
     "computed": [
       "asSpecified"
     ],
@@ -4486,7 +4495,7 @@
       "asSpecified"
     ],
     "initial": "50% 50%",
-    "inherited": true
+    "inherited": false
   },
   {
     "name": "object-view-box",
@@ -4581,7 +4590,7 @@
   },
   {
     "name": "orphans",
-    "syntax": "<integer>",
+    "syntax": "<integer [1,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -4605,7 +4614,7 @@
   },
   {
     "name": "outline-color",
-    "syntax": "auto | <color>",
+    "syntax": "auto | <'border-top-color'>",
     "computed": [
       "autoForTranslucentColorRGBAOtherwiseRGB"
     ],
@@ -4616,7 +4625,7 @@
     "name": "outline-offset",
     "syntax": "<length>",
     "computed": [
-      "asSpecifiedRelativeToAbsoluteLengths"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "0",
     "inherited": false
@@ -4634,14 +4643,14 @@
     "name": "outline-width",
     "syntax": "<line-width>",
     "computed": [
-      "absoluteLength0ForNone"
+      "absoluteLengthSnappedAsLineWidth"
     ],
     "initial": "medium",
     "inherited": false
   },
   {
     "name": "overflow",
-    "syntax": "[ visible | hidden | clip | scroll | auto ]{1,2}",
+    "syntax": "<'overflow-block'>{1,2}",
     "computed": [
       "overflow-x",
       "overflow-y"
@@ -4678,7 +4687,7 @@
   },
   {
     "name": "overflow-clip-margin",
-    "syntax": "<visual-box> || <length [0,∞]>",
+    "syntax": "<visual-box> || <length>",
     "computed": [
       "theComputedLengthAndVisualBox"
     ],
@@ -4732,7 +4741,7 @@
   },
   {
     "name": "overscroll-behavior",
-    "syntax": "[ contain | none | auto ]{1,2}",
+    "syntax": "[ contain | none | auto | chain ]{1,2}",
     "computed": [
       "overscroll-behavior-x",
       "overscroll-behavior-y"
@@ -4742,7 +4751,7 @@
   },
   {
     "name": "overscroll-behavior-block",
-    "syntax": "contain | none | auto",
+    "syntax": "contain | none | auto | chain",
     "computed": [
       "asSpecified"
     ],
@@ -4751,7 +4760,7 @@
   },
   {
     "name": "overscroll-behavior-inline",
-    "syntax": "contain | none | auto",
+    "syntax": "contain | none | auto | chain",
     "computed": [
       "asSpecified"
     ],
@@ -4760,7 +4769,7 @@
   },
   {
     "name": "overscroll-behavior-x",
-    "syntax": "contain | none | auto",
+    "syntax": "contain | none | auto | chain",
     "computed": [
       "asSpecified"
     ],
@@ -4769,7 +4778,7 @@
   },
   {
     "name": "overscroll-behavior-y",
-    "syntax": "contain | none | auto",
+    "syntax": "contain | none | auto | chain",
     "computed": [
       "asSpecified"
     ],
@@ -4902,7 +4911,7 @@
   },
   {
     "name": "page-break-after",
-    "syntax": "auto | always | avoid | left | right | recto | verso",
+    "syntax": "auto | always | avoid | left | right | inherit",
     "computed": [
       "asSpecified"
     ],
@@ -4911,7 +4920,7 @@
   },
   {
     "name": "page-break-before",
-    "syntax": "auto | always | avoid | left | right | recto | verso",
+    "syntax": "auto | always | avoid | left | right | inherit",
     "computed": [
       "asSpecified"
     ],
@@ -4920,7 +4929,7 @@
   },
   {
     "name": "page-break-inside",
-    "syntax": "auto | avoid",
+    "syntax": "avoid | auto | inherit",
     "computed": [
       "asSpecified"
     ],
@@ -4995,7 +5004,7 @@
   },
   {
     "name": "pointer-events",
-    "syntax": "auto | none | visiblePainted | visibleFill | visibleStroke | visible | painted | fill | stroke | all | inherit",
+    "syntax": "auto | bounding-box | visiblePainted | visibleFill | visibleStroke | visible | painted | fill | stroke | all | none",
     "computed": [
       "asSpecified"
     ],
@@ -5004,7 +5013,7 @@
   },
   {
     "name": "position",
-    "syntax": "static | relative | absolute | sticky | fixed",
+    "syntax": "static | relative | absolute | sticky | fixed | <running()>",
     "computed": [
       "asSpecified"
     ],
@@ -5013,7 +5022,7 @@
   },
   {
     "name": "position-anchor",
-    "syntax": "normal | auto | none | <anchor-name> | match-parent",
+    "syntax": "normal | none | auto | <anchor-name> | match-parent",
     "computed": [
       "asSpecified"
     ],
@@ -5044,7 +5053,7 @@
   },
   {
     "name": "position-try-fallbacks",
-    "syntax": "none | [ [<dashed-ident> || <try-tactic>] | <'position-area'> ]#",
+    "syntax": "none | [ [<dashed-ident> || <try-tactic>] | <position-area> ]#",
     "computed": [
       "asSpecified"
     ],
@@ -5062,7 +5071,7 @@
   },
   {
     "name": "position-visibility",
-    "syntax": "always | [ anchors-valid || anchors-visible || no-overflow ]",
+    "syntax": "always | [ anchor-valid || anchor-visible || no-overflow ]",
     "computed": [
       "asSpecified"
     ],
@@ -5080,7 +5089,7 @@
   },
   {
     "name": "quotes",
-    "syntax": "none | auto | [ <string> <string> ]+",
+    "syntax": "auto | none | match-parent | [ <string> <string> ]+",
     "computed": [
       "asSpecified"
     ],
@@ -5089,7 +5098,7 @@
   },
   {
     "name": "r",
-    "syntax": "<length> | <percentage>",
+    "syntax": "<length-percentage>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -5143,7 +5152,7 @@
   },
   {
     "name": "row-gap",
-    "syntax": "normal | <length-percentage>",
+    "syntax": "normal | <length-percentage [0,∞]> | <line-width>",
     "computed": [
       "asSpecifiedWithLengthsAbsoluteAndNormalComputingToZeroExceptMultiColumn"
     ],
@@ -5161,7 +5170,7 @@
   },
   {
     "name": "ruby-merge",
-    "syntax": "separate | collapse | auto",
+    "syntax": "separate | merge | auto",
     "computed": [
       "asSpecified"
     ],
@@ -5170,7 +5179,7 @@
   },
   {
     "name": "ruby-overhang",
-    "syntax": "auto | none",
+    "syntax": "auto | spaces",
     "computed": [
       "theSpecifiedKeyword"
     ],
@@ -5357,7 +5366,7 @@
   },
   {
     "name": "scroll-padding",
-    "syntax": "[ auto | <length-percentage> ]{1,4}",
+    "syntax": "[ auto | <length-percentage [0,∞]> ]{1,4}",
     "computed": [
       "scroll-padding-bottom",
       "scroll-padding-left",
@@ -5374,7 +5383,7 @@
   },
   {
     "name": "scroll-padding-block",
-    "syntax": "[ auto | <length-percentage> ]{1,2}",
+    "syntax": "[ auto | <length-percentage [0,∞]> ]{1,2}",
     "computed": [
       "scroll-padding-block-start",
       "scroll-padding-block-end"
@@ -5387,7 +5396,7 @@
   },
   {
     "name": "scroll-padding-block-end",
-    "syntax": "auto | <length-percentage>",
+    "syntax": "auto | <length-percentage [0,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -5396,7 +5405,7 @@
   },
   {
     "name": "scroll-padding-block-start",
-    "syntax": "auto | <length-percentage>",
+    "syntax": "auto | <length-percentage [0,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -5405,7 +5414,7 @@
   },
   {
     "name": "scroll-padding-bottom",
-    "syntax": "auto | <length-percentage>",
+    "syntax": "auto | <length-percentage [0,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -5414,7 +5423,7 @@
   },
   {
     "name": "scroll-padding-inline",
-    "syntax": "[ auto | <length-percentage> ]{1,2}",
+    "syntax": "[ auto | <length-percentage [0,∞]> ]{1,2}",
     "computed": [
       "scroll-padding-inline-start",
       "scroll-padding-inline-end"
@@ -5427,7 +5436,7 @@
   },
   {
     "name": "scroll-padding-inline-end",
-    "syntax": "auto | <length-percentage>",
+    "syntax": "auto | <length-percentage [0,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -5436,7 +5445,7 @@
   },
   {
     "name": "scroll-padding-inline-start",
-    "syntax": "auto | <length-percentage>",
+    "syntax": "auto | <length-percentage [0,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -5445,7 +5454,7 @@
   },
   {
     "name": "scroll-padding-left",
-    "syntax": "auto | <length-percentage>",
+    "syntax": "auto | <length-percentage [0,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -5454,7 +5463,7 @@
   },
   {
     "name": "scroll-padding-right",
-    "syntax": "auto | <length-percentage>",
+    "syntax": "auto | <length-percentage [0,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -5463,7 +5472,7 @@
   },
   {
     "name": "scroll-padding-top",
-    "syntax": "auto | <length-percentage>",
+    "syntax": "auto | <length-percentage [0,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -5629,7 +5638,7 @@
   },
   {
     "name": "shape-margin",
-    "syntax": "<length-percentage>",
+    "syntax": "<length-percentage [0,∞]>",
     "computed": [
       "asSpecifiedRelativeToAbsoluteLengths"
     ],
@@ -5638,7 +5647,7 @@
   },
   {
     "name": "shape-outside",
-    "syntax": "none | [ <shape-box> || <basic-shape> ] | <image>",
+    "syntax": "none | [ <basic-shape> || <shape-box> ] | <image>",
     "computed": [
       "asDefinedForBasicShapeWithAbsoluteURIOtherwiseAsSpecified"
     ],
@@ -5700,7 +5709,7 @@
   },
   {
     "name": "stroke-color",
-    "syntax": "<color>",
+    "syntax": "<color>#",
     "computed": [
       "computedColor"
     ],
@@ -5709,7 +5718,7 @@
   },
   {
     "name": "stroke-dasharray",
-    "syntax": "none | <dasharray>",
+    "syntax": "none | [<length-percentage> | <number>]+#",
     "computed": [
       "listEachItemConsistingOfAbsoluteLengthPercentageOrKeyword"
     ],
@@ -5736,7 +5745,7 @@
   },
   {
     "name": "stroke-linejoin",
-    "syntax": "miter | miter-clip | round | bevel | arcs",
+    "syntax": "[ crop | arcs | miter ] || [ bevel | round | fallback ]",
     "computed": [
       "asSpecified"
     ],
@@ -5763,7 +5772,7 @@
   },
   {
     "name": "stroke-width",
-    "syntax": "<length-percentage> | <number>",
+    "syntax": "[ <length-percentage> | <line-width> | <number> ]#",
     "computed": [
       "absoluteLengthOrPercentageNumbersConverted"
     ],
@@ -5772,7 +5781,7 @@
   },
   {
     "name": "tab-size",
-    "syntax": "<integer> | <length>",
+    "syntax": "<number [0,∞]> | <length [0,∞]>",
     "computed": [
       "specifiedIntegerOrAbsoluteLength"
     ],
@@ -5790,7 +5799,7 @@
   },
   {
     "name": "text-align",
-    "syntax": "start | end | left | right | center | justify | match-parent",
+    "syntax": "start | end | left | right | center | justify | match-parent | justify-all",
     "computed": [
       "asSpecifiedExceptMatchParent"
     ],
@@ -5799,7 +5808,7 @@
   },
   {
     "name": "text-align-last",
-    "syntax": "auto | start | end | left | right | center | justify",
+    "syntax": "auto | start | end | left | right | center | justify | match-parent",
     "computed": [
       "asSpecified"
     ],
@@ -5853,7 +5862,7 @@
   },
   {
     "name": "text-combine-upright",
-    "syntax": "none | all | [ digits <integer>? ]",
+    "syntax": "none | all | [ digits <integer [2,4]>? ]",
     "computed": [
       "keywordPlusIntegerIfDigits"
     ],
@@ -5862,7 +5871,7 @@
   },
   {
     "name": "text-decoration",
-    "syntax": "<'text-decoration-line'> || <'text-decoration-style'> || <'text-decoration-color'> || <'text-decoration-thickness'>",
+    "syntax": "<'text-decoration-line'> || <'text-decoration-style'> || <'text-decoration-color'>",
     "computed": [
       "text-decoration-line",
       "text-decoration-style",
@@ -5896,7 +5905,7 @@
   },
   {
     "name": "text-decoration-line",
-    "syntax": "none | [ underline || overline || line-through || blink ] | spelling-error | grammar-error",
+    "syntax": "none | [ underline || overline || line-through || blink ]",
     "computed": [
       "asSpecified"
     ],
@@ -5963,7 +5972,7 @@
   },
   {
     "name": "text-emphasis-position",
-    "syntax": "auto | [ over | under ] && [ right | left ]?",
+    "syntax": "[ over | under ] && [ right | left ]?",
     "computed": [
       "asSpecified"
     ],
@@ -5981,7 +5990,7 @@
   },
   {
     "name": "text-indent",
-    "syntax": "<length-percentage> && hanging? && each-line?",
+    "syntax": "[ <length-percentage> ] && hanging? && each-line?",
     "computed": [
       "percentageOrAbsoluteLengthPlusKeywords"
     ],
@@ -5990,7 +5999,7 @@
   },
   {
     "name": "text-justify",
-    "syntax": "auto | inter-character | inter-word | none",
+    "syntax": "auto | none | inter-word | inter-character",
     "computed": [
       "asSpecified"
     ],
@@ -6008,7 +6017,7 @@
   },
   {
     "name": "text-overflow",
-    "syntax": "[ clip | ellipsis | <string> ]{1,2}",
+    "syntax": "clip | ellipsis",
     "computed": [
       "asSpecified"
     ],
@@ -6026,7 +6035,7 @@
   },
   {
     "name": "text-shadow",
-    "syntax": "none | <shadow-t>#",
+    "syntax": "none | [ <color>? && [ <length>{2} <length [0,∞]>? ] ]#",
     "computed": [
       "colorPlusThreeAbsoluteLengths"
     ],
@@ -6035,7 +6044,7 @@
   },
   {
     "name": "text-size-adjust",
-    "syntax": "none | auto | <percentage>",
+    "syntax": "auto | none | <percentage [0,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -6053,7 +6062,7 @@
   },
   {
     "name": "text-transform",
-    "syntax": "none | [ capitalize | uppercase | lowercase ] || full-width || full-size-kana | math-auto",
+    "syntax": "none | [capitalize | uppercase | lowercase ] || full-width || full-size-kana",
     "computed": [
       "asSpecified"
     ],
@@ -6071,7 +6080,7 @@
   },
   {
     "name": "text-underline-position",
-    "syntax": "auto | from-font | [ under || [ left | right ] ]",
+    "syntax": "auto | [ under || [ left | right ] ]",
     "computed": [
       "asSpecified"
     ],
@@ -6108,7 +6117,7 @@
   },
   {
     "name": "timeline-scope",
-    "syntax": "none | <dashed-ident>#",
+    "syntax": "none | all | <dashed-ident>#",
     "computed": [
       "noneOrOrderedListOfIdentifiers"
     ],
@@ -6117,7 +6126,7 @@
   },
   {
     "name": "timeline-trigger",
-    "syntax": "none | [ <'timeline-trigger-name'> <'timeline-trigger-source'> <'timeline-trigger-activation-range'> [ '/' <'timeline-trigger-active-range'> ]? ]#",
+    "syntax": "none | [ <'timeline-trigger-name'> <'timeline-trigger-source'> <'timeline-trigger-activation-range'> [ / <'timeline-trigger-active-range'> ]? ]#",
     "computed": [
       "timeline-trigger-name",
       "timeline-trigger-source",
@@ -6250,7 +6259,7 @@
   },
   {
     "name": "transform-origin",
-    "syntax": "[ <length-percentage> | left | center | right | top | bottom ] | [ [ <length-percentage> | left | center | right ] && [ <length-percentage> | top | center | bottom ] ] <length>?",
+    "syntax": "[ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] <length>? | [ [ center | left | right ] && [ center | top | bottom ] ] <length>?",
     "computed": [
       "forLengthAbsoluteValueOtherwisePercentage"
     ],
@@ -6305,7 +6314,7 @@
   },
   {
     "name": "transition-duration",
-    "syntax": "<time>#",
+    "syntax": "<time [0s,∞]>#",
     "computed": [
       "asSpecified"
     ],
@@ -6359,7 +6368,7 @@
   },
   {
     "name": "user-select",
-    "syntax": "auto | text | none | all",
+    "syntax": "auto | text | none | contain | all",
     "computed": [
       "asSpecified"
     ],
@@ -6377,7 +6386,7 @@
   },
   {
     "name": "vertical-align",
-    "syntax": "baseline | sub | super | text-top | text-bottom | middle | top | bottom | <percentage> | <length>",
+    "syntax": "[ first | last] || <'alignment-baseline'> || <'baseline-shift'>",
     "computed": [
       "asLonghands"
     ],
@@ -6435,7 +6444,16 @@
   },
   {
     "name": "view-transition-name",
-    "syntax": "none | <custom-ident> | match-element",
+    "syntax": "none | <custom-ident>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "view-transition-scope",
+    "syntax": "none | all",
     "computed": [
       "asSpecified"
     ],
@@ -6444,7 +6462,7 @@
   },
   {
     "name": "visibility",
-    "syntax": "visible | hidden | collapse",
+    "syntax": "visible | hidden | force-hidden | collapse",
     "computed": [
       "asSpecified"
     ],
@@ -6453,7 +6471,7 @@
   },
   {
     "name": "white-space",
-    "syntax": "normal | pre | pre-wrap | pre-line | <'white-space-collapse'> || <'text-wrap-mode'>",
+    "syntax": "normal | pre | nowrap | pre-wrap | break-spaces | pre-line",
     "computed": [
       "asSpecified"
     ],
@@ -6471,7 +6489,7 @@
   },
   {
     "name": "widows",
-    "syntax": "<integer>",
+    "syntax": "<integer [1,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -6480,7 +6498,7 @@
   },
   {
     "name": "width",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAutoOrAbsoluteLength"
     ],
@@ -6498,7 +6516,7 @@
   },
   {
     "name": "word-break",
-    "syntax": "normal | break-all | keep-all | break-word | auto-phrase",
+    "syntax": "normal | keep-all | break-all | break-word",
     "computed": [
       "asSpecified"
     ],
@@ -6516,7 +6534,7 @@
   },
   {
     "name": "word-wrap",
-    "syntax": "normal | break-word",
+    "syntax": "normal | break-word | anywhere",
     "computed": [
       "asSpecified"
     ],
@@ -6534,7 +6552,7 @@
   },
   {
     "name": "x",
-    "syntax": "<length> | <percentage>",
+    "syntax": "<length-percentage>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -6543,7 +6561,7 @@
   },
   {
     "name": "y",
-    "syntax": "<length> | <percentage>",
+    "syntax": "<length-percentage>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -6552,7 +6570,7 @@
   },
   {
     "name": "z-index",
-    "syntax": "auto | <integer>",
+    "syntax": "auto | <integer> | inherit",
     "computed": [
       "asSpecified"
     ],
@@ -6561,7 +6579,7 @@
   },
   {
     "name": "zoom",
-    "syntax": "normal | reset | <number [0,∞]> || <percentage [0,∞]>",
+    "syntax": "<number [0,∞]> | <percentage [0,∞]>",
     "computed": [
       "asSpecifiedButWithPercentageConvertedToTheEquivalentNumber"
     ],
