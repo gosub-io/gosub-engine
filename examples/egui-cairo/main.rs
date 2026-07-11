@@ -252,8 +252,7 @@ impl BrowserApp {
                     let dst_y0 = screen_y.max(0) as usize;
                     let tw = tw as usize;
                     let th = th as usize;
-                    let tile_u32 =
-                        unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
+                    let tile_u32 = bytemuck::cast_slice::<u8, u32>(&tile.data);
                     for tile_row in tile_start_row..th {
                         let dst_y = dst_y0 + (tile_row - tile_start_row);
                         if dst_y >= h {

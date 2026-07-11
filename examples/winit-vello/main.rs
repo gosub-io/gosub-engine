@@ -493,8 +493,9 @@ impl BrowserApp {
                     // Normalize to [R, G, B, A] regardless of which rasterizer produced the tile
                     // (Cargo feature unification may select Cairo's ARGB32 over Vello's RGBA).
                     let tile_data = tile.format.to_rgba(&tile.data);
-                    let tile_u32 =
-                        unsafe { std::slice::from_raw_parts(tile_data.as_ptr() as *const u32, tile_data.len() / 4) };
+                    // Pixel data is a multiple of 4 bytes and heap-aligned; cast_slice checks both
+                    // and panics rather than mis-reading, so no `unsafe`/alignment assumptions here.
+                    let tile_u32 = bytemuck::cast_slice::<u8, u32>(&tile_data);
                     for tile_row in tile_start_row..th {
                         let dst_y = dst_y0 + (tile_row - tile_start_row);
                         if dst_y >= h {

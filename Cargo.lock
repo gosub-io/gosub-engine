@@ -2167,6 +2167,7 @@ name = "example-egui-cairo"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "eframe",
  "egui 0.35.0",
  "gosub_engine",
@@ -2186,6 +2187,7 @@ name = "example-egui-skia"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "eframe",
  "egui 0.35.0",
  "gosub_engine",
@@ -2205,6 +2207,7 @@ name = "example-egui-vello"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "eframe",
  "egui 0.35.0",
  "gosub_engine",
@@ -2283,6 +2286,7 @@ name = "example-winit-cairo"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "cairo-rs",
  "gosub_engine",
  "gosub_render_pipeline",
@@ -2303,6 +2307,7 @@ name = "example-winit-skia"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_renderer_skia",
@@ -2346,6 +2351,7 @@ name = "example-winit-vello"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "gosub_engine",
  "gosub_render_pipeline",
  "gosub_renderer_vello",

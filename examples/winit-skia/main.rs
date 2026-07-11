@@ -372,8 +372,7 @@ fn blit_to_buffer(
                 let tw = tw as usize;
                 let th = th as usize;
 
-                let tile_u32 =
-                    unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
+                let tile_u32 = bytemuck::cast_slice::<u8, u32>(&tile.data);
 
                 for row in row_start..th {
                     let dst_y = addr_h as usize + screen_y + (row - row_start);
