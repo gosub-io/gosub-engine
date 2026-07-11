@@ -11,10 +11,8 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{
-    anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle,
-};
-use gosub_render_pipeline::render::DefaultCompositor;
+use gosub_render_pipeline::render::backend::ExternalHandle;
+use gosub_render_pipeline::render::{composite_tiles, DefaultCompositor, TileTarget};
 use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
 use once_cell::sync::Lazy;
 use skia_safe::{surfaces, Color4f, Font, FontMgr, FontStyle, Paint, Rect as SkRect};
@@ -341,64 +339,21 @@ fn blit_to_buffer(
             ..
         } => {
             *page_height = ph;
-            let dpr_f = dpr as f64;
-            for tile in tiles.iter() {
-                // Viewport position in CSS px from the engine's authoritative scroll (handles
-                // scroll, fixed and sticky uniformly), then scaled to device px. Signed: a tile may
-                // start above/left of the viewport.
-                let (vx, vy) = anchored_tile_pos(
-                    tile.page_x as f64,
-                    tile.page_y as f64,
-                    scroll_x as f64,
-                    scroll_y as f64,
-                    tile.anchor,
-                );
-                let screen_x_i = (vx * dpr_f).round() as i64;
-                let screen_y_i = (vy * dpr_f).round() as i64;
-                let tw = tile.width as i64;
-                let th = tile.height as i64;
-
-                // Skip tiles entirely outside the viewport.
-                if screen_x_i + tw <= 0 || screen_y_i + th <= 0 || screen_x_i >= win_w as i64 {
-                    continue;
-                }
-
-                // Leading rows/cols of the tile that fall above/left of the viewport edge.
-                let row_start = (-screen_y_i).max(0) as usize;
-                let col_start = (-screen_x_i).max(0) as usize;
-                // On-screen position of the first visible pixel.
-                let screen_x = screen_x_i.max(0) as usize;
-                let screen_y = screen_y_i.max(0) as usize;
-                let tw = tw as usize;
-                let th = th as usize;
-
-                let tile_u32 = bytemuck::cast_slice::<u8, u32>(&tile.data);
-
-                for row in row_start..th {
-                    let dst_y = addr_h as usize + screen_y + (row - row_start);
-                    if dst_y >= (addr_h + content_h) as usize {
-                        break;
-                    }
-                    let visible_cols = tw - col_start;
-                    let avail_x = win_w as usize - screen_x.min(win_w as usize);
-                    let cw = visible_cols.min(avail_x);
-                    if cw == 0 {
-                        break;
-                    }
-                    // Skia tiles are BGRA8888 (premultiplied); reinterpreted as a
-                    // little-endian u32 they read as 0xAARRGGBB. Source-over blend so
-                    // transparent upper-layer pixels reveal the content beneath instead
-                    // of overwriting it. softbuffer ignores the high (alpha) byte.
-                    let row_off = row * tw + col_start;
-                    let src = &tile_u32[row_off..row_off + cw];
-                    let dst_base = dst_y * win_w as usize + screen_x;
-                    let dst = &mut buf[dst_base..dst_base + cw];
-                    for (d, &s) in dst.iter_mut().zip(src.iter()) {
-                        let src_argb = tile.format.pixel_to_argb_u32(s);
-                        *d = blend_over_argb_u32(scale_premul_argb_u32(src_argb, tile.opacity), *d);
-                    }
-                }
-            }
+            // Composite the visible tiles onto the white-filled content region, below the address
+            // bar (origin_y = addr_h). softbuffer ignores the high (alpha) byte of each ARGB pixel.
+            composite_tiles(
+                &tiles,
+                dpr,
+                (scroll_x, scroll_y),
+                &mut TileTarget {
+                    buf: &mut buf[..],
+                    stride: win_w as usize,
+                    origin_x: 0,
+                    origin_y: addr_h as usize,
+                    width: win_w as usize,
+                    height: content_h as usize,
+                },
+            );
         }
         _ => {}
     }

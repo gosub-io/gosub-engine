@@ -20,6 +20,7 @@ gosub-sonar = "0.1.0"
 url = { workspace = true }
 resvg = { workspace = true }
 bytes = { workspace = true }
+bytemuck = { workspace = true }
 anyhow = { workspace = true }
 cow-utils = { workspace = true }
 parking_lot = { workspace = true }
