@@ -46,7 +46,7 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
                 return;
             }
 
-            #[cfg(feature = "text_pango")]
+            #[cfg(feature = "pango")]
             {
                 use gtk4::gdk_pixbuf::{Colorspace, InterpType, Pixbuf};
                 use gtk4::glib::Bytes;
@@ -90,7 +90,7 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
                 cr.set_source_pixbuf(&scaled_pixbuf, rect.x, rect.y);
             }
 
-            #[cfg(not(feature = "text_pango"))]
+            #[cfg(not(feature = "pango"))]
             {
                 // Cairo-native path: convert RGBA → premultiplied ARGB32 and paint via SurfacePattern.
                 let width = img.width() as i32;

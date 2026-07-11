@@ -1,20 +1,19 @@
+//! `SkiaFontSystem` — measurement and shaping through Skia's `textlayout` engine.
+//!
+//! Lives here (rather than in the Skia renderer crate) because a font system is
+//! renderer-independent: it resolves, shapes, and measures; any glyph-painting backend can
+//! consume its output.
+
 use gosub_interface::font::{FontBlob, FontError, FontStyle as CssFontStyle};
 use gosub_interface::font_system::{
     FontQuery, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText,
     TextAlign as GosubTextAlign, TextStyle as GosubTextStyle,
 };
-#[cfg(not(feature = "text_glyphs"))]
-use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
 use parking_lot::Mutex;
 use skia_safe::textlayout::{
     FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, TextAlign, TextStyle, TypefaceFontProvider,
 };
-#[cfg(not(feature = "text_glyphs"))]
-use skia_safe::textlayout::{TextDecoration, TextDirection};
-#[cfg(not(feature = "text_glyphs"))]
-use skia_safe::Paint;
 use skia_safe::{FontMgr, FontStyle};
-use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
@@ -508,10 +507,6 @@ impl FontSystem for SkiaFontSystem {
             (paragraph.longest_line(), paragraph.height())
         })
     }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
 }
 
 /// Map a CSS `font-stretch` percentage (normal = 100) onto Skia's 1–9 width classes
@@ -531,81 +526,6 @@ fn width_from_css_percent(pct: i32) -> skia_safe::font_style::Width {
         _ => 9,         // ultra-expanded (200%)
     };
     skia_safe::font_style::Width::from(class)
-}
-
-/// Build and lay out a Skia `Paragraph` for `text`, drawn with `paint`, wrapped/aligned within
-/// `layout_width`. This is the single text engine for the Skia backend: the same `textlayout`
-/// machinery used by [`SkiaFontSystem::measure`], so draw metrics match the layout metrics. It
-/// honours the CSS features carried on [`FontInfo`] — text alignment, absolute line-height,
-/// `underline`/`line-through`, weight/width/slant — which the previous hand-rolled `draw_str`
-/// path could not. The caller paints the returned paragraph at the text box's top-left.
-#[cfg(not(feature = "text_glyphs"))]
-pub(crate) fn build_paragraph(text: &str, font_info: &FontInfo, paint: &Paint, layout_width: f32) -> Paragraph {
-    let mut paragraph_style = ParagraphStyle::new();
-    paragraph_style.set_text_align(match font_info.alignment {
-        FontAlignment::Start => TextAlign::Start,
-        FontAlignment::Center => TextAlign::Center,
-        FontAlignment::End => TextAlign::End,
-        FontAlignment::Justify => TextAlign::Justify,
-    });
-    paragraph_style.set_text_direction(TextDirection::LTR);
-
-    let mut builder = ParagraphBuilder::new(&paragraph_style, with_font_collection(|fc| fc.clone()));
-
-    let font_size = font_info.size as f32;
-
-    let mut ts = TextStyle::new();
-    ts.set_foreground_paint(paint);
-    ts.set_font_size(font_size);
-    // `line_height` is an absolute CSS px value; Skia expects a multiple of the font size, applied
-    // only when height-override is on. Skip it for a non-positive size to avoid a div-by-zero.
-    if font_info.line_height > 0.0 && font_size > 0.0 {
-        ts.set_height(font_info.line_height as f32 / font_size);
-        ts.set_height_override(true);
-    }
-    // CSS letter-spacing (px). Matches the value applied during measurement so widths agree.
-    if font_info.letter_spacing != 0.0 {
-        ts.set_letter_spacing(font_info.letter_spacing as f32);
-    }
-    ts.set_font_families(&resolve_family_list(&font_info.family));
-    ts.set_font_style(FontStyle::new(
-        skia_safe::font_style::Weight::from(font_info.weight),
-        width_from_css_percent(font_info.width),
-        if font_info.slant > 0 {
-            skia_safe::font_style::Slant::Italic
-        } else {
-            skia_safe::font_style::Slant::Upright
-        },
-    ));
-
-    let mut decoration = TextDecoration::NO_DECORATION;
-    if font_info.underline {
-        decoration |= TextDecoration::UNDERLINE;
-    }
-    if font_info.line_through {
-        decoration |= TextDecoration::LINE_THROUGH;
-    }
-    if decoration != TextDecoration::NO_DECORATION {
-        ts.set_decoration_type(decoration);
-        ts.set_decoration_color(paint.color());
-    }
-
-    builder.push_style(&ts);
-    builder.add_text(text);
-
-    let mut paragraph = builder.build();
-    paragraph.layout(layout_width);
-    paragraph
-}
-
-#[allow(dead_code)]
-fn to_slant(slant: i32) -> skia_safe::font_style::Slant {
-    match slant {
-        0 => skia_safe::font_style::Slant::Upright,
-        1 => skia_safe::font_style::Slant::Italic,
-        2 => skia_safe::font_style::Slant::Oblique,
-        _ => skia_safe::font_style::Slant::Upright,
-    }
 }
 
 #[cfg(test)]

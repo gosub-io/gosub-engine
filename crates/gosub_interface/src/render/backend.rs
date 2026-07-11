@@ -455,9 +455,9 @@ pub trait RenderBackend: Send {
     /// Defaults to a no-op marker; only backends with [`RasterStrategy`] other than
     /// [`RasterStrategy::None`] need to override it.
     ///
-    /// `font_system` is the engine's single shared font system (the config's `FontSystem`). The
-    /// rasterizer measures/draws through it; a backend recovers its concrete type via
-    /// [`crate::font_system::FontSystem::as_any_mut`] for its native draw path.
+    /// `font_system` is the engine's single shared font system (the config's `FontSystem`).
+    /// The rasterizer exposes it to the layouter so measurement uses the configured instance;
+    /// painting consumes the pre-shaped glyph runs carried on the text paint commands.
     fn create_rasterizer(
         &self,
         font_system: Arc<parking_lot::Mutex<dyn crate::font_system::FontSystem>>,

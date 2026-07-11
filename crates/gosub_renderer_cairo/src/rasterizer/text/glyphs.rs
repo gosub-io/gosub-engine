@@ -156,10 +156,10 @@ pub(crate) fn do_paint_text(cr: &Context, tile: &Tile, cmd: &Text, media_store: 
     Ok(())
 }
 
-#[cfg(all(test, feature = "text_pango"))]
+#[cfg(all(test, feature = "pango"))]
 mod tests {
     use super::*;
-    use crate::font::pango::PangoFontSystem;
+    use gosub_fontmanager::PangoFontSystem;
     use gosub_interface::font_system::{FontSystem, TextStyle};
     use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
     use gosub_render_pipeline::common::geo::Rect as GeoRect;

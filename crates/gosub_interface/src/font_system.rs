@@ -1,5 +1,4 @@
 use parking_lot::Mutex;
-use std::any::Any;
 use std::sync::Arc;
 
 use crate::font::{FontBlob, FontError, FontStyle};
@@ -229,10 +228,8 @@ impl TextStyle {
 /// shaping, and drawing can't disagree.
 ///
 /// Drawing itself is *not* on this trait: painting the [`ShapedText`] returned by
-/// [`FontSystem::shape`] is the render backend's job (glyph IDs + a [`crate::font::FontBlob`]
-/// are everything a rasterizer needs). Until every backend consumes `ShapedText`, backends with
-/// an engine-native draw path recover their concrete font system via [`FontSystem::as_any_mut`];
-/// that escape hatch is scheduled for removal.
+/// [`FontSystem::shape`] is the render backend's job — glyph IDs + a [`crate::font::FontBlob`]
+/// are everything a rasterizer needs, so any font system serves any backend.
 ///
 /// # Threading
 /// `Send + Sync` so it can live behind `Arc<Mutex<dyn FontSystem>>`, shared between the layouter
@@ -271,11 +268,6 @@ pub trait FontSystem: Send + Sync + 'static {
         let shaped = self.shape(text, style);
         (shaped.width, shaped.height)
     }
-
-    /// Recover the concrete font system so a render backend can call its native draw path.
-    ///
-    /// Transitional: goes away once every backend paints [`ShapedText`] instead.
-    fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
 // Config integration

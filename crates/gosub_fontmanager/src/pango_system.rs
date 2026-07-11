@@ -1,3 +1,9 @@
+//! `PangoFontSystem` — fontconfig lookup + Pango/HarfBuzz shaping (the Linux desktop stack).
+//!
+//! Lives here (rather than in the Cairo renderer crate) because a font system is
+//! renderer-independent: it resolves, shapes, and measures; any glyph-painting backend can
+//! consume its output.
+
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
 use gosub_interface::font_system::{
@@ -7,7 +13,6 @@ use gtk4::pango;
 use gtk4::pango::Weight;
 use gtk4::prelude::{FontExt, FontFamilyExt};
 use parking_lot::Mutex;
-use std::any::Any;
 use std::collections::HashMap;
 use std::ffi::c_int;
 use std::sync::{Arc, OnceLock};
@@ -538,10 +543,6 @@ impl FontSystem for PangoFontSystem {
         }
         self.measure_inner(text, style)
             .unwrap_or_else(|| (text.chars().count() as f32 * style.size * 0.5, style.size * 1.2))
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
     }
 }
 

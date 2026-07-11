@@ -7,7 +7,6 @@ use gosub_interface::font_system::{
 use parley::fontique::{Attributes, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache};
 use parley::style::{FontStyle as ParleyStyle, FontWeight as ParleyWeight};
 use parley::{Alignment, AlignmentOptions, FontContext, LayoutContext, PositionedLayoutItem};
-use std::any::Any;
 
 /// A [`FontSystem`] implementation backed by Parley + Fontique.
 ///
@@ -66,10 +65,6 @@ impl ParleyFontSystem {
 }
 
 impl FontSystem for ParleyFontSystem {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn register_font(&mut self, data: Vec<u8>, _family_override: Option<&str>) -> Result<(), FontError> {
         // fontique derives the family name from the font's own `name` table;
         // custom name overrides are not yet supported here.

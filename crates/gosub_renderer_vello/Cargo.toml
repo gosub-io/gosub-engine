@@ -23,19 +23,12 @@ parley = { workspace = true, features = ["std"] }
 fontique = "0.9.0"
 skrifa = "0.42.1"
 
-skia-safe = { workspace = true, features = ["textlayout"], optional = true }
 
 [dev-dependencies]
 image = { workspace = true }
 
 [features]
-default = ["text_parley"]
-# Engine-neutral glyph-run text painter: shapes through the configured FontSystem (any engine)
-# and paints the returned glyph runs. Takes precedence over the engine-native text_* variants.
-text_glyphs = []
-text_parley = []
-text_skia = ["dep:skia-safe"]
-text_pango = []
+default = []
 # Selects the Parley shaping path in the VelloBackend text renderer (skrifa fallback when off).
 parley_layout = []
 

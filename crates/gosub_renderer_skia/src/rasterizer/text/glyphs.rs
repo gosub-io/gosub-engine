@@ -105,7 +105,7 @@ fn brush_to_color4f(brush: &Brush) -> Color4f {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::font::skia::SkiaFontSystem;
+    use gosub_fontmanager::SkiaFontSystem;
     use gosub_interface::font_system::{FontSystem, TextStyle};
     use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
     use gosub_render_pipeline::common::geo::Rect as GeoRect;

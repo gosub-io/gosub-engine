@@ -16,7 +16,6 @@ use gosub_interface::font_system::{
     FontQuery, FontStretch, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText, TextAlign,
     TextStyle,
 };
-use std::any::Any;
 use std::sync::Arc;
 
 /// A [`FontSystem`] backed by cosmic-text.
@@ -113,10 +112,6 @@ impl CosmicFontSystem {
 }
 
 impl FontSystem for CosmicFontSystem {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn register_font(&mut self, data: Vec<u8>, _family_override: Option<&str>) -> Result<(), FontError> {
         // fontdb derives the family name from the font's own `name` table; overrides unsupported.
         self.inner.db_mut().load_font_data(data);

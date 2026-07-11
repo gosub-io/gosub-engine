@@ -3352,11 +3352,18 @@ dependencies = [
 name = "gosub_fontmanager"
 version = "0.1.0"
 dependencies = [
+ "cairo-rs",
  "cosmic-text",
  "cow-utils",
  "gosub_interface",
  "gosub_shared",
+ "gtk4",
+ "log",
+ "pangocairo",
+ "parking_lot",
  "parley",
+ "skia-safe",
+ "yeslogic-fontconfig-sys",
 ]
 
 [[package]]
@@ -3452,15 +3459,14 @@ dependencies = [
  "cairo-rs",
  "cow-utils",
  "freetype-rs",
+ "gosub_fontmanager",
  "gosub_interface",
  "gosub_render_pipeline",
  "gosub_shared",
  "gtk4",
  "log",
- "pangocairo",
  "parking_lot",
  "resvg",
- "yeslogic-fontconfig-sys",
 ]
 
 [[package]]
@@ -3481,6 +3487,7 @@ name = "gosub_renderer_skia"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "gosub_fontmanager",
  "gosub_interface",
  "gosub_render_pipeline",
  "gosub_shared",
@@ -3506,7 +3513,6 @@ dependencies = [
  "parley",
  "pollster 1.0.1",
  "resvg",
- "skia-safe",
  "skrifa 0.42.1",
  "vello",
  "winit",

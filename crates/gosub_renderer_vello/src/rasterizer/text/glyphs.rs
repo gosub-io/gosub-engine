@@ -5,7 +5,7 @@
 //! system because the contract is raw font bytes + glyph IDs, not engine internals.
 
 use crate::rasterizer::brush::set_brush;
-use gosub_interface::font_system::{FontSystem, ShapedRun};
+use gosub_interface::font_system::ShapedRun;
 use gosub_render_pipeline::common::geo::Dimension;
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::text::Text;
@@ -17,17 +17,15 @@ fn peniko_font(run: &ShapedRun) -> FontData {
     FontData::new(Blob::new(run.font.blob.data.clone()), run.font.blob.index)
 }
 
-/// `_font_system` is unused: the command carries its pre-shaped glyph runs (shaped once at
-/// paint-command build time by the pipeline Painter). The parameter exists so this variant
-/// shares a signature with the engine-native `text_parley` rasterizer, which re-shapes.
 pub fn do_paint_text(
     scene: &mut Scene,
     cmd: &Text,
     _tile_size: Dimension,
     affine: Affine,
     media_store: &MediaStore,
-    _font_system: &mut dyn FontSystem,
 ) -> Result<(), anyhow::Error> {
+    // Shaping happened once at paint-command build time (the pipeline Painter, with the same
+    // font system the layouter measured with); this function only paints the glyph runs.
     let shaped = &cmd.shaped;
     if shaped.is_empty() {
         return Ok(());
@@ -76,7 +74,7 @@ pub fn do_paint_text(
 mod tests {
     use super::*;
     use gosub_fontmanager::ParleyFontSystem;
-    use gosub_interface::font_system::TextStyle;
+    use gosub_interface::font_system::{FontSystem, TextStyle};
     use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
     use gosub_render_pipeline::common::geo::Rect as GeoRect;
     use gosub_render_pipeline::painter::commands::brush::Brush;
@@ -120,7 +118,6 @@ mod tests {
             Dimension::new(200.0, 60.0),
             Affine::IDENTITY,
             &MediaStore::new(),
-            &mut fs,
         );
         assert!(res.is_ok(), "painting failed: {res:?}");
     }
