@@ -321,6 +321,12 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 CssValue::Zero | CssValue::Number(_) | CssValue::Percentage(_) => return first_match(input),
                 _ => {}
             },
+            // A comma is a structural separator (list items, function arguments), never a
+            // leaf datatype value. Without this guard the permissive catch-all would let a
+            // built-in such as `<time>` consume the comma that separates items in a `#`
+            // list (e.g. `transition: opacity 0.3s, transform 0.5s`), swallowing the
+            // separator and leaving the following item unmatched.
+            _ if matches!(value, CssValue::Comma) => {}
             _ => {
                 return first_match(input);
             } // _ => panic!("Unknown built-in datatype: {:?}", datatype),

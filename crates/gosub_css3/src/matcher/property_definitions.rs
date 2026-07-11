@@ -861,6 +861,10 @@ mod tests {
                     ("all 0.3s ease", true),
                     ("opacity 0.3s", true),
                     ("0.3s", true),
+                    // Comma-separated list where each item has multiple components: the
+                    // separating comma must not be swallowed by a component's matcher.
+                    ("opacity 0.3s, transform 0.5s", true),
+                    ("opacity 0.3s ease, transform 0.5s 0.1s", true),
                     ("banana", true),
                 ],
             ),
@@ -943,12 +947,6 @@ mod tests {
         // treats the bounded datatype as its unbounded base, so a negative length for a
         // non-negative property still matches.
         assert!(ok("width", "-5px"));
-
-        // A comma-separated list of a value type that itself contains a `||` group does
-        // not split on the separating comma (same family as the box-shadow `#` gap):
-        // a single transition matches, but a multi-transition list does not.
-        assert!(ok("transition", "opacity 0.3s"));
-        assert!(!ok("transition", "opacity 0.3s, transform 0.5s"));
 
         // The `fr` flex unit (`<flex>`) is not matched, so a track list using it fails
         // even though a length/keyword track list matches.
