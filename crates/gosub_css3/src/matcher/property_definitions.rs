@@ -1054,6 +1054,30 @@ mod tests {
         assert!(m("a? && b{2}", &[str!("b"), str!("b"), str!("a")]));
     }
 
+    /// The CSS-wide keywords are valid as the sole value of every property (none of which
+    /// list them in their grammar), but only when they stand alone.
+    #[test]
+    fn test_css_wide_keywords() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        for prop in ["color", "display", "margin", "width", "grid-template-columns", "box-shadow"] {
+            for kw in ["inherit", "initial", "unset", "revert", "revert-layer"] {
+                assert!(ok(prop, kw), "{prop}: {kw} should match");
+            }
+        }
+        // Must stand alone: a CSS-wide keyword combined with anything else is invalid,
+        // and it must not leak into a property that would otherwise reject the token.
+        assert!(!ok("margin", "inherit inherit"));
+        assert!(!ok("color", "inherit red"));
+        assert!(!ok("color", "banana"));
+    }
+
     #[test]
     fn test_box_shadow_matching() {
         let defs = get_css_definitions();

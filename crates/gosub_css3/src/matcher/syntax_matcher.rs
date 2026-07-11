@@ -38,6 +38,12 @@ impl CssSyntaxTree {
             return false;
         }
 
+        // The CSS-wide keywords are valid as the sole value of every property, yet they
+        // appear in no property grammar, so accept them here at the top level.
+        if is_css_wide_keyword(input) {
+            return true;
+        }
+
         assert!(
             (self.components.len() == 1),
             "Syntax tree must have exactly one root component"
@@ -52,6 +58,10 @@ impl CssSyntaxTree {
             return false;
         }
 
+        if is_css_wide_keyword(input) {
+            return true;
+        }
+
         assert!(
             (self.components.len() == 1),
             "Syntax tree must have exactly one root component"
@@ -59,6 +69,24 @@ impl CssSyntaxTree {
 
         let res = match_component(input, &self.components[0], Some(resolver));
         res.matched && res.remainder.is_empty()
+    }
+}
+
+/// Returns true when `input` is exactly one CSS-wide keyword (`inherit`, `initial`,
+/// `unset`, `revert`, `revert-layer`). These are valid for any property but must stand
+/// alone — `margin: inherit inherit` is invalid — so a single value is required. The real
+/// parser lowers them to `CssValue::String`, but the dedicated `Inherit`/`Initial`
+/// variants are also accepted for callers that build values directly.
+fn is_css_wide_keyword(input: &[CssValue]) -> bool {
+    let [value] = input else {
+        return false;
+    };
+    match value {
+        CssValue::Inherit | CssValue::Initial => true,
+        CssValue::String(s) => ["inherit", "initial", "unset", "revert", "revert-layer"]
+            .iter()
+            .any(|kw| s.eq_ignore_ascii_case(kw)),
+        _ => false,
     }
 }
 
