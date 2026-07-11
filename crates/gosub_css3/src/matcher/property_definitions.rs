@@ -893,6 +893,19 @@ mod tests {
                     ("banana", false),
                 ],
             ),
+            (
+                // `[ <bg-layer> , ]* <final-bg-layer>` — a single layer needs no comma, and
+                // additional layers are comma-separated. The generator rewrites the
+                // linearized `<bg-layer>#? , <final-bg-layer>` idiom into this spec form.
+                "background",
+                &[
+                    ("red", true),
+                    ("url(a.png)", true),
+                    ("url(a.png) no-repeat", true),
+                    ("url(a.png), red", true),
+                    ("url(a.png) no-repeat, url(b.png), blue", true),
+                ],
+            ),
         ];
 
         let defs = get_css_definitions();
@@ -966,10 +979,6 @@ mod tests {
         // treats the bounded datatype as its unbounded base, so a negative length for a
         // non-negative property still matches.
         assert!(ok("width", "-5px"));
-
-        // webref types `background` as `<bg-layer>#? , <final-bg-layer>`, which makes the
-        // separating comma mandatory, so a bare single-layer background does not match.
-        assert!(!ok("background", "red"));
     }
 
     /// Regression tests for combinator/multiplier matching bugs fixed alongside
