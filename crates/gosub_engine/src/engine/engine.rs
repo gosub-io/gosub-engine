@@ -25,7 +25,7 @@ use crate::engine::types::{EventChannel, IoChannel};
 use crate::engine::DEFAULT_CHANNEL_CAPACITY;
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
-use crate::net::{spawn_io_thread, FetcherConfig, IoHandle};
+use crate::net::{fetcher_config_from, spawn_io_thread, IoHandle};
 use crate::util::spawn_named;
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineError, EngineSettings};
@@ -149,20 +149,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         }
 
         // Start I/O thread, building the fetcher config from the settings store.
-        let cfg = &self.context.config_store;
-        let body_secs = cfg.get_uint("net.timeout.body_secs");
-        let io_cfg = FetcherConfig {
-            global_slots: cfg.get_uint("net.http.global_slots"),
-            h1_per_origin: cfg.get_uint("net.http.per_origin_h1"),
-            h2_per_origin: cfg.get_uint("net.http.per_origin_h2"),
-            connect_timeout: Duration::from_secs(cfg.get_uint("net.timeout.connect_secs") as u64),
-            req_timeout: Duration::from_secs(cfg.get_uint("net.timeout.request_secs") as u64),
-            read_idle_timeout: Duration::from_secs(cfg.get_uint("net.timeout.read_idle_secs") as u64),
-            // A body timeout of 0 means "no limit".
-            total_body_timeout: (body_secs > 0).then(|| Duration::from_secs(body_secs as u64)),
-            // Take the default user agent (and any future knobs) from gosub-sonar.
-            ..FetcherConfig::default()
-        };
+        let io_cfg = fetcher_config_from(&self.context.config_store);
         let io_handle = spawn_io_thread(io_cfg, self.context.clone());
         let io_tx = io_handle.subscribe();
         {

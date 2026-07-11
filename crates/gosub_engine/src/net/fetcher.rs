@@ -2,6 +2,29 @@
 pub use gosub_sonar::net::fetcher::{Fetcher, FetcherConfig};
 pub use gosub_sonar::net::fetcher_context::FetcherContext;
 
+/// Build a [`FetcherConfig`] from the engine's settings store.
+///
+/// Deliberately an engine-side free function rather than a `FetcherConfig::from_config` method on
+/// the gosub-sonar type: that would force sonar to know engine-specific setting keys. Any knob not
+/// present falls back to [`FetcherConfig::default`] (the gosub-sonar defaults, including the user
+/// agent).
+pub fn fetcher_config_from(cfg: &gosub_config::Config) -> FetcherConfig {
+    use std::time::Duration;
+
+    // A body timeout of 0 means "no limit".
+    let body_secs = cfg.get_uint("net.timeout.body_secs");
+    FetcherConfig {
+        global_slots: cfg.get_uint("net.http.global_slots"),
+        h1_per_origin: cfg.get_uint("net.http.per_origin_h1"),
+        h2_per_origin: cfg.get_uint("net.http.per_origin_h2"),
+        connect_timeout: Duration::from_secs(cfg.get_uint("net.timeout.connect_secs") as u64),
+        req_timeout: Duration::from_secs(cfg.get_uint("net.timeout.request_secs") as u64),
+        read_idle_timeout: Duration::from_secs(cfg.get_uint("net.timeout.read_idle_secs") as u64),
+        total_body_timeout: (body_secs > 0).then(|| Duration::from_secs(body_secs as u64)),
+        ..FetcherConfig::default()
+    }
+}
+
 use crate::engine::types::EventChannel;
 use crate::net::emitter::engine_event_emitter::EngineEventEmitter;
 use crate::net::emitter::null_emitter::NullEmitter;
