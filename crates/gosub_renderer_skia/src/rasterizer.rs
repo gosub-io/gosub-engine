@@ -91,16 +91,6 @@ impl Rasterable for SkiaRasterizer {
         );
         canvas.translate((-tile.rect.x as f32, -tile.rect.y as f32));
 
-        // The engine's shared font system, for text rasterizers that shape through it
-        // (`text_glyphs`); fall back to a local Skia font system when none was configured.
-        let shared_font_system = self.font_system.clone();
-        let mut font_guard = shared_font_system.as_ref().map(|fs| fs.lock());
-        let mut fallback_font_system = crate::font::skia::SkiaFontSystem;
-        let font_system: &mut dyn FontSystem = match font_guard.as_deref_mut() {
-            Some(fs) => fs,
-            None => &mut fallback_font_system,
-        };
-
         for element in &tile.elements {
             for command in &element.paint_commands {
                 match command {
@@ -111,7 +101,7 @@ impl Rasterable for SkiaRasterizer {
                         rectangle::do_paint_rectangle(canvas, tile, command, media_store);
                     }
                     PaintCommand::Text(command) => {
-                        let _ = text::do_paint_text(canvas, command, self.dpi_scale_factor, &mut *font_system);
+                        let _ = text::do_paint_text(canvas, command, self.dpi_scale_factor);
                     }
                     PaintCommand::Svg(command) => {
                         svg::do_paint_svg(canvas, tile, command.media_id, &command.rect, media_store, dpr as i32);

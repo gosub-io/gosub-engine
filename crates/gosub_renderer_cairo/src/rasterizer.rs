@@ -99,21 +99,9 @@ impl Rasterable for CairoRasterizer {
                         PaintCommand::Text(command) => {
                             #[cfg(feature = "text_glyphs")]
                             {
-                                let mut guard = self.config_font_system.as_ref().map(|f| f.lock());
-                                let result = match guard.as_deref_mut() {
-                                    Some(fs) => text::glyphs::do_paint_text(&cr, tile, command, media_store, fs),
-                                    #[cfg(feature = "text_pango")]
-                                    None => {
-                                        let mut fallback = text::glyphs::fallback_font_system().lock();
-                                        text::glyphs::do_paint_text(&cr, tile, command, media_store, &mut *fallback)
-                                    }
-                                    #[cfg(not(feature = "text_pango"))]
-                                    None => {
-                                        log::warn!("text_glyphs: no font system configured; text will not render");
-                                        Ok(())
-                                    }
-                                };
-                                if let Err(e) = result {
+                                // The command carries its pre-shaped glyph runs; painting needs
+                                // no font system here.
+                                if let Err(e) = text::glyphs::do_paint_text(&cr, tile, command, media_store) {
                                     log::warn!("Failed to paint text: {:?}", e);
                                 }
                             }

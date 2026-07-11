@@ -5,41 +5,12 @@
 //! bytes. Works with any font system because the contract is font bytes + glyph IDs, not engine
 //! internals.
 
-use gosub_interface::font::FontStyle;
-use gosub_interface::font_system::{FontStretch, FontSystem, FontWeight, TextAlign, TextStyle};
-use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
 use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::gradient::Gradient;
 use gosub_render_pipeline::painter::commands::text::Text;
 use skia_safe::{Canvas, Color4f, Font as SkFont, FontMgr, Paint, Point, Rect, TextBlobBuilder, Typeface};
 use std::cell::RefCell;
 use std::collections::HashMap;
-
-/// The neutral [`TextStyle`] for a display-list text command — the same mapping the layouter's
-/// measure path uses, plus wrap width and alignment, so shaping reproduces the measured box.
-fn text_style_for(font_info: &FontInfo, max_width: f32) -> TextStyle {
-    TextStyle {
-        family: font_info.family.clone(),
-        size: font_info.size as f32,
-        weight: FontWeight(font_info.weight.clamp(1, 1000) as u16),
-        style: if font_info.slant != 0 {
-            FontStyle::Italic
-        } else {
-            FontStyle::Normal
-        },
-        stretch: FontStretch::NORMAL,
-        line_height: Some(font_info.line_height as f32),
-        letter_spacing: font_info.letter_spacing as f32,
-        max_width: Some(max_width),
-        align: match font_info.alignment {
-            FontAlignment::Start => TextAlign::Start,
-            FontAlignment::Center => TextAlign::Center,
-            FontAlignment::End => TextAlign::End,
-            FontAlignment::Justify => TextAlign::Justify,
-        },
-        display_scale: 1.0,
-    }
-}
 
 /// A cheap, stable identity for a font blob: length + head/tail content hash + collection index.
 /// Deliberately *not* the `Arc` data pointer — an address can be recycled for a different font
@@ -72,27 +43,13 @@ fn typeface_for(blob: &gosub_interface::font::FontBlob) -> Option<Typeface> {
     })
 }
 
-pub fn do_paint_text(
-    canvas: &Canvas,
-    cmd: &Text,
-    _dpi_scale_factor: f32,
-    font_system: &mut dyn FontSystem,
-) -> Result<(), anyhow::Error> {
-    if cmd.text.is_empty() || cmd.font_info.size <= 0.0 {
+pub fn do_paint_text(canvas: &Canvas, cmd: &Text, _dpi_scale_factor: f32) -> Result<(), anyhow::Error> {
+    // Shaping happened once at paint-command build time (the pipeline Painter, with the same
+    // font system the layouter measured with); this function only paints the glyph runs.
+    let shaped = &cmd.shaped;
+    if shaped.is_empty() {
         return Ok(());
     }
-
-    // Wrap limit: Start-aligned text wraps within the container width the layouter used, so the
-    // painted line breaks reproduce the measured ones (fragments can carry whole multi-line
-    // paragraphs). Center/End/Justify text instead uses the fragment's own box as its alignment
-    // container — glyphs shifted outside the fragment rect would land in tiles that never
-    // repaint this command.
-    let start_width = (cmd.available_width as f32).max(cmd.rect.width as f32).max(1.0);
-    let mut style = text_style_for(&cmd.font_info, start_width);
-    if style.align != TextAlign::Start {
-        style.max_width = Some((cmd.rect.width as f32).max(1.0));
-    }
-    let shaped = font_system.shape(&cmd.text, &style);
 
     let mut paint = Paint::new(brush_to_color4f(&cmd.brush), None);
     paint.set_anti_alias(true);
@@ -149,6 +106,8 @@ fn brush_to_color4f(brush: &Brush) -> Color4f {
 mod tests {
     use super::*;
     use crate::font::skia::SkiaFontSystem;
+    use gosub_interface::font_system::{FontSystem, TextStyle};
+    use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
     use gosub_render_pipeline::common::geo::Rect as GeoRect;
     use gosub_render_pipeline::painter::commands::color::Color;
 
@@ -182,15 +141,20 @@ mod tests {
             underline: true,
             line_through: false,
         };
+        let mut style = TextStyle::new("sans-serif", 24.0);
+        style.line_height = Some(28.0);
+        style.max_width = Some(180.0);
+        let shaped = fs.shape("Hello", &style);
         let cmd = Text::new(
             GeoRect::new(10.0, 10.0, 180.0, 40.0),
             "Hello",
             &font_info,
             Brush::Solid(Color::BLACK),
             180.0,
+            shaped,
         );
 
-        let res = do_paint_text(canvas, &cmd, 1.0, &mut fs);
+        let res = do_paint_text(canvas, &cmd, 1.0);
         assert!(res.is_ok(), "painting failed: {res:?}");
 
         let Some(pixmap) = canvas.peek_pixels() else {

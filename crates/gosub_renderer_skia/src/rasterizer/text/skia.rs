@@ -1,19 +1,12 @@
 use crate::font::skia::build_paragraph;
-use gosub_interface::font_system::FontSystem;
 use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::gradient::Gradient;
 use gosub_render_pipeline::painter::commands::text::Text;
 use skia_safe::{Canvas, Color4f, Paint};
 
-/// `_font_system` is unused: this variant draws through Skia's own textlayout (via the shared
-/// thread-local font collection), not the configured font system. The parameter exists so both
-/// text rasterizer variants share one signature.
-pub fn do_paint_text(
-    canvas: &Canvas,
-    cmd: &Text,
-    _dpi_scale_factor: f32,
-    _font_system: &mut dyn FontSystem,
-) -> Result<(), anyhow::Error> {
+/// Draws through Skia's own textlayout (via the shared thread-local font collection),
+/// re-shaping from `cmd.text` + `cmd.font_info`; `cmd.shaped` is ignored.
+pub fn do_paint_text(canvas: &Canvas, cmd: &Text, _dpi_scale_factor: f32) -> Result<(), anyhow::Error> {
     if cmd.text.is_empty() || cmd.font_info.size <= 0.0 {
         return Ok(());
     }

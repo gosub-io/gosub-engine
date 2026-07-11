@@ -1075,7 +1075,7 @@ fn pipeline_build_scene<C: RenderConfiguration>(
         tile_list: None,
         dpi_scale_factor: 1.0,
     };
-    let painter = Painter::new(Arc::clone(&layer_list));
+    let painter = Painter::new(Arc::clone(&layer_list), rasterizer.and_then(|r| r.font_system()));
     let commands = painter.paint_all(&state);
 
     SceneCache {
@@ -1178,7 +1178,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
         tile_list: None,
         dpi_scale_factor: 1.0,
     };
-    let painter = Painter::new(tile_list.layer_list.clone());
+    let painter = Painter::new(tile_list.layer_list.clone(), rasterizer.and_then(|r| r.font_system()));
     for &layer_id in &layer_ids {
         let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
         for tile_id in tile_ids {
@@ -1456,7 +1456,7 @@ fn pipeline_hover_repaint(
         tile_list: None,
         dpi_scale_factor: 1.0,
     };
-    let painter = Painter::new(tile_list.layer_list.clone());
+    let painter = Painter::new(tile_list.layer_list.clone(), rasterizer.and_then(|r| r.font_system()));
     for &layer_id in &layer_ids {
         let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
         for tile_id in tile_ids {

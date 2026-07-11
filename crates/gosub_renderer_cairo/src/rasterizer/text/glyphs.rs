@@ -10,9 +10,6 @@
 
 use crate::rasterizer::brush::set_brush;
 use cairo::{Antialias, Context, Error, FontOptions, Glyph, HintMetrics, HintStyle};
-use gosub_interface::font::FontStyle;
-use gosub_interface::font_system::{FontStretch, FontSystem, FontWeight, TextAlign, TextStyle};
-use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::text::Text;
 use gosub_render_pipeline::tiler::Tile;
@@ -22,32 +19,6 @@ use std::rc::Rc;
 /// Pango marks glyphs missing from the font with this flag (`PANGO_GLYPH_UNKNOWN_FLAG`); their
 /// IDs don't index the font file, so painting them through FreeType would draw garbage.
 const PANGO_GLYPH_UNKNOWN_FLAG: u32 = 0x1000_0000;
-
-/// The neutral [`TextStyle`] for a display-list text command — the same mapping the layouter's
-/// measure path uses, plus wrap width and alignment, so shaping reproduces the measured box.
-fn text_style_for(font_info: &FontInfo, max_width: f32) -> TextStyle {
-    TextStyle {
-        family: font_info.family.clone(),
-        size: font_info.size as f32,
-        weight: FontWeight(font_info.weight.clamp(1, 1000) as u16),
-        style: if font_info.slant != 0 {
-            FontStyle::Italic
-        } else {
-            FontStyle::Normal
-        },
-        stretch: FontStretch::NORMAL,
-        line_height: Some(font_info.line_height as f32),
-        letter_spacing: font_info.letter_spacing as f32,
-        max_width: Some(max_width),
-        align: match font_info.alignment {
-            FontAlignment::Start => TextAlign::Start,
-            FontAlignment::Center => TextAlign::Center,
-            FontAlignment::End => TextAlign::End,
-            FontAlignment::Justify => TextAlign::Justify,
-        },
-        display_scale: 1.0,
-    }
-}
 
 /// A cheap, stable identity for a font blob: length + head/tail content hash + collection index.
 /// Deliberately *not* the `Arc` data pointer — an address can be recycled for a different font
@@ -94,15 +65,6 @@ fn faces() -> &'static parking_lot::Mutex<FaceCache> {
     })
 }
 
-/// Fallback font system for rasterizers created without a shared engine font system: the same
-/// Pango engine the layouter falls back to on this backend, so measure and draw still agree.
-#[cfg(feature = "text_pango")]
-pub(crate) fn fallback_font_system() -> &'static parking_lot::Mutex<crate::font::pango::PangoFontSystem> {
-    static FS: std::sync::OnceLock<parking_lot::Mutex<crate::font::pango::PangoFontSystem>> =
-        std::sync::OnceLock::new();
-    FS.get_or_init(|| parking_lot::Mutex::new(crate::font::pango::PangoFontSystem::new()))
-}
-
 /// A cairo font face for a shaped run's font bytes. The FreeType face it wraps stays alive in
 /// the global cache forever (cairo references, but does not own, the `FT_Face`).
 fn cairo_face_for(blob: &gosub_interface::font::FontBlob) -> Option<cairo::FontFace> {
@@ -123,28 +85,13 @@ fn cairo_face_for(blob: &gosub_interface::font::FontBlob) -> Option<cairo::FontF
     cache.faces.get(&key).and_then(|e| e.as_ref().map(|(_, ff)| ff.clone()))
 }
 
-pub(crate) fn do_paint_text(
-    cr: &Context,
-    tile: &Tile,
-    cmd: &Text,
-    media_store: &MediaStore,
-    font_system: &mut dyn FontSystem,
-) -> Result<(), Error> {
-    if cmd.text.is_empty() || cmd.font_info.size <= 0.0 {
+pub(crate) fn do_paint_text(cr: &Context, tile: &Tile, cmd: &Text, media_store: &MediaStore) -> Result<(), Error> {
+    // Shaping happened once at paint-command build time (the pipeline Painter, with the same
+    // font system the layouter measured with); this function only paints the glyph runs.
+    let shaped = &cmd.shaped;
+    if shaped.is_empty() {
         return Ok(());
     }
-
-    // Wrap limit: Start-aligned text wraps within the container width the layouter used, so the
-    // painted line breaks reproduce the measured ones (fragments can carry whole multi-line
-    // paragraphs). Center/End/Justify text instead uses the fragment's own box as its alignment
-    // container — glyphs shifted outside the fragment rect would land in tiles that never
-    // repaint this command.
-    let start_width = cmd.available_width.max(cmd.rect.width).max(1.0) as f32;
-    let mut style = text_style_for(&cmd.font_info, start_width);
-    if style.align != TextAlign::Start {
-        style.max_width = Some(cmd.rect.width.max(1.0) as f32);
-    }
-    let shaped = font_system.shape(&cmd.text, &style);
 
     cr.save()?;
     // The current path is NOT part of cairo's save/restore state, and this context is shared
@@ -213,13 +160,15 @@ pub(crate) fn do_paint_text(
 mod tests {
     use super::*;
     use crate::font::pango::PangoFontSystem;
+    use gosub_interface::font_system::{FontSystem, TextStyle};
+    use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
     use gosub_render_pipeline::common::geo::Rect as GeoRect;
     use gosub_render_pipeline::painter::commands::brush::Brush;
     use gosub_render_pipeline::painter::commands::color::Color;
 
-
-    /// End-to-end paint through the generic glyph path: shape "Hello" with the Pango font system,
-    /// paint it via FreeType + `show_glyphs` onto a white surface, and assert dark pixels landed.
+    /// End-to-end paint through the generic glyph path: shape "Hello" with the Pango font system
+    /// (as the pipeline Painter does at command-build time), paint the carried runs via FreeType
+    /// + `show_glyphs` onto a white surface, and assert dark pixels landed.
     #[test]
     fn paints_visible_glyphs() {
         let mut fs = PangoFontSystem::new();
@@ -245,12 +194,17 @@ mod tests {
             underline: true,
             line_through: false,
         };
+        let mut style = TextStyle::new("sans-serif", 24.0);
+        style.line_height = Some(28.0);
+        style.max_width = Some(180.0);
+        let shaped = fs.shape("Hello", &style);
         let cmd = Text::new(
             GeoRect::new(10.0, 10.0, 180.0, 40.0),
             "Hello",
             &font_info,
             Brush::Solid(Color::BLACK),
             180.0,
+            shaped,
         );
         let tile = Tile {
             id: gosub_render_pipeline::tiler::TileId::new(0),
@@ -263,7 +217,7 @@ mod tests {
         };
 
         let media_store = MediaStore::new();
-        let res = do_paint_text(&cr, &tile, &cmd, &media_store, &mut fs);
+        let res = do_paint_text(&cr, &tile, &cmd, &media_store);
         assert!(res.is_ok(), "painting failed: {res:?}");
 
         drop(cr);
