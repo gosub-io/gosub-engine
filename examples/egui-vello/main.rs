@@ -160,7 +160,7 @@ impl BrowserApp {
         let backend = VelloBackend::new(context.clone()).ok()?;
 
         let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(None, Arc::new(backend), compositor.clone());
-        let _join = engine.start().expect("engine start");
+        let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
 
         let (ui_tx, ui_rx) = std::sync::mpsc::channel::<UiEvent>();
         let mut event_rx = engine.subscribe_events();

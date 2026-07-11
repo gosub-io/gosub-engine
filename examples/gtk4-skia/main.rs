@@ -82,7 +82,7 @@ fn main() {
 
         let backend = gosub_renderer_skia::SkiaBackend::new();
         let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
-        let _join = engine.start().expect("engine start");
+        let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
         let event_rx = engine.subscribe_events();
 
         let zone_cfg = ZoneConfig::builder().do_not_track(true).build().expect("ZoneConfig");

@@ -546,7 +546,7 @@ fn main() {
     // produces no tiles — the engine needs a real rasterizer to emit TileCache frames.)
     let backend = SkiaBackend::new();
     let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
-    let _join = engine.start().expect("engine start");
+    let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
 
     let proxy_ev = proxy.clone();
     let mut event_rx = engine.subscribe_events();

@@ -600,7 +600,7 @@ fn main() {
 
     let backend = CairoBackend::new();
     let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
-    let _join = engine.start().expect("engine start");
+    let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
 
     // Forward engine navigation events to update the window title.
     let proxy_ev = proxy.clone();

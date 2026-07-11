@@ -95,7 +95,7 @@ async fn main() -> Result<(), EngineError> {
         Arc::new(backend),
         Arc::new(DefaultCompositor::default()),
     );
-    let engine_join_handle = engine.start().expect("cannot start engine");
+    let engine_join_handle = tokio::spawn(engine.start().expect("cannot start engine"));
 
     // Get our event channel to receive events from the engine. Note that you will only receive events
     // send from this point on.
@@ -234,10 +234,8 @@ async fn main() -> Result<(), EngineError> {
     engine.shutdown().await?;
 
     // Wait for the engine task to finish
-    if let Some(handle) = engine_join_handle {
-        if let Err(join_err) = handle.await {
-            eprintln!("engine task panicked: {join_err}");
-        }
+    if let Err(join_err) = engine_join_handle.await {
+        eprintln!("engine task panicked: {join_err}");
     }
 
     println!("Done. Exiting. Seen frames: {}", seen_frames);

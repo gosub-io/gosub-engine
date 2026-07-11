@@ -26,7 +26,6 @@ use crate::engine::DEFAULT_CHANNEL_CAPACITY;
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::net::{fetcher_config_from, spawn_io_thread, IoHandle};
-use crate::util::spawn_named;
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineError, EngineSettings};
 use anyhow::Result;
@@ -36,7 +35,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
-use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tracing::instrument;
 
@@ -145,8 +143,14 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         }
     }
 
-    /// Starts the engine and returns the join handle of the main run loop task.
-    pub fn start(&mut self) -> Result<Option<JoinHandle<()>>, EngineError> {
+    /// Starts the engine's I/O runtime and returns the main run-loop future.
+    ///
+    /// The returned future is intentionally **not** spawned: the caller decides how to drive it —
+    /// `tokio::spawn` it onto a background task, `.await` it inline, or poll it inside a `select!`.
+    /// This keeps the engine from imposing a runtime/threading model on the embedder (it can be
+    /// driven on the caller's current task/thread). The engine is considered running as soon as
+    /// this returns `Ok`; driving the future processes engine commands such as shutdown.
+    pub fn start(&mut self) -> Result<impl std::future::Future<Output = ()> + 'static, EngineError> {
         if self.running {
             return Err(EngineError::AlreadyRunning);
         }
@@ -162,10 +166,10 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         #[cfg(feature = "metrics")]
         crate::metrics::start(9090);
 
-        // Start main engine run loop
-        let join_handle = self.run().map(|task| spawn_named("Engine runner", task));
-
-        Ok(join_handle)
+        // Hand the run-loop future to the caller to drive (spawn / await / select!) rather than
+        // spawning it ourselves. `run()` yields `None` only if the loop was already taken, which
+        // cannot happen here since `self.running` was false above.
+        self.run().ok_or(EngineError::AlreadyRunning)
     }
 
     /// Return a receiver for engine events.
@@ -190,8 +194,11 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         self.cmd_tx.clone()
     }
 
-    /// Run the engine’s inbound command loop in a dedicated thread/task.
-    pub fn run<'b>(&mut self) -> Option<impl std::future::Future<Output = ()> + 'b> {
+    /// Build the engine’s inbound command-loop future (owns everything it needs, hence `'static`).
+    ///
+    /// Returns `None` if the loop was already taken (engine already started). The caller drives the
+    /// future; this method does not spawn it.
+    pub fn run(&mut self) -> Option<impl std::future::Future<Output = ()> + 'static> {
         self.running = true;
 
         let _ = self.context.event_tx.send(EngineEvent::EngineStarted);

@@ -641,7 +641,7 @@ impl ApplicationHandler<()> for BrowserApp {
         };
 
         let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(None, Arc::new(backend), self.compositor.clone());
-        let _join = engine.start().expect("engine start");
+        let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
 
         // Forward navigation events → proxy → request_redraw.
         let proxy_ev = self.proxy.clone();

@@ -153,7 +153,7 @@ async fn main() -> Result<(), EngineError> {
         Arc::new(backend),
         Arc::new(DefaultCompositor::default()),
     );
-    let engine_join = engine.start().expect("start");
+    let engine_join = tokio::spawn(engine.start().expect("start"));
     let mut events = engine.subscribe_events();
 
     let zone_services = ZoneServices {
@@ -241,9 +241,7 @@ async fn main() -> Result<(), EngineError> {
     stop_server.cancel();
     tokio::time::sleep(Duration::from_millis(100)).await;
     engine.shutdown().await?;
-    if let Some(h) = engine_join {
-        let _ = h.await;
-    }
+    let _ = engine_join.await;
 
     // ── Report ────────────────────────────────────────────────────────────────
     println!("Checks:");
