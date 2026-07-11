@@ -89,7 +89,7 @@ simple_logger = "5.2.0"
 # textlayout from the renderer/examples) match a published skia-binaries
 # bundle exactly; any other union silently rebuilds Skia's C++ from source
 # (~14 min per cold CI job).
-skia-safe = { version = "0.97.2", features = ["svg", "wayland", "x11"] }
+skia-safe = { version = "0.99.0", features = ["svg", "wayland", "x11"] }
 softbuffer = "0.4"
 taffy = {version = "0.12.1", default-features = false}
 tempfile = "3.21.0"
