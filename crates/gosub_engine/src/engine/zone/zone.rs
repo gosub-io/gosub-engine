@@ -220,10 +220,7 @@ impl<C: RenderConfiguration> Zone<C> {
 
         let storage_rx = services.storage.subscribe();
         let event_tx = engine_context.event_tx.clone();
-        let io_tx = {
-            let guard = engine_context.io_tx.read();
-            guard.as_ref().cloned().ok_or(EngineError::IoNotStarted)?
-        };
+        let io_tx = engine_context.io_tx.get().cloned().ok_or(EngineError::IoNotStarted)?;
         let request_reference_map = engine_context.request_reference_map.clone();
         let config_store = engine_context.config_store.clone();
 

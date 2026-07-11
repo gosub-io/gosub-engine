@@ -33,7 +33,7 @@ use anyhow::Result;
 use gosub_config::Config;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
@@ -78,8 +78,11 @@ pub struct EngineContext {
     /// Per-engine settings store (key/value config with persistence and change subscriptions).
     /// A clone of this handle is threaded down to each zone and tab.
     pub config_store: Config,
-    /// I/O thread handle
-    pub io_tx: Arc<RwLock<Option<IoChannel>>>,
+    /// I/O submission channel, installed once when the engine starts (`start()`), read by each
+    /// zone at creation. A `OnceLock` rather than `Arc<RwLock<Option<..>>>`: it is set exactly once
+    /// and never swapped, and `EngineContext` is already shared behind an `Arc`, so no inner lock
+    /// or `Arc` is needed. Reading before `start()` yields `None` (`EngineError::IoNotStarted`).
+    pub io_tx: OnceLock<IoChannel>,
     /// Map for requests to tabs
     pub request_reference_map: Arc<RwLock<RequestReferenceMap>>,
 }
@@ -90,7 +93,7 @@ impl Default for EngineContext {
             event_tx: broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY).0,
             config: Arc::new(EngineSettings::default()),
             config_store: crate::engine::settings_store::default_config(),
-            io_tx: Arc::new(RwLock::new(None)),
+            io_tx: OnceLock::new(),
             request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
         }
     }
@@ -128,7 +131,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 event_tx: event_tx.clone(),
                 config: Arc::new(resolved_config),
                 config_store: crate::engine::settings_store::default_config(),
-                io_tx: Arc::new(RwLock::new(None)),
+                io_tx: OnceLock::new(),
                 request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
             }),
             render_backend: backend,
@@ -151,11 +154,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Start I/O thread, building the fetcher config from the settings store.
         let io_cfg = fetcher_config_from(&self.context.config_store);
         let io_handle = spawn_io_thread(io_cfg, self.context.clone());
-        let io_tx = io_handle.subscribe();
-        {
-            let mut guard = self.context.io_tx.write();
-            *guard = Some(io_tx);
-        }
+        // Set once; `start()` already refuses to run twice, so this never races or overwrites.
+        let _ = self.context.io_tx.set(io_handle.subscribe());
         self.io_handle = Some(io_handle);
 
         // Start metrics HTTP server (GET http://127.0.0.1:9090/metrics)
