@@ -2205,7 +2205,6 @@ name = "example-egui-vello"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bytemuck",
  "eframe",
  "egui 0.35.0",
  "gosub_engine",
@@ -2351,6 +2350,7 @@ dependencies = [
  "gosub_render_pipeline",
  "gosub_renderer_vello",
  "gosub_shared",
+ "gosub_winit",
  "log",
  "once_cell",
  "parking_lot",
@@ -3625,6 +3625,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "gosub_winit"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_renderer_vello",
+ "parking_lot",
+ "vello",
+ "winit",
 ]
 
 [[package]]
