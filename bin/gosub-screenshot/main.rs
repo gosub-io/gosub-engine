@@ -63,6 +63,10 @@ struct Args {
     /// Seconds to wait for the first render after navigation completes
     #[arg(long, default_value = "120")]
     render_timeout: u64,
+    /// Extra seconds to wait after the first render, so async media (images)
+    /// decode and repaint before the capture
+    #[arg(long, default_value = "0")]
+    settle: u64,
 }
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
@@ -219,6 +223,11 @@ fn main() {
         }
 
         std::thread::sleep(Duration::from_millis(50));
+    }
+
+    if args.settle > 0 {
+        std::thread::sleep(Duration::from_secs(args.settle));
+        while rx_redraw.try_recv().is_ok() {}
     }
 
     let phase1_handle = compositor.read().frame_for(tab_id);
