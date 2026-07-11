@@ -7,6 +7,7 @@ license = "MIT"
 
 [dependencies]
 gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline" }
+gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub", features = ["skia"] }
 gosub_interface = { version = "0.1.1", path = "../gosub_interface", registry = "gosub" }
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
 log = { workspace = true }
@@ -15,6 +16,7 @@ parking_lot = { workspace = true }
 resvg = { workspace = true }
 
 skia-safe = { workspace = true, features = ["textlayout"] }
+
 
 [lints]
 workspace = true

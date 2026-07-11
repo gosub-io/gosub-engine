@@ -3,6 +3,7 @@ pub mod commands;
 use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
 use crate::common::document::style::{lookup, BorderStyle as CssBorderStyle, Display, StyleProperty, Value};
+use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::media::MediaStore;
 use crate::layering::layer::LayerList;
 use crate::layouter::{BackgroundMedia, ElementContext, LayoutElementId, LayoutElementNode};
@@ -14,6 +15,9 @@ use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
 use crate::render::backend::TileAnchor;
 use crate::tiler::TiledLayoutElement;
+use gosub_interface::font::FontStyle;
+use gosub_interface::font_system::{FontStretch, FontSystem, FontWeight, ShapedText, TextAlign, TextStyle};
+use parking_lot::Mutex;
 use std::sync::Arc;
 
 /// A whole-viewport paint command list plus the media store needed to resolve image/SVG ids.
@@ -30,16 +34,74 @@ pub struct PaintScene {
     pub page_height: f64,
 }
 
+/// The neutral [`TextStyle`] for a text paint command — the same mapping the layouter's measure
+/// path uses, plus the wrap/alignment container, so shaping reproduces the measured box.
+///
+/// Wrap limit: Start-aligned text wraps within the container width the layouter used, so the
+/// shaped line breaks reproduce the measured ones (text fragments can carry whole multi-line
+/// paragraphs). Center/End/Justify text instead uses the fragment's own box as its alignment
+/// container — glyphs shifted outside the fragment rect would land in tiles that never repaint
+/// the command.
+fn paint_text_style(font_info: &FontInfo, rect_width: f64, available_width: f64) -> TextStyle {
+    let align = match font_info.alignment {
+        FontAlignment::Start => TextAlign::Start,
+        FontAlignment::Center => TextAlign::Center,
+        FontAlignment::End => TextAlign::End,
+        FontAlignment::Justify => TextAlign::Justify,
+    };
+    let max_width = match align {
+        TextAlign::Start => available_width.max(rect_width).max(1.0) as f32,
+        _ => rect_width.max(1.0) as f32,
+    };
+    TextStyle {
+        family: font_info.family.clone(),
+        size: font_info.size as f32,
+        weight: FontWeight(font_info.weight.clamp(1, 1000) as u16),
+        style: if font_info.slant != 0 {
+            FontStyle::Italic
+        } else {
+            FontStyle::Normal
+        },
+        stretch: FontStretch::NORMAL,
+        line_height: Some(font_info.line_height as f32),
+        letter_spacing: font_info.letter_spacing as f32,
+        max_width: Some(max_width),
+        align,
+        // Paint commands are in CSS pixels; DPI scaling is applied later in the pipeline.
+        display_scale: 1.0,
+    }
+}
+
 /// Painter works with the layout tree and generates paint commands for the renderer. It does not
 /// generate a new data structure as output, but will update the existing layout elements with
 /// paint commands.
 pub struct Painter {
     layer_list: Arc<LayerList>,
+    /// The engine's shared font system — the same instance the layouter measured with. Text is
+    /// shaped here, once, at command-build time; rasterizers paint the shaped runs. `None` (no
+    /// rasterizer font system, e.g. the null backend) produces commands with empty glyph runs,
+    /// which only engine-native text rasterizers can still draw.
+    font_system: Option<Arc<Mutex<dyn FontSystem>>>,
 }
 
 impl Painter {
-    pub fn new(layer_list: Arc<LayerList>) -> Painter {
-        Painter { layer_list }
+    pub fn new(layer_list: Arc<LayerList>, font_system: Option<Arc<Mutex<dyn FontSystem>>>) -> Painter {
+        Painter {
+            layer_list,
+            font_system,
+        }
+    }
+
+    /// Shape `text` into the positioned glyph runs a glyph-based rasterizer will paint.
+    fn shape_text(&self, text: &str, font_info: &FontInfo, rect_width: f64, available_width: f64) -> ShapedText {
+        let Some(ref fs) = self.font_system else {
+            return ShapedText::empty();
+        };
+        if text.is_empty() || font_info.size <= 0.0 {
+            return ShapedText::empty();
+        }
+        let style = paint_text_style(font_info, rect_width, available_width);
+        fs.lock().shape(text, &style)
     }
 
     // Generate paint commands for the given tile
@@ -300,7 +362,8 @@ impl Painter {
                 } else {
                     1_000_000_000.0
                 };
-                let t = Text::new(r, &ctx.text, &ctx.font_info, brush, avail_w);
+                let shaped = self.shape_text(&ctx.text, &ctx.font_info, r.width, avail_w);
+                let t = Text::new(r, &ctx.text, &ctx.font_info, brush, avail_w, shaped);
                 commands.push(PaintCommand::text(t));
             }
             ElementContext::Svg(svg_ctx) => {

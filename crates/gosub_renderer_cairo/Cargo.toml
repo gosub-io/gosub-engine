@@ -15,18 +15,18 @@ anyhow = { workspace = true }
 cow-utils = { workspace = true }
 parking_lot = { workspace = true }
 
-cairo-rs = { workspace = true }
+cairo-rs = { workspace = true, features = ["freetype"] }
 gtk4 = { workspace = true, optional = true }
-pangocairo = { workspace = true, optional = true }
-# `@font-face` web-font registration: add fetched fonts to fontconfig at runtime so Pango
-# discovers them. Works with the system Pango (no 1.56 dependency).
-fontconfig-sys = { package = "yeslogic-fontconfig-sys", version = "6", optional = true }
+gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub", optional = true }
+# Same version cairo-rs's `freetype` feature binds against — the `freetype::face::Face` type is
+# shared across the two crates in `FontFace::create_from_ft`.
+freetype-rs = { version = "0.38" }
 
 [features]
-default = ["text_pango"]
-text_pango = ["dep:pangocairo", "dep:gtk4", "dep:fontconfig-sys"]
-text_parley = []
-text_skia = []
+# `pango` provides PangoFontSystem (via gosub_fontmanager) — the font system cairo configs
+# measure/shape with — plus GTK init and the gdk-pixbuf image-brush path.
+default = ["pango"]
+pango = ["dep:gtk4", "dep:gosub_fontmanager", "gosub_fontmanager/pango"]
 
 # Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
 # the CairoBackend blits tile pixels through cairo's create_for_data_unsafe FFI,

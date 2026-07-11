@@ -10,7 +10,8 @@ path = "main.rs"
 [dependencies]
 gosub_engine = { path = "../../crates/gosub_engine" }
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
-gosub_renderer_skia = { path = "../../crates/gosub_renderer_skia" }
+gosub_renderer_skia = { path = "../../crates/gosub_renderer_skia", optional = true }
+gosub_renderer_cairo = { path = "../../crates/gosub_renderer_cairo", optional = true }
 image = { workspace = true }
 once_cell = { workspace = true }
 parking_lot = { workspace = true }
@@ -21,3 +22,9 @@ anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 log = { workspace = true }
 simple_logger = { workspace = true }
+
+[features]
+default = ["backend_skia"]
+# Exactly one backend feature must be enabled (backend_cairo wins when both are).
+backend_skia = ["dep:gosub_renderer_skia"]
+backend_cairo = ["dep:gosub_renderer_cairo"]

@@ -13,5 +13,41 @@ cow-utils = { workspace = true }
 parley = { workspace = true, default-features = true }
 cosmic-text = { workspace = true }
 
-[lints]
-workspace = true
+# `pango` feature: PangoFontSystem (fontconfig lookup + Pango/HarfBuzz shaping).
+log = { workspace = true, optional = true }
+parking_lot = { workspace = true, optional = true }
+gtk4 = { workspace = true, optional = true }
+pangocairo = { workspace = true, optional = true }
+cairo-rs = { workspace = true, optional = true }
+fontconfig-sys = { package = "yeslogic-fontconfig-sys", version = "6", optional = true }
+
+# `skia` feature: SkiaFontSystem (Skia textlayout measurement/shaping).
+skia-safe = { workspace = true, features = ["textlayout"], optional = true }
+
+[features]
+default = []
+# Pango/fontconfig font system (Linux desktop native; used by the Cairo backend configs).
+pango = [
+    "dep:log",
+    "dep:parking_lot",
+    "dep:gtk4",
+    "dep:pangocairo",
+    "dep:cairo-rs",
+    "dep:fontconfig-sys",
+]
+# Skia textlayout font system (used by the Skia backend configs).
+skia = ["dep:parking_lot", "dep:skia-safe"]
+
+# Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
+# PangoFontSystem talks to fontconfig through raw FFI (no safe Rust binding exists),
+# which is allowed per-site with a SAFETY justification.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

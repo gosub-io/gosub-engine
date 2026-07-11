@@ -27,7 +27,6 @@ use crate::backend::font_manager::FontManager;
 use crate::backend::text_renderer::{TextKey, TextRenderer};
 use anyhow::{anyhow, Result};
 use gosub_fontmanager::ParleyFontSystem;
-use gosub_interface::font_system::FontSystem;
 use gosub_render_pipeline::common::geo::Dimension;
 use gosub_render_pipeline::painter::PaintScene;
 use gosub_render_pipeline::rasterizer::{erase_rasterizer, RasterStrategy};
@@ -97,10 +96,6 @@ pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
     /// Shared font system. Holds the Parley font collection so that all text
     /// shaping in this backend uses a single, consistent font discovery context.
     font_system: Arc<Mutex<ParleyFontSystem>>,
-    /// The engine's shared font system, captured when `create_rasterizer` is called. The GPU
-    /// scene path renders glyphs through this (the same instance the layouter measured against)
-    /// so layout and rendering agree. `None` until the engine installs the rasterizer.
-    shared_font_system: Mutex<Option<Arc<Mutex<dyn FontSystem>>>>,
     /// When `GOSUB_VELLO_GPU_TILES=1`, this backend opts into the **shared tile pipeline**: the
     /// engine rasterizes tiles into GPU textures (via our rasterizer) and calls `composite_tiles`,
     /// instead of the one-shot whole-viewport scene path. Proves CPU and GPU backends can share one
@@ -137,7 +132,6 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
             font_manager: Mutex::new(FontManager::new()),
             font_cache: Mutex::new(FontCache::new()),
             font_system: Arc::new(Mutex::new(ParleyFontSystem::new())),
-            shared_font_system: Mutex::new(None),
             gpu_tile_pipeline: std::env::var("GOSUB_VELLO_GPU_TILES").as_deref() == Ok("1"),
             gpu_compositor: Mutex::new(crate::gpu_tiles::GpuTileCompositor::default()),
             diag_frame: std::sync::atomic::AtomicU64::new(0),
@@ -191,36 +185,8 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
         let affine = Affine::translate(Vec2::new(-sx, -sy));
 
         let mut scene = Scene::new();
-        // Prefer the engine's shared font system (the layouter measured against it); fall back to
-        // the backend's own only if the rasterizer hasn't been installed yet.
-        let fs_arc = self.shared_font_system.lock().clone();
-        match fs_arc {
-            Some(fs) => {
-                let mut guard = fs.lock();
-                let parley = guard.as_any_mut().downcast_mut::<ParleyFontSystem>();
-                crate::rasterizer::paint_commands_to_scene(
-                    &mut scene,
-                    &ps.commands,
-                    size,
-                    affine,
-                    (sx, sy),
-                    &ps.media_store,
-                    parley,
-                );
-            }
-            None => {
-                let mut guard = self.font_system.lock();
-                crate::rasterizer::paint_commands_to_scene(
-                    &mut scene,
-                    &ps.commands,
-                    size,
-                    affine,
-                    (sx, sy),
-                    &ps.media_store,
-                    Some(&mut guard),
-                );
-            }
-        }
+        // Text commands carry their pre-shaped glyph runs, so scene building needs no font system.
+        crate::rasterizer::paint_commands_to_scene(&mut scene, &ps.commands, size, affine, (sx, sy), &ps.media_store);
         Some(scene)
     }
 
@@ -385,9 +351,6 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
         &self,
         font_system: Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>>,
     ) -> Box<dyn Any + Send + Sync> {
-        // Capture the engine's shared font system so the GPU scene path can render glyphs through
-        // the same instance the layouter measured against.
-        *self.shared_font_system.lock() = Some(Arc::clone(&font_system));
         // Hand the engine's shared font system to the rasterizer; it also exposes it to the
         // layouter, so layout and rendering use the one instance.
         erase_rasterizer(Box::new(crate::VelloRasterizer::with_font_system(

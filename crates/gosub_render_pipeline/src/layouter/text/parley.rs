@@ -1,7 +1,7 @@
 use crate::common::font::FontInfo;
 use crate::common::geo::Dimension;
 use gosub_interface::font::FontStyle;
-use gosub_interface::font_system::{FontStretch, FontSystem, FontWeight, TextStyle};
+use gosub_interface::font_system::{FontStretch, FontSystem, FontWeight, TextAlign, TextStyle};
 
 /// Measure `text` through the swappable [`FontSystem`] abstraction.
 ///
@@ -23,6 +23,9 @@ pub fn get_text_layout(
         line_height: Some(font_info.line_height as f32),
         letter_spacing: font_info.letter_spacing as f32,
         max_width: Some(max_width as f32),
+        // Alignment shifts lines within max_width but never changes the bounding box, so
+        // measurement always shapes start-aligned.
+        align: TextAlign::Start,
         // The layouter works in CSS pixels; DPI scaling is applied later in the pipeline.
         display_scale: 1.0,
     };

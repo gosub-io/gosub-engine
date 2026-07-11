@@ -1,5 +1,4 @@
 use parking_lot::Mutex;
-use std::any::Any;
 use std::sync::Arc;
 
 use crate::font::{FontBlob, FontError, FontStyle};
@@ -98,6 +97,20 @@ pub struct ShapedGlyph {
     pub y: f32,
 }
 
+/// Decoration metrics for a shaped run, in pixels.
+///
+/// Offsets are measured from the run's baseline to the **top** of the stroke, positive
+/// **downward** (so `underline_offset` is typically positive, `strikethrough_offset` typically
+/// negative). A painter draws a decoration as a filled rect at
+/// `(run.x, run.baseline + offset, run.width, size)`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RunMetrics {
+    pub underline_offset: f32,
+    pub underline_size: f32,
+    pub strikethrough_offset: f32,
+    pub strikethrough_size: f32,
+}
+
 /// A contiguous run of glyphs rendered with the same font and size.
 ///
 /// A single call to `FontSystem::shape` may return multiple runs when font
@@ -106,6 +119,14 @@ pub struct ShapedGlyph {
 pub struct ShapedRun {
     pub font: ResolvedFont,
     pub font_size: f32,
+    /// Horizontal start of the run within the shaped block, px.
+    pub x: f32,
+    /// Baseline of the run's line, px from the top of the shaped block.
+    pub baseline: f32,
+    /// Advance width of the run, px.
+    pub width: f32,
+    /// Decoration metrics of the run's font, for underline/strikethrough painting.
+    pub metrics: RunMetrics,
     pub glyphs: Vec<ShapedGlyph>,
 }
 
@@ -141,6 +162,16 @@ impl ShapedText {
 
 // Text style for measurement
 
+/// CSS `text-align`, applied during shaping within [`TextStyle::max_width`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+    Justify,
+}
+
 /// CSS-resolved text style passed to [`FontSystem::measure`].
 ///
 /// Carries everything an engine needs to lay out a run of text: the family (the implementation
@@ -162,6 +193,8 @@ pub struct TextStyle {
     pub letter_spacing: f32,
     /// `Some(px)` soft-wraps at that width; `None` = a single unbroken line.
     pub max_width: Option<f32>,
+    /// Alignment of the shaped lines within `max_width` (no-op when `max_width` is `None`).
+    pub align: TextAlign,
     /// Device-pixel scale (DPI). `1.0` = CSS pixels.
     pub display_scale: f32,
 }
@@ -178,6 +211,7 @@ impl TextStyle {
             line_height: None,
             letter_spacing: 0.0,
             max_width: None,
+            align: TextAlign::Start,
             display_scale: 1.0,
         }
     }
@@ -187,14 +221,15 @@ impl TextStyle {
 
 /// A swappable font system — the entire surface the engine and layouter need.
 ///
-/// It registers fonts and **measures** text. Measuring goes through whichever font system the
-/// engine was configured with, so layout boxes are sized by the very engine that will draw the
-/// text (Parley, Pango, Skia, …) — measurement and drawing can't disagree.
+/// It registers fonts, **resolves** CSS font queries to concrete fonts (with their raw bytes),
+/// **shapes** text into positioned glyph runs, and **measures** it. All of it goes through
+/// whichever font system the engine was configured with, so layout boxes are sized by the very
+/// engine whose glyphs will be drawn (Parley, Pango, Skia, cosmic-text, …) — measurement,
+/// shaping, and drawing can't disagree.
 ///
-/// Engine-native *shaping* and *drawing* are deliberately **not** on this trait: the shaped
-/// representation and the draw target are backend-specific. A render backend recovers its concrete
-/// font system via [`FontSystem::as_any_mut`] and calls that type's own (inherent) shaping/draw
-/// methods.
+/// Drawing itself is *not* on this trait: painting the [`ShapedText`] returned by
+/// [`FontSystem::shape`] is the render backend's job — glyph IDs + a [`crate::font::FontBlob`]
+/// are everything a rasterizer needs, so any font system serves any backend.
 ///
 /// # Threading
 /// `Send + Sync` so it can live behind `Arc<Mutex<dyn FontSystem>>`, shared between the layouter
@@ -205,11 +240,42 @@ pub trait FontSystem: Send + Sync + 'static {
     /// `family_override` assigns a logical name CSS can reference; `None` uses the font's own name.
     fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError>;
 
-    /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
-    fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32);
+    /// Resolve a CSS font query to a concrete font, including its raw bytes.
+    ///
+    /// Walks `query.families` in priority order (generic keywords like `sans-serif` map to the
+    /// engine's platform fallback) and returns the first matching face. The returned
+    /// [`ResolvedFont::family`] is the family that was actually selected, which may differ from
+    /// every requested name when the engine fell back.
+    fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError>;
 
-    /// Recover the concrete font system so a render backend can call its native shaping/draw path.
-    fn as_any_mut(&mut self) -> &mut dyn Any;
+    /// Every font family this system can resolve by name: installed system fonts plus fonts
+    /// added via [`FontSystem::register_font`], sorted and de-duplicated.
+    ///
+    /// Generic CSS keywords (`sans-serif`, `monospace`, `system-ui`, …) are aliases handled by
+    /// [`FontSystem::resolve`], not families, so they don't appear here. Takes `&mut self`
+    /// because some engines populate their font database lazily on first enumeration.
+    fn families(&mut self) -> Vec<String>;
+
+    /// Shape `text` laid out in `style` into positioned glyph runs.
+    ///
+    /// Handles family resolution, line breaking (at `style.max_width`), and mid-string font
+    /// fallback internally; each returned [`ShapedRun`] names the font that was *actually* used
+    /// for its glyphs, so a rasterizer can draw the runs without consulting the font system
+    /// again. Returns [`ShapedText::empty`] for empty input or when no font resolves.
+    fn shape(&mut self, text: &str, style: &TextStyle) -> ShapedText;
+
+    /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
+    ///
+    /// The default implementation shapes and reads the bounding box, guaranteeing measurement
+    /// agrees with what [`FontSystem::shape`] produces; implementations may override with a
+    /// cheaper path as long as they preserve that agreement.
+    fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32) {
+        if text.is_empty() {
+            return (0.0, 0.0);
+        }
+        let shaped = self.shape(text, style);
+        (shaped.width, shaped.height)
+    }
 }
 
 // Config integration

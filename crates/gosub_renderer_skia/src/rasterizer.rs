@@ -101,7 +101,7 @@ impl Rasterable for SkiaRasterizer {
                         rectangle::do_paint_rectangle(canvas, tile, command, media_store);
                     }
                     PaintCommand::Text(command) => {
-                        let _ = text::do_paint_text(canvas, tile, command, self.dpi_scale_factor);
+                        let _ = text::do_paint_text(canvas, command, self.dpi_scale_factor);
                     }
                     PaintCommand::Svg(command) => {
                         svg::do_paint_svg(canvas, tile, command.media_id, &command.rect, media_store, dpr as i32);

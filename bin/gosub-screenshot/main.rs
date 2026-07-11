@@ -15,8 +15,12 @@ use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::DefaultCompositor;
+#[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
 use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
 use image::ColorType;
+
+#[cfg(feature = "backend_cairo")]
+use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -35,7 +39,12 @@ const BUILD_VERSION: &str = concat!(
 );
 
 /// CPU-only render configuration: Skia rasterizer + Skia font system, no GPU.
+#[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
 type AppConfig = DefaultRenderConfig<SkiaBackend, SkiaFontSystem>;
+
+/// CPU-only render configuration: Cairo rasterizer + Pango font system, no GPU/GTK window.
+#[cfg(feature = "backend_cairo")]
+type AppConfig = DefaultRenderConfig<CairoBackend, PangoFontSystem>;
 
 #[derive(Parser)]
 #[command(name = "gosub-screenshot", version = BUILD_VERSION, about = "Headless screenshot tool using the GoSub render pipeline")]
@@ -54,6 +63,10 @@ struct Args {
     /// Seconds to wait for the first render after navigation completes
     #[arg(long, default_value = "120")]
     render_timeout: u64,
+    /// Extra seconds to wait after the first render, so async media (images)
+    /// decode and repaint before the capture
+    #[arg(long, default_value = "0")]
+    settle: u64,
 }
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
@@ -92,8 +105,11 @@ fn main() {
 
     let url = Url::parse(&url_str).expect("invalid URL");
 
-    // ── Engine setup (CPU Skia backend — no GPU) ──────────────────────────────
+    // ── Engine setup (CPU backend — no GPU) ───────────────────────────────────
+    #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
     let backend = SkiaBackend::new();
+    #[cfg(feature = "backend_cairo")]
+    let backend = CairoBackend::new();
 
     let _rt_guard = TOKIO_RT.enter();
 
@@ -207,6 +223,11 @@ fn main() {
         }
 
         std::thread::sleep(Duration::from_millis(50));
+    }
+
+    if args.settle > 0 {
+        std::thread::sleep(Duration::from_secs(args.settle));
+        while rx_redraw.try_recv().is_ok() {}
     }
 
     let phase1_handle = compositor.read().frame_for(tab_id);

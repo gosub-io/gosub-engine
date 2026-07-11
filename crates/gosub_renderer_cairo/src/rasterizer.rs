@@ -9,9 +9,6 @@ use gosub_render_pipeline::tiler::Tile;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-#[cfg(feature = "text_pango")]
-use crate::font::pango::{get as get_font_system, PangoFontSystem};
-
 mod brush;
 mod rectangle;
 mod svg;
@@ -21,11 +18,9 @@ use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 
 pub struct CairoRasterizer {
     /// The engine's shared font system, exposed to the layouter so it measures with the
-    /// configured instance. Cairo's own text drawing still goes through Pango (`pango` below).
+    /// configured instance. Painting itself no longer needs it — text commands carry their
+    /// pre-shaped glyph runs.
     config_font_system: Option<Arc<Mutex<dyn FontSystem>>>,
-    /// Pango font system used for the actual cairo text drawing.
-    #[cfg(feature = "text_pango")]
-    pango: Arc<PangoFontSystem>,
 }
 
 impl Default for CairoRasterizer {
@@ -35,26 +30,19 @@ impl Default for CairoRasterizer {
 }
 
 impl CairoRasterizer {
-    /// Create a rasterizer using the process-wide Pango font system singleton, with no shared
-    /// engine font system (the layouter falls back to its own instance for measurement).
-    ///
-    /// The singleton is populated by [`crate::init_gtk_resources`] (or
-    /// [`crate::font::pango::init`]) from the GTK main thread.
+    /// Create a rasterizer with no shared engine font system (the layouter falls back to its
+    /// own instance for measurement).
     pub fn new() -> Self {
         Self {
             config_font_system: None,
-            #[cfg(feature = "text_pango")]
-            pango: get_font_system(),
         }
     }
 
     /// Create a rasterizer that shares the engine's font system (used by the layouter for
-    /// measurement). Drawing still goes through the process-wide Pango singleton.
+    /// measurement).
     pub fn with_font_system(font_system: Arc<Mutex<dyn FontSystem>>) -> Self {
         Self {
             config_font_system: Some(font_system),
-            #[cfg(feature = "text_pango")]
-            pango: get_font_system(),
         }
     }
 }
@@ -97,25 +85,10 @@ impl Rasterable for CairoRasterizer {
                             rectangle::do_paint_rectangle(&cr.clone(), tile, command, media_store);
                         }
                         PaintCommand::Text(command) => {
-                            #[cfg(feature = "text_pango")]
-                            match text::pango::do_paint_text(&cr.clone(), tile, command, media_store, dpr, &self.pango)
-                            {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    log::warn!("Failed to paint text: {:?}", e);
-                                }
-                            }
-                            #[cfg(all(not(feature = "text_pango"), feature = "text_parley"))]
-                            match text::parley::do_paint_text(&cr.clone(), tile, command, media_store) {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    log::warn!("Failed to paint text: {:?}", e);
-                                }
-                            }
-                            #[cfg(not(any(feature = "text_pango", feature = "text_parley")))]
-                            {
-                                let _ = command;
-                                log::warn!("No text backend enabled; text will not be rendered");
+                            // The command carries its pre-shaped glyph runs; painting needs no
+                            // font system here.
+                            if let Err(e) = text::glyphs::do_paint_text(&cr, tile, command, media_store) {
+                                log::warn!("Failed to paint text: {:?}", e);
                             }
                         }
                     }

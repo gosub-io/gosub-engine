@@ -1,22 +1,20 @@
 //! A second [`FontSystem`] implementation, backed by **cosmic-text** (fontdb discovery +
 //! rustybuzz shaping + swash). It implements exactly the same trait as [`crate::ParleyFontSystem`],
-//! demonstrating that the font abstraction is engine-agnostic — the layouter can measure with it
-//! today, and a backend that draws its glyphs could render with it.
+//! demonstrating that the font abstraction is engine-agnostic — the layouter can measure with it,
+//! and a backend that paints [`ShapedText`] glyph runs can render with it.
 //!
-//! Note: the current `FontSystem` trait is Parley-shaped (its `resolve`/`shape` are built around a
-//! raw `FontBlob` + glyph runs). cosmic-text doesn't natively hand back raw blobs, so `blob_for`
-//! copies the font bytes. That awkwardness is expected — it's the signal that the trait should be
-//! slimmed (measure-centric) once a second engine is in place.
+//! Note: cosmic-text doesn't expose the underlying shared font bytes, so `blob_for` copies them
+//! when filling a [`FontBlob`] (cached upstream by whoever holds the `ResolvedFont`).
 
 use cosmic_text::{
-    fontdb, Attrs, Buffer, Family, FontSystem as CosmicTextFontSystem, Metrics, Shaping, Stretch, Style, Weight,
+    fontdb, Align, Attrs, Buffer, Family, FontSystem as CosmicTextFontSystem, Metrics, Shaping, Stretch, Style, Weight,
 };
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontStretch, FontSystem, ResolvedFont, ShapedGlyph, ShapedRun, ShapedText, TextStyle,
+    FontQuery, FontStretch, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText, TextAlign,
+    TextStyle,
 };
-use std::any::Any;
 use std::sync::Arc;
 
 /// A [`FontSystem`] backed by cosmic-text.
@@ -42,7 +40,24 @@ impl Default for CosmicFontSystem {
 struct RawRun {
     id: fontdb::ID,
     weight: Weight,
+    x: f32,
+    baseline: f32,
+    width: f32,
     glyphs: Vec<ShapedGlyph>,
+}
+
+/// Decoration metrics estimated from the font size.
+///
+/// cosmic-text doesn't surface the font's own underline/strikeout tables, so use the common
+/// conventions (underline ~1/10 em below the baseline, strikeout ~1/4 em above, both ~1/14 em
+/// thick) until a swash-based lookup replaces this.
+fn heuristic_metrics(size: f32) -> RunMetrics {
+    RunMetrics {
+        underline_offset: size * 0.1,
+        underline_size: size / 14.0,
+        strikethrough_offset: -size * 0.25,
+        strikethrough_size: size / 14.0,
+    }
 }
 
 impl CosmicFontSystem {
@@ -68,6 +83,17 @@ impl CosmicFontSystem {
             .style(to_style(style.style))
             .stretch(to_stretch(style.stretch));
         buffer.set_text(text, &attrs, Shaping::Advanced, None);
+        let align = match style.align {
+            TextAlign::Start => None, // natural per-direction default
+            TextAlign::Center => Some(Align::Center),
+            TextAlign::End => Some(Align::End),
+            TextAlign::Justify => Some(Align::Justified),
+        };
+        if align.is_some() {
+            for line in buffer.lines.iter_mut() {
+                line.set_align(align);
+            }
+        }
         buffer.shape_until_scroll(&mut self.inner, false);
         buffer
     }
@@ -85,10 +111,6 @@ impl CosmicFontSystem {
 }
 
 impl FontSystem for CosmicFontSystem {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn register_font(&mut self, data: Vec<u8>, _family_override: Option<&str>) -> Result<(), FontError> {
         // fontdb derives the family name from the font's own `name` table; overrides unsupported.
         self.inner.db_mut().load_font_data(data);
@@ -108,11 +130,9 @@ impl FontSystem for CosmicFontSystem {
         }
         (width, height)
     }
-}
 
-impl CosmicFontSystem {
-    /// Resolve a CSS font query to a concrete font (engine-specific; not on the `FontSystem` trait).
-    pub fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
+    /// Resolve a CSS font query to a concrete font via fontdb.
+    fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
         let mut families: Vec<Family> = query.families.iter().map(|f| css_family(f)).collect();
         // Bundled last-resort fallback so resolution always succeeds even with no system fonts
         // (e.g. headless/CI) — Roboto is registered in `new()`.
@@ -143,32 +163,27 @@ impl CosmicFontSystem {
         })
     }
 
-    /// Shape `text` into positioned glyph runs (engine-specific; not on the `FontSystem` trait).
-    pub fn shape(
-        &mut self,
-        text: &str,
-        font: &ResolvedFont,
-        size: f32,
-        line_height: Option<f32>,
-        max_width: Option<f32>,
-        display_scale: f32,
-    ) -> ShapedText {
+    fn families(&mut self) -> Vec<String> {
+        // A face's `families` holds one name per localisation; the first entry is the
+        // primary (typically English) name, which is what CSS matches against.
+        let mut out: Vec<String> = self
+            .inner
+            .db()
+            .faces()
+            .filter_map(|face| face.families.first().map(|(name, _)| name.clone()))
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Shape `text` into positioned glyph runs.
+    fn shape(&mut self, text: &str, style: &TextStyle) -> ShapedText {
         if text.is_empty() {
             return ShapedText::empty();
         }
 
-        let style = TextStyle {
-            family: font.family.clone(),
-            size,
-            weight: font.weight,
-            style: font.style,
-            stretch: font.stretch,
-            line_height,
-            letter_spacing: 0.0,
-            max_width,
-            display_scale,
-        };
-        let buffer = self.shaped_buffer(text, &style);
+        let buffer = self.shaped_buffer(text, style);
 
         // Collect owned run data first (borrows `buffer`), then look up font blobs afterwards
         // (borrows `self.inner`) so the two borrows don't overlap.
@@ -192,6 +207,8 @@ impl CosmicFontSystem {
             while i < run.glyphs.len() {
                 let fid = run.glyphs[i].font_id;
                 let fw = run.glyphs[i].font_weight;
+                let run_x = run.glyphs[i].x;
+                let mut run_width = 0.0f32;
                 let mut glyphs = Vec::new();
                 while i < run.glyphs.len() && run.glyphs[i].font_id == fid {
                     let g = &run.glyphs[i];
@@ -200,11 +217,15 @@ impl CosmicFontSystem {
                         x: g.x,
                         y: run.line_y + g.y,
                     });
+                    run_width = (g.x + g.w) - run_x;
                     i += 1;
                 }
                 raw.push(RawRun {
                     id: fid,
                     weight: fw,
+                    x: run_x,
+                    baseline: run.line_y,
+                    width: run_width,
                     glyphs,
                 });
             }
@@ -219,13 +240,17 @@ impl CosmicFontSystem {
                 let blob = self.blob_for(r.id, r.weight)?;
                 Some(ShapedRun {
                     font: ResolvedFont {
-                        family: font.family.clone(),
-                        style: font.style,
-                        weight: font.weight,
-                        stretch: font.stretch,
+                        family: style.family.clone(),
+                        style: style.style,
+                        weight: style.weight,
+                        stretch: style.stretch,
                         blob,
                     },
-                    font_size: size,
+                    font_size: style.size,
+                    x: r.x,
+                    baseline: r.baseline,
+                    width: r.width,
+                    metrics: heuristic_metrics(style.size),
                     glyphs: r.glyphs,
                 })
             })
@@ -290,18 +315,30 @@ mod tests {
     use super::*;
     use gosub_interface::font_system::FontQuery;
 
+    /// Same contract as the Parley test: the bundled Roboto (loaded in `new()`) must appear,
+    /// and the list must be sorted and de-duplicated.
+    #[test]
+    fn families_lists_registered_fonts_sorted() {
+        let mut fs = CosmicFontSystem::new();
+        let families = fs.families();
+        assert!(families.iter().any(|f| f == "Roboto"), "bundled Roboto must be listed");
+        assert!(families.windows(2).all(|w| w[0] < w[1]), "must be sorted and deduped");
+    }
+
     #[test]
     fn resolves_measures_and_shapes() {
         let mut fs = CosmicFontSystem::new();
         let query = FontQuery::new(&["sans-serif"]);
         let resolved = fs.resolve(&query).expect("sans-serif should resolve (Roboto fallback)");
 
+        assert!(!resolved.blob.as_u8().is_empty(), "resolved font must carry its bytes");
+
         let mut style = TextStyle::new("sans-serif", 16.0);
         style.line_height = Some(19.2);
         let (w, h) = fs.measure("Hello", &style);
         assert!(w > 0.0 && h > 0.0, "expected a non-zero measurement, got {w} x {h}");
 
-        let shaped = fs.shape("Hello", &resolved, 16.0, Some(19.2), None, 1.0);
+        let shaped = fs.shape("Hello", &style);
         assert!(!shaped.runs.is_empty(), "expected at least one shaped run");
         let glyphs: usize = shaped.runs.iter().map(|r| r.glyphs.len()).sum();
         assert!(glyphs >= 5, "expected >= 5 glyphs for \"Hello\", got {glyphs}");

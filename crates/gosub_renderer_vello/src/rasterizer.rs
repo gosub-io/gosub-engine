@@ -39,8 +39,8 @@ mod text;
 ///
 /// Shared by the per-tile rasterizer (called once per tile, clipped + translated to the tile)
 /// and the GPU-scene backend path (called once for the whole viewport, translated by `−scroll`).
-/// `size` bounds text layout; `parley` is the concrete font system Vello draws glyphs through
-/// (`None` skips text — a non-Parley font system can't render here).
+/// `size` bounds text layout; text commands carry their pre-shaped glyph runs, so no font
+/// system is needed here.
 pub(crate) fn paint_commands_to_scene(
     scene: &mut Scene,
     commands: &[PaintCommand],
@@ -48,7 +48,6 @@ pub(crate) fn paint_commands_to_scene(
     affine: Affine,
     scroll: (f64, f64),
     media_store: &MediaStore,
-    mut parley: Option<&mut ParleyFontSystem>,
 ) {
     let (sx, sy) = scroll;
     // The transform the current commands draw under. Starts at the caller's affine (per-tile
@@ -87,10 +86,8 @@ pub(crate) fn paint_commands_to_scene(
                 rectangle::do_paint_rectangle(scene, command, cur, media_store);
             }
             PaintCommand::Text(command) => {
-                if let Some(parley) = parley.as_deref_mut() {
-                    if let Err(e) = text::do_paint_text(scene, command, size, cur, media_store, parley) {
-                        log::warn!("Failed to paint text: {:?}", e);
-                    }
+                if let Err(e) = text::do_paint_text(scene, command, size, cur, media_store) {
+                    log::warn!("Failed to paint text: {:?}", e);
                 }
             }
         }
@@ -99,9 +96,9 @@ pub(crate) fn paint_commands_to_scene(
 
 pub struct VelloRasterizer {
     resources: Arc<WgpuResources>,
-    /// The engine's shared font system. Vello draws glyphs through Parley, so it downcasts this to
-    /// `ParleyFontSystem` at draw time; a non-Parley font system means text simply isn't rendered
-    /// (that backend↔font-system pairing doesn't make sense).
+    /// The engine's shared font system, exposed to the layouter via `Rasterable::font_system()`
+    /// so layout measures with the configured instance. Painting itself no longer needs it —
+    /// text commands carry their pre-shaped glyph runs.
     font_system: Arc<Mutex<dyn FontSystem>>,
 }
 
@@ -134,15 +131,6 @@ impl Rasterable for VelloRasterizer {
 
         let affine = Affine::translate(Vec2::new(-tile.rect.x, -tile.rect.y));
 
-        // Lock the font system once per tile and recover the concrete Parley system Vello draws
-        // with. A non-Parley font system (e.g. Pango/Skia configured against the Vello backend)
-        // means text can't be drawn here — log once and skip text commands.
-        let mut font_guard = self.font_system.lock();
-        let mut parley = font_guard.as_any_mut().downcast_mut::<ParleyFontSystem>();
-        if parley.is_none() {
-            log::warn!("Vello rasterizer: configured font system is not Parley; text will not render");
-        }
-
         for element in &tile.elements {
             // The tile path applies opacity/anchor at composite, so per-element commands carry no
             // PushLayer/PopLayer — scroll is irrelevant here.
@@ -153,10 +141,8 @@ impl Rasterable for VelloRasterizer {
                 affine,
                 (0.0, 0.0),
                 media_store,
-                parley.as_deref_mut(),
             );
         }
-        drop(font_guard);
 
         scene.pop_layer();
 
