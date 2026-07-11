@@ -48,34 +48,9 @@
     "name": "@counter-style",
     "descriptors": [
       {
-        "name": "system",
-        "syntax": "cyclic | numeric | alphabetic | symbolic | additive | [fixed <integer>?] | [ extends <counter-style-name> ]",
-        "initial": "symbolic"
-      },
-      {
-        "name": "negative",
-        "syntax": "<symbol> <symbol>?",
-        "initial": "\"-\""
-      },
-      {
-        "name": "prefix",
-        "syntax": "<symbol>",
-        "initial": "\"\""
-      },
-      {
-        "name": "suffix",
-        "syntax": "<symbol>",
-        "initial": "\". \""
-      },
-      {
-        "name": "range",
-        "syntax": "[ [ <integer> | infinite ]{2} ]# | auto",
-        "initial": "auto"
-      },
-      {
-        "name": "pad",
-        "syntax": "<integer [0,∞]> && <symbol>",
-        "initial": "0 \"\""
+        "name": "additive-symbols",
+        "syntax": "[ <integer [0,∞]> && <symbol> ]#",
+        "initial": ""
       },
       {
         "name": "fallback",
@@ -83,19 +58,44 @@
         "initial": "decimal"
       },
       {
-        "name": "symbols",
-        "syntax": "<symbol>+",
-        "initial": ""
+        "name": "negative",
+        "syntax": "<symbol> <symbol>?",
+        "initial": "\"-\""
       },
       {
-        "name": "additive-symbols",
-        "syntax": "[ <integer [0,∞]> && <symbol> ]#",
-        "initial": ""
+        "name": "pad",
+        "syntax": "<integer [0,∞]> && <symbol>",
+        "initial": "0 \"\""
+      },
+      {
+        "name": "prefix",
+        "syntax": "<symbol>",
+        "initial": "\"\""
+      },
+      {
+        "name": "range",
+        "syntax": "[ [ <integer> | infinite ]{2} ]# | auto",
+        "initial": "auto"
       },
       {
         "name": "speak-as",
         "syntax": "auto | bullets | numbers | words | spell-out | <counter-style-name>",
         "initial": "auto"
+      },
+      {
+        "name": "suffix",
+        "syntax": "<symbol>",
+        "initial": "\". \""
+      },
+      {
+        "name": "symbols",
+        "syntax": "<symbol>+",
+        "initial": ""
+      },
+      {
+        "name": "system",
+        "syntax": "cyclic | numeric | alphabetic | symbolic | additive | [fixed <integer>?] | [ extends <counter-style-name> ]",
+        "initial": "symbolic"
       }
     ],
     "Values": null
@@ -109,19 +109,49 @@
     "name": "@font-face",
     "descriptors": [
       {
+        "name": "ascent-override",
+        "syntax": "normal | <percentage [0,∞]>",
+        "initial": ""
+      },
+      {
+        "name": "descent-override",
+        "syntax": "normal | <percentage [0,∞]>",
+        "initial": ""
+      },
+      {
+        "name": "font-display",
+        "syntax": "auto | block | swap | fallback | optional",
+        "initial": "auto"
+      },
+      {
         "name": "font-family",
         "syntax": "<font-family-name>",
         "initial": ""
       },
       {
-        "name": "src",
-        "syntax": "<font-src-list>",
+        "name": "font-feature-settings",
+        "syntax": "normal | <feature-tag-value>#",
         "initial": ""
+      },
+      {
+        "name": "font-language-override",
+        "syntax": "normal | <string>",
+        "initial": ""
+      },
+      {
+        "name": "font-named-instance",
+        "syntax": "auto | <string>",
+        "initial": "auto"
       },
       {
         "name": "font-style",
         "syntax": "auto | normal | italic | left | right | oblique [ <angle [-90deg,90deg]>{1,2} ]?",
         "initial": "auto"
+      },
+      {
+        "name": "font-variation-settings",
+        "syntax": "normal | [ <string> <number>]#",
+        "initial": ""
       },
       {
         "name": "font-weight",
@@ -134,49 +164,19 @@
         "initial": "auto"
       },
       {
-        "name": "unicode-range",
-        "syntax": "<unicode-range-token>#",
-        "initial": "U+0-10FFFF"
-      },
-      {
-        "name": "font-feature-settings",
-        "syntax": "normal | <feature-tag-value>#",
-        "initial": ""
-      },
-      {
-        "name": "font-variation-settings",
-        "syntax": "normal | [ <string> <number>]#",
-        "initial": ""
-      },
-      {
-        "name": "font-named-instance",
-        "syntax": "auto | <string>",
-        "initial": "auto"
-      },
-      {
-        "name": "font-display",
-        "syntax": "auto | block | swap | fallback | optional",
-        "initial": "auto"
-      },
-      {
-        "name": "font-language-override",
-        "syntax": "normal | <string>",
-        "initial": ""
-      },
-      {
-        "name": "ascent-override",
-        "syntax": "normal | <percentage [0,∞]>",
-        "initial": ""
-      },
-      {
-        "name": "descent-override",
-        "syntax": "normal | <percentage [0,∞]>",
-        "initial": ""
-      },
-      {
         "name": "line-gap-override",
         "syntax": "normal | <percentage [0,∞]>",
         "initial": ""
+      },
+      {
+        "name": "src",
+        "syntax": "<font-src-list>",
+        "initial": ""
+      },
+      {
+        "name": "unicode-range",
+        "syntax": "<unicode-range-token>#",
+        "initial": "U+0-10FFFF"
       }
     ],
     "Values": null
@@ -185,23 +185,8 @@
     "name": "@font-feature-values",
     "descriptors": [
       {
-        "name": "font-display",
-        "syntax": "auto | block | swap | fallback | optional",
-        "initial": "auto"
-      },
-      {
-        "name": "@stylistic",
-        "syntax": "@stylistic { <declaration-list> }",
-        "initial": ""
-      },
-      {
-        "name": "@historical-forms",
-        "syntax": "@historical-forms { <declaration-list> }",
-        "initial": ""
-      },
-      {
-        "name": "@styleset",
-        "syntax": "@styleset { <declaration-list> }",
+        "name": "@annotation",
+        "syntax": "@annotation { <declaration-list> }",
         "initial": ""
       },
       {
@@ -210,8 +195,8 @@
         "initial": ""
       },
       {
-        "name": "@swash",
-        "syntax": "@swash { <declaration-list> }",
+        "name": "@historical-forms",
+        "syntax": "@historical-forms { <declaration-list> }",
         "initial": ""
       },
       {
@@ -220,9 +205,24 @@
         "initial": ""
       },
       {
-        "name": "@annotation",
-        "syntax": "@annotation { <declaration-list> }",
+        "name": "@styleset",
+        "syntax": "@styleset { <declaration-list> }",
         "initial": ""
+      },
+      {
+        "name": "@stylistic",
+        "syntax": "@stylistic { <declaration-list> }",
+        "initial": ""
+      },
+      {
+        "name": "@swash",
+        "syntax": "@swash { <declaration-list> }",
+        "initial": ""
+      },
+      {
+        "name": "font-display",
+        "syntax": "auto | block | swap | fallback | optional",
+        "initial": "auto"
       }
     ],
     "Values": [
@@ -236,13 +236,13 @@
     "name": "@font-palette-values",
     "descriptors": [
       {
-        "name": "font-family",
-        "syntax": "<font-family-name>#",
+        "name": "base-palette",
+        "syntax": "light | dark | <integer [0,∞]>",
         "initial": ""
       },
       {
-        "name": "base-palette",
-        "syntax": "light | dark | <integer [0,∞]>",
+        "name": "font-family",
+        "syntax": "<font-family-name>#",
         "initial": ""
       },
       {
@@ -309,16 +309,6 @@
     "name": "@media",
     "descriptors": [
       {
-        "name": "display-state",
-        "syntax": "normal | minimized | maximized | fullscreen",
-        "initial": ""
-      },
-      {
-        "name": "resizable",
-        "syntax": "true | false",
-        "initial": ""
-      },
-      {
         "name": "-webkit-device-pixel-ratio",
         "syntax": "<number>",
         "initial": ""
@@ -329,18 +319,13 @@
         "initial": ""
       },
       {
-        "name": "shape",
-        "syntax": "rect | round",
+        "name": "any-hover",
+        "syntax": "none | hover",
         "initial": ""
       },
       {
-        "name": "width",
-        "syntax": "<length>",
-        "initial": ""
-      },
-      {
-        "name": "height",
-        "syntax": "<length>",
+        "name": "any-pointer",
+        "syntax": "none | coarse | fine",
         "initial": ""
       },
       {
@@ -349,18 +334,38 @@
         "initial": ""
       },
       {
-        "name": "orientation",
-        "syntax": "portrait | landscape",
+        "name": "color",
+        "syntax": "<integer>",
         "initial": ""
       },
       {
-        "name": "resolution",
-        "syntax": "<resolution> | infinite",
+        "name": "color-gamut",
+        "syntax": "srgb | p3 | rec2020",
         "initial": ""
       },
       {
-        "name": "scan",
-        "syntax": "interlace | progressive",
+        "name": "color-index",
+        "syntax": "<integer>",
+        "initial": ""
+      },
+      {
+        "name": "device-aspect-ratio",
+        "syntax": "<ratio>",
+        "initial": ""
+      },
+      {
+        "name": "device-height",
+        "syntax": "<length>",
+        "initial": ""
+      },
+      {
+        "name": "device-width",
+        "syntax": "<length>",
+        "initial": ""
+      },
+      {
+        "name": "display-state",
+        "syntax": "normal | minimized | maximized | fullscreen",
         "initial": ""
       },
       {
@@ -369,8 +374,23 @@
         "initial": ""
       },
       {
-        "name": "update",
-        "syntax": "none | slow | fast",
+        "name": "height",
+        "syntax": "<length>",
+        "initial": ""
+      },
+      {
+        "name": "hover",
+        "syntax": "none | hover",
+        "initial": ""
+      },
+      {
+        "name": "monochrome",
+        "syntax": "<integer>",
+        "initial": ""
+      },
+      {
+        "name": "orientation",
+        "syntax": "portrait | landscape",
         "initial": ""
       },
       {
@@ -384,62 +404,47 @@
         "initial": ""
       },
       {
-        "name": "color",
-        "syntax": "<integer>",
-        "initial": ""
-      },
-      {
-        "name": "color-index",
-        "syntax": "<integer>",
-        "initial": ""
-      },
-      {
-        "name": "monochrome",
-        "syntax": "<integer>",
-        "initial": ""
-      },
-      {
-        "name": "color-gamut",
-        "syntax": "srgb | p3 | rec2020",
-        "initial": ""
-      },
-      {
         "name": "pointer",
         "syntax": "none | coarse | fine",
         "initial": ""
       },
       {
-        "name": "hover",
-        "syntax": "none | hover",
+        "name": "resizable",
+        "syntax": "true | false",
         "initial": ""
       },
       {
-        "name": "any-pointer",
-        "syntax": "none | coarse | fine",
+        "name": "resolution",
+        "syntax": "<resolution> | infinite",
         "initial": ""
       },
       {
-        "name": "any-hover",
-        "syntax": "none | hover",
+        "name": "scan",
+        "syntax": "interlace | progressive",
         "initial": ""
       },
       {
-        "name": "device-width",
+        "name": "shape",
+        "syntax": "rect | round",
+        "initial": ""
+      },
+      {
+        "name": "update",
+        "syntax": "none | slow | fast",
+        "initial": ""
+      },
+      {
+        "name": "width",
         "syntax": "<length>",
-        "initial": ""
-      },
-      {
-        "name": "device-height",
-        "syntax": "<length>",
-        "initial": ""
-      },
-      {
-        "name": "device-aspect-ratio",
-        "syntax": "<ratio>",
         "initial": ""
       }
     ],
     "Values": [
+      {
+        "name": "all",
+        "value": "all",
+        "Values": null
+      },
       {
         "name": "all",
         "value": "all",
@@ -451,8 +456,23 @@
         ]
       },
       {
+        "name": "aural",
+        "value": "aural",
+        "Values": null
+      },
+      {
         "name": "braille",
         "value": "braille",
+        "Values": null
+      },
+      {
+        "name": "braille",
+        "value": "braille",
+        "Values": null
+      },
+      {
+        "name": "embossed",
+        "value": "embossed",
         "Values": null
       },
       {
@@ -466,33 +486,8 @@
         "Values": null
       },
       {
-        "name": "print",
-        "value": "print",
-        "Values": null
-      },
-      {
-        "name": "projection",
-        "value": "projection",
-        "Values": null
-      },
-      {
-        "name": "screen",
-        "value": "screen",
-        "Values": null
-      },
-      {
-        "name": "speech",
-        "value": "speech",
-        "Values": null
-      },
-      {
-        "name": "tty",
-        "value": "tty",
-        "Values": null
-      },
-      {
-        "name": "tv",
-        "value": "tv",
+        "name": "handheld",
+        "value": "handheld",
         "Values": null
       },
       {
@@ -506,8 +501,8 @@
         "Values": null
       },
       {
-        "name": "all",
-        "value": "all",
+        "name": "print",
+        "value": "print",
         "Values": null
       },
       {
@@ -516,8 +511,38 @@
         "Values": null
       },
       {
+        "name": "projection",
+        "value": "projection",
+        "Values": null
+      },
+      {
+        "name": "projection",
+        "value": "projection",
+        "Values": null
+      },
+      {
         "name": "screen",
         "value": "screen",
+        "Values": null
+      },
+      {
+        "name": "screen",
+        "value": "screen",
+        "Values": null
+      },
+      {
+        "name": "speech",
+        "value": "speech",
+        "Values": null
+      },
+      {
+        "name": "speech",
+        "value": "speech",
+        "Values": null
+      },
+      {
+        "name": "tty",
+        "value": "tty",
         "Values": null
       },
       {
@@ -531,33 +556,8 @@
         "Values": null
       },
       {
-        "name": "projection",
-        "value": "projection",
-        "Values": null
-      },
-      {
-        "name": "handheld",
-        "value": "handheld",
-        "Values": null
-      },
-      {
-        "name": "braille",
-        "value": "braille",
-        "Values": null
-      },
-      {
-        "name": "embossed",
-        "value": "embossed",
-        "Values": null
-      },
-      {
-        "name": "aural",
-        "value": "aural",
-        "Values": null
-      },
-      {
-        "name": "speech",
-        "value": "speech",
+        "name": "tv",
+        "value": "tv",
         "Values": null
       }
     ]
@@ -581,8 +581,18 @@
     "name": "@page",
     "descriptors": [
       {
-        "name": "size",
-        "syntax": "<length [0,∞]>{1,2} | auto | [ <page-size> || [ portrait | landscape ] ]",
+        "name": "bleed",
+        "syntax": "auto | <length>",
+        "initial": "auto"
+      },
+      {
+        "name": "marks",
+        "syntax": "none | [ crop || cross ]",
+        "initial": ""
+      },
+      {
+        "name": "page-margin-safety",
+        "syntax": "none | clamp | add",
         "initial": "auto"
       },
       {
@@ -591,30 +601,15 @@
         "initial": "upright"
       },
       {
-        "name": "marks",
-        "syntax": "none | [ crop || cross ]",
-        "initial": ""
-      },
-      {
-        "name": "bleed",
-        "syntax": "auto | <length>",
-        "initial": "auto"
-      },
-      {
-        "name": "page-margin-safety",
-        "syntax": "none | clamp | add",
+        "name": "size",
+        "syntax": "<length [0,∞]>{1,2} | auto | [ <page-size> || [ portrait | landscape ] ]",
         "initial": "auto"
       }
     ],
     "Values": [
       {
-        "name": ":left",
-        "value": ":left",
-        "Values": null
-      },
-      {
-        "name": ":right",
-        "value": ":right",
+        "name": ":blank",
+        "value": ":blank",
         "Values": null
       },
       {
@@ -623,8 +618,13 @@
         "Values": null
       },
       {
-        "name": ":blank",
-        "value": ":blank",
+        "name": ":left",
+        "value": ":left",
+        "Values": null
+      },
+      {
+        "name": ":right",
+        "value": ":right",
         "Values": null
       }
     ]
@@ -638,11 +638,6 @@
     "name": "@property",
     "descriptors": [
       {
-        "name": "syntax",
-        "syntax": "<string>",
-        "initial": ""
-      },
-      {
         "name": "inherits",
         "syntax": "true | false",
         "initial": ""
@@ -651,6 +646,11 @@
         "name": "initial-value",
         "syntax": "<declaration-value>?",
         "initial": "the guaranteed-invalid value (but see prose)"
+      },
+      {
+        "name": "syntax",
+        "syntax": "<string>",
+        "initial": ""
       }
     ],
     "Values": null
