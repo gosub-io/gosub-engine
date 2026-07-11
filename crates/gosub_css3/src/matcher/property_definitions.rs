@@ -1078,6 +1078,35 @@ mod tests {
         assert!(!ok("color", "banana"));
     }
 
+    /// A value containing a `var()`/`env()` substitution is valid at parse time for any
+    /// property, wherever the substitution appears — its grammar cannot be checked until
+    /// substitution happens (CSS Variables L1 §3).
+    #[test]
+    fn test_var_substitution() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        // Standalone, with fallback, nested in a function, and as one token of a shorthand.
+        assert!(ok("color", "var(--tw-prose-body)"));
+        assert!(ok("background-color", "var(--btn-bg, #fff)"));
+        assert!(ok("width", "var(--layout-col-20)"));
+        assert!(ok("border", "1px solid var(--grey-border)"));
+        assert!(ok("color", "rgb(var(--r), 0, 0)"));
+        assert!(ok("transform", "translate(var(--x), var(--y))"));
+        assert!(ok("padding", "var(--pad-v) 0"));
+        assert!(ok("font-size", "var(--fs)"));
+        // env() defers the same way.
+        assert!(ok("padding-top", "env(safe-area-inset-top)"));
+        // No substitution present -> still validated normally.
+        assert!(!ok("color", "banana"));
+        assert!(!ok("color", "notavar(--x)"));
+    }
+
     #[test]
     fn test_box_shadow_matching() {
         let defs = get_css_definitions();

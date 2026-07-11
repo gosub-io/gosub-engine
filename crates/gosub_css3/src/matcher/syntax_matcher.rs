@@ -39,8 +39,10 @@ impl CssSyntaxTree {
         }
 
         // The CSS-wide keywords are valid as the sole value of every property, yet they
-        // appear in no property grammar, so accept them here at the top level.
-        if is_css_wide_keyword(input) {
+        // appear in no property grammar, so accept them here at the top level. A value that
+        // contains a substitution function (var()/env()) is likewise deferred: its grammar
+        // cannot be checked until substitution, so it is valid at parse time for any property.
+        if is_css_wide_keyword(input) || contains_substitution(input) {
             return true;
         }
 
@@ -58,7 +60,7 @@ impl CssSyntaxTree {
             return false;
         }
 
-        if is_css_wide_keyword(input) {
+        if is_css_wide_keyword(input) || contains_substitution(input) {
             return true;
         }
 
@@ -88,6 +90,21 @@ fn is_css_wide_keyword(input: &[CssValue]) -> bool {
             .any(|kw| s.eq_ignore_ascii_case(kw)),
         _ => false,
     }
+}
+
+/// Returns true when any value in the tree is a substitution function (`var()` or
+/// `env()`), searching inside nested function arguments and lists. Such a value is
+/// "guaranteed-invalid" to grammar-check until the substitution happens (CSS Variables
+/// L1 §3), so a declaration containing one is valid at parse time for any property,
+/// wherever the function appears (e.g. `1px solid var(--c)`, `rgb(var(--r), 0, 0)`).
+fn contains_substitution(values: &[CssValue]) -> bool {
+    values.iter().any(|value| match value {
+        CssValue::Function(name, args) => {
+            name.eq_ignore_ascii_case("var") || name.eq_ignore_ascii_case("env") || contains_substitution(args)
+        }
+        CssValue::List(items) => contains_substitution(items),
+        _ => false,
+    })
 }
 
 fn match_component_inner<'a>(
