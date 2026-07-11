@@ -113,6 +113,13 @@ impl FontSystem for ParleyFontSystem {
         found.ok_or_else(|| FontError::FontNotFound(query.families.join(", ")))
     }
 
+    fn families(&mut self) -> Vec<String> {
+        let mut out: Vec<String> = self.font_cx.collection.family_names().map(str::to_string).collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     /// Shape `text` into positioned glyph runs, resolving `style.family` first so shaping starts
     /// from the same concrete font that [`FontSystem::measure`] used.
     fn shape(&mut self, text: &str, style: &TextStyle) -> ShapedText {
@@ -378,6 +385,16 @@ fn to_parley_alignment(align: TextAlign) -> Alignment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `families()` must list every resolvable family: the bundled Roboto (registered in
+    /// `new()`) proves registered fonts are included, sortedness proves the ordering contract.
+    #[test]
+    fn families_lists_registered_fonts_sorted() {
+        let mut fs = ParleyFontSystem::new();
+        let families = fs.families();
+        assert!(families.iter().any(|f| f == "Roboto"), "bundled Roboto must be listed");
+        assert!(families.windows(2).all(|w| w[0] < w[1]), "must be sorted and deduped");
+    }
 
     #[test]
     fn shape_agrees_with_measure_and_applies_letter_spacing() {

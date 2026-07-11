@@ -248,6 +248,14 @@ pub trait FontSystem: Send + Sync + 'static {
     /// every requested name when the engine fell back.
     fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError>;
 
+    /// Every font family this system can resolve by name: installed system fonts plus fonts
+    /// added via [`FontSystem::register_font`], sorted and de-duplicated.
+    ///
+    /// Generic CSS keywords (`sans-serif`, `monospace`, `system-ui`, …) are aliases handled by
+    /// [`FontSystem::resolve`], not families, so they don't appear here. Takes `&mut self`
+    /// because some engines populate their font database lazily on first enumeration.
+    fn families(&mut self) -> Vec<String>;
+
     /// Shape `text` laid out in `style` into positioned glyph runs.
     ///
     /// Handles family resolution, line breaking (at `style.max_width`), and mid-string font

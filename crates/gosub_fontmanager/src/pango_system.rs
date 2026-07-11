@@ -527,6 +527,29 @@ impl FontSystem for PangoFontSystem {
         })
     }
 
+    fn families(&mut self) -> Vec<String> {
+        // A throwaway pangocairo context (same construction as `build_layout`) reads the
+        // default font map — the fontconfig database, including web fonts registered before
+        // the font map was first built.
+        use pangocairo::functions::create_layout;
+        let Ok(surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1) else {
+            return Vec::new();
+        };
+        let Ok(cr) = cairo::Context::new(&surface) else {
+            return Vec::new();
+        };
+        let layout = create_layout(&cr);
+        let mut out: Vec<String> = layout
+            .context()
+            .list_families()
+            .iter()
+            .map(|f| f.name().to_string())
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     fn shape(&mut self, text: &str, style: &TextStyle) -> ShapedText {
         if text.is_empty() {
             return ShapedText::empty();
@@ -635,6 +658,16 @@ mod tests {
     fn registers_font_via_fontconfig() {
         let res = register_font_via_fontconfig(gosub_shared::ROBOTO_FONT, Some("Gosub Roboto Test"));
         assert!(res.is_ok(), "fontconfig registration failed: {res:?}");
+    }
+
+    /// `families()` reads the default Pango font map (fontconfig): non-empty on any machine
+    /// with fonts, sorted, de-duplicated.
+    #[test]
+    fn families_lists_fontconfig_families_sorted() {
+        let mut fs = PangoFontSystem::new();
+        let families = fs.families();
+        assert!(!families.is_empty(), "fontconfig families must be listed");
+        assert!(families.windows(2).all(|w| w[0] < w[1]), "must be sorted and deduped");
     }
 
     /// End-to-end resolve + shape through fontconfig and Pango: the resolved font must carry its

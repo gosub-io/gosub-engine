@@ -164,6 +164,20 @@ impl FontSystem for CosmicFontSystem {
         })
     }
 
+    fn families(&mut self) -> Vec<String> {
+        // A face's `families` holds one name per localisation; the first entry is the
+        // primary (typically English) name, which is what CSS matches against.
+        let mut out: Vec<String> = self
+            .inner
+            .db()
+            .faces()
+            .filter_map(|face| face.families.first().map(|(name, _)| name.clone()))
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     /// Shape `text` into positioned glyph runs.
     fn shape(&mut self, text: &str, style: &TextStyle) -> ShapedText {
         if text.is_empty() {
@@ -301,6 +315,16 @@ fn to_stretch(s: FontStretch) -> Stretch {
 mod tests {
     use super::*;
     use gosub_interface::font_system::FontQuery;
+
+    /// Same contract as the Parley test: the bundled Roboto (loaded in `new()`) must appear,
+    /// and the list must be sorted and de-duplicated.
+    #[test]
+    fn families_lists_registered_fonts_sorted() {
+        let mut fs = CosmicFontSystem::new();
+        let families = fs.families();
+        assert!(families.iter().any(|f| f == "Roboto"), "bundled Roboto must be listed");
+        assert!(families.windows(2).all(|w| w[0] < w[1]), "must be sorted and deduped");
+    }
 
     #[test]
     fn resolves_measures_and_shapes() {

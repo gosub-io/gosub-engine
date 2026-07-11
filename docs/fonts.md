@@ -17,6 +17,8 @@ pub trait FontSystem: Send + Sync + 'static {
     fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError>;
     /// Resolve a CSS font query to a concrete font, including its raw bytes.
     fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError>;
+    /// Every family resolvable by name (system fonts + registered fonts), sorted and deduped.
+    fn families(&mut self) -> Vec<String>;
     /// Shape `text` laid out in `style` into positioned glyph runs.
     fn shape(&mut self, text: &str, style: &TextStyle) -> ShapedText;
     /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
@@ -25,7 +27,7 @@ pub trait FontSystem: Send + Sync + 'static {
 }
 ```
 
-Every implementation exposes the full lookup → shape → measure pipeline through the trait; each returned `ShapedRun` names the font (bytes included) that was *actually* used for its glyphs, mid-string fallback included. Drawing is the one job that stays outside: painting a `ShapedText` is the render backend's business. The trait is the *only* interface between font systems and backends — there is no downcast escape hatch, so any font system works with any backend by construction.
+Every implementation exposes the full lookup → shape → measure pipeline through the trait; each returned `ShapedRun` names the font (bytes included) that was *actually* used for its glyphs, mid-string fallback included. `families()` enumerates the installed inventory (plus registered web fonts) — the same database `resolve` matches against — for consumers like a font-picker UI or the Local Font Access API; generic CSS keywords are resolution aliases, not families, so they are not listed. Drawing is the one job that stays outside: painting a `ShapedText` is the render backend's business. The trait is the *only* interface between font systems and backends — there is no downcast escape hatch, so any font system works with any backend by construction.
 
 The trait file also defines the shared value types: `TextStyle` (family, size, weight, style, stretch, optional line-height and wrap width, letter spacing, display scale), `FontQuery` / `ResolvedFont` (family resolution with raw `FontBlob` bytes), and `ShapedText` / `ShapedRun` / `ShapedGlyph` (positioned glyph runs).
 

@@ -427,6 +427,18 @@ impl FontSystem for SkiaFontSystem {
         Err(FontError::FontNotFound(joined))
     }
 
+    fn families(&mut self) -> Vec<String> {
+        // System fonts plus the registered web fonts, which live in a separate provider
+        // (`web_font_mgr`) rather than the platform font manager.
+        let mut out: Vec<String> = FontMgr::new().family_names().collect();
+        if let Some(web) = web_font_mgr() {
+            out.extend(web.family_names());
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     fn shape(&mut self, text: &str, style: &GosubTextStyle) -> ShapedText {
         if text.is_empty() {
             return ShapedText::empty();
@@ -531,6 +543,22 @@ fn width_from_css_percent(pct: i32) -> skia_safe::font_style::Width {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `families()` must merge both sources: the platform font manager (non-empty on any
+    /// machine with fonts) and the process-global web-font registry.
+    #[test]
+    fn families_includes_system_and_web_fonts() {
+        let mut fs = SkiaFontSystem;
+        fs.register_font(gosub_shared::ROBOTO_FONT.to_vec(), Some("Gosub Families Test"))
+            .expect("bundled Roboto must register");
+        let families = fs.families();
+        assert!(!families.is_empty(), "system fonts must be listed");
+        assert!(
+            families.iter().any(|f| f == "Gosub Families Test"),
+            "registered web font must be listed"
+        );
+        assert!(families.windows(2).all(|w| w[0] < w[1]), "must be sorted and deduped");
+    }
 
     /// End-to-end resolve + shape through Skia: the resolved font must carry its file bytes,
     /// shaping must produce glyph runs, and the shape bounding box must agree with `measure`
