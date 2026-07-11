@@ -290,7 +290,20 @@ impl CssDefinitions {
                     };
                 }
 
-                // Second step: Resolve by looking the definition up in the properties
+                // Second step: check if the data type is a built-in datatype. Built-ins are
+                // terminal value types (e.g. `<flex>` = an `fr` value) and must take
+                // precedence over a same-named property: the property-reference form is the
+                // quoted `<'flex'>`, whereas bare `<flex>` is the value type. Without this
+                // ordering `<flex>` would resolve to the `flex` shorthand's grammar and an
+                // `fr` track size (`grid-template-columns: 1fr`) would never match.
+                if BUILTIN_DATA_TYPES.contains(&datatype.as_str()) {
+                    return SyntaxComponent::Builtin {
+                        datatype: datatype.clone(),
+                        multipliers: multipliers.clone(),
+                    };
+                }
+
+                // Third step: Resolve by looking the definition up in the properties
 
                 // Don't resolve in properties when the datatype is the same as the
                 // property name (for instance: inset-area)
@@ -320,14 +333,6 @@ impl CssDefinitions {
                             multipliers: multipliers.clone(),
                         };
                     }
-                }
-
-                // Last step: check if the data type is a built-in datatype
-                if BUILTIN_DATA_TYPES.contains(&datatype.as_str()) {
-                    return SyntaxComponent::Builtin {
-                        datatype: datatype.clone(),
-                        multipliers: multipliers.clone(),
-                    };
                 }
 
                 #[allow(clippy::panic)]
@@ -874,6 +879,20 @@ mod tests {
                 "font",
                 &[("12px serif", true), ("italic bold 12px/1.5 serif", true), ("banana", false)],
             ),
+            (
+                // Track sizing exercises the `<flex>` (`fr`) value type, including inside
+                // `minmax()`. `<flex>` is a builtin value type that must not be shadowed by
+                // the same-named `flex` property.
+                "grid-template-columns",
+                &[
+                    ("none", true),
+                    ("1fr", true),
+                    ("1fr 1fr", true),
+                    ("100px auto", true),
+                    ("minmax(100px, 1fr)", true),
+                    ("banana", false),
+                ],
+            ),
         ];
 
         let defs = get_css_definitions();
@@ -947,11 +966,6 @@ mod tests {
         // treats the bounded datatype as its unbounded base, so a negative length for a
         // non-negative property still matches.
         assert!(ok("width", "-5px"));
-
-        // The `fr` flex unit (`<flex>`) is not matched, so a track list using it fails
-        // even though a length/keyword track list matches.
-        assert!(ok("grid-template-columns", "100px auto"));
-        assert!(!ok("grid-template-columns", "1fr 1fr"));
 
         // webref types `background` as `<bg-layer>#? , <final-bg-layer>`, which makes the
         // separating comma mandatory, so a bare single-layer background does not match.

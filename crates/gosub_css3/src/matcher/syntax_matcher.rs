@@ -285,6 +285,12 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 CssValue::Unit(_, u) if LENGTH_UNITS.contains(&u.as_str()) => return first_match(input),
                 _ => {}
             },
+            // A flexible length is a `<number>` followed by the `fr` unit (grid track sizing).
+            "flex" => match value {
+                CssValue::Zero => return first_match(input),
+                CssValue::Unit(_, u) if u.eq_ignore_ascii_case("fr") => return first_match(input),
+                _ => {}
+            },
             "number" => match value {
                 CssValue::Zero | CssValue::Number(_) => return first_match(input),
                 _ => {}
