@@ -205,19 +205,19 @@
   },
   {
     "name": "<box-shadow-blur>",
-    "syntax": "<length [0,∞]>#"
+    "syntax": "<length [0,∞]>"
   },
   {
     "name": "<box-shadow-color>",
-    "syntax": "<color>#"
+    "syntax": "<color>"
   },
   {
     "name": "<box-shadow-position>",
-    "syntax": "[ outset | inset ]#"
+    "syntax": "[ outset | inset ]"
   },
   {
     "name": "<box-shadow-spread>",
-    "syntax": "<length>#"
+    "syntax": "<length>"
   },
   {
     "name": "<brightness()>",

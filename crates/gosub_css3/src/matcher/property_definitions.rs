@@ -815,6 +815,7 @@ mod tests {
                     ("2px 2px", true),
                     ("2px 2px 4px red", true),
                     ("inset 2px 2px 4px red", true),
+                    ("2px 2px red, 3px 3px blue", true),
                     ("banana", false),
                 ],
             ),
@@ -882,17 +883,15 @@ mod tests {
         assert!(ok("red 2px 2px"));
         assert!(ok("inset 2px 2px"));
         assert!(ok("inset 2px 2px 4px red"));
-        // Comma-separated list of shadows (without per-shadow colors).
+        // Comma-separated list of shadows, with and without per-shadow colors.
+        // webref decomposes box-shadow into sub-properties typed as comma-lists
+        // (`box-shadow-color = <color>#`); when embedded in one shadow, that inner `#`
+        // used to greedily consume the shadow-separating comma. The generator now strips
+        // the trailing `#` from those value-type definitions, so both cases match.
         assert!(ok("2px 2px, 3px 3px"));
+        assert!(ok("2px 2px red, 3px 3px blue"));
         // Invalid.
         assert!(!ok("banana"));
-
-        // KNOWN GAP: a comma-separated list where shadows carry colors does not match.
-        // webref decomposes box-shadow into sub-properties typed as comma-lists
-        // (`box-shadow-color = <color>#`); embedded in one <spread-shadow> that `#`
-        // greedily consumes the shadow-separating comma. Fixing this needs the generator
-        // to drop the `#` from those sub-property definitions.
-        assert!(!ok("2px 2px red, 3px 3px blue"));
     }
 
     #[test]
