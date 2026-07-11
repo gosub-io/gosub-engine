@@ -28,7 +28,6 @@ type AppConfig = DefaultRenderConfig<SkiaBackend, SkiaFontSystem>;
 use gosub_render_pipeline::render::backend::{anchored_tile_pos, CachedTile, ExternalHandle};
 use gosub_render_pipeline::render::DefaultCompositor;
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use skia_safe::gpu::ganesh::surface_ganesh;
 use skia_safe::gpu::{self, gl::FramebufferInfo, DirectContext, SurfaceOrigin};
 use skia_safe::{Color4f, ColorType, Font, FontMgr, FontStyle, ImageInfo, Paint, Rect as SkRect, Surface};
@@ -103,7 +102,7 @@ struct BrowserApp {
     zone: Zone<AppConfig>,
     tab: TabHandle,
     tab_id: TabId,
-    compositor: Arc<RwLock<DefaultCompositor>>,
+    compositor: Arc<DefaultCompositor>,
     #[allow(dead_code)]
     proxy: EventLoopProxy<()>,
 
@@ -153,8 +152,7 @@ impl BrowserApp {
         // Composite page tiles
         let content_h = win_h.saturating_sub(ADDRESS_BAR_HEIGHT as u32);
         {
-            let guard = self.compositor.read();
-            if let Some(handle) = guard.frame_for(self.tab_id) {
+            if let Some(handle) = self.compositor.frame_for(self.tab_id) {
                 composite_tiles(
                     canvas,
                     win_w,
@@ -536,12 +534,12 @@ fn main() {
     };
 
     // Engine + compositor
-    let compositor = Arc::new(RwLock::new(DefaultCompositor::new({
+    let compositor = Arc::new(DefaultCompositor::new({
         let p = proxy.clone();
         move || {
             let _ = p.send_event(());
         }
-    })));
+    }));
 
     // Rasterize tiles on the CPU via the Skia backend; this example then uploads those tiles and
     // composites them onto the GL window surface through Skia's Ganesh GPU backend. (A NullBackend

@@ -17,7 +17,6 @@ use gosub_render_pipeline::render::backend::{
 use gosub_render_pipeline::render::{DefaultCompositor, DEVICE_PIXEL_RATIO};
 use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
 use url::Url;
@@ -50,7 +49,7 @@ struct BrowserApp {
     zone: Zone<AppConfig>,
     tab: TabHandle,
     tab_id: TabId,
-    compositor: Arc<RwLock<DefaultCompositor>>,
+    compositor: Arc<DefaultCompositor>,
     url_input: String,
     status_url: String,
     texture: Option<egui::TextureHandle>,
@@ -67,9 +66,9 @@ impl BrowserApp {
         let _rt = TOKIO_RT.enter();
 
         let ctx = cc.egui_ctx.clone();
-        let compositor = Arc::new(RwLock::new(DefaultCompositor::new(move || {
+        let compositor = Arc::new(DefaultCompositor::new(move || {
             ctx.request_repaint();
-        })));
+        }));
 
         let backend = SkiaBackend::new();
         let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
@@ -176,7 +175,7 @@ impl BrowserApp {
     }
 
     fn refresh_texture(&mut self, ctx: &egui::Context) {
-        let Some(handle) = self.compositor.read().frame_for(self.tab_id) else {
+        let Some(handle) = self.compositor.frame_for(self.tab_id) else {
             return;
         };
 

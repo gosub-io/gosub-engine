@@ -15,7 +15,6 @@ use gosub_engine::{
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use http::header;
-use parking_lot::RwLock;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -70,7 +69,7 @@ async fn main() -> Result<(), EngineError> {
     let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
         Some(engine_cfg),
         Arc::new(backend),
-        Arc::new(RwLock::new(DefaultCompositor::default())),
+        Arc::new(DefaultCompositor::default()),
     );
     let engine_join_handle = engine.start().expect("cannot start engine");
 

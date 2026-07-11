@@ -365,7 +365,7 @@ struct RuntimeState {
 struct BrowserApp {
     // Available from the start (before any window exists).
     instance: wgpu::Instance,
-    compositor: Arc<RwLock<DefaultCompositor>>,
+    compositor: Arc<DefaultCompositor>,
     proxy: EventLoopProxy<()>,
     initial_url: String,
 
@@ -431,7 +431,7 @@ impl BrowserApp {
         let Some(tab_id) = self.state.as_ref().map(|rt| rt.tab_id) else {
             return;
         };
-        let Some(handle) = self.compositor.read().frame_for(tab_id) else {
+        let Some(handle) = self.compositor.frame_for(tab_id) else {
             return;
         };
 
@@ -940,12 +940,12 @@ fn main() {
     // therefore a surface) is available to pass as a compatibility hint.
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
 
-    let compositor = Arc::new(RwLock::new(DefaultCompositor::new({
+    let compositor = Arc::new(DefaultCompositor::new({
         let p = proxy.clone();
         move || {
             let _ = p.send_event(());
         }
-    })));
+    }));
 
     let url_input = initial_url.clone();
     let current_url = initial_url.clone();

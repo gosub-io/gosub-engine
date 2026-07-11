@@ -27,7 +27,6 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, Entry, GLArea, Label, Orientation};
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -88,12 +87,12 @@ fn main() {
 
         let (tx_redraw, mut rx_redraw) = mpsc::unbounded_channel::<()>();
 
-        let compositor = Arc::new(RwLock::new(DefaultCompositor::new({
+        let compositor = Arc::new(DefaultCompositor::new({
             let tx = tx_redraw.clone();
             move || {
                 let _ = tx.send(());
             }
-        })));
+        }));
 
         let backend = SkiaBackend::new();
         let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
@@ -287,7 +286,7 @@ fn main() {
                         scroll_x,
                         scroll_y,
                         ..
-                    }) = compositor_rx.read().frame_for(tab_id)
+                    }) = compositor_rx.frame_for(tab_id)
                     {
                         *local_tiles.borrow_mut() = Some(TileDrawState { tiles, dpr });
                         local_scroll.set((scroll_x, scroll_y));

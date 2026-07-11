@@ -19,7 +19,6 @@ use gosub_render_pipeline::render::DefaultCompositor;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use softbuffer::Surface;
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -56,7 +55,7 @@ struct BrowserApp {
     zone: Zone<AppConfig>,
     tab: TabHandle,
     tab_id: TabId,
-    compositor: Arc<RwLock<DefaultCompositor>>,
+    compositor: Arc<DefaultCompositor>,
     #[allow(dead_code)]
     proxy: EventLoopProxy<()>,
 
@@ -80,7 +79,7 @@ impl BrowserApp {
         zone: Zone<AppConfig>,
         tab: TabHandle,
         tab_id: TabId,
-        compositor: Arc<RwLock<DefaultCompositor>>,
+        compositor: Arc<DefaultCompositor>,
         proxy: EventLoopProxy<()>,
         initial_url: String,
     ) -> Self {
@@ -142,8 +141,7 @@ impl BrowserApp {
         // Composite engine content into the content area (below address bar).
         let content_h = win_h.saturating_sub(ADDRESS_BAR_HEIGHT);
         if content_h > 0 {
-            let guard = self.compositor.read();
-            if let Some(handle) = guard.frame_for(self.tab_id) {
+            if let Some(handle) = self.compositor.frame_for(self.tab_id) {
                 blit_handle_to_buffer(
                     &mut buf,
                     win_w,
@@ -594,12 +592,12 @@ fn main() {
     let event_loop = EventLoop::<()>::with_user_event().build().expect("event loop");
     let proxy = event_loop.create_proxy();
 
-    let compositor = Arc::new(RwLock::new(DefaultCompositor::new({
+    let compositor = Arc::new(DefaultCompositor::new({
         let p = proxy.clone();
         move || {
             let _ = p.send_event(());
         }
-    })));
+    }));
 
     let backend = CairoBackend::new();
     let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());

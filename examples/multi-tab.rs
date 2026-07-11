@@ -15,7 +15,6 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use parking_lot::RwLock;
 use rand::prelude::IndexedRandom;
 use rand::rng;
 use std::collections::HashMap;
@@ -94,7 +93,7 @@ async fn main() -> Result<(), EngineError> {
     let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
         Some(engine_cfg),
         Arc::new(backend),
-        Arc::new(RwLock::new(DefaultCompositor::default())),
+        Arc::new(DefaultCompositor::default()),
     );
     let engine_join_handle = engine.start().expect("cannot start engine");
 

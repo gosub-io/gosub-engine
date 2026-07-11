@@ -129,7 +129,7 @@ struct BrowserApp {
     zone: Zone<AppConfig>,
     tab: TabHandle,
     tab_id: TabId,
-    compositor: Arc<RwLock<DefaultCompositor>>,
+    compositor: Arc<DefaultCompositor>,
     context: Arc<EguiContextProvider>,
 
     url_input: String,
@@ -152,9 +152,9 @@ impl BrowserApp {
         let _rt = TOKIO_RT.enter();
 
         let ctx = cc.egui_ctx.clone();
-        let compositor = Arc::new(RwLock::new(DefaultCompositor::new(move || {
+        let compositor = Arc::new(DefaultCompositor::new(move || {
             ctx.request_repaint();
-        })));
+        }));
 
         let context = Arc::new(EguiContextProvider::from_eframe(cc)?);
         let backend = VelloBackend::new(context.clone()).ok()?;
@@ -269,7 +269,7 @@ impl BrowserApp {
     /// Register or refresh the display texture from the latest engine frame.
     /// Handles both TileCache (pipeline+vello CPU path) and WgpuTextureId (raw vello GPU path).
     fn refresh_texture(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        let Some(handle) = self.compositor.read().frame_for(self.tab_id) else {
+        let Some(handle) = self.compositor.frame_for(self.tab_id) else {
             return;
         };
 

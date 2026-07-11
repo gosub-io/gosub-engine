@@ -19,7 +19,6 @@ use gosub_engine::{
     Action, DefaultRenderConfig, EngineError, EngineSettings, GosubEngine,
 };
 use gosub_render_pipeline::render::{backends::null::NullBackend, DefaultCompositor, Viewport};
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -38,7 +37,7 @@ async fn main() -> Result<(), EngineError> {
     let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
         Some(EngineSettings::default()),
         Arc::new(backend),
-        Arc::new(RwLock::new(DefaultCompositor::default())),
+        Arc::new(DefaultCompositor::default()),
     );
 
     // start() launches the engine's internal Tokio tasks.

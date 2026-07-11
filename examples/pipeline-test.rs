@@ -23,7 +23,6 @@ use gosub_engine::{
     Action, DefaultRenderConfig, EngineError, EngineSettings, GosubEngine, NavigationId,
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
-use parking_lot::RwLock;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
@@ -152,7 +151,7 @@ async fn main() -> Result<(), EngineError> {
     let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
         Some(EngineSettings::builder().max_zones(1).build().expect("cfg")),
         Arc::new(backend),
-        Arc::new(RwLock::new(DefaultCompositor::default())),
+        Arc::new(DefaultCompositor::default()),
     );
     let engine_join = engine.start().expect("start");
     let mut events = engine.subscribe_events();

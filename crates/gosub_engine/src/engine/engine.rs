@@ -47,7 +47,9 @@ pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig
     /// Active render backend, concrete per the module config `C`.
     render_backend: Arc<C::RenderBackend>,
     /// Compositor sink that receives finished frames, concrete per the module config `C`.
-    compositor: Arc<RwLock<C::CompositorSink>>,
+    /// Shared behind a plain `Arc`: the sink is interior-mutable (`submit_frame(&self)`), so no
+    /// outer `RwLock` is required.
+    compositor: Arc<C::CompositorSink>,
     /// The engine's single font system (the config's `FontSystem`), shared with the layouter
     /// (measurement) and the renderer (drawing) so the two agree.
     font_system: Arc<Mutex<C::FontSystem>>,
@@ -102,17 +104,16 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// ```
     /// # use gosub_engine as ge;
     /// # use std::sync::Arc;
-    /// # use parking_lot::RwLock;
     /// # use gosub_render_pipeline::render::backends::null::NullBackend;
     /// # use gosub_render_pipeline::render::DefaultCompositor;
     /// let backend = NullBackend::new();
     /// let compositor = DefaultCompositor::default();
-    /// let engine = ge::GosubEngine::<ge::DefaultRenderConfig>::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
+    /// let engine = ge::GosubEngine::<ge::DefaultRenderConfig>::new(None, Arc::new(backend), Arc::new(compositor));
     /// ```
     pub fn new(
         config: Option<EngineSettings>,
         backend: Arc<C::RenderBackend>,
-        compositor: Arc<RwLock<C::CompositorSink>>,
+        compositor: Arc<C::CompositorSink>,
     ) -> Self {
         let resolved_config = config.unwrap_or_default();
 
@@ -190,7 +191,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     }
 
     /// Give this to zones/tabs when constructing them.
-    pub fn compositor(&self) -> Arc<RwLock<C::CompositorSink>> {
+    pub fn compositor(&self) -> Arc<C::CompositorSink> {
         Arc::clone(&self.compositor)
     }
 

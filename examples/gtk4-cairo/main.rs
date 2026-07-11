@@ -23,7 +23,6 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, DrawingArea, Entry, Label, Orientation};
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -81,7 +80,7 @@ fn main() {
 
         // The present pump polls `frame_for()` at ~60fps, so the compositor doesn't need to signal
         // redraws (the old tokio-channel signal didn't reliably wake the GTK main loop anyway).
-        let compositor = Arc::new(RwLock::new(DefaultCompositor::new(|| {})));
+        let compositor = Arc::new(DefaultCompositor::new(|| {}));
 
         let backend = gosub_renderer_cairo::CairoBackend::new();
         let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
@@ -179,7 +178,7 @@ fn main() {
                     page_height: _,
                     scroll_x,
                     scroll_y,
-                }) = compositor.read().frame_for(tab_id)
+                }) = compositor.frame_for(tab_id)
                 {
                     *local_tiles.borrow_mut() = Some(TileDrawState {
                         tiles,
@@ -223,7 +222,7 @@ fn main() {
             drop(tiles_opt);
 
             // Slow path: engine hasn't produced a TileCache yet — use the compositor frame.
-            match compositor_draw.read().frame_for(tab_id) {
+            match compositor_draw.frame_for(tab_id) {
                 None => {
                     log::debug!("[draw] no frame yet — placeholder");
                     draw_placeholder(cr, w, h);
