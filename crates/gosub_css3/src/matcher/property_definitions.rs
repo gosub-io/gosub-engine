@@ -6,7 +6,7 @@ use log::warn;
 
 use crate::matcher::shorthands::{FixList, Shorthands};
 use crate::matcher::syntax::GroupCombinators::Juxtaposition;
-use crate::matcher::syntax::{CssSyntax, SyntaxComponent};
+use crate::matcher::syntax::{CssSyntax, RangeType, SyntaxComponent};
 use crate::matcher::syntax_matcher::CssSyntaxTree;
 use crate::stylesheet::CssValue;
 
@@ -66,6 +66,27 @@ const BUILTIN_DATA_TYPES: [&str; 41] = [
     "syntax",
     "zero",
 ];
+
+/// Pushes `range` onto the numeric builtin leaves of `component` that do not already
+/// carry a range. Used to propagate a range written on a value-type reference (e.g.
+/// `<length-percentage [0,∞]>`) into the leaves of its resolved grammar, which have no
+/// range of their own. Nested functions are left alone: a range on the reference does
+/// not constrain arbitrary arguments of a function inside the resolved grammar.
+fn apply_range(component: &mut SyntaxComponent, range: RangeType) {
+    match component {
+        SyntaxComponent::Builtin { range: existing, .. } => {
+            if existing.is_empty() {
+                *existing = range;
+            }
+        }
+        SyntaxComponent::Group { components, .. } => {
+            for inner in components {
+                apply_range(inner, range);
+            }
+        }
+        _ => {}
+    }
+}
 
 /// A CSS property definition including its type and initial value and optional expanded values if it's a shorthand property
 #[derive(Debug, Clone)]
@@ -259,7 +280,10 @@ impl CssDefinitions {
     pub fn resolve_component(&mut self, component: &SyntaxComponent, prop_name: &str) -> SyntaxComponent {
         match component {
             SyntaxComponent::Definition {
-                datatype, multipliers, ..
+                datatype,
+                range,
+                multipliers,
+                ..
             } => {
                 // First step: Resolve by looking the definition up in the syntax defintions.
                 if let Some(syntax_element) = self.syntax.get(datatype) {
@@ -283,8 +307,18 @@ impl CssDefinitions {
                         self.syntax.insert(datatype.clone(), syntax_element.clone());
                     }
 
+                    let mut components = syntax_element.syntax.components.clone();
+                    // A range written on the reference (e.g. `<length-percentage [0,∞]>`)
+                    // constrains the numeric leaves of the resolved value type, which have
+                    // no range of their own. Push it down so the leaves enforce it.
+                    if !range.is_empty() {
+                        for component in &mut components {
+                            apply_range(component, *range);
+                        }
+                    }
+
                     return SyntaxComponent::Group {
-                        components: syntax_element.syntax.components.clone(),
+                        components,
                         combinator: Juxtaposition,
                         multipliers: multipliers.clone(),
                     };
@@ -299,6 +333,7 @@ impl CssDefinitions {
                 if BUILTIN_DATA_TYPES.contains(&datatype.as_str()) {
                     return SyntaxComponent::Builtin {
                         datatype: datatype.clone(),
+                        range: *range,
                         multipliers: multipliers.clone(),
                     };
                 }
@@ -961,12 +996,12 @@ mod tests {
         assert!(!m("a{1,3}", &[a(), a(), a(), a()]));
     }
 
-    /// Documents the matcher's currently-accepted limitations so the behavior is
-    /// pinned and the divergence from spec-correct matching is discoverable. Each
-    /// assertion encodes CURRENT behavior; flipping one when the underlying gap is
-    /// fixed is the intended maintenance signal.
+    /// Numeric range constraints (`<length [0,∞]>`, `<integer [1,∞]>`, ...) are enforced:
+    /// a magnitude outside the declared range does not match. Covers both a range written
+    /// directly on a builtin and one written on a value-type reference (`<length-percentage
+    /// [0,∞]>`) that must be pushed into the resolved grammar's numeric leaves.
     #[test]
-    fn test_matcher_known_limitations() {
+    fn test_range_enforcement() {
         let defs = get_css_definitions();
         let ok = |prop: &str, v: &str| {
             defs.find_property(prop)
@@ -975,10 +1010,25 @@ mod tests {
                 .matches(&parse_decl_values(prop, v))
         };
 
-        // Numeric range constraints (`<length [0,∞]>`) are NOT enforced: the matcher
-        // treats the bounded datatype as its unbounded base, so a negative length for a
-        // non-negative property still matches.
-        assert!(ok("width", "-5px"));
+        // `<length-percentage [0,∞]>` reference: the range reaches <length> and <percentage>.
+        assert!(ok("width", "5px"));
+        assert!(ok("width", "0"));
+        assert!(!ok("width", "-5px"));
+        assert!(!ok("width", "-5%"));
+        // `<length-percentage [0,∞]>{1,4}` box shorthand.
+        assert!(ok("padding", "5px"));
+        assert!(!ok("padding", "-5px"));
+        // `<number [0,∞]>` directly on a builtin.
+        assert!(ok("flex-grow", "1"));
+        assert!(!ok("flex-grow", "-1"));
+        // `<integer [1,∞]>`: the lower bound excludes 0.
+        assert!(ok("column-count", "1"));
+        assert!(!ok("column-count", "0"));
+        // `<time [0s,∞]>#`.
+        assert!(ok("animation-duration", "1s"));
+        assert!(!ok("animation-duration", "-1s"));
+        // A datatype with no range constraint is unaffected (angle accepts negatives).
+        assert!(ok("rotate", "-45deg"));
     }
 
     /// Regression tests for combinator/multiplier matching bugs fixed alongside

@@ -266,38 +266,63 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
         SyntaxComponent::Definition { .. } => {
             return no_match(input);
         }
-        SyntaxComponent::Builtin { datatype, .. } => match datatype.as_str() {
+        SyntaxComponent::Builtin { datatype, range, .. } => match datatype.as_str() {
+            // For the numeric datatypes, an optional `[min,max]` range written on the
+            // reference (e.g. `<length [0,∞]>`) is enforced here: the magnitude must fall
+            // within it. An empty range accepts every value, so unranged uses are
+            // unaffected.
             "percentage" => {
-                if let CssValue::Percentage(_) = value {
-                    return first_match(input);
+                if let CssValue::Percentage(n) = value {
+                    if range.contains(*n) {
+                        return first_match(input);
+                    }
                 }
             }
             "angle" => match value {
-                CssValue::Zero => return first_match(input),
-                CssValue::Unit(_, u) if u.eq_ignore_ascii_case("deg") => return first_match(input),
-                CssValue::Unit(_, u) if u.eq_ignore_ascii_case("grad") => return first_match(input),
-                CssValue::Unit(_, u) if u.eq_ignore_ascii_case("rad") => return first_match(input),
-                CssValue::Unit(_, u) if u.eq_ignore_ascii_case("turn") => return first_match(input),
+                CssValue::Zero if range.contains(0.0) => return first_match(input),
+                CssValue::Unit(n, u)
+                    if range.contains(*n)
+                        && (u.eq_ignore_ascii_case("deg")
+                            || u.eq_ignore_ascii_case("grad")
+                            || u.eq_ignore_ascii_case("rad")
+                            || u.eq_ignore_ascii_case("turn")) =>
+                {
+                    return first_match(input)
+                }
                 _ => {}
             },
             "length" => match value {
-                CssValue::Zero => return first_match(input),
-                CssValue::Unit(_, u) if LENGTH_UNITS.contains(&u.as_str()) => return first_match(input),
+                CssValue::Zero if range.contains(0.0) => return first_match(input),
+                CssValue::Unit(n, u) if LENGTH_UNITS.contains(&u.as_str()) && range.contains(*n) => {
+                    return first_match(input)
+                }
+                _ => {}
+            },
+            "time" => match value {
+                CssValue::Zero if range.contains(0.0) => return first_match(input),
+                CssValue::Unit(n, u)
+                    if (u.eq_ignore_ascii_case("s") || u.eq_ignore_ascii_case("ms")) && range.contains(*n) =>
+                {
+                    return first_match(input)
+                }
                 _ => {}
             },
             // A flexible length is a `<number>` followed by the `fr` unit (grid track sizing).
             "flex" => match value {
-                CssValue::Zero => return first_match(input),
-                CssValue::Unit(_, u) if u.eq_ignore_ascii_case("fr") => return first_match(input),
+                CssValue::Zero if range.contains(0.0) => return first_match(input),
+                CssValue::Unit(n, u) if u.eq_ignore_ascii_case("fr") && range.contains(*n) => {
+                    return first_match(input)
+                }
                 _ => {}
             },
             "number" => match value {
-                CssValue::Zero | CssValue::Number(_) => return first_match(input),
+                CssValue::Zero if range.contains(0.0) => return first_match(input),
+                CssValue::Number(n) if range.contains(*n) => return first_match(input),
                 _ => {}
             },
             "integer" => match value {
-                CssValue::Zero => return first_match(input),
-                CssValue::Number(n) if n.fract() == 0.0 => return first_match(input),
+                CssValue::Zero if range.contains(0.0) => return first_match(input),
+                CssValue::Number(n) if n.fract() == 0.0 && range.contains(*n) => return first_match(input),
                 _ => {}
             },
             "system-color" => {

@@ -107,6 +107,27 @@ impl RangeType {
             max: NumberOrInfinity::None,
         }
     }
+
+    /// Returns true when neither bound is set (the range constrains nothing).
+    pub(crate) fn is_empty(&self) -> bool {
+        matches!(self.min, NumberOrInfinity::None) && matches!(self.max, NumberOrInfinity::None)
+    }
+
+    /// Returns true when `value` lies within the range. An unset or infinite bound is
+    /// treated as unbounded on that side, so an empty range accepts every value.
+    pub(crate) fn contains(&self, value: f32) -> bool {
+        let above_min = match self.min {
+            NumberOrInfinity::None | NumberOrInfinity::NegativeInfinity => true,
+            NumberOrInfinity::Infinity => false,
+            NumberOrInfinity::FiniteI64(n) => value >= n as f32,
+        };
+        let below_max = match self.max {
+            NumberOrInfinity::None | NumberOrInfinity::Infinity => true,
+            NumberOrInfinity::NegativeInfinity => false,
+            NumberOrInfinity::FiniteI64(n) => value <= n as f32,
+        };
+        above_min && below_max
+    }
 }
 
 /// Syntax components. These are the elements that make up the css declaration syntax.
@@ -173,6 +194,7 @@ pub enum SyntaxComponent {
     },
     Builtin {
         datatype: String,
+        range: RangeType,
         multipliers: Vec<SyntaxComponentMultiplier>,
     },
 }
