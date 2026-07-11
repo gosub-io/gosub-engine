@@ -6,8 +6,8 @@
 
 use gosub_interface::font::{FontBlob, FontError, FontStyle as CssFontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText,
-    TextAlign as GosubTextAlign, TextStyle as GosubTextStyle,
+    FontQuery, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText, TextAlign as GosubTextAlign,
+    TextStyle as GosubTextStyle,
 };
 use parking_lot::Mutex;
 use skia_safe::textlayout::{
@@ -295,9 +295,11 @@ thread_local! {
 fn typeface_blob(typeface: &skia_safe::Typeface) -> Option<FontBlob> {
     TYPEFACE_BLOBS.with(|cell| {
         let mut map = cell.borrow_mut();
-        let entry = map
-            .entry(typeface.unique_id())
-            .or_insert_with(|| typeface.to_font_data().map(|(data, index)| (Arc::new(data), index as u32)));
+        let entry = map.entry(typeface.unique_id()).or_insert_with(|| {
+            typeface
+                .to_font_data()
+                .map(|(data, index)| (Arc::new(data), index as u32))
+        });
         entry.as_ref().map(|(data, index)| {
             let bytes: Arc<Vec<u8>> = Arc::clone(data);
             FontBlob::new(bytes, *index)
@@ -575,7 +577,10 @@ mod tests {
         let shaped = fs.shape("Hello", &style);
         assert!(!shaped.runs.is_empty(), "expected at least one glyph run");
         let glyph_count: usize = shaped.runs.iter().map(|r| r.glyphs.len()).sum();
-        assert!(glyph_count >= 4, "expected >= 4 glyphs for \"Hello\", got {glyph_count}");
+        assert!(
+            glyph_count >= 4,
+            "expected >= 4 glyphs for \"Hello\", got {glyph_count}"
+        );
         assert!(shaped.ascent > 0.0 && shaped.ascent <= shaped.height);
 
         let (w, h) = fs.measure("Hello", &style);

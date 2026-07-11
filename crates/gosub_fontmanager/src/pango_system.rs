@@ -141,7 +141,12 @@ fn to_fc_width(ratio: f32) -> c_int {
 /// process-global fontconfig config — the same database Pango itself resolves from — and return
 /// the winning face. fontconfig always matches *something* after `FcDefaultSubstitute`, so this
 /// only errors when fontconfig is unavailable or the matched pattern lacks a file path.
-fn fontconfig_match(families: &[&str], weight: c_int, slant: c_int, width: c_int) -> Result<FontconfigMatch, FontError> {
+fn fontconfig_match(
+    families: &[&str],
+    weight: c_int,
+    slant: c_int,
+    width: c_int,
+) -> Result<FontconfigMatch, FontError> {
     use fontconfig_sys::constants::{FC_FAMILY, FC_FILE, FC_INDEX, FC_SLANT, FC_WEIGHT, FC_WIDTH};
     use fontconfig_sys::{
         FcConfigGetCurrent, FcConfigSubstitute, FcDefaultSubstitute, FcFontMatch, FcMatchPattern, FcPatternAddInteger,
@@ -191,15 +196,17 @@ fn fontconfig_match(families: &[&str], weight: c_int, slant: c_int, width: c_int
         let mut file_ptr: *mut u8 = std::ptr::null_mut();
         let mut family_ptr: *mut u8 = std::ptr::null_mut();
         let mut index: c_int = 0;
-        let file_ok = FcPatternGetString(matched, FC_FILE.as_ptr(), 0, &mut file_ptr) == FcResultMatch
-            && !file_ptr.is_null();
+        let file_ok =
+            FcPatternGetString(matched, FC_FILE.as_ptr(), 0, &mut file_ptr) == FcResultMatch && !file_ptr.is_null();
         let family_ok = FcPatternGetString(matched, FC_FAMILY.as_ptr(), 0, &mut family_ptr) == FcResultMatch
             && !family_ptr.is_null();
         let _ = FcPatternGetInteger(matched, FC_INDEX.as_ptr(), 0, &mut index);
 
         let out = file_ok.then(|| FontconfigMatch {
             family: if family_ok {
-                std::ffi::CStr::from_ptr(family_ptr.cast()).to_string_lossy().into_owned()
+                std::ffi::CStr::from_ptr(family_ptr.cast())
+                    .to_string_lossy()
+                    .into_owned()
             } else {
                 families.first().copied().unwrap_or(DEFAULT_FONT_FAMILY).to_string()
             },
@@ -346,8 +353,7 @@ impl PangoFontSystem {
         let data = match cache.entry((path.to_string(), index)) {
             Entry::Occupied(e) => Arc::clone(e.get()),
             Entry::Vacant(e) => {
-                let bytes =
-                    std::fs::read(path).map_err(|err| FontError::InvalidFont(format!("read {path}: {err}")))?;
+                let bytes = std::fs::read(path).map_err(|err| FontError::InvalidFont(format!("read {path}: {err}")))?;
                 Arc::clone(e.insert(Arc::new(bytes)))
             }
         };
@@ -685,7 +691,10 @@ mod tests {
         let shaped = fs.shape("Hello", &style);
         assert!(!shaped.runs.is_empty(), "expected at least one glyph run");
         let glyph_count: usize = shaped.runs.iter().map(|r| r.glyphs.len()).sum();
-        assert!(glyph_count >= 4, "expected >= 4 glyphs for \"Hello\", got {glyph_count}");
+        assert!(
+            glyph_count >= 4,
+            "expected >= 4 glyphs for \"Hello\", got {glyph_count}"
+        );
         assert!(shaped.ascent > 0.0 && shaped.ascent <= shaped.height);
 
         let (w, h) = fs.measure("Hello", &style);

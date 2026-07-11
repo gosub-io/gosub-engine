@@ -164,7 +164,10 @@ mod tests {
             panic!("failed to read pixel bytes");
         };
         // Count pixels that are meaningfully darker than the white background.
-        let dark = bytes.chunks_exact(4).filter(|px| px[0] < 128 && px[1] < 128 && px[2] < 128).count();
+        let dark = bytes
+            .chunks_exact(4)
+            .filter(|px| px[0] < 128 && px[1] < 128 && px[2] < 128)
+            .count();
         assert!(dark > 20, "expected dark glyph pixels on the canvas, found {dark}");
     }
 }

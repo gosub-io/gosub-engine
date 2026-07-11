@@ -7,8 +7,7 @@
 //! when filling a [`FontBlob`] (cached upstream by whoever holds the `ResolvedFont`).
 
 use cosmic_text::{
-    fontdb, Align, Attrs, Buffer, Family, FontSystem as CosmicTextFontSystem, Metrics, Shaping, Stretch, Style,
-    Weight,
+    fontdb, Align, Attrs, Buffer, Family, FontSystem as CosmicTextFontSystem, Metrics, Shaping, Stretch, Style, Weight,
 };
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
