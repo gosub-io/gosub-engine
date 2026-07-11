@@ -17,7 +17,7 @@ use crate::stylesheet::CssValue;
 /// and a few legacy/niche types no data source defines. Every value type that *does*
 /// have a grammar is resolved from the definitions (webref / MDN `syntaxes.json`), so
 /// it must NOT be listed here.
-const BUILTIN_DATA_TYPES: [&str; 34] = [
+const BUILTIN_DATA_TYPES: [&str; 41] = [
     "age",
     "angle",
     "custom-ident",
@@ -55,6 +55,16 @@ const BUILTIN_DATA_TYPES: [&str; 34] = [
     // expandable grammar; matched explicitly in syntax_matcher so it can't act as
     // a wildcard inside `<color-function>`.
     "alpha()",
+    // Leaf datatypes that only appear inside function-argument grammars (attr(),
+    // element(), calc-size(), dynamic-range-limit-mix(), @property `<syntax>`). No
+    // data source (webref/MDN) defines them, so they are matched opaquely.
+    "attr-name",
+    "attr-unit",
+    "dynamic-range-limit",
+    "hash-token",
+    "intrinsic-size-keyword",
+    "syntax",
+    "zero",
 ];
 
 /// A CSS property definition including its type and initial value and optional expanded values if it's a shorthand property
@@ -157,6 +167,9 @@ pub struct CssDefinitions {
     pub properties: HashMap<String, PropertyDefinition>,
     /// List of syntax elements for resolving the properties
     pub syntax: HashMap<String, SyntaxDefinition>,
+    /// Datatypes currently being resolved, used to break reference cycles in
+    /// self-referential grammars (e.g. the calc() family). Transient during `resolve`.
+    resolving: std::collections::HashSet<String>,
 }
 
 impl Default for CssDefinitions {
@@ -172,6 +185,7 @@ impl CssDefinitions {
             resolved_properties: HashMap::new(),
             properties: HashMap::new(),
             syntax: HashMap::new(),
+            resolving: std::collections::HashSet::new(),
         }
     }
 
@@ -249,10 +263,23 @@ impl CssDefinitions {
             } => {
                 // First step: Resolve by looking the definition up in the syntax defintions.
                 if let Some(syntax_element) = self.syntax.get(datatype) {
+                    // Cycle guard: if this datatype is already being resolved further up
+                    // the stack, don't recurse into it again. Self-referential grammars
+                    // (notably the calc() family, now reachable because function arguments
+                    // are resolved) would otherwise recurse forever. Leaving the reference
+                    // as an unresolved Definition is harmless: it only occurs at the
+                    // recursive position of such grammars (e.g. calc(), whose arguments are
+                    // kept as an opaque string and never matched against this grammar).
+                    if self.resolving.contains(datatype) {
+                        return component.clone();
+                    }
+
                     let mut syntax_element = syntax_element.clone();
                     if !syntax_element.resolved {
+                        self.resolving.insert(datatype.clone());
                         syntax_element.syntax = self.resolve_syntax(&syntax_element.syntax, prop_name);
                         syntax_element.resolved = true;
+                        self.resolving.remove(datatype);
                         self.syntax.insert(datatype.clone(), syntax_element.clone());
                     }
 
@@ -326,6 +353,21 @@ impl CssDefinitions {
                     multipliers: multipliers.clone(),
                 }
             }
+            SyntaxComponent::Function {
+                name,
+                arguments,
+                multipliers,
+            } => {
+                // Resolve the argument grammar too, otherwise it keeps unresolved
+                // `<datatype>` definitions that the matcher cannot match against.
+                SyntaxComponent::Function {
+                    name: name.clone(),
+                    arguments: arguments
+                        .as_ref()
+                        .map(|arg| Box::new(self.resolve_component(arg, prop_name))),
+                    multipliers: multipliers.clone(),
+                }
+            }
             _ => {
                 // This component does not need any resolving
                 component.clone()
@@ -382,6 +424,7 @@ fn parse_definition_files() -> CssDefinitions {
         resolved_properties: HashMap::new(),
         properties,
         syntax,
+        resolving: std::collections::HashSet::new(),
     };
 
     definitions.index_shorthands();
@@ -466,6 +509,14 @@ fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) 
 
                 if name.ends_with('>') {
                     name.pop();
+                }
+
+                // Genuine token primitives are matched directly by the syntax matcher.
+                // Don't let a value definition of the same name shadow the builtin: MDN,
+                // for instance, defines `integer` as `<number-token>`, which would make
+                // `<integer>` accept any token and defeat validation.
+                if BUILTIN_DATA_TYPES.contains(&name.as_str()) {
+                    continue;
                 }
 
                 syntaxes.insert(
@@ -628,6 +679,220 @@ mod tests {
         assert_true!(prop.clone().matches(&[str!("solid")]));
         assert_false!(prop.clone().matches(&[str!("not-solid")]));
         assert_false!(prop.clone().matches(&[str!("solid"), str!("solid"), unit!(1.0, "px"),]));
+    }
+
+    /// Parse a real declaration `prop: value` and return its value list, exactly as
+    /// the cascade would see it (functions like `rgb(0,0,0)` collapse to `Color`).
+    fn parse_decl_values(prop: &str, value: &str) -> Vec<CssValue> {
+        use crate::Css3;
+        use gosub_interface::css3::CssOrigin;
+        use gosub_shared::config::ParserConfig;
+
+        let css = format!("x {{ {prop}: {value}; }}");
+        let config = ParserConfig {
+            match_values: false,
+            ignore_errors: true,
+            ..Default::default()
+        };
+        let sheet = Css3::parse_str(&css, config, CssOrigin::Author, "corpus-test").expect("parse");
+        let Some(decl) = sheet.rules.first().and_then(|r| r.declarations.first()) else {
+            return vec![];
+        };
+        match &decl.value {
+            CssValue::List(v) => v.clone(),
+            other => vec![other.clone()],
+        }
+    }
+
+    /// A broad corpus exercising the matcher across many property/value combinations,
+    /// including the newly data-driven value types. Prints every mismatch, then fails
+    /// if any case disagrees with its expectation.
+    /// Run with: cargo test -p gosub_css3 test_matcher_corpus --lib -- --nocapture
+    #[test]
+    fn test_matcher_corpus() {
+        // property -> list of (value, should-match)
+        let corpus: &[(&str, &[(&str, bool)])] = &[
+            (
+                "width",
+                &[
+                    ("10px", true),
+                    ("0", true),
+                    ("5em", true),
+                    ("10.42%", true),
+                    ("auto", true),
+                    ("min-content", true),
+                    ("fit-content(10px)", true),
+                    ("fit-content(50%)", true),
+                    // argument is validated: a color is not a <length-percentage>
+                    ("fit-content(red)", false),
+                    ("banana", false),
+                    ("rgb(0,0,0)", false),
+                    ("red", false),
+                ],
+            ),
+            (
+                "color",
+                &[
+                    ("red", true),
+                    ("rebeccapurple", true),
+                    ("#ff0000", true),
+                    ("rgb(0,0,0)", true),
+                    ("rgba(0,0,0,0.5)", true),
+                    ("hsl(0,0%,0%)", true),
+                    ("transparent", true),
+                    ("banana", false),
+                    ("10px", false),
+                ],
+            ),
+            (
+                "display",
+                &[
+                    ("block", true),
+                    ("inline-block", true),
+                    ("flex", true),
+                    ("grid", true),
+                    ("none", true),
+                    ("banana", false),
+                    ("10px", false),
+                ],
+            ),
+            (
+                "font-size",
+                &[
+                    ("12px", true),
+                    ("1.5em", true),
+                    ("large", true),
+                    ("120%", true),
+                    ("banana", false),
+                ],
+            ),
+            (
+                "opacity",
+                &[("0.5", true), ("1", true), ("0", true), ("banana", false)],
+            ),
+            (
+                "z-index",
+                &[("10", true), ("auto", true), ("banana", false), ("1.5", false)],
+            ),
+            (
+                "position",
+                &[("absolute", true), ("relative", true), ("static", true), ("banana", false)],
+            ),
+            (
+                "text-align",
+                &[("center", true), ("left", true), ("justify", true), ("banana", false)],
+            ),
+            (
+                "overflow",
+                &[("hidden", true), ("scroll", true), ("auto", true), ("banana", false)],
+            ),
+            (
+                "line-height",
+                &[("1.5", true), ("normal", true), ("20px", true), ("150%", true)],
+            ),
+            (
+                "aspect-ratio",
+                &[("auto", true), ("16 / 9", true), ("1", true), ("banana", false)],
+            ),
+            (
+                "rotate",
+                &[("45deg", true), ("none", true), ("1turn", true), ("banana", false)],
+            ),
+            (
+                "transition-timing-function",
+                &[
+                    ("ease", true),
+                    ("linear", true),
+                    // multi-argument functions: comma-separated arguments must match
+                    ("cubic-bezier(0.1, 0.7, 1, 0.1)", true),
+                    ("steps(4, end)", true),
+                    ("banana", false),
+                ],
+            ),
+            (
+                "box-shadow",
+                &[
+                    ("2px 2px", true),
+                    ("2px 2px 4px red", true),
+                    ("inset 2px 2px 4px red", true),
+                    ("banana", false),
+                ],
+            ),
+        ];
+
+        let defs = get_css_definitions();
+        let (mut total, mut mismatches) = (0usize, Vec::new());
+        for (prop, cases) in corpus {
+            let Some(def) = defs.find_property(prop) else {
+                mismatches.push(format!("NO-DEF for {prop}"));
+                continue;
+            };
+            for (value, expected) in *cases {
+                total += 1;
+                let values = parse_decl_values(prop, value);
+                let got = def.clone().matches(&values);
+                if got != *expected {
+                    mismatches.push(format!("{prop}: {value:?} -> match={got} (want {expected})"));
+                }
+            }
+        }
+
+        eprintln!("test_matcher_corpus: {}/{} passed", total - mismatches.len(), total);
+        for m in &mismatches {
+            eprintln!("  MISMATCH {m}");
+        }
+        assert!(mismatches.is_empty(), "{} matcher mismatches", mismatches.len());
+    }
+
+    /// Regression tests for combinator/multiplier matching bugs fixed alongside
+    /// box-shadow support.
+    #[test]
+    fn test_combinator_and_multiplier_matching() {
+        fn m(grammar: &str, vals: &[CssValue]) -> bool {
+            CssSyntax::new(grammar).compile().expect("compile").matches(vals)
+        }
+        // `&&` with an absent trailing optional operand.
+        assert!(m("a && b?", &[str!("a")]));
+        // `&&` where optional operands surround a multi-value operand.
+        assert!(m("a? && [ b{2} ] && c?", &[str!("b"), str!("b")]));
+        // A single-element group must keep its inner multiplier (`[ b{2} ]` == `b{2}`).
+        assert!(m("[ b{2} ]", &[str!("b"), str!("b")]));
+        assert!(!m("[ b{2} ]", &[str!("b")]));
+        // `#` list stops at a non-comma and yields the rest to the next component.
+        assert!(m("b# c?", &[str!("b"), str!("c")]));
+        assert!(m("b# c", &[str!("b"), str!("c")]));
+        // A bounded multiplier must not greedily consume beyond its maximum.
+        assert!(m("a{2} b", &[str!("a"), str!("a"), str!("b")]));
+        // `&&` with an optional operand whose real value appears after other operands.
+        assert!(m("a? && b{2}", &[str!("b"), str!("b"), str!("a")]));
+    }
+
+    #[test]
+    fn test_box_shadow_matching() {
+        let defs = get_css_definitions();
+        let def = defs.find_property("box-shadow").unwrap();
+        let ok = |v: &str| def.clone().matches(&parse_decl_values("box-shadow", v));
+
+        // Single shadow, all component combinations (offset / blur / spread / color /
+        // position, in any order).
+        assert!(ok("2px 2px"));
+        assert!(ok("2px 2px 4px"));
+        assert!(ok("2px 2px 4px 5px"));
+        assert!(ok("2px 2px 4px red"));
+        assert!(ok("red 2px 2px"));
+        assert!(ok("inset 2px 2px"));
+        assert!(ok("inset 2px 2px 4px red"));
+        // Comma-separated list of shadows (without per-shadow colors).
+        assert!(ok("2px 2px, 3px 3px"));
+        // Invalid.
+        assert!(!ok("banana"));
+
+        // KNOWN GAP: a comma-separated list where shadows carry colors does not match.
+        // webref decomposes box-shadow into sub-properties typed as comma-lists
+        // (`box-shadow-color = <color>#`); embedded in one <spread-shadow> that `#`
+        // greedily consumes the shadow-separating comma. Fixing this needs the generator
+        // to drop the `#` from those sub-property definitions.
+        assert!(!ok("2px 2px red, 3px 3px blue"));
     }
 
     #[test]

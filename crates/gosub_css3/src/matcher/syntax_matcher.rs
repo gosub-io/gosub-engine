@@ -196,9 +196,12 @@ fn match_component<'a>(
             break;
         }
 
-        // Make sure the next value from input is a comma
+        // If the next value is not a comma, the comma-separated list ends here; the
+        // remaining input belongs to whatever component follows this one (e.g. the
+        // `<box-shadow-spread>` after `<box-shadow-blur>#`). Stop consuming and let the
+        // count check below decide whether enough items matched.
         if input.first() != Some(&CssValue::Comma) {
-            return no_match(raw_input);
+            break;
         }
 
         // Remove the comma, and continue matching
@@ -282,6 +285,15 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 CssValue::Unit(_, u) if LENGTH_UNITS.contains(&u.as_str()) => return first_match(input),
                 _ => {}
             },
+            "number" => match value {
+                CssValue::Zero | CssValue::Number(_) => return first_match(input),
+                _ => {}
+            },
+            "integer" => match value {
+                CssValue::Zero => return first_match(input),
+                CssValue::Number(n) if n.fract() == 0.0 => return first_match(input),
+                _ => {}
+            },
             "system-color" => {
                 if let CssValue::String(v) = value {
                     if is_system_color(v) {
@@ -350,9 +362,12 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 log::warn!("Case insensitive literal matched");
                 return first_match(input);
             }
+            // A comma token is parsed to its own value variant, so match it against a
+            // `,` literal (e.g. the argument separators in `cubic-bezier(a, b, c, d)`).
+            CssValue::Comma if literal == "," => return first_match(input),
             _ => {}
         },
-        SyntaxComponent::Function { name, .. } => {
+        SyntaxComponent::Function { name, arguments, .. } => {
             let CssValue::Function(c_name, c_args) = value else {
                 return no_match(input);
             };
@@ -361,11 +376,21 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 return no_match(input);
             }
 
-            if c_args.is_empty() {
-                return first_match(input);
+            match arguments {
+                // No argument grammar was declared for this function, so match on the
+                // function name alone (we have nothing to validate the arguments against).
+                None => return first_match(input),
+                Some(arg_syntax) => {
+                    // Match the function's actual arguments against its argument grammar.
+                    // An empty argument list is allowed only if the grammar is satisfiable
+                    // by no input (i.e. every argument is optional).
+                    let res = match_component(c_args, arg_syntax, None);
+                    if res.matched && res.remainder.is_empty() {
+                        return first_match(input);
+                    }
+                    return no_match(input);
+                }
             }
-
-            // @todo: function arguments are not matched against the syntax yet.
         }
         SyntaxComponent::Value { value: css_value, .. } => {
             if value == css_value {
@@ -592,7 +617,18 @@ fn match_group_all_any_order<'a>(
             let component = &components[c_idx];
 
             let res = match_component(input, component, resolver);
-            if res.matched {
+            // Only claim this slot when the component actually consumed input, or when it
+            // is required. An *optional* component that matched emptily must not claim its
+            // slot: the real value it should match may appear later, once other operands
+            // consume the values in between (e.g. the trailing `<color>` in
+            // `box-shadow: 2px 2px 4px red`). Absent optionals are accepted by the
+            // end-of-function check instead.
+            let consumed = res.matched && res.remainder.len() < input.len();
+            let optional = matches!(
+                multiplier_fulfilled(component, 0),
+                Fulfillment::Fulfilled | Fulfillment::FulfilledButMoreAllowed
+            );
+            if res.matched && (consumed || !optional) {
                 matched_values.append(&mut res.matched_values.clone());
                 components_matched.push(c_idx);
 
@@ -618,7 +654,18 @@ fn match_group_all_any_order<'a>(
             let component = &components[c_idx];
 
             let res = match_component(input, component, None);
-            if res.matched {
+            // Only claim this slot when the component actually consumed input, or when it
+            // is required. An *optional* component that matched emptily must not claim its
+            // slot: the real value it should match may appear later, once other operands
+            // consume the values in between (e.g. the trailing `<color>` in
+            // `box-shadow: 2px 2px 4px red`). Absent optionals are accepted by the
+            // end-of-function check instead.
+            let consumed = res.matched && res.remainder.len() < input.len();
+            let optional = matches!(
+                multiplier_fulfilled(component, 0),
+                Fulfillment::Fulfilled | Fulfillment::FulfilledButMoreAllowed
+            );
+            if res.matched && (consumed || !optional) {
                 matched_values.append(&mut res.matched_values.clone());
                 components_matched.push(c_idx);
 
@@ -639,8 +686,18 @@ fn match_group_all_any_order<'a>(
         }
     }
 
-    if components_matched.len() != components.len() {
-        return no_match(input);
+    // Every component must be accounted for. A component that never matched is only
+    // acceptable if it is optional (its multiplier is satisfied by zero occurrences,
+    // e.g. `a?` or `a*`). This matters when the input runs out before a trailing
+    // optional operand gets its turn, e.g. `<color>? && [ … ] && <position>?`.
+    for (idx, component) in components.iter().enumerate() {
+        if components_matched.contains(&idx) {
+            continue;
+        }
+        match multiplier_fulfilled(component, 0) {
+            Fulfillment::Fulfilled | Fulfillment::FulfilledButMoreAllowed => {}
+            _ => return no_match(raw_input),
+        }
     }
 
     MatchResult {
@@ -760,7 +817,11 @@ fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment 
         },
         SyntaxComponentMultiplier::Between(from, to) => match cnt {
             _ if cnt < *from => Fulfillment::NotYetFulfilled,
-            _ if cnt >= *from && cnt <= *to => Fulfillment::FulfilledButMoreAllowed,
+            // At the maximum, the component is satisfied and must NOT consume more,
+            // otherwise `<length>{2}` would greedily grab a following value (e.g. the
+            // blur length after the two offset lengths in `box-shadow`).
+            _ if cnt == *to => Fulfillment::Fulfilled,
+            _ if cnt >= *from && cnt < *to => Fulfillment::FulfilledButMoreAllowed,
             _ => Fulfillment::NotFulfilled,
         },
         _ => Fulfillment::NotFulfilled,

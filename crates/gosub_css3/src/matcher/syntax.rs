@@ -834,9 +834,17 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
         parse_generic_keyword, // This is more of a catch-all
     ))
     .parse(input)?;
-    let (input, multipliers) = parse_multipliers(input)?;
+    let (rest, multipliers) = parse_multipliers(input)?;
 
-    component.update_multipliers(multipliers.clone());
+    // Only apply an explicit multiplier suffix (one that actually consumed input).
+    // `parse_multipliers` returns a default `[Once]` when no suffix is present; applying
+    // that would clobber a component's own multipliers. This matters for single-element
+    // groups such as `[ b{2} ]`, which unwrap to their inner component (`b{2}`) — that
+    // inner multiplier must survive.
+    if rest.len() != input.len() {
+        component.update_multipliers(multipliers.clone());
+    }
+    let input = rest;
 
     debug_print!("<- Parsed component_type: {:#?} {:?}", component, multipliers);
 
@@ -2367,16 +2375,18 @@ mod tests {
             CssSyntaxTree::new(vec![SyntaxComponent::Group {
                 combinator: GroupCombinators::ExactlyOne,
                 components: vec![
+                    // `[ left+ ]` unwraps to its inner component and must keep the `+`.
                     SyntaxComponent::GenericKeyword {
                         keyword: "left".to_string(),
-                        multipliers: vec![SyntaxComponentMultiplier::Once],
+                        multipliers: vec![SyntaxComponentMultiplier::OneOrMore],
                     },
                     SyntaxComponent::Group {
                         combinator: GroupCombinators::Juxtaposition,
                         components: vec![
+                            // `[ center? ]` likewise keeps the `?`.
                             SyntaxComponent::GenericKeyword {
                                 keyword: "center".to_string(),
-                                multipliers: vec![SyntaxComponentMultiplier::Once],
+                                multipliers: vec![SyntaxComponentMultiplier::Optional],
                             },
                             SyntaxComponent::GenericKeyword {
                                 keyword: "top".to_string(),
