@@ -15,8 +15,12 @@ use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::DefaultCompositor;
+#[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
 use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
 use image::ColorType;
+
+#[cfg(feature = "backend_cairo")]
+use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -35,7 +39,12 @@ const BUILD_VERSION: &str = concat!(
 );
 
 /// CPU-only render configuration: Skia rasterizer + Skia font system, no GPU.
+#[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
 type AppConfig = DefaultRenderConfig<SkiaBackend, SkiaFontSystem>;
+
+/// CPU-only render configuration: Cairo rasterizer + Pango font system, no GPU/GTK window.
+#[cfg(feature = "backend_cairo")]
+type AppConfig = DefaultRenderConfig<CairoBackend, PangoFontSystem>;
 
 #[derive(Parser)]
 #[command(name = "gosub-screenshot", version = BUILD_VERSION, about = "Headless screenshot tool using the GoSub render pipeline")]
@@ -92,8 +101,11 @@ fn main() {
 
     let url = Url::parse(&url_str).expect("invalid URL");
 
-    // ── Engine setup (CPU Skia backend — no GPU) ──────────────────────────────
+    // ── Engine setup (CPU backend — no GPU) ───────────────────────────────────
+    #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
     let backend = SkiaBackend::new();
+    #[cfg(feature = "backend_cairo")]
+    let backend = CairoBackend::new();
 
     let _rt_guard = TOKIO_RT.enter();
 

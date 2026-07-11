@@ -9,7 +9,7 @@ use gosub_render_pipeline::tiler::Tile;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-#[cfg(feature = "text_pango")]
+#[cfg(all(feature = "text_pango", not(feature = "text_glyphs")))]
 use crate::font::pango::{get as get_font_system, PangoFontSystem};
 
 mod brush;
@@ -23,8 +23,8 @@ pub struct CairoRasterizer {
     /// The engine's shared font system, exposed to the layouter so it measures with the
     /// configured instance. Cairo's own text drawing still goes through Pango (`pango` below).
     config_font_system: Option<Arc<Mutex<dyn FontSystem>>>,
-    /// Pango font system used for the actual cairo text drawing.
-    #[cfg(feature = "text_pango")]
+    /// Pango font system used for the actual cairo text drawing (native path only).
+    #[cfg(all(feature = "text_pango", not(feature = "text_glyphs")))]
     pango: Arc<PangoFontSystem>,
 }
 
@@ -43,7 +43,7 @@ impl CairoRasterizer {
     pub fn new() -> Self {
         Self {
             config_font_system: None,
-            #[cfg(feature = "text_pango")]
+            #[cfg(all(feature = "text_pango", not(feature = "text_glyphs")))]
             pango: get_font_system(),
         }
     }
@@ -53,7 +53,7 @@ impl CairoRasterizer {
     pub fn with_font_system(font_system: Arc<Mutex<dyn FontSystem>>) -> Self {
         Self {
             config_font_system: Some(font_system),
-            #[cfg(feature = "text_pango")]
+            #[cfg(all(feature = "text_pango", not(feature = "text_glyphs")))]
             pango: get_font_system(),
         }
     }
@@ -97,7 +97,27 @@ impl Rasterable for CairoRasterizer {
                             rectangle::do_paint_rectangle(&cr.clone(), tile, command, media_store);
                         }
                         PaintCommand::Text(command) => {
-                            #[cfg(feature = "text_pango")]
+                            #[cfg(feature = "text_glyphs")]
+                            {
+                                let mut guard = self.config_font_system.as_ref().map(|f| f.lock());
+                                let result = match guard.as_deref_mut() {
+                                    Some(fs) => text::glyphs::do_paint_text(&cr, tile, command, media_store, fs),
+                                    #[cfg(feature = "text_pango")]
+                                    None => {
+                                        let mut fallback = text::glyphs::fallback_font_system().lock();
+                                        text::glyphs::do_paint_text(&cr, tile, command, media_store, &mut *fallback)
+                                    }
+                                    #[cfg(not(feature = "text_pango"))]
+                                    None => {
+                                        log::warn!("text_glyphs: no font system configured; text will not render");
+                                        Ok(())
+                                    }
+                                };
+                                if let Err(e) = result {
+                                    log::warn!("Failed to paint text: {:?}", e);
+                                }
+                            }
+                            #[cfg(all(feature = "text_pango", not(feature = "text_glyphs")))]
                             match text::pango::do_paint_text(&cr.clone(), tile, command, media_store, dpr, &self.pango)
                             {
                                 Ok(_) => {}
@@ -105,14 +125,14 @@ impl Rasterable for CairoRasterizer {
                                     log::warn!("Failed to paint text: {:?}", e);
                                 }
                             }
-                            #[cfg(all(not(feature = "text_pango"), feature = "text_parley"))]
+                            #[cfg(all(not(feature = "text_pango"), not(feature = "text_glyphs"), feature = "text_parley"))]
                             match text::parley::do_paint_text(&cr.clone(), tile, command, media_store) {
                                 Ok(_) => {}
                                 Err(e) => {
                                     log::warn!("Failed to paint text: {:?}", e);
                                 }
                             }
-                            #[cfg(not(any(feature = "text_pango", feature = "text_parley")))]
+                            #[cfg(not(any(feature = "text_pango", feature = "text_parley", feature = "text_glyphs")))]
                             {
                                 let _ = command;
                                 log::warn!("No text backend enabled; text will not be rendered");

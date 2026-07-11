@@ -56,19 +56,23 @@ Measurement happens in **CSS pixels**; DPI scaling is applied later in the pipel
 
 Each renderer crate can draw text through more than one text engine. The choice is a cargo feature, resolved at compile time; each variant lives in `src/rasterizer/text/<engine>.rs` and exports a `do_paint_text(...)` entry point that paints one `PaintCommand::Text` onto the backend's surface.
 
-| Renderer crate          | Available features                       | Default       |
-|-------------------------|------------------------------------------|---------------|
-| `gosub_renderer_cairo`  | `text_pango`, `text_parley`, `text_skia` | `text_pango`  |
-| `gosub_renderer_vello`  | `text_parley`, `text_skia`, `text_pango` | `text_parley` |
-| `gosub_renderer_skia`   | — always uses Skia paragraph layout      | built in      |
+| Renderer crate          | Available features                                       | Default       |
+|-------------------------|----------------------------------------------------------|---------------|
+| `gosub_renderer_cairo`  | `text_glyphs`, `text_pango`, `text_parley`, `text_skia`  | `text_glyphs` + `text_pango` (glyphs paints; pango provides `PangoFontSystem`) |
+| `gosub_renderer_vello`  | `text_glyphs`, `text_parley`, `text_skia`, `text_pango`  | `text_parley` (glyphs pending visual validation on a GPU machine) |
+| `gosub_renderer_skia`   | `text_glyphs`, `text_skia`                               | `text_glyphs` |
 
 A `compile_error!` in each crate's `rasterizer/text.rs` guards that at least one `text_*` feature is enabled; when several are enabled at once, a fixed precedence chain picks which `do_paint_text` is used.
+
+### `text_glyphs`: the engine-neutral rasterizer
+
+Every renderer crate also offers **`text_glyphs`** (the default on cairo and skia since its visual validation; wins over the engine-native variants when both are enabled). Instead of driving a text engine natively, it calls `FontSystem::shape(...)` on the *configured* font system and paints the returned `ShapedText` glyph runs — vello via `draw_glyphs`, Skia via `TextBlobBuilder`, cairo via FreeType faces + `cairo_show_glyphs`. Because the contract is raw font bytes + glyph IDs, **any font system works with any backend** under this feature; the pairing table below only applies to the engine-native variants. Alignment and underline/strikethrough are honoured (shaping carries `TextStyle::align`; each `ShapedRun` carries decoration metrics). Colour emoji work on cairo via its FreeType colour-bitmap support (verified with Noto Color Emoji). Try it with e.g. `--features gosub_renderer_cairo/text_glyphs`.
 
 Layout-building helpers for the rasterizers live under each crate's `src/font/` directory (e.g. `get_parley_layout` in the Vello crate, `get_skia_paragraph` in the Skia crate) --- distinct from the `FontSystem` implementations that happen to share that directory. Vello additionally caches shaped text in `backend/text_renderer.rs` (keyed by `TextKey`).
 
 ## Which font system pairs with which renderer
 
-Measurement must match drawing, so pick the font system that corresponds to the text rasterizer your renderer was built with:
+Measurement must match drawing. Under `text_glyphs` this is automatic (drawing consumes whatever the configured font system shaped). For the engine-native rasterizers, pick the font system that corresponds to the text feature your renderer was built with:
 
 | Renderer/text feature | Font system        | Used by                         |
 |-----------------------|--------------------|---------------------------------|

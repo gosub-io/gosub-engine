@@ -197,7 +197,6 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
         match fs_arc {
             Some(fs) => {
                 let mut guard = fs.lock();
-                let parley = guard.as_any_mut().downcast_mut::<ParleyFontSystem>();
                 crate::rasterizer::paint_commands_to_scene(
                     &mut scene,
                     &ps.commands,
@@ -205,7 +204,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                     affine,
                     (sx, sy),
                     &ps.media_store,
-                    parley,
+                    Some(&mut *guard),
                 );
             }
             None => {
@@ -217,7 +216,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                     affine,
                     (sx, sy),
                     &ps.media_store,
-                    Some(&mut guard),
+                    Some(&mut *guard as &mut dyn FontSystem),
                 );
             }
         }

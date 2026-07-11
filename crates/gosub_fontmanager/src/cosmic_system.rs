@@ -7,12 +7,14 @@
 //! when filling a [`FontBlob`] (cached upstream by whoever holds the `ResolvedFont`).
 
 use cosmic_text::{
-    fontdb, Attrs, Buffer, Family, FontSystem as CosmicTextFontSystem, Metrics, Shaping, Stretch, Style, Weight,
+    fontdb, Align, Attrs, Buffer, Family, FontSystem as CosmicTextFontSystem, Metrics, Shaping, Stretch, Style,
+    Weight,
 };
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontStretch, FontSystem, ResolvedFont, ShapedGlyph, ShapedRun, ShapedText, TextStyle,
+    FontQuery, FontStretch, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText, TextAlign,
+    TextStyle,
 };
 use std::any::Any;
 use std::sync::Arc;
@@ -40,7 +42,24 @@ impl Default for CosmicFontSystem {
 struct RawRun {
     id: fontdb::ID,
     weight: Weight,
+    x: f32,
+    baseline: f32,
+    width: f32,
     glyphs: Vec<ShapedGlyph>,
+}
+
+/// Decoration metrics estimated from the font size.
+///
+/// cosmic-text doesn't surface the font's own underline/strikeout tables, so use the common
+/// conventions (underline ~1/10 em below the baseline, strikeout ~1/4 em above, both ~1/14 em
+/// thick) until a swash-based lookup replaces this.
+fn heuristic_metrics(size: f32) -> RunMetrics {
+    RunMetrics {
+        underline_offset: size * 0.1,
+        underline_size: size / 14.0,
+        strikethrough_offset: -size * 0.25,
+        strikethrough_size: size / 14.0,
+    }
 }
 
 impl CosmicFontSystem {
@@ -66,6 +85,17 @@ impl CosmicFontSystem {
             .style(to_style(style.style))
             .stretch(to_stretch(style.stretch));
         buffer.set_text(text, &attrs, Shaping::Advanced, None);
+        let align = match style.align {
+            TextAlign::Start => None, // natural per-direction default
+            TextAlign::Center => Some(Align::Center),
+            TextAlign::End => Some(Align::End),
+            TextAlign::Justify => Some(Align::Justified),
+        };
+        if align.is_some() {
+            for line in buffer.lines.iter_mut() {
+                line.set_align(align);
+            }
+        }
         buffer.shape_until_scroll(&mut self.inner, false);
         buffer
     }
@@ -169,6 +199,8 @@ impl FontSystem for CosmicFontSystem {
             while i < run.glyphs.len() {
                 let fid = run.glyphs[i].font_id;
                 let fw = run.glyphs[i].font_weight;
+                let run_x = run.glyphs[i].x;
+                let mut run_width = 0.0f32;
                 let mut glyphs = Vec::new();
                 while i < run.glyphs.len() && run.glyphs[i].font_id == fid {
                     let g = &run.glyphs[i];
@@ -177,11 +209,15 @@ impl FontSystem for CosmicFontSystem {
                         x: g.x,
                         y: run.line_y + g.y,
                     });
+                    run_width = (g.x + g.w) - run_x;
                     i += 1;
                 }
                 raw.push(RawRun {
                     id: fid,
                     weight: fw,
+                    x: run_x,
+                    baseline: run.line_y,
+                    width: run_width,
                     glyphs,
                 });
             }
@@ -203,6 +239,10 @@ impl FontSystem for CosmicFontSystem {
                         blob,
                     },
                     font_size: style.size,
+                    x: r.x,
+                    baseline: r.baseline,
+                    width: r.width,
+                    metrics: heuristic_metrics(style.size),
                     glyphs: r.glyphs,
                 })
             })

@@ -98,6 +98,20 @@ pub struct ShapedGlyph {
     pub y: f32,
 }
 
+/// Decoration metrics for a shaped run, in pixels.
+///
+/// Offsets are measured from the run's baseline to the **top** of the stroke, positive
+/// **downward** (so `underline_offset` is typically positive, `strikethrough_offset` typically
+/// negative). A painter draws a decoration as a filled rect at
+/// `(run.x, run.baseline + offset, run.width, size)`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RunMetrics {
+    pub underline_offset: f32,
+    pub underline_size: f32,
+    pub strikethrough_offset: f32,
+    pub strikethrough_size: f32,
+}
+
 /// A contiguous run of glyphs rendered with the same font and size.
 ///
 /// A single call to `FontSystem::shape` may return multiple runs when font
@@ -106,6 +120,14 @@ pub struct ShapedGlyph {
 pub struct ShapedRun {
     pub font: ResolvedFont,
     pub font_size: f32,
+    /// Horizontal start of the run within the shaped block, px.
+    pub x: f32,
+    /// Baseline of the run's line, px from the top of the shaped block.
+    pub baseline: f32,
+    /// Advance width of the run, px.
+    pub width: f32,
+    /// Decoration metrics of the run's font, for underline/strikethrough painting.
+    pub metrics: RunMetrics,
     pub glyphs: Vec<ShapedGlyph>,
 }
 
@@ -141,6 +163,16 @@ impl ShapedText {
 
 // Text style for measurement
 
+/// CSS `text-align`, applied during shaping within [`TextStyle::max_width`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+    Justify,
+}
+
 /// CSS-resolved text style passed to [`FontSystem::measure`].
 ///
 /// Carries everything an engine needs to lay out a run of text: the family (the implementation
@@ -162,6 +194,8 @@ pub struct TextStyle {
     pub letter_spacing: f32,
     /// `Some(px)` soft-wraps at that width; `None` = a single unbroken line.
     pub max_width: Option<f32>,
+    /// Alignment of the shaped lines within `max_width` (no-op when `max_width` is `None`).
+    pub align: TextAlign,
     /// Device-pixel scale (DPI). `1.0` = CSS pixels.
     pub display_scale: f32,
 }
@@ -178,6 +212,7 @@ impl TextStyle {
             line_height: None,
             letter_spacing: 0.0,
             max_width: None,
+            align: TextAlign::Start,
             display_scale: 1.0,
         }
     }

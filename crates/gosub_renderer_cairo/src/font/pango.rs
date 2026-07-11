@@ -1,7 +1,7 @@
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontSystem, ResolvedFont, ShapedGlyph, ShapedRun, ShapedText, TextStyle,
+    FontQuery, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText, TextAlign, TextStyle,
 };
 use gtk4::pango;
 use gtk4::pango::Weight;
@@ -231,12 +231,15 @@ fn pango_generic_family(name: &str) -> Option<&'static str> {
 /// Obtain a shared instance via [`get`] (which returns the process-wide singleton
 /// initialised by [`init`]) or construct an independent instance with [`new`] and
 /// call [`PangoFontSystem::init_from_gtk_thread`] yourself.
+/// Font file bytes keyed by `(path, ttc index)`.
+type BlobCache = HashMap<(String, u32), Arc<Vec<u8>>>;
+
 pub struct PangoFontSystem {
     system_ui_font: Option<String>,
-    /// Font file bytes keyed by `(path, ttc index)`. Shaping resolves a font per glyph run, and
-    /// re-reading e.g. DejaVu Sans from disk for every text run would hurt; interior mutability
-    /// keeps the read-only-after-init sharing contract of the struct intact.
-    blob_cache: Mutex<HashMap<(String, u32), Arc<Vec<u8>>>>,
+    /// Cached font file bytes. Shaping resolves a font per glyph run, and re-reading e.g.
+    /// DejaVu Sans from disk for every text run would hurt; interior mutability keeps the
+    /// read-only-after-init sharing contract of the struct intact.
+    blob_cache: Mutex<BlobCache>,
 }
 
 impl std::fmt::Debug for PangoFontSystem {
@@ -372,6 +375,12 @@ impl PangoFontSystem {
         layout.set_font_description(Some(&font_desc));
         layout.set_text(text);
         layout.set_wrap(pango::WrapMode::Word);
+        match style.align {
+            TextAlign::Start => {} // pango's default (left for LTR)
+            TextAlign::Center => layout.set_alignment(pango::Alignment::Center),
+            TextAlign::End => layout.set_alignment(pango::Alignment::Right),
+            TextAlign::Justify => layout.set_justify(true),
+        }
         match style.max_width {
             Some(w) => {
                 // Pango width is in Pango units (CSS px × display_scale × SCALE). Compute in
@@ -430,7 +439,17 @@ impl PangoFontSystem {
                 }
 
                 if !glyphs.is_empty() {
-                    let description = run.item().analysis().font().describe();
+                    let pango_font = run.item().analysis().font();
+                    // Pango metrics are y-up (underline below the baseline is negative); our
+                    // convention is positive-down, so the positions flip sign.
+                    let fm = pango_font.metrics(None);
+                    let metrics = RunMetrics {
+                        underline_offset: -fm.underline_position() as f32 / scale,
+                        underline_size: fm.underline_thickness() as f32 / scale,
+                        strikethrough_offset: -fm.strikethrough_position() as f32 / scale,
+                        strikethrough_size: fm.strikethrough_thickness() as f32 / scale,
+                    };
+                    let description = pango_font.describe();
                     let family = description
                         .family()
                         .map(|f| f.to_string())
@@ -446,6 +465,10 @@ impl PangoFontSystem {
                         runs.push(ShapedRun {
                             font,
                             font_size: style.size,
+                            x: run_x,
+                            baseline,
+                            width: pen_x,
+                            metrics,
                             glyphs,
                         });
                     }

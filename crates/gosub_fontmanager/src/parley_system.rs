@@ -1,7 +1,8 @@
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, ShapedGlyph, ShapedRun, ShapedText, TextStyle,
+    FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText,
+    TextAlign, TextStyle,
 };
 use parley::fontique::{Attributes, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache};
 use parley::style::{FontStyle as ParleyStyle, FontWeight as ParleyWeight};
@@ -224,7 +225,7 @@ impl ParleyFontSystem {
 
         let mut layout = builder.build(text);
         layout.break_all_lines(Some(style.max_width.unwrap_or(f32::INFINITY)));
-        layout.align(Alignment::Start, AlignmentOptions::default());
+        layout.align(to_parley_alignment(style.align), AlignmentOptions::default());
 
         let mut runs: Vec<ShapedRun> = Vec::new();
         let mut pen_y = 0.0f32;
@@ -274,9 +275,21 @@ impl ParleyFontSystem {
                             stretch: font.stretch,
                             blob: FontBlob::new(data_arc, run_font.index),
                         };
+                        // Parley metrics are y-up font-space (below baseline = negative); our
+                        // convention is positive-down, so the offsets flip sign.
+                        let pm = prun.metrics();
                         runs.push(ShapedRun {
                             font: run_resolved,
                             font_size: style.size,
+                            x: run_x,
+                            baseline: pen_y + baseline,
+                            width: run.advance(),
+                            metrics: RunMetrics {
+                                underline_offset: -pm.underline_offset,
+                                underline_size: pm.underline_size,
+                                strikethrough_offset: -pm.strikethrough_offset,
+                                strikethrough_size: pm.strikethrough_size,
+                            },
                             glyphs,
                         });
                     }
@@ -355,6 +368,15 @@ fn style_to_parley(s: FontStyle) -> ParleyStyle {
         FontStyle::Normal => ParleyStyle::Normal,
         FontStyle::Italic => ParleyStyle::Italic,
         FontStyle::Oblique => ParleyStyle::Oblique(None),
+    }
+}
+
+fn to_parley_alignment(align: TextAlign) -> Alignment {
+    match align {
+        TextAlign::Start => Alignment::Start,
+        TextAlign::Center => Alignment::Center,
+        TextAlign::End => Alignment::End,
+        TextAlign::Justify => Alignment::Justify,
     }
 }
 

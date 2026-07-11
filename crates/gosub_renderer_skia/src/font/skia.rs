@@ -1,14 +1,19 @@
 use gosub_interface::font::{FontBlob, FontError, FontStyle as CssFontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontSystem, ResolvedFont, ShapedGlyph, ShapedRun, ShapedText, TextStyle as GosubTextStyle,
+    FontQuery, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText,
+    TextAlign as GosubTextAlign, TextStyle as GosubTextStyle,
 };
+#[cfg(not(feature = "text_glyphs"))]
 use gosub_render_pipeline::common::font::{FontAlignment, FontInfo};
 use parking_lot::Mutex;
 use skia_safe::textlayout::{
-    FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, TextAlign, TextDecoration, TextDirection, TextStyle,
-    TypefaceFontProvider,
+    FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, TextAlign, TextStyle, TypefaceFontProvider,
 };
-use skia_safe::{FontMgr, FontStyle, Paint};
+#[cfg(not(feature = "text_glyphs"))]
+use skia_safe::textlayout::{TextDecoration, TextDirection};
+#[cfg(not(feature = "text_glyphs"))]
+use skia_safe::Paint;
+use skia_safe::{FontMgr, FontStyle};
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -276,11 +281,14 @@ pub(crate) fn resolve_family_list(families: &str) -> Vec<String> {
     })
 }
 
+/// Cached font-file bytes + collection index for a typeface; `None` when Skia can't hand them back.
+type CachedFontData = Option<(Arc<Vec<u8>>, u32)>;
+
 thread_local! {
     /// Per-thread cache of typeface file bytes: `to_font_data` copies the whole font file, and
     /// shaping asks once per glyph run. `None` results are cached too, so faces whose bytes Skia
     /// can't hand back aren't retried on every run.
-    static TYPEFACE_BLOBS: RefCell<HashMap<skia_safe::typeface::TypefaceId, Option<(Arc<Vec<u8>>, u32)>>> =
+    static TYPEFACE_BLOBS: RefCell<HashMap<skia_safe::typeface::TypefaceId, CachedFontData>> =
         RefCell::new(HashMap::new());
 }
 
@@ -312,7 +320,13 @@ fn to_skia_slant(style: CssFontStyle) -> skia_safe::font_style::Slant {
 /// `measure` reads this paragraph's extents and `shape` exports its glyph runs, so the two can't
 /// disagree.
 fn build_style_paragraph(fc: &FontCollection, text: &str, style: &GosubTextStyle) -> Paragraph {
-    let paragraph_style = ParagraphStyle::new();
+    let mut paragraph_style = ParagraphStyle::new();
+    paragraph_style.set_text_align(match style.align {
+        GosubTextAlign::Start => TextAlign::Start,
+        GosubTextAlign::Center => TextAlign::Center,
+        GosubTextAlign::End => TextAlign::End,
+        GosubTextAlign::Justify => TextAlign::Justify,
+    });
     let mut builder = ParagraphBuilder::new(&paragraph_style, fc.clone());
 
     let mut ts = TextStyle::new();
@@ -448,6 +462,16 @@ impl FontSystem for SkiaFontSystem {
                 if glyphs.is_empty() {
                     return;
                 }
+                // Skia metrics are already positive-down; missing table entries fall back to
+                // the common em-relative conventions.
+                let (_, fm) = font.metrics();
+                let size = font.size();
+                let metrics = RunMetrics {
+                    underline_offset: fm.underline_position().unwrap_or(size * 0.1),
+                    underline_size: fm.underline_thickness().unwrap_or(size / 14.0),
+                    strikethrough_offset: fm.strikeout_position().unwrap_or(-size * 0.25),
+                    strikethrough_size: fm.strikeout_thickness().unwrap_or(size / 14.0),
+                };
                 runs.push(ShapedRun {
                     font: ResolvedFont {
                         family: typeface.family_name(),
@@ -456,7 +480,11 @@ impl FontSystem for SkiaFontSystem {
                         stretch: style.stretch,
                         blob,
                     },
-                    font_size: font.size(),
+                    font_size: size,
+                    x: origin.x,
+                    baseline: origin.y,
+                    width: info.advance_x(),
+                    metrics,
                     glyphs,
                 });
             });
@@ -511,6 +539,7 @@ fn width_from_css_percent(pct: i32) -> skia_safe::font_style::Width {
 /// honours the CSS features carried on [`FontInfo`] — text alignment, absolute line-height,
 /// `underline`/`line-through`, weight/width/slant — which the previous hand-rolled `draw_str`
 /// path could not. The caller paints the returned paragraph at the text box's top-left.
+#[cfg(not(feature = "text_glyphs"))]
 pub(crate) fn build_paragraph(text: &str, font_info: &FontInfo, paint: &Paint, layout_width: f32) -> Paragraph {
     let mut paragraph_style = ParagraphStyle::new();
     paragraph_style.set_text_align(match font_info.alignment {

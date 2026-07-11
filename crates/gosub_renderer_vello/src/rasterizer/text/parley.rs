@@ -18,8 +18,19 @@ pub fn do_paint_text(
     _tile_size: Dimension,
     affine: Affine,
     media_store: &MediaStore,
-    parley: &mut ParleyFontSystem,
+    font_system: &mut dyn FontSystem,
 ) -> Result<(), anyhow::Error> {
+    // This variant draws through Parley natively, so it needs the concrete engine. A different
+    // font system paired with `text_parley` can't render here — warn once and skip (the
+    // engine-neutral `text_glyphs` feature handles any pairing).
+    let Some(parley) = font_system.as_any_mut().downcast_mut::<ParleyFontSystem>() else {
+        static WARN_ONCE: std::sync::Once = std::sync::Once::new();
+        WARN_ONCE.call_once(|| {
+            log::warn!("Vello text_parley rasterizer requires ParleyFontSystem; text will not render");
+        });
+        return Ok(());
+    };
+
     // Resolve the CSS family list to a concrete font through the *same* path the layouter measured
     // against (`ParleyFontSystem::resolve`, with the implicit `sans-serif` fallback). Shaping
     // against the identical font is what keeps render-time line breaking in lockstep with the

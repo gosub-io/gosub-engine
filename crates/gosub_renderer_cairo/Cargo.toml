@@ -21,12 +21,20 @@ pangocairo = { workspace = true, optional = true }
 # `@font-face` web-font registration: add fetched fonts to fontconfig at runtime so Pango
 # discovers them. Works with the system Pango (no 1.56 dependency).
 fontconfig-sys = { package = "yeslogic-fontconfig-sys", version = "6", optional = true }
+# Same version cairo-rs's `freetype` feature binds against — the `freetype::face::Face` type is
+# shared across the two crates in `FontFace::create_from_ft`.
+freetype-rs = { version = "0.38", optional = true }
 
 [features]
-default = ["text_pango"]
+# text_glyphs paints; text_pango stays in the defaults because it provides PangoFontSystem
+# (the font system cairo configs measure/shape with) and fontconfig web-font registration.
+default = ["text_glyphs", "text_pango"]
 text_pango = ["dep:pangocairo", "dep:gtk4", "dep:fontconfig-sys"]
 text_parley = []
 text_skia = []
+# Engine-neutral glyph-run text painter: shapes through the configured FontSystem (any engine)
+# and paints via FreeType + cairo_show_glyphs. Takes precedence over the text_* variants.
+text_glyphs = ["cairo-rs/freetype", "dep:freetype-rs"]
 
 # Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
 # the CairoBackend blits tile pixels through cairo's create_for_data_unsafe FFI,

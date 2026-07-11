@@ -30,6 +30,9 @@ image = { workspace = true }
 
 [features]
 default = ["text_parley"]
+# Engine-neutral glyph-run text painter: shapes through the configured FontSystem (any engine)
+# and paints the returned glyph runs. Takes precedence over the engine-native text_* variants.
+text_glyphs = []
 text_parley = []
 text_skia = ["dep:skia-safe"]
 text_pango = []

@@ -16,5 +16,13 @@ resvg = { workspace = true }
 
 skia-safe = { workspace = true, features = ["textlayout"] }
 
+[features]
+default = ["text_glyphs"]
+# Draw text through Skia's own textlayout engine (the previous native path).
+text_skia = []
+# Engine-neutral glyph-run text painter: shapes through the configured FontSystem (any engine)
+# and paints the returned glyph runs. Takes precedence over text_skia when enabled.
+text_glyphs = []
+
 [lints]
 workspace = true
