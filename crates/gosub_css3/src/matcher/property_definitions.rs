@@ -819,6 +819,57 @@ mod tests {
                     ("banana", false),
                 ],
             ),
+            (
+                // `<'margin-top'>{1,4}` — the 1-to-4 value box shorthand (ranged multiplier).
+                "margin",
+                &[
+                    ("10px", true),
+                    ("10px 20px", true),
+                    ("1px 2px 3px", true),
+                    ("1px 2px 3px 4px", true),
+                    ("auto", true),
+                    ("0 auto", true),
+                    // A fifth value exceeds the {1,4} range.
+                    ("1px 2px 3px 4px 5px", false),
+                    ("banana", false),
+                ],
+            ),
+            (
+                // Same {1,4} shorthand shape, length-percentage only (no `auto`).
+                "padding",
+                &[("10px", true), ("1px 2px 3px 4px", true), ("auto", false)],
+            ),
+            (
+                // `none | [ <'flex-grow'> <'flex-shrink'>? || <'flex-basis'> ]` — a `||`
+                // any-order group with an embedded optional operand.
+                "flex",
+                &[
+                    ("1", true),
+                    ("1 1", true),
+                    ("1 1 0%", true),
+                    ("auto", true),
+                    ("none", true),
+                    ("banana", false),
+                ],
+            ),
+            (
+                // `<single-transition>#`. A single transition uses a `||` group of
+                // property/time/easing. ("banana" is a valid <custom-ident>
+                // transition-property, so it legitimately matches.)
+                "transition",
+                &[
+                    ("all 0.3s ease", true),
+                    ("opacity 0.3s", true),
+                    ("0.3s", true),
+                    ("banana", true),
+                ],
+            ),
+            (
+                // `[ ... <'font-size'> [ / <'line-height'> ]? <'font-family'># ] | ...`
+                // — exercises the `/` line-height separator inside a shorthand.
+                "font",
+                &[("12px serif", true), ("italic bold 12px/1.5 serif", true), ("banana", false)],
+            ),
         ];
 
         let defs = get_css_definitions();
@@ -843,6 +894,70 @@ mod tests {
             eprintln!("  MISMATCH {m}");
         }
         assert!(mismatches.is_empty(), "{} matcher mismatches", mismatches.len());
+    }
+
+    /// Coverage for the multipliers not exercised by the combinator regression test
+    /// (`*` zero-or-more, `!` at-least-one-in-group, and the ranged `{min,max}` form —
+    /// as opposed to the fixed `{2}` count tested elsewhere).
+    #[test]
+    fn test_multiplier_coverage() {
+        fn m(grammar: &str, vals: &[CssValue]) -> bool {
+            CssSyntax::new(grammar).compile().expect("compile").matches(vals)
+        }
+        let (a, b) = (|| str!("a"), || str!("b"));
+
+        // `*` — zero or more, so the empty input is valid.
+        assert!(m("a*", &[]));
+        assert!(m("a*", &[a()]));
+        assert!(m("a*", &[a(), a(), a()]));
+
+        // `!` — the group must produce at least one value even though every operand
+        // inside it is individually optional.
+        assert!(!m("[ a? b? ]!", &[]));
+        assert!(m("[ a? b? ]!", &[a()]));
+        assert!(m("[ a? b? ]!", &[b()]));
+        assert!(m("[ a? b? ]!", &[a(), b()]));
+
+        // `{min,max}` — a genuine range (not the fixed `{2}` count): 1..=3 here.
+        assert!(!m("a{1,3}", &[]));
+        assert!(m("a{1,3}", &[a()]));
+        assert!(m("a{1,3}", &[a(), a(), a()]));
+        assert!(!m("a{1,3}", &[a(), a(), a(), a()]));
+    }
+
+    /// Documents the matcher's currently-accepted limitations so the behavior is
+    /// pinned and the divergence from spec-correct matching is discoverable. Each
+    /// assertion encodes CURRENT behavior; flipping one when the underlying gap is
+    /// fixed is the intended maintenance signal.
+    #[test]
+    fn test_matcher_known_limitations() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        // Numeric range constraints (`<length [0,∞]>`) are NOT enforced: the matcher
+        // treats the bounded datatype as its unbounded base, so a negative length for a
+        // non-negative property still matches.
+        assert!(ok("width", "-5px"));
+
+        // A comma-separated list of a value type that itself contains a `||` group does
+        // not split on the separating comma (same family as the box-shadow `#` gap):
+        // a single transition matches, but a multi-transition list does not.
+        assert!(ok("transition", "opacity 0.3s"));
+        assert!(!ok("transition", "opacity 0.3s, transform 0.5s"));
+
+        // The `fr` flex unit (`<flex>`) is not matched, so a track list using it fails
+        // even though a length/keyword track list matches.
+        assert!(ok("grid-template-columns", "100px auto"));
+        assert!(!ok("grid-template-columns", "1fr 1fr"));
+
+        // webref types `background` as `<bg-layer>#? , <final-bg-layer>`, which makes the
+        // separating comma mandatory, so a bare single-layer background does not match.
+        assert!(!ok("background", "red"));
     }
 
     /// Regression tests for combinator/multiplier matching bugs fixed alongside
