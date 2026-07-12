@@ -17,6 +17,7 @@ workspace = true
 [workspace]
 members = [
     "crates/*",
+    "crates/gosub_css3/tools/generate_definitions",
     "examples/egui-cairo",
     "examples/egui-skia",
     "examples/egui-vello",

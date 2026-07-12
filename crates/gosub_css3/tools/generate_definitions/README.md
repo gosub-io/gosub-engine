@@ -1,10 +1,10 @@
 # generate_definitions
 
-A Go tool that generates the CSS property/value definition files used by the
-`gosub_css3` crate to validate CSS declarations.
+Generates the CSS property/value definition files used by the `gosub_css3`
+crate to validate CSS declarations.
 
-The generated JSON files live in `crates/gosub_css3/resources/definitions/` and
-are embedded into the crate at compile time (see
+The generated JSON files live in `crates/gosub_css3/resources/definitions/`
+and are embedded into the crate at compile time (see
 `src/matcher/property_definitions.rs`). They describe, for every CSS property:
 its value grammar (in [CSS value definition syntax](https://developer.mozilla.org/en-US/docs/Web/CSS/Value_definition_syntax)),
 its initial value, and whether it is inherited — plus the shared value types
@@ -19,23 +19,30 @@ The tool merges two upstream datasets, downloaded at run time:
 - **[w3c/webref](https://github.com/w3c/webref)** (`ed/css/*.json` on the
   `curated` branch) — machine-extracted definitions from the W3C editor's
   draft specs: property grammars, value types, at-rules, and selectors.
-- **[mdn/data](https://github.com/mdn/data)** (`css/properties.json`) — used to
-  enrich webref properties with their `computed` and `initial` metadata.
+  Versioned per-level snapshots (`css-backgrounds-4.json`, …) are skipped in
+  favor of the unversioned extract.
+- **[mdn/data](https://github.com/mdn/data)** (`css/properties.json` and
+  `css/syntaxes.json`) — MDN's property dataset and value-type dictionary.
+
+MDN is the authoritative property *set*: it tracks the full shipping surface,
+including vendor-prefixed and legacy properties that the standards-scoped
+webref omits. For each MDN property the tool prefers webref's spec grammar,
+falling back to MDN's own syntax when webref has no entry. Two backfill passes
+then fill grammar gaps: MDN value types that webref does not define, and
+webref sub-properties (e.g. `<'box-shadow-blur'>`) that other grammars
+reference as value types.
 
 Webref files are cached in a local `.css_cache/` directory (git-ignored,
 created next to wherever you run the tool). Cache entries are validated
 against the upstream git blob SHA, so a re-run only downloads files that
-changed upstream. The MDN dataset is currently fetched on every run.
-
-Duplicate definitions across spec files are detected and logged; when two
-specs disagree on a grammar the tool logs both and keeps the latest one.
+changed upstream.
 
 ## Usage
 
-Requires a Go toolchain (no Rust involved). From this directory:
+From this directory (the output paths are relative to the working directory):
 
 ```sh
-go run .
+cargo run -p generate_definitions
 ```
 
 The output is written to `.output/definitions/`:
@@ -43,11 +50,11 @@ The output is written to `.output/definitions/`:
 - `definitions.json` — everything in a single file
 - `definitions_properties.json`, `definitions_values.json`,
   `definitions_at-rules.json`, `definitions_selectors.json` — the same data
-  split per category (this is what the crate embeds)
+  split per category (the properties and values files are what the crate
+  embeds)
 
-Which of the two forms is emitted is controlled by the `exportType` constant
-in `main.go` (default: both). Output is sorted by name so regeneration
-produces minimal diffs.
+Output is fully deterministic — spec files are merged in a fixed order and
+every collection is sorted — so regeneration produces minimal diffs.
 
 To update the definitions the engine actually uses, copy the generated files
 over the checked-in ones and review the diff:
@@ -63,24 +70,18 @@ the matcher tests:
 cargo test -p gosub_css3
 ```
 
-## Patching upstream data
+## History
 
-Sometimes the upstream data is wrong or incompatible with our matcher. The
-`patch` package can apply `.patch` files to the cached webref JSON before it
-is parsed, and keeps an index (`.css_cache/index/cache_index.json`) of which
-patches have been applied to which files so they are not applied twice.
-Custom patches go in `.css_cache/patches/`. Note that patch application is
-not currently invoked from `main.go` (`DownloadPatches` is commented out);
-the machinery is kept for when spec data needs local fixes again.
-
-## Package layout
-
-- `main.go` — orchestrates the merge and writes the output JSON
-- `webref/` — downloads, caches, and parses the webref CSS spec files;
-  normalizes grammars (e.g. quoting literal parentheses) and merges
-  duplicates across specs
-- `mdn/` — fetches MDN's `properties.json`
-- `patch/` — patch application and cache-index bookkeeping (currently unused)
-- `specs/` — fetches the webref spec index (currently unused; previously used
-  to filter to W3C specs only)
-- `utils/` — shared types, GitHub blob SHA hashing, cache constants
+This tool is a Rust port of an earlier Go implementation that lived in this
+directory (removed in the same change that added this crate; see git history).
+It ports the generator as reworked on the `css3-rewrite` branch — MDN as the
+authoritative property set, webref grammar preferred, comma-list-idiom
+normalization, and the two backfill passes — not the older webref-authoritative
+merge that was on `main`. Against that css3-rewrite Go version the output is
+byte-identical, with one deliberate exception:
+where two specs define the same value type with different grammars, the Go
+tool's winner depended on download-goroutine completion order, while this port
+always merges spec files in listing order, making conflicts (e.g.
+`<content-list>`, defined by both css-content and css-gcpm) resolve
+deterministically. The Go tool's unused patching machinery (local `.patch`
+files applied to cached webref data) was dropped in the port.
