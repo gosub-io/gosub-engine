@@ -115,10 +115,15 @@ pub struct ByteStream {
     chars: Vec<Character>,
     /// Byte offset of each decoded character in `buffer`
     char_byte_offsets: Vec<usize>,
+    /// First byte of `buffer` not yet turned into a `Character`. Lets `append_str`
+    /// resume decoding instead of re-scanning the whole buffer (O(n) total, not O(n^2)).
+    decoded_bytes: usize,
     /// char_pos of the first character on each line (index 0 = line 1)
     line_starts: Vec<usize>,
     /// Cached index into `line_starts` from the last `location()` call (lookup hint)
     last_line_idx: std::cell::Cell<usize>,
+    /// Number of `chars` already scanned by `extend_line_starts` (incremental watermark)
+    lines_scanned_chars: usize,
     /// Current position in the decoded chars array
     char_pos: usize,
     /// True when the stream is closed (no more data will be added)
@@ -313,8 +318,10 @@ impl ByteStream {
             buffer: Vec::new(),
             chars: Vec::new(),
             char_byte_offsets: Vec::new(),
+            decoded_bytes: 0,
             line_starts: vec![0],
             last_line_idx: std::cell::Cell::new(0),
+            lines_scanned_chars: 0,
             closed: false,
             encoding,
         }
@@ -342,27 +349,45 @@ impl ByteStream {
         self.char_pos = mark.char_pos;
     }
 
-    /// Decode `self.buffer` into `self.chars` and `self.char_byte_offsets` using the current encoding.
+    /// Reset all decode state and decode `self.buffer` from scratch. Used by the
+    /// full-load paths (`read_from_str`, `read_from_file`, `set_encoding`).
     fn decode_buffer(&mut self) {
         self.chars.clear();
         self.char_byte_offsets.clear();
+        self.decoded_bytes = 0;
+        self.line_starts.clear();
+        self.line_starts.push(0);
+        self.lines_scanned_chars = 0;
+        self.last_line_idx.set(0);
+        self.decode_from(0);
+    }
 
+    /// Decode `self.buffer[byte_pos..]`, appending to whatever is already decoded.
+    /// `byte_pos` must be a decode boundary (normally `self.decoded_bytes`). Advances
+    /// `self.decoded_bytes` past the bytes consumed and extends the line table for the
+    /// newly-decoded characters. This makes `append_str` O(new bytes) rather than
+    /// re-scanning the whole buffer on every call.
+    fn decode_from(&mut self, mut byte_pos: usize) {
         match self.encoding {
-            Encoding::Unknown => {}
+            Encoding::Unknown => {
+                byte_pos = self.buffer.len();
+            }
             Encoding::Latin1 => {
-                for (i, &byte) in self.buffer.iter().enumerate() {
-                    self.char_byte_offsets.push(i);
+                while byte_pos < self.buffer.len() {
+                    let byte = self.buffer[byte_pos];
+                    self.char_byte_offsets.push(byte_pos);
                     if self.config.replace_high_ascii && byte > 127 {
                         self.chars.push(Ch('?'));
                     } else {
                         self.chars.push(Ch(byte as char));
                     }
+                    byte_pos += 1;
                 }
             }
             Encoding::UTF8 => {
-                // Single linear pass: decode the longest valid prefix in bulk, then handle
-                // any invalid sequence and continue. Each byte is validated exactly once.
-                let mut byte_pos = 0;
+                // Decode the longest valid prefix in bulk, then handle any invalid or
+                // incomplete sequence and continue. Resumes from `byte_pos`, so appended
+                // data is decoded without re-scanning the whole buffer.
                 while byte_pos < self.buffer.len() {
                     match std::str::from_utf8(&self.buffer[byte_pos..]) {
                         Ok(s) => {
@@ -394,12 +419,13 @@ impl ByteStream {
                                 None => {
                                     // Incomplete sequence at the end of the buffer. On a closed
                                     // stream it decodes to a single replacement character; on an
-                                    // open stream we stop and wait for more data.
+                                    // open stream we stop and leave the tail for the next append.
                                     if self.closed {
                                         self.char_byte_offsets.push(byte_pos);
                                         self.chars.push(Ch(REPLACEMENT_CHARACTER));
+                                        byte_pos = self.buffer.len();
                                     }
-                                    byte_pos = self.buffer.len();
+                                    break;
                                 }
                             }
                         }
@@ -407,7 +433,6 @@ impl ByteStream {
                 }
             }
             Encoding::UTF16LE => {
-                let mut byte_pos = 0;
                 while byte_pos + 2 <= self.buffer.len() {
                     let cu = u16::from_le_bytes([self.buffer[byte_pos], self.buffer[byte_pos + 1]]);
                     let next = if byte_pos + 4 <= self.buffer.len() {
@@ -425,7 +450,6 @@ impl ByteStream {
                 }
             }
             Encoding::UTF16BE => {
-                let mut byte_pos = 0;
                 while byte_pos + 2 <= self.buffer.len() {
                     let cu = u16::from_be_bytes([self.buffer[byte_pos], self.buffer[byte_pos + 1]]);
                     let next = if byte_pos + 4 <= self.buffer.len() {
@@ -443,15 +467,24 @@ impl ByteStream {
                 }
             }
         }
-        self.compute_line_starts();
+        self.decoded_bytes = byte_pos;
+        self.extend_line_starts();
     }
 
-    /// Build the `line_starts` table from `self.chars`, respecting CR/LF config.
-    /// `line_starts[n]` is the char_pos of the first character on line n+1.
-    fn compute_line_starts(&mut self) {
-        self.line_starts.clear();
-        self.line_starts.push(0);
-        let mut i = 0;
+    /// Extend the `line_starts` table to cover any characters decoded since the last
+    /// call, respecting CR/LF config. `line_starts[n]` is the char_pos of the first
+    /// character on line n+1. Only the newly-decoded tail is scanned (incremental).
+    fn extend_line_starts(&mut self) {
+        let mut i = self.lines_scanned_chars;
+        // A CR at the previous boundary was classified without its following character
+        // available; re-examine it now that more characters may have arrived. Drop any
+        // line-start it provisionally produced before rescanning from the CR.
+        if i > 0 && self.chars[i - 1] == Ch(CHAR_CR) {
+            i -= 1;
+            while self.line_starts.last().is_some_and(|&v| v > i) {
+                self.line_starts.pop();
+            }
+        }
         while i < self.chars.len() {
             match self.chars[i] {
                 Ch(CHAR_CR)
@@ -474,6 +507,7 @@ impl ByteStream {
             }
             i += 1;
         }
+        self.lines_scanned_chars = self.chars.len();
     }
 
     pub fn read_from_file(&mut self, mut f: impl Read) -> io::Result<()> {
@@ -496,16 +530,17 @@ impl ByteStream {
     }
 
     pub fn append_str(&mut self, s: &str) {
-        let saved = self.char_pos;
         self.buffer.extend_from_slice(s.as_bytes());
-        self.decode_buffer();
-        self.char_pos = saved.min(self.chars.len());
+        // Resume decoding from the first undecoded byte instead of re-scanning the
+        // whole buffer. char_pos indexes already-decoded chars, so it stays valid.
+        self.decode_from(self.decoded_bytes);
     }
 
     pub fn close(&mut self) {
         self.closed = true;
-        // Re-decode so any trailing incomplete sequence is resolved
-        self.decode_buffer();
+        // Resume from the trailing incomplete sequence (if any) so it resolves to a
+        // replacement character. O(tail), not a full re-decode.
+        self.decode_from(self.decoded_bytes);
     }
 
     pub fn read_from_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
@@ -1062,6 +1097,35 @@ mod test {
         assert_eq!(stream.read_and_next(), Ch('i'));
         assert!(matches!(stream.read_and_next(), StreamEnd));
         assert!(matches!(stream.read_and_next(), StreamEnd));
+    }
+
+    #[test]
+    fn append_char_by_char_matches_full_decode() {
+        // Exercises incremental decode + incremental line_starts, including CR/LF and
+        // multibyte characters landing on append boundaries. Feeding the text one char
+        // at a time must produce the exact same chars and line/column/offset as decoding
+        // the whole thing at once.
+        let text = "a\r\nb\nc\rd\r\n\r\ne_é_😀_f\ng\r";
+
+        let mut full = ByteStream::from_str(text, Encoding::UTF8);
+
+        let mut inc = ByteStream::new(Encoding::UTF8, None);
+        let mut buf = [0u8; 4];
+        for ch in text.chars() {
+            inc.append_str(ch.encode_utf8(&mut buf));
+        }
+        inc.close();
+
+        let loc = |s: &ByteStream| (s.location().line, s.location().column, s.location().offset);
+        loop {
+            assert_eq!(full.read(), inc.read(), "char mismatch at offset {}", full.tell_bytes());
+            assert_eq!(loc(&full), loc(&inc), "location mismatch at offset {}", full.tell_bytes());
+            if full.eof() {
+                break;
+            }
+            full.next();
+            inc.next();
+        }
     }
 
     #[test]
