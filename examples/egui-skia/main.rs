@@ -12,7 +12,9 @@ use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
 use gosub_render_pipeline::render::backend::ExternalHandle;
-use gosub_render_pipeline::render::{argb_u32_to_rgba8, composite_tiles, DefaultCompositor, TileTarget, DEVICE_PIXEL_RATIO};
+use gosub_render_pipeline::render::{
+    argb_u32_to_rgba8, composite_tiles, DefaultCompositor, TileTarget, DEVICE_PIXEL_RATIO,
+};
 use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
 use once_cell::sync::Lazy;
 use std::sync::Arc;

@@ -167,107 +167,105 @@ fn main() {
         // Reads the latest compositor frame directly; the engine's frame carries its own
         // authoritative (animated, clamped) scroll, so no local tile/scroll mirroring is needed.
         let compositor_draw = compositor.clone();
-        drawing_area.set_draw_func(move |_area, cr, w, h| {
-            match compositor_draw.frame_for(tab_id) {
-                None => {
-                    log::debug!("[draw] no frame yet — placeholder");
+        drawing_area.set_draw_func(move |_area, cr, w, h| match compositor_draw.frame_for(tab_id) {
+            None => {
+                log::debug!("[draw] no frame yet — placeholder");
+                draw_placeholder(cr, w, h);
+            }
+            Some(handle) => match handle {
+                ExternalHandle::CpuPixelsPtr {
+                    width,
+                    height,
+                    stride,
+                    pixel_buf,
+                } => {
+                    log::debug!(
+                        "[draw] CpuPixelsPtr {}x{} stride={} widget={}x{}",
+                        width,
+                        height,
+                        stride,
+                        w,
+                        h
+                    );
+                    let frame_scale = (width as f64 / w as f64).round() as i32;
+                    let owned = unsafe {
+                        std::slice::from_raw_parts(pixel_buf.as_ptr(), (height as usize) * (stride as usize))
+                    }
+                    .to_vec();
+                    match gtk4::cairo::ImageSurface::create_for_data(
+                        owned,
+                        gtk4::cairo::Format::ARgb32,
+                        width as i32,
+                        height as i32,
+                        stride as i32,
+                    ) {
+                        Ok(surface) => {
+                            surface.flush();
+                            if frame_scale > 1 {
+                                surface.set_device_scale(frame_scale as f64, frame_scale as f64);
+                            }
+                            cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
+                            cr.paint().unwrap_or_default();
+                        }
+                        Err(e) => {
+                            log::warn!("[draw] surface failed: {:?}", e);
+                            draw_placeholder(cr, w, h);
+                        }
+                    }
+                }
+                ExternalHandle::CpuPixelsOwned {
+                    width,
+                    height,
+                    stride,
+                    pixels,
+                    ..
+                } => {
+                    log::debug!(
+                        "[draw] CpuPixelsOwned {}x{} stride={} bytes={} widget={}x{}",
+                        width,
+                        height,
+                        stride,
+                        pixels.len(),
+                        w,
+                        h
+                    );
+                    let frame_scale = (width as f64 / w as f64).round() as i32;
+                    match gtk4::cairo::ImageSurface::create_for_data(
+                        pixels,
+                        gtk4::cairo::Format::ARgb32,
+                        width as i32,
+                        height as i32,
+                        stride as i32,
+                    ) {
+                        Ok(surface) => {
+                            surface.flush();
+                            if frame_scale > 1 {
+                                surface.set_device_scale(frame_scale as f64, frame_scale as f64);
+                            }
+                            cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
+                            cr.paint().unwrap_or_default();
+                        }
+                        Err(e) => {
+                            log::warn!("[draw] surface failed: {:?}", e);
+                            draw_placeholder(cr, w, h);
+                        }
+                    }
+                }
+                ExternalHandle::TileCache {
+                    dpr,
+                    scroll_x,
+                    scroll_y,
+                    tiles,
+                    ..
+                } => {
+                    let state = TileDrawState { tiles, dpr };
+                    draw_tile_cache(cr, w, h, &state, scroll_x, scroll_y);
+                }
+                _ => {
+                    log::debug!("[draw] NullHandle or other — placeholder");
                     draw_placeholder(cr, w, h);
                 }
-                Some(handle) => match handle {
-                    ExternalHandle::CpuPixelsPtr {
-                        width,
-                        height,
-                        stride,
-                        pixel_buf,
-                    } => {
-                        log::debug!(
-                            "[draw] CpuPixelsPtr {}x{} stride={} widget={}x{}",
-                            width,
-                            height,
-                            stride,
-                            w,
-                            h
-                        );
-                        let frame_scale = (width as f64 / w as f64).round() as i32;
-                        let owned = unsafe {
-                            std::slice::from_raw_parts(pixel_buf.as_ptr(), (height as usize) * (stride as usize))
-                        }
-                        .to_vec();
-                        match gtk4::cairo::ImageSurface::create_for_data(
-                            owned,
-                            gtk4::cairo::Format::ARgb32,
-                            width as i32,
-                            height as i32,
-                            stride as i32,
-                        ) {
-                            Ok(surface) => {
-                                surface.flush();
-                                if frame_scale > 1 {
-                                    surface.set_device_scale(frame_scale as f64, frame_scale as f64);
-                                }
-                                cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
-                                cr.paint().unwrap_or_default();
-                            }
-                            Err(e) => {
-                                log::warn!("[draw] surface failed: {:?}", e);
-                                draw_placeholder(cr, w, h);
-                            }
-                        }
-                    }
-                    ExternalHandle::CpuPixelsOwned {
-                        width,
-                        height,
-                        stride,
-                        pixels,
-                        ..
-                    } => {
-                        log::debug!(
-                            "[draw] CpuPixelsOwned {}x{} stride={} bytes={} widget={}x{}",
-                            width,
-                            height,
-                            stride,
-                            pixels.len(),
-                            w,
-                            h
-                        );
-                        let frame_scale = (width as f64 / w as f64).round() as i32;
-                        match gtk4::cairo::ImageSurface::create_for_data(
-                            pixels,
-                            gtk4::cairo::Format::ARgb32,
-                            width as i32,
-                            height as i32,
-                            stride as i32,
-                        ) {
-                            Ok(surface) => {
-                                surface.flush();
-                                if frame_scale > 1 {
-                                    surface.set_device_scale(frame_scale as f64, frame_scale as f64);
-                                }
-                                cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
-                                cr.paint().unwrap_or_default();
-                            }
-                            Err(e) => {
-                                log::warn!("[draw] surface failed: {:?}", e);
-                                draw_placeholder(cr, w, h);
-                            }
-                        }
-                    }
-                    ExternalHandle::TileCache {
-                        dpr,
-                        scroll_x,
-                        scroll_y,
-                        tiles,
-                        ..
-                    } => {
-                        let state = TileDrawState { tiles, dpr };
-                        draw_tile_cache(cr, w, h, &state, scroll_x, scroll_y);
-                    }
-                    _ => {
-                        log::debug!("[draw] NullHandle or other — placeholder");
-                        draw_placeholder(cr, w, h);
-                    }
-                },
-            }
+            },
         });
 
         // --- Scroll controller ---

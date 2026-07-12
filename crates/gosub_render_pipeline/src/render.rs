@@ -11,8 +11,8 @@ pub use backend::{
     blend_over_argb_u32, CompositorSink, ErasedSurface, ExternalHandle, GpuPixelFormat, PixelFormat, PresentMode,
     RenderBackend, RgbaImage, SurfaceRect, SurfaceSize, WgpuTextureId,
 };
-pub use tile_composite::{argb_u32_to_rgba8, composite_tiles, TileTarget};
 pub use compositor::DefaultCompositor;
 pub use render_context::RenderContext;
 pub use render_list::{Color, DisplayItem, RenderList};
+pub use tile_composite::{argb_u32_to_rgba8, composite_tiles, TileTarget};
 pub use viewport::{DevicePixelRatio, Viewport, DEVICE_PIXEL_RATIO};

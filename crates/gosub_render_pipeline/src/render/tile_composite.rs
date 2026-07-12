@@ -155,7 +155,12 @@ mod tests {
     fn opaque_tile_overwrites_background() {
         let mut buf = [WHITE; 4];
         // Opaque red at (0,0).
-        composite_tiles(&[tile_rgba(0.0, 0.0, [255, 0, 0, 255])], 1, (0.0, 0.0), &mut target_2x2(&mut buf));
+        composite_tiles(
+            &[tile_rgba(0.0, 0.0, [255, 0, 0, 255])],
+            1,
+            (0.0, 0.0),
+            &mut target_2x2(&mut buf),
+        );
         assert_eq!(buf[0], 0xFFFF_0000, "top-left becomes opaque red (ARGB)");
         assert_eq!(buf[1], WHITE, "other pixels untouched");
         assert_eq!(buf[3], WHITE);
@@ -165,7 +170,12 @@ mod tests {
     fn scroll_moves_tiles_up() {
         // Tile at page y=1, scrolled down by 1 CSS px → lands at viewport (0,0).
         let mut buf = [WHITE; 4];
-        composite_tiles(&[tile_rgba(0.0, 1.0, [0, 255, 0, 255])], 1, (0.0, 1.0), &mut target_2x2(&mut buf));
+        composite_tiles(
+            &[tile_rgba(0.0, 1.0, [0, 255, 0, 255])],
+            1,
+            (0.0, 1.0),
+            &mut target_2x2(&mut buf),
+        );
         assert_eq!(buf[0], 0xFF00_FF00, "scrolled tile lands top-left as green");
     }
 
@@ -173,7 +183,12 @@ mod tests {
     fn tiles_outside_region_are_culled() {
         let mut buf = [WHITE; 4];
         // Far off-screen; must not panic or write.
-        composite_tiles(&[tile_rgba(1000.0, 1000.0, [255, 0, 0, 255])], 1, (0.0, 0.0), &mut target_2x2(&mut buf));
+        composite_tiles(
+            &[tile_rgba(1000.0, 1000.0, [255, 0, 0, 255])],
+            1,
+            (0.0, 0.0),
+            &mut target_2x2(&mut buf),
+        );
         assert!(buf.iter().all(|&p| p == WHITE));
     }
 
