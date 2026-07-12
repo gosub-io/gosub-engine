@@ -1119,7 +1119,12 @@ mod test {
         let loc = |s: &ByteStream| (s.location().line, s.location().column, s.location().offset);
         loop {
             assert_eq!(full.read(), inc.read(), "char mismatch at offset {}", full.tell_bytes());
-            assert_eq!(loc(&full), loc(&inc), "location mismatch at offset {}", full.tell_bytes());
+            assert_eq!(
+                loc(&full),
+                loc(&inc),
+                "location mismatch at offset {}",
+                full.tell_bytes()
+            );
             if full.eof() {
                 break;
             }
