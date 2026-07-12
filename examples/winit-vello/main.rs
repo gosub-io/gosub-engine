@@ -318,20 +318,14 @@ impl ApplicationHandler<()> for BrowserApp {
         }
     }
 
-    /// Drive a steady present cadence so engine-side updates (window resize, scroll, hover,
-    /// animations) appear live, the way the GTK example's 16ms `queue_draw` timer does.
+    /// Sleep until the next event instead of polling a fixed cadence.
     ///
-    /// Without this the window only repainted when a navigation event woke the proxy, so a
-    /// resize re-laid-out the page in the engine but never presented the new frame. Re-arming a
-    /// redraw every ~16ms (capped via `WaitUntil`, so the loop still sleeps rather than busy-
-    /// spinning) keeps the swap chain showing the latest compositor frame at ~60fps.
+    /// Repaints are compositor-driven: the engine ticks at its own fps and, on every dirty update
+    /// (resize, scroll, hover, animation, navigation), calls `submit_frame`, whose redraw callback
+    /// wakes this loop through the event proxy (`user_event` → `request_redraw`). So there is no
+    /// need to re-arm a redraw every ~16ms — an idle page now costs zero presents.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if let Some(rt) = &self.state {
-            rt.gpu.window().request_redraw();
-        }
-        event_loop.set_control_flow(ControlFlow::WaitUntil(
-            std::time::Instant::now() + std::time::Duration::from_millis(16),
-        ));
+        event_loop.set_control_flow(ControlFlow::Wait);
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
