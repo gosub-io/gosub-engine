@@ -19,28 +19,49 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        let start = self.tokenizer.tell();
+        // Rebuild the expression text from the consumed TOKENS. Slicing the raw stream
+        // does not work here: the tokenizer pre-tokenizes into a buffer, so the stream
+        // position runs ahead of the current token and the slice comes up empty.
+        let mut expr = String::new();
 
         loop {
             let t = self.consume_any()?;
             match t.token_type {
                 TokenType::Eof => break,
-                // A nested function or `(` opens a sub-expression, one recursion level deeper.
-                TokenType::Function(_) | TokenType::LParen => {
-                    self.recurse(Self::parse_calc_expr)?;
+                // A nested function or `(` opens a sub-expression, one recursion level
+                // deeper. The recursive call consumes through the matching `)`.
+                TokenType::Function(name) => {
+                    expr.push_str(&name);
+                    expr.push('(');
+                    let inner = self.recurse(Self::parse_calc_expr)?;
+                    if let NodeType::Raw { value } = *inner.node_type {
+                        expr.push_str(&value);
+                    }
+                    expr.push(')');
+                }
+                TokenType::LParen => {
+                    expr.push('(');
+                    let inner = self.recurse(Self::parse_calc_expr)?;
+                    if let NodeType::Raw { value } = *inner.node_type {
+                        expr.push_str(&value);
+                    }
+                    expr.push(')');
                 }
                 TokenType::RParen => break,
+                TokenType::Comment(_) => {}
                 _ => {
-                    // ignore
+                    // Token's Display form is its CSS serialization (whitespace -> " ").
+                    expr.push_str(&t.to_string());
                 }
             }
         }
 
-        let end = self.tokenizer.tell();
-
-        let expr = self.tokenizer.slice(start, end);
-
-        Ok(Node::new(NodeType::Raw { value: expr }, loc))
+        Ok(Node::new(
+            NodeType::Raw {
+                value: expr.trim().to_string(),
+            },
+            loc,
+        ))
     }
 }
 

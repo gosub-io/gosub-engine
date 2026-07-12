@@ -204,6 +204,10 @@
     "syntax": "<slash-separated-border-radius-syntax> | <legacy-border-radius-syntax>"
   },
   {
+    "name": "<bottom>",
+    "syntax": "<length> | auto"
+  },
+  {
     "name": "<box-shadow-blur>",
     "syntax": "<length [0,∞]>"
   },
@@ -952,6 +956,10 @@
     "syntax": "dotted | solid | space | <string>"
   },
   {
+    "name": "<left>",
+    "syntax": "<length> | auto"
+  },
+  {
     "name": "<legacy-border-radius-syntax>",
     "syntax": "<length-percentage [0,∞]>{1,2}"
   },
@@ -1572,6 +1580,10 @@
     "syntax": "rgba( <percentage>#{3} , <alpha-value>? ) | rgba( <number>#{3} , <alpha-value>? ) | rgba( [ <number> | <percentage> | none ]{3} [ / [ <alpha-value> | none ] ]? )"
   },
   {
+    "name": "<right>",
+    "syntax": "<length> | auto"
+  },
+  {
     "name": "<rotate()>",
     "syntax": "rotate( [ <angle> | <zero> ] )"
   },
@@ -1922,6 +1934,10 @@
   {
     "name": "<timeline-range-name>",
     "syntax": "cover | contain | entry | exit | entry-crossing | exit-crossing"
+  },
+  {
+    "name": "<top>",
+    "syntax": "<length> | auto"
   },
   {
     "name": "<track-breadth>",

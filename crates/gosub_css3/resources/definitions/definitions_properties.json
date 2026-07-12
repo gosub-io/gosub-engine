@@ -1398,7 +1398,7 @@
   },
   {
     "name": "background-clip",
-    "syntax": "<visual-box>#",
+    "syntax": "<bg-clip>#",
     "computed": [
       "asSpecified"
     ],
@@ -2392,7 +2392,7 @@
   },
   {
     "name": "clip",
-    "syntax": "<rect()> | auto",
+    "syntax": "<shape> | <rect()> | auto",
     "computed": [
       "autoOrRectangle"
     ],
@@ -2533,7 +2533,7 @@
   },
   {
     "name": "column-width",
-    "syntax": "auto | <length [0,∞]> | min-content | max-content | fit-content(<length-percentage>)",
+    "syntax": "auto | <length [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage>)",
     "computed": [
       "autoOrAbsoluteLength"
     ],
@@ -3633,7 +3633,7 @@
   },
   {
     "name": "height",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAutoOrAbsoluteLength"
     ],
@@ -4400,7 +4400,7 @@
   },
   {
     "name": "max-height",
-    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAsSpecifiedAbsoluteLengthOrNone"
     ],
@@ -4427,7 +4427,7 @@
   },
   {
     "name": "max-width",
-    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAsSpecifiedAbsoluteLengthOrNone"
     ],
@@ -4445,7 +4445,7 @@
   },
   {
     "name": "min-height",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -4463,7 +4463,7 @@
   },
   {
     "name": "min-width",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -6498,7 +6498,7 @@
   },
   {
     "name": "width",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content | fit-content(<length-percentage [0,∞]>) | <calc-size()> | <anchor-size()>",
     "computed": [
       "percentageAutoOrAbsoluteLength"
     ],

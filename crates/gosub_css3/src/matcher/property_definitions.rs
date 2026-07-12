@@ -277,14 +277,55 @@ impl CssDefinitions {
     }
 
     /// Resolve a syntax component
+    /// Resolves a datatype against the property definitions (for property references and
+    /// property-named datatypes). Returns None when no such property exists.
+    fn resolve_property_reference(
+        &mut self,
+        datatype: &str,
+        multipliers: &[crate::matcher::syntax::SyntaxComponentMultiplier],
+    ) -> Option<SyntaxComponent> {
+        // This datatype is not resolved yet.
+        if !self.resolved_properties.contains_key(datatype) {
+            if let Some(property_element) = self.properties.get(datatype) {
+                let name = property_element.name.clone();
+                self.resolve_property(name.as_str());
+            }
+        }
+
+        let resolved_prop = self.resolved_properties.get(datatype)?;
+        // If the resolved syntax is just a single element (be it a group, or a single
+        // element), return that component.
+        if resolved_prop.syntax.components.len() == 1 {
+            let mut component = resolved_prop.syntax.components[0].clone();
+            component.update_multipliers(multipliers.to_vec());
+            return Some(component);
+        }
+        // Otherwise, we return a group with the components
+        Some(SyntaxComponent::Group {
+            components: resolved_prop.syntax.components.clone(),
+            combinator: Juxtaposition,
+            multipliers: multipliers.to_vec(),
+        })
+    }
+
     pub fn resolve_component(&mut self, component: &SyntaxComponent, prop_name: &str) -> SyntaxComponent {
         match component {
             SyntaxComponent::Definition {
                 datatype,
+                quoted,
                 range,
                 multipliers,
-                ..
             } => {
+                // A quoted reference (`<'name'>`) denotes a PROPERTY per the CSS value
+                // definition syntax, so resolve it from the property grammar before
+                // anything else — a same-named value type (e.g. the `<top>` used by
+                // `<shape>`) must not shadow the property reference in `inset: <'top'>{1,4}`.
+                if *quoted && datatype != prop_name {
+                    if let Some(resolved) = self.resolve_property_reference(datatype, multipliers) {
+                        return resolved;
+                    }
+                }
+
                 // First step: Resolve by looking the definition up in the syntax defintions.
                 if let Some(syntax_element) = self.syntax.get(datatype) {
                     // Cycle guard: if this datatype is already being resolved further up
@@ -343,30 +384,8 @@ impl CssDefinitions {
                 // Don't resolve in properties when the datatype is the same as the
                 // property name (for instance: inset-area)
                 if datatype != prop_name {
-                    // This datatype is not resolved yet.
-                    if !self.resolved_properties.contains_key(datatype) {
-                        if let Some(property_element) = self.properties.get(datatype) {
-                            let name = property_element.name.clone();
-                            self.resolve_property(name.as_str());
-                        }
-                    }
-
-                    if let Some(resolved_prop) = self.resolved_properties.get(datatype) {
-                        // If the resolved syntax is just a single element (be it a group, or a single element),
-                        // return that component.
-                        if resolved_prop.syntax.components.len() == 1 {
-                            let mut component = resolved_prop.syntax.components[0].clone();
-
-                            component.update_multipliers(multipliers.clone());
-
-                            return component;
-                        }
-                        // Otherwise, we return a group with the components
-                        return SyntaxComponent::Group {
-                            components: resolved_prop.syntax.components.clone(),
-                            combinator: Juxtaposition,
-                            multipliers: multipliers.clone(),
-                        };
+                    if let Some(resolved) = self.resolve_property_reference(datatype, multipliers) {
+                        return resolved;
                     }
                 }
 
@@ -494,6 +513,8 @@ trait Map<K, V> {
     fn new() -> Self;
 
     fn insert(&mut self, key: K, value: V);
+
+    fn get(&self, key: &K) -> Option<&V>;
 }
 
 impl<K: Eq + Hash, V> Map<K, V> for HashMap<K, V> {
@@ -503,6 +524,10 @@ impl<K: Eq + Hash, V> Map<K, V> for HashMap<K, V> {
 
     fn insert(&mut self, key: K, value: V) {
         self.insert(key, value);
+    }
+
+    fn get(&self, key: &K) -> Option<&V> {
+        HashMap::get(self, key)
     }
 }
 
@@ -514,6 +539,10 @@ impl<K: Eq + Hash, V> Map<K, V> for indexmap::IndexMap<K, V> {
 
     fn insert(&mut self, key: K, value: V) {
         self.insert(key, value);
+    }
+
+    fn get(&self, key: &K) -> Option<&V> {
+        indexmap::IndexMap::get(self, key)
     }
 }
 
@@ -557,6 +586,21 @@ fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) 
                 // `<integer>` accept any token and defeat validation.
                 if BUILTIN_DATA_TYPES.contains(&name.as_str()) {
                     continue;
+                }
+
+                // The definitions carry many names in BOTH forms: a bracketed value type
+                // `<scale()>` (the modern spec grammar, from webref value types / MDN
+                // syntaxes) and a bare `scale()` (a legacy per-property grammar fragment
+                // from webref). Both strip to the same key, and the bare form sorts
+                // last, so it silently shadowed the modern grammar (e.g. scale() lost
+                // its css-transforms-2 percentage form). Prefer the bracketed
+                // Definition-typed entry over any other form.
+                if ty != SyntaxType::Definition {
+                    if let Some(existing) = syntaxes.get(&name) {
+                        if existing.ty == SyntaxType::Definition {
+                            continue;
+                        }
+                    }
                 }
 
                 syntaxes.insert(
@@ -1076,6 +1120,304 @@ mod tests {
         assert!(!ok("margin", "inherit inherit"));
         assert!(!ok("color", "inherit red"));
         assert!(!ok("color", "banana"));
+    }
+
+    /// The `/` separating two `<grid-line>`s (and font-size/line-height etc.) is a
+    /// structural delimiter. The `<custom-ident>` catch-all used to consume it — the
+    /// optional ident tail in `[ <integer> && <custom-ident>? ]` ate the slash, so any
+    /// `grid-column` with a numeric or span left side and a second grid-line failed.
+    /// calc() bodies are preserved as raw text (the old stream-slice approach returned
+    /// an empty string because the tokenizer pre-buffers tokens ahead of the stream
+    /// position), and math functions substitute for numeric datatypes (CSS Values §10).
+    /// Long-tail gaps found by the real-world corpus: the bare css-sizing-4
+    /// `fit-content` keyword, any-order operand assignment that needs a different
+    /// order than greedy first-fit (background-position keyword pairs, transition with
+    /// the easing before the property name), and vendor-prefixed math functions.
+    /// Micro-gaps surfaced by the 66k-file external corpus: `background-clip: text`
+    /// (webref's <visual-box> misses it; use MDN's <bg-clip>), case-insensitive color
+    /// keywords, and percentage scale() — the bare legacy `scale()` value def shadowed
+    /// the modern bracketed `<scale()>` under one loader key (Definition-typed entries
+    /// now win). The corpus's `margin-top: 0 \9` rejections are the IE hack, whose whole
+    /// point is that modern parsers reject it — correct behavior, not a gap.
+    #[test]
+    fn test_external_corpus_micro_gaps() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        // css-backgrounds-4 background-clip values.
+        assert!(ok("background-clip", "text"));
+        assert!(ok("background-clip", "border-box"));
+        assert!(ok("background-clip", "padding-box, border-box"));
+        // CSS keywords are ASCII case-insensitive.
+        assert!(ok("color", "graytext"));
+        assert!(ok("color", "GrayText"));
+        assert!(ok("color", "RED"));
+        assert!(!ok("color", "not-a-color"));
+        // css-transforms-2 percentage scales (bracketed defs win over bare legacy ones).
+        assert!(ok("transform", "scale(70.71068%)"));
+        assert!(ok("transform", "scaleY(80%)"));
+        assert!(ok("transform", "scale(1.5)"));
+        // The `\9` IE hack must keep failing: the escape decodes to a tab inside an
+        // ident, which is not part of any grammar.
+        assert!(!ok("margin-top", "0 \\9"));
+    }
+
+    #[test]
+    fn test_corpus_long_tail() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        // css-sizing-4 bare fit-content keyword (webref only carries the function form).
+        assert!(ok("width", "fit-content"));
+        assert!(ok("height", "fit-content"));
+        assert!(ok("max-width", "fit-content"));
+        // Bare fit-content stays invalid where only the function form is allowed.
+        assert!(!ok("grid-template-columns", "fit-content"));
+
+        // Any-order (&&/||) groups retry rotated operand orders: greedy first-fit gave
+        // `center` to the horizontal operand and left `left` homeless.
+        assert!(ok("background-position", "center left"));
+        assert!(ok("background-position", "center right 7px"));
+        assert!(ok("background-position", "left center"));
+        assert!(!ok("background-position", "left left"));
+        assert!(ok("transition", "0.2s ease left"));
+        assert!(ok("transition", "ease all 300ms"));
+
+        // Vendor-prefixed math functions predate the unprefixed forms.
+        assert!(ok("max-width", "-webkit-calc(100% - 44px)"));
+        assert!(ok("width", "-moz-calc(50% + 10px)"));
+        assert!(!ok("width", "-webkit-banana(1)"));
+    }
+
+    /// POLICY: a lone vendor-prefixed keyword is accepted for every property (cascade
+    /// fallbacks like `display: -webkit-box; display: flex`). Vendor keywords inside
+    /// larger values and unprefixed legacy keywords stay rejected.
+    #[test]
+    fn test_vendor_prefixed_values() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        assert!(ok("display", "-webkit-box"));
+        assert!(ok("display", "-moz-box"));
+        assert!(ok("position", "-webkit-sticky"));
+        assert!(ok("cursor", "-webkit-grab"));
+        assert!(ok("width", "-webkit-fit-content"));
+        assert!(ok("width", "-moz-fit-content"));
+        // Unprefixed legacy keywords are NOT covered by the policy.
+        assert!(!ok("display", "box"));
+        // A lone dash or non-keyword stays rejected.
+        assert!(!ok("display", "-webkit-"));
+        // The policy covers only a single bare identifier, not compound values.
+        assert!(!ok("margin", "-webkit-foo 10px"));
+    }
+
+    /// `clip` accepts both rect() forms: the legacy comma-separated CSS2 shape (MDN's
+    /// `<shape>`, dominant in real-world CSS) and the modern space-separated basic-shape
+    /// `<rect()>`. Also guards the quoted-reference resolution order: `<'top'>` in
+    /// `inset` must resolve to the top PROPERTY, not the `<top>` value type that
+    /// `<shape>` uses.
+    #[test]
+    fn test_clip_rect_forms() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        assert!(ok("clip", "rect(0, 0, 0, 0)"));
+        assert!(ok("clip", "rect(1px, 2px, 3px, 4px)"));
+        assert!(ok("clip", "rect(auto, auto, auto, auto)"));
+        assert!(ok("clip", "rect(0 0 0 0)"));
+        assert!(ok("clip", "auto"));
+        assert!(!ok("clip", "banana"));
+        // <'top'> property references keep resolving to the property grammar, which
+        // accepts percentages — the <top> value type (`<length> | auto`) does not.
+        assert!(ok("inset", "10% 20%"));
+        assert!(ok("inset", "auto"));
+    }
+
+    #[test]
+    fn test_calc_and_math_functions() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        // The parsed calc body must be the raw expression, not empty.
+        let values = parse_decl_values("width", "calc(100% - 20px)");
+        assert_eq!(
+            values,
+            vec![CssValue::Function("calc".to_string(), vec![CssValue::String("100% - 20px".to_string())])]
+        );
+
+        // Math functions match wherever a numeric datatype is expected.
+        assert!(ok("width", "calc(100% - 20px)"));
+        assert!(ok("width", "calc((100% - 10px) * 2)"));
+        assert!(ok("height", "calc(100vh - 4rem)"));
+        assert!(ok("margin-left", "calc(-1 * var(--gap))"));
+        assert!(ok("top", "calc(50% + 10px)"));
+        assert!(ok("font-size", "min(4vw, 2rem)"));
+        assert!(ok("width", "clamp(10px, 50%, 100px)"));
+        assert!(ok("z-index", "calc(1 + 1)"));
+        // Non-math functions still do not match numeric contexts.
+        assert!(!ok("width", "banana(1)"));
+    }
+
+    #[test]
+    fn test_grid_line_slash() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        for v in [
+            "1",
+            "auto",
+            "span 2",
+            "1 / 3",
+            "1 / span 1",
+            "span 2 / 4",
+            "main-start",
+            "1 / -1",
+            "auto / auto",
+            "2 main-end",
+        ] {
+            assert!(ok("grid-column", v), "grid-column: {v} should match");
+        }
+        assert!(ok("grid-row", "1 / span 2"));
+        assert!(ok("grid-area", "1 / 1 / 2 / 2"));
+        // A slash needs a grammar-level `/` to be valid: no bare slash spam.
+        assert!(!ok("grid-column", "/"));
+        assert!(!ok("grid-column", "1 / / 2"));
+    }
+
+    /// The grammar parser's numeric literal path used nom's `float`, which accepts the
+    /// textual forms "inf"/"infinity"/"nan". That made it eat the front of grammar
+    /// KEYWORDS: `infinite` (in `<single-animation-iteration-count>`) compiled to the
+    /// unmatchable `Unit(inf, "inite")`, so `animation: shine 3s infinite` never matched.
+    #[test]
+    fn test_infinite_keyword() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        assert!(ok("animation-iteration-count", "infinite"));
+        assert!(ok("animation-iteration-count", "3"));
+        assert!(ok("animation", "shine 3s infinite"));
+        assert!(ok("animation", "spin 2s linear infinite"));
+        assert!(ok("animation", "fade-in 1s ease-out both"));
+        assert!(ok("animation", "none"));
+        // Numeric literals in grammars still work (`0` in e.g. flex-basis contexts).
+        assert!(ok("flex", "1 1 0%"));
+    }
+
+    /// `<alpha()>` in `<color-function>` denotes a function named `alpha`, not a bare
+    /// numeric. When its builtin arm matched Zero/Number/Percentage, any bare `0` matched
+    /// `<color>` — so box-shadow's `&&` group let a leading `0` offset claim the
+    /// shadow-color slot, rejecting every zero-offset shadow.
+    #[test]
+    fn test_zero_offset_shadows_and_alpha_function() {
+        let defs = get_css_definitions();
+        let ok = |prop: &str, v: &str| {
+            defs.find_property(prop)
+                .unwrap_or_else(|| panic!("no def for {prop}"))
+                .clone()
+                .matches(&parse_decl_values(prop, v))
+        };
+
+        // Zero-offset shadows, in every slot a bare 0 can occupy.
+        assert!(ok("box-shadow", "0 0"));
+        assert!(ok("box-shadow", "0 2px"));
+        assert!(ok("box-shadow", "0 2px 5px"));
+        assert!(ok("box-shadow", "0 2px 5px red"));
+        assert!(ok("box-shadow", "0 2px 5px #00000026"));
+        assert!(ok("box-shadow", "0 0.25em 0.5em 0 #00000019"));
+        assert!(ok("box-shadow", "0 1px 2px 0 rgba(0,0,0,0.05)"));
+        assert!(ok("box-shadow", "0 0 0 1px #fff"));
+        // A bare numeric is NOT a color.
+        assert!(!ok("color", "0"));
+        assert!(!ok("background-color", "1"));
+        // The alpha() FUNCTION still matches as a color-function alternative.
+        assert!(ok("color", "alpha(50%)"));
+        // Colors themselves are unaffected, including 8-digit hex.
+        assert!(ok("color", "#00000026"));
+        assert!(ok("background-color", "#00000026"));
+    }
+
+    /// Grammar commas adjacent to an omitted optional component are elided (CSS Values &
+    /// Units §2.2). webref's transform grammars use the css-transforms-1 forms with a
+    /// literal comma before an optional argument (`scale( <number> , <number>? )`), so
+    /// without elision every single-argument `scale()`/`translate()`/`skew()` failed.
+    #[test]
+    fn test_comma_elision() {
+        fn m(grammar: &str, vals: &[CssValue]) -> bool {
+            CssSyntax::new(grammar).compile().expect("compile").matches(vals)
+        }
+        let (a, b, comma) = (|| str!("a"), || str!("b"), || CssValue::Comma);
+
+        // Trailing: `a , b?` accepts a lone `a`, and still accepts the full form.
+        assert!(m("a , b?", &[a()]));
+        assert!(m("a , b?", &[a(), comma(), b()]));
+        // Leading: `a? , b` accepts a lone `b`.
+        assert!(m("a? , b", &[b()]));
+        assert!(m("a? , b", &[a(), comma(), b()]));
+        // Elision only applies to omitted components: two present components still
+        // require their separating comma, and a mandatory component can't be skipped.
+        assert!(!m("a , b?", &[a(), b()]));
+        assert!(!m("a? , b", &[a(), b()]));
+        assert!(!m("a , b", &[a()]));
+
+        let defs = get_css_definitions();
+        let ok = |v: &str| {
+            defs.find_property("transform")
+                .unwrap()
+                .clone()
+                .matches(&parse_decl_values("transform", v))
+        };
+        for v in [
+            "none",
+            "scale(1)",
+            "scale(1, 2)",
+            "scaleX(1)",
+            "rotate(45deg)",
+            "translate(10px)",
+            "translate(10px, 20px)",
+            "matrix(1, 0, 0, 1, 0, 0)",
+            "skewX(10deg)",
+            "scale(1) rotate(45deg)",
+        ] {
+            assert!(ok(v), "transform: {v} should match");
+        }
+        // The elided comma must not legalize a missing separator.
+        assert!(!ok("scale(1 2)"));
+        assert!(!ok("banana(1)"));
     }
 
     /// A value containing a `var()`/`env()` substitution is valid at parse time for any

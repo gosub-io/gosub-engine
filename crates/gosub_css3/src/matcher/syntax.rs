@@ -303,6 +303,15 @@ impl CssSyntax {
 /// Parse a unit input
 fn parse_unit(input: &str) -> IResult<&str, SyntaxComponent> {
     let (input, value) = float(input)?;
+
+    // nom's float parser accepts the textual forms "inf"/"infinity"/"nan", which makes it
+    // eat the front of grammar KEYWORDS: `infinite` parsed as Unit(inf, "inite") and could
+    // never match. A numeric literal in a grammar is always finite; reject the textual
+    // specials so keyword parsing gets these tokens instead.
+    if !value.is_finite() {
+        return Err(Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Float)));
+    }
+
     let (input, suffix) = opt(alpha1).parse(input)?;
 
     let Some(suffix) = suffix else {
