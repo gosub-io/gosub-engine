@@ -1,0 +1,21 @@
+[package]
+name = "generate_definitions"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+authors = ["Gosub Community <info@gosub.io>"]
+description = "Generates the CSS property/value definition JSON files embedded in gosub_css3"
+license = "MIT"
+repository = "https://github.com/gosub-io/gosub-engine"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true, features = ["blocking", "rustls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha1 = "0.10"
