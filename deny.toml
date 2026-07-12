@@ -14,10 +14,10 @@ ignore = [
     # (resvg -> usvg -> fontdb) and font shaping (ab_glyph -> owned_ttf_parser).
     # Nothing we control depends on it directly.
     "RUSTSEC-2026-0192", # ttf-parser unmaintained
-    # `rustybuzz` is unmaintained (its successor is harfrust) but pulled in
-    # transitively by SVG rendering (resvg -> usvg). We are already on the
-    # latest resvg/usvg (0.47), which still shapes text with rustybuzz; no
-    # fixed release exists. Revisit when usvg switches to harfrust.
+    # `rustybuzz` is unmaintained (maintainer declared it EOL) but pulled in transitively
+    # by SVG rendering (resvg -> usvg -> rustybuzz). No safe upgrade is available; the
+    # maintained alternative (harfrust) requires resvg/usvg to migrate first. Nothing we
+    # control depends on it directly.
     "RUSTSEC-2026-0206", # rustybuzz unmaintained
     # `quick-xml` 0.39 DoS advisories. Not exploitable here: the ONLY path to it is
     # `wayland-scanner` (a build-time proc-macro under winit's Wayland backend) which
