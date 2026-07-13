@@ -16,13 +16,13 @@ pub enum NodeType {
         children: Vec<Node>,
     },
     Rule {
-        prelude: Option<Node>,
-        block: Option<Node>,
+        prelude: Option<Box<Node>>,
+        block: Option<Box<Node>>,
     },
     AtRule {
         name: String,
-        prelude: Option<Node>,
-        block: Option<Node>,
+        prelude: Option<Box<Node>>,
+        block: Option<Box<Node>>,
     },
     Declaration {
         property: String,
@@ -59,7 +59,7 @@ pub enum NodeType {
     },
     AttributeSelector {
         name: String,
-        matcher: Option<Node>,
+        matcher: Option<Box<Node>>,
         value: String,
         flags: String,
     },
@@ -81,12 +81,12 @@ pub enum NodeType {
         value: String,
     },
     PseudoClassSelector {
-        value: Node,
+        value: Box<Node>,
     },
     MediaQuery {
         modifier: String,
         media_type: String,
-        condition: Option<Node>,
+        condition: Option<Box<Node>>,
     },
     MediaQueryList {
         media_queries: Vec<Node>,
@@ -97,7 +97,7 @@ pub enum NodeType {
     Feature {
         kind: FeatureKind,
         name: String,
-        value: Option<Node>,
+        value: Option<Box<Node>>,
     },
     Hash {
         value: String,
@@ -118,33 +118,33 @@ pub enum NodeType {
     },
     Operator(String),
     Nth {
-        nth: Node,
-        selector: Option<Node>,
+        nth: Box<Node>,
+        selector: Option<Box<Node>>,
     },
     AnPlusB {
         a: String,
         b: String,
     },
     MSFunction {
-        func: Node,
+        func: Box<Node>,
     },
     MSIdent {
         value: String,
         default_value: String,
     },
     Calc {
-        expr: Node,
+        expr: Box<Node>,
     },
     SupportsDeclaration {
-        term: Node,
+        term: Box<Node>,
     },
     FeatureFunction,
     Raw {
         value: String,
     },
     Scope {
-        root: Option<Node>,
-        limit: Option<Node>,
+        root: Option<Box<Node>>,
+        limit: Option<Box<Node>>,
     },
     LayerList {
         layers: Vec<Node>,
@@ -156,262 +156,259 @@ pub enum NodeType {
         children: Vec<Node>,
     },
     Range {
-        left: Node,
-        left_comparison: Node,
-        middle: Node,
-        right_comparison: Option<Node>,
-        right: Option<Node>,
+        left: Box<Node>,
+        left_comparison: Box<Node>,
+        middle: Box<Node>,
+        right_comparison: Option<Box<Node>>,
+        right: Option<Box<Node>>,
     },
 }
 
 /// A node is a single element in the AST
 #[derive(Debug, PartialEq, Clone)]
 pub struct Node {
-    pub node_type: Box<NodeType>,
+    pub node_type: NodeType,
     pub location: Location,
 }
 
 impl Node {
     pub(crate) fn new(node_type: NodeType, location: Location) -> Self {
-        Self {
-            node_type: Box::new(node_type),
-            location,
-        }
+        Self { node_type, location }
     }
 
     #[must_use]
     pub fn is_block(&self) -> bool {
-        matches!(&*self.node_type, NodeType::Block { .. })
+        matches!(&self.node_type, NodeType::Block { .. })
     }
 
     #[must_use]
     pub fn as_block(&self) -> Option<&Vec<Node>> {
-        match &&*self.node_type {
-            &NodeType::Block { children } => Some(children),
+        match &self.node_type {
+            NodeType::Block { children } => Some(children),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_stylesheet(&self) -> bool {
-        matches!(&*self.node_type, NodeType::StyleSheet { .. })
+        matches!(&self.node_type, NodeType::StyleSheet { .. })
     }
 
     #[must_use]
     pub fn is_rule(&self) -> bool {
-        matches!(&*self.node_type, NodeType::Rule { .. })
+        matches!(&self.node_type, NodeType::Rule { .. })
     }
 
     #[must_use]
     pub fn as_stylesheet(&self) -> Option<&Vec<Node>> {
-        match &&*self.node_type {
-            &NodeType::StyleSheet { children } => Some(children),
+        match &self.node_type {
+            NodeType::StyleSheet { children } => Some(children),
             _ => None,
         }
     }
 
     #[must_use]
-    pub fn as_rule(&self) -> Option<(&Option<Node>, &Option<Node>)> {
-        match &&*self.node_type {
-            &NodeType::Rule { prelude, block } => Some((prelude, block)),
+    pub fn as_rule(&self) -> Option<(Option<&Node>, Option<&Node>)> {
+        match &self.node_type {
+            NodeType::Rule { prelude, block } => Some((prelude.as_deref(), block.as_deref())),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_selector_list(&self) -> bool {
-        matches!(&*self.node_type, NodeType::SelectorList { .. })
+        matches!(&self.node_type, NodeType::SelectorList { .. })
     }
 
     #[must_use]
     pub fn as_selector_list(&self) -> Option<&Vec<Node>> {
-        match &&*self.node_type {
-            &NodeType::SelectorList { selectors } => Some(selectors),
+        match &self.node_type {
+            NodeType::SelectorList { selectors } => Some(selectors),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_selector(&self) -> bool {
-        matches!(&*self.node_type, NodeType::Selector { .. })
+        matches!(&self.node_type, NodeType::Selector { .. })
     }
 
     #[must_use]
     pub fn as_selector(&self) -> Option<&Vec<Node>> {
-        match &&*self.node_type {
-            &NodeType::Selector { children } => Some(children),
+        match &self.node_type {
+            NodeType::Selector { children } => Some(children),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_ident(&self) -> bool {
-        matches!(&*self.node_type, NodeType::Ident { .. })
+        matches!(&self.node_type, NodeType::Ident { .. })
     }
 
     #[must_use]
     pub fn as_ident(&self) -> Option<&String> {
-        match &&*self.node_type {
-            &NodeType::Ident { value } => Some(value),
+        match &self.node_type {
+            NodeType::Ident { value } => Some(value),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_number(&self) -> bool {
-        matches!(&*self.node_type, NodeType::Number { .. })
+        matches!(&self.node_type, NodeType::Number { .. })
     }
 
     #[must_use]
     pub fn as_number(&self) -> Option<&Number> {
-        match &&*self.node_type {
-            &NodeType::Number { value } => Some(value),
+        match &self.node_type {
+            NodeType::Number { value } => Some(value),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_hash(&self) -> bool {
-        matches!(&*self.node_type, NodeType::Hash { .. })
+        matches!(&self.node_type, NodeType::Hash { .. })
     }
 
     #[must_use]
     pub fn as_hash(&self) -> Option<&String> {
-        match &&*self.node_type {
-            &NodeType::Hash { value } => Some(value),
+        match &self.node_type {
+            NodeType::Hash { value } => Some(value),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn as_class_selector(&self) -> Option<&String> {
-        match &&*self.node_type {
-            &NodeType::ClassSelector { value } => Some(value),
+        match &self.node_type {
+            NodeType::ClassSelector { value } => Some(value),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_class_selector(&self) -> bool {
-        matches!(&*self.node_type, NodeType::ClassSelector { .. })
+        matches!(&self.node_type, NodeType::ClassSelector { .. })
     }
 
     #[must_use]
     pub fn is_type_selector(&self) -> bool {
-        match &&*self.node_type {
-            &NodeType::TypeSelector { value, .. } => value != "*",
+        match &self.node_type {
+            NodeType::TypeSelector { value, .. } => value != "*",
             _ => false,
         }
     }
 
     #[must_use]
     pub fn as_type_selector(&self) -> Option<&String> {
-        match &&*self.node_type {
-            &NodeType::TypeSelector { value, .. } => Some(value),
+        match &self.node_type {
+            NodeType::TypeSelector { value, .. } => Some(value),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_universal_selector(&self) -> bool {
-        match &&*self.node_type {
-            &NodeType::TypeSelector { value, .. } => value == "*",
+        match &self.node_type {
+            NodeType::TypeSelector { value, .. } => value == "*",
             _ => false,
         }
     }
 
     #[must_use]
     pub fn is_attribute_selector(&self) -> bool {
-        matches!(&*self.node_type, NodeType::AttributeSelector { .. })
+        matches!(&self.node_type, NodeType::AttributeSelector { .. })
     }
 
     #[must_use]
-    pub fn as_attribute_selector(&self) -> Option<(&String, &Option<Node>, &String, &String)> {
-        match &&*self.node_type {
-            &NodeType::AttributeSelector {
+    pub fn as_attribute_selector(&self) -> Option<(&String, Option<&Node>, &String, &String)> {
+        match &self.node_type {
+            NodeType::AttributeSelector {
                 name,
                 matcher,
                 value,
                 flags,
-            } => Some((name, matcher, value, flags)),
+            } => Some((name, matcher.as_deref(), value, flags)),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_pseudo_class_selector(&self) -> bool {
-        matches!(&*self.node_type, NodeType::PseudoClassSelector { .. })
+        matches!(&self.node_type, NodeType::PseudoClassSelector { .. })
     }
 
     #[must_use]
     pub fn as_pseudo_class_selector(&self) -> Option<String> {
-        match &&*self.node_type {
-            &NodeType::PseudoClassSelector { value } => Some(value.to_string()),
+        match &self.node_type {
+            NodeType::PseudoClassSelector { value } => Some(value.to_string()),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_pseudo_element_selector(&self) -> bool {
-        matches!(&*self.node_type, NodeType::PseudoElementSelector { .. })
+        matches!(&self.node_type, NodeType::PseudoElementSelector { .. })
     }
 
     #[must_use]
     pub fn as_pseudo_element_selector(&self) -> Option<&String> {
-        match &&*self.node_type {
-            &NodeType::PseudoElementSelector { value } => Some(value),
+        match &self.node_type {
+            NodeType::PseudoElementSelector { value } => Some(value),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_combinator(&self) -> bool {
-        matches!(&*self.node_type, NodeType::Combinator { .. })
+        matches!(&self.node_type, NodeType::Combinator { .. })
     }
 
     #[must_use]
     pub fn as_combinator(&self) -> Option<&String> {
-        match &&*self.node_type {
-            &NodeType::Combinator { value } => Some(value),
+        match &self.node_type {
+            NodeType::Combinator { value } => Some(value),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_dimension(&self) -> bool {
-        matches!(&*self.node_type, NodeType::Dimension { .. })
+        matches!(&self.node_type, NodeType::Dimension { .. })
     }
 
     #[must_use]
     pub fn as_dimension(&self) -> Option<(&Number, &String)> {
-        match &&*self.node_type {
-            &NodeType::Dimension { value, unit } => Some((value, unit)),
+        match &self.node_type {
+            NodeType::Dimension { value, unit } => Some((value, unit)),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_id_selector(&self) -> bool {
-        matches!(&*self.node_type, NodeType::IdSelector { .. })
+        matches!(&self.node_type, NodeType::IdSelector { .. })
     }
 
     #[must_use]
     pub fn as_id_selector(&self) -> Option<&String> {
-        match &&*self.node_type {
-            &NodeType::IdSelector { value } => Some(value),
+        match &self.node_type {
+            NodeType::IdSelector { value } => Some(value),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn is_declaration(&self) -> bool {
-        matches!(&*self.node_type, NodeType::Declaration { .. })
+        matches!(&self.node_type, NodeType::Declaration { .. })
     }
 
     #[must_use]
     pub fn as_declaration(&self) -> Option<(&String, &Vec<Node>, &bool)> {
-        match &&*self.node_type {
-            &NodeType::Declaration {
+        match &self.node_type {
+            NodeType::Declaration {
                 property,
                 value,
                 important,
@@ -423,7 +420,7 @@ impl Node {
 
 impl Display for Node {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let s = match &*self.node_type {
+        let s = match &self.node_type {
             NodeType::SelectorList { selectors } => selectors
                 .iter()
                 .map(std::string::ToString::to_string)

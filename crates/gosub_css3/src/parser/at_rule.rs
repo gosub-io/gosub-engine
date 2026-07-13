@@ -201,8 +201,8 @@ impl Css3<'_> {
         Ok(Node::new(
             NodeType::AtRule {
                 name: name.clone(),
-                prelude,
-                block,
+                prelude: prelude.map(Box::new),
+                block: block.map(Box::new),
             },
             t.location,
         ))

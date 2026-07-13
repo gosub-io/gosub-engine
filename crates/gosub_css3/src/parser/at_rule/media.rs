@@ -137,7 +137,14 @@ impl Css3<'_> {
             }
         }
 
-        Ok(Node::new(NodeType::Feature { kind, name, value }, loc))
+        Ok(Node::new(
+            NodeType::Feature {
+                kind,
+                name,
+                value: value.map(Box::new),
+            },
+            loc,
+        ))
     }
 
     fn parse_media_feature_range(&mut self, _kind: FeatureKind) -> CssResult<Node> {
@@ -171,11 +178,11 @@ impl Css3<'_> {
 
         Ok(Node::new(
             NodeType::Range {
-                left,
-                left_comparison,
-                middle,
-                right_comparison,
-                right,
+                left: Box::new(left),
+                left_comparison: Box::new(left_comparison),
+                middle: Box::new(middle),
+                right_comparison: right_comparison.map(Box::new),
+                right: right.map(Box::new),
             },
             loc,
         ))
@@ -267,7 +274,7 @@ impl Css3<'_> {
             NodeType::MediaQuery {
                 modifier,
                 media_type,
-                condition,
+                condition: condition.map(Box::new),
             },
             loc,
         ))

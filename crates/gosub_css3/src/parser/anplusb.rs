@@ -250,154 +250,154 @@ mod test {
         test!(
             parse_anplusb,
             "1n+2",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "1".to_string(),
                 b: "2".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "1n-2",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "1".to_string(),
                 b: "-2".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "-1n+2",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "-1".to_string(),
                 b: "2".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "-1n-20",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "-1".to_string(),
                 b: "-20".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "-1n+20",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "-1".to_string(),
                 b: "20".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "1n",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "1".to_string(),
                 b: "0".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "10n-5",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "10".to_string(),
                 b: "-5".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "0n+5",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "0".to_string(),
                 b: "5".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "1n+0",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "1".to_string(),
                 b: "0".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "n+0",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "1".to_string(),
                 b: "0".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "n",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "1".to_string(),
                 b: "0".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "2n+0",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "2".to_string(),
                 b: "0".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "2n",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "2".to_string(),
                 b: "0".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "3n-6",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "3".to_string(),
                 b: "-6".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "3n + 1",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "3".to_string(),
                 b: "1".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "+3n - 2",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "3".to_string(),
                 b: "-2".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "-n+ 6",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "-1".to_string(),
                 b: "6".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "-n+6",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "-1".to_string(),
                 b: "6".to_string()
-            })
+            }
         );
         test!(
             parse_anplusb,
             "-n +6",
-            Box::new(NodeType::AnPlusB {
+            NodeType::AnPlusB {
                 a: "-1".to_string(),
                 b: "6".to_string()
-            })
+            }
         );
     }
 }

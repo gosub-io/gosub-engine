@@ -11,7 +11,7 @@ impl Css3<'_> {
 
         let expr = self.parse_calc_expr()?;
 
-        Ok(Node::new(NodeType::Calc { expr }, loc))
+        Ok(Node::new(NodeType::Calc { expr: Box::new(expr) }, loc))
     }
 
     fn parse_calc_expr(&mut self) -> CssResult<Node> {
@@ -34,7 +34,7 @@ impl Css3<'_> {
                     expr.push_str(&name);
                     expr.push('(');
                     let inner = self.recurse(Self::parse_calc_expr)?;
-                    if let NodeType::Raw { value } = *inner.node_type {
+                    if let NodeType::Raw { value } = inner.node_type {
                         expr.push_str(&value);
                     }
                     expr.push(')');
@@ -42,7 +42,7 @@ impl Css3<'_> {
                 TokenType::LParen => {
                     expr.push('(');
                     let inner = self.recurse(Self::parse_calc_expr)?;
-                    if let NodeType::Raw { value } = *inner.node_type {
+                    if let NodeType::Raw { value } = inner.node_type {
                         expr.push_str(&value);
                     }
                     expr.push(')');

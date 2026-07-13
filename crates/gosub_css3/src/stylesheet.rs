@@ -540,8 +540,8 @@ impl CssValue {
     }
 
     /// Converts a CSS AST node to a CSS value
-    pub fn parse_ast_node(node: &crate::node::Node) -> CssResult<CssValue> {
-        match *node.node_type.clone() {
+    pub fn parse_ast_node(node: crate::node::Node) -> CssResult<CssValue> {
+        match node.node_type {
             crate::node::NodeType::Ident { value } => Ok(CssValue::String(value)),
             crate::node::NodeType::Number { value } => {
                 if value == 0.0 {
@@ -565,7 +565,7 @@ impl CssValue {
             crate::node::NodeType::Operator(value) => Ok(CssValue::String(value)),
             crate::node::NodeType::Calc { expr } => {
                 // Preserve the raw body of calc(...) so the layout engine can evaluate it later.
-                let body = match *expr.node_type {
+                let body = match expr.node_type {
                     crate::node::NodeType::Raw { value } => value,
                     _ => String::new(),
                 };
@@ -576,7 +576,7 @@ impl CssValue {
             }
             crate::node::NodeType::Function { name, arguments } => {
                 let mut list = vec![];
-                for node in &arguments {
+                for node in arguments {
                     list.push(CssValue::parse_ast_node(node)?);
                 }
                 // Color functions (rgb/rgba/hsl/hsla/oklch/…) collapse to a concrete `Color`
