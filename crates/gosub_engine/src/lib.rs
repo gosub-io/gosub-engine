@@ -58,7 +58,7 @@
 //!     };
 //!
 //!     // 3) Create a zone (ZoneHandle)
-//!     let mut zone = engine_handle.create_zone(ZoneConfig::default(), services, None)?;
+//!     let mut zone = engine_handle.create_zone(None, services, None)?;
 //!
 //!     // 4) Create a tab (TabHandle)
 //!     let tab_handle = zone.create_tab(Default::default(), None).await?;
@@ -198,7 +198,5 @@ pub mod events {
 
 /// Configuration options for the Gosub engine.
 pub mod config {
-    pub use crate::engine::config::{
-        CookiePartitioning, GpuOptions, LogLevel, ProxyConfig, RedirectPolicy, SandboxMode, TlsConfig,
-    };
+    pub use crate::engine::config::{EngineSettings, EngineSettingsBuilder, EngineSettingsError};
 }

@@ -167,7 +167,7 @@ async fn main() -> Result<(), EngineError> {
         partition_policy: PartitionPolicy::None,
     };
     let mut zone = engine.create_zone(
-        ZoneConfig::builder().max_tabs(1).build().expect("zone cfg"),
+        Some(ZoneConfig::builder().max_tabs(1).build().expect("zone cfg")),
         zone_services,
         None,
     )?;

@@ -91,7 +91,7 @@ impl GosubBrowser {
                 };
 
                 let mut zone = engine
-                    .create_zone(ZoneConfig::default(), services, None)
+                    .create_zone(None, services, None)
                     .map_err(|e| e.to_string())?;
 
                 let tab = zone

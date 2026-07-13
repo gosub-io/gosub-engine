@@ -71,8 +71,8 @@
     {
       "key": "user_agent",
       "type": "s",
-      "default": "s:Gosub/0.1 (+https://gosub.dev)",
-      "description": "Default User-Agent string sent with outgoing HTTP requests."
+      "default": "s:Gosub/0.1 (+https://gosub.io)",
+      "description": "User-Agent string sent with outgoing HTTP requests. The schema default is the absolute fallback; set this key to send a platform-specific or custom UA."
     },
     {
       "key": "timeout.connect_secs",

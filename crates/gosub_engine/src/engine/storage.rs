@@ -72,7 +72,7 @@
 //!     partition_policy: PartitionPolicy::None,
 //! };
 //!
-//! let _zone = engine_handle.create_zone(ZoneConfig::default(), services, None)?;
+//! let _zone = engine_handle.create_zone(None, services, None)?;
 //! # Ok(()) }
 //! ```
 //!

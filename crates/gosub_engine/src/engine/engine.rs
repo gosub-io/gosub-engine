@@ -159,8 +159,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             read_idle_timeout: Duration::from_secs(cfg.get_uint("net.timeout.read_idle_secs") as u64),
             // A body timeout of 0 means "no limit".
             total_body_timeout: (body_secs > 0).then(|| Duration::from_secs(body_secs as u64)),
-            // Take the default user agent (and any future knobs) from gosub-sonar.
-            ..FetcherConfig::default()
+            // Read at fetcher-construction time for now; making the fetcher pick up
+            // store changes on the fly is a later gosub-sonar concern.
+            user_agent: Some(cfg.get_string("net.user_agent")),
         };
         let io_handle = spawn_io_thread(io_cfg, self.context.clone());
         let io_tx = io_handle.subscribe();
@@ -211,17 +212,11 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         let mut cmd_rx = self.cmd_rx.take()?;
 
         Some(async move {
-            while let Some(cmd) = cmd_rx.recv().await {
-                match cmd {
-                    EngineCommand::Shutdown { reply } => {
-                        log::trace!("Engine received shutdown command. Shutting down main engine::run() loop");
-                        let _ = reply.send(Ok(()));
-                        break;
-                    }
-                    _ => {
-                        log::warn!("Unhandled engine command: {:?}", cmd);
-                    }
-                }
+            // `Shutdown` is currently the only engine command; turn this back into a
+            // dispatch loop once more commands exist.
+            if let Some(EngineCommand::Shutdown { reply }) = cmd_rx.recv().await {
+                log::trace!("Engine received shutdown command. Shutting down main engine::run() loop");
+                let _ = reply.send(Ok(()));
             }
         })
     }
@@ -270,20 +265,29 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
     /// Create and register a new zone, returning a [`ZoneHandle`] for userland code.
     ///
-    /// - `config`: zone configuration (features, limits, identity)
+    /// - `config`: zone configuration (features, limits, identity); if `None`, the
+    ///   engine's [`EngineSettings::default_zone_config`] is used
     /// - `services`: storage, cookie store/jar, partition policy, etc.
     /// - `zone_id`: optional id; if `None`, a fresh one is generated
     /// - `event_tx`: channel where the zone (and its tabs) will emit [`EngineEvent`]s
+    ///
+    /// Fails with [`EngineError::ZoneLimitExceeded`] once the engine holds
+    /// [`EngineSettings::max_zones`] zones.
     ///
     /// The returned handle contains the [`ZoneId`] and a clone of the engine’s
     /// command sender, allowing the caller to send zone commands without holding
     /// a reference to the engine.
     pub fn create_zone(
         &mut self,
-        config: ZoneConfig,
+        config: Option<ZoneConfig>,
         services: ZoneServices,
         zone_id: Option<ZoneId>,
     ) -> Result<Zone<C>, EngineError> {
+        if self.zones.len() >= self.context.config.max_zones {
+            return Err(EngineError::ZoneLimitExceeded);
+        }
+        let config = config.unwrap_or_else(|| self.context.config.default_zone_config.clone());
+
         let zone = match zone_id {
             Some(zone_id) => Zone::new_with_id(
                 zone_id,
@@ -313,5 +317,51 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             .map_err(|e| EngineError::Internal(e.into()))?;
 
         Ok(zone)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+    use gosub_render_pipeline::render::backends::null::NullBackend;
+    use gosub_render_pipeline::render::DefaultCompositor;
+
+    fn services() -> ZoneServices {
+        ZoneServices {
+            storage: Arc::new(StorageService::new(
+                Arc::new(InMemoryLocalStore::new()),
+                Arc::new(InMemorySessionStore::new()),
+            )),
+            cookie_store: None,
+            cookie_jar: None,
+            partition_policy: PartitionPolicy::None,
+        }
+    }
+
+    fn engine_with_max_zones(max_zones: usize) -> GosubEngine {
+        let settings = EngineSettings::builder().max_zones(max_zones).build().unwrap();
+        GosubEngine::new(
+            Some(settings),
+            Arc::new(NullBackend::new()),
+            Arc::new(RwLock::new(DefaultCompositor::default())),
+        )
+    }
+
+    #[tokio::test]
+    async fn create_zone_enforces_max_zones() {
+        let mut engine = engine_with_max_zones(1);
+        // Keep a receiver alive: create_zone emits ZoneCreated on the broadcast bus.
+        let _event_rx = engine.subscribe_events();
+        // Zones need the I/O runtime.
+        let _join = engine.start().expect("start");
+
+        // `None` config also exercises the default_zone_config fallback.
+        engine.create_zone(None, services(), None).expect("first zone fits");
+
+        let err = engine.create_zone(None, services(), None).unwrap_err();
+        assert!(matches!(err, EngineError::ZoneLimitExceeded));
+
+        engine.shutdown().await.expect("shutdown");
     }
 }

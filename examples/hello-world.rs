@@ -101,7 +101,7 @@ async fn main() -> Result<(), EngineError> {
     // Create the zone. Note that we can define our own zone ID to keep zones deterministic
     // (like a user profile), and we give the zone handle to the event channel so we can
     // receive events related to the zone.
-    let mut zone = engine.create_zone(zone_cfg, zone_services, None)?;
+    let mut zone = engine.create_zone(Some(zone_cfg), zone_services, None)?;
 
     // Next, we create a tab in the zone. For now, we don't provide anything, but we should
     // be able to provide tab-specific services (like a different cookie jar, etc.)

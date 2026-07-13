@@ -12,7 +12,6 @@
 //! - [`EngineCommand`]: Commands for engine control.
 //! - [`EngineEvent`]: Events emitted by the engine, such as lifecycle events, rendering events, and errors.
 
-use crate::config::LogLevel;
 use crate::cookies::Cookie;
 use crate::engine::types::{Action, NavigationId, RequestId};
 use crate::net::req_ref_tracker::RequestReference;
@@ -196,8 +195,6 @@ pub enum TabCommand {
 
     // ****************************************
     // ** Debug / devtools
-    /// Enable logging
-    EnableLogging { level: LogLevel },
     /// Dump dom tree
     DumpDomTree,
 }
@@ -217,11 +214,6 @@ pub enum EngineCommand {
     Shutdown {
         reply: oneshot::Sender<anyhow::Result<(), EngineError>>,
     },
-
-    // ****************************************
-    // ** Debug / devtools
-    /// Enable logging
-    EnableLogging { level: LogLevel },
 }
 
 /// Navigation events. These are the "top" events that will trigger load and resource events. All

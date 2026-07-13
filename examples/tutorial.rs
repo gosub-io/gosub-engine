@@ -15,7 +15,7 @@ use gosub_engine::{
     events::{EngineEvent, NavigationEvent, TabCommand},
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     tab::{TabDefaults, TabHandle},
-    zone::{ZoneConfig, ZoneServices},
+    zone::ZoneServices,
     Action, DefaultRenderConfig, EngineError, EngineSettings, GosubEngine,
 };
 use gosub_render_pipeline::render::{backends::null::NullBackend, DefaultCompositor, Viewport};
@@ -61,7 +61,7 @@ async fn main() -> Result<(), EngineError> {
         cookie_jar: Some(DefaultCookieJar::new().into()),
         partition_policy: PartitionPolicy::None,
     };
-    let mut zone = engine.create_zone(ZoneConfig::default(), services, None)?;
+    let mut zone = engine.create_zone(None, services, None)?;
 
     // ── Step 3: Open a tab ───────────────────────────────────────────────────────
     //
