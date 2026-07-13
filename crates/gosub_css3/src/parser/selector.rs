@@ -135,7 +135,7 @@ impl Css3<'_> {
         if t.token_type != TokenType::RBracket {
             if !t.is_ident() {
                 let op = self.parse_attribute_operator()?;
-                matcher = Some(op);
+                matcher = Some(Box::new(op));
 
                 self.consume_whitespace_comments();
 
@@ -258,7 +258,7 @@ impl Css3<'_> {
             }
         };
 
-        Ok(Node::new(NodeType::PseudoClassSelector { value }, loc))
+        Ok(Node::new(NodeType::PseudoClassSelector { value: Box::new(value) }, loc))
     }
 
     pub fn parse_selector(&mut self) -> CssResult<Node> {

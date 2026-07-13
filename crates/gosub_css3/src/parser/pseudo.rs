@@ -99,7 +99,13 @@ impl Css3<'_> {
             }
         }
 
-        Ok(Node::new(NodeType::Nth { nth, selector }, loc))
+        Ok(Node::new(
+            NodeType::Nth {
+                nth: Box::new(nth),
+                selector: selector.map(Box::new),
+            },
+            loc,
+        ))
     }
 
     /// `:is(...)`, `:not(...)` and friends take a selector list, which may contain further pseudo

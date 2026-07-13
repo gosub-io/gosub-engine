@@ -61,30 +61,27 @@ vs
     h4 { color: rebeccapurple; }
 */
 
-fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
+fn collect_rule(prelude: Option<Box<CssNode>>, block: Option<Box<CssNode>>) -> CssResult<Option<CssRule>> {
     let mut rule = CssRule {
         selectors: vec![],
         declarations: vec![],
     };
 
-    let Some((prelude, declarations)) = node.as_rule() else {
-        return Ok(None);
-    };
     if let Some(node) = prelude {
-        let Some(selectors) = node.as_selector_list() else {
+        let NodeType::SelectorList { selectors } = node.node_type else {
             return Ok(None);
         };
 
         let mut selector = CssSelector { parts: vec![vec![]] };
         for node in selectors {
-            let Some(selector_children) = node.as_selector() else {
+            let NodeType::Selector { children } = node.node_type else {
                 continue;
             };
 
-            for node in selector_children {
-                let part = match &*node.node_type {
-                    NodeType::Ident { value } => CssSelectorPart::Type(value.clone()),
-                    NodeType::ClassSelector { value } => CssSelectorPart::Class(value.clone()),
+            for node in children {
+                let part = match node.node_type {
+                    NodeType::Ident { value } => CssSelectorPart::Type(value),
+                    NodeType::ClassSelector { value } => CssSelectorPart::Class(value),
                     NodeType::Combinator { value } => {
                         let combinator = match value.as_str() {
                             ">" => Combinator::Child,
@@ -98,11 +95,11 @@ fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
 
                         CssSelectorPart::Combinator(combinator)
                     }
-                    NodeType::IdSelector { value } => CssSelectorPart::Id(value.clone()),
+                    NodeType::IdSelector { value } => CssSelectorPart::Id(value),
                     NodeType::TypeSelector { value, .. } if value == "*" => CssSelectorPart::Universal,
                     NodeType::PseudoClassSelector { value, .. } => CssSelectorPart::PseudoClass(value.to_string()),
-                    NodeType::PseudoElementSelector { value, .. } => CssSelectorPart::PseudoElement(value.to_string()),
-                    NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value.clone()),
+                    NodeType::PseudoElementSelector { value, .. } => CssSelectorPart::PseudoElement(value),
+                    NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value),
                     NodeType::AttributeSelector {
                         name,
                         value,
@@ -113,7 +110,7 @@ fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
                             None => MatcherType::None,
 
                             Some(matcher) => {
-                                if let NodeType::Operator(op) = &*matcher.node_type {
+                                if let NodeType::Operator(op) = &matcher.node_type {
                                     match op.as_str() {
                                         "=" => MatcherType::Equals,
                                         "~=" => MatcherType::Includes,
@@ -134,9 +131,9 @@ fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
                         };
 
                         CssSelectorPart::Attribute(Box::new(AttributeSelector {
-                            name: name.clone(),
+                            name,
                             matcher,
-                            value: value.clone(),
+                            value,
                             case_insensitive: flags.eq_ignore_ascii_case("i"),
                         }))
                     }
@@ -144,10 +141,8 @@ fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
                         selector.parts.push(vec![]);
                         continue;
                     }
-                    _ => {
-                        return Err(CssError::new(
-                            format!("Unsupported selector part: {:?}", node.node_type).as_str(),
-                        ));
+                    other => {
+                        return Err(CssError::new(format!("Unsupported selector part: {other:?}").as_str()));
                     }
                 };
                 if let Some(x) = selector.parts.last_mut() {
@@ -160,18 +155,23 @@ fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
         rule.selectors.push(selector);
     }
 
-    if let Some(declaration) = declarations {
-        let Some(block) = declaration.as_block() else {
+    if let Some(declaration) = block {
+        let NodeType::Block { children } = declaration.node_type else {
             return Ok(None);
         };
-        for declaration in block {
-            let Some((property, nodes, important)) = declaration.as_declaration() else {
+        for declaration in children {
+            let NodeType::Declaration {
+                property,
+                value,
+                important,
+            } = declaration.node_type
+            else {
                 continue;
             };
 
             // Convert the nodes into CSS Values
             let mut css_values = vec![];
-            for node in nodes {
+            for node in value {
                 if let Ok(value) = CssValue::parse_ast_node(node) {
                     css_values.push(value);
                 }
@@ -191,9 +191,9 @@ fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
             };
 
             rule.declarations.push(CssDeclaration {
-                property: property.clone(),
+                property,
                 value,
-                important: *important,
+                important,
             });
         }
     }
@@ -201,11 +201,11 @@ fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
     Ok(Some(rule))
 }
 
-fn collect_rules(nodes: &[CssNode], rules: &mut Vec<CssRule>, font_faces: &mut Vec<FontFace>) -> CssResult<()> {
+fn collect_rules(nodes: Vec<CssNode>, rules: &mut Vec<CssRule>, font_faces: &mut Vec<FontFace>) -> CssResult<()> {
     for node in nodes {
-        match &*node.node_type {
-            NodeType::Rule { .. } => {
-                if let Some(rule) = collect_rule(node)? {
+        match node.node_type {
+            NodeType::Rule { prelude, block } => {
+                if let Some(rule) = collect_rule(prelude, block)? {
                     rules.push(rule);
                 }
             }
@@ -214,7 +214,7 @@ fn collect_rules(nodes: &[CssNode], rules: &mut Vec<CssRule>, font_faces: &mut V
                 block: Some(block),
                 ..
             } if name.eq_ignore_ascii_case("layer") => {
-                if let Some(children) = block.as_block() {
+                if let NodeType::Block { children } = block.node_type {
                     collect_rules(children, rules, font_faces)?;
                 }
             }
@@ -223,7 +223,7 @@ fn collect_rules(nodes: &[CssNode], rules: &mut Vec<CssRule>, font_faces: &mut V
                 block: Some(block),
                 ..
             } if name.eq_ignore_ascii_case("font-face") => {
-                if let Some(children) = block.as_block() {
+                if let NodeType::Block { children } = block.node_type {
                     if let Some(face) = collect_font_face(children) {
                         font_faces.push(face);
                     }
@@ -237,19 +237,24 @@ fn collect_rules(nodes: &[CssNode], rules: &mut Vec<CssRule>, font_faces: &mut V
 
 /// Build a [`FontFace`] from the declarations inside an `@font-face` block. Requires a
 /// `font-family` and at least one `src: url(...)`; returns `None` otherwise.
-fn collect_font_face(nodes: &[CssNode]) -> Option<FontFace> {
+fn collect_font_face(nodes: Vec<CssNode>) -> Option<FontFace> {
     let mut family: Option<String> = None;
     let mut sources: Vec<String> = Vec::new();
     let mut unicode_range: Option<String> = None;
 
     for decl in nodes {
-        let Some((property, value_nodes, _important)) = decl.as_declaration() else {
+        let NodeType::Declaration {
+            property,
+            value: value_nodes,
+            ..
+        } = decl.node_type
+        else {
             continue;
         };
         match property.cow_to_ascii_lowercase().as_ref() {
             "font-family" => {
                 let name: String = value_nodes
-                    .iter()
+                    .into_iter()
                     .filter_map(|n| CssValue::parse_ast_node(n).ok())
                     .filter_map(|v| match v {
                         CssValue::String(s) => Some(s),
@@ -273,7 +278,7 @@ fn collect_font_face(nodes: &[CssNode]) -> Option<FontFace> {
                 // Reconstruct the raw range list; consumers scan it for `U+xxxx` tokens, so
                 // the exact separator/spacing does not matter.
                 let raw: String = value_nodes
-                    .iter()
+                    .into_iter()
                     .filter_map(|n| CssValue::parse_ast_node(n).ok())
                     .filter_map(|v| match v {
                         CssValue::String(s) => Some(s),
@@ -324,8 +329,8 @@ fn collect_src_urls(value: &CssValue, out: &mut Vec<String>) {
 }
 
 /// Converts a CSS AST to a CSS stylesheet structure
-pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str) -> CssResult<CssStylesheet> {
-    let Some(children) = css_ast.as_stylesheet() else {
+pub fn convert_ast_to_stylesheet(css_ast: CssNode, origin: CssOrigin, url: &str) -> CssResult<CssStylesheet> {
+    let NodeType::StyleSheet { children } = css_ast.node_type else {
         return Err(CssError::new("CSS AST must start with a stylesheet node"));
     };
 

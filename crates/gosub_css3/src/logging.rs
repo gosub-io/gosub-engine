@@ -296,7 +296,7 @@ impl CssValue {
 
     /// Converts a CSS AST node to a CSS value
     pub fn parse_ast_node(node: &crate::node::Node) -> CssResult<CssValue> {
-        match *node.node_type.clone() {
+        match node.node_type.clone() {
             crate::node::NodeType::Ident { value } => Ok(CssValue::String(value)),
             crate::node::NodeType::Number { value } => {
                 if value == 0.0 {

@@ -29,7 +29,7 @@ impl<'a> Walker<'a> {
 fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::io::Error> {
     let prefix = " ".repeat(depth * 2);
 
-    match &*node.node_type {
+    match &node.node_type {
         NodeType::StyleSheet { children } => {
             writeln!(f, "{}[Stylesheet ({})]", prefix, children.len())?;
             for child in children {

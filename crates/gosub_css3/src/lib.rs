@@ -126,7 +126,7 @@ impl<'stream> Css3<'stream> {
 
         match node_tree {
             Ok(None) => Err(CssError::new("No node tree found")),
-            Ok(Some(node)) => convert_ast_to_stylesheet(&node, self.origin, self.source.clone().as_str()),
+            Ok(Some(node)) => convert_ast_to_stylesheet(node, self.origin, self.source.clone().as_str()),
             Err(e) => Err(e),
         }
     }

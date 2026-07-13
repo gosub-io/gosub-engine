@@ -102,7 +102,7 @@ impl Css3<'_> {
                     self.allow_values_in_argument_list.push(true);
                     let func = self.parse_function()?;
                     self.allow_values_in_argument_list.pop();
-                    let n = Node::new(NodeType::MSFunction { func }, t.location);
+                    let n = Node::new(NodeType::MSFunction { func: Box::new(func) }, t.location);
 
                     return Ok(Some(n));
                 }
