@@ -109,23 +109,29 @@ impl Default for Config {
 }
 
 pub struct ByteStream {
-    /// Raw bytes of the source data
-    buffer: Vec<u8>,
-    /// Pre-decoded characters (filled by decode_buffer)
-    chars: Vec<Character>,
-    /// Byte offset of each decoded character in `buffer`
-    char_byte_offsets: Vec<usize>,
-    /// First byte of `buffer` not yet turned into a `Character`. Lets `append_str`
-    /// resume decoding instead of re-scanning the whole buffer (O(n) total, not O(n^2)).
-    decoded_bytes: usize,
-    /// char_pos of the first character on each line (index 0 = line 1)
+    /// Raw bytes of the source data, exactly as supplied. Kept so `detect_encoding` and
+    /// `set_encoding` can re-interpret the source without the caller re-supplying it.
+    raw: Vec<u8>,
+    /// First byte of `raw` not yet transcoded into `text`. Lets `append_str` resume
+    /// transcoding instead of re-scanning the whole buffer (O(n) total, not O(n^2)).
+    /// May also point at a trailing element that cannot be classified yet on an open
+    /// stream (incomplete multi-byte sequence, or a CR whose follower is unknown).
+    raw_processed: usize,
+    /// The decoded source as WTF-8: valid UTF-8 plus 3-byte encodings of lone
+    /// surrogates (only produced by UTF-16 input). Newlines are already normalized
+    /// per `config` (CRLF merge / lone-CR replacement), so reads never re-interpret
+    /// them. This costs ~1 byte per input byte instead of a per-character table.
+    text: Vec<u8>,
+    /// Current byte position in `text`; always on a character boundary.
+    text_pos: usize,
+    /// Byte offset in `text` of the first character of each line (index 0 = line 1)
     line_starts: Vec<usize>,
     /// Cached index into `line_starts` from the last `location()` call (lookup hint)
     last_line_idx: std::cell::Cell<usize>,
-    /// Number of `chars` already scanned by `extend_line_starts` (incremental watermark)
-    lines_scanned_chars: usize,
-    /// Current position in the decoded chars array
-    char_pos: usize,
+    /// Cached `(text position, column)` of the last `location()` call. Columns count
+    /// characters, so this resumes counting instead of re-scanning a (possibly very
+    /// long, e.g. minified) line from its start on every call.
+    col_cache: std::cell::Cell<(usize, usize)>,
     /// True when the stream is closed (no more data will be added)
     closed: bool,
     /// Current encoding
@@ -136,7 +142,31 @@ pub struct ByteStream {
 
 /// Opaque snapshot of stream position for mark/reset.
 pub struct StreamMark {
-    char_pos: usize,
+    text_pos: usize,
+}
+
+/// True for WTF-8 continuation bytes (`0b10xxxxxx`)
+#[inline]
+const fn is_continuation(b: u8) -> bool {
+    b & 0xC0 == 0x80
+}
+
+/// Number of characters in a WTF-8 byte slice (a lone surrogate counts as one)
+#[inline]
+fn count_chars(bytes: &[u8]) -> usize {
+    bytes.iter().filter(|&&b| !is_continuation(b)).count()
+}
+
+/// What follows a run of bytes handed to the transcoder, so a trailing CR can be
+/// classified (pair with a following LF, or stand alone).
+#[derive(Clone, Copy, PartialEq)]
+enum RunEnd {
+    /// A decoded character follows the run (e.g. a replacement char for an invalid
+    /// sequence); it is known not to be a LF.
+    Char,
+    /// The raw buffer ends after this run; whether more data can arrive depends on
+    /// whether the stream is closed.
+    Stream,
 }
 
 /// Generic stream trait
@@ -182,129 +212,157 @@ impl Default for ByteStream {
 }
 
 impl Stream for ByteStream {
+    #[inline]
     fn read(&self) -> Character {
-        if self.char_pos < self.chars.len() {
-            self.chars[self.char_pos]
-        } else {
-            StreamEnd
+        match self.char_at(self.text_pos) {
+            Some((ch, _)) => ch,
+            None => StreamEnd,
         }
     }
 
+    #[inline]
     fn read_and_next(&mut self) -> Character {
-        let ch = self.read();
-        if matches!(ch, StreamEnd) {
-            return ch;
-        }
-        self.char_pos += 1;
-
-        if self.config.cr_lf_as_one && ch == Ch(CHAR_CR) && self.read() == Ch(CHAR_LF) {
-            self.char_pos += 1;
-            Ch(CHAR_LF)
-        } else if self.config.replace_cr_as_lf && ch == Ch(CHAR_CR) && self.read() != Ch(CHAR_LF) {
-            Ch(CHAR_LF)
-        } else {
-            ch
+        // Newlines were already normalized when `text` was produced, so this is a
+        // plain decode-and-advance.
+        match self.char_at(self.text_pos) {
+            Some((ch, width)) => {
+                self.text_pos += width;
+                ch
+            }
+            None => StreamEnd,
         }
     }
 
+    #[inline]
     fn look_ahead(&self, offset: usize) -> Character {
-        let pos = self.char_pos + offset;
-        if pos < self.chars.len() {
-            self.chars[pos]
-        } else {
-            StreamEnd
+        let mut pos = self.text_pos;
+        for _ in 0..offset {
+            match self.char_at(pos) {
+                Some((_, width)) => pos += width,
+                None => return StreamEnd,
+            }
+        }
+        match self.char_at(pos) {
+            Some((ch, _)) => ch,
+            None => StreamEnd,
         }
     }
 
+    #[inline]
     fn next(&mut self) {
         self.next_n(1);
     }
 
+    #[inline]
     fn next_n(&mut self, offset: usize) {
-        self.char_pos = (self.char_pos + offset).min(self.chars.len());
+        for _ in 0..offset {
+            match self.char_at(self.text_pos) {
+                Some((_, width)) => self.text_pos += width,
+                None => break,
+            }
+        }
     }
 
+    #[inline]
     fn prev(&mut self) {
         self.prev_n(1);
     }
 
+    #[inline]
     fn prev_n(&mut self, n: usize) {
         for _ in 0..n {
-            self.char_pos = self.char_pos.saturating_sub(1);
-            // read_and_next() consumes CR+LF as a single step, advancing by 2.
-            // Stepping back from after the pair lands on LF; skip the CR too.
-            if self.config.cr_lf_as_one
-                && self.read() == Ch(CHAR_LF)
-                && self.char_pos > 0
-                && self.chars[self.char_pos - 1] == Ch(CHAR_CR)
-            {
-                self.char_pos -= 1;
+            while self.text_pos > 0 {
+                self.text_pos -= 1;
+                if !is_continuation(self.text[self.text_pos]) {
+                    break;
+                }
             }
         }
     }
 
     fn seek_bytes(&mut self, offset: usize) {
-        let pos = self.char_byte_offsets.partition_point(|&b| b < offset);
-        self.char_pos = pos.min(self.chars.len());
+        // Land on the first character boundary at or after `offset`.
+        let mut pos = offset.min(self.text.len());
+        while pos < self.text.len() && is_continuation(self.text[pos]) {
+            pos += 1;
+        }
+        self.text_pos = pos;
     }
 
+    #[inline]
     fn tell_bytes(&self) -> usize {
-        self.char_byte_offsets
-            .get(self.char_pos)
-            .copied()
-            .unwrap_or(self.buffer.len())
+        self.text_pos
     }
 
     fn get_slice(&mut self, len: usize) -> Vec<Character> {
-        let mark = self.mark();
         let mut slice = Vec::with_capacity(len);
+        let mut pos = self.text_pos;
         for _ in 0..len {
-            slice.push(self.read_and_next());
+            match self.char_at(pos) {
+                Some((ch, width)) => {
+                    slice.push(ch);
+                    pos += width;
+                }
+                None => slice.push(StreamEnd),
+            }
         }
-        self.reset_to_mark(mark);
         slice
     }
 
     fn reset_stream(&mut self) {
-        self.char_pos = 0;
+        self.text_pos = 0;
     }
 
     fn close(&mut self) {
         self.closed = true;
     }
 
+    #[inline]
     fn closed(&self) -> bool {
         self.closed
     }
 
+    #[inline]
     fn exhausted(&self) -> bool {
-        self.char_pos >= self.chars.len()
+        self.text_pos >= self.text.len()
     }
 
+    #[inline]
     fn eof(&self) -> bool {
         self.closed() && self.exhausted()
     }
 
+    #[inline]
     fn location(&self) -> Location {
-        // Find the last line that starts at or before char_pos. The stream advances
+        // Find the last line that starts at or before text_pos. The stream advances
         // mostly monotonically, so start from the cached line index of the previous
         // call and walk from there — amortized O(1) instead of a binary search per call.
         let mut idx = self.last_line_idx.get().min(self.line_starts.len() - 1);
-        while idx > 0 && self.line_starts[idx] > self.char_pos {
+        while idx > 0 && self.line_starts[idx] > self.text_pos {
             idx -= 1;
         }
-        while idx + 1 < self.line_starts.len() && self.line_starts[idx + 1] <= self.char_pos {
+        while idx + 1 < self.line_starts.len() && self.line_starts[idx + 1] <= self.text_pos {
             idx += 1;
         }
         self.last_line_idx.set(idx);
+
+        // Columns count characters, not bytes, so they must be tallied. Resume from
+        // the previous call's position when it lies on the same line; otherwise count
+        // from the line start. Monotonic scans stay amortized O(1) even on a single
+        // multi-megabyte (e.g. minified) line.
+        let line_start = self.line_starts[idx];
+        let (cache_pos, cache_col) = self.col_cache.get();
+        let column = if cache_pos >= line_start && cache_pos <= self.text_pos {
+            cache_col + count_chars(&self.text[cache_pos..self.text_pos])
+        } else {
+            1 + count_chars(&self.text[line_start..self.text_pos])
+        };
+        self.col_cache.set((self.text_pos, column));
+
         Location {
             line: idx + 1,
-            column: self.char_pos - self.line_starts[idx] + 1,
-            offset: self
-                .char_byte_offsets
-                .get(self.char_pos)
-                .copied()
-                .unwrap_or(self.buffer.len()),
+            column,
+            offset: self.text_pos,
         }
     }
 }
@@ -314,14 +372,13 @@ impl ByteStream {
     pub fn new(encoding: Encoding, config: Option<Config>) -> Self {
         Self {
             config: config.unwrap_or_default(),
-            char_pos: 0,
-            buffer: Vec::new(),
-            chars: Vec::new(),
-            char_byte_offsets: Vec::new(),
-            decoded_bytes: 0,
+            raw: Vec::new(),
+            raw_processed: 0,
+            text: Vec::new(),
+            text_pos: 0,
             line_starts: vec![0],
             last_line_idx: std::cell::Cell::new(0),
-            lines_scanned_chars: 0,
+            col_cache: std::cell::Cell::new((0, 1)),
             closed: false,
             encoding,
         }
@@ -330,228 +387,366 @@ impl ByteStream {
     /// Create a stream from a string, fully decoded and closed, ready for parsing.
     pub fn from_str(s: &str, encoding: Encoding) -> Self {
         let mut stream = Self::new(encoding, None);
-        stream.buffer = Vec::from(s.as_bytes());
-        // Close before decoding so the buffer is decoded exactly once.
+        stream.raw = Vec::from(s.as_bytes());
+        // Close before transcoding so the buffer is processed exactly once.
         stream.closed = true;
-        stream.decode_buffer();
+        stream.transcode_pending();
         stream
     }
 
     /// Take a snapshot of the current position for later restoration.
     pub fn mark(&self) -> StreamMark {
         StreamMark {
-            char_pos: self.char_pos,
+            text_pos: self.text_pos,
         }
     }
 
     /// Restore position to a previously saved mark.
     pub fn reset_to_mark(&mut self, mark: StreamMark) {
-        self.char_pos = mark.char_pos;
+        self.text_pos = mark.text_pos;
     }
 
-    /// Reset all decode state and decode `self.buffer` from scratch. Used by the
-    /// full-load paths (`read_from_str`, `read_from_file`, `set_encoding`).
-    fn decode_buffer(&mut self) {
-        self.chars.clear();
-        self.char_byte_offsets.clear();
-        self.decoded_bytes = 0;
+    /// Decode the WTF-8 character starting at byte `pos` in `text`, returning it with
+    /// its byte width. Returns `None` at (or past) the end of the decoded text.
+    /// `text` is produced by our own transcoder, so it is always well-formed WTF-8.
+    ///
+    /// The ASCII path must stay small enough to inline into the tokenizers' per-char
+    /// loops; the multi-byte tail is outlined to keep it that way.
+    #[inline(always)]
+    fn char_at(&self, pos: usize) -> Option<(Character, usize)> {
+        let b0 = *self.text.get(pos)?;
+        if b0 < 0x80 {
+            return Some((Ch(b0 as char), 1));
+        }
+        self.char_at_multibyte(pos, b0)
+    }
+
+    #[cold]
+    fn char_at_multibyte(&self, pos: usize, b0: u8) -> Option<(Character, usize)> {
+        let (cp, width) = if b0 < 0xE0 {
+            ((u32::from(b0 & 0x1F) << 6) | u32::from(self.text[pos + 1] & 0x3F), 2)
+        } else if b0 < 0xF0 {
+            (
+                (u32::from(b0 & 0x0F) << 12)
+                    | (u32::from(self.text[pos + 1] & 0x3F) << 6)
+                    | u32::from(self.text[pos + 2] & 0x3F),
+                3,
+            )
+        } else {
+            (
+                (u32::from(b0 & 0x07) << 18)
+                    | (u32::from(self.text[pos + 1] & 0x3F) << 12)
+                    | (u32::from(self.text[pos + 2] & 0x3F) << 6)
+                    | u32::from(self.text[pos + 3] & 0x3F),
+                4,
+            )
+        };
+
+        if (0xD800..=0xDFFF).contains(&cp) {
+            // WTF-8 encoding of a lone surrogate (UTF-16 input)
+            #[allow(clippy::cast_possible_truncation)] // PANIC-SAFE: cp <= 0xDFFF fits u16
+            return Some((Surrogate(cp as u16), width));
+        }
+        Some((char::from_u32(cp).map_or(Ch(REPLACEMENT_CHARACTER), Ch), width))
+    }
+
+    /// Reset all transcode state; the next `transcode_pending` starts from scratch.
+    /// Used by the full-load paths (`read_from_str`, `read_from_file`, `set_encoding`).
+    fn restart_transcode(&mut self) {
+        self.text.clear();
+        self.text_pos = 0;
+        self.raw_processed = 0;
         self.line_starts.clear();
         self.line_starts.push(0);
-        self.lines_scanned_chars = 0;
         self.last_line_idx.set(0);
-        self.decode_from(0);
+        self.col_cache.set((0, 1));
     }
 
-    /// Decode `self.buffer[byte_pos..]`, appending to whatever is already decoded.
-    /// `byte_pos` must be a decode boundary (normally `self.decoded_bytes`). Advances
-    /// `self.decoded_bytes` past the bytes consumed and extends the line table for the
-    /// newly-decoded characters. This makes `append_str` O(new bytes) rather than
-    /// re-scanning the whole buffer on every call.
-    fn decode_from(&mut self, mut byte_pos: usize) {
-        // One decoded character per input byte is the upper bound (multi-byte sequences
-        // produce fewer); reserving up front avoids repeated doubling-memcpy of the
-        // char/offset tables while decoding large documents.
-        let remaining = self.buffer.len().saturating_sub(byte_pos);
-        self.chars.reserve(remaining);
-        self.char_byte_offsets.reserve(remaining);
-
+    /// Transcode `raw[raw_processed..]` into normalized WTF-8 in `text`. On an open
+    /// stream this stops before a trailing element that cannot be classified yet
+    /// (incomplete multi-byte sequence, or a CR whose following character is unknown
+    /// while newline normalization is on); the element is picked up again on the next
+    /// append or on close.
+    fn transcode_pending(&mut self) {
         match self.encoding {
             Encoding::Unknown => {
-                byte_pos = self.buffer.len();
+                // Unknown encoding: decode nothing until an encoding is set.
+                self.raw_processed = self.raw.len();
             }
-            Encoding::Latin1 => {
-                while byte_pos < self.buffer.len() {
-                    let byte = self.buffer[byte_pos];
-                    self.char_byte_offsets.push(byte_pos);
-                    if self.config.replace_high_ascii && byte > 127 {
-                        self.chars.push(Ch('?'));
-                    } else {
-                        self.chars.push(Ch(byte as char));
-                    }
-                    byte_pos += 1;
-                }
-            }
-            Encoding::UTF8 => {
-                // Decode the longest valid prefix in bulk, then handle any invalid or
-                // incomplete sequence and continue. Resumes from `byte_pos`, so appended
-                // data is decoded without re-scanning the whole buffer.
-                while byte_pos < self.buffer.len() {
-                    match std::str::from_utf8(&self.buffer[byte_pos..]) {
-                        Ok(s) => {
-                            for (off, ch) in s.char_indices() {
-                                self.char_byte_offsets.push(byte_pos + off);
-                                self.chars.push(Ch(ch));
-                            }
-                            byte_pos = self.buffer.len();
-                        }
-                        Err(e) => {
-                            let valid_up_to = e.valid_up_to();
-                            // SAFETY: from_utf8 validated bytes up to `valid_up_to`.
-                            #[allow(unsafe_code)]
-                            let s = unsafe {
-                                std::str::from_utf8_unchecked(&self.buffer[byte_pos..byte_pos + valid_up_to])
-                            };
-                            for (off, ch) in s.char_indices() {
-                                self.char_byte_offsets.push(byte_pos + off);
-                                self.chars.push(Ch(ch));
-                            }
-                            byte_pos += valid_up_to;
-
-                            match e.error_len() {
-                                Some(n) => {
-                                    self.char_byte_offsets.push(byte_pos);
-                                    self.chars.push(Ch(REPLACEMENT_CHARACTER));
-                                    byte_pos += n;
-                                }
-                                None => {
-                                    // Incomplete sequence at the end of the buffer. On a closed
-                                    // stream it decodes to a single replacement character; on an
-                                    // open stream we stop and leave the tail for the next append.
-                                    if self.closed {
-                                        self.char_byte_offsets.push(byte_pos);
-                                        self.chars.push(Ch(REPLACEMENT_CHARACTER));
-                                        byte_pos = self.buffer.len();
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Encoding::UTF16LE => {
-                while byte_pos + 2 <= self.buffer.len() {
-                    let cu = u16::from_le_bytes([self.buffer[byte_pos], self.buffer[byte_pos + 1]]);
-                    let next = if byte_pos + 4 <= self.buffer.len() {
-                        Some(u16::from_le_bytes([
-                            self.buffer[byte_pos + 2],
-                            self.buffer[byte_pos + 3],
-                        ]))
-                    } else {
-                        None
-                    };
-                    let (ch, len) = decode_utf16_char(cu, || next);
-                    self.char_byte_offsets.push(byte_pos);
-                    self.chars.push(ch);
-                    byte_pos += len;
-                }
-            }
-            Encoding::UTF16BE => {
-                while byte_pos + 2 <= self.buffer.len() {
-                    let cu = u16::from_be_bytes([self.buffer[byte_pos], self.buffer[byte_pos + 1]]);
-                    let next = if byte_pos + 4 <= self.buffer.len() {
-                        Some(u16::from_be_bytes([
-                            self.buffer[byte_pos + 2],
-                            self.buffer[byte_pos + 3],
-                        ]))
-                    } else {
-                        None
-                    };
-                    let (ch, len) = decode_utf16_char(cu, || next);
-                    self.char_byte_offsets.push(byte_pos);
-                    self.chars.push(ch);
-                    byte_pos += len;
-                }
-            }
+            Encoding::UTF8 => self.transcode_utf8(),
+            Encoding::Latin1 => self.transcode_latin1(),
+            Encoding::UTF16LE => self.transcode_utf16(u16::from_le_bytes),
+            Encoding::UTF16BE => self.transcode_utf16(u16::from_be_bytes),
         }
-        self.decoded_bytes = byte_pos;
-        self.extend_line_starts();
     }
 
-    /// Extend the `line_starts` table to cover any characters decoded since the last
-    /// call, respecting CR/LF config. `line_starts[n]` is the char_pos of the first
-    /// character on line n+1. Only the newly-decoded tail is scanned (incremental).
-    fn extend_line_starts(&mut self) {
-        let mut i = self.lines_scanned_chars;
-        // A CR at the previous boundary was classified without its following character
-        // available; re-examine it now that more characters may have arrived. Drop any
-        // line-start it provisionally produced before rescanning from the CR.
-        if i > 0 && self.chars[i - 1] == Ch(CHAR_CR) {
-            i -= 1;
-            while self.line_starts.last().is_some_and(|&v| v > i) {
-                self.line_starts.pop();
+    /// Append `bytes` to `text`, recording a line start after every LF.
+    fn push_run(text: &mut Vec<u8>, line_starts: &mut Vec<usize>, bytes: &[u8]) {
+        let base = text.len();
+        text.extend_from_slice(bytes);
+        for i in memchr::memchr_iter(b'\n', bytes) {
+            line_starts.push(base + i + 1);
+        }
+    }
+
+    /// Append a single ASCII byte to `text`, recording a line start after a LF.
+    fn push_byte(&mut self, b: u8) {
+        debug_assert!(b < 0x80);
+        self.text.push(b);
+        if b == b'\n' {
+            self.line_starts.push(self.text.len());
+        }
+    }
+
+    /// Append a character to `text` as UTF-8.
+    fn push_char(&mut self, c: char) {
+        if (c as u32) < 0x80 {
+            #[allow(clippy::cast_possible_truncation)] // PANIC-SAFE: < 0x80 fits u8
+            self.push_byte(c as u8);
+            return;
+        }
+        let mut buf = [0u8; 4];
+        self.text.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+    }
+
+    /// Append a lone surrogate to `text` as its 3-byte WTF-8 encoding.
+    fn push_surrogate(&mut self, cu: u16) {
+        #[allow(clippy::cast_possible_truncation)] // PANIC-SAFE: masked to < 0x100
+        self.text.extend_from_slice(&[
+            0xE0 | (cu >> 12) as u8,
+            0x80 | ((cu >> 6) & 0x3F) as u8,
+            0x80 | (cu & 0x3F) as u8,
+        ]);
+    }
+
+    /// Transcode pending UTF-8 input: copy the longest valid prefix in bulk
+    /// (normalizing newlines), replace invalid sequences, and stop at an incomplete
+    /// trailing sequence on an open stream.
+    fn transcode_utf8(&mut self) {
+        while self.raw_processed < self.raw.len() {
+            let start = self.raw_processed;
+            match std::str::from_utf8(&self.raw[start..]) {
+                Ok(_) => {
+                    let consumed = self.emit_utf8_run(start, self.raw.len(), RunEnd::Stream);
+                    self.raw_processed = start + consumed;
+                    return;
+                }
+                Err(e) => {
+                    let valid_end = start + e.valid_up_to();
+                    let after = if e.error_len().is_some() {
+                        RunEnd::Char // the invalid sequence becomes a replacement char
+                    } else {
+                        RunEnd::Stream
+                    };
+                    let consumed = self.emit_utf8_run(start, valid_end, after);
+                    self.raw_processed = start + consumed;
+                    if start + consumed < valid_end {
+                        // A trailing CR was left pending for the next append.
+                        return;
+                    }
+                    match e.error_len() {
+                        Some(n) => {
+                            self.push_char(REPLACEMENT_CHARACTER);
+                            self.raw_processed += n;
+                        }
+                        None => {
+                            // Incomplete sequence at the end of the buffer. On a closed
+                            // stream it decodes to a single replacement character; on an
+                            // open stream we stop and leave the tail for the next append.
+                            if self.closed {
+                                self.push_char(REPLACEMENT_CHARACTER);
+                                self.raw_processed = self.raw.len();
+                            }
+                            return;
+                        }
+                    }
+                }
             }
         }
-        while i < self.chars.len() {
-            match self.chars[i] {
-                Ch(CHAR_CR)
-                    if self.config.cr_lf_as_one && i + 1 < self.chars.len() && self.chars[i + 1] == Ch(CHAR_LF) =>
-                {
-                    self.line_starts.push(i + 2);
-                    i += 2;
-                    continue;
-                }
-                Ch(CHAR_CR)
-                    if self.config.replace_cr_as_lf
-                        && (i + 1 >= self.chars.len() || self.chars[i + 1] != Ch(CHAR_LF)) =>
-                {
-                    self.line_starts.push(i + 1);
-                }
-                Ch(CHAR_LF) => {
-                    self.line_starts.push(i + 1);
-                }
-                _ => {}
-            }
-            i += 1;
+    }
+
+    /// Copy the valid UTF-8 bytes `raw[start..end]` into `text`, normalizing newlines
+    /// per config. `after` says what follows the run so a trailing CR can be
+    /// classified. Returns the number of bytes consumed; a trailing CR that cannot be
+    /// classified yet on an open stream is left unconsumed.
+    fn emit_utf8_run(&mut self, start: usize, end: usize, after: RunEnd) -> usize {
+        let cr_merge = self.config.cr_lf_as_one;
+        let cr_replace = self.config.replace_cr_as_lf;
+        let closed = self.closed;
+        let (raw, text, line_starts) = (&self.raw, &mut self.text, &mut self.line_starts);
+
+        if !cr_merge && !cr_replace {
+            Self::push_run(text, line_starts, &raw[start..end]);
+            return end - start;
         }
-        self.lines_scanned_chars = self.chars.len();
+
+        let mut i = start;
+        let mut seg = start;
+        while i < end {
+            if raw[i] != b'\r' {
+                i += 1;
+                continue;
+            }
+            Self::push_run(text, line_starts, &raw[seg..i]);
+            let next_is_lf = if i + 1 < end {
+                raw[i + 1] == b'\n'
+            } else {
+                match after {
+                    RunEnd::Char => false,
+                    RunEnd::Stream if closed => false,
+                    // The follower is unknown; leave the CR for the next append.
+                    RunEnd::Stream => return i - start,
+                }
+            };
+            if next_is_lf {
+                if cr_merge {
+                    Self::push_run(text, line_starts, b"\n");
+                } else {
+                    // A CR directly before a LF is kept; only lone CRs are replaced.
+                    Self::push_run(text, line_starts, b"\r\n");
+                }
+                i += 2;
+            } else {
+                Self::push_run(text, line_starts, if cr_replace { b"\n" } else { b"\r" });
+                i += 1;
+            }
+            seg = i;
+        }
+        Self::push_run(text, line_starts, &raw[seg..end]);
+        end - start
+    }
+
+    /// Transcode pending Latin-1 input: every byte is one character; bytes above 0x7F
+    /// map to the same Unicode code point (or '?' with `replace_high_ascii`).
+    fn transcode_latin1(&mut self) {
+        let cr_merge = self.config.cr_lf_as_one;
+        let cr_replace = self.config.replace_cr_as_lf;
+        let normalize_cr = cr_merge || cr_replace;
+
+        let mut pos = self.raw_processed;
+        while pos < self.raw.len() {
+            let b = self.raw[pos];
+            if b == b'\r' && normalize_cr {
+                let next_is_lf = if pos + 1 < self.raw.len() {
+                    self.raw[pos + 1] == b'\n'
+                } else if self.closed {
+                    false
+                } else {
+                    break; // follower unknown; leave the CR for the next append
+                };
+                if next_is_lf {
+                    if cr_merge {
+                        self.push_byte(b'\n');
+                    } else {
+                        self.push_byte(b'\r');
+                        self.push_byte(b'\n');
+                    }
+                    pos += 2;
+                } else {
+                    self.push_byte(if cr_replace { b'\n' } else { b'\r' });
+                    pos += 1;
+                }
+            } else if b < 0x80 {
+                self.push_byte(b);
+                pos += 1;
+            } else if self.config.replace_high_ascii {
+                self.push_byte(b'?');
+                pos += 1;
+            } else {
+                self.push_char(b as char);
+                pos += 1;
+            }
+        }
+        self.raw_processed = pos;
+    }
+
+    /// Transcode pending UTF-16 input (endianness given by `conv`). Lone surrogates
+    /// are preserved via their WTF-8 encoding. An odd trailing byte is never consumed.
+    fn transcode_utf16(&mut self, conv: fn([u8; 2]) -> u16) {
+        let cr_merge = self.config.cr_lf_as_one;
+        let cr_replace = self.config.replace_cr_as_lf;
+        let normalize_cr = cr_merge || cr_replace;
+
+        let mut pos = self.raw_processed;
+        while pos + 2 <= self.raw.len() {
+            let cu = conv([self.raw[pos], self.raw[pos + 1]]);
+            let next_cu = if pos + 4 <= self.raw.len() {
+                Some(conv([self.raw[pos + 2], self.raw[pos + 3]]))
+            } else {
+                None
+            };
+
+            if cu == 0x000D && normalize_cr {
+                let next_is_lf = if let Some(next) = next_cu {
+                    next == 0x000A
+                } else if self.closed {
+                    false
+                } else {
+                    break; // follower unknown; leave the CR for the next append
+                };
+                if next_is_lf {
+                    if cr_merge {
+                        self.push_byte(b'\n');
+                    } else {
+                        self.push_byte(b'\r');
+                        self.push_byte(b'\n');
+                    }
+                    pos += 4;
+                } else {
+                    self.push_byte(if cr_replace { b'\n' } else { b'\r' });
+                    pos += 2;
+                }
+                continue;
+            }
+
+            let (ch, len) = decode_utf16_char(cu, || next_cu);
+            match ch {
+                Ch(c) => self.push_char(c),
+                Surrogate(s) => self.push_surrogate(s),
+                StreamEnd => {}
+            }
+            pos += len;
+        }
+        self.raw_processed = pos;
     }
 
     pub fn read_from_file(&mut self, mut f: impl Read) -> io::Result<()> {
-        self.buffer.clear();
-        f.read_to_end(&mut self.buffer)?;
+        self.raw.clear();
+        f.read_to_end(&mut self.raw)?;
+        self.restart_transcode();
         self.close();
-        self.decode_buffer();
         self.reset_stream();
         Ok(())
     }
 
     pub fn read_from_str(&mut self, s: &str, encoding: Option<Encoding>) {
-        self.buffer = Vec::from(s.as_bytes());
+        self.raw = Vec::from(s.as_bytes());
         self.closed = false;
         if let Some(enc) = encoding {
             self.encoding = enc;
         }
-        self.decode_buffer();
+        self.restart_transcode();
+        self.transcode_pending();
         self.reset_stream();
     }
 
     pub fn append_str(&mut self, s: &str) {
-        self.buffer.extend_from_slice(s.as_bytes());
-        // Resume decoding from the first undecoded byte instead of re-scanning the
-        // whole buffer. char_pos indexes already-decoded chars, so it stays valid.
-        self.decode_from(self.decoded_bytes);
+        self.raw.extend_from_slice(s.as_bytes());
+        // Resume transcoding from the first unprocessed byte instead of re-scanning
+        // the whole buffer. text_pos indexes already-transcoded text, so it stays valid.
+        self.transcode_pending();
     }
 
     pub fn close(&mut self) {
         self.closed = true;
-        // Resume from the trailing incomplete sequence (if any) so it resolves to a
-        // replacement character. O(tail), not a full re-decode.
-        self.decode_from(self.decoded_bytes);
+        // Resume from any pending trailing element (incomplete sequence, unclassified
+        // CR) so it resolves now. O(tail), not a full re-transcode.
+        self.transcode_pending();
     }
 
     pub fn read_from_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.buffer = bytes.to_vec();
+        self.raw = bytes.to_vec();
+        self.restart_transcode();
         self.close();
         self.reset_stream();
         Ok(())
@@ -559,14 +754,14 @@ impl ByteStream {
 
     #[cfg(test)]
     fn chars_left(&self) -> usize {
-        self.chars.len() - self.char_pos
+        count_chars(&self.text[self.text_pos..])
     }
 }
 
 impl ByteStream {
     /// Detect the given encoding from stream analysis
     pub fn detect_encoding(&self) -> Encoding {
-        let mut buf = self.buffer.as_slice();
+        let mut buf = self.raw.as_slice();
 
         // Check for BOM
         if buf.starts_with(b"\xEF\xBB\xBF") {
@@ -604,14 +799,15 @@ impl ByteStream {
             // Already decoded with this encoding; nothing to do.
             return;
         }
-        let current_byte_offset = self.tell_bytes();
+        // Positions cannot be mapped exactly across encodings; preserve the character
+        // index, which is what downstream consumers observe. (Spec-correct handling of
+        // a mid-parse encoding change would restart the parse entirely.)
+        let char_index = count_chars(&self.text[..self.text_pos]);
         self.encoding = e;
-        self.decode_buffer();
-        // Remap char_pos to the same byte offset in the newly-decoded buffer
-        let new_pos = self.char_byte_offsets.partition_point(|&b| b < current_byte_offset);
-        // self.char_pos = new_pos.min(self.chars.len());
+        self.restart_transcode();
+        self.transcode_pending();
         self.reset_stream();
-        self.next_n(new_pos);
+        self.next_n(char_index);
     }
 }
 
@@ -1268,7 +1464,9 @@ mod test {
         assert_eq!(stream.read_and_next(), Ch('i'));
         assert_eq!(stream.read_and_next(), Ch('z'));
 
-        stream.seek_bytes(50);
+        // Byte offsets address the decoded text (UTF-8 space), not the raw UTF-16
+        // input: "Quizdeltagerne spiste jor" is 25 one-byte chars, so 'd' starts at 25.
+        stream.seek_bytes(25);
         assert_eq!(stream.read_and_next(), Ch('d'));
         assert_eq!(stream.read_and_next(), Ch('b'));
         assert_eq!(stream.read_and_next(), Ch('æ'));

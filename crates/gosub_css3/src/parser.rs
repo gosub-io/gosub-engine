@@ -102,7 +102,7 @@ impl Css3<'_> {
                     // discard and keep consuming
                 }
                 _ => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     break;
                 }
             }
@@ -159,7 +159,7 @@ impl Css3<'_> {
         while !self.tokenizer.eof() {
             let t = self.tokenizer.consume();
             if let TokenType::LCurly = t.token_type {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 break;
             }
         }

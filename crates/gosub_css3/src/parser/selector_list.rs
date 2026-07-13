@@ -16,7 +16,7 @@ impl Css3<'_> {
 
             let t = self.consume_any()?;
             if !t.is_comma() {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 break;
             }
         }

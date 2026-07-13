@@ -15,13 +15,13 @@ impl Css3<'_> {
             TokenType::Delim('>') => t.to_string(),
             TokenType::Delim('~') => t.to_string(),
             TokenType::Delim('/') => {
-                let tn1 = self.tokenizer.lookahead(1);
-                let tn2 = self.tokenizer.lookahead(2);
-                if tn1.token_type == TokenType::Ident("deep".to_string()) && tn2.token_type == TokenType::Delim('/') {
+                let tn1_is_deep = matches!(&self.tokenizer.lookahead(1).token_type, TokenType::Ident(s) if s == "deep");
+                if tn1_is_deep && self.tokenizer.lookahead(2).token_type == TokenType::Delim('/') {
                     "/deep/".to_string()
                 } else {
+                    let message = format!("Unexpected token {:?}", self.tokenizer.lookahead(1));
                     return Err(CssError::with_location(
-                        format!("Unexpected token {tn1:?}").as_str(),
+                        message.as_str(),
                         self.tokenizer.current_location(),
                     ));
                 }

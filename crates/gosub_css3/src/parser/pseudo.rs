@@ -55,15 +55,16 @@ impl Css3<'_> {
 
         let mut selector = None;
 
-        let nth = match self.consume_any()?.token_type {
-            TokenType::Ident(value) if value == "odd" => Node::new(
+        let t = self.consume_any()?;
+        let nth = match t.token_type {
+            TokenType::Ident(ref value) if value == "odd" => Node::new(
                 NodeType::AnPlusB {
                     a: "2".into(),
                     b: "1".into(),
                 },
                 loc,
             ),
-            TokenType::Ident(value) if value == "even" => Node::new(
+            TokenType::Ident(ref value) if value == "even" => Node::new(
                 NodeType::AnPlusB {
                     a: "2".into(),
                     b: "0".into(),
@@ -71,11 +72,11 @@ impl Css3<'_> {
                 loc,
             ),
             TokenType::Ident(_) => {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 self.parse_anplusb()?
             }
             TokenType::Dimension { .. } => {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 self.parse_anplusb()?
             }
             TokenType::Number(value) => Node::new(NodeType::Number { value }, loc),
@@ -89,11 +90,11 @@ impl Css3<'_> {
 
         self.consume_whitespace_comments();
 
-        let t = self.tokenizer.lookahead(0);
-        if let TokenType::Ident(value) = t.token_type {
+        let is_of = matches!(&self.tokenizer.lookahead(0).token_type, TokenType::Ident(value) if value == "of");
+        if matches!(self.tokenizer.lookahead(0).token_type, TokenType::Ident(_)) {
             self.consume_any()?;
 
-            if value == "of" {
+            if is_of {
                 selector = Some(self.parse_selector_list()?);
             }
         }

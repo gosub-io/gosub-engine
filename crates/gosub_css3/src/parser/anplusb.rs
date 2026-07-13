@@ -186,15 +186,17 @@ impl Css3<'_> {
         let t = self.tokenizer.consume();
         match t.token_type {
             TokenType::Number(_) => {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 b = self.consume_any_number()?.to_string();
             }
-            TokenType::Ident(value) if value.starts_with('-') => {
-                self.tokenizer.reconsume();
+            TokenType::Ident(ref value) if value.starts_with('-') => {
+                let value = value.clone();
+                self.tokenizer.reconsume(t);
                 (a, b) = self.do_negative_block(value.as_str())?;
             }
-            TokenType::Ident(value) => {
-                self.tokenizer.reconsume();
+            TokenType::Ident(ref value) => {
+                let value = value.clone();
+                self.tokenizer.reconsume(t);
                 (a, b) = self.do_plus_block(value.as_str())?;
             }
             TokenType::Delim('+') if self.tokenizer.lookahead(1).is_ident() => {
@@ -205,7 +207,7 @@ impl Css3<'_> {
                 (a, b) = self.do_dimension_block(value, unit)?;
             }
             _ => {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 return Err(CssError::with_location(
                     "Expected anplusb",
                     self.tokenizer.current_location(),

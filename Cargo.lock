@@ -3543,6 +3543,7 @@ dependencies = [
  "getrandom 0.4.2",
  "js-sys",
  "lazy_static",
+ "memchr",
  "parking_lot",
  "rand 0.10.1",
  "thiserror 2.0.18",

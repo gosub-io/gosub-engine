@@ -14,6 +14,7 @@ lazy_static = { workspace = true }
 uuid = { workspace = true, features = ["v4", "js"] }
 chardetng = "1.0.0"
 encoding_rs = "0.8.35"
+memchr = "2.8"
 derive_more = { workspace = true, features = ["display"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

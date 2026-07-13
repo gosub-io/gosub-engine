@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Debug;
 
@@ -222,12 +223,16 @@ impl fmt::Display for Token {
 }
 
 /// CSS Tokenizer according to the [w3 specification](https://www.w3.org/TR/css-syntax-3/#tokenization)
+///
+/// Tokens are handed out by value exactly once: `consume()` moves the token to the caller and the
+/// tokenizer retains nothing. A caller that wants to un-read a token gives it back with
+/// `reconsume(token)`. Only tokens produced by `lookahead` (and reconsumed tokens) are buffered.
 pub struct Tokenizer<'stream> {
     stream: &'stream mut ByteStream,
-    /// Position on the NEXT TOKEN read to consume. If it's outside the vec list, it will return EOF
-    token_position: usize,
-    /// Full list of all tokens produced by the tokenizer
-    tokens: Vec<Token>,
+    /// Tokens waiting to be consumed: produced by `lookahead` or handed back via `reconsume`.
+    pending: VecDeque<Token>,
+    /// Whether a leading UTF-8 BOM has been checked for (and stripped) yet.
+    bom_checked: bool,
 }
 
 impl<'stream> Tokenizer<'stream> {
@@ -237,14 +242,9 @@ impl<'stream> Tokenizer<'stream> {
         let _ = start_location;
         Self {
             stream,
-            token_position: 0,
-            tokens: Vec::new(),
+            pending: VecDeque::new(),
+            bom_checked: false,
         }
-    }
-
-    #[must_use]
-    pub fn get_tokens(&self) -> Vec<Token> {
-        self.tokens.clone()
     }
 
     /// Returns the current location (line/col) of the tokenizer
@@ -256,95 +256,59 @@ impl<'stream> Tokenizer<'stream> {
     /// Returns true when there is no next element, and the stream is closed
     #[must_use]
     pub fn eof(&self) -> bool {
-        self.stream.eof() && self.token_position >= self.tokens.len()
-    }
-
-    /// Returns the current token. This can be either EOF at the end of the stream, of EOF when we
-    /// haven't read anything. It would be more correct to return this in an Option.
-    #[must_use]
-    pub fn current(&self) -> Token {
-        if self.token_position == 0 {
-            // We haven't read anything yet. We can't really return anything (we haven't read anything), so we return EOF
-            return Token::new(TokenType::Eof, self.current_location());
-        }
-        if self.token_position > self.tokens.len() {
-            return Token::new(TokenType::Eof, self.current_location());
-        }
-
-        self.tokens[self.token_position - 1].clone()
+        self.stream.eof() && self.pending.is_empty()
     }
 
     /// Looks ahead at the next NON-WHITESPACE AND NON-COMMENT token.
-    pub(crate) fn lookahead_sc(&mut self, offset: usize) -> Token {
+    pub(crate) fn lookahead_sc(&mut self, offset: usize) -> &Token {
         let mut i = offset;
 
-        loop {
-            let t = self.lookahead(i);
-            match t.token_type {
-                TokenType::Whitespace(_) | TokenType::Comment(_) => {
-                    i += 1;
-                }
-                _ => return t,
-            }
+        while let TokenType::Whitespace(_) | TokenType::Comment(_) = self.lookahead(i).token_type {
+            i += 1;
         }
+
+        self.lookahead(i)
     }
 
     /// Looks ahead at the next token with offset. So lookahead(1) will look at the next character
     /// that will be consumed with `consume()`
-    pub fn lookahead(&mut self, offset: usize) -> Token {
-        while self.tokens.len() < (self.token_position + offset + 1) {
+    pub fn lookahead(&mut self, offset: usize) -> &Token {
+        while self.pending.len() <= offset {
             let token = self.consume_token();
-            self.tokens.push(token);
+            self.pending.push_back(token);
         }
 
-        let pos: isize = (self.token_position + offset) as isize;
-        if pos < 0 || pos >= self.tokens.len() as isize {
-            // Both start of the stream, and end of the stream return EOF
-            return Token::new(TokenType::Eof, self.current_location());
-        }
-
-        self.tokens[pos as usize].clone()
+        &self.pending[offset]
     }
 
-    /// Consumes the next token and returns it
+    /// Consumes the next token and returns it. Ownership moves to the caller; hand the token
+    /// back with `reconsume` to un-read it.
     pub fn consume(&mut self) -> Token {
-        if self.tokens.is_empty() || self.tokens.len() == self.token_position {
-            let token = self.consume_token();
-            self.tokens.push(token);
-        }
-
-        let token = &self.tokens[self.token_position];
-        self.token_position += 1;
+        let token = match self.pending.pop_front() {
+            Some(token) => token,
+            None => self.consume_token(),
+        };
 
         log::trace!("{token:?}");
 
-        token.clone()
+        token
     }
 
-    /// Reconsumes will push the current position back so the next read will be the same token
-    pub fn reconsume(&mut self) {
-        if self.token_position > 0 {
-            self.token_position -= 1;
-        }
-    }
-
-    #[cfg(test)]
-    fn consume_all(&mut self) {
-        while !self.stream.eof() {
-            let token = self.consume_token();
-            self.tokens.push(token);
-        }
-
-        self.token_position = 0;
+    /// Pushes the token back so the next `consume()` returns it again
+    pub fn reconsume(&mut self, token: Token) {
+        self.pending.push_front(token);
     }
 
     /// 4.3.1. [Consume a token](https://www.w3.org/TR/css-syntax-3/#consume-token)
     fn consume_token(&mut self) -> Token {
         // Strip a leading UTF-8 BOM (U+FEFF) at the very start of the stream, per CSS Syntax
-        // input preprocessing. `tokens.is_empty()` ensures this only applies before the first
-        // token is produced, so an in-content U+FEFF is left untouched.
-        if self.tokens.is_empty() && self.current_char() == Ch('\u{FEFF}') {
-            self.next_char();
+        // input preprocessing. The flag ensures this only applies before the first token is
+        // produced, so an in-content U+FEFF is left untouched.
+        if !self.bom_checked {
+            self.bom_checked = true;
+            if self.current_char() == Ch('\u{FEFF}') {
+                self.next_char();
+            }
         }
 
         while self.look_ahead_eq("/*") {
@@ -1864,7 +1828,6 @@ mod test {
         let mut stream = ByteStream::from_str("[][]", Encoding::UTF8);
 
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
-        tokenizer.consume_all();
 
         assert_token_eq!(
             tokenizer.lookahead(0),

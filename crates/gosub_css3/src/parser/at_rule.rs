@@ -111,8 +111,9 @@ impl Css3<'_> {
 
         self.consume_whitespace_comments();
 
+        let at_eof = self.tokenizer.eof();
         let t = self.tokenizer.lookahead(0);
-        if !self.tokenizer.eof() && t.token_type != TokenType::Semicolon && t.token_type != TokenType::LCurly {
+        if !at_eof && t.token_type != TokenType::Semicolon && t.token_type != TokenType::LCurly {
             return Err(CssError::with_location(
                 "Expected semicolon or left curly brace",
                 t.location,

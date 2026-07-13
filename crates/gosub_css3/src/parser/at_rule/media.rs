@@ -16,7 +16,7 @@ impl Css3<'_> {
             TokenType::Number(value) => Ok(Node::new(NodeType::Number { value }, loc)),
             TokenType::Dimension { value, unit } => Ok(Node::new(NodeType::Dimension { value, unit }, loc)),
             TokenType::Function(_) => {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 Ok(self.parse_function()?)
             }
             _ => Err(CssError::with_location(
@@ -65,7 +65,7 @@ impl Css3<'_> {
 
             let t = self.consume_any()?;
             if !t.is_comma() {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 break;
             }
         }
@@ -102,7 +102,7 @@ impl Css3<'_> {
                 TokenType::Dimension { value, unit } => Node::new(NodeType::Dimension { value, unit }, t.location),
                 TokenType::Ident(value) => Node::new(NodeType::Ident { value }, t.location),
                 TokenType::Function(_) => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     self.parse_function()?
                 }
                 _ => {
@@ -184,9 +184,9 @@ impl Css3<'_> {
     pub fn parse_media_feature_or_range(&mut self, kind: FeatureKind) -> CssResult<Node> {
         log::trace!("parse_media_feature_or_range");
 
-        let t = self.tokenizer.lookahead_sc(1);
+        let t_is_ident = self.tokenizer.lookahead_sc(1).is_ident();
         let nt = self.tokenizer.lookahead_sc(2);
-        if t.is_ident() && (nt.is_colon() || nt.token_type == TokenType::RParen) {
+        if t_is_ident && (nt.is_colon() || nt.token_type == TokenType::RParen) {
             // feature
             return self.parse_media_feature_feature(kind);
         }
@@ -225,9 +225,9 @@ impl Css3<'_> {
 
             self.consume_whitespace_comments();
             let nt = self.tokenizer.lookahead_sc(0);
-            match nt.token_type {
+            match &nt.token_type {
                 TokenType::Ident(s) => {
-                    if s != "and" {
+                    if s.as_str() != "and" {
                         return Err(CssError::with_location("Expected 'and'", t.location));
                     }
 
@@ -248,7 +248,7 @@ impl Css3<'_> {
             //
             match t.token_type {
                 TokenType::Ident(_) | TokenType::LParen | TokenType::Function(_) => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     condition = Some(self.parse_condition(FeatureKind::Media)?);
                 }
                 TokenType::LCurly | TokenType::Semicolon => {
