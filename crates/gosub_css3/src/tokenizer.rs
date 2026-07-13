@@ -347,7 +347,7 @@ impl<'stream> Tokenizer<'stream> {
             self.next_char();
         }
 
-        while self.look_ahead_slice(2) == "/*" {
+        while self.look_ahead_eq("/*") {
             self.consume_comment();
         }
 
@@ -438,7 +438,7 @@ impl<'stream> Tokenizer<'stream> {
                 }
 
                 let cdc_token = "-->";
-                if self.look_ahead_slice(cdc_token.len()) == cdc_token {
+                if self.look_ahead_eq(cdc_token) {
                     // consume '--'
                     self.consume_chars(cdc_token.len());
                     return Token::new(TokenType::Cdc, loc);
@@ -454,7 +454,7 @@ impl<'stream> Tokenizer<'stream> {
             }
             Ch(c @ '<') => {
                 let cdo_token = "<!--";
-                if self.look_ahead_slice(cdo_token.len()) == cdo_token {
+                if self.look_ahead_eq(cdo_token) {
                     // consume "<!--"
                     self.consume_chars(cdo_token.len());
                     return Token::new(TokenType::Cdo, loc);
@@ -499,11 +499,11 @@ impl<'stream> Tokenizer<'stream> {
     /// 4.3.2. [Consume comments](https://www.w3.org/TR/css-syntax-3/#consume-comment)
     fn consume_comment(&mut self) -> String {
         let mut comment = String::new();
-        if self.look_ahead_slice(2) == "/*" {
+        if self.look_ahead_eq("/*") {
             // consume '/*'
             comment.push_str(&self.consume_chars(2));
 
-            while self.look_ahead_slice(2) != "*/" && !self.stream.eof() {
+            while !self.look_ahead_eq("*/") && !self.stream.eof() {
                 comment.push(self.next_char().into());
             }
 
@@ -820,7 +820,9 @@ impl<'stream> Tokenizer<'stream> {
     /// Caller should ensure that the stream starts with an ident sequence before calling this
     /// algorithm.
     fn consume_ident(&mut self) -> String {
-        let mut value = String::new();
+        // Idents are the most common token in real-world CSS; starting with capacity
+        // avoids the 0→8→16 realloc ladder that dominated the tokenizer profile.
+        let mut value = String::with_capacity(16);
 
         loop {
             let cc = self.current_char();
@@ -856,7 +858,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     fn consume_digits(&mut self) -> String {
-        let mut value = String::new();
+        let mut value = String::with_capacity(8);
 
         while matches!(self.current_char(), Ch(c) if c.is_numeric()) {
             value.push(self.next_char().into());
@@ -866,7 +868,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     fn consume_chars(&mut self, mut len: usize) -> String {
-        let mut value = String::new();
+        let mut value = String::with_capacity(len);
 
         while len > 0 {
             value.push(self.next_char().into());
@@ -981,17 +983,16 @@ impl<'stream> Tokenizer<'stream> {
         self.stream.read_and_next()
     }
 
-    fn look_ahead_slice(&self, len: usize) -> String {
-        let mut s = String::new();
-
-        for i in 0..len {
+    /// Returns true when the upcoming characters in the stream are exactly `expected`.
+    fn look_ahead_eq(&self, expected: &str) -> bool {
+        for (i, ec) in expected.chars().enumerate() {
             match self.stream.look_ahead(i) {
-                Ch(c) => s.push(c),
-                _ => break,
+                Ch(c) if c == ec => {}
+                _ => return false,
             }
         }
 
-        s
+        true
     }
 }
 
