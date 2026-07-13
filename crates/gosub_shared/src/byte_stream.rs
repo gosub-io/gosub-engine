@@ -394,6 +394,22 @@ impl ByteStream {
         stream
     }
 
+    /// Advance past the longest run of leading ASCII bytes satisfying `pred` and
+    /// return the run as a string slice. Stops at the first non-ASCII byte (callers
+    /// handle those with the per-character API). Lets tokenizers bulk-consume
+    /// identifier or text runs without per-character decode and re-encode.
+    pub fn scan_ascii_while(&mut self, pred: impl Fn(u8) -> bool) -> &str {
+        let start = self.text_pos;
+        while let Some(&b) = self.text.get(self.text_pos) {
+            if b >= 0x80 || !pred(b) {
+                break;
+            }
+            self.text_pos += 1;
+        }
+        // An all-ASCII byte range is always valid UTF-8.
+        std::str::from_utf8(&self.text[start..self.text_pos]).unwrap_or_default()
+    }
+
     /// Take a snapshot of the current position for later restoration.
     pub fn mark(&self) -> StreamMark {
         StreamMark {
