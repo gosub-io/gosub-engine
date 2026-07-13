@@ -47,10 +47,6 @@ impl Css3<'_> {
             }
         }
 
-        for t in self.tokenizer.get_tokens() {
-            log::trace!("{t:?}");
-        }
-
         if children.is_empty() {
             return Ok(None);
         }

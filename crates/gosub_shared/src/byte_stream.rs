@@ -368,6 +368,13 @@ impl ByteStream {
     /// newly-decoded characters. This makes `append_str` O(new bytes) rather than
     /// re-scanning the whole buffer on every call.
     fn decode_from(&mut self, mut byte_pos: usize) {
+        // One decoded character per input byte is the upper bound (multi-byte sequences
+        // produce fewer); reserving up front avoids repeated doubling-memcpy of the
+        // char/offset tables while decoding large documents.
+        let remaining = self.buffer.len().saturating_sub(byte_pos);
+        self.chars.reserve(remaining);
+        self.char_byte_offsets.reserve(remaining);
+
         match self.encoding {
             Encoding::Unknown => {
                 byte_pos = self.buffer.len();
