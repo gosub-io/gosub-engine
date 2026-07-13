@@ -1,7 +1,6 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
-use cow_utils::CowUtils;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
 
@@ -21,7 +20,7 @@ impl Css3<'_> {
                     // eat token
                 }
                 _ => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                 }
             }
 
@@ -72,17 +71,15 @@ impl Css3<'_> {
                 let node = Node::new(NodeType::Number { value }, t.location);
                 Ok(Some(node))
             }
-            TokenType::Function(name) => {
-                let node = match name.cow_to_ascii_lowercase().as_ref() {
-                    "calc" => self.parse_calc()?,
-                    "url" => {
-                        self.tokenizer.reconsume();
-                        self.parse_url()?
-                    }
-                    _ => {
-                        self.tokenizer.reconsume();
-                        self.parse_function()?
-                    }
+            TokenType::Function(ref name) => {
+                let node = if name.eq_ignore_ascii_case("calc") {
+                    self.parse_calc()?
+                } else if name.eq_ignore_ascii_case("url") {
+                    self.tokenizer.reconsume(t);
+                    self.parse_url()?
+                } else {
+                    self.tokenizer.reconsume(t);
+                    self.parse_function()?
                 };
                 Ok(Some(node))
             }
@@ -155,7 +152,7 @@ impl Css3<'_> {
             }
             TokenType::Delim(c) => match c {
                 '+' | '-' | '*' | '/' => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     let node = self.parse_operator()?;
                     Ok(Some(node))
                 }
@@ -164,12 +161,12 @@ impl Css3<'_> {
                     self.tokenizer.current_location(),
                 )),
                 _ => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     Ok(None)
                 }
             },
             _ => {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
                 Ok(None)
             }
         }

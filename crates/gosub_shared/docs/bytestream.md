@@ -2,10 +2,13 @@
 
 `gosub_shared::byte_stream::ByteStream` turns a buffer of raw bytes into a stream of decoded
 characters, so parsers can read text without caring about the source encoding. It is the input
-type for both the HTML5 tokenizer and the CSS3 parser. Bytes are decoded eagerly into an internal
-character array, and every character remembers its byte offset, so the stream can report exact
-`Location`s (line/column/offset) for parse errors and can re-decode mid-parse when a document
-declares its real encoding late (e.g. a `<meta charset>` tag).
+type for both the HTML5 tokenizer and the CSS3 parser. Bytes are transcoded eagerly into an
+internal normalized WTF-8 text buffer (~1 byte per input byte; newline normalization applied
+up front, lone UTF-16 surrogates kept via their WTF-8 encoding) and characters are decoded from
+it on the fly. A line table plus incremental column cache reports exact `Location`s
+(line/column/offset) for parse errors, and the original bytes are retained so the stream can
+re-transcode mid-parse when a document declares its real encoding late (e.g. a `<meta charset>`
+tag).
 
 Reading yields a `Character`:
 
@@ -52,7 +55,8 @@ re-decodes, so a trailing incomplete sequence resolves to U+FFFD. Reading past t
 - `next()` / `next_n(n)` / `prev()` / `prev_n(n)` — move the position
 - `get_slice(len)` — the next `len` characters, without advancing
 - `mark()` / `reset_to_mark(mark)` — save and restore a position (inherent methods)
-- `seek_bytes(offset)` / `tell_bytes()` — position in bytes rather than characters
+- `seek_bytes(offset)` / `tell_bytes()` — position in bytes of the decoded text (UTF-8 space,
+  not raw input bytes); a `tell_bytes` value can always be passed back to `seek_bytes`
 - `reset_stream()` — back to the start
 - `location()` — current `Location { line, column, offset }` (1-based line/column), amortized O(1)
 
@@ -60,14 +64,13 @@ re-decodes, so a trailing incomplete sequence resolves to U+FFFD. Reading past t
 
 `new` takes an optional `Config`:
 
-- `cr_lf_as_one` (default `true`) — a CRLF pair is consumed as a single LF; `prev_n` steps back
-  over the pair as one unit
-- `replace_cr_as_lf` (default `false`) — a lone CR (not followed by LF) is returned as LF
+- `cr_lf_as_one` (default `true`) — a CRLF pair is normalized to a single LF
+- `replace_cr_as_lf` (default `false`) — a lone CR (not followed by LF) is normalized to LF
 - `replace_high_ascii` (default `false`) — Latin1 only: bytes above 127 decode to `?`
 
 ## Detecting and switching the encoding
 
 `detect_encoding()` sniffs a BOM first (UTF-8, UTF-16LE, UTF-16BE), then runs `chardetng` over at
 most the first 64KB of the buffer; anything that isn't UTF-16 is reported as UTF-8. It only
-returns the guess — apply it with `set_encoding(e)`, which re-decodes the buffer and remaps the
-current position to the same byte offset, so switching encodings mid-parse keeps your place.
+returns the guess — apply it with `set_encoding(e)`, which re-transcodes the retained raw bytes
+and preserves the current character index, so switching encodings mid-parse keeps your place.

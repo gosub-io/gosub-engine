@@ -19,8 +19,8 @@ impl Css3<'_> {
             TokenType::Url(url) => {
                 children.push(Node::new(NodeType::Url { url }, loc));
             }
-            TokenType::Function(name) if name.eq_ignore_ascii_case("url") => {
-                self.tokenizer.reconsume();
+            TokenType::Function(ref name) if name.eq_ignore_ascii_case("url") => {
+                self.tokenizer.reconsume(t);
                 children.push(self.parse_url()?);
             }
             _ => {
@@ -34,9 +34,10 @@ impl Css3<'_> {
         self.consume_whitespace_comments();
 
         let t = self.tokenizer.lookahead_sc(0);
-        match t.token_type {
+        match &t.token_type {
             TokenType::Ident(value) if value.eq_ignore_ascii_case("layer") => {
-                children.push(Node::new(NodeType::Ident { value }, t.location));
+                let node = Node::new(NodeType::Ident { value: value.clone() }, t.location);
+                children.push(node);
             }
             TokenType::Function(name) if name.eq_ignore_ascii_case("layer") => {
                 children.push(self.parse_function()?);
@@ -47,7 +48,7 @@ impl Css3<'_> {
         self.consume_whitespace_comments();
 
         let t = self.tokenizer.lookahead_sc(0);
-        match t.token_type {
+        match &t.token_type {
             TokenType::Function(name) if name.eq_ignore_ascii_case("supports") => {
                 children.push(self.parse_function()?);
             }

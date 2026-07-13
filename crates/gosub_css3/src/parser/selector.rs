@@ -12,13 +12,22 @@ impl Css3<'_> {
         let mut value = String::new();
         let loc = self.tokenizer.current_location();
 
-        let c = self.consume_any_delim()?;
+        let t = self.consume_any()?;
+        let c = match t.token_type {
+            TokenType::Delim(c) => c,
+            _ => {
+                return Err(CssError::with_location(
+                    format!("Expected delimiter, got {t:?}").as_str(),
+                    self.tokenizer.current_location(),
+                ));
+            }
+        };
         match &c {
             '=' | '~' | '|' | '^' | '$' | '*' => {
                 value.push(c);
             }
             _ => {
-                self.tokenizer.reconsume();
+                self.tokenizer.reconsume(t);
 
                 return Err(CssError::with_location(
                     format!("Expected attribute operator, got {c:?}").as_str(),
@@ -58,20 +67,18 @@ impl Css3<'_> {
     }
 
     fn parse_type_selector_ident_or_asterisk(&mut self) -> CssResult<String> {
-        let t = self.tokenizer.lookahead(0);
+        let t = self.tokenizer.consume();
         match t.token_type {
-            TokenType::Ident(value) => {
-                self.tokenizer.consume();
-                Ok(value)
+            TokenType::Ident(value) => Ok(value),
+            TokenType::Delim('*') => Ok("*".to_string()),
+            _ => {
+                let message = format!("Unexpected token {t:?}");
+                self.tokenizer.reconsume(t);
+                Err(CssError::with_location(
+                    message.as_str(),
+                    self.tokenizer.current_location(),
+                ))
             }
-            TokenType::Delim('*') => {
-                self.tokenizer.consume();
-                Ok("*".to_string())
-            }
-            _ => Err(CssError::with_location(
-                format!("Unexpected token {t:?}").as_str(),
-                self.tokenizer.current_location(),
-            )),
         }
     }
 
@@ -81,16 +88,14 @@ impl Css3<'_> {
         let loc = self.tokenizer.current_location();
         let mut value = String::new();
 
-        let t = self.tokenizer.current();
-        if t.token_type == TokenType::Delim('|') {
+        if self.tokenizer.lookahead(0).token_type == TokenType::Delim('|') {
             self.tokenizer.consume();
             value.push('|');
             value.push_str(self.parse_type_selector_ident_or_asterisk()?.as_str());
         } else {
             value.push_str(self.parse_type_selector_ident_or_asterisk()?.as_str());
 
-            let t = self.tokenizer.current();
-            if t.token_type == TokenType::Delim('|') {
+            if self.tokenizer.lookahead(0).token_type == TokenType::Delim('|') {
                 self.tokenizer.consume();
                 value.push('|');
                 value.push_str(self.parse_type_selector_ident_or_asterisk()?.as_str());
@@ -292,17 +297,16 @@ impl Css3<'_> {
 
             let child = match t.token_type {
                 TokenType::LBracket => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     self.parse_attribute_selector()?
                 }
                 TokenType::Hash(value) => Node::new(NodeType::IdSelector { value }, t.location),
                 TokenType::Colon => {
-                    let nt = self.tokenizer.lookahead(0);
-                    if nt.token_type == TokenType::Colon {
-                        self.tokenizer.reconsume();
+                    if self.tokenizer.lookahead(0).token_type == TokenType::Colon {
+                        self.tokenizer.reconsume(t);
                         self.parse_pseudo_element_selector()?
                     } else {
-                        self.tokenizer.reconsume();
+                        self.tokenizer.reconsume(t);
                         self.parse_pseudo_selector()?
                     }
                 }
@@ -318,24 +322,24 @@ impl Css3<'_> {
                     // Dont add descendant combinator since we are now adding another one
                     space = false;
 
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     self.parse_combinator()?
                 }
 
                 TokenType::Delim('.') => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     self.parse_class_selector()?
                 }
                 TokenType::Delim('|' | '*') => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     self.parse_type_selector()?
                 }
                 TokenType::Delim('#') => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     self.parse_id_selector()?
                 }
                 TokenType::Delim('&') => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     self.parse_nesting_selector()?
                 }
                 TokenType::Comma => {
@@ -344,7 +348,7 @@ impl Css3<'_> {
                     Node::new(NodeType::Comma, t.location)
                 }
                 _ => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
                     break;
                 }
             };

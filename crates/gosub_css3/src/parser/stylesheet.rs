@@ -28,8 +28,8 @@ impl Css3<'_> {
                 TokenType::Cdc => {
                     children.push(Node::new(NodeType::Cdc, t.location));
                 }
-                TokenType::AtKeyword(_keyword) => {
-                    self.tokenizer.reconsume();
+                TokenType::AtKeyword(_) => {
+                    self.tokenizer.reconsume(t);
 
                     let at_rule = self.parse_at_rule(false)?;
                     if let Some(at_rule_node) = at_rule {
@@ -37,7 +37,7 @@ impl Css3<'_> {
                     }
                 }
                 _ => {
-                    self.tokenizer.reconsume();
+                    self.tokenizer.reconsume(t);
 
                     let rule = self.parse_rule()?;
                     if let Some(rule_node) = rule {
