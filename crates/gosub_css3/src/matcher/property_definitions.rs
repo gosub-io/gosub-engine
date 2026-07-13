@@ -850,17 +850,19 @@ mod tests {
                     ("banana", false),
                 ],
             ),
-            (
-                "opacity",
-                &[("0.5", true), ("1", true), ("0", true), ("banana", false)],
-            ),
+            ("opacity", &[("0.5", true), ("1", true), ("0", true), ("banana", false)]),
             (
                 "z-index",
                 &[("10", true), ("auto", true), ("banana", false), ("1.5", false)],
             ),
             (
                 "position",
-                &[("absolute", true), ("relative", true), ("static", true), ("banana", false)],
+                &[
+                    ("absolute", true),
+                    ("relative", true),
+                    ("static", true),
+                    ("banana", false),
+                ],
             ),
             (
                 "text-align",
@@ -956,7 +958,11 @@ mod tests {
                 // `[ ... <'font-size'> [ / <'line-height'> ]? <'font-family'># ] | ...`
                 // — exercises the `/` line-height separator inside a shorthand.
                 "font",
-                &[("12px serif", true), ("italic bold 12px/1.5 serif", true), ("banana", false)],
+                &[
+                    ("12px serif", true),
+                    ("italic bold 12px/1.5 serif", true),
+                    ("banana", false),
+                ],
             ),
             (
                 // Track sizing exercises the `<flex>` (`fr`) value type, including inside
@@ -1110,7 +1116,14 @@ mod tests {
                 .matches(&parse_decl_values(prop, v))
         };
 
-        for prop in ["color", "display", "margin", "width", "grid-template-columns", "box-shadow"] {
+        for prop in [
+            "color",
+            "display",
+            "margin",
+            "width",
+            "grid-template-columns",
+            "box-shadow",
+        ] {
             for kw in ["inherit", "initial", "unset", "revert", "revert-layer"] {
                 assert!(ok(prop, kw), "{prop}: {kw} should match");
             }
@@ -1267,7 +1280,10 @@ mod tests {
         let values = parse_decl_values("width", "calc(100% - 20px)");
         assert_eq!(
             values,
-            vec![CssValue::Function("calc".to_string(), vec![CssValue::String("100% - 20px".to_string())])]
+            vec![CssValue::Function(
+                "calc".to_string(),
+                vec![CssValue::String("100% - 20px".to_string())]
+            )]
         );
 
         // Math functions match wherever a numeric datatype is expected.

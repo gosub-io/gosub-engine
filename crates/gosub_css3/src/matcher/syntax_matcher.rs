@@ -107,8 +107,7 @@ const VENDOR_PREFIXES: [&str; 6] = ["-webkit-", "-moz-", "-ms-", "-o-", "-khtml-
 /// Returns the remainder of `s` after a known vendor prefix, or None.
 fn strip_vendor_prefix(s: &str) -> Option<&str> {
     VENDOR_PREFIXES.iter().find_map(|p| {
-        (s.len() > p.len() && s.get(..p.len()).is_some_and(|head| head.eq_ignore_ascii_case(p)))
-            .then(|| &s[p.len()..])
+        (s.len() > p.len() && s.get(..p.len()).is_some_and(|head| head.eq_ignore_ascii_case(p))).then(|| &s[p.len()..])
     })
 }
 
@@ -350,117 +349,117 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 }
             }
             match datatype.as_str() {
-            // For the numeric datatypes, an optional `[min,max]` range written on the
-            // reference (e.g. `<length [0,∞]>`) is enforced here: the magnitude must fall
-            // within it. An empty range accepts every value, so unranged uses are
-            // unaffected.
-            "percentage" => {
-                if let CssValue::Percentage(n) = value {
-                    if range.contains(*n) {
-                        return first_match(input);
+                // For the numeric datatypes, an optional `[min,max]` range written on the
+                // reference (e.g. `<length [0,∞]>`) is enforced here: the magnitude must fall
+                // within it. An empty range accepts every value, so unranged uses are
+                // unaffected.
+                "percentage" => {
+                    if let CssValue::Percentage(n) = value {
+                        if range.contains(*n) {
+                            return first_match(input);
+                        }
                     }
                 }
-            }
-            "angle" => match value {
-                CssValue::Zero if range.contains(0.0) => return first_match(input),
-                CssValue::Unit(n, u)
-                    if range.contains(*n)
-                        && (u.eq_ignore_ascii_case("deg")
-                            || u.eq_ignore_ascii_case("grad")
-                            || u.eq_ignore_ascii_case("rad")
-                            || u.eq_ignore_ascii_case("turn")) =>
-                {
-                    return first_match(input)
-                }
-                _ => {}
-            },
-            "length" => match value {
-                CssValue::Zero if range.contains(0.0) => return first_match(input),
-                CssValue::Unit(n, u) if LENGTH_UNITS.contains(&u.as_str()) && range.contains(*n) => {
-                    return first_match(input)
-                }
-                _ => {}
-            },
-            "time" => match value {
-                CssValue::Zero if range.contains(0.0) => return first_match(input),
-                CssValue::Unit(n, u)
-                    if (u.eq_ignore_ascii_case("s") || u.eq_ignore_ascii_case("ms")) && range.contains(*n) =>
-                {
-                    return first_match(input)
-                }
-                _ => {}
-            },
-            // A flexible length is a `<number>` followed by the `fr` unit (grid track sizing).
-            "flex" => match value {
-                CssValue::Zero if range.contains(0.0) => return first_match(input),
-                CssValue::Unit(n, u) if u.eq_ignore_ascii_case("fr") && range.contains(*n) => {
-                    return first_match(input)
-                }
-                _ => {}
-            },
-            "number" => match value {
-                CssValue::Zero if range.contains(0.0) => return first_match(input),
-                CssValue::Number(n) if range.contains(*n) => return first_match(input),
-                _ => {}
-            },
-            "integer" => match value {
-                CssValue::Zero if range.contains(0.0) => return first_match(input),
-                CssValue::Number(n) if n.fract() == 0.0 && range.contains(*n) => return first_match(input),
-                _ => {}
-            },
-            "system-color" => {
-                if let CssValue::String(v) = value {
-                    if is_system_color(v) {
-                        return first_match(input);
+                "angle" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Unit(n, u)
+                        if range.contains(*n)
+                            && (u.eq_ignore_ascii_case("deg")
+                                || u.eq_ignore_ascii_case("grad")
+                                || u.eq_ignore_ascii_case("rad")
+                                || u.eq_ignore_ascii_case("turn")) =>
+                    {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                "length" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Unit(n, u) if LENGTH_UNITS.contains(&u.as_str()) && range.contains(*n) => {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                "time" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Unit(n, u)
+                        if (u.eq_ignore_ascii_case("s") || u.eq_ignore_ascii_case("ms")) && range.contains(*n) =>
+                    {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                // A flexible length is a `<number>` followed by the `fr` unit (grid track sizing).
+                "flex" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Unit(n, u) if u.eq_ignore_ascii_case("fr") && range.contains(*n) => {
+                        return first_match(input)
+                    }
+                    _ => {}
+                },
+                "number" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Number(n) if range.contains(*n) => return first_match(input),
+                    _ => {}
+                },
+                "integer" => match value {
+                    CssValue::Zero if range.contains(0.0) => return first_match(input),
+                    CssValue::Number(n) if n.fract() == 0.0 && range.contains(*n) => return first_match(input),
+                    _ => {}
+                },
+                "system-color" => {
+                    if let CssValue::String(v) = value {
+                        if is_system_color(v) {
+                            return first_match(input);
+                        }
                     }
                 }
-            }
-            "named-color" => {
-                if let CssValue::String(v) = value {
-                    if is_named_color(v) {
-                        return first_match(input);
+                "named-color" => {
+                    if let CssValue::String(v) = value {
+                        if is_named_color(v) {
+                            return first_match(input);
+                        }
                     }
                 }
-            }
-            "hex-color" => match value {
-                CssValue::Color(_) => return first_match(input),
-                CssValue::String(v) if v.starts_with('#') => return first_match(input),
-                _ => {}
-            },
-            // `<alpha()>` (css-color-hdr) is an alternative of `<color-function>`, so it
-            // denotes a FUNCTION named `alpha`, not a bare numeric. It must not fall
-            // through to the permissive catch-all below (any string would match <color>),
-            // and it must not match bare numerics either — that made `color: 0` valid and
-            // let a leading `0` offset in box-shadow claim the shadow-color slot. No data
-            // source carries its argument grammar, so arguments are accepted opaquely.
-            "alpha()" => match value {
-                CssValue::Function(name, _) if name.eq_ignore_ascii_case("alpha") => return first_match(input),
-                _ => {}
-            },
-            // Identifiers are ident-like tokens only: the parser lowers them to String.
-            // Matching them via the permissive catch-all let `<custom-ident>` swallow
-            // units and numbers, e.g. `transition: 0.2s ease left` had `0.2s` claimed as
-            // the transition-property name. Slashes are separators, not idents.
-            "custom-ident" | "ident" => match value {
-                CssValue::String(s) if s != "/" => return first_match(input),
-                _ => {}
-            },
-            "dashed-ident" => match value {
-                CssValue::String(s) if s.starts_with("--") => return first_match(input),
-                _ => {}
-            },
-            // Commas and slashes are structural separators (list items, function
-            // arguments, `<grid-line> / <grid-line>`, font-size/line-height), never leaf
-            // datatype values. Without this guard the permissive catch-all would let a
-            // built-in such as `<time>` consume the separator and leave the following
-            // part unmatched (e.g. `transition: opacity 0.3s, transform 0.5s`,
-            // `grid-column: 1 / span 2`). Grammar-level separators still match through
-            // the Literal arm.
-            _ if matches!(value, CssValue::Comma) => {}
-            _ if matches!(value, CssValue::String(s) if s == "/") => {}
-            _ => {
-                return first_match(input);
-            } // _ => panic!("Unknown built-in datatype: {:?}", datatype),
+                "hex-color" => match value {
+                    CssValue::Color(_) => return first_match(input),
+                    CssValue::String(v) if v.starts_with('#') => return first_match(input),
+                    _ => {}
+                },
+                // `<alpha()>` (css-color-hdr) is an alternative of `<color-function>`, so it
+                // denotes a FUNCTION named `alpha`, not a bare numeric. It must not fall
+                // through to the permissive catch-all below (any string would match <color>),
+                // and it must not match bare numerics either — that made `color: 0` valid and
+                // let a leading `0` offset in box-shadow claim the shadow-color slot. No data
+                // source carries its argument grammar, so arguments are accepted opaquely.
+                "alpha()" => match value {
+                    CssValue::Function(name, _) if name.eq_ignore_ascii_case("alpha") => return first_match(input),
+                    _ => {}
+                },
+                // Identifiers are ident-like tokens only: the parser lowers them to String.
+                // Matching them via the permissive catch-all let `<custom-ident>` swallow
+                // units and numbers, e.g. `transition: 0.2s ease left` had `0.2s` claimed as
+                // the transition-property name. Slashes are separators, not idents.
+                "custom-ident" | "ident" => match value {
+                    CssValue::String(s) if s != "/" => return first_match(input),
+                    _ => {}
+                },
+                "dashed-ident" => match value {
+                    CssValue::String(s) if s.starts_with("--") => return first_match(input),
+                    _ => {}
+                },
+                // Commas and slashes are structural separators (list items, function
+                // arguments, `<grid-line> / <grid-line>`, font-size/line-height), never leaf
+                // datatype values. Without this guard the permissive catch-all would let a
+                // built-in such as `<time>` consume the separator and leave the following
+                // part unmatched (e.g. `transition: opacity 0.3s, transform 0.5s`,
+                // `grid-column: 1 / span 2`). Grammar-level separators still match through
+                // the Literal arm.
+                _ if matches!(value, CssValue::Comma) => {}
+                _ if matches!(value, CssValue::String(s) if s == "/") => {}
+                _ => {
+                    return first_match(input);
+                } // _ => panic!("Unknown built-in datatype: {:?}", datatype),
             }
         }
         SyntaxComponent::Inherit { .. } => match value {
@@ -870,7 +869,9 @@ fn best_any_order_attempt<'a>(
 ) -> MatchResult<'a> {
     let mut best: Option<MatchResult> = None;
     for offset in 0..component_count.max(1) {
-        let order: Vec<usize> = (0..component_count).map(|i| (i + offset) % component_count.max(1)).collect();
+        let order: Vec<usize> = (0..component_count)
+            .map(|i| (i + offset) % component_count.max(1))
+            .collect();
         let res = attempt(&order);
         if !res.matched {
             continue;
@@ -878,10 +879,7 @@ fn best_any_order_attempt<'a>(
         if res.remainder.is_empty() {
             return res;
         }
-        if best
-            .as_ref()
-            .is_none_or(|b| res.remainder.len() < b.remainder.len())
-        {
+        if best.as_ref().is_none_or(|b| res.remainder.len() < b.remainder.len()) {
             best = Some(res);
         }
     }
