@@ -44,10 +44,6 @@ impl SqliteLocalStore {
         Ok(Self { pool })
     }
 
-    #[allow(unused)]
-    fn conn(&self) -> Result<PooledConnection<SqliteConnectionManager>> {
-        Ok(self.pool.get()?)
-    }
 }
 
 impl LocalStore for SqliteLocalStore {

@@ -200,13 +200,6 @@ pub enum TabCommand {
 }
 
 #[derive(Debug)]
-pub enum TabInternalCommand {
-    // Placeholder — add future internal worker-to-worker commands here.
-    #[allow(dead_code)]
-    _Placeholder,
-}
-
-#[derive(Debug)]
 pub enum EngineCommand {
     // ****************************************
     // ** Engine control

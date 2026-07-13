@@ -292,24 +292,15 @@ impl CookieJar for DefaultCookieJar {
 
     fn store_response_cookies(&mut self, url: &Url, headers: &HeaderMap, top_level: Option<&Url>) {
         // Determine cross-site context before touching storage.
-        if let Some(tl) = top_level {
-            let req_host = url.host_str().unwrap_or_default();
-            let tl_host = tl.host_str().unwrap_or_default();
-            if !same_site(req_host, tl_host) {
-                match self.third_party_policy {
-                    ThirdPartyCookiePolicy::Allow => {}
-                    ThirdPartyCookiePolicy::Block => return,
-                    // SameSiteNoneOnly is handled per-cookie below.
-                    ThirdPartyCookiePolicy::SameSiteNoneOnly => {}
-                }
-            }
-        }
-
         let is_third_party = top_level.is_some_and(|tl| {
             let req_host = url.host_str().unwrap_or_default();
             let tl_host = tl.host_str().unwrap_or_default();
             !same_site(req_host, tl_host)
         });
+        if is_third_party && self.third_party_policy == ThirdPartyCookiePolicy::Block {
+            return;
+        }
+        // SameSiteNoneOnly is handled per-cookie below.
 
         let request_host = url.host_str().unwrap_or_default();
         let origin = url.origin().ascii_serialization();

@@ -5,7 +5,7 @@
 mod parser;
 
 pub use parser::parse_main_document_stream;
-pub use parser::{DocumentError, DummyDocument, DummyHtml5Config, ResourceHint};
+pub use parser::{DocumentError, DummyHtml5Config, ResourceHint};
 
 use gosub_css3::system::Css3System;
 use gosub_fontmanager::ParleyFontSystem;

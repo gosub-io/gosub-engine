@@ -38,9 +38,12 @@ pub fn resolve_tab_services(zone_id: ZoneId, services: &ZoneServices, ov: &TabOv
     };
 
     let cookie_jar = match &ov.cookie_jar {
+        // Explicit zone jar wins; otherwise a zone cookie store provides a persistent
+        // per-zone jar; otherwise fall back to a fresh in-memory jar.
         TabCookieJar::Inherit => services
             .cookie_jar
             .clone()
+            .or_else(|| services.cookie_store.as_ref().and_then(|store| store.jar_for(zone_id)))
             .unwrap_or_else(|| DefaultCookieJar::new().into()),
         TabCookieJar::Custom(handle) => handle.clone(),
         TabCookieJar::Ephemeral => {

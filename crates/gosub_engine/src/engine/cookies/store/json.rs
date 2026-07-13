@@ -109,7 +109,10 @@ impl JsonCookieStore {
             }
         };
 
-        serde_json::from_str(&contents).unwrap_or_else(|_| CookieStoreFile { zones: HashMap::new() })
+        serde_json::from_str(&contents).unwrap_or_else(|e| {
+            log::error!("Failed to parse cookie store file {:?}: {e}", self.path);
+            CookieStoreFile { zones: HashMap::new() }
+        })
     }
 
     /// Serializes and writes the full cookie store file (pretty-printed).

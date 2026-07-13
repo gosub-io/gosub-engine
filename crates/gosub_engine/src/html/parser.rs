@@ -38,29 +38,6 @@ pub struct ResourceHint {
     pub priority: Priority,
 }
 
-/// A dummy document structure that is a placeholder for an actual DOM document.
-#[derive(Debug, Clone, PartialEq)]
-pub struct DummyDocument {
-    /// The final URL of the document (after redirects).
-    pub final_url: Url,
-    /// The document title, if any.
-    pub title: Option<String>,
-    /// Whole HTML as UTF-8 (best-effort).
-    pub raw_html: String,
-}
-
-impl DummyDocument {
-    /// Synthesize a dummy document from a string.
-    pub fn from(html: String, final_url: Url) -> Self {
-        let title = discover_title(&html);
-        Self {
-            final_url,
-            title,
-            raw_html: html,
-        }
-    }
-}
-
 /// Error type for this dummy parser.
 #[derive(thiserror::Error, Debug)]
 pub enum DocumentError {
@@ -203,14 +180,6 @@ static RE_DEFER_ATTR: Lazy<Regex> = Lazy::new(|| re(r#"\bdefer\b"#));
 
 static RE_IMG_SRC: Lazy<Regex> =
     Lazy::new(|| re(r#"(?is)<\s*img\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#));
-
-static RE_TITLE: Lazy<Regex> = Lazy::new(|| re(r#"(?is)<\s*title\s*>\s*(?P<title>.*?)\s*<\s*/\s*title\s*>"#));
-
-fn discover_title(html: &str) -> Option<String> {
-    RE_TITLE
-        .captures(html)
-        .and_then(|c| c.name("title").map(|m| m.as_str().trim().to_string()))
-}
 
 fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
     let mut out = Vec::new();
@@ -388,10 +357,4 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
-    fn discover_title_basic() {
-        assert_eq!(discover_title("<title>x</title>").as_deref(), Some("x"));
-        assert_eq!(discover_title("<TITLE>  spaced \n</TITLE>").as_deref(), Some("spaced"));
-        assert!(discover_title("<head></head>").is_none());
-    }
 }

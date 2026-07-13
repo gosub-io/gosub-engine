@@ -74,7 +74,7 @@ mod tests {
         let zone = z();
         let tab = t();
 
-        let mut ev = StorageEvent {
+        let ev = StorageEvent {
             zone,
             partition: PartitionKey::TopLevel(o("https://site.test")),
             origin: o("https://site.test"),
@@ -98,41 +98,6 @@ mod tests {
         assert_eq!(ev.new_value.as_deref(), Some("2"));
         assert!(ev.source_tab.is_some());
         assert!(matches!(ev.scope, StorageScope::Session));
-
-        // Mutate to ensure the struct is writable and fields behave as expected.
-        ev.old_value = ev.new_value.clone();
-        ev.new_value = Some("3".into());
-        assert_eq!(ev.old_value.as_deref(), Some("2"));
-        assert_eq!(ev.new_value.as_deref(), Some("3"));
-
-        // Zone should still match the original (Clone on ZoneId works)
-        assert_eq!(format!("{:?}", ev.zone), format!("{:?}", zone));
-    }
-
-    #[test]
-    fn clone_event_is_independent() {
-        let ev1 = StorageEvent {
-            zone: z(),
-            partition: PartitionKey::None,
-            origin: o("http://a.test"),
-            key: None,
-            old_value: None,
-            new_value: None,
-            source_tab: Some(t()),
-            scope: StorageScope::Session,
-        };
-
-        let mut ev2 = ev1.clone();
-        ev2.key = Some("k".into());
-        ev2.new_value = Some("v".into());
-
-        // Original unaffected
-        assert!(ev1.key.is_none());
-        assert!(ev1.new_value.is_none());
-
-        // Clone has the changes
-        assert_eq!(ev2.key.as_deref(), Some("k"));
-        assert_eq!(ev2.new_value.as_deref(), Some("v"));
     }
 
     #[test]

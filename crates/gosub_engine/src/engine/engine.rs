@@ -20,6 +20,7 @@
 //! - [`EngineEvent`]: Events emitted by the engine, such as zone creation and
 //!   destruction.
 
+use crate::cookies::CookieStoreHandle;
 use crate::engine::events::{EngineCommand, EngineEvent};
 use crate::engine::types::{EventChannel, IoChannel};
 use crate::engine::DEFAULT_CHANNEL_CAPACITY;
@@ -53,6 +54,8 @@ pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig
     font_system: Arc<Mutex<C::FontSystem>>,
     /// Zones managed by this engine, indexed by [`ZoneId`].
     zones: HashMap<ZoneId, Arc<ZoneSink>>,
+    /// Cookie stores of zones that requested persistence, flushed on shutdown.
+    cookie_stores: HashMap<ZoneId, CookieStoreHandle>,
     /// Command sender used to send commands to the engine run loop.
     cmd_tx: mpsc::Sender<EngineCommand>,
     /// Command receiver (owned by the engine run loop).
@@ -134,6 +137,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             compositor,
             font_system: Arc::new(Mutex::new(C::FontSystem::default())),
             zones: HashMap::new(),
+            cookie_stores: HashMap::new(),
             cmd_tx,
             cmd_rx: Some(cmd_rx),
             io_handle: None,
@@ -195,14 +199,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         Arc::clone(&self.compositor)
     }
 
-    /// Get a clone of the engine’s command sender (mainly for testing or
-    /// custom handles).
-    #[cfg(test)]
-    #[allow(unused)]
-    fn command_sender(&self) -> mpsc::Sender<EngineCommand> {
-        self.cmd_tx.clone()
-    }
-
     /// Run the engine’s inbound command loop in a dedicated thread/task.
     pub fn run<'b>(&mut self) -> Option<impl std::future::Future<Output = ()> + 'b> {
         self.running = true;
@@ -229,6 +225,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             return Err(EngineError::NotRunning);
         }
 
+        // Persist cookie stores before tearing anything down.
+        self.flush_persistence();
+
         // Shutdown I/O thread
         log::trace!("signal: shutting down I/O thread");
         let shutdown_secs = self.context.config_store.get_uint("engine.io_shutdown_secs") as u64;
@@ -252,15 +251,12 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         Ok(())
     }
 
-    #[allow(unused)]
-    fn flush_persistence(&mut self) {
-        // if let Ok(zones) = self.zones.read() {
-        //     for zone in zones.values() {
-        //         if let Some(store) = zone.cookie_store_handle() {
-        //             store.persist_all();
-        //         }
-        //     }
-        // }
+    /// Flush all persistent state (currently: cookie stores) to disk.
+    fn flush_persistence(&self) {
+        for (zone_id, store) in &self.cookie_stores {
+            log::trace!("persisting cookie store of zone {zone_id}");
+            store.persist_all();
+        }
     }
 
     /// Create and register a new zone, returning a [`ZoneHandle`] for userland code.
@@ -287,6 +283,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             return Err(EngineError::ZoneLimitExceeded);
         }
         let config = config.unwrap_or_else(|| self.context.config.default_zone_config.clone());
+        let cookie_store = services.cookie_store.clone();
 
         let zone = match zone_id {
             Some(zone_id) => Zone::new_with_id(
@@ -310,6 +307,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
         let zone_id = zone.id;
         self.zones.insert(zone.id, zone.sink.clone());
+        if let Some(store) = cookie_store {
+            self.cookie_stores.insert(zone_id, store);
+        }
 
         self.context
             .event_tx
@@ -346,6 +346,39 @@ mod tests {
             Arc::new(NullBackend::new()),
             Arc::new(RwLock::new(DefaultCompositor::default())),
         )
+    }
+
+    #[tokio::test]
+    async fn cookie_store_persists_on_shutdown() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cookies.json");
+        let store: CookieStoreHandle = crate::cookies::JsonCookieStore::new(path.clone()).unwrap().into();
+
+        let mut engine = engine_with_max_zones(1);
+        let _event_rx = engine.subscribe_events();
+        let _join = engine.start().expect("start");
+
+        let mut zone_services = services();
+        zone_services.cookie_store = Some(store.clone());
+        let mut zone = engine.create_zone(None, zone_services, None).expect("zone");
+
+        // Tab creation resolves the persistent per-zone jar from the store.
+        let _tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        // Store a cookie through the zone's (memoized) persistent jar.
+        let jar = store.jar_for(zone.id).expect("persistent jar");
+        let url = url::Url::parse("https://example.com/").unwrap();
+        let mut headers = http::HeaderMap::new();
+        headers.append(http::header::SET_COOKIE, "sid=abc123; Path=/".parse().unwrap());
+        jar.write().store_response_cookies(&url, &headers, None);
+
+        engine.shutdown().await.expect("shutdown");
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            contents.contains("sid") && contents.contains("abc123"),
+            "cookie should be persisted on shutdown, got: {contents}"
+        );
     }
 
     #[tokio::test]

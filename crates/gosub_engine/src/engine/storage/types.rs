@@ -1,6 +1,5 @@
 use crate::zone::ZoneId;
 use url::{Origin, Url};
-use uuid::Uuid;
 
 /// Partitioning key (future-proof for state partitioning).
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
@@ -15,11 +14,6 @@ pub enum PartitionKey {
 }
 
 impl PartitionKey {
-    pub fn random() -> Self {
-        let random = Uuid::new_v4();
-        PartitionKey::Custom(random.to_string())
-    }
-
     /// Creates a new `PartitionKey` from a URL string.
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {

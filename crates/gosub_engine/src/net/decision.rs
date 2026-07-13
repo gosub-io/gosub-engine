@@ -1,7 +1,6 @@
 //! Decision-making logic for handling fetched responses.
 //! This includes MIME type sniffing and deciding whether to render, download, block, etc
 //! based on the response metadata, content, request destination, and user-agent policy.
-//! This is a simplified version and does not yet implement all the detailed logic.
 
 use crate::engine::types::PeekBuf;
 use crate::engine::UaPolicy;
@@ -34,13 +33,9 @@ pub mod types;
 /// Returns a [`DecisionOutcome`] with both the *final* class and the auxiliary evidence
 /// (declared MIME, sniffed class, disposition flag).
 pub fn decide_handling(
-    // The metadata from the request, including headers like content-type, no-sniff etc.
     meta: &FetchResultMeta,
-    // The request destination (e.g. "document", "script", "image", etc.)
     dest: RequestDestination,
-    // A peek buffer containing the first few bytes of the response body.
     peek_buf: PeekBuf,
-    // The user-agent policy, including settings like no-sniff, etc.
     policy: &UaPolicy,
 ) -> DecisionOutcome {
     let declared_mime = content_type_from_headers(meta);

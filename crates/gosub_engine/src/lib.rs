@@ -14,10 +14,7 @@
 //! - Zones own their own cookies and storage.
 //! - Tabs are controlled via a `TabHandle`.
 //! - Tabs emit events (navigation, resource loading, rendering) that you can handle in your UA.
-//! - The engine is designed to be **modular** and **extensible**.
-//! - You can plug in your own networking stack, render backend, storage backend, etc.
-//! - The engine is built using **Tokio** and **async/await**.
-//! - It is designed to be **thread-safe** and **concurrent**.
+//! - The engine is built on **Tokio**; render backend, storage backend, and cookie store are pluggable.
 //! - The engine is still a work in progress and is not yet production-ready.
 //!
 //! ## Quick start
