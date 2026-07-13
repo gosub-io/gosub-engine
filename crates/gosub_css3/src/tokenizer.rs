@@ -105,12 +105,12 @@ impl Token {
         Token::new(TokenType::Delim(c), location)
     }
 
-    fn new_hash(value: &str, location: Location) -> Token {
-        Token::new(TokenType::Hash(value.to_string()), location)
+    fn new_hash(value: impl Into<String>, location: Location) -> Token {
+        Token::new(TokenType::Hash(value.into()), location)
     }
 
-    fn new_atkeyword(keyword: &str, location: Location) -> Token {
-        Token::new(TokenType::AtKeyword(keyword.to_string()), location)
+    fn new_atkeyword(keyword: impl Into<String>, location: Location) -> Token {
+        Token::new(TokenType::AtKeyword(keyword.into()), location)
     }
 
     fn new_number(value: Number, location: Location) -> Token {
@@ -121,38 +121,38 @@ impl Token {
         Token::new(TokenType::Percentage(value), location)
     }
 
-    fn new_dimension(value: Number, unit: &str, location: Location) -> Token {
+    fn new_dimension(value: Number, unit: impl Into<String>, location: Location) -> Token {
         Token::new(
             TokenType::Dimension {
                 value,
-                unit: unit.to_string(),
+                unit: unit.into(),
             },
             location,
         )
     }
 
-    fn new_ident(value: &str, location: Location) -> Token {
-        Token::new(TokenType::Ident(value.to_string()), location)
+    fn new_ident(value: impl Into<String>, location: Location) -> Token {
+        Token::new(TokenType::Ident(value.into()), location)
     }
 
-    fn new_function(value: &str, location: Location) -> Token {
-        Token::new(TokenType::Function(value.to_string()), location)
+    fn new_function(value: impl Into<String>, location: Location) -> Token {
+        Token::new(TokenType::Function(value.into()), location)
     }
 
-    fn new_quoted_string(value: &str, location: Location) -> Token {
-        Token::new(TokenType::QuotedString(value.to_string()), location)
+    fn new_quoted_string(value: impl Into<String>, location: Location) -> Token {
+        Token::new(TokenType::QuotedString(value.into()), location)
     }
 
-    fn new_bad_string(value: &str, location: Location) -> Token {
-        Token::new(TokenType::BadString(value.to_string()), location)
+    fn new_bad_string(value: impl Into<String>, location: Location) -> Token {
+        Token::new(TokenType::BadString(value.into()), location)
     }
 
-    fn new_url(value: &str, location: Location) -> Token {
-        Token::new(TokenType::Url(value.to_string()), location)
+    fn new_url(value: impl Into<String>, location: Location) -> Token {
+        Token::new(TokenType::Url(value.into()), location)
     }
 
-    fn new_bad_url(value: &str, location: Location) -> Token {
-        Token::new(TokenType::BadUrl(value.to_string()), location)
+    fn new_bad_url(value: impl Into<String>, location: Location) -> Token {
+        Token::new(TokenType::BadUrl(value.into()), location)
     }
 }
 
@@ -319,7 +319,7 @@ impl<'stream> Tokenizer<'stream> {
         let current = self.current_char();
         let loc = self.current_location();
 
-        let t = match current {
+        match current {
             Character::Surrogate(_) => {
                 self.next_char();
                 // @todo: we found a surrogate. Just return a replacement char
@@ -337,7 +337,7 @@ impl<'stream> Tokenizer<'stream> {
                 self.next_char();
 
                 if self.is_ident_char(self.current_char().into()) || self.is_start_of_escape(0) {
-                    return Token::new_hash(self.consume_ident().as_str(), loc);
+                    return Token::new_hash(self.consume_ident(), loc);
                 }
 
                 Token::new_delim(c, loc)
@@ -433,7 +433,7 @@ impl<'stream> Tokenizer<'stream> {
                 self.next_char();
 
                 if self.is_next_3_points_starts_ident_seq(0) {
-                    return Token::new_atkeyword(self.consume_ident().as_str(), loc);
+                    return Token::new_atkeyword(self.consume_ident(), loc);
                 }
 
                 Token::new_delim(c, loc)
@@ -455,9 +455,7 @@ impl<'stream> Tokenizer<'stream> {
                 self.next_char();
                 Token::new(TokenType::Delim(c), loc)
             }
-        };
-
-        t
+        }
     }
 
     /// 4.3.2. [Consume comments](https://www.w3.org/TR/css-syntax-3/#consume-comment)
@@ -488,7 +486,7 @@ impl<'stream> Tokenizer<'stream> {
         if self.is_next_3_points_starts_ident_seq(0) {
             let unit = self.consume_ident();
 
-            return Token::new_dimension(number, unit.as_str(), loc);
+            return Token::new_dimension(number, unit, loc);
         } else if self.current_char() == Ch('%') {
             // consume '%'
             self.next_char();
@@ -569,13 +567,13 @@ impl<'stream> Tokenizer<'stream> {
             if self.current_char() == ending || self.stream.eof() {
                 // consume string ending
                 self.next_char();
-                return Token::new_quoted_string(value.as_str(), loc);
+                return Token::new_quoted_string(value, loc);
             }
 
             // newline: parser error
             if self.current_char() == Ch('\n') {
                 // note: don't consume '\n'
-                return Token::new_bad_string(value.as_str(), loc);
+                return Token::new_bad_string(value, loc);
             }
 
             if self.current_char() == Ch('\\') && self.stream.look_ahead(1) == Ch('\n') {
@@ -659,17 +657,17 @@ impl<'stream> Tokenizer<'stream> {
             self.consume_whitespace();
 
             if self.is_any_of(vec!['"', '\'']) {
-                return Token::new_function(value.as_str(), loc);
+                return Token::new_function(value, loc);
             }
 
             return self.consume_url();
         } else if self.current_char() == Ch('(') {
             // consume '('
             self.next_char();
-            return Token::new_function(value.as_str(), loc);
+            return Token::new_function(value, loc);
         }
 
-        Token::new_ident(value.as_str(), loc)
+        Token::new_ident(value, loc)
     }
 
     /// 4.3.6. [Consume a url token](https://www.w3.org/TR/css-syntax-3/#consume-a-url-token)
@@ -702,7 +700,7 @@ impl<'stream> Tokenizer<'stream> {
             if self.is_any_of(vec!['"', '\'', '(']) || self.is_non_printable_char() {
                 // parse error
                 self.consume_remnants_of_bad_url();
-                return Token::new_bad_url(url.as_str(), loc);
+                return Token::new_bad_url(url, loc);
             }
 
             if self.is_start_of_escape(0) {
@@ -713,7 +711,7 @@ impl<'stream> Tokenizer<'stream> {
             url.push(self.next_char().into());
         }
 
-        Token::new_url(url.as_str(), loc)
+        Token::new_url(url, loc)
     }
 
     /// 4.3.14. [Consume the remnants of a bad url](https://www.w3.org/TR/css-syntax-3/#consume-remnants-of-bad-url)
@@ -784,11 +782,22 @@ impl<'stream> Tokenizer<'stream> {
     /// Caller should ensure that the stream starts with an ident sequence before calling this
     /// algorithm.
     fn consume_ident(&mut self) -> String {
-        // Idents are the most common token in real-world CSS; starting with capacity
-        // avoids the 0→8→16 realloc ladder that dominated the tokenizer profile.
-        let mut value = String::with_capacity(16);
+        // Idents are the most common token in real-world CSS. Bulk-consume the plain
+        // ASCII run straight off the stream (matches `is_ident_char` for ASCII), then
+        // fall back to per-character handling for escapes and non-ASCII ident chars,
+        // resuming the bulk scan after each one.
+        let mut value = String::new();
 
         loop {
+            let run = self
+                .stream
+                .scan_ascii_while(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+            if value.is_empty() {
+                value = run.to_string();
+            } else {
+                value.push_str(run);
+            }
+
             let cc = self.current_char();
 
             // TIMP: confirmation needed
@@ -822,10 +831,12 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     fn consume_digits(&mut self) -> String {
-        let mut value = String::with_capacity(8);
+        let mut value = self.stream.scan_ascii_while(|b| b.is_ascii_digit()).to_string();
 
+        // The per-char path also accepted non-ASCII numerics (char::is_numeric); keep that.
         while matches!(self.current_char(), Ch(c) if c.is_numeric()) {
             value.push(self.next_char().into());
+            value.push_str(self.stream.scan_ascii_while(|b| b.is_ascii_digit()));
         }
 
         value
