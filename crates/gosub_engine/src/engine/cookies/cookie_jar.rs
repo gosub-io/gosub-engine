@@ -243,10 +243,11 @@ pub trait CookieJar: Send + Sync {
 /// ### Parsing behavior
 /// - Accepts multiple `Set-Cookie` headers.
 /// - Attributes handled: `Path`, `Domain` (leading dot stripped), `Expires`
-///   (stored as raw string), `SameSite` (`Strict`/`Lax`/`None`, case-insensitive),
+///   (parsed into a unix timestamp), `SameSite` (`Strict`/`Lax`/`None`, case-insensitive),
 ///   `Secure`, `HttpOnly`.
 /// - If `Path` is absent, a default path is derived from the request URL.
-/// - No expiration or eviction is enforced; `expires` is stored but not acted upon.
+/// - Expired cookies are filtered out on read; [`Self::purge_expired`] removes them
+///   from the jar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefaultCookieJar {
     /// Simple hashmap of cookies, bucketed by **origin**.

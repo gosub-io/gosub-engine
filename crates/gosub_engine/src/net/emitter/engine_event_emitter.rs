@@ -19,7 +19,7 @@ pub struct EngineEventEmitter {
     event_tx: EventChannel,
     /// The resource kind (e.g., Document, Script, Image, etc.)
     kind: ResourceKind,
-    //// The initiator of the request
+    /// The initiator of the request
     initiator: Initiator,
 }
 

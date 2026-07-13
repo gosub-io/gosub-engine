@@ -64,7 +64,7 @@
 //!     Arc::new(parking_lot::RwLock::new(compositor)),
 //! );
 //!
-//! // 4) Attach storage via ZoneServices and create the zone
+//! // 3) Attach storage via ZoneServices and create the zone
 //! let services = ZoneServices {
 //!     storage: storage.clone(),
 //!     cookie_store: None,

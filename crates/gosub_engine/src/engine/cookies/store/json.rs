@@ -156,7 +156,7 @@ impl CookieStore for JsonCookieStore {
         // load from disk (or empty)
         let mut file = self.load_file();
         let jar = file.zones.remove(&zone_id).unwrap_or_default();
-        let arc_jar: CookieJarHandle = jar.into(); // assuming you have From<DefaultCookieJar> for CookieJarHandle
+        let arc_jar: CookieJarHandle = jar.into();
 
         let store = match self.store_self.read().as_ref() {
             Some(store) => store.clone(),

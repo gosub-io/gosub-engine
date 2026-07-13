@@ -20,11 +20,6 @@
 //! provides mechanisms to handle navigation events, such as redirects or loading
 //! errors.
 //!
-//! # Example
-//!
-//! ```no_run
-//! ```
-//!
 //! # Structs
 //!
 //! - [`BrowsingContext`]: The main struct representing the browsing context for a tab.
@@ -359,15 +354,15 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
     }
 
-    /// Build/refresh the device-agnostic scene if needed.
-    ///
-    /// Two paths:
-    /// - **Full pipeline** (`render_dirty`): runs stages 1–6 for the whole page, caches tiles,
-    ///   then composites. Triggered by navigation, DOM/style changes, or viewport resize.
-    ///
     /// Rebuild stages 1-6 (pipeline cache) if content has changed, without building a display
     /// list. Used by TileCache backends (Cairo, Skia, Vello) which composite tiles directly
     /// on the host thread and never consume the render list.
+    ///
+    /// Two paths:
+    /// - **Full pipeline** (`render_dirty`): runs stages 1–6 for the whole page and caches
+    ///   tiles. Triggered by navigation, DOM/style changes, or viewport resize.
+    /// - **Paint-only repaint** (`hover_dirty`): reuses the cached layout tree and repaints
+    ///   only the affected tiles, skipping stages 1–2.
     pub fn rebuild_pipeline_cache_if_needed(&mut self) {
         if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty {
             return;
@@ -438,6 +433,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.scene_epoch = self.scene_epoch.wrapping_add(1);
     }
 
+    /// Build/refresh the device-agnostic render list if needed.
+    ///
+    /// Two paths:
+    /// - **Full pipeline** (`render_dirty`): runs stages 1–6 for the whole page, caches tiles,
+    ///   then composites. Triggered by navigation, DOM/style changes, or viewport resize.
     /// - **Scroll composite** (`scroll_dirty`): re-composites visible tiles from the cache with
     ///   the new scroll offset. No layout or rasterization work.
     pub fn rebuild_render_list_if_needed(&mut self) {
@@ -760,7 +760,6 @@ impl<C: RenderConfiguration> RenderContext for BrowsingContext<C> {
     }
 }
 
-/// Runs pipeline stages 1–6 for the **entire page** (all tiles, not just the viewport slice)
 /// Compute a stable cache key for a tile: (page_x bits, page_y bits, layer_id, content hash).
 /// The content hash covers all paint commands so any visual change produces a different key.
 fn tile_cache_key(tile: &gosub_render_pipeline::tiler::Tile) -> TileCacheKey {
@@ -1011,10 +1010,6 @@ fn rasterize_sequential(
     (tiles, std::collections::HashMap::new())
 }
 
-/// and returns a `PipelineCache` of rasterized tiles ready for repeated compositing.
-///
-/// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
-/// re-running layout or rasterization.
 /// GPU-scene build: stages 1–3 (render tree → layout → layering) plus a paint pass over every
 /// element, producing one ordered paint-command list for the whole page. Skips tiling,
 /// rasterization, and compositing — the backend renders the commands into a GPU texture.
@@ -1088,6 +1083,11 @@ fn pipeline_build_scene<C: RenderConfiguration>(
     }
 }
 
+/// Runs pipeline stages 1–6 for the **entire page** (all tiles, not just the viewport slice)
+/// and returns a `PipelineCache` of rasterized tiles ready for repeated compositing.
+///
+/// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
+/// re-running layout or rasterization.
 fn pipeline_build_cache<C: RenderConfiguration>(
     doc: Arc<EngineDocument<C>>,
     viewport: &Viewport,

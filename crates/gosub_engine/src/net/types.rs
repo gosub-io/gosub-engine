@@ -3,10 +3,6 @@ pub use gosub_sonar::net::types::{
     Priority, RequestBody,
 };
 
-use crate::html::EngineDocument;
-use std::path::PathBuf;
-use std::sync::Arc;
-
 /// What kind of resource is being fetched.
 ///
 /// gosub-sonar only distinguishes coarse categories (`Primary`/`Asset`/`Other`), so the
@@ -90,41 +86,13 @@ impl Initiator {
     }
 }
 
-/// The outcome of a main-frame navigation.
-#[derive(Debug)]
-pub enum ObsoleteNavigationResult {
-    Document {
-        meta: FetchResultMeta,
-        doc: Arc<EngineDocument>,
-    },
-    DownloadStarted {
-        meta: FetchResultMeta,
-        dest: PathBuf,
-    },
-    DownloadFinished {
-        meta: FetchResultMeta,
-        dest: PathBuf,
-    },
-    OpenExternalStarted {
-        meta: FetchResultMeta,
-        dest: PathBuf,
-    },
-    Cancelled,
-    Failed {
-        meta: Option<FetchResultMeta>,
-        error: Arc<anyhow::Error>,
-    },
-    RenderedByViewer {
-        meta: FetchResultMeta,
-    },
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::engine::types::PeekBuf;
     use crate::net::shared_body::SharedBody;
     use bytes::Bytes;
+    use std::sync::Arc;
     use http::HeaderMap;
     use tokio::io::AsyncReadExt;
     use url::Url;

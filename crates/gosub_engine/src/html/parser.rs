@@ -27,7 +27,7 @@ pub struct ResourceHint {
     /// The `rel` attribute value if applicable.
     pub rel: Option<String>, // e.g. "stylesheet"
     /// The attribute we discovered this from.
-    pub from_attr: &'static str, // e.g. "href" or "src
+    pub from_attr: &'static str, // e.g. "href" or "src"
     /// The referrer URL if applicable.
     pub referrer: Option<Url>,
     /// Whether this is a cross-origin request.

@@ -818,7 +818,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
         let parent_cancel_clone = parent_cancel.clone();
 
-        // Spawn the actual fetcher into a seperate task
+        // Spawn the actual fetcher into a separate task
         spawn_named("tab-fetcher", async move {
             let _enter = span.enter();
 
