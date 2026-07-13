@@ -3286,6 +3286,7 @@ dependencies = [
  "anyhow",
  "colors-transform",
  "cow-utils",
+ "criterion",
  "gosub_interface",
  "gosub_shared",
  "indexmap",
