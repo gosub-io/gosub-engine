@@ -66,7 +66,7 @@ mod tests {
         assert_eq!(ev.old_value, None);
         assert_eq!(ev.new_value.as_deref(), Some("hello"));
         assert!(ev.source_tab.is_none());
-        matches!(ev.scope, StorageScope::Local);
+        assert!(matches!(ev.scope, StorageScope::Local));
     }
 
     #[test]
@@ -97,7 +97,7 @@ mod tests {
         assert_eq!(ev.old_value.as_deref(), Some("1"));
         assert_eq!(ev.new_value.as_deref(), Some("2"));
         assert!(ev.source_tab.is_some());
-        matches!(ev.scope, StorageScope::Session);
+        assert!(matches!(ev.scope, StorageScope::Session));
 
         // Mutate to ensure the struct is writable and fields behave as expected.
         ev.old_value = ev.new_value.clone();

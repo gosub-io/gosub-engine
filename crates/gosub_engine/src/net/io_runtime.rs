@@ -38,14 +38,22 @@ impl IoHandle {
 
     #[instrument(name = "io.shutdown", level = "debug", skip(self))]
     pub async fn shutdown(self) {
-        log::trace!("signal: global shutdown -> I/O thread");
-        self.shutdown_token.cancel();
+        let IoHandle {
+            tx_submit,
+            shutdown_token,
+            join_handle,
+        } = self;
 
-        log::trace!("signal: closing submit channel");
-        drop(self.tx_submit.clone());
+        log::trace!("signal: global shutdown -> I/O thread");
+        shutdown_token.cancel();
+
+        // Note: subscribers hold clones of this sender, so the channel only fully
+        // closes once they drop theirs; the cancellation token is the real signal.
+        log::trace!("signal: dropping our submit channel handle");
+        drop(tx_submit);
 
         log::trace!("await: I/O thread join");
-        match self.join_handle.await {
+        match join_handle.await {
             Ok(()) => {
                 log::debug!("I/O thread has exited cleanly");
             }

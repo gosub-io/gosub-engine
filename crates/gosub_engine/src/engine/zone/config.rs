@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn zero_tabs_is_invalid() {
         let err = ZoneConfig::builder().max_tabs(0).build().unwrap_err();
-        matches!(err, ZoneConfigError::ZeroTabs);
+        assert!(matches!(err, ZoneConfigError::ZeroTabs));
     }
 
     #[test]
