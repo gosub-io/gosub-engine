@@ -66,8 +66,7 @@ pub enum TabState {
     PendingRendering(Viewport),
     /// The engine is producing a new surface for the current content.
     Rendering(Viewport),
-    /// A new surface is ready for painting. The next `tick()` typically
-    /// returns to [`TabState::Idle`] and sets `needs_redraw = true` in [`TickResult`].
+    /// A new surface is ready for painting.
     Rendered(Viewport),
     /// A fatal error occurred while loading or rendering.
     Failed(String),

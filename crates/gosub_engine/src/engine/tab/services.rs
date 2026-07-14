@@ -46,10 +46,7 @@ pub fn resolve_tab_services(zone_id: ZoneId, services: &ZoneServices, ov: &TabOv
             .or_else(|| services.cookie_store.as_ref().and_then(|store| store.jar_for(zone_id)))
             .unwrap_or_else(|| DefaultCookieJar::new().into()),
         TabCookieJar::Custom(handle) => handle.clone(),
-        TabCookieJar::Ephemeral => {
-            let jar: CookieJarHandle = DefaultCookieJar::new().into();
-            jar
-        }
+        TabCookieJar::Ephemeral => DefaultCookieJar::new().into(),
     };
 
     EffectiveTabServices {

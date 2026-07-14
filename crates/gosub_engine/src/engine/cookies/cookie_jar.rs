@@ -878,8 +878,11 @@ mod tests {
 
     // ── Domain validation ─────────────────────────────────────────────────────
 
+    /// Canary for the `psl` crate: pins the public-suffix behaviors that `same_site`
+    /// and `is_valid_cookie_domain` rely on, so a `psl` upgrade that changes them
+    /// fails loudly here instead of silently altering cookie scoping.
     #[test]
-    fn psl_domain_behavior() {
+    fn psl_dependency_assumptions() {
         let reg = |h: &str| -> Option<String> {
             psl::List
                 .domain(h.as_bytes())

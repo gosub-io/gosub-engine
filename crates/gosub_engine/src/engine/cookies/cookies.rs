@@ -143,20 +143,8 @@ where
 /// since callers hold only `&self` when invoking trait methods.
 ///
 /// Typical use is at **build/initialization time** to mint a per-zone jar.
+#[derive(Clone)]
 pub struct CookieStoreHandle(Arc<dyn CookieStore + Send + Sync>);
-
-impl Clone for CookieStoreHandle {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-
-    fn clone_from(&mut self, source: &Self)
-    where
-        Self:,
-    {
-        self.0.clone_from(&source.0);
-    }
-}
 
 impl<T> From<Arc<T>> for CookieStoreHandle
 where
@@ -176,9 +164,6 @@ impl Debug for CookieStoreHandle {
 impl CookieStoreHandle {
     pub fn persist_zone_from_snapshot(&self, zone: ZoneId, snap: &DefaultCookieJar) {
         self.0.persist_zone_from_snapshot(zone, snap);
-    }
-    pub fn remove_zone(&self, zone: ZoneId) {
-        self.0.remove_zone(zone);
     }
     pub fn persist_all(&self) {
         self.0.persist_all();
@@ -218,7 +203,9 @@ pub struct Cookie {
 
     /// SameSite policy (`"Strict"`, `"Lax"`, or `"None"`).
     ///
-    /// `None` implies cross-site allowed (must also set `secure=true` in modern browsers).
+    /// `Option::None` means the attribute was absent; the jar then applies the
+    /// modern default of **Lax**. The string value `"None"` (cross-site allowed)
+    /// additionally requires `secure=true`.
     /// Consider modeling as an enum in the future.
     pub same_site: Option<String>,
 

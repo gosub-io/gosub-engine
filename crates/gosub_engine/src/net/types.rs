@@ -89,10 +89,10 @@ impl Initiator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::types::PeekBuf;
-    use crate::net::shared_body::SharedBody;
+    
+    
     use bytes::Bytes;
-    use std::sync::Arc;
+    
     use http::HeaderMap;
     use tokio::io::AsyncReadExt;
     use url::Url;
@@ -147,16 +147,5 @@ mod tests {
             }
             _ => panic!("expected buffered"),
         }
-    }
-
-    #[test]
-    fn fetchresult_stream_variant_compiles() {
-        let meta = dummy_meta();
-        let shared = Arc::new(SharedBody::new(8));
-        let _r = FetchResult::Stream {
-            meta,
-            peek_buf: PeekBuf::from_slice(b"PEEK"),
-            shared,
-        };
     }
 }

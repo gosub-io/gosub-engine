@@ -92,8 +92,6 @@ pub enum NavigationError {
     #[error("io cancelled: {0}")]
     Cancelled(String),
 
-    // #[error("io timeout: {0}")]
-    // Timeout(String),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }

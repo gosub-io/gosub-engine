@@ -67,6 +67,9 @@ impl StorageArea for SessionArea {
     fn set_item(&self, k: &str, v: &str) -> Result<()> {
         if let Some(map) = self.data.write().get_mut(&self.key) {
             map.insert(k.to_string(), v.to_string());
+        } else {
+            // Only reachable after drop_tab removed this area's backing map.
+            log::debug!("session storage write to dropped area ignored (key: {k})");
         }
         Ok(())
     }

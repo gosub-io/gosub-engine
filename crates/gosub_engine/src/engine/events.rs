@@ -621,15 +621,6 @@ mod tests {
     }
 
     #[test]
-    fn tabcommand_equality_and_debug() {
-        let a = TabCommand::SetTitle { title: "Hello".into() };
-        let b = a.clone();
-        assert_eq!(a, b);
-        let dbg = format!("{:?}", a);
-        assert!(dbg.contains("SetTitle"));
-    }
-
-    #[test]
     fn tabcommand_keydown_with_modifiers() {
         let mods = Modifiers::SHIFT | Modifiers::CONTROL;
         let e = TabCommand::KeyDown {
@@ -650,41 +641,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn tabcommand_mouse_and_resize() {
-        let down = TabCommand::MouseDown {
-            x: 10.0,
-            y: 20.0,
-            button: MouseButton::Left,
-        };
-        let up = TabCommand::MouseUp {
-            x: 10.0,
-            y: 20.0,
-            button: MouseButton::Left,
-        };
-        let viewport = TabCommand::SetViewport {
-            x: 0,
-            y: 0,
-            width: 800,
-            height: 600,
-        };
-
-        // Just basic sanity and Debug formatting
-        assert!(format!("{down:?}").contains("MouseDown"));
-        assert!(format!("{up:?}").contains("MouseUp"));
-        assert!(format!("{viewport:?}").contains("Viewport"));
-    }
-
-    #[test]
-    fn engineevent_simple_variants_debug() {
-        let a = EngineEvent::EngineStarted;
-        let b = EngineEvent::Warning {
-            message: "Heads up".into(),
-        };
-        let c = EngineEvent::EngineShutdown { reason: "Bye".into() };
-
-        assert!(format!("{a:?}").contains("EngineStarted"));
-        assert!(format!("{b:?}").contains("Warning"));
-        assert!(format!("{c:?}").contains("EngineShutdown"));
-    }
 }

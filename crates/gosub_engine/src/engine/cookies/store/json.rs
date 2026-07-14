@@ -230,9 +230,7 @@ mod tests {
     fn mk_headers(set_cookie_lines: &[&str]) -> HeaderMap {
         let mut h = HeaderMap::new();
         for sc in set_cookie_lines {
-            // multiple Set-Cookie lines are allowed by repeated headers;
-            // but HeaderMap overwrites by default; if your jar’s API accepts a single combined header
-            // you can join them. For this smoke test, one is enough.
+            // `append` keeps repeated Set-Cookie headers as separate values.
             h.append(http::header::SET_COOKIE, (*sc).parse().unwrap());
         }
         h

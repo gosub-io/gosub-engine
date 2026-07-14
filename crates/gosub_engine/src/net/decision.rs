@@ -103,6 +103,7 @@ pub fn decide_handling(
         ResponseClass::Image => HandlingDecision::Render(RenderTarget::ImageDecoder),
         ResponseClass::Js => HandlingDecision::Render(RenderTarget::JsEngine),
         ResponseClass::Css => HandlingDecision::Render(RenderTarget::CssParser),
+        ResponseClass::Font => HandlingDecision::Render(RenderTarget::FontLoader),
         ResponseClass::Pdf => {
             // If we reached here without pdf viewer enabled, download by default.
             HandlingDecision::Download {
@@ -178,6 +179,8 @@ fn class_from_mime(m: &mime::Mime) -> Option<ResponseClass> {
         Some(Js)
     } else if m.type_() == mime::IMAGE {
         Some(Image)
+    } else if m.type_() == mime::FONT {
+        Some(Font)
     } else if mime_is_pdf(m) {
         Some(Pdf)
     } else if m.type_() == mime::APPLICATION && m.subtype() == "json" {

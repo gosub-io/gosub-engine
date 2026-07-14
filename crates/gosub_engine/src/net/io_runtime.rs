@@ -92,8 +92,6 @@ pub struct IoRouter {
     /// Pending UA decisions (render/download/...) keyed by decision token.
     /// Tokens are process-wide unique, so one hub serves all zones.
     decision_hub: Arc<DecisionHub>,
-    // // Send "true" when we want to shut down the IO thread including ALL zone fetchers
-    // io_shutdown_rx: watch::Receiver<bool>,
 }
 
 impl IoRouter {
@@ -306,7 +304,6 @@ mod tests {
         sleep(Duration::from_millis(10)).await;
 
         // Global shutdown should complete promptly
-        // (Assumes IoHandle::shutdown() exists, as in your earlier code.)
         timeout(Duration::from_secs(2), handle.shutdown())
             .await
             .expect("global shutdown timed out");

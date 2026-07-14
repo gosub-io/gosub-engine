@@ -275,7 +275,7 @@ mod tests {
             .default_font_size(18)
             .minimum_font_size(12)
             .enable_local_file_access(true)
-            .partition_policy(PartitionPolicy::TopLevelOrigin) // or whatever variants you have
+            .partition_policy(PartitionPolicy::TopLevelOrigin)
             .build()
             .expect("valid config");
 

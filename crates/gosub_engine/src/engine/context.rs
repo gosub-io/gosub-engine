@@ -1,33 +1,12 @@
 //! Browsing context and tab runtime state.
 //!
-//! This module defines the [`BrowsingContext`] struct, which represents the runtime
-//! state for a single tab, including its storage, rendering, and loading state. It
-//! provides methods for loading URLs, binding storage, and managing the tab's state.
+//! This module defines the [`BrowsingContext`] struct: the runtime state for a single
+//! tab's document and rendering — the parsed DOM, viewport, dirty-flag tracking, storage
+//! handles, and the pipeline caches (tiles, render list, GPU scene) built from them.
 //!
-//! # Overview
-//!
-//! The `BrowsingContext` is responsible for handling all aspects of a tab's state in
-//! the browser engine. This includes managing the raw HTML content, the rendering
-//! process, the viewport settings, and the storage for local and session data. It
-//! also handles loading new content from URLs and updating the tab's state
-//! accordingly.
-//!
-//! # Usage
-//!
-//! To use a `BrowsingContext`, you typically create a new instance, configure it as
-//! needed (e.g., set the viewport, bind storage), and then load a URL. After loading,
-//! you can access the rendered content and other state information. The context also
-//! provides mechanisms to handle navigation events, such as redirects or loading
-//! errors.
-//!
-//! # Structs
-//!
-//! - [`BrowsingContext`]: The main struct representing the browsing context for a tab.
-//!
-//! # Errors
-//!
-//! - [`LoadError`]: Represents errors that can occur while loading content, such as
-//!   navigation cancellations or network errors.
+//! Loading itself lives in the tab worker; the worker hands a parsed document to the
+//! context via `set_document`, after which the context rebuilds whichever render
+//! representation the active backend consumes.
 
 use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::EngineDocument;
@@ -35,7 +14,6 @@ use gosub_config::{Config, HasConfig};
 use gosub_render_pipeline::rasterizer::{RasterStrategy, Rasterable};
 use gosub_render_pipeline::render::{Color, DisplayItem, RenderContext, RenderList, Viewport};
 use std::sync::Arc;
-use url::Url;
 
 use crate::html::RenderConfiguration;
 use gosub_interface::css3::{CssSystem, HoverFingerprints};
@@ -81,14 +59,6 @@ fn hover_matches<C: RenderConfiguration>(fp: &HoverFingerprints, doc: &EngineDoc
     }
     false
 }
-// #[derive(Debug, thiserror::Error)]
-// pub enum LoadError {
-//     #[error("navigation cancelled")]
-//     Cancelled,
-//     #[error(transparent)]
-//     Net(#[from] reqwest::Error),
-// }
-
 /// A single rasterized tile with its page-coordinate position, ready to blit.
 struct BakedTile {
     page_x: f64,
@@ -138,17 +108,8 @@ struct PipelineCache {
 /// has one BrowsingContext. These contexts though can use shared processes or threads, but not
 /// from other contexts, only from the main engine.
 pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
-    // /// Is there anything that needs to be rendered or redrawn?
-    // dirty: DirtyFlags,
-    /// Current URL being processed
-    current_url: Option<Url>,
     /// Parsed DOM document
     document: Option<Arc<EngineDocument<C>>>,
-    /// True when the tab has failed loading (mostly net issues)
-    failed: bool,
-
-    // Tokio runtime for async operations
-    // runtime: Arc<Runtime>,
     /// Storage handles for local and session storage
     storage: Option<StorageHandles>,
 
@@ -217,9 +178,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Creates a new runtime browsing context, sharing the given per-engine settings store.
     pub(crate) fn new(config_store: Config) -> BrowsingContext<C> {
         Self {
-            current_url: None,
             document: None,
-            failed: false,
             storage: None,
             render_list: RenderList::new(),
             render_dirty: false,
@@ -711,16 +670,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     #[inline]
     pub fn render_list(&self) -> &RenderList {
         &self.render_list
-    }
-
-    /// Returns true when the loading failed
-    pub fn has_failed(&self) -> bool {
-        self.failed
-    }
-
-    /// Returns the current loaded the tab (or None when nothing has loaded yet)
-    pub fn current_url(&self) -> Option<&Url> {
-        self.current_url.as_ref()
     }
 }
 

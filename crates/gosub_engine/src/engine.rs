@@ -15,7 +15,6 @@ pub mod tab;
 pub mod zone;
 
 pub mod config;
-#[cfg(not(target_arch = "wasm32"))]
 mod policy;
 pub mod settings_store;
 pub mod types;

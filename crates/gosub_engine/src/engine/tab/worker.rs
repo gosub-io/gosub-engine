@@ -13,14 +13,14 @@ use crate::storage::types::compute_partition_key;
 use crate::storage::StorageHandles;
 use crate::tab::scroll::{default_text_scroll, ScrollState};
 use crate::tab::services::EffectiveTabServices;
-use crate::tab::state::{TabActivityMode, TabRuntime, TabState};
+use crate::tab::state::{TabRuntime, TabState};
 use crate::tab::{TabId, TabSink};
 use crate::util::spawn_named;
 use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
 use gosub_render_pipeline::rasterizer::RasterStrategy;
 use gosub_render_pipeline::render::backend::{
-    CompositorSink, ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
+    CompositorSink, ErasedSurface, PresentMode, RenderBackend, SurfaceSize,
 };
 use gosub_render_pipeline::render::Viewport;
 use http::{HeaderMap, Method};
@@ -61,7 +61,6 @@ struct ActiveNav {
 }
 
 struct NavJoin<C: RenderConfiguration> {
-    // nav_id: NavigationId,
     cancel: CancellationToken,
     // Wrapped in Option so the receiver can be extracted into `pending_nav_rx`
     // without dropping the cancel token from self.load.
@@ -89,8 +88,6 @@ pub struct TabWorker<C: RenderConfiguration> {
     pub context: BrowsingContext<C>,
     /// State of the tab (idle, loading, loaded, etc.)
     pub state: TabState,
-    /// Current tab mode (idle, live, background)
-    pub mode: TabActivityMode,
 
     /// Favicon binary data for the current tab
     pub favicon: Vec<u8>,
@@ -107,12 +104,8 @@ pub struct TabWorker<C: RenderConfiguration> {
 
     // ** Backend rendering
 
-    // Thumbnail image of the tab in case the tab is not visible
-    pub thumbnail: Option<RgbaImage>,
     // Surface on which the browsing context can render the tab
     surface: Option<Box<dyn ErasedSurface + Send>>,
-    // // Size of the surface (does not have to match viewport)
-    // surface_size: SurfaceSize,
     // Present mode for the surface?
     present_mode: PresentMode,
     /// The newest viewport requested by the tab, which may differ from the committed one.
@@ -311,14 +304,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             cmd_rx,
             context,
             state: TabState::Idle,
-            mode: TabActivityMode::Active,
             favicon: vec![],
             title: config_store.get_string("useragent.tab.default_title"),
             pending_url: None,
             current_url: None,
             is_loading: false,
             is_error: false,
-            thumbnail: None,
             surface: None,
             present_mode: PresentMode::Fifo,
             desired_viewport: Default::default(),
@@ -849,7 +840,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 enable_sniffing: false,
                 enable_sniffing_navigation_upgrade: false,
                 enable_pdf_viewer: false,
-                render_unknown_text_in_tab: false,
                 allow_download_without_user_activation: false,
             };
 
@@ -1182,11 +1172,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.desired_viewport = vp;
         self.state = TabState::PendingRendering(self.desired_viewport);
         self.runtime.dirty = true;
-    }
-
-    /// Get the current snapshot image of the tab.
-    pub fn thumbnail(&self) -> Option<&RgbaImage> {
-        self.thumbnail.as_ref()
     }
 
     /// Bind local+session storage handles into the underlying browsing context.
