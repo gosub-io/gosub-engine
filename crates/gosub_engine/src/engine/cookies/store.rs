@@ -100,8 +100,11 @@ mod json;
 mod sqlite;
 
 use crate::engine::cookies::cookie_jar::DefaultCookieJar;
-use crate::engine::cookies::cookies::CookieJarHandle;
+use crate::engine::cookies::cookies::{CookieJarHandle, CookieStoreHandle};
+use crate::engine::cookies::persistent_cookie_jar::PersistentCookieJar;
 use crate::engine::zone::ZoneId;
+use parking_lot::RwLock;
+use std::collections::HashMap;
 
 /// In-memory cookie store
 pub use in_memory::InMemoryCookieStore;
@@ -155,4 +158,53 @@ pub trait CookieStore: Send + Sync {
     /// Called during graceful shutdown or at explicit flush points. Implementations
     /// should make a **best-effort** to write all dirty state and avoid panicking.
     fn persist_all(&self);
+}
+
+/// Shared `jar_for` implementation for persisting stores (JSON, SQLite).
+///
+/// Returns the cached jar for `zone_id` when present; otherwise calls `load` for the
+/// zone's persisted state, wraps it in a [`PersistentCookieJar`] bound to `store_self`
+/// (so every mutation writes back to the store), and caches the handle.
+pub(crate) fn provision_persistent_jar(
+    jars: &RwLock<HashMap<ZoneId, CookieJarHandle>>,
+    store_self: &RwLock<Option<CookieStoreHandle>>,
+    zone_id: ZoneId,
+    load: impl FnOnce() -> DefaultCookieJar,
+) -> Option<CookieJarHandle> {
+    if let Some(jar) = jars.read().get(&zone_id) {
+        return Some(jar.clone());
+    }
+
+    let inner: CookieJarHandle = load().into();
+    let store = match store_self.read().as_ref() {
+        Some(store) => store.clone(),
+        None => {
+            log::error!("store_self not initialized; cannot provision cookie jar");
+            return None;
+        }
+    };
+
+    let handle = CookieJarHandle::new(PersistentCookieJar::new(zone_id, inner, store));
+    jars.write().insert(zone_id, handle.clone());
+    Some(handle)
+}
+
+/// Shared `persist_all` snapshot loop for persisting stores (JSON, SQLite).
+///
+/// Calls `save` with a snapshot of every cached jar that is a [`PersistentCookieJar`]
+/// wrapping a [`DefaultCookieJar`] — the only shape these stores mint, and the only one
+/// with a stable serialization.
+pub(crate) fn snapshot_cached_jars(
+    jars: &HashMap<ZoneId, CookieJarHandle>,
+    mut save: impl FnMut(ZoneId, &DefaultCookieJar),
+) {
+    for (zone_id, jar_handle) in jars {
+        let jar = jar_handle.read();
+        if let Some(persist) = jar.as_any().downcast_ref::<PersistentCookieJar>() {
+            let inner = persist.inner.read();
+            if let Some(default) = inner.as_any().downcast_ref::<DefaultCookieJar>() {
+                save(*zone_id, default);
+            }
+        }
+    }
 }

@@ -19,7 +19,8 @@
 //! ### I/O characteristics & caveats
 //! - `persist_zone_from_snapshot` and `remove_zone` **read then rewrite** the entire
 //!   JSON file. For large datasets, consider an SQLite-backed store.
-//! - File writes are not atomic.
+//! - Writes go to a temp file which is then renamed over the target (atomic on
+//!   POSIX filesystems).
 //! - Persistence is best-effort: I/O and serialization errors are logged, never panicked on.
 //!
 //! ### Example
@@ -36,7 +37,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::engine::cookies::cookie_jar::DefaultCookieJar;
-use crate::engine::cookies::persistent_cookie_jar::PersistentCookieJar;
 use crate::engine::cookies::store::CookieStore;
 use crate::engine::cookies::{CookieJarHandle, CookieStoreHandle};
 use crate::engine::zone::ZoneId;
@@ -151,30 +151,9 @@ impl CookieStore for JsonCookieStore {
     /// Always returns `Some(_)` for valid inputs; `None` is reserved for stores
     /// that may intentionally refuse provisioning.
     fn jar_for(&self, zone_id: ZoneId) -> Option<CookieJarHandle> {
-        // Fast path: already in memory
-        if let Some(jar) = self.jars.read().get(&zone_id) {
-            return Some(jar.clone());
-        }
-
-        // load from disk (or empty)
-        let mut file = self.load_file();
-        let jar = file.zones.remove(&zone_id).unwrap_or_default();
-        let arc_jar: CookieJarHandle = jar.into();
-
-        let store = match self.store_self.read().as_ref() {
-            Some(store) => store.clone(),
-            None => {
-                log::error!("store_self not initialized; cannot provision cookie jar");
-                return None;
-            }
-        };
-
-        // Wrap in PersistentCookieJar and then into a CookieJarHandle
-        let persistent = PersistentCookieJar::new(zone_id, arc_jar.clone(), store);
-        let handle = CookieJarHandle::new(persistent);
-
-        self.jars.write().insert(zone_id, handle.clone());
-        Some(handle)
+        crate::cookies::store::provision_persistent_jar(&self.jars, &self.store_self, zone_id, || {
+            self.load_file().zones.remove(&zone_id).unwrap_or_default()
+        })
     }
 
     /// Persists a snapshot of `zone_id`'s jar to disk (best-effort).
@@ -204,15 +183,9 @@ impl CookieStore for JsonCookieStore {
         let jars = self.jars.read();
 
         let mut file = self.load_file();
-        for (zone_id, jar_handle) in jars.iter() {
-            let jar = jar_handle.read();
-            if let Some(persist) = jar.as_any().downcast_ref::<PersistentCookieJar>() {
-                let inner = persist.inner.read();
-                if let Some(default) = inner.as_any().downcast_ref::<DefaultCookieJar>() {
-                    file.zones.insert(*zone_id, default.clone());
-                }
-            }
-        }
+        crate::cookies::store::snapshot_cached_jars(&jars, |zone_id, snapshot| {
+            file.zones.insert(zone_id, snapshot.clone());
+        });
 
         self.save_file(&file);
     }
@@ -221,6 +194,7 @@ impl CookieStore for JsonCookieStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::cookies::persistent_cookie_jar::PersistentCookieJar;
     use http::HeaderMap;
     use std::fs::File;
     use std::io::Read;
