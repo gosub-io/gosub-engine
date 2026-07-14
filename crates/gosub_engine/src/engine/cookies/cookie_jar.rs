@@ -314,158 +314,160 @@ impl CookieJar for DefaultCookieJar {
         for header in headers.get_all("set-cookie") {
             // Use from_utf8 (not to_str) so that non-ASCII cookie values (e.g.
             // UTF-8 encoded characters) are accepted rather than silently dropped.
-            if let Ok(header_str) = std::str::from_utf8(header.as_bytes()) {
-                if let Some((name, rest)) = header_str.split_once('=') {
-                    let cookie_name = name.trim();
-                    // RFC 6265 §5.2: the name-value-pair is the portion before the
-                    // first ';'. If the extracted name is empty or contains ';'
-                    // (which means the ';' appeared before '='), the header is invalid.
-                    if cookie_name.is_empty() || cookie_name.contains(';') {
-                        continue;
-                    }
-                    let mut cookie = Cookie {
-                        name: cookie_name.to_string(),
-                        value: String::new(),
-                        path: None,
-                        domain: None,
-                        secure: false,
-                        expires: None,
-                        same_site: None,
-                        http_only: false,
-                        created_at: 0, // set in the dedup/insert block below
-                    };
+            let Ok(header_str) = std::str::from_utf8(header.as_bytes()) else {
+                continue;
+            };
+            let Some((name, rest)) = header_str.split_once('=') else {
+                continue;
+            };
+            let cookie_name = name.trim();
+            // RFC 6265 §5.2: the name-value-pair is the portion before the
+            // first ';'. If the extracted name is empty or contains ';'
+            // (which means the ';' appeared before '='), the header is invalid.
+            if cookie_name.is_empty() || cookie_name.contains(';') {
+                continue;
+            }
+            let mut cookie = Cookie {
+                name: cookie_name.to_string(),
+                value: String::new(),
+                path: None,
+                domain: None,
+                secure: false,
+                expires: None,
+                same_site: None,
+                http_only: false,
+                created_at: 0, // set in the dedup/insert block below
+            };
 
-                    // Collected during attribute parsing; resolved after the loop.
-                    let mut max_age: Option<i64> = None;
-                    let mut expires_str: Option<String> = None;
-                    let mut domain_rejected = false;
-                    // Separate flag so that an empty value "" doesn't cause the
-                    // next attribute to be mistakenly treated as the value.
-                    let mut value_parsed = false;
+            // Collected during attribute parsing; resolved after the loop.
+            let mut max_age: Option<i64> = None;
+            let mut expires_str: Option<String> = None;
+            let mut domain_rejected = false;
+            // Separate flag so that an empty value "" doesn't cause the
+            // next attribute to be mistakenly treated as the value.
+            let mut value_parsed = false;
 
-                    for part in rest.split(';') {
-                        let part = part.trim();
-                        if !value_parsed {
-                            cookie.value = part.to_string();
-                            value_parsed = true;
-                            continue;
-                        }
-
-                        if let Some((k, v)) = part.split_once('=') {
-                            // Trim the attribute name: "Secure =" is equivalent to "Secure".
-                            match k.trim().cow_to_ascii_lowercase().as_ref() {
-                                "path" => {
-                                    // Strip surrounding double-quotes — browsers tolerate
-                                    // quoted path values and the semicolon delimiter inside
-                                    // them splits the raw header, leaving a stray leading '"'.
-                                    let p = v.trim().trim_matches('"');
-                                    if p.starts_with('/') {
-                                        cookie.path = Some(p.to_string());
-                                    } else {
-                                        cookie.path = Some(v.trim().to_string());
-                                    }
-                                }
-                                "domain" => {
-                                    // Strip leading dot, then normalise to lowercase (RFC 4343).
-                                    let d = v.trim().trim_start_matches('.').cow_to_ascii_lowercase();
-                                    if is_valid_cookie_domain(request_host, &d) {
-                                        cookie.domain = Some(d.into_owned());
-                                    } else {
-                                        domain_rejected = true;
-                                    }
-                                }
-                                "expires" => expires_str = Some(v.to_string()),
-                                "max-age" => max_age = v.trim().parse::<i64>().ok(),
-                                "samesite" => {
-                                    let val = v.trim();
-                                    if val.eq_ignore_ascii_case("lax") {
-                                        cookie.same_site = Some("Lax".to_string());
-                                    } else if val.eq_ignore_ascii_case("strict") {
-                                        cookie.same_site = Some("Strict".to_string());
-                                    } else if val.eq_ignore_ascii_case("none") {
-                                        cookie.same_site = Some("None".to_string());
-                                    } else {
-                                        cookie.same_site = Some(val.to_string());
-                                    }
-                                }
-                                // "Secure=anything" and "HttpOnly=anything" are treated
-                                // as the bare flag form (browsers are lenient here).
-                                "secure" => cookie.secure = true,
-                                "httponly" => cookie.http_only = true,
-                                _ => {}
-                            }
-                        } else if part.eq_ignore_ascii_case("secure") {
-                            cookie.secure = true;
-                        } else if part.eq_ignore_ascii_case("httponly") {
-                            cookie.http_only = true;
-                        }
-                    }
-
-                    if cookie.path.is_none() {
-                        cookie.path = Some(default_path.to_string());
-                    }
-
-                    // Drop the cookie if the Domain attribute failed validation (RFC 6265 §5.3).
-                    if domain_rejected {
-                        continue;
-                    }
-
-                    // Reject Secure cookies over plain HTTP (RFC 6265bis §4.1.2.1).
-                    // Only HTTPS responses may set cookies with the Secure attribute.
-                    if cookie.secure && url.scheme() != "https" {
-                        continue;
-                    }
-
-                    // Enforce cookie name prefixes (RFC 6265bis §4.1.3).
-                    //
-                    // __Secure-: cookie must have the Secure attribute.
-                    if cookie.name.starts_with("__Secure-") && !cookie.secure {
-                        continue;
-                    }
-                    // __Host-: cookie must have Secure, no Domain attribute, and Path=/.
-                    if cookie.name.starts_with("__Host-")
-                        && (!cookie.secure || cookie.domain.is_some() || cookie.path.as_deref() != Some("/"))
-                    {
-                        continue;
-                    }
-
-                    // Resolve expiry: Max-Age takes precedence over Expires (RFC 6265 §5.2).
-                    let now = Utc::now().timestamp();
-                    cookie.expires = if let Some(ma) = max_age {
-                        if ma <= 0 {
-                            // Max-Age=0 (or negative) means delete the cookie immediately.
-                            bucket.retain(|c| c.name != cookie.name);
-                            continue;
-                        }
-                        Some(now + ma)
-                    } else {
-                        expires_str.as_deref().and_then(parse_http_date)
-                    };
-
-                    // In SameSiteNoneOnly mode, drop third-party cookies that don't
-                    // carry SameSite=None; Secure.
-                    if is_third_party
-                        && self.third_party_policy == ThirdPartyCookiePolicy::SameSiteNoneOnly
-                        && !(matches!(cookie.same_site.as_deref(), Some("None")) && cookie.secure)
-                    {
-                        continue;
-                    }
-
-                    // Cookies are unique by (name, domain, path) — RFC 6265bis §5.6.
-                    // On update, preserve the original creation time so path-based ordering
-                    // (RFC 6265bis §5.5) reflects when the cookie was *first* set.
-                    if let Some(existing) = bucket
-                        .iter_mut()
-                        .find(|c| c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path)
-                    {
-                        let original_created_at = existing.created_at;
-                        *existing = cookie;
-                        existing.created_at = original_created_at;
-                    } else {
-                        cookie.created_at = Utc::now().timestamp_millis();
-                        bucket.push(cookie);
-                    }
+            for part in rest.split(';') {
+                let part = part.trim();
+                if !value_parsed {
+                    cookie.value = part.to_string();
+                    value_parsed = true;
+                    continue;
                 }
+
+                if let Some((k, v)) = part.split_once('=') {
+                    // Trim the attribute name: "Secure =" is equivalent to "Secure".
+                    match k.trim().cow_to_ascii_lowercase().as_ref() {
+                        "path" => {
+                            // Strip surrounding double-quotes — browsers tolerate
+                            // quoted path values and the semicolon delimiter inside
+                            // them splits the raw header, leaving a stray leading '"'.
+                            let p = v.trim().trim_matches('"');
+                            if p.starts_with('/') {
+                                cookie.path = Some(p.to_string());
+                            } else {
+                                cookie.path = Some(v.trim().to_string());
+                            }
+                        }
+                        "domain" => {
+                            // Strip leading dot, then normalise to lowercase (RFC 4343).
+                            let d = v.trim().trim_start_matches('.').cow_to_ascii_lowercase();
+                            if is_valid_cookie_domain(request_host, &d) {
+                                cookie.domain = Some(d.into_owned());
+                            } else {
+                                domain_rejected = true;
+                            }
+                        }
+                        "expires" => expires_str = Some(v.to_string()),
+                        "max-age" => max_age = v.trim().parse::<i64>().ok(),
+                        "samesite" => {
+                            let val = v.trim();
+                            if val.eq_ignore_ascii_case("lax") {
+                                cookie.same_site = Some("Lax".to_string());
+                            } else if val.eq_ignore_ascii_case("strict") {
+                                cookie.same_site = Some("Strict".to_string());
+                            } else if val.eq_ignore_ascii_case("none") {
+                                cookie.same_site = Some("None".to_string());
+                            } else {
+                                cookie.same_site = Some(val.to_string());
+                            }
+                        }
+                        // "Secure=anything" and "HttpOnly=anything" are treated
+                        // as the bare flag form (browsers are lenient here).
+                        "secure" => cookie.secure = true,
+                        "httponly" => cookie.http_only = true,
+                        _ => {}
+                    }
+                } else if part.eq_ignore_ascii_case("secure") {
+                    cookie.secure = true;
+                } else if part.eq_ignore_ascii_case("httponly") {
+                    cookie.http_only = true;
+                }
+            }
+
+            if cookie.path.is_none() {
+                cookie.path = Some(default_path.to_string());
+            }
+
+            // Drop the cookie if the Domain attribute failed validation (RFC 6265 §5.3).
+            if domain_rejected {
+                continue;
+            }
+
+            // Reject Secure cookies over plain HTTP (RFC 6265bis §4.1.2.1).
+            // Only HTTPS responses may set cookies with the Secure attribute.
+            if cookie.secure && url.scheme() != "https" {
+                continue;
+            }
+
+            // Enforce cookie name prefixes (RFC 6265bis §4.1.3).
+            //
+            // __Secure-: cookie must have the Secure attribute.
+            if cookie.name.starts_with("__Secure-") && !cookie.secure {
+                continue;
+            }
+            // __Host-: cookie must have Secure, no Domain attribute, and Path=/.
+            if cookie.name.starts_with("__Host-")
+                && (!cookie.secure || cookie.domain.is_some() || cookie.path.as_deref() != Some("/"))
+            {
+                continue;
+            }
+
+            // Resolve expiry: Max-Age takes precedence over Expires (RFC 6265 §5.2).
+            let now = Utc::now().timestamp();
+            cookie.expires = if let Some(ma) = max_age {
+                if ma <= 0 {
+                    // Max-Age=0 (or negative) means delete the cookie immediately.
+                    bucket.retain(|c| c.name != cookie.name);
+                    continue;
+                }
+                Some(now + ma)
+            } else {
+                expires_str.as_deref().and_then(parse_http_date)
+            };
+
+            // In SameSiteNoneOnly mode, drop third-party cookies that don't
+            // carry SameSite=None; Secure.
+            if is_third_party
+                && self.third_party_policy == ThirdPartyCookiePolicy::SameSiteNoneOnly
+                && !(matches!(cookie.same_site.as_deref(), Some("None")) && cookie.secure)
+            {
+                continue;
+            }
+
+            // Cookies are unique by (name, domain, path) — RFC 6265bis §5.6.
+            // On update, preserve the original creation time so path-based ordering
+            // (RFC 6265bis §5.5) reflects when the cookie was *first* set.
+            if let Some(existing) = bucket
+                .iter_mut()
+                .find(|c| c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path)
+            {
+                let original_created_at = existing.created_at;
+                *existing = cookie;
+                existing.created_at = original_created_at;
+            } else {
+                cookie.created_at = Utc::now().timestamp_millis();
+                bucket.push(cookie);
             }
         }
     }

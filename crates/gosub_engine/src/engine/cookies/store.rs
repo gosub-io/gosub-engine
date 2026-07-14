@@ -224,11 +224,13 @@ pub(crate) fn snapshot_cached_jars(
 ) {
     for (zone_id, jar_handle) in jars {
         let jar = jar_handle.read();
-        if let Some(persist) = jar.as_any().downcast_ref::<PersistentCookieJar>() {
-            let inner = persist.inner.read();
-            if let Some(default) = inner.as_any().downcast_ref::<DefaultCookieJar>() {
-                save(*zone_id, default);
-            }
-        }
+        let Some(persist) = jar.as_any().downcast_ref::<PersistentCookieJar>() else {
+            continue;
+        };
+        let inner = persist.inner.read();
+        let Some(default) = inner.as_any().downcast_ref::<DefaultCookieJar>() else {
+            continue;
+        };
+        save(*zone_id, default);
     }
 }

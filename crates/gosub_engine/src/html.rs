@@ -102,29 +102,35 @@ pub fn document_title<C: RenderConfiguration>(doc: &EngineDocument<C>) -> Option
 
 fn find_title<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) -> Option<String> {
     for &child in doc.children(node_id) {
-        if doc.node_type(child) == NodeType::ElementNode {
-            if doc
-                .tag_name(child)
-                .map(|t| t.eq_ignore_ascii_case("title"))
-                .unwrap_or(false)
-            {
-                // Collect text from title's children
-                let mut text = String::new();
-                for &t in doc.children(child) {
-                    if doc.node_type(t) == NodeType::TextNode {
-                        if let Some(v) = doc.text_value(t) {
-                            text.push_str(v);
-                        }
-                    }
-                }
-                let trimmed = text.trim().to_string();
-                if !trimmed.is_empty() {
-                    return Some(trimmed);
-                }
-            } else if let Some(found) = find_title(doc, child) {
+        if doc.node_type(child) != NodeType::ElementNode {
+            continue;
+        }
+
+        let is_title = doc
+            .tag_name(child)
+            .is_some_and(|t| t.eq_ignore_ascii_case("title"));
+        if !is_title {
+            if let Some(found) = find_title(doc, child) {
                 return Some(found);
             }
+            continue;
         }
+
+        // Collect text from title's children
+        let mut text = String::new();
+        for &t in doc.children(child) {
+            if doc.node_type(t) != NodeType::TextNode {
+                continue;
+            }
+            if let Some(v) = doc.text_value(t) {
+                text.push_str(v);
+            }
+        }
+        let trimmed = text.trim().to_string();
+        if !trimmed.is_empty() {
+            return Some(trimmed);
+        }
+        // Empty <title>: keep scanning siblings (an empty title is not recursed into).
     }
     None
 }

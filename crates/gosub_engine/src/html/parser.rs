@@ -186,21 +186,23 @@ fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
 
     // Stylesheets
     for cap in RE_LINK_STYLESHEET.captures_iter(html) {
-        if let Some(m) = cap.name("href") {
-            if let Ok(u) = resolve(base, unquote(m.as_str())) {
-                out.push(ResourceHint {
-                    url: u,
-                    dest: RequestDestination::Document,
-                    referrer: None,
-                    cross_origin: false,
-                    integrity: None,
-                    kind: ResourceKind::Stylesheet,
-                    rel: Some("stylesheet".to_string()),
-                    from_attr: "href",
-                    priority: Priority::High,
-                });
-            }
-        }
+        let Some(m) = cap.name("href") else {
+            continue;
+        };
+        let Ok(u) = resolve(base, unquote(m.as_str())) else {
+            continue;
+        };
+        out.push(ResourceHint {
+            url: u,
+            dest: RequestDestination::Document,
+            referrer: None,
+            cross_origin: false,
+            integrity: None,
+            kind: ResourceKind::Stylesheet,
+            rel: Some("stylesheet".to_string()),
+            from_attr: "href",
+            priority: Priority::High,
+        });
     }
 
     // Scripts
@@ -209,40 +211,44 @@ fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
         let tag_lower = tag.cow_to_ascii_lowercase();
         // A script is blocking unless it has async or defer attributes
         let blocking = !RE_ASYNC_ATTR.is_match(tag_lower.as_ref()) && !RE_DEFER_ATTR.is_match(tag_lower.as_ref());
-        if let Some(m) = cap.name("src") {
-            if let Ok(u) = resolve(base, unquote(m.as_str())) {
-                out.push(ResourceHint {
-                    url: u,
-                    kind: ResourceKind::Script { blocking },
-                    rel: None,
-                    from_attr: "src",
-                    dest: RequestDestination::Script,
-                    referrer: None,
-                    cross_origin: false,
-                    integrity: None,
-                    priority: Priority::Normal,
-                });
-            }
-        }
+        let Some(m) = cap.name("src") else {
+            continue;
+        };
+        let Ok(u) = resolve(base, unquote(m.as_str())) else {
+            continue;
+        };
+        out.push(ResourceHint {
+            url: u,
+            kind: ResourceKind::Script { blocking },
+            rel: None,
+            from_attr: "src",
+            dest: RequestDestination::Script,
+            referrer: None,
+            cross_origin: false,
+            integrity: None,
+            priority: Priority::Normal,
+        });
     }
 
     // Images
     for cap in RE_IMG_SRC.captures_iter(html) {
-        if let Some(m) = cap.name("src") {
-            if let Ok(u) = resolve(base, unquote(m.as_str())) {
-                out.push(ResourceHint {
-                    url: u,
-                    kind: ResourceKind::Image,
-                    rel: None,
-                    from_attr: "src",
-                    dest: RequestDestination::Image,
-                    referrer: None,
-                    cross_origin: false,
-                    integrity: None,
-                    priority: Priority::Low,
-                });
-            }
-        }
+        let Some(m) = cap.name("src") else {
+            continue;
+        };
+        let Ok(u) = resolve(base, unquote(m.as_str())) else {
+            continue;
+        };
+        out.push(ResourceHint {
+            url: u,
+            kind: ResourceKind::Image,
+            rel: None,
+            from_attr: "src",
+            dest: RequestDestination::Image,
+            referrer: None,
+            cross_origin: false,
+            integrity: None,
+            priority: Priority::Low,
+        });
     }
 
     out

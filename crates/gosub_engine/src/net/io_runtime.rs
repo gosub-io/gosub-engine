@@ -146,18 +146,18 @@ impl IoRouter {
     )]
     pub async fn shutdown_zone(&self, zone_id: ZoneId) -> bool {
         log::trace!("removing zone fetcher");
-        if let Some((_, entry)) = self.zones.remove(&zone_id) {
-            // Shutdown the fetcher
-            log::trace!("signal: shutdown to zone fetcher");
-            entry.shutdown.cancel();
-            // Wait for it to finish
-            log::trace!("await: zone fetcher join");
-            let _ = entry.join.await;
+        let Some((_, entry)) = self.zones.remove(&zone_id) else {
+            return false;
+        };
 
-            true
-        } else {
-            false
-        }
+        // Shutdown the fetcher
+        log::trace!("signal: shutdown to zone fetcher");
+        entry.shutdown.cancel();
+        // Wait for it to finish
+        log::trace!("await: zone fetcher join");
+        let _ = entry.join.await;
+
+        true
     }
 
     /// Shutdown the IO thread

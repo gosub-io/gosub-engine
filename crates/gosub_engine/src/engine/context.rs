@@ -223,14 +223,15 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Update the viewport SIZE. Only triggers a full re-layout when width or height changes.
     /// Scroll offset is managed separately via `set_scroll`.
     pub fn set_viewport(&mut self, vp: Viewport) {
-        if self.viewport.width != vp.width || self.viewport.height != vp.height {
-            self.viewport.width = vp.width;
-            self.viewport.height = vp.height;
-            self.layout_dirty = true;
-            self.invalidate_render();
-            self.pipeline_cache = None;
-            self.scene_cache = None;
+        if self.viewport.width == vp.width && self.viewport.height == vp.height {
+            return;
         }
+        self.viewport.width = vp.width;
+        self.viewport.height = vp.height;
+        self.layout_dirty = true;
+        self.invalidate_render();
+        self.pipeline_cache = None;
+        self.scene_cache = None;
     }
 
     /// Update the scroll offset without triggering a full re-layout.
@@ -838,12 +839,14 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     for &layer_id in &layer_ids {
         let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
         for tile_id in tile_ids {
-            if let Some(tile) = tile_list.get_tile_mut(tile_id) {
-                if tile.state == TileState::Dirty {
-                    for tiled_element in &mut tile.elements {
-                        tiled_element.paint_commands = painter.paint(tiled_element, &paint_state);
-                    }
-                }
+            let Some(tile) = tile_list.get_tile_mut(tile_id) else {
+                continue;
+            };
+            if tile.state != TileState::Dirty {
+                continue;
+            }
+            for tiled_element in &mut tile.elements {
+                tiled_element.paint_commands = painter.paint(tiled_element, &paint_state);
             }
         }
     }
@@ -966,17 +969,18 @@ fn pipeline_hover_repaint(
                 && tile_rect.x + tile_rect.width > hover_rect.x
                 && tile_rect.y < hover_rect.y + hover_rect.height
                 && tile_rect.y + tile_rect.height > hover_rect.y;
-            if !overlaps {
-                tile.state = TileState::Clean;
-                let key = (tile_rect.x.to_bits(), tile_rect.y.to_bits(), tile.layer_id.as_u64());
-                if let Some(baked) = prev_by_pos.remove(&key) {
-                    clean_baked.push(baked);
-                }
-            } else {
+            if overlaps {
                 // Invalidate cached styles only for the hover-chain nodes (old + new ancestors).
                 // Non-hover elements in this tile keep their cached CSS — only the nodes that
                 // actually gained or lost :hover need re-evaluation.
                 doc.invalidate_style_for_nodes(hover_dirty_nodes);
+                continue;
+            }
+
+            tile.state = TileState::Clean;
+            let key = (tile_rect.x.to_bits(), tile_rect.y.to_bits(), tile.layer_id.as_u64());
+            if let Some(baked) = prev_by_pos.remove(&key) {
+                clean_baked.push(baked);
             }
         }
     } else {
@@ -1012,12 +1016,14 @@ fn pipeline_hover_repaint(
     for &layer_id in &layer_ids {
         let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
         for tile_id in tile_ids {
-            if let Some(tile) = tile_list.get_tile_mut(tile_id) {
-                if tile.state == TileState::Dirty {
-                    for tiled_element in &mut tile.elements {
-                        tiled_element.paint_commands = painter.paint(tiled_element, &paint_state);
-                    }
-                }
+            let Some(tile) = tile_list.get_tile_mut(tile_id) else {
+                continue;
+            };
+            if tile.state != TileState::Dirty {
+                continue;
+            }
+            for tiled_element in &mut tile.elements {
+                tiled_element.paint_commands = painter.paint(tiled_element, &paint_state);
             }
         }
     }
@@ -1077,11 +1083,12 @@ fn order_baked_tiles_by_layer(
     let mut ordered = Vec::with_capacity(by_key.len());
     for &layer_id in layer_ids {
         for tile_id in tile_list.get_intersecting_tiles(layer_id, full_page_rect) {
-            if let Some(tile) = tile_list.arena.get(&tile_id) {
-                let key = (tile.rect.x.to_bits(), tile.rect.y.to_bits(), tile.layer_id.as_u64());
-                if let Some(t) = by_key.remove(&key) {
-                    ordered.push(t);
-                }
+            let Some(tile) = tile_list.arena.get(&tile_id) else {
+                continue;
+            };
+            let key = (tile.rect.x.to_bits(), tile.rect.y.to_bits(), tile.layer_id.as_u64());
+            if let Some(t) = by_key.remove(&key) {
+                ordered.push(t);
             }
         }
     }
@@ -1108,17 +1115,18 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
 
         // The display-list (null/CPU) compositor only handles CPU pixels; GPU-resident tiles are
         // composited by the backend's `composite_tiles` step instead.
-        if let TilePixels::Cpu(data) = &tile.pixels {
-            rl.items.push(DisplayItem::Blit {
-                x: ex as f32,
-                y: ey as f32,
-                w: tile.width,
-                h: tile.height,
-                data: data.clone(),
-                format: tile.format,
-                opacity: tile.opacity,
-            });
-        }
+        let TilePixels::Cpu(data) = &tile.pixels else {
+            continue;
+        };
+        rl.items.push(DisplayItem::Blit {
+            x: ex as f32,
+            y: ey as f32,
+            w: tile.width,
+            h: tile.height,
+            data: data.clone(),
+            format: tile.format,
+            opacity: tile.opacity,
+        });
     }
 
     timing_stop!(ts7);

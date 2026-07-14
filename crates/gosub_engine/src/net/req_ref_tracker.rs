@@ -135,32 +135,35 @@ impl RequestRefTracker {
     }
 
     pub fn dec_and_maybe_cleanup(&self, r: &RequestReference, map: &Arc<RwLock<RequestReferenceMap>>) {
-        if let Some(entry) = self.inner.get(r) {
-            // fetch_sub returns the value *before* the decrement.
-            let prev = entry.0.fetch_sub(1, Ordering::Relaxed);
-            let fin = entry.1.load(Ordering::Relaxed);
-            drop(entry);
+        let Some(entry) = self.inner.get(r) else {
+            return;
+        };
+        // fetch_sub returns the value *before* the decrement.
+        let prev = entry.0.fetch_sub(1, Ordering::Relaxed);
+        let fin = entry.1.load(Ordering::Relaxed);
+        // Release the DashMap read guard before removing, or `remove` deadlocks.
+        drop(entry);
 
-            if prev <= 1 && fin {
-                map.write().remove(r);
-                self.inner.remove(r);
-            }
+        if prev <= 1 && fin {
+            map.write().remove(r);
+            self.inner.remove(r);
         }
     }
 
     pub fn finalize(&self, r: &RequestReference, map: &Arc<RwLock<RequestReferenceMap>>) {
-        if let Some(entry) = self.inner.get(r) {
-            entry.1.store(true, Ordering::Relaxed);
-
-            let now = entry.0.load(Ordering::Relaxed);
-            drop(entry);
-
-            if now == 0 {
-                map.write().remove(r);
-                self.inner.remove(r);
-            }
-        } else {
+        let Some(entry) = self.inner.get(r) else {
             map.write().remove(r);
+            return;
+        };
+        entry.1.store(true, Ordering::Relaxed);
+
+        let now = entry.0.load(Ordering::Relaxed);
+        // Release the DashMap read guard before removing, or `remove` deadlocks.
+        drop(entry);
+
+        if now == 0 {
+            map.write().remove(r);
+            self.inner.remove(r);
         }
     }
 }
