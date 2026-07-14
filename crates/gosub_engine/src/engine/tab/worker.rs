@@ -788,6 +788,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let event_tx = self.zone_context.event_tx.clone();
         let cookie_jar = self.services.cookie_jar.clone();
         let accept_language = self.services.accept_language.clone();
+        let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
 
         let span = tracing::info_span!(
             "tab_nav",
@@ -852,7 +853,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 allow_download_without_user_activation: false,
             };
 
-            let mut hooks = ResourcePipelines::<C>::new(zone_id, io_tx.clone(), accept_language.clone());
+            let mut hooks =
+                ResourcePipelines::<C>::new(zone_id, io_tx.clone(), accept_language.clone(), max_document_bytes);
 
             let outcome = route_response_for(
                 RequestDestination::Document,

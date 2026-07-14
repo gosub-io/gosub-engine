@@ -38,7 +38,7 @@ pub struct ResourceHint {
     pub priority: Priority,
 }
 
-/// Error type for this dummy parser.
+/// Errors from buffering and parsing a main document stream.
 #[derive(thiserror::Error, Debug)]
 pub enum DocumentError {
     /// I/O error while reading the document stream.
@@ -54,16 +54,20 @@ pub enum DocumentError {
     Cancelled,
 }
 
-/// Configuration of the dummy HTML5 parser.
+/// Configuration for parsing a main document (see [`parse_main_document_stream`]).
 #[derive(Debug, Clone)]
-pub struct DummyHtml5Config {
-    /// Max bytes to buffer from the stream. We read the entire stream up to this limit.
+pub struct HtmlParseConfig {
+    /// Max bytes to buffer from the stream; a larger document is truncated (with a warning).
+    /// The engine reads this from the `net.document.max_bytes` setting.
     pub max_bytes: usize,
 }
 
-impl Default for DummyHtml5Config {
+impl Default for HtmlParseConfig {
     fn default() -> Self {
-        Self { max_bytes: 1024 * 1024 } // 1 MiB
+        // Matches the `net.document.max_bytes` schema default.
+        Self {
+            max_bytes: 10 * 1024 * 1024,
+        }
     }
 }
 
@@ -79,7 +83,7 @@ pub async fn parse_main_document_stream<C, R, F>(
     base_url: Url,
     mut reader: R,
     cancel: CancellationToken,
-    cfg: DummyHtml5Config,
+    cfg: HtmlParseConfig,
     mut on_discover: F,
 ) -> Result<EngineDocument<C>, DocumentError>
 where
@@ -108,6 +112,10 @@ where
         // If we hit the cap, we still drain the stream to EOF quickly
         // to avoid keeping the connection open unnecessarily.
         if buf.len() >= cfg.max_bytes {
+            log::warn!(
+                "Document {base_url} exceeds the {} byte limit (net.document.max_bytes); parsing truncated content",
+                cfg.max_bytes
+            );
             // Drain (non-blocking-ish) without growing memory
             // We don't strictly need to, but it's polite to the transport.
             let mut drain = [0u8; 16 * 1024];
@@ -300,7 +308,7 @@ mod tests {
             base.clone(),
             reader_from_str(html),
             cancel,
-            DummyHtml5Config::default(),
+            HtmlParseConfig::default(),
             |h| hints.push(h),
         )
         .await
@@ -334,7 +342,7 @@ mod tests {
             base,
             reader,
             cancel,
-            DummyHtml5Config::default(),
+            HtmlParseConfig::default(),
             |_h| {},
         )
         .await;
@@ -349,7 +357,7 @@ mod tests {
     async fn truncates_at_max_bytes() {
         let base = Url::parse("https://e.test/").unwrap();
         let big = "A".repeat(150_000); // 150 KiB
-        let cfg = DummyHtml5Config { max_bytes: 64 * 1024 }; // 64 KiB
+        let cfg = HtmlParseConfig { max_bytes: 64 * 1024 }; // 64 KiB
 
         // Just verify truncated input still produces a valid document (no panic).
         parse_main_document_stream::<DefaultRenderConfig, _, _>(

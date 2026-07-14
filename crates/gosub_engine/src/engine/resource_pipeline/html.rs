@@ -42,14 +42,17 @@ pub struct HtmlPipelineImpl {
     zone_id: ZoneId,
     /// `Accept-Language` header value sent with discovered subresource requests.
     accept_language: Option<String>,
+    /// Max document size in bytes (`net.document.max_bytes`); larger documents are truncated.
+    max_document_bytes: usize,
 }
 
 impl HtmlPipelineImpl {
-    pub fn new(zone_id: ZoneId, io_tx: IoChannel, accept_language: Option<String>) -> Self {
+    pub fn new(zone_id: ZoneId, io_tx: IoChannel, accept_language: Option<String>, max_document_bytes: usize) -> Self {
         Self {
             io_tx,
             zone_id,
             accept_language,
+            max_document_bytes,
         }
     }
 
@@ -64,7 +67,9 @@ impl HtmlPipelineImpl {
         C: RenderConfiguration,
         R: AsyncRead + Unpin + Send + 'static,
     {
-        let cfg = crate::html::DummyHtml5Config::default();
+        let cfg = crate::html::HtmlParseConfig {
+            max_bytes: self.max_document_bytes,
+        };
 
         let io_tx = self.io_tx.clone();
         let zone_id = self.zone_id;
@@ -281,7 +286,7 @@ mod tests {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx, None);
+        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx, None, 10 * 1024 * 1024);
 
         let (req, handle) = test_request("https://example.com/path/index.html");
         let meta = test_meta("https://example.com/path/index.html");
@@ -308,7 +313,7 @@ mod tests {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx, None);
+        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx, None, 10 * 1024 * 1024);
 
         let (req, handle) = test_request("https://example.com/");
         let meta = test_meta("https://example.com/");
