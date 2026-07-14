@@ -319,8 +319,12 @@ impl<C: RenderConfiguration> Zone<C> {
             return Err(EngineError::TabLimitExceeded);
         }
 
-        let tab_services =
-            resolve_tab_services(self.id, &self.context.services, &self.config, &overrides.unwrap_or_default());
+        let tab_services = resolve_tab_services(
+            self.id,
+            &self.context.services,
+            &self.config,
+            &overrides.unwrap_or_default(),
+        );
 
         let (tab_handle, join_handle) =
             create_tab_and_spawn::<C>(self.id, tab_services, self.context.clone()).map_err(EngineError::CreateTab)?;

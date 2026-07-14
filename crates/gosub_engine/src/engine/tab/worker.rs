@@ -19,9 +19,7 @@ use crate::util::spawn_named;
 use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
 use gosub_render_pipeline::rasterizer::RasterStrategy;
-use gosub_render_pipeline::render::backend::{
-    CompositorSink, ErasedSurface, PresentMode, RenderBackend, SurfaceSize,
-};
+use gosub_render_pipeline::render::backend::{CompositorSink, ErasedSurface, PresentMode, RenderBackend, SurfaceSize};
 use gosub_render_pipeline::render::Viewport;
 use http::{HeaderMap, Method};
 use std::sync::Arc;

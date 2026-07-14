@@ -99,10 +99,7 @@ pub enum IoCommand {
     },
     /// Return a decision on a pending request. Tokens are process-wide unique,
     /// so no zone id is needed to route them.
-    Decision {
-        token: DecisionToken,
-        action: Action,
-    },
+    Decision { token: DecisionToken, action: Action },
     /// Ask IO to shut down a specific zone; replies when fully stopped.
     ShutdownZone {
         zone_id: ZoneId,
@@ -635,5 +632,4 @@ mod tests {
             _ => panic!("Unexpected variant"),
         }
     }
-
 }

@@ -56,7 +56,6 @@ pub fn downcast_rasterizer(erased: Box<dyn Any + Send + Sync>) -> Option<Box<dyn
     erased.downcast::<Box<dyn Rasterable + Send + Sync>>().ok().map(|b| *b)
 }
 
-
 // ---------------------------------------------------------------------------
 // Baked tiles + stage-6 rasterization strategies
 //

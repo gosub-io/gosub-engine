@@ -106,9 +106,7 @@ fn find_title<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) 
             continue;
         }
 
-        let is_title = doc
-            .tag_name(child)
-            .is_some_and(|t| t.eq_ignore_ascii_case("title"));
+        let is_title = doc.tag_name(child).is_some_and(|t| t.eq_ignore_ascii_case("title"));
         if !is_title {
             if let Some(found) = find_title(doc, child) {
                 return Some(found);

@@ -20,7 +20,7 @@ use gosub_engine::{
     cookies::DefaultCookieJar,
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::{ZoneConfig, ZoneServices},
-    Action, DefaultRenderConfig, EngineError, EngineConfig, GosubEngine, NavigationId,
+    Action, DefaultRenderConfig, EngineConfig, EngineError, GosubEngine, NavigationId,
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use parking_lot::RwLock;

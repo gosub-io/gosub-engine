@@ -43,7 +43,6 @@ impl SqliteLocalStore {
 
         Ok(Self { pool })
     }
-
 }
 
 impl LocalStore for SqliteLocalStore {

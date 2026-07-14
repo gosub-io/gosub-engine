@@ -104,4 +104,3 @@ pub enum TabStorageScope {
     /// Custom storage service provided by the caller.
     Custom(Arc<StorageService>),
 }
-

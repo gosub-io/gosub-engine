@@ -29,7 +29,7 @@ use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::net::{spawn_io_thread, FetcherConfig, IoHandle};
 use crate::util::spawn_named;
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
-use crate::{EngineError, EngineConfig};
+use crate::{EngineConfig, EngineError};
 use anyhow::Result;
 use gosub_config::Config;
 use parking_lot::{Mutex, RwLock};
@@ -448,7 +448,9 @@ mod tests {
             .unwrap();
         let mut zone = engine.create_zone(Some(zone_cfg), services(), None).expect("zone");
         let tab = zone.create_tab(Default::default(), None).await.expect("tab");
-        tab.navigate(format!("http://127.0.0.1:{port}/")).await.expect("navigate");
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
 
         // Wait for the server to capture the request.
         let mut request = String::new();
@@ -462,7 +464,9 @@ mod tests {
 
         use cow_utils::CowUtils;
         assert!(
-            request.cow_to_ascii_lowercase().contains("accept-language: fr-ch, fr;q=0.9"),
+            request
+                .cow_to_ascii_lowercase()
+                .contains("accept-language: fr-ch, fr;q=0.9"),
             "expected Accept-Language header in request, got:\n{request}"
         );
 
@@ -511,7 +515,9 @@ mod tests {
         assert!(saw_closed, "expected a ZoneClosed event");
 
         // The slot is free again.
-        let zone2 = engine.create_zone(None, services(), None).expect("slot freed after close");
+        let zone2 = engine
+            .create_zone(None, services(), None)
+            .expect("slot freed after close");
 
         // The closed zone's cookies survived on disk (release, not remove).
         let contents = std::fs::read_to_string(&path).unwrap();

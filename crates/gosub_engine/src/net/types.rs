@@ -89,10 +89,9 @@ impl Initiator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    
+
     use bytes::Bytes;
-    
+
     use http::HeaderMap;
     use tokio::io::AsyncReadExt;
     use url::Url;

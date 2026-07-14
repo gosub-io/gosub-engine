@@ -666,7 +666,6 @@ impl<C: RenderConfiguration> RenderContext for BrowsingContext<C> {
     }
 }
 
-
 /// GPU-scene build: stages 1–3 (render tree → layout → layering) plus a paint pass over every
 /// element, producing one ordered paint-command list for the whole page. Skips tiling,
 /// rasterization, and compositing — the backend renders the commands into a GPU texture.
