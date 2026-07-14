@@ -90,6 +90,22 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn text_value(&self, id: NodeId) -> Option<&str>;
     fn set_text_value(&mut self, id: NodeId, value: &str);
 
+    /// Appends `value` to a text node's existing content in place, returning `true` if the
+    /// node was a text node (and `false` otherwise, leaving it untouched). The parser uses
+    /// this to merge adjacent text runs; implementations should append without rebuilding
+    /// the whole string so that repeated appends stay amortized O(total length) rather than
+    /// quadratic. The default falls back to read-and-replace and should be overridden.
+    fn append_text_value(&mut self, id: NodeId, value: &str) -> bool {
+        let Some(existing) = self.text_value(id) else {
+            return false;
+        };
+        let mut combined = String::with_capacity(existing.len() + value.len());
+        combined.push_str(existing);
+        combined.push_str(value);
+        self.set_text_value(id, &combined);
+        true
+    }
+
     fn comment_value(&self, id: NodeId) -> Option<&str>;
 
     fn doctype_name(&self, id: NodeId) -> Option<&str>;

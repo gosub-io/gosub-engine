@@ -148,9 +148,8 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                     }
                     Some(index) => {
                         let last_node_id = children[index - 1];
-                        if self.document.text_value(last_node_id).is_some() {
-                            let cur = self.document.text_value(last_node_id).unwrap_or_default().to_owned();
-                            self.document.set_text_value(last_node_id, &(cur + &token_text(token)));
+                        // Merge into the preceding text node in place if there is one.
+                        if self.document.append_text_value(last_node_id, &token_text(token)) {
                             return;
                         }
                         let node_id = self.create_node(token, HTML_NAMESPACE);
@@ -161,9 +160,8 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             InsertionPositionMode::LastChild { parent_id } => {
                 let last_child_id = self.document.children(parent_id).last().copied();
                 if let Some(last_node_id) = last_child_id {
-                    if self.document.text_value(last_node_id).is_some() {
-                        let cur = self.document.text_value(last_node_id).unwrap_or_default().to_owned();
-                        self.document.set_text_value(last_node_id, &(cur + &token_text(token)));
+                    // Merge into the last text child in place if there is one.
+                    if self.document.append_text_value(last_node_id, &token_text(token)) {
                         return;
                     }
                 }

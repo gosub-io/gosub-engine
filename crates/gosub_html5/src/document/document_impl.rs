@@ -272,6 +272,20 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         }
     }
 
+    fn append_text_value(&mut self, id: NodeId, value: &str) -> bool {
+        let Some(node) = self.arena.node_ref_mut(id) else {
+            return false;
+        };
+        if let NodeDataTypeInternal::Text(ref mut t) = node.data {
+            // In-place append: the backing String grows geometrically, so merging N adjacent
+            // text runs into this node stays amortized O(total length) instead of O(N^2).
+            t.value.push_str(value);
+            true
+        } else {
+            false
+        }
+    }
+
     fn comment_value(&self, id: NodeId) -> Option<&str> {
         match self.arena.node_ref(id)?.data {
             NodeDataTypeInternal::Comment(ref c) => Some(c.value.as_str()),
