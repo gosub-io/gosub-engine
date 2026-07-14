@@ -755,6 +755,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 fetch_headers.insert(http::header::COOKIE, val);
             }
         }
+        if let Some(langs) = &self.services.accept_language {
+            if let Ok(val) = langs.parse() {
+                fetch_headers.insert(http::header::ACCEPT_LANGUAGE, val);
+            }
+        }
 
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Document, Initiator::Navigation);
@@ -779,6 +784,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let io_tx = self.zone_context.io_tx.clone();
         let event_tx = self.zone_context.event_tx.clone();
         let cookie_jar = self.services.cookie_jar.clone();
+        let accept_language = self.services.accept_language.clone();
 
         let span = tracing::info_span!(
             "tab_nav",
@@ -843,7 +849,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 allow_download_without_user_activation: false,
             };
 
-            let mut hooks = ResourcePipelines::<C>::new(zone_id, io_tx.clone());
+            let mut hooks = ResourcePipelines::<C>::new(zone_id, io_tx.clone(), accept_language.clone());
 
             let outcome = route_response_for(
                 RequestDestination::Document,

@@ -11,7 +11,6 @@ mod worker;
 pub use handle::TabHandle;
 pub use tab::*;
 
-pub use options::TabCacheMode;
 pub use options::TabCookieJar;
 pub use options::TabDefaults;
 pub use options::TabOverrides;

@@ -40,11 +40,17 @@ pub trait HtmlPipeline<C: RenderConfiguration> {
 pub struct HtmlPipelineImpl {
     io_tx: IoChannel,
     zone_id: ZoneId,
+    /// `Accept-Language` header value sent with discovered subresource requests.
+    accept_language: Option<String>,
 }
 
 impl HtmlPipelineImpl {
-    pub fn new(zone_id: ZoneId, io_tx: IoChannel) -> Self {
-        Self { io_tx, zone_id }
+    pub fn new(zone_id: ZoneId, io_tx: IoChannel, accept_language: Option<String>) -> Self {
+        Self {
+            io_tx,
+            zone_id,
+            accept_language,
+        }
     }
 
     async fn parse_with_reader<C, R>(
@@ -71,6 +77,13 @@ impl HtmlPipelineImpl {
         let child_handles_for_closure = child_handles.clone();
         let child_tasks_for_closure = child_tasks.clone();
 
+        let mut sub_headers = http::HeaderMap::new();
+        if let Some(langs) = &self.accept_language {
+            if let Ok(val) = langs.parse() {
+                sub_headers.insert(http::header::ACCEPT_LANGUAGE, val);
+            }
+        }
+
         let mut on_discover = |hint: ResourceHint| {
             let sub_req_id = RequestId::new();
             REF_REGISTRY.register_request(sub_req_id, hint.kind, Initiator::Parser);
@@ -80,6 +93,7 @@ impl HtmlPipelineImpl {
                 .with_priority(hint.priority)
                 .with_initiator(Initiator::Parser.to_net())
                 .with_kind(hint.kind.to_net())
+                .with_headers(sub_headers.clone())
                 .with_streaming(true)
                 .with_auto_decode(true)
                 .build();
@@ -267,7 +281,7 @@ mod tests {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx);
+        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx, None);
 
         let (req, handle) = test_request("https://example.com/path/index.html");
         let meta = test_meta("https://example.com/path/index.html");
@@ -294,7 +308,7 @@ mod tests {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx);
+        let mut pipeline = HtmlPipelineImpl::new(zone_id, io_tx, None);
 
         let (req, handle) = test_request("https://example.com/");
         let meta = test_meta("https://example.com/");

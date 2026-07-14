@@ -415,6 +415,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn accept_language_is_sent_with_navigation_requests() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Tiny one-shot HTTP server that captures the request it receives.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let captured = Arc::new(Mutex::new(String::new()));
+        let captured_srv = captured.clone();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 4096];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                *captured_srv.lock() = String::from_utf8_lossy(&buf[..n]).to_string();
+                let body = b"<html><title>hi</title></html>";
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes()).await;
+                let _ = stream.write_all(body).await;
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let _event_rx = engine.subscribe_events();
+        let _join = engine.start().expect("start");
+
+        let zone_cfg = ZoneConfig::builder()
+            .accept_languages("fr-CH, fr;q=0.9")
+            .build()
+            .unwrap();
+        let mut zone = engine.create_zone(Some(zone_cfg), services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/")).await.expect("navigate");
+
+        // Wait for the server to capture the request.
+        let mut request = String::new();
+        for _ in 0..100 {
+            request = captured.lock().clone();
+            if !request.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        use cow_utils::CowUtils;
+        assert!(
+            request.cow_to_ascii_lowercase().contains("accept-language: fr-ch, fr;q=0.9"),
+            "expected Accept-Language header in request, got:\n{request}"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test]
     async fn close_zone_frees_slot_and_releases_cookies() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("cookies.json");

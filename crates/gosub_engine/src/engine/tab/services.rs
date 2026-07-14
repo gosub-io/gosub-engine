@@ -1,7 +1,7 @@
 use crate::cookies::{CookieJarHandle, DefaultCookieJar};
 use crate::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionKey, PartitionPolicy, StorageService};
 use crate::tab::options::{TabCookieJar, TabOverrides, TabStorageScope};
-use crate::zone::{ZoneId, ZoneServices};
+use crate::zone::{ZoneConfig, ZoneId, ZoneServices};
 use std::sync::Arc;
 
 /// The effective services for a tab after applying zone defaults and tab overrides.
@@ -11,10 +11,17 @@ pub struct EffectiveTabServices {
     pub partition_policy: PartitionPolicy,
     pub storage: Arc<StorageService>,
     pub cookie_jar: CookieJarHandle,
+    /// `Accept-Language` header value for this tab's requests, if configured.
+    pub accept_language: Option<String>,
 }
 
-/// Resolve the effective services for a tab based on the zone services and tab overrides.
-pub fn resolve_tab_services(zone_id: ZoneId, services: &ZoneServices, ov: &TabOverrides) -> EffectiveTabServices {
+/// Resolve the effective services for a tab based on the zone services/config and tab overrides.
+pub fn resolve_tab_services(
+    zone_id: ZoneId,
+    services: &ZoneServices,
+    zone_config: &ZoneConfig,
+    ov: &TabOverrides,
+) -> EffectiveTabServices {
     let partition_key = ov
         .partition_key
         .clone()
@@ -49,10 +56,16 @@ pub fn resolve_tab_services(zone_id: ZoneId, services: &ZoneServices, ov: &TabOv
         TabCookieJar::Ephemeral => DefaultCookieJar::new().into(),
     };
 
+    let accept_language = ov
+        .accept_language
+        .clone()
+        .or_else(|| zone_config.accept_languages.clone());
+
     EffectiveTabServices {
         partition_key,
         partition_policy,
         storage,
         cookie_jar,
+        accept_language,
     }
 }

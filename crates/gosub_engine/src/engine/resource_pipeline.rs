@@ -30,9 +30,9 @@ pub struct ResourcePipelines<C: RenderConfiguration> {
 }
 
 impl<C: RenderConfiguration> ResourcePipelines<C> {
-    pub fn new(zone_id: ZoneId, io_tx: IoChannel) -> Self {
+    pub fn new(zone_id: ZoneId, io_tx: IoChannel, accept_language: Option<String>) -> Self {
         Self {
-            html: Box::new(HtmlPipelineImpl::new(zone_id, io_tx)),
+            html: Box::new(HtmlPipelineImpl::new(zone_id, io_tx, accept_language)),
             css: Box::new(CssPipelineImpl {}),
             js: Box::new(JsPipelineImpl {}),
             images: Box::new(ImagePipelineImpl {}),
