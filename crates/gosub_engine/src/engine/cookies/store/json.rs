@@ -166,6 +166,13 @@ impl CookieStore for JsonCookieStore {
         self.save_file(&store_file);
     }
 
+    /// Persists a final snapshot for `zone_id` and evicts its cached jar; on-disk data stays.
+    fn release_zone(&self, zone_id: ZoneId) {
+        if let Some(snapshot) = crate::cookies::store::evict_and_snapshot(&self.jars, zone_id) {
+            self.persist_zone_from_snapshot(zone_id, &snapshot);
+        }
+    }
+
     /// Removes `zone_id` from both the in-memory cache and the on-disk file (best-effort).
     fn remove_zone(&self, zone_id: ZoneId) {
         self.jars.write().remove(&zone_id);

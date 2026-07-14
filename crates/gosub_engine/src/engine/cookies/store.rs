@@ -153,6 +153,15 @@ pub trait CookieStore: Send + Sync {
     /// This operation should be **idempotent** and must not panic.
     fn remove_zone(&self, zone_id: ZoneId);
 
+    /// Releases the in-memory jar for a **closed** zone: persists a final snapshot
+    /// (for persisting stores) and evicts the cache entry, leaving the durable data
+    /// intact so the zone's cookies are available when it is opened again.
+    ///
+    /// Contrast with [`CookieStore::remove_zone`], which *deletes* the persisted data.
+    ///
+    /// This operation should be **idempotent** and must not panic.
+    fn release_zone(&self, zone_id: ZoneId);
+
     /// Persists all known zone jars to durable storage.
     ///
     /// Called during graceful shutdown or at explicit flush points. Implementations
@@ -187,6 +196,21 @@ pub(crate) fn provision_persistent_jar(
     let handle = CookieJarHandle::new(PersistentCookieJar::new(zone_id, inner, store));
     jars.write().insert(zone_id, handle.clone());
     Some(handle)
+}
+
+/// Shared `release_zone` cache eviction for persisting stores (JSON, SQLite).
+///
+/// Removes the zone's jar from the cache and returns a final snapshot to persist,
+/// when the cached jar has the [`PersistentCookieJar`]-around-[`DefaultCookieJar`] shape.
+pub(crate) fn evict_and_snapshot(
+    jars: &RwLock<HashMap<ZoneId, CookieJarHandle>>,
+    zone_id: ZoneId,
+) -> Option<DefaultCookieJar> {
+    let handle = jars.write().remove(&zone_id)?;
+    let jar = handle.read();
+    let persist = jar.as_any().downcast_ref::<PersistentCookieJar>()?;
+    let inner = persist.inner.read();
+    inner.as_any().downcast_ref::<DefaultCookieJar>().cloned()
 }
 
 /// Shared `persist_all` snapshot loop for persisting stores (JSON, SQLite).

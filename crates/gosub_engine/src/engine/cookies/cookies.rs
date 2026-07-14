@@ -168,6 +168,9 @@ impl CookieStoreHandle {
     pub fn persist_all(&self) {
         self.0.persist_all();
     }
+    pub fn release_zone(&self, zone: ZoneId) {
+        self.0.release_zone(zone);
+    }
     pub fn jar_for(&self, zone: ZoneId) -> Option<CookieJarHandle> {
         self.0.jar_for(zone)
     }

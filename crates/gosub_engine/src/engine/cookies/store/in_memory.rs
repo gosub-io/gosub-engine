@@ -49,6 +49,11 @@ impl CookieStore for InMemoryCookieStore {
         self.jars.write().remove(&zone_id);
     }
 
+    /// Nothing is persisted, so releasing is the same as removing here.
+    fn release_zone(&self, zone_id: ZoneId) {
+        self.jars.write().remove(&zone_id);
+    }
+
     fn persist_all(&self) {}
 }
 

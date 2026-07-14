@@ -279,6 +279,13 @@ impl CookieStore for SqliteCookieStore {
         self.save_zone(zone_id, snapshot);
     }
 
+    /// Persists a final snapshot for `zone_id` and evicts its cached jar; database rows stay.
+    fn release_zone(&self, zone_id: ZoneId) {
+        if let Some(snapshot) = crate::cookies::store::evict_and_snapshot(&self.jars, zone_id) {
+            self.save_zone(zone_id, &snapshot);
+        }
+    }
+
     /// Removes `zone_id` from both the in-memory cache and the database.
     fn remove_zone(&self, zone_id: ZoneId) {
         self.jars.write().remove(&zone_id);

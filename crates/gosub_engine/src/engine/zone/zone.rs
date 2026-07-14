@@ -4,7 +4,8 @@ use crate::engine::engine::EngineContext;
 use crate::engine::events::EngineEvent;
 use crate::engine::storage::{StorageService, Subscription};
 use crate::engine::tab::TabId;
-use crate::engine::types::{EventChannel, IoChannel};
+use crate::engine::types::{EventChannel, IoChannel, TabChannel};
+use crate::events::TabCommand;
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::storage::types::PartitionPolicy;
@@ -173,7 +174,9 @@ impl<C: RenderConfiguration> Debug for Zone<C> {
 
 /// Simple structure to hold tab info inside the zone
 struct TabInfo {
-    #[allow(unused)]
+    /// Command sender for the tab worker, used to ask it to close.
+    cmd_tx: TabChannel,
+    /// Worker join handle, awaited when the tab is closed.
     join_handle: tokio::task::JoinHandle<()>,
     #[allow(unused)]
     sink: Arc<TabSink>,
@@ -323,6 +326,7 @@ impl<C: RenderConfiguration> Zone<C> {
         self.tabs.insert(
             tab_handle.tab_id,
             TabInfo {
+                cmd_tx: tab_handle.cmd_tx.clone(),
                 join_handle,
                 sink: tab_handle.sink.clone(),
             },
@@ -369,23 +373,56 @@ impl<C: RenderConfiguration> Zone<C> {
         Ok(join_handle)
     }
 
-    /// Closes a tab.
-    pub fn close_tab(&mut self, tab_id: TabId) -> bool {
-        if self.tabs.remove(&tab_id).is_some() {
-            // Drop the command channel to signal the tab to close
-            // drop(shared_state.cmd_tx);
+    /// Closes a tab: asks the worker to stop and waits for it to exit.
+    ///
+    /// The worker performs its own teardown on exit (emits `TabClosed`, drops the
+    /// tab's session storage). Returns `false` when the tab is unknown.
+    pub async fn close_tab(&mut self, tab_id: TabId) -> bool {
+        let Some(info) = self.tabs.remove(&tab_id) else {
+            return false;
+        };
 
-            // Disconnect the session storage for this tab
-            self.context.services.storage.drop_tab(self.id, tab_id);
-            return true;
+        // A send error means the worker already exited; awaiting the join handle is
+        // still correct in that case.
+        let _ = info.cmd_tx.send(TabCommand::CloseTab).await;
+
+        let secs = self.context.config_store.get_uint("engine.io_shutdown_secs") as u64;
+        match tokio::time::timeout(std::time::Duration::from_secs(secs), info.join_handle).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => log::warn!("Tab {tab_id} worker join error: {e}"),
+            // The worker keeps running detached and cleans up whenever it exits.
+            Err(_) => log::warn!("Tab {tab_id} worker did not stop within {secs}s"),
         }
 
-        false
+        true
+    }
+
+    /// Closes every tab in this zone. Used by `GosubEngine::close_zone`.
+    pub(crate) async fn close(mut self) {
+        let tab_ids = self.list_tabs();
+        for tab_id in tab_ids {
+            self.close_tab(tab_id).await;
+        }
     }
 
     /// Lists all tab IDs in this zone.
     pub fn list_tabs(&self) -> Vec<TabId> {
         self.tabs.keys().cloned().collect()
+    }
+}
+
+impl<C: RenderConfiguration> Drop for Zone<C> {
+    fn drop(&mut self) {
+        // Not an error: cookies persist eagerly and workers clean up after themselves,
+        // but the engine keeps counting this zone against `max_zones` until
+        // `GosubEngine::close_zone` is used.
+        if !self.tabs.is_empty() {
+            log::debug!(
+                "Zone {} dropped without close_zone(); {} tab worker(s) left running detached",
+                self.id,
+                self.tabs.len()
+            );
+        }
     }
 }
 

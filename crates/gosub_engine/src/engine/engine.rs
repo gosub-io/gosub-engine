@@ -318,6 +318,39 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
         Ok(zone)
     }
+
+    /// Close a zone: stop its tabs and fetcher, release its cookie jar, and free
+    /// its [`EngineConfig::max_zones`] slot.
+    ///
+    /// Persisted cookie data stays on disk (the zone can be reopened later with the
+    /// same [`ZoneId`]); only the in-memory state is released. Emits
+    /// [`EngineEvent::ZoneClosed`] when done.
+    #[instrument(name = "engine.close_zone", level = "debug", skip(self, zone))]
+    pub async fn close_zone(&mut self, zone: Zone<C>) {
+        let zone_id = zone.id;
+
+        // Stop all tab workers first, so nothing fetches or mutates cookies below.
+        zone.close().await;
+
+        // Shut down the zone's fetcher on the I/O thread (ack'd).
+        if let Some(io) = &self.io_handle {
+            let secs = self.context.config_store.get_uint("engine.io_shutdown_secs") as u64;
+            match timeout(Duration::from_secs(secs), io.shutdown_zone(zone_id)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => log::warn!("Zone {zone_id} I/O shutdown failed: {e}"),
+                Err(_) => log::warn!("Zone {zone_id} I/O shutdown timed out after {secs}s"),
+            }
+        }
+
+        // Final cookie snapshot + cache eviction; durable data stays on disk.
+        if let Some(store) = self.cookie_stores.remove(&zone_id) {
+            store.release_zone(zone_id);
+        }
+
+        self.zones.remove(&zone_id);
+
+        let _ = self.context.event_tx.send(EngineEvent::ZoneClosed { zone_id });
+    }
 }
 
 #[cfg(test)]
@@ -379,6 +412,60 @@ mod tests {
             contents.contains("sid") && contents.contains("abc123"),
             "cookie should be persisted on shutdown, got: {contents}"
         );
+    }
+
+    #[tokio::test]
+    async fn close_zone_frees_slot_and_releases_cookies() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cookies.json");
+        let store: CookieStoreHandle = crate::cookies::JsonCookieStore::new(path.clone()).unwrap().into();
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = engine.start().expect("start");
+
+        let mut zone_services = services();
+        zone_services.cookie_store = Some(store.clone());
+        let mut zone = engine.create_zone(None, zone_services, None).expect("zone");
+        let zone_id = zone.id;
+        let _tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        // Store a cookie through the zone's persistent jar.
+        let jar = store.jar_for(zone_id).expect("persistent jar");
+        let url = url::Url::parse("https://example.com/").unwrap();
+        let mut headers = http::HeaderMap::new();
+        headers.append(http::header::SET_COOKIE, "sid=closed42; Path=/".parse().unwrap());
+        jar.write().store_response_cookies(&url, &headers, None);
+
+        // The single max_zones slot is taken.
+        assert!(matches!(
+            engine.create_zone(None, services(), None),
+            Err(EngineError::ZoneLimitExceeded)
+        ));
+
+        engine.close_zone(zone).await;
+
+        // ZoneClosed must have been emitted.
+        let mut saw_closed = false;
+        while let Ok(ev) = event_rx.try_recv() {
+            if matches!(ev, EngineEvent::ZoneClosed { zone_id: z } if z == zone_id) {
+                saw_closed = true;
+            }
+        }
+        assert!(saw_closed, "expected a ZoneClosed event");
+
+        // The slot is free again.
+        let zone2 = engine.create_zone(None, services(), None).expect("slot freed after close");
+
+        // The closed zone's cookies survived on disk (release, not remove).
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            contents.contains("closed42"),
+            "cookies must survive zone close, got: {contents}"
+        );
+
+        engine.close_zone(zone2).await;
+        engine.shutdown().await.expect("shutdown");
     }
 
     #[tokio::test]
