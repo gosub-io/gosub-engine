@@ -1896,8 +1896,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             }
             if thoroughly {
                 if !([
-                    "tbody", "td", "tfoot", "th", "thead", "tr", "dd", "dt", "li", "option", "optgroup", "p", "rb",
-                    "rp", "rt", "rtc",
+                    "caption", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr", "dd", "dt", "li", "option",
+                    "optgroup", "p", "rb", "rp", "rt", "rtc",
                 ]
                 .contains(&tag)
                     && is_html)
