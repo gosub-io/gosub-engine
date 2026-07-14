@@ -3991,52 +3991,34 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// tokens, but still be seen and parsed as a single `TextToken`.
     ///
     fn split_mixed_token(&self, text: &str) -> Vec<Token> {
-        let mut tokens = vec![];
-        let mut last_group = 'x';
-
-        let mut found = String::new();
-
-        for ch in text.chars() {
-            let group = if ch == '\0' {
+        self.split_token_by_group(text, |ch| {
+            if ch == '\0' {
                 '0'
             } else if ch.is_ascii_whitespace() {
                 'w'
             } else {
                 'r'
-            };
-
-            if last_group != group && !found.is_empty() {
-                tokens.push(Token::Text {
-                    text: found.clone(),
-                    location: self.tokenizer.get_location(),
-                });
-                found.clear();
             }
-
-            found.push(ch);
-            last_group = group;
-        }
-
-        if !found.is_empty() {
-            tokens.push(Token::Text {
-                text: found.clone(),
-                location: self.tokenizer.get_location(),
-            });
-        }
-
-        tokens
+        })
     }
 
     /// This will split tokens into \0 groups and non-\0 groups.
-    /// @todo: refactor this into `split_mixed_token` as well, but add a collection of groups callables
     fn split_mixed_token_null(&self, text: &str) -> Vec<Token> {
+        self.split_token_by_group(text, |ch| if ch == '\0' { '0' } else { 'r' })
+    }
+
+    /// Splits `text` into consecutive runs of characters that map to the same group, emitting
+    /// one `Token::Text` per run. `group_of` classifies each character into a group key; a
+    /// change in key starts a new token. This lets callers pick which distinctions matter
+    /// (e.g. whitespace vs null vs regular) without re-splitting large blobs unnecessarily.
+    fn split_token_by_group(&self, text: &str, group_of: impl Fn(char) -> char) -> Vec<Token> {
         let mut tokens = vec![];
         let mut last_group = 'x';
 
         let mut found = String::new();
 
         for ch in text.chars() {
-            let group = if ch == '\0' { '0' } else { 'r' };
+            let group = group_of(ch);
 
             if last_group != group && !found.is_empty() {
                 tokens.push(Token::Text {

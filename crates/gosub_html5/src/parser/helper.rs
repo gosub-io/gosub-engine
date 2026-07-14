@@ -10,12 +10,12 @@ const ADOPTION_AGENCY_OUTER_LOOP_DEPTH: usize = 8;
 const ADOPTION_AGENCY_INNER_LOOP_DEPTH: usize = 3;
 
 #[derive(Debug)]
-pub enum InsertionPositionMode<NodeId> {
+pub(crate) enum InsertionPositionMode<NodeId> {
     LastChild { parent_id: NodeId },
     Sibling { parent_id: NodeId, before_id: NodeId },
 }
 
-pub enum BookMark<NodeId> {
+pub(crate) enum BookMark<NodeId> {
     Replace(NodeId),
     InsertAfter(NodeId),
 }
@@ -115,7 +115,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             })
     }
 
-    pub fn insert_element_helper(&mut self, node_id: NodeId, position: InsertionPositionMode<NodeId>) {
+    pub(crate) fn insert_element_helper(&mut self, node_id: NodeId, position: InsertionPositionMode<NodeId>) {
         match position {
             InsertionPositionMode::Sibling { parent_id, before_id } => {
                 let pos = self.document.children(parent_id).iter().position(|&x| x == before_id);
@@ -127,7 +127,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         }
     }
 
-    pub fn insert_text_helper(&mut self, position: InsertionPositionMode<NodeId>, token: &Token) {
+    pub(crate) fn insert_text_helper(&mut self, position: InsertionPositionMode<NodeId>, token: &Token) {
         // Text content to append when merging into an adjacent text node. For text tokens
         // this borrows the token's text directly instead of going through Display.
         fn token_text(token: &Token) -> std::borrow::Cow<'_, str> {
@@ -171,15 +171,15 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         }
     }
 
-    pub fn insert_html_element(&mut self, token: &Token) -> NodeId {
+    pub(crate) fn insert_html_element(&mut self, token: &Token) -> NodeId {
         self.insert_element_from_token(token, None, Some(HTML_NAMESPACE))
     }
 
-    pub fn insert_foreign_element(&mut self, token: &Token, namespace: &str) -> NodeId {
+    pub(crate) fn insert_foreign_element(&mut self, token: &Token, namespace: &str) -> NodeId {
         self.insert_element_from_token(token, None, Some(namespace))
     }
 
-    pub fn insert_element_from_token(
+    pub(crate) fn insert_element_from_token(
         &mut self,
         token: &Token,
         override_node: Option<NodeId>,
@@ -189,12 +189,12 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         self.insert_element(node_id, override_node)
     }
 
-    pub fn insert_element_from_node(&mut self, org_node_id: NodeId, override_node: Option<NodeId>) -> NodeId {
+    pub(crate) fn insert_element_from_node(&mut self, org_node_id: NodeId, override_node: Option<NodeId>) -> NodeId {
         let new_node_id = self.document.duplicate_node(org_node_id);
         self.insert_element(new_node_id, override_node)
     }
 
-    pub fn insert_element(&mut self, node_id: NodeId, override_node: Option<NodeId>) -> NodeId {
+    pub(crate) fn insert_element(&mut self, node_id: NodeId, override_node: Option<NodeId>) -> NodeId {
         let insert_position = self.appropriate_place_insert(override_node);
         self.insert_element_helper(node_id, insert_position);
 
@@ -205,18 +205,18 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         node_id
     }
 
-    pub fn insert_doctype_element(&mut self, token: &Token) {
+    pub(crate) fn insert_doctype_element(&mut self, token: &Token) {
         let node_id = self.create_node(token, HTML_NAMESPACE);
         self.document.attach(node_id, NodeId::root(), None);
     }
 
-    pub fn insert_document_element(&mut self, token: &Token) {
+    pub(crate) fn insert_document_element(&mut self, token: &Token) {
         let node_id = self.create_node(token, HTML_NAMESPACE);
         self.document.attach(node_id, NodeId::root(), None);
         self.open_elements.push(node_id);
     }
 
-    pub fn insert_comment_element(&mut self, token: &Token, insert_position: Option<NodeId>) {
+    pub(crate) fn insert_comment_element(&mut self, token: &Token, insert_position: Option<NodeId>) {
         let node_id = self.create_node(token, HTML_NAMESPACE);
         if let Some(position) = insert_position {
             self.document.attach(node_id, position, None);
@@ -227,7 +227,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         self.insert_element_helper(node_id, insert_position);
     }
 
-    pub fn insert_text_element(&mut self, token: &Token) {
+    pub(crate) fn insert_text_element(&mut self, token: &Token) {
         if let Token::Text { text, .. } = token {
             if text.is_empty() {
                 return;
@@ -243,7 +243,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
     //
     // The "no last table" sub-step (fragment case) is handled by the fallthrough at the
     // bottom of this function, which returns the first element in the open elements stack.
-    pub fn appropriate_place_insert(&self, override_node: Option<NodeId>) -> InsertionPositionMode<NodeId> {
+    pub(crate) fn appropriate_place_insert(&self, override_node: Option<NodeId>) -> InsertionPositionMode<NodeId> {
         let current_node_id = *self.open_elements.last().unwrap_or(&NodeId::root());
         let target_id = override_node.unwrap_or(current_node_id);
 
@@ -292,7 +292,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         }
     }
 
-    pub fn adoption_agency_algorithm(&mut self, token: &Token) {
+    pub(crate) fn adoption_agency_algorithm(&mut self, token: &Token) {
         // step 1
         let subject = match token {
             Token::StartTag { name, .. } | Token::EndTag { name, .. } => name,

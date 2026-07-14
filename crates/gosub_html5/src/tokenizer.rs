@@ -194,7 +194,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::CharacterReferenceInData => {
-                    self.consume_character_reference(None, false);
+                    self.consume_character_reference(false);
                     self.state = State::Data;
                 }
                 State::RCDATA => {
@@ -215,7 +215,7 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::CharacterReferenceInRcData => {
                     // consume character reference
-                    self.consume_character_reference(None, false);
+                    self.consume_character_reference(false);
                     self.state = State::RCDATA;
                 }
                 State::RAWTEXT => {
@@ -1084,7 +1084,7 @@ impl<'stream> Tokenizer<'stream> {
                     match c {
                         Ch('"') => self.state = State::AfterAttributeValueQuoted,
                         Ch('&') => {
-                            self.consume_character_reference(Some(Ch('"')), true);
+                            self.consume_character_reference(true);
                         }
                         Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter, loc);
@@ -1105,7 +1105,7 @@ impl<'stream> Tokenizer<'stream> {
                     match c {
                         Ch('\'') => self.state = State::AfterAttributeValueQuoted,
                         Ch('&') => {
-                            self.consume_character_reference(Some(Ch('\'')), true);
+                            self.consume_character_reference(true);
                         }
                         Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter, loc);
@@ -1128,7 +1128,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::BeforeAttributeName;
                         }
                         Ch('&') => {
-                            self.consume_character_reference(Some(Ch('>')), true);
+                            self.consume_character_reference(true);
                         }
                         Ch('>') => {
                             self.store_and_clear_current_attribute();
