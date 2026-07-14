@@ -145,6 +145,10 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     current_token: Token,
     /// If true, the current token should be processed again
     reprocess_token: bool,
+    /// True when an insertion-mode handler replaced `current_token` in place (e.g. the
+    /// `<image>` -> `<img>` rewrite). Signals that the replacement, not the token moved
+    /// out for matching, must survive into a reprocess. See `process_html_content`.
+    current_token_rewritten: bool,
     /// Stack of open elements
     open_elements: Vec<NodeId>,
     /// Current head element
@@ -284,6 +288,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 location: Location::default(),
             },
             reprocess_token: false,
+            current_token_rewritten: false,
             open_elements: Vec::new(),
             head_element: None,
             form_element: None,
@@ -322,6 +327,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 location: Location::default(),
             },
             reprocess_token: false,
+            current_token_rewritten: false,
             open_elements: Vec::new(),
             head_element: None,
             form_element: None,
@@ -485,6 +491,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
     // Process token in foreign content (svg, mathml)
     fn process_foreign_content(&mut self) {
+        // NOTE: unlike `process_html_content`, this keeps a clone: foreign handling
+        // delegates back into `process_html_content` (directly and via
+        // `process_unexpected_html_tag`), which re-reads `self.current_token`, so the
+        // real token must stay in place here.
         let current_token = self.current_token.clone();
 
         let mut handle_as_script_endtag = false;
@@ -686,7 +696,14 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             self.ignore_lf = false;
         }
 
-        let current_token = self.current_token.clone();
+        // Move the token out for matching instead of deep-cloning it: tokens can carry
+        // large script/style/rawtext strings and this runs for every token. While
+        // processing, `self.current_token` is only read for its location (via
+        // `parse_error`), so we leave a location-only placeholder. It is restored below
+        // when the token must be reprocessed.
+        let loc = self.current_token.get_location();
+        let current_token = std::mem::replace(&mut self.current_token, Token::Eof { location: loc });
+        self.current_token_rewritten = false;
 
         match self.insertion_mode {
             InsertionMode::Initial => {
@@ -1714,6 +1731,14 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     }
                 }
             }
+        }
+
+        // If this token is to be reprocessed, restore it so the next iteration re-reads
+        // the real token rather than the placeholder we swapped in. When an arm installed
+        // a replacement in place (the `<image>` -> `<img>` rewrite), that replacement must
+        // survive instead, so we skip the restore in that case.
+        if self.reprocess_token && !self.current_token_rewritten {
+            self.current_token = current_token;
         }
     }
 
@@ -2801,6 +2826,9 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     is_self_closing: *is_self_closing,
                     location: token.get_location(),
                 };
+                // We replaced current_token in place; keep it (not the token moved out for
+                // matching) so the reprocess below sees the rewritten <img> tag.
+                self.current_token_rewritten = true;
                 self.reprocess_token = true;
             }
             Token::StartTag { name, .. } if name == "textarea" => {
