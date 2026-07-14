@@ -13,7 +13,7 @@ use crate::html::EngineDocument;
 use gosub_config::{Config, HasConfig};
 use gosub_render_pipeline::rasterizer::{
     collect_placed_gpu_tiles, cpu_cached_tiles, rasterize_parallel, rasterize_sequential, BakedTile, RasterStrategy,
-    Rasterable, TileCacheKey,
+    Rasterable, TilePixelCache,
 };
 use gosub_render_pipeline::render::{Color, DisplayItem, RenderContext, RenderList, Viewport};
 use std::sync::Arc;
@@ -73,7 +73,7 @@ struct PipelineCache {
     /// Rasterized tile data keyed by (page_x, page_y, layer_id, content_hash).
     /// Passed to the next render so unchanged tiles skip rasterization.
     /// Value is (physical_width, physical_height, pixel_data).
-    tile_pixel_cache: std::collections::HashMap<TileCacheKey, (u32, u32, TilePixels)>,
+    tile_pixel_cache: TilePixelCache,
 }
 
 /// BrowsingContext dedicated to a specific tab
@@ -211,15 +211,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.style_dirty = true;
         self.layout_dirty = true;
         self.invalidate_render();
-        {
-            self.pipeline_cache = None;
-            self.scene_cache = None;
-            self.hover_dirty = false;
-            self.hover_leaf = None;
-            self.hover_layout_element = None;
-            self.hover_fingerprints = None;
-            self.hover_chain_sensitive = false;
-        }
+        self.pipeline_cache = None;
+        self.scene_cache = None;
+        self.hover_dirty = false;
+        self.hover_leaf = None;
+        self.hover_layout_element = None;
+        self.hover_fingerprints = None;
+        self.hover_chain_sensitive = false;
     }
 
     /// Update the viewport SIZE. Only triggers a full re-layout when width or height changes.
@@ -230,10 +228,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.viewport.height = vp.height;
             self.layout_dirty = true;
             self.invalidate_render();
-            {
-                self.pipeline_cache = None;
-                self.scene_cache = None;
-            }
+            self.pipeline_cache = None;
+            self.scene_cache = None;
         }
     }
 
@@ -753,7 +749,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     viewport: &Viewport,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
-    prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, TilePixels)>,
+    prev_tile_cache: TilePixelCache,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
     tile_size: f64,
 ) -> PipelineCache {
@@ -902,7 +898,7 @@ fn pipeline_hover_repaint(
     viewport: &gosub_render_pipeline::render::Viewport,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
-    prev_tile_cache: std::collections::HashMap<TileCacheKey, (u32, u32, TilePixels)>,
+    prev_tile_cache: TilePixelCache,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
     tile_size: f64,
 ) -> PipelineCache {

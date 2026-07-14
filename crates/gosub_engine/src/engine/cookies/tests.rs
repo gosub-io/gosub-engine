@@ -1118,8 +1118,8 @@ mod cookie_tests {
                 let send_to: Url = tc.send_to.parse().expect(&tc.send_to);
 
                 let mut jar = DefaultCookieJar::new();
-                // Store cookies one at a time with tiny sleeps to guarantee
-                // distinct millisecond timestamps for creation-time ordering.
+                // Store cookies in order. Same-millisecond `created_at` ties are fine
+                // within one origin: the jar's stable sort preserves insertion order.
                 for cookie_str in &tc.cookies {
                     let hdrs = set_headers(&[cookie_str.as_str()]);
                     jar.store_response_cookies(&set_from, &hdrs, None);

@@ -19,7 +19,7 @@
 //! let jar = zone.cookie_jar(); // -> CookieJarHandle
 //! let cookies_header = {
 //!     let guard = jar.read();
-//!     guard.get_request_cookies(&request_url, Some(&page_url))
+//!     guard.get_request_cookies(&request_url, Some(&page_url), SameSiteContext::SameSite)
 //! };
 //!
 //! // Store cookies from a response (pass top_level for third-party enforcement).
@@ -68,7 +68,7 @@ use std::sync::Arc;
 /// ```ignore,no_run
 /// let jar: CookieJarHandle = zone.cookie_jar();
 /// {
-///     let cookies = jar.read().get_request_cookies(&url, Some(&top_level_url));
+///     let cookies = jar.read().get_request_cookies(&url, Some(&top_level_url), SameSiteContext::SameSite);
 /// }
 /// {
 ///     let mut guard = jar.write();
@@ -170,6 +170,11 @@ impl CookieStoreHandle {
     }
     pub fn release_zone(&self, zone: ZoneId) {
         self.0.release_zone(zone);
+    }
+    /// Deletes the zone's persisted cookie data (e.g. "clear cookies" / profile removal).
+    /// For closing a zone while keeping its data, use [`Self::release_zone`] instead.
+    pub fn remove_zone(&self, zone: ZoneId) {
+        self.0.remove_zone(zone);
     }
     pub fn jar_for(&self, zone: ZoneId) -> Option<CookieJarHandle> {
         self.0.jar_for(zone)

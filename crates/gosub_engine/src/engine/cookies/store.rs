@@ -127,9 +127,9 @@ pub trait CookieStore: Send + Sync {
     /// ### Expectations
     /// - Should return the *same logical jar instance* for a given `zone_id`
     ///   across calls, so all holders observe consistent state.
-    /// - May create the jar lazily on first request.
-    /// - Return `None` if the store no longer manages this zone (e.g., after removal)
-    ///   or if provisioning fails irrecoverably.
+    /// - May create the jar lazily on first request; after `remove_zone`/`release_zone`
+    ///   a subsequent call provisions a fresh jar.
+    /// - Return `None` only when provisioning fails irrecoverably.
     fn jar_for(&self, zone_id: ZoneId) -> Option<CookieJarHandle>;
 
     /// Persists the cookie state for `zone_id` from a provided snapshot.

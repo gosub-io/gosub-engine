@@ -136,11 +136,12 @@ impl RequestRefTracker {
 
     pub fn dec_and_maybe_cleanup(&self, r: &RequestReference, map: &Arc<RwLock<RequestReferenceMap>>) {
         if let Some(entry) = self.inner.get(r) {
-            let new = entry.0.fetch_sub(1, Ordering::Relaxed);
+            // fetch_sub returns the value *before* the decrement.
+            let prev = entry.0.fetch_sub(1, Ordering::Relaxed);
             let fin = entry.1.load(Ordering::Relaxed);
             drop(entry);
 
-            if new == 0 && fin {
+            if prev <= 1 && fin {
                 map.write().remove(r);
                 self.inner.remove(r);
             }

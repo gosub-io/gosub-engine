@@ -51,8 +51,10 @@ async fn handle(mut stream: TcpStream) {
         (404, "Not Found", r#"{"error":"not found"}"#.to_string())
     };
 
+    // HEAD gets the same headers (including Content-Length) but no body.
+    let payload = if first_line.starts_with("HEAD ") { "" } else { body.as_str() };
     let response = format!(
-        "HTTP/1.1 {code} {phrase}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {code} {phrase}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n{payload}",
         body.len()
     );
     let _ = stream.write_all(response.as_bytes()).await;

@@ -148,8 +148,8 @@ impl CookieStore for JsonCookieStore {
     /// - That jar is wrapped in a [`PersistentCookieJar`] bound to this store
     ///   (via `store_self`) so that subsequent mutations persist automatically.
     ///
-    /// Always returns `Some(_)` for valid inputs; `None` is reserved for stores
-    /// that may intentionally refuse provisioning.
+    /// Returns `None` only on the defensive internal-error path (uninitialized
+    /// `store_self`); for a healthy store this always provisions a jar.
     fn jar_for(&self, zone_id: ZoneId) -> Option<CookieJarHandle> {
         crate::cookies::store::provision_persistent_jar(&self.jars, &self.store_self, zone_id, || {
             self.load_file().zones.remove(&zone_id).unwrap_or_default()

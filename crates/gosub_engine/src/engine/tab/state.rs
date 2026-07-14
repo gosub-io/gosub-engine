@@ -10,13 +10,11 @@ pub(crate) struct TabRuntime {
     pub fps: u32,
     /// Interval timer for driving ticks
     pub interval: tokio::time::Interval,
-    // /// Current viewport size
-    // pub viewport: Viewport,
     /// Has something changed that requires a redraw
     pub dirty: bool,
     /// When true, the command handler wants an immediate render without waiting for the tick.
     pub render_now: bool,
-    // When the last tick draw was done
+    /// When the last tick draw was done
     pub last_tick_draw: std::time::Instant,
     /// Scene epoch of the last submitted frame; skip re-render when it matches the context's epoch.
     pub committed_scene_epoch: u64,

@@ -525,6 +525,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
     fn handle_tab_command(&mut self, cmd: TabCommand) -> ControlFlow {
         match cmd {
             TabCommand::CloseTab => ControlFlow::Break,
+            TabCommand::SetTitle { title } => {
+                self.title = title;
+                ControlFlow::Continue
+            }
             TabCommand::Navigate { url } => {
                 self.navigate_to(&url, false);
                 ControlFlow::Continue
@@ -653,7 +657,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             TabCommand::CancelNavigation => {
                 if let Some(load) = self.load.take() {
-                    log::warn!("**** Cancelling in-flight load for tab {:?}", self.tab_id);
+                    log::warn!("Cancelling in-flight load for tab {:?}", self.tab_id);
                     load.cancel.cancel();
                 }
                 ControlFlow::Continue
@@ -663,7 +667,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
             } => {
                 // Proxy the submit decision to the I/O thread
                 let _ = self.zone_context.io_tx.send(IoCommand::Decision {
-                    zone_id: self.zone_id,
                     token: decision_token,
                     action,
                 });
@@ -1208,7 +1211,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
     fn cancel_current_nav(&mut self) {
         if let Some(active) = self.active_nav.take() {
             log::warn!(
-                "**** Cancelling active navigation for tab {:?} nav {:?}",
+                "Cancelling active navigation for tab {:?} nav {:?}",
                 self.tab_id,
                 active.nav_id
             );

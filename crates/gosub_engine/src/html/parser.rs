@@ -41,7 +41,7 @@ pub struct ResourceHint {
 /// Error type for this dummy parser.
 #[derive(thiserror::Error, Debug)]
 pub enum DocumentError {
-    /// UTF-8 error
+    /// I/O error while reading the document stream.
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
 

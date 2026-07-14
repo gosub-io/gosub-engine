@@ -60,11 +60,10 @@ pub fn downcast_rasterizer(erased: Box<dyn Any + Send + Sync>) -> Option<Box<dyn
 // ---------------------------------------------------------------------------
 // Baked tiles + stage-6 rasterization strategies
 //
-// Moved here from the engine's BrowsingContext: these are the per-strategy
-// implementations behind `RasterStrategy` (parallel+cached for CPU backends,
-// sequential for GPU tile mode), plus the `BakedTile` output type and the
-// content-hash pixel cache they share. The engine picks the strategy and
-// owns the caches; the rasterization itself lives here with its domain.
+// The per-strategy implementations behind `RasterStrategy` (parallel+cached
+// for CPU backends, sequential for GPU tile mode), plus the `BakedTile`
+// output type and the content-hash pixel cache they share. Callers pick the
+// strategy and own the caches; the rasterization itself lives here.
 // ---------------------------------------------------------------------------
 
 use crate::common::texture::TilePixels;
@@ -76,8 +75,8 @@ pub struct BakedTile {
     pub page_y: f64,
     /// Owning layer id. Needed to disambiguate tiles from different layers that share the same
     /// page position — e.g. the base layer and a `position: sticky` header both have a tile at
-    /// the top-left `(0,0)`. Keying carry-over by position alone collapses them (see the
-    /// engine's hover-repaint carry-over logic).
+    /// the top-left `(0,0)`. Carry-over between renders must therefore key tiles by
+    /// position *and* layer; position alone collapses them.
     pub layer_id: u64,
     pub width: u32,
     pub height: u32,
@@ -101,7 +100,7 @@ pub type TilePixelCache = std::collections::HashMap<TileCacheKey, (u32, u32, Til
 
 /// Compute a stable cache key for a tile: (page_x bits, page_y bits, layer_id, content hash).
 /// The content hash covers all paint commands so any visual change produces a different key.
-pub fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
+fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
     use crate::painter::commands::{
         border::{BorderRadius, BorderStyle},
         brush::Brush,

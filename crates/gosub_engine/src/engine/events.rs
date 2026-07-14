@@ -97,9 +97,9 @@ pub enum IoCommand {
         handle: FetchHandle,
         reply_tx: oneshot::Sender<FetchResult>,
     },
-    /// Return a decision on a pending request
+    /// Return a decision on a pending request. Tokens are process-wide unique,
+    /// so no zone id is needed to route them.
     Decision {
-        zone_id: ZoneId,
         token: DecisionToken,
         action: Action,
     },
@@ -500,11 +500,6 @@ pub enum EngineEvent {
     },
 
     // ** Tab
-    /// Title of the tab has changed
-    TabTitleChanged {
-        tab_id: TabId,
-        title: String,
-    },
 
     // ** Session / zone state
     /// A cookie has been added

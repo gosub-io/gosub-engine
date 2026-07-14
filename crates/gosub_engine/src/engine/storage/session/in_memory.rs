@@ -80,7 +80,10 @@ impl StorageArea for SessionArea {
     }
 
     fn clear(&self) -> Result<()> {
-        self.data.write().insert(self.key.clone(), HashMap::new());
+        // Like set_item/remove_item: don't resurrect an area removed by drop_tab.
+        if let Some(map) = self.data.write().get_mut(&self.key) {
+            map.clear();
+        }
         Ok(())
     }
 

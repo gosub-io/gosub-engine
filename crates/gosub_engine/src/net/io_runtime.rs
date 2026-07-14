@@ -238,7 +238,7 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                                 Err(e) => log::error!("Failed to create fetcher for zone {zone_id}: {e}"),
                             }
                         }
-                        Some(IoCommand::Decision { zone_id: _, token, action }) => {
+                        Some(IoCommand::Decision { token, action }) => {
                             // Decisions are engine-owned (gosub-sonar has no decision hub);
                             // tokens are unique so a single hub covers every zone.
                             router.decision_hub.fulfill(token, action);
