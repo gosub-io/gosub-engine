@@ -2022,8 +2022,11 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::CharacterReferenceInAttributeValue => {
                     // Character references in attribute values are handled inline by the
-                    // attribute-value states; nothing ever transitions into this state.
-                    unreachable!("state {:?} is never entered", self.state);
+                    // attribute-value states; the tokenizer never transitions into this
+                    // state internally. It is only reachable when a caller seeds it via
+                    // the public `Options.initial_state`, which is not a valid entry
+                    // point, so error out instead of panicking on external input.
+                    return Err(Error::Parse(format!("cannot start tokenizing in state {:?}", self.state)).into());
                 }
             }
         }
