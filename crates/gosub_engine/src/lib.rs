@@ -23,7 +23,7 @@
 //! use std::sync::Arc;
 //! use url::Url;
 //!
-//! use gosub_engine::{EngineSettings, GosubEngine};
+//! use gosub_engine::{EngineConfig, GosubEngine};
 //! use gosub_render_pipeline::render::Viewport;
 //! use gosub_render_pipeline::render::backends::null::NullBackend;
 //! use gosub_render_pipeline::render::DefaultCompositor;
@@ -38,7 +38,7 @@
 //!     let backend = NullBackend::new();
 //!     let compositor = DefaultCompositor::default();
 //!     let mut engine_handle: GosubEngine = GosubEngine::new(
-//!         Some(EngineSettings::default()),
+//!         Some(EngineConfig::default()),
 //!         Arc::new(backend),
 //!         Arc::new(parking_lot::RwLock::new(compositor)),
 //!     );
@@ -179,9 +179,9 @@ pub use engine::cookies;
 /// Storage APIs for local/session data.
 pub use engine::storage;
 
-// EngineSettings at crate root:
+// EngineConfig at crate root:
 #[doc(inline)]
-pub use crate::engine::config::EngineSettings;
+pub use crate::engine::config::EngineConfig;
 
 #[doc(inline)]
 pub use crate::engine::cookies::SameSiteContext;
@@ -195,5 +195,5 @@ pub mod events {
 
 /// Configuration options for the Gosub engine.
 pub mod config {
-    pub use crate::engine::config::{EngineSettings, EngineSettingsBuilder, EngineSettingsError};
+    pub use crate::engine::config::{EngineConfig, EngineConfigBuilder, EngineConfigError};
 }

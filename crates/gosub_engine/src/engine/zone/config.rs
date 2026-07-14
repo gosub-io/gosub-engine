@@ -117,7 +117,7 @@ impl ZoneConfig {
     }
 }
 
-/// Builder for [`ZoneConfig`], mirroring `EngineSettingsBuilder`.
+/// Builder for [`ZoneConfig`], mirroring `EngineConfigBuilder`.
 #[derive(Debug, Clone, Default)]
 pub struct ZoneConfigBuilder {
     inner: ZoneConfig,

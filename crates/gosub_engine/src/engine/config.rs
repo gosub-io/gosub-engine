@@ -1,6 +1,6 @@
 //! Engine configuration.
 //!
-//! The [`EngineSettings`] struct holds the engine-wide, set-once configuration:
+//! The [`EngineConfig`] struct holds the engine-wide, set-once configuration:
 //! values that shape how the engine is constructed and that cannot change while
 //! it is running. It is passed to `GosubEngine::new()` and frozen from then on.
 //!
@@ -12,25 +12,25 @@
 //! the settings store. New fields are added here only once the engine actually
 //! consumes them.
 //!
-//! Use [`EngineSettings::default()`] for sensible defaults, or
-//! [`EngineSettings::builder()`] for a fluent builder API with validation.
+//! Use [`EngineConfig::default()`] for sensible defaults, or
+//! [`EngineConfig::builder()`] for a fluent builder API with validation.
 //!
 //! # Examples
 //!
 //! ## Default engine configuration
 //! ```rust
-//! use gosub_engine::EngineSettings;
+//! use gosub_engine::EngineConfig;
 //!
-//! let engine_cfg = EngineSettings::default();
+//! let engine_cfg = EngineConfig::default();
 //! assert_eq!(engine_cfg.max_zones, 8);
 //! ```
 //!
 //! ## Customized configuration with builder
 //! ```rust
-//! use gosub_engine::EngineSettings;
+//! use gosub_engine::EngineConfig;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let cfg = EngineSettings::builder()
+//! let cfg = EngineConfig::builder()
 //!     .max_zones(12)
 //!     .build()?;
 //! # Ok(()) }
@@ -38,7 +38,7 @@
 //!
 //! # Errors
 //!
-//! Builder validation returns [`EngineSettingsError`] if values are nonsensical
+//! Builder validation returns [`EngineConfigError`] if values are nonsensical
 //! (e.g. `max_zones == 0`).
 //!
 //! # See also
@@ -51,10 +51,10 @@ use crate::zone::ZoneConfig;
 
 /// Overall engine configuration (engine-wide, set-once knobs).
 ///
-/// Use [`EngineSettings::default()`] for sensible defaults, or
-/// [`EngineSettings::builder()`] to customize with validation.
+/// Use [`EngineConfig::default()`] for sensible defaults, or
+/// [`EngineConfig::builder()`] to customize with validation.
 #[derive(Debug, Clone)]
-pub struct EngineSettings {
+pub struct EngineConfig {
     /// Maximum number of zones that can be created within this engine.
     /// Enforced by `GosubEngine::create_zone`.
     pub max_zones: usize,
@@ -62,7 +62,7 @@ pub struct EngineSettings {
     pub default_zone_config: ZoneConfig,
 }
 
-impl Default for EngineSettings {
+impl Default for EngineConfig {
     fn default() -> Self {
         Self {
             max_zones: 8,
@@ -71,22 +71,22 @@ impl Default for EngineSettings {
     }
 }
 
-impl EngineSettings {
-    /// Start building an `EngineSettings` from defaults using a fluent builder.
-    pub fn builder() -> EngineSettingsBuilder {
-        EngineSettingsBuilder::default()
+impl EngineConfig {
+    /// Start building an `EngineConfig` from defaults using a fluent builder.
+    pub fn builder() -> EngineConfigBuilder {
+        EngineConfigBuilder::default()
     }
 }
 
-/// Fluent builder for [`EngineSettings`] with validation.
+/// Fluent builder for [`EngineConfig`] with validation.
 #[derive(Debug, Clone, Default)]
-pub struct EngineSettingsBuilder {
-    inner: EngineSettings,
+pub struct EngineConfigBuilder {
+    inner: EngineConfig,
 }
 
-impl EngineSettingsBuilder {
+impl EngineConfigBuilder {
     #[inline]
-    fn map(mut self, f: impl FnOnce(&mut EngineSettings)) -> Self {
+    fn map(mut self, f: impl FnOnce(&mut EngineConfig)) -> Self {
         f(&mut self.inner);
         self
     }
@@ -99,34 +99,34 @@ impl EngineSettingsBuilder {
     }
 
     /// Apply multiple mutations in one go.
-    pub fn with(self, f: impl FnOnce(&mut EngineSettings)) -> Self {
+    pub fn with(self, f: impl FnOnce(&mut EngineConfig)) -> Self {
         self.map(f)
     }
 
-    /// Validate and build the final `EngineSettings`.
-    pub fn build(self) -> Result<EngineSettings, EngineSettingsError> {
+    /// Validate and build the final `EngineConfig`.
+    pub fn build(self) -> Result<EngineConfig, EngineConfigError> {
         validate(&self.inner)?;
         Ok(self.inner)
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum EngineSettingsError {
+pub enum EngineConfigError {
     ZeroZones,
 }
 
-impl fmt::Display for EngineSettingsError {
+impl fmt::Display for EngineConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EngineSettingsError::ZeroZones => write!(f, "max_zones must be at least 1"),
+            EngineConfigError::ZeroZones => write!(f, "max_zones must be at least 1"),
         }
     }
 }
-impl std::error::Error for EngineSettingsError {}
+impl std::error::Error for EngineConfigError {}
 
-fn validate(c: &EngineSettings) -> Result<(), EngineSettingsError> {
+fn validate(c: &EngineConfig) -> Result<(), EngineConfigError> {
     if c.max_zones == 0 {
-        return Err(EngineSettingsError::ZeroZones);
+        return Err(EngineConfigError::ZeroZones);
     }
     Ok(())
 }

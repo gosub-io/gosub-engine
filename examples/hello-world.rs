@@ -11,7 +11,7 @@ use gosub_engine::{
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::ZoneConfig,
     zone::ZoneServices,
-    Action, DefaultRenderConfig, EngineError, EngineSettings, GosubEngine, NavigationId,
+    Action, DefaultRenderConfig, EngineError, EngineConfig, GosubEngine, NavigationId,
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use http::header;
@@ -57,7 +57,7 @@ async fn main() -> Result<(), EngineError> {
     // Configure the engine through the engine config builder. This will set up the main runtime
     // configuration of the engine. It's possible for some values to be changed at runtime, but
     // not all of them
-    let engine_cfg = EngineSettings::builder()
+    let engine_cfg = EngineConfig::builder()
         .max_zones(5)
         .build()
         .expect("Configuration is not valid");

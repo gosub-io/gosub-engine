@@ -29,7 +29,7 @@ use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::net::{spawn_io_thread, FetcherConfig, IoHandle};
 use crate::util::spawn_named;
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
-use crate::{EngineError, EngineSettings};
+use crate::{EngineError, EngineConfig};
 use anyhow::Result;
 use gosub_config::Config;
 use parking_lot::{Mutex, RwLock};
@@ -75,7 +75,7 @@ pub struct EngineContext {
     /// Event sender
     pub event_tx: EventChannel,
     /// Global engine configuration
-    pub config: Arc<EngineSettings>,
+    pub config: Arc<EngineConfig>,
     /// Per-engine settings store (key/value config with persistence and change subscriptions).
     /// A clone of this handle is threaded down to each zone and tab.
     pub config_store: Config,
@@ -89,7 +89,7 @@ impl Default for EngineContext {
     fn default() -> Self {
         Self {
             event_tx: broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY).0,
-            config: Arc::new(EngineSettings::default()),
+            config: Arc::new(EngineConfig::default()),
             config_store: crate::engine::settings_store::default_config(),
             io_tx: Arc::new(RwLock::new(None)),
             request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
@@ -100,7 +100,7 @@ impl Default for EngineContext {
 impl<C: RenderConfiguration> GosubEngine<C> {
     /// Create a new engine.
     ///
-    /// If `config` is `None`, [`EngineSettings::default`] is used.
+    /// If `config` is `None`, [`EngineConfig::default`] is used.
     ///
     /// ```
     /// # use gosub_engine as ge;
@@ -113,7 +113,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// let engine = ge::GosubEngine::<ge::DefaultRenderConfig>::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
     /// ```
     pub fn new(
-        config: Option<EngineSettings>,
+        config: Option<EngineConfig>,
         backend: Arc<C::RenderBackend>,
         compositor: Arc<RwLock<C::CompositorSink>>,
     ) -> Self {
@@ -262,13 +262,13 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// Create and register a new zone, returning a [`ZoneHandle`] for userland code.
     ///
     /// - `config`: zone configuration (features, limits, identity); if `None`, the
-    ///   engine's [`EngineSettings::default_zone_config`] is used
+    ///   engine's [`EngineConfig::default_zone_config`] is used
     /// - `services`: storage, cookie store/jar, partition policy, etc.
     /// - `zone_id`: optional id; if `None`, a fresh one is generated
     /// - `event_tx`: channel where the zone (and its tabs) will emit [`EngineEvent`]s
     ///
     /// Fails with [`EngineError::ZoneLimitExceeded`] once the engine holds
-    /// [`EngineSettings::max_zones`] zones.
+    /// [`EngineConfig::max_zones`] zones.
     ///
     /// The returned handle contains the [`ZoneId`] and a clone of the engine’s
     /// command sender, allowing the caller to send zone commands without holding
@@ -340,7 +340,7 @@ mod tests {
     }
 
     fn engine_with_max_zones(max_zones: usize) -> GosubEngine {
-        let settings = EngineSettings::builder().max_zones(max_zones).build().unwrap();
+        let settings = EngineConfig::builder().max_zones(max_zones).build().unwrap();
         GosubEngine::new(
             Some(settings),
             Arc::new(NullBackend::new()),
