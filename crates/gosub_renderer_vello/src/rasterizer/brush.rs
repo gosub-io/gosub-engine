@@ -48,7 +48,7 @@ pub fn set_brush(brush: &Brush, rect: Rect, media_store: &MediaStore) -> (VelloB
             .with_stops(stops.as_slice());
             (VelloBrush::Gradient(gradient), None)
         }
-        Brush::Image(media_id) => {
+        Brush::Image(media_id, tiling) => {
             let media = media_store.get_image(*media_id);
             let (iw, ih) = (media.image.width(), media.image.height());
             let image_data = ImageData {
@@ -61,17 +61,28 @@ pub fn set_brush(brush: &Brush, rect: Rect, media_store: &MediaStore) -> (VelloB
                 width: iw,
                 height: ih,
             };
-            let transform = (iw > 0 && ih > 0).then(|| {
-                Affine::translate((rect.x, rect.y))
-                    * Affine::scale_non_uniform(rect.width / iw as f64, rect.height / ih as f64)
-            });
-            (
-                VelloBrush::Image(ImageBrush {
-                    image: image_data,
-                    sampler: ImageSampler::default(),
-                }),
-                transform,
-            )
+            let (sampler, transform) = match tiling {
+                // Tiled `background-image`: scale the image (iw×ih px) to `tile_size` (CSS px) and
+                // repeat it, offset by `background-position`. The fill shape (box) clips the tiling.
+                Some(t) if iw > 0 && ih > 0 => {
+                    let extend = |repeat: bool| if repeat { Extend::Repeat } else { Extend::Pad };
+                    let sampler = ImageSampler::default()
+                        .with_x_extend(extend(t.repeat.0))
+                        .with_y_extend(extend(t.repeat.1));
+                    let transform = Affine::translate((rect.x + t.position.0 as f64, rect.y + t.position.1 as f64))
+                        * Affine::scale_non_uniform(t.tile_size.0 as f64 / iw as f64, t.tile_size.1 as f64 / ih as f64);
+                    (sampler, Some(transform))
+                }
+                // Non-tiled: scale the single image copy to fill the whole rect.
+                _ => {
+                    let transform = (iw > 0 && ih > 0).then(|| {
+                        Affine::translate((rect.x, rect.y))
+                            * Affine::scale_non_uniform(rect.width / iw as f64, rect.height / ih as f64)
+                    });
+                    (ImageSampler::default(), transform)
+                }
+            };
+            (VelloBrush::Image(ImageBrush { image: image_data, sampler }), transform)
         }
     }
 }

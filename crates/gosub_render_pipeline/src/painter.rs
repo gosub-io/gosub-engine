@@ -330,8 +330,8 @@ impl Painter {
     ) -> Vec<PaintCommand> {
         let border_box = layout_element.box_model.border_box;
         match bg {
-            BackgroundMedia::Image(media_id) => {
-                let brush = Brush::image(media_id);
+            BackgroundMedia::Image(media_id, tiling) => {
+                let brush = Brush::image_tiled(media_id, tiling);
                 let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));

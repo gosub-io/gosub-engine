@@ -39,7 +39,7 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
                 log::warn!("Failed to set Cairo gradient source: {e:?}");
             }
         }
-        Brush::Image(media_id) => {
+        Brush::Image(media_id, tiling) => {
             if rect.width == 0.0 || rect.height == 0.0 {
                 return;
             }
@@ -52,8 +52,8 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
                 return;
             }
 
-            // Convert RGBA → premultiplied ARGB32 and paint via a bilinear-filtered
-            // SurfacePattern; cairo scales during compositing, no intermediate copy.
+            // Convert RGBA → premultiplied ARGB32 and paint via a SurfacePattern; cairo scales
+            // during compositing, no intermediate copy.
             let width = img.width() as i32;
             let height = img.height() as i32;
             let stride = cairo::Format::ARgb32.stride_for_width(img.width()).unwrap_or(width * 4);
@@ -79,13 +79,35 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
             match cairo::ImageSurface::create_for_data(data, cairo::Format::ARgb32, width, height, stride) {
                 Ok(surface) => {
                     let pattern = cairo::SurfacePattern::create(&surface);
-                    pattern.set_filter(cairo::Filter::Bilinear);
-                    pattern.set_extend(cairo::Extend::Pad);
-                    // The pattern matrix maps user space → pattern space, so the translation
-                    // to the rect origin must be expressed in pattern units (pre-scaled).
-                    let sx = img.width() as f64 / rect.width;
-                    let sy = img.height() as f64 / rect.height;
-                    pattern.set_matrix(cairo::Matrix::new(sx, 0.0, 0.0, sy, -rect.x * sx, -rect.y * sy));
+                    // The pattern matrix maps user space → pattern (image pixel) space, so the
+                    // translation is expressed in pattern units (pre-scaled by sx/sy).
+                    let (sx, sy, ox, oy) = match tiling {
+                        // Tiled `background-image`: repeat one `tile_size` (CSS px) cell across the
+                        // box, anchored at `background-position`. Nearest keeps tile edges crisp.
+                        Some(t) => {
+                            pattern.set_filter(cairo::Filter::Nearest);
+                            // Cairo's surface extend is 2D; honour full-repeat (default) and no-repeat.
+                            let extend = if t.repeat.0 || t.repeat.1 {
+                                cairo::Extend::Repeat
+                            } else {
+                                cairo::Extend::None
+                            };
+                            pattern.set_extend(extend);
+                            (
+                                img.width() as f64 / t.tile_size.0 as f64,
+                                img.height() as f64 / t.tile_size.1 as f64,
+                                rect.x + t.position.0 as f64,
+                                rect.y + t.position.1 as f64,
+                            )
+                        }
+                        // Non-tiled: scale the image to fill the whole rect.
+                        None => {
+                            pattern.set_filter(cairo::Filter::Bilinear);
+                            pattern.set_extend(cairo::Extend::Pad);
+                            (img.width() as f64 / rect.width, img.height() as f64 / rect.height, rect.x, rect.y)
+                        }
+                    };
+                    pattern.set_matrix(cairo::Matrix::new(sx, 0.0, 0.0, sy, -ox * sx, -oy * sy));
                     let _ = cr.set_source(&pattern);
                 }
                 Err(e) => log::warn!("Failed to create Cairo image surface: {e:?}"),

@@ -638,6 +638,32 @@ pub enum PipelineNodeKind {
     Element,
 }
 
+/// Resolved `background-repeat`/`-size`/`-position` for an element's (first) background layer,
+/// used to tile a raster/SVG `background-image`. Read from the `background` shorthand as well as
+/// the longhands, since pages often write `background: url(x) repeat`.
+#[derive(Debug, Clone, Copy)]
+pub struct BgImageLayout {
+    /// Whether the tile repeats on the x / y axis (`background-repeat`; default repeat both).
+    pub repeat: (bool, bool),
+    /// Tile origin offset from the box origin, in px (`background-position`; px only for now).
+    pub position: (f32, f32),
+    /// Explicit `background-size` in px, if given as lengths; `None` means intrinsic size.
+    pub explicit_size: Option<(f32, f32)>,
+    /// `background-size` is `cover`/`contain`/`%` — scale the image to the box instead of tiling.
+    pub scale_to_box: bool,
+}
+
+impl Default for BgImageLayout {
+    fn default() -> Self {
+        BgImageLayout {
+            repeat: (true, true),
+            position: (0.0, 0.0),
+            explicit_size: None,
+            scale_to_box: false,
+        }
+    }
+}
+
 // ── PipelineDocument trait ────────────────────────────────────────────────────
 
 pub trait PipelineDocument: Send + Sync {
@@ -664,6 +690,13 @@ pub trait PipelineDocument: Send + Sync {
     /// solid/image backgrounds.
     fn background_layers(&self, _id: NodeId) -> Vec<Gradient> {
         Vec::new()
+    }
+
+    /// Resolved `background-repeat`/`-size`/`-position` for node `id`'s background image,
+    /// read from both the `background` shorthand and the longhands. Used to tile a raster/SVG
+    /// `background-image`. Defaults to "repeat both axes, intrinsic size, no offset".
+    fn background_image_layout(&self, _id: NodeId) -> BgImageLayout {
+        BgImageLayout::default()
     }
 
     /// Discard the computed-style cache so the next `get_own_style` call re-evaluates
@@ -1276,6 +1309,69 @@ where
         }
 
         layers.into_iter().map(Gradient::Linear).collect()
+    }
+
+    fn background_image_layout(&self, id: NodeId) -> BgImageLayout {
+        let arc = self.cached_styles(id);
+        let map = arc.as_ref();
+
+        // Collect keyword tokens (and any explicit px size) from the first background layer of the
+        // `background` shorthand and the relevant longhands. The shorthand carries repeat/size
+        // keywords inline (e.g. `background: url(x) no-repeat center / contain`), so it must be
+        // scanned too — the longhands are usually empty in that case.
+        let mut keywords: Vec<String> = Vec::new();
+        let mut explicit_size: Option<(f32, f32)> = None;
+        let mut position: Option<(f32, f32)> = None;
+
+        let mut scan = |key: &str, read_size: bool, read_pos: bool| {
+            let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, key) else {
+                return;
+            };
+            let groups = bg_token_groups::<C::CssSystem>(p);
+            let Some(group) = groups.first() else {
+                return;
+            };
+            if read_size && explicit_size.is_none() {
+                explicit_size = resolve_bg_size(group);
+            }
+            if read_pos && position.is_none() {
+                let pos = resolve_bg_position(group);
+                if pos != (0.0, 0.0) {
+                    position = Some(pos);
+                }
+            }
+            for t in group {
+                if let BgTok::Kw(k) = t {
+                    keywords.push(k.clone());
+                }
+            }
+        };
+        // The shorthand mixes position and size (split by `/`); reading its bare lengths as a
+        // position is unreliable, so only take position/size from the dedicated longhands.
+        scan("background", false, false);
+        scan("background-repeat", false, false);
+        scan("background-size", true, false);
+        scan("background-position", false, true);
+
+        let has = |k: &str| keywords.iter().any(|s| s == k);
+        let repeat = if has("no-repeat") {
+            (false, false)
+        } else if has("repeat-x") {
+            (true, false)
+        } else if has("repeat-y") {
+            (false, true)
+        } else {
+            (true, true)
+        };
+        // `cover`/`contain` (and unresolved `%` sizes) scale the image to the box rather than tile.
+        let scale_to_box = explicit_size.is_none() && (has("cover") || has("contain"));
+
+        BgImageLayout {
+            repeat,
+            position: position.unwrap_or((0.0, 0.0)),
+            explicit_size,
+            scale_to_box,
+        }
     }
 
     fn clear_style_cache(&self) {

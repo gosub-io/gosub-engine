@@ -1,5 +1,7 @@
 use crate::common::hash::{hash_from_data, hash_from_string, Sha256Hash};
-use crate::common::media::{DecodedMedia, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg};
+use crate::common::media::{
+    DecodedMedia, Image, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg,
+};
 use bytes::Bytes;
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
@@ -211,6 +213,30 @@ impl MediaStore {
         Ok(media_id)
     }
 
+    /// Rasterize an SVG background to a `w`×`h` raster tile and return its media id, so a tiled
+    /// `background-image: url(x.svg)` reuses the raster tiling path. Cached per (svg id, w, h) so
+    /// it renders once. Returns `None` if the source is not an SVG or the pixmap can't allocate.
+    pub fn svg_raster_tile(&self, svg_media_id: MediaId, w: u32, h: u32) -> Option<MediaId> {
+        if w == 0 || h == 0 {
+            return None;
+        }
+        let key = hash_from_string(&format!("svg-tile:{}:{}x{}", svg_media_id.as_u64(), w, h));
+        if let Some(id) = self.cache.read().get(&key) {
+            return Some(*id);
+        }
+        let media = self.get(svg_media_id, MediaType::Svg);
+        let Media::Svg(svg) = &*media else {
+            return None;
+        };
+        let image = render_svg_tree_to_image(&svg.svg.tree, w, h)?;
+        let media_id = self.allocate_media_id();
+        self.entries
+            .write()
+            .insert(media_id, Arc::new(Media::image("gosub://svg-tile", image)));
+        self.cache.write().insert(key, media_id);
+        Some(media_id)
+    }
+
     fn load_media_from_source(&self, src: &str) -> anyhow::Result<MediaId> {
         log::debug!("Loading non-cached media from path: {}", src);
         let (content_type, raw_data) = self.fetch_resource(src)?;
@@ -302,6 +328,25 @@ impl MediaStore {
 
         Ok((content_type, raw_bytes))
     }
+}
+
+/// Rasterize a `usvg` tree to a straight-alpha RGBA [`Image`] of `w`×`h` px (scaling the tree's
+/// intrinsic size to fit). Returns `None` if the pixmap can't be allocated.
+fn render_svg_tree_to_image(tree: &resvg::usvg::Tree, w: u32, h: u32) -> Option<Image> {
+    let size = tree.size();
+    let (iw, ih) = (size.width().max(1.0), size.height().max(1.0));
+    let (sx, sy) = (w as f32 / iw, h as f32 / ih);
+
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(w, h)?;
+    resvg::render(tree, resvg::usvg::Transform::from_scale(sx, sy), &mut pixmap.as_mut());
+
+    // tiny_skia pixmaps are premultiplied RGBA; the store wants straight (unpremultiplied) alpha.
+    let mut rgba = Vec::with_capacity((w as usize) * (h as usize) * 4);
+    for px in pixmap.pixels() {
+        let c = px.demultiply();
+        rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
+    }
+    Image::new_rgba8(w, h, rgba).ok()
 }
 
 #[cfg(test)]

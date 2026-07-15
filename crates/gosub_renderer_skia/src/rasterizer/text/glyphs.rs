@@ -98,7 +98,7 @@ fn brush_to_color4f(brush: &Brush) -> Color4f {
             Some(stop) => Color4f::new(stop.color.r(), stop.color.g(), stop.color.b(), stop.color.a()),
             None => Color4f::new(0.0, 0.0, 0.0, 1.0),
         },
-        Brush::Image(_) => Color4f::new(0.0, 0.0, 0.0, 1.0),
+        Brush::Image(..) => Color4f::new(0.0, 0.0, 0.0, 1.0),
     }
 }
 

@@ -152,9 +152,14 @@ pub struct LayoutElementNode {
 }
 
 /// A resolved CSS `background-image` together with its media kind.
+///
+/// `Image` carries an optional tiling: `Some` repeats the image across the box per
+/// `background-repeat`/`-size`/`-position`, `None` scales it to fill (a `cover`/`contain`
+/// background). An SVG background that needs tiling is rasterized to a raster tile during layout
+/// and stored here as `Image`, so only one tiling path exists downstream.
 #[derive(Debug, Clone, Copy)]
 pub enum BackgroundMedia {
-    Image(MediaId),
+    Image(MediaId, Option<crate::painter::commands::gradient::Tiling>),
     Svg(MediaId),
 }
 

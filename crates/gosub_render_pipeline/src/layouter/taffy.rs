@@ -1,7 +1,9 @@
 use cow_utils::CowUtils;
 
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
+use crate::common::document::pipeline_doc::BgImageLayout;
 use crate::common::document::style::{lookup, FontWeight, StyleProperty, TextAlign, Unit, Value};
+use crate::painter::commands::gradient::Tiling;
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
 use crate::common::geo::Coordinate;
@@ -34,6 +36,24 @@ fn parse_px_attr(v: &str) -> Option<f32> {
     let s = v.trim();
     let s = s.strip_suffix("px").unwrap_or(s);
     s.trim().parse::<f32>().ok().filter(|n| *n >= 0.0)
+}
+
+/// Build the tiling for a `background-image` given the image's intrinsic size and the resolved
+/// `background-repeat`/`-size`/`-position`. Returns `None` when the background scales to the box
+/// (`cover`/`contain`) — that path keeps the fill-the-box behaviour instead of tiling.
+fn background_tiling(layout: &BgImageLayout, natural_w: f32, natural_h: f32) -> Option<Tiling> {
+    if layout.scale_to_box || natural_w <= 0.0 || natural_h <= 0.0 {
+        return None;
+    }
+    let tile_size = layout.explicit_size.unwrap_or((natural_w, natural_h));
+    if tile_size.0 <= 0.0 || tile_size.1 <= 0.0 {
+        return None;
+    }
+    Some(Tiling {
+        tile_size,
+        position: layout.position,
+        repeat: layout.repeat,
+    })
 }
 
 // Cache key: (text, font_family, size_bits, line_height_bits, weight, max_width_bits,
@@ -878,11 +898,31 @@ impl TaffyLayouter {
             MediaRequest::Pending => return None,
         };
 
-        // Pick the renderer based on what was actually stored: an SVG (e.g. HN's
-        // `triangle.svg` votearrow) must go through the SVG paint path, not a raster blit.
+        let layout = doc.background_image_layout(dom_node_id);
+
+        // Pick the renderer based on what was actually stored. A raster image tiles directly; an
+        // SVG (e.g. HN's `triangle.svg` votearrow) normally goes through the SVG paint path, but a
+        // *tiled* SVG background is rasterized to a raster tile so it reuses the raster tiling path.
         match &*self.media_store.get(media_id, MediaType::Image) {
-            Media::Svg(_) => Some(BackgroundMedia::Svg(media_id)),
-            Media::Image(_) => Some(BackgroundMedia::Image(media_id)),
+            Media::Image(mi) => {
+                let tiling = background_tiling(&layout, mi.image.width() as f32, mi.image.height() as f32);
+                Some(BackgroundMedia::Image(media_id, tiling))
+            }
+            Media::Svg(ms) => {
+                let size = ms.svg.tree.size();
+                match background_tiling(&layout, size.width(), size.height()) {
+                    Some(tiling) => {
+                        let tw = (tiling.tile_size.0.round() as u32).max(1);
+                        let th = (tiling.tile_size.1.round() as u32).max(1);
+                        match self.media_store.svg_raster_tile(media_id, tw, th) {
+                            Some(raster_id) => Some(BackgroundMedia::Image(raster_id, Some(tiling))),
+                            None => Some(BackgroundMedia::Svg(media_id)),
+                        }
+                    }
+                    // cover/contain SVG stays on the SVG paint path, scaled to the box.
+                    None => Some(BackgroundMedia::Svg(media_id)),
+                }
+            }
         }
     }
 
