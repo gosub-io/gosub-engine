@@ -47,7 +47,7 @@ impl DefaultCompositor {
 }
 
 impl CompositorSink for DefaultCompositor {
-    fn submit_frame(&mut self, tab_id: TabId, handle: ExternalHandle) {
+    fn submit_frame(&self, tab_id: TabId, handle: ExternalHandle) {
         self.frames.write().insert(tab_id, handle);
         self.request_redraw();
     }

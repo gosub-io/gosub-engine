@@ -48,6 +48,7 @@ panic = "deny"
 
 [workspace.dependencies]
 anyhow = "1.0.102"
+bytemuck = "1.25.0"
 bytes = "1.10.1"
 cairo-rs = "0.22.0"
 chrono = "0.4.45"

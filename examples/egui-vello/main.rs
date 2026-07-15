@@ -11,8 +11,8 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle, TileAnchor};
-use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
+use gosub_render_pipeline::render::backend::ExternalHandle;
+use gosub_render_pipeline::render::{argb_u32_to_rgba8, composite_tiles, DefaultCompositor, TileTarget, Viewport};
 use gosub_renderer_vello::{VelloBackend, WgpuContextProvider};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
@@ -129,7 +129,7 @@ struct BrowserApp {
     zone: Zone<AppConfig>,
     tab: TabHandle,
     tab_id: TabId,
-    compositor: Arc<RwLock<DefaultCompositor>>,
+    compositor: Arc<DefaultCompositor>,
     context: Arc<EguiContextProvider>,
 
     url_input: String,
@@ -152,15 +152,15 @@ impl BrowserApp {
         let _rt = TOKIO_RT.enter();
 
         let ctx = cc.egui_ctx.clone();
-        let compositor = Arc::new(RwLock::new(DefaultCompositor::new(move || {
+        let compositor = Arc::new(DefaultCompositor::new(move || {
             ctx.request_repaint();
-        })));
+        }));
 
         let context = Arc::new(EguiContextProvider::from_eframe(cc)?);
         let backend = VelloBackend::new(context.clone()).ok()?;
 
         let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(None, Arc::new(backend), compositor.clone());
-        let _join = engine.start().expect("engine start");
+        let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
 
         let (ui_tx, ui_rx) = std::sync::mpsc::channel::<UiEvent>();
         let mut event_rx = engine.subscribe_events();
@@ -269,7 +269,7 @@ impl BrowserApp {
     /// Register or refresh the display texture from the latest engine frame.
     /// Handles both TileCache (pipeline+vello CPU path) and WgpuTextureId (raw vello GPU path).
     fn refresh_texture(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        let Some(handle) = self.compositor.read().frame_for(self.tab_id) else {
+        let Some(handle) = self.compositor.frame_for(self.tab_id) else {
             return;
         };
 
@@ -284,78 +284,29 @@ impl BrowserApp {
             } => {
                 self.page_height = page_height;
 
-                let dpr_f = dpr as f32;
                 let w = (viewport_width * dpr) as usize;
                 let h = (viewport_height * dpr) as usize;
                 if w == 0 || h == 0 {
                     return;
                 }
-                let sx = (self.scroll_x * dpr_f) as i64;
-                let sy = (self.scroll_y * dpr_f) as i64;
-                // Opaque white: a valid premultiplied background for source-over blending.
+                // Composite the visible tiles onto an opaque-white background at the local
+                // (immediate) scroll, then convert to RGBA8 for egui. Using the shared compositor
+                // also gains correct `sticky` handling over the old manual scroll/fixed-only math.
                 let mut buf = vec![0xFFFF_FFFFu32; w * h];
-
-                for tile in tiles.iter() {
-                    let (sx, sy) = if tile.anchor == TileAnchor::Fixed {
-                        Default::default()
-                    } else {
-                        (sx, sy)
-                    };
-                    let px = (tile.page_x * dpr_f) as i64;
-                    let py = (tile.page_y * dpr_f) as i64;
-                    let screen_x = px - sx;
-                    let screen_y = py - sy;
-                    let tw = tile.width as i64;
-                    let th = tile.height as i64;
-                    if screen_x >= w as i64 || screen_y >= h as i64 {
-                        continue;
-                    }
-                    if screen_x + tw <= 0 || screen_y + th <= 0 {
-                        continue;
-                    }
-                    let tile_start_col = (-screen_x).max(0) as usize;
-                    let tile_start_row = (-screen_y).max(0) as usize;
-                    let dst_x = screen_x.max(0) as usize;
-                    let dst_y0 = screen_y.max(0) as usize;
-                    let tw = tw as usize;
-                    let th = th as usize;
-                    // Normalize to [R, G, B, A] regardless of which rasterizer produced the tile
-                    // (Cargo feature unification may select Cairo's ARGB32 over Vello's RGBA).
-                    let tile_data = tile.format.to_rgba(&tile.data);
-                    let tile_u32 =
-                        unsafe { std::slice::from_raw_parts(tile_data.as_ptr() as *const u32, tile_data.len() / 4) };
-                    for tile_row in tile_start_row..th {
-                        let dst_y = dst_y0 + (tile_row - tile_start_row);
-                        if dst_y >= h {
-                            break;
-                        }
-                        let copy_w = (tw - tile_start_col).min(w - dst_x);
-                        if copy_w == 0 {
-                            break;
-                        }
-                        let src_off = tile_row * tw + tile_start_col;
-                        let dst_off = dst_y * w + dst_x;
-                        // Source-over blend so transparent upper-layer pixels reveal the
-                        // content beneath, instead of overwriting it. `buf` and `tile_u32`
-                        // are both [R,G,B,A]; the blend is channel-symmetric, so the
-                        // swapped R/B (vs. ARGB) does not affect the result.
-                        for col in 0..copy_w {
-                            buf[dst_off + col] = blend_over_argb_u32(
-                                scale_premul_argb_u32(tile_u32[src_off + col], tile.opacity),
-                                buf[dst_off + col],
-                            );
-                        }
-                    }
-                }
-
-                // `buf` now holds [R, G, B, A] bytes (normalized per-tile above).
-                let mut rgba = Vec::with_capacity(w * h * 4);
-                for &px in &buf {
-                    let r = (px & 0xFF) as u8;
-                    let g = ((px >> 8) & 0xFF) as u8;
-                    let b = ((px >> 16) & 0xFF) as u8;
-                    rgba.extend_from_slice(&[r, g, b, 255]);
-                }
+                composite_tiles(
+                    &tiles,
+                    dpr,
+                    (self.scroll_x, self.scroll_y),
+                    &mut TileTarget {
+                        buf: &mut buf,
+                        stride: w,
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: w,
+                        height: h,
+                    },
+                );
+                let rgba = argb_u32_to_rgba8(&buf);
 
                 let img = egui::ColorImage::from_rgba_unmultiplied([w, h], &rgba);
                 match &mut self.cpu_texture {

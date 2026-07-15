@@ -4,6 +4,7 @@ pub mod compositor;
 pub mod compositor_router;
 pub mod render_context;
 pub mod render_list;
+pub mod tile_composite;
 pub mod viewport;
 
 pub use backend::{
@@ -13,4 +14,5 @@ pub use backend::{
 pub use compositor::DefaultCompositor;
 pub use render_context::RenderContext;
 pub use render_list::{Color, DisplayItem, RenderList};
+pub use tile_composite::{argb_u32_to_rgba8, composite_tiles, TileTarget};
 pub use viewport::{DevicePixelRatio, Viewport, DEVICE_PIXEL_RATIO};

@@ -21,7 +21,6 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, DrawingArea, Entry, Label, Orientation};
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -74,16 +73,16 @@ fn main() {
         // Channel from engine → GTK: request a redraw
         let (tx_redraw, mut rx_redraw) = mpsc::unbounded_channel::<()>();
 
-        let compositor = Arc::new(RwLock::new(DefaultCompositor::new({
+        let compositor = Arc::new(DefaultCompositor::new({
             let tx = tx_redraw.clone();
             move || {
                 let _ = tx.send(());
             }
-        })));
+        }));
 
         let backend = gosub_renderer_skia::SkiaBackend::new();
         let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
-        let _join = engine.start().expect("engine start");
+        let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
         let event_rx = engine.subscribe_events();
 
         let zone_cfg = ZoneConfig::builder().do_not_track(true).build().expect("ZoneConfig");
@@ -173,7 +172,7 @@ fn main() {
                         page_height,
                         scroll_x,
                         scroll_y,
-                    }) = compositor_rx.read().frame_for(tab_id)
+                    }) = compositor_rx.frame_for(tab_id)
                     {
                         *local_tiles.borrow_mut() = Some(TileDrawState {
                             tiles,
@@ -220,7 +219,7 @@ fn main() {
             drop(tiles_opt);
 
             // Slow path: engine hasn't produced a TileCache yet — use the compositor frame.
-            match compositor_draw.read().frame_for(tab_id) {
+            match compositor_draw.frame_for(tab_id) {
                 None => {
                     log::debug!("[draw] no frame yet — placeholder");
                     draw_placeholder(cr, w, h);

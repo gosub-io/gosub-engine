@@ -136,6 +136,9 @@ pub use io_runtime::IoHandle;
 /// Configuration for the fetcher (timeouts, size limits, user agent, etc.).
 pub use fetcher::FetcherConfig;
 
+/// Build a [`FetcherConfig`] from the engine's settings store.
+pub use fetcher::fetcher_config_from;
+
 /// Utility to **fully buffer a stream** into bytes (tests, small assets, diagnostics).
 pub use utils::stream_to_bytes;
 

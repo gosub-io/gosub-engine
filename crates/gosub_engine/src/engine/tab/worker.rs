@@ -606,7 +606,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                             let dpr = self.zone_context.render_backend.device_pixel_ratio();
                             if let Some(handle) = self.context.take_scroll_handle(dpr) {
                                 self.runtime.committed_scene_epoch = self.context.scene_epoch();
-                                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+                                self.zone_context.compositor.submit_frame(self.tab_id, handle);
                                 return ControlFlow::Continue;
                             }
                         }
@@ -1044,7 +1044,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // Scroll-only fast path: tiles are still valid, only the offset changed.
             if let Some(handle) = self.context.take_scroll_handle(dpr) {
                 self.runtime.committed_scene_epoch = self.context.scene_epoch();
-                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+                self.zone_context.compositor.submit_frame(self.tab_id, handle);
                 return Ok(());
             }
 
@@ -1054,7 +1054,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             let scene_epoch = self.context.scene_epoch();
             if let Some(handle) = self.context.tile_cache_handle(dpr) {
                 self.runtime.committed_scene_epoch = scene_epoch;
-                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+                self.zone_context.compositor.submit_frame(self.tab_id, handle);
             }
             self.sink.inc_frame();
             return Ok(());
@@ -1098,7 +1098,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         Ok(()) => match render_backend.external_handle(surf.as_mut()) {
                             Ok(handle) => {
                                 self.runtime.committed_scene_epoch = scene_epoch;
-                                self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+                                self.zone_context.compositor.submit_frame(self.tab_id, handle);
                             }
                             Err(e) => log::warn!("[tick_draw] gpu-tile external_handle error: {e}"),
                         },
@@ -1121,7 +1121,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 match render_backend.external_handle(surf.as_mut()) {
                     Ok(handle) => {
                         self.runtime.committed_scene_epoch = scene_epoch;
-                        self.zone_context.compositor.write().submit_frame(self.tab_id, handle);
+                        self.zone_context.compositor.submit_frame(self.tab_id, handle);
                     }
                     Err(e) => log::warn!("[tick_draw] gpu external_handle error: {e}"),
                 }
@@ -1192,8 +1192,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         }
                     );
                     self.runtime.committed_scene_epoch = scene_epoch;
-                    let mut compositor = self.zone_context.compositor.write();
-                    compositor.submit_frame(self.tab_id, handle);
+                    self.zone_context.compositor.submit_frame(self.tab_id, handle);
                 }
                 Err(e) => {
                     log::warn!("[tick_draw] external_handle error: {e}");

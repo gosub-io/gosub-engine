@@ -22,7 +22,6 @@ use image::ColorType;
 #[cfg(feature = "backend_cairo")]
 use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::{Builder, Runtime};
@@ -116,12 +115,12 @@ fn main() {
     // Redraw notifications: engine → main thread.
     let (tx_redraw, rx_redraw) = std::sync::mpsc::channel::<()>();
 
-    let compositor = Arc::new(RwLock::new(DefaultCompositor::new(move || {
+    let compositor = Arc::new(DefaultCompositor::new(move || {
         let _ = tx_redraw.send(());
-    })));
+    }));
 
     let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
-    let _join = engine.start().expect("engine start");
+    let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
     let mut event_rx = engine.subscribe_events();
 
     let zone_cfg = ZoneConfig::builder().build().expect("ZoneConfig");
@@ -230,7 +229,7 @@ fn main() {
         while rx_redraw.try_recv().is_ok() {}
     }
 
-    let phase1_handle = compositor.read().frame_for(tab_id);
+    let phase1_handle = compositor.frame_for(tab_id);
     let mut tile_cache_handle: Option<ExternalHandle> = match phase1_handle {
         Some(h @ ExternalHandle::TileCache { .. }) => Some(h),
         _ => None,
@@ -250,8 +249,8 @@ fn main() {
     let deadline2 = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline2 {
         while rx_redraw.try_recv().is_ok() {
-            if let Some(ExternalHandle::TileCache { .. }) = compositor.read().frame_for(tab_id) {
-                tile_cache_handle = compositor.read().frame_for(tab_id);
+            if let Some(ExternalHandle::TileCache { .. }) = compositor.frame_for(tab_id) {
+                tile_cache_handle = compositor.frame_for(tab_id);
             }
         }
         if tile_cache_handle.is_some() {

@@ -19,7 +19,6 @@ use gosub_engine::{
     Action, DefaultRenderConfig, EngineError, EngineSettings, GosubEngine,
 };
 use gosub_render_pipeline::render::{backends::null::NullBackend, DefaultCompositor, Viewport};
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -38,11 +37,11 @@ async fn main() -> Result<(), EngineError> {
     let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
         Some(EngineSettings::default()),
         Arc::new(backend),
-        Arc::new(RwLock::new(DefaultCompositor::default())),
+        Arc::new(DefaultCompositor::default()),
     );
 
     // start() launches the engine's internal Tokio tasks.
-    let join_handle = engine.start().expect("cannot start engine");
+    let join_handle = tokio::spawn(engine.start().expect("cannot start engine"));
 
     // Subscribe before creating any tabs so we don't miss early events.
     let mut events = engine.subscribe_events();
@@ -110,9 +109,7 @@ async fn main() -> Result<(), EngineError> {
     // flushes any pending state before the process exits.
     engine.shutdown().await?;
 
-    if let Some(handle) = join_handle {
-        let _ = handle.await;
-    }
+    let _ = join_handle.await;
 
     println!("Done.");
     Ok(())
