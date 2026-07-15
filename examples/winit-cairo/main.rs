@@ -12,14 +12,11 @@ use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
-use gosub_render_pipeline::render::backend::{
-    anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, ExternalHandle,
-};
-use gosub_render_pipeline::render::DefaultCompositor;
+use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
+use gosub_render_pipeline::render::{composite_tiles, DefaultCompositor, TileTarget};
 use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use softbuffer::Surface;
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -56,7 +53,7 @@ struct BrowserApp {
     zone: Zone<AppConfig>,
     tab: TabHandle,
     tab_id: TabId,
-    compositor: Arc<RwLock<DefaultCompositor>>,
+    compositor: Arc<DefaultCompositor>,
     #[allow(dead_code)]
     proxy: EventLoopProxy<()>,
 
@@ -80,7 +77,7 @@ impl BrowserApp {
         zone: Zone<AppConfig>,
         tab: TabHandle,
         tab_id: TabId,
-        compositor: Arc<RwLock<DefaultCompositor>>,
+        compositor: Arc<DefaultCompositor>,
         proxy: EventLoopProxy<()>,
         initial_url: String,
     ) -> Self {
@@ -142,8 +139,7 @@ impl BrowserApp {
         // Composite engine content into the content area (below address bar).
         let content_h = win_h.saturating_sub(ADDRESS_BAR_HEIGHT);
         if content_h > 0 {
-            let guard = self.compositor.read();
-            if let Some(handle) = guard.frame_for(self.tab_id) {
+            if let Some(handle) = self.compositor.frame_for(self.tab_id) {
                 blit_handle_to_buffer(
                     &mut buf,
                     win_w,
@@ -417,64 +413,21 @@ fn blit_handle_to_buffer(
             ..
         } => {
             *page_height = ph;
-            let dpr_f = tile_dpr as f32;
-
-            for tile in tiles.iter() {
-                // Resolve viewport position in CSS px from the engine's scroll (handles scroll,
-                // fixed and sticky uniformly), then scale to device px.
-                let (vx, vy) = anchored_tile_pos(
-                    tile.page_x as f64,
-                    tile.page_y as f64,
-                    scroll_x as f64,
-                    scroll_y as f64,
-                    tile.anchor,
-                );
-                let px = (vx * dpr_f as f64).round() as i64;
-                let py = (vy * dpr_f as f64).round() as i64;
-                let tw = tile.width as i64;
-                let th = tile.height as i64;
-                let cw_i = win_w as i64;
-                let ch_i = content_h as i64;
-
-                // Skip tiles completely outside the content area.
-                if px >= cw_i || py >= ch_i || px + tw <= 0 || py + th <= 0 {
-                    continue;
-                }
-
-                // How many leading tile columns/rows are off-screen to the left/top.
-                let tile_col0 = (-px).max(0) as usize;
-                let tile_row0 = (-py).max(0) as usize;
-                let dst_x = px.max(0) as usize;
-                let dst_y0 = py.max(0) as usize;
-                let tw_usize = tw as usize;
-                let th_usize = th as usize;
-
-                // Cairo ARGB32 LE: [B, G, R, A] in bytes → u32 = A<<24|R<<16|G<<8|B.
-                // softbuffer wants 0x00RRGGBB → mask off the high (alpha) byte.
-                let tile_u32 =
-                    unsafe { std::slice::from_raw_parts(tile.data.as_ptr() as *const u32, tile.data.len() / 4) };
-
-                for tile_row in tile_row0..th_usize {
-                    let dst_y = dst_y0 + (tile_row - tile_row0);
-                    if dst_y >= ch_i as usize {
-                        break;
-                    }
-                    let copy_w = (tw_usize - tile_col0).min(cw_i as usize - dst_x);
-                    if copy_w == 0 {
-                        break;
-                    }
-                    // dst_y is relative to the content area; add addr_h for the absolute row.
-                    let buf_row = (addr_h as usize + dst_y) * win_w as usize + dst_x;
-                    let src_row = tile_row * tw_usize + tile_col0;
-                    for col in 0..copy_w {
-                        // Source-over blend so transparent upper-layer pixels reveal the
-                        // content (or white background) beneath, instead of overwriting it.
-                        let src_argb = tile.format.pixel_to_argb_u32(tile_u32[src_row + col]);
-                        buf[buf_row + col] =
-                            blend_over_argb_u32(scale_premul_argb_u32(src_argb, tile.opacity), buf[buf_row + col]);
-                    }
-                }
-            }
+            // Composite the visible tiles onto the white-filled content region, below the address
+            // bar (origin_y = addr_h). softbuffer ignores the high (alpha) byte of each ARGB pixel.
+            composite_tiles(
+                &tiles,
+                tile_dpr,
+                (scroll_x, scroll_y),
+                &mut TileTarget {
+                    buf: &mut buf[..],
+                    stride: win_w as usize,
+                    origin_x: 0,
+                    origin_y: addr_h as usize,
+                    width: win_w as usize,
+                    height: content_h as usize,
+                },
+            );
         }
         ExternalHandle::CpuPixelsPtr {
             width,
@@ -594,16 +547,16 @@ fn main() {
     let event_loop = EventLoop::<()>::with_user_event().build().expect("event loop");
     let proxy = event_loop.create_proxy();
 
-    let compositor = Arc::new(RwLock::new(DefaultCompositor::new({
+    let compositor = Arc::new(DefaultCompositor::new({
         let p = proxy.clone();
         move || {
             let _ = p.send_event(());
         }
-    })));
+    }));
 
     let backend = CairoBackend::new();
     let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
-    let _join = engine.start().expect("engine start");
+    let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
 
     // Forward engine navigation events to update the window title.
     let proxy_ev = proxy.clone();

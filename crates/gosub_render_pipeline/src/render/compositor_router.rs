@@ -23,18 +23,18 @@ impl CompositorRouter {
     }
 
     #[inline]
-    fn with_sink<F>(&mut self, f: F)
+    fn with_sink<F>(&self, f: F)
     where
-        F: FnOnce(&mut dyn CompositorSink),
+        F: FnOnce(&dyn CompositorSink),
     {
-        if let Some(sink) = self.inner.as_deref_mut() {
+        if let Some(sink) = self.inner.as_deref() {
             f(sink);
         }
     }
 }
 
 impl CompositorSink for CompositorRouter {
-    fn submit_frame(&mut self, tab_id: TabId, handle: ExternalHandle) {
+    fn submit_frame(&self, tab_id: TabId, handle: ExternalHandle) {
         self.with_sink(|sink| sink.submit_frame(tab_id, handle));
     }
 }

@@ -15,7 +15,6 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use parking_lot::RwLock;
 use rand::prelude::IndexedRandom;
 use rand::rng;
 use std::collections::HashMap;
@@ -94,9 +93,9 @@ async fn main() -> Result<(), EngineError> {
     let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
         Some(engine_cfg),
         Arc::new(backend),
-        Arc::new(RwLock::new(DefaultCompositor::default())),
+        Arc::new(DefaultCompositor::default()),
     );
-    let engine_join_handle = engine.start().expect("cannot start engine");
+    let engine_join_handle = tokio::spawn(engine.start().expect("cannot start engine"));
 
     // Get our event channel to receive events from the engine. Note that you will only receive events
     // send from this point on.
@@ -235,10 +234,8 @@ async fn main() -> Result<(), EngineError> {
     engine.shutdown().await?;
 
     // Wait for the engine task to finish
-    if let Some(handle) = engine_join_handle {
-        if let Err(join_err) = handle.await {
-            eprintln!("engine task panicked: {join_err}");
-        }
+    if let Err(join_err) = engine_join_handle.await {
+        eprintln!("engine task panicked: {join_err}");
     }
 
     println!("Done. Exiting. Seen frames: {}", seen_frames);

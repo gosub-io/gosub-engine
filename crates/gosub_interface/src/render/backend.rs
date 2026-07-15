@@ -521,7 +521,11 @@ pub trait RenderBackend: Send {
 
 /// Interface for compositors to receive frames from backends.
 pub trait CompositorSink: Send + Sync {
-    fn submit_frame(&mut self, tab: TabId, handle: ExternalHandle);
+    /// Submit a finished frame for a tab.
+    ///
+    /// Takes `&self`: sinks are shared behind an `Arc` and must manage their own interior
+    /// mutability (the frame store is already lock-protected), so no outer `RwLock` is needed.
+    fn submit_frame(&self, tab: TabId, handle: ExternalHandle);
 }
 
 #[cfg(test)]

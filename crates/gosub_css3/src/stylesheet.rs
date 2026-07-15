@@ -559,7 +559,10 @@ impl CssValue {
                 value.insert(0, '#');
                 Ok(CssValue::Color(RgbColor::from(value.as_str())))
             }
-            crate::node::NodeType::Operator(_) => Ok(CssValue::None),
+            // Keep the operator character (e.g. `/` in `16 / 9` or `font: 14px/1.5`)
+            // as a string so it can match a `/` literal in a value grammar. Discarding
+            // it (as `None`) makes `<ratio>` and other slash-delimited grammars unmatchable.
+            crate::node::NodeType::Operator(value) => Ok(CssValue::String(value)),
             crate::node::NodeType::Calc { expr } => {
                 // Preserve the raw body of calc(...) so the layout engine can evaluate it later.
                 let body = match *expr.node_type {

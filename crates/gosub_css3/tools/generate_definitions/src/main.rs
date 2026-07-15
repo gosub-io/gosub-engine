@@ -23,6 +23,60 @@ fn strip_trailing_comma_multiplier(re: &Regex, syntax: &str) -> String {
     re.replace_all(syntax.trim_end_matches(' '), "").into_owned()
 }
 
+/// Overrides for upstream PROPERTY grammars where both sources are wrong or
+/// incomplete for real-world CSS.
+const PROPERTY_SYNTAX_PATCHES: [(&str, &str); 2] = [
+    // webref only carries the modern space-separated basic-shape <rect()>, but
+    // the dominant real-world clip syntax is the legacy comma-separated CSS2
+    // rect() (MDN's <shape>). Accept both.
+    ("clip", "<shape> | <rect()> | auto"),
+    // webref types background-clip as <visual-box># which misses `text` (and
+    // `border-area`) from css-backgrounds-4; gradient text via
+    // `background-clip: text` is widely deployed. MDN's <bg-clip> carries the
+    // full alternation.
+    ("background-clip", "<bg-clip>#"),
+];
+
+/// Value types that grammars reference but neither source defines: webref
+/// lists them with an EMPTY syntax (which the generator skips) and MDN
+/// references them from <shape> without defining them. Definitions per
+/// CSS2.1 §11.1.2.
+const MISSING_VALUE_PATCHES: [(&str, &str); 4] = [
+    ("<top>", "<length> | auto"),
+    ("<right>", "<length> | auto"),
+    ("<bottom>", "<length> | auto"),
+    ("<left>", "<length> | auto"),
+];
+
+/// Pins value definitions that multiple specs define differently, so the
+/// choice is explicit instead of an artifact of decode order (first spec
+/// wins).
+const VALUE_SYNTAX_PATCHES: [(&str, &str); 1] = [
+    // Defined by css-masking-1 (legacy `rect( <top>, <right>, <bottom>,
+    // <left> )`, only for `clip`) and css-shapes-1 (the modern basic-shape
+    // used by clip-path etc.). Pin the modern form; `clip` reaches the legacy
+    // form through <shape> instead.
+    (
+        "rect()",
+        "rect( [ <length-percentage> | auto ]{4} [ round <'border-radius'> ]? )",
+    ),
+];
+
+/// Adds the css-sizing-4 bare `fit-content` keyword alongside the functional
+/// form in PROPERTY grammars (width, height, min/max-*, ...). webref still
+/// carries only `fit-content(<length-percentage>)` while MDN lists both; since
+/// webref grammar is preferred, the keyword would otherwise be lost. Value
+/// definitions are left alone: a bare fit-content is not valid in e.g. grid
+/// track sizing.
+fn add_bare_fit_content(syntax: &str) -> String {
+    match syntax.find("fit-content(") {
+        Some(pos) if !syntax.contains("fit-content |") => {
+            format!("{}fit-content | {}", &syntax[..pos], &syntax[pos..])
+        }
+        _ => syntax.to_string(),
+    }
+}
+
 fn main() -> Result<()> {
     // A value-definition-syntax comma multiplier at the very end of a grammar.
     let trailing_comma_multiplier = Regex::new(r"#(\{[0-9]+(,[0-9]*)?\})?\s*$")?;
@@ -72,7 +126,12 @@ fn main() -> Result<()> {
             }
         }
 
+        if let Some((_, patched)) = PROPERTY_SYNTAX_PATCHES.iter().find(|(n, _)| n == name) {
+            syntax = (*patched).to_string();
+        }
+
         let syntax = comma_list_idiom.replace_all(&syntax, "[ ${1} , ]* ").into_owned();
+        let syntax = add_bare_fit_content(&syntax);
 
         let computed = if mdn_prop.computed.array.is_empty() {
             if !mdn_prop.computed.string.is_empty() {
@@ -156,6 +215,25 @@ fn main() -> Result<()> {
                 syntax: strip_trailing_comma_multiplier(&trailing_comma_multiplier, &wp.syntax),
             });
             defined_values.insert(key);
+        }
+    }
+
+    // Backfill 3: value types no source defines (see MISSING_VALUE_PATCHES).
+    for (name, syntax) in MISSING_VALUE_PATCHES {
+        if defined_values.contains(name) {
+            continue;
+        }
+        data.values.push(Value {
+            name: name.to_string(),
+            syntax: syntax.to_string(),
+        });
+        defined_values.insert(name.to_string());
+    }
+
+    // Pin value definitions that specs duplicate with conflicting grammars.
+    for value in &mut data.values {
+        if let Some((_, patched)) = VALUE_SYNTAX_PATCHES.iter().find(|(n, _)| *n == value.name) {
+            value.syntax = (*patched).to_string();
         }
     }
 

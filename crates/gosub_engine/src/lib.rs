@@ -40,7 +40,7 @@
 //!     let mut engine_handle: GosubEngine = GosubEngine::new(
 //!         Some(EngineConfig::default()),
 //!         Arc::new(backend),
-//!         Arc::new(parking_lot::RwLock::new(compositor)),
+//!         Arc::new(compositor),
 //!     );
 //!
 //!     // 2) Zone services (ephemeral cookies here; use a CookieStore for persistence)

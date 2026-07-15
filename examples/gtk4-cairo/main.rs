@@ -23,8 +23,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, DrawingArea, Entry, Label, Orientation};
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
@@ -53,8 +52,6 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 struct TileDrawState {
     tiles: Arc<Vec<CachedTile>>,
     dpr: u32,
-    viewport_width: u32,
-    viewport_height: u32,
 }
 
 fn main() {
@@ -79,13 +76,30 @@ fn main() {
         // background rasterizer threads never need to touch GTK globals.
         gosub_renderer_cairo::init_gtk_resources().expect("failed to init GTK resources");
 
-        // The present pump polls `frame_for()` at ~60fps, so the compositor doesn't need to signal
-        // redraws (the old tokio-channel signal didn't reliably wake the GTK main loop anyway).
-        let compositor = Arc::new(RwLock::new(DefaultCompositor::new(|| {})));
+        // Compositor-driven redraws: each `submit_frame` wakes the GTK main loop via the
+        // thread-safe `glib::idle_add` (no async channel involved, so no tokio-waker issues —
+        // the old tokio-channel signal didn't reliably wake the GTK main loop mid-scroll).
+        // The DrawingArea doesn't exist yet, so the callback resolves it lazily via a OnceLock.
+        let redraw_target: Arc<std::sync::OnceLock<glib::SendWeakRef<DrawingArea>>> =
+            Arc::new(std::sync::OnceLock::new());
+        let compositor = Arc::new(DefaultCompositor::new({
+            let target = redraw_target.clone();
+            move || {
+                if let Some(weak) = target.get() {
+                    let weak = weak.clone();
+                    glib::source::idle_add(move || {
+                        if let Some(da) = weak.upgrade() {
+                            da.queue_draw();
+                        }
+                        glib::ControlFlow::Break
+                    });
+                }
+            }
+        }));
 
         let backend = gosub_renderer_cairo::CairoBackend::new();
         let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
-        let _join = engine.start().expect("engine start");
+        let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
         let event_rx = engine.subscribe_events();
 
         let zone_cfg = ZoneConfig::builder().do_not_track(true).build().expect("ZoneConfig");
@@ -133,18 +147,6 @@ fn main() {
         // Wrap the tab in Rc<RefCell<>> so closures can share it
         let tab = Rc::new(RefCell::new(tab));
 
-        // --- Local tile/scroll state (GTK main thread only, no locking) ---
-        //
-        // When the engine completes a full render it sends a TileCache frame via the
-        // compositor.  We extract the tiles + metadata here so the draw callback and
-        // scroll handler can use them without any async roundtrip.
-        let local_tiles: Rc<RefCell<Option<TileDrawState>>> = Rc::new(RefCell::new(None));
-        // Current scroll offset in CSS px — updated synchronously in the GTK scroll
-        // handler so every frame sees the very latest position without async latency.
-        // The engine owns scroll smoothing now; this just mirrors the engine's reported scroll
-        // (refreshed when each TileCache frame arrives) for the draw callback to composite at.
-        let local_scroll: Rc<Cell<(f32, f32)>> = Rc::new(Cell::new((0.0, 0.0)));
-
         // --- Widgets ---
         let address_entry = Entry::new();
         address_entry.set_placeholder_text(Some("Enter URL…"));
@@ -157,180 +159,113 @@ fn main() {
         drawing_area.set_hexpand(true);
         drawing_area.set_focusable(true);
 
-        // Present pump: poll the latest engine frame at ~60fps from a native glib timeout (which the
-        // GTK main loop dispatches reliably), mirror its tiles + animated scroll into the local
-        // state, and redraw. This is the GTK counterpart of winit's per-frame `frame_for` + present.
-        //
-        // We deliberately do NOT drive this off the engine's redraw channel: that channel is a tokio
-        // mpsc awaited inside a `glib::spawn_future_local`, and its waker does not reliably wake the
-        // GTK main loop. During a scroll animation the future is only polled at the start and end, so
-        // the intermediate frames are never read and the scroll visibly jumps from start to finish.
-        {
-            let da = drawing_area.clone();
-            let compositor = compositor.clone();
-            let local_tiles = local_tiles.clone();
-            let local_scroll = local_scroll.clone();
-            glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
-                if let Some(ExternalHandle::TileCache {
-                    tiles,
-                    dpr,
-                    viewport_width,
-                    viewport_height,
-                    page_height: _,
-                    scroll_x,
-                    scroll_y,
-                }) = compositor.read().frame_for(tab_id)
-                {
-                    *local_tiles.borrow_mut() = Some(TileDrawState {
-                        tiles,
-                        dpr,
-                        viewport_width,
-                        viewport_height,
-                    });
-                    // Mirror the engine's authoritative (animated, clamped) scroll for the draw.
-                    local_scroll.set((scroll_x, scroll_y));
-                }
-                da.queue_draw();
-                glib::ControlFlow::Continue
-            });
-        }
+        // Hook the compositor's redraw wake-up to the now-existing DrawingArea.
+        let _ = redraw_target.set(glib::SendWeakRef::from(drawing_area.downgrade()));
 
         // --- Draw callback ---
         //
-        // Priority order:
-        //   1. Local TileCache (zero-copy, uses up-to-date local scroll offset)
-        //   2. Compositor frame (CpuPixelsOwned / CpuPixelsPtr — initial page render fallback)
+        // Reads the latest compositor frame directly; the engine's frame carries its own
+        // authoritative (animated, clamped) scroll, so no local tile/scroll mirroring is needed.
         let compositor_draw = compositor.clone();
-        let local_tiles_draw = local_tiles.clone();
-        let local_scroll_draw = local_scroll.clone();
-        drawing_area.set_draw_func(move |_area, cr, w, h| {
-            // Fast path: use cached tiles with local scroll position.
-            let tiles_opt = local_tiles_draw.borrow();
-            if let Some(state) = tiles_opt.as_ref() {
-                let (scroll_x, scroll_y) = local_scroll_draw.get();
-                log::debug!(
-                    "[draw] TileCache {}x{} dpr={} scroll=({:.1},{:.1}) tiles={}",
-                    state.viewport_width,
-                    state.viewport_height,
-                    state.dpr,
+        drawing_area.set_draw_func(move |_area, cr, w, h| match compositor_draw.frame_for(tab_id) {
+            None => {
+                log::debug!("[draw] no frame yet — placeholder");
+                draw_placeholder(cr, w, h);
+            }
+            Some(handle) => match handle {
+                ExternalHandle::CpuPixelsPtr {
+                    width,
+                    height,
+                    stride,
+                    pixel_buf,
+                } => {
+                    log::debug!(
+                        "[draw] CpuPixelsPtr {}x{} stride={} widget={}x{}",
+                        width,
+                        height,
+                        stride,
+                        w,
+                        h
+                    );
+                    let frame_scale = (width as f64 / w as f64).round() as i32;
+                    let owned = unsafe {
+                        std::slice::from_raw_parts(pixel_buf.as_ptr(), (height as usize) * (stride as usize))
+                    }
+                    .to_vec();
+                    match gtk4::cairo::ImageSurface::create_for_data(
+                        owned,
+                        gtk4::cairo::Format::ARgb32,
+                        width as i32,
+                        height as i32,
+                        stride as i32,
+                    ) {
+                        Ok(surface) => {
+                            surface.flush();
+                            if frame_scale > 1 {
+                                surface.set_device_scale(frame_scale as f64, frame_scale as f64);
+                            }
+                            cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
+                            cr.paint().unwrap_or_default();
+                        }
+                        Err(e) => {
+                            log::warn!("[draw] surface failed: {:?}", e);
+                            draw_placeholder(cr, w, h);
+                        }
+                    }
+                }
+                ExternalHandle::CpuPixelsOwned {
+                    width,
+                    height,
+                    stride,
+                    pixels,
+                    ..
+                } => {
+                    log::debug!(
+                        "[draw] CpuPixelsOwned {}x{} stride={} bytes={} widget={}x{}",
+                        width,
+                        height,
+                        stride,
+                        pixels.len(),
+                        w,
+                        h
+                    );
+                    let frame_scale = (width as f64 / w as f64).round() as i32;
+                    match gtk4::cairo::ImageSurface::create_for_data(
+                        pixels,
+                        gtk4::cairo::Format::ARgb32,
+                        width as i32,
+                        height as i32,
+                        stride as i32,
+                    ) {
+                        Ok(surface) => {
+                            surface.flush();
+                            if frame_scale > 1 {
+                                surface.set_device_scale(frame_scale as f64, frame_scale as f64);
+                            }
+                            cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
+                            cr.paint().unwrap_or_default();
+                        }
+                        Err(e) => {
+                            log::warn!("[draw] surface failed: {:?}", e);
+                            draw_placeholder(cr, w, h);
+                        }
+                    }
+                }
+                ExternalHandle::TileCache {
+                    dpr,
                     scroll_x,
                     scroll_y,
-                    state.tiles.len()
-                );
-                draw_tile_cache(cr, w, h, state, scroll_x, scroll_y);
-                return;
-            }
-            drop(tiles_opt);
-
-            // Slow path: engine hasn't produced a TileCache yet — use the compositor frame.
-            match compositor_draw.read().frame_for(tab_id) {
-                None => {
-                    log::debug!("[draw] no frame yet — placeholder");
+                    tiles,
+                    ..
+                } => {
+                    let state = TileDrawState { tiles, dpr };
+                    draw_tile_cache(cr, w, h, &state, scroll_x, scroll_y);
+                }
+                _ => {
+                    log::debug!("[draw] NullHandle or other — placeholder");
                     draw_placeholder(cr, w, h);
                 }
-                Some(handle) => match handle {
-                    ExternalHandle::CpuPixelsPtr {
-                        width,
-                        height,
-                        stride,
-                        pixel_buf,
-                    } => {
-                        log::debug!(
-                            "[draw] CpuPixelsPtr {}x{} stride={} widget={}x{}",
-                            width,
-                            height,
-                            stride,
-                            w,
-                            h
-                        );
-                        let frame_scale = (width as f64 / w as f64).round() as i32;
-                        let owned = unsafe {
-                            std::slice::from_raw_parts(pixel_buf.as_ptr(), (height as usize) * (stride as usize))
-                        }
-                        .to_vec();
-                        match gtk4::cairo::ImageSurface::create_for_data(
-                            owned,
-                            gtk4::cairo::Format::ARgb32,
-                            width as i32,
-                            height as i32,
-                            stride as i32,
-                        ) {
-                            Ok(surface) => {
-                                surface.flush();
-                                if frame_scale > 1 {
-                                    surface.set_device_scale(frame_scale as f64, frame_scale as f64);
-                                }
-                                cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
-                                cr.paint().unwrap_or_default();
-                            }
-                            Err(e) => {
-                                log::warn!("[draw] surface failed: {:?}", e);
-                                draw_placeholder(cr, w, h);
-                            }
-                        }
-                    }
-                    ExternalHandle::CpuPixelsOwned {
-                        width,
-                        height,
-                        stride,
-                        pixels,
-                        ..
-                    } => {
-                        log::debug!(
-                            "[draw] CpuPixelsOwned {}x{} stride={} bytes={} widget={}x{}",
-                            width,
-                            height,
-                            stride,
-                            pixels.len(),
-                            w,
-                            h
-                        );
-                        let frame_scale = (width as f64 / w as f64).round() as i32;
-                        match gtk4::cairo::ImageSurface::create_for_data(
-                            pixels,
-                            gtk4::cairo::Format::ARgb32,
-                            width as i32,
-                            height as i32,
-                            stride as i32,
-                        ) {
-                            Ok(surface) => {
-                                surface.flush();
-                                if frame_scale > 1 {
-                                    surface.set_device_scale(frame_scale as f64, frame_scale as f64);
-                                }
-                                cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
-                                cr.paint().unwrap_or_default();
-                            }
-                            Err(e) => {
-                                log::warn!("[draw] surface failed: {:?}", e);
-                                draw_placeholder(cr, w, h);
-                            }
-                        }
-                    }
-                    ExternalHandle::TileCache {
-                        viewport_width,
-                        viewport_height,
-                        dpr,
-                        scroll_x,
-                        scroll_y,
-                        page_height: _,
-                        tiles,
-                    } => {
-                        // This arm is only reached if local_tiles was empty — should be rare.
-                        let state = TileDrawState {
-                            tiles,
-                            dpr,
-                            viewport_width,
-                            viewport_height,
-                        };
-                        draw_tile_cache(cr, w, h, &state, scroll_x, scroll_y);
-                    }
-                    _ => {
-                        log::debug!("[draw] NullHandle or other — placeholder");
-                        draw_placeholder(cr, w, h);
-                    }
-                },
-            }
+            },
         });
 
         // --- Scroll controller ---
@@ -346,8 +281,8 @@ fn main() {
                 let delta_x = dx as f32 * SCROLL_MULTIPLIER;
                 let delta_y = dy as f32 * SCROLL_MULTIPLIER;
                 // Fire-and-forget one delta per wheel event; the engine accumulates the target,
-                // clamps it to the page, and animates the scroll. Its frames refresh local_scroll
-                // via the redraw handler, so the draw follows the engine's animated position.
+                // clamps it to the page, and animates the scroll. Each animated frame arrives via
+                // the compositor redraw wake-up, so the draw follows the engine's position.
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
                     let _ = tab.send(TabCommand::MouseScroll { delta_x, delta_y }).await;
@@ -398,14 +333,9 @@ fn main() {
         // Resize → set DPR first so create_surface sees the right value, then notify the engine
         drawing_area.connect_resize({
             let tab = tab.clone();
-            let local_tiles = local_tiles.clone();
-            let local_scroll = local_scroll.clone();
             move |area, w, h| {
                 let scale = render_dpr(area);
                 DEVICE_PIXEL_RATIO.store(scale, std::sync::atomic::Ordering::Relaxed);
-                // Clear cached tiles — they were rasterized for the old viewport size.
-                *local_tiles.borrow_mut() = None;
-                local_scroll.set((0.0, 0.0));
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
                     let _ = tab
@@ -423,8 +353,6 @@ fn main() {
         // Address bar: navigate on Enter
         address_entry.connect_activate({
             let tab = tab.clone();
-            let local_tiles = local_tiles.clone();
-            let local_scroll = local_scroll.clone();
             let da = drawing_area.clone();
             move |entry| {
                 let mut s = entry.text().to_string();
@@ -433,10 +361,6 @@ fn main() {
                     entry.set_text(&s);
                 }
                 let Ok(url) = Url::parse(&s) else { return };
-
-                // Reset local state for the new page (the engine resets its own scroll on navigate).
-                *local_tiles.borrow_mut() = None;
-                local_scroll.set((0.0, 0.0));
 
                 let tab = tab.borrow().clone();
                 let url_str = url.to_string();
@@ -473,8 +397,6 @@ fn main() {
             let da = drawing_area.clone();
             let status_label = status_label.clone();
             let address_entry = address_entry.clone();
-            let local_tiles = local_tiles.clone();
-            let local_scroll = local_scroll.clone();
             glib::spawn_future_local(async move {
                 while let Some(evt) = ui_rx.recv().await {
                     match evt {
@@ -483,10 +405,6 @@ fn main() {
                             log::info!("navigation: {event:?}");
                             match event {
                                 NavigationEvent::Started { .. } => {
-                                    // Reset local mirrors for the new page (the engine resets its
-                                    // own scroll on navigate).
-                                    *local_tiles.borrow_mut() = None;
-                                    local_scroll.set((0.0, 0.0));
                                     da.queue_draw();
                                 }
                                 NavigationEvent::Finished { url, .. } => {

@@ -1,0 +1,13 @@
+[package]
+name = "gosub_winit"
+version = "0.1.0"
+edition = "2021"
+description = "winit + wgpu window presentation glue for the Gosub Vello backend"
+license = "MIT"
+
+[dependencies]
+gosub_renderer_vello = { path = "../gosub_renderer_vello" }
+vello = { workspace = true }
+winit = { workspace = true }
+parking_lot = { workspace = true }
+anyhow = { workspace = true }

@@ -117,7 +117,7 @@ pub struct ZoneContext<C: RenderConfiguration = crate::html::DefaultRenderConfig
     pub(crate) request_reference_map: Arc<RwLock<RequestReferenceMap>>,
 
     /// Compositor sink to use for this zone (concrete, per the module config).
-    pub(crate) compositor: Arc<RwLock<C::CompositorSink>>,
+    pub(crate) compositor: Arc<C::CompositorSink>,
     /// Rendering backend to use for this zone (concrete, per the module config).
     pub(crate) render_backend: Arc<C::RenderBackend>,
     /// The engine's shared font system (the config's `FontSystem`), used by the layouter for
@@ -208,7 +208,7 @@ impl<C: RenderConfiguration> Zone<C> {
         engine_context: Arc<EngineContext>,
         // Render backend / compositor for this engine's config (concrete)
         render_backend: Arc<C::RenderBackend>,
-        compositor: Arc<RwLock<C::CompositorSink>>,
+        compositor: Arc<C::CompositorSink>,
         // The engine's shared font system (the config's `FontSystem`)
         font_system: Arc<Mutex<C::FontSystem>>,
     ) -> Result<Self, EngineError> {
@@ -223,10 +223,7 @@ impl<C: RenderConfiguration> Zone<C> {
 
         let storage_rx = services.storage.subscribe();
         let event_tx = engine_context.event_tx.clone();
-        let io_tx = {
-            let guard = engine_context.io_tx.read();
-            guard.as_ref().cloned().ok_or(EngineError::IoNotStarted)?
-        };
+        let io_tx = engine_context.io_tx.get().cloned().ok_or(EngineError::IoNotStarted)?;
         let request_reference_map = engine_context.request_reference_map.clone();
         let config_store = engine_context.config_store.clone();
 
@@ -271,7 +268,7 @@ impl<C: RenderConfiguration> Zone<C> {
         services: ZoneServices,
         engine_context: Arc<EngineContext>,
         render_backend: Arc<C::RenderBackend>,
-        compositor: Arc<RwLock<C::CompositorSink>>,
+        compositor: Arc<C::CompositorSink>,
         font_system: Arc<Mutex<C::FontSystem>>,
     ) -> Result<Self, EngineError> {
         Self::new_with_id(

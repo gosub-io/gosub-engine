@@ -1,84 +1,27 @@
 [
   {
-    "name": "::-moz-progress-bar"
+    "name": "&"
   },
   {
-    "name": "::-moz-range-progress"
-  },
-  {
-    "name": "::-moz-range-thumb"
-  },
-  {
-    "name": "::-moz-range-track"
-  },
-  {
-    "name": "::-ms-browse"
-  },
-  {
-    "name": "::-ms-check"
-  },
-  {
-    "name": "::-ms-clear"
-  },
-  {
-    "name": "::-ms-expand"
-  },
-  {
-    "name": "::-ms-fill"
-  },
-  {
-    "name": "::-ms-fill-lower"
-  },
-  {
-    "name": "::-ms-fill-upper"
-  },
-  {
-    "name": "::-ms-reveal"
-  },
-  {
-    "name": "::-ms-thumb"
-  },
-  {
-    "name": "::-ms-ticks-after"
-  },
-  {
-    "name": "::-ms-ticks-before"
-  },
-  {
-    "name": "::-ms-tooltip"
-  },
-  {
-    "name": "::-ms-track"
-  },
-  {
-    "name": "::-ms-value"
-  },
-  {
-    "name": "::-webkit-progress-bar"
-  },
-  {
-    "name": "::-webkit-progress-inner-value"
-  },
-  {
-    "name": "::-webkit-progress-value"
-  },
-  {
-    "name": "::-webkit-slider-runnable-track"
-  },
-  {
-    "name": "::-webkit-slider-thumb"
+    "name": "+"
   },
   {
     "name": "::after"
-  },
-  {
-    "name": "::backdrop"
   },
   {
     "name": "::before"
   },
   {
     "name": "::checkmark"
+  },
+  {
+    "name": "::clear-icon"
+  },
+  {
+    "name": "::color-swatch"
+  },
+  {
+    "name": "::column"
   },
   {
     "name": "::cue"
@@ -94,6 +37,15 @@
   },
   {
     "name": "::details-content"
+  },
+  {
+    "name": "::field-component"
+  },
+  {
+    "name": "::field-separator"
+  },
+  {
+    "name": "::field-text"
   },
   {
     "name": "::file-selector-button"
@@ -126,19 +78,37 @@
     "name": "::placeholder"
   },
   {
-    "name": "::scroll-marker"
+    "name": "::reveal-icon"
   },
   {
-    "name": "::scroll-marker-group"
+    "name": "::search-text"
   },
   {
     "name": "::selection"
+  },
+  {
+    "name": "::slider-fill"
+  },
+  {
+    "name": "::slider-thumb"
+  },
+  {
+    "name": "::slider-track"
   },
   {
     "name": "::slotted()"
   },
   {
     "name": "::spelling-error"
+  },
+  {
+    "name": "::step-control"
+  },
+  {
+    "name": "::step-down"
+  },
+  {
+    "name": "::step-up"
   },
   {
     "name": "::target-text"
@@ -148,6 +118,9 @@
   },
   {
     "name": "::view-transition-group()"
+  },
+  {
+    "name": "::view-transition-group-children()"
   },
   {
     "name": "::view-transition-image-pair()"
@@ -168,22 +141,25 @@
     "name": ":active-view-transition-type()"
   },
   {
+    "name": ":after"
+  },
+  {
+    "name": ":animated-image"
+  },
+  {
     "name": ":any-link"
   },
   {
     "name": ":autofill"
   },
   {
-    "name": ":blank"
+    "name": ":before"
   },
   {
     "name": ":buffering"
   },
   {
     "name": ":checked"
-  },
-  {
-    "name": ":current"
   },
   {
     "name": ":default"
@@ -210,6 +186,12 @@
     "name": ":first-child"
   },
   {
+    "name": ":first-letter"
+  },
+  {
+    "name": ":first-line"
+  },
+  {
     "name": ":first-of-type"
   },
   {
@@ -225,13 +207,13 @@
     "name": ":fullscreen"
   },
   {
-    "name": ":future"
-  },
-  {
     "name": ":has()"
   },
   {
     "name": ":has-slotted"
+  },
+  {
+    "name": ":high-value"
   },
   {
     "name": ":host"
@@ -273,7 +255,13 @@
     "name": ":link"
   },
   {
-    "name": ":local-link"
+    "name": ":link-to()"
+  },
+  {
+    "name": ":low-value"
+  },
+  {
+    "name": ":matches()"
   },
   {
     "name": ":modal"
@@ -282,7 +270,13 @@
     "name": ":muted"
   },
   {
+    "name": ":nav-source"
+  },
+  {
     "name": ":not()"
+  },
+  {
+    "name": ":nth()"
   },
   {
     "name": ":nth-child()"
@@ -306,13 +300,13 @@
     "name": ":open"
   },
   {
+    "name": ":optimal-value"
+  },
+  {
     "name": ":optional"
   },
   {
     "name": ":out-of-range"
-  },
-  {
-    "name": ":past"
   },
   {
     "name": ":paused"
@@ -354,16 +348,10 @@
     "name": ":stalled"
   },
   {
-    "name": ":state()"
-  },
-  {
     "name": ":target"
   },
   {
-    "name": ":target-current"
-  },
-  {
-    "name": ":target-within"
+    "name": ":unchecked"
   },
   {
     "name": ":user-invalid"
@@ -385,5 +373,11 @@
   },
   {
     "name": ":xr-overlay"
+  },
+  {
+    "name": ">"
+  },
+  {
+    "name": "~"
   }
 ]

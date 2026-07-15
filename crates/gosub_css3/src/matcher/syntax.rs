@@ -107,6 +107,27 @@ impl RangeType {
             max: NumberOrInfinity::None,
         }
     }
+
+    /// Returns true when neither bound is set (the range constrains nothing).
+    pub(crate) fn is_empty(&self) -> bool {
+        matches!(self.min, NumberOrInfinity::None) && matches!(self.max, NumberOrInfinity::None)
+    }
+
+    /// Returns true when `value` lies within the range. An unset or infinite bound is
+    /// treated as unbounded on that side, so an empty range accepts every value.
+    pub(crate) fn contains(&self, value: f32) -> bool {
+        let above_min = match self.min {
+            NumberOrInfinity::None | NumberOrInfinity::NegativeInfinity => true,
+            NumberOrInfinity::Infinity => false,
+            NumberOrInfinity::FiniteI64(n) => value >= n as f32,
+        };
+        let below_max = match self.max {
+            NumberOrInfinity::None | NumberOrInfinity::Infinity => true,
+            NumberOrInfinity::NegativeInfinity => false,
+            NumberOrInfinity::FiniteI64(n) => value <= n as f32,
+        };
+        above_min && below_max
+    }
 }
 
 /// Syntax components. These are the elements that make up the css declaration syntax.
@@ -173,6 +194,7 @@ pub enum SyntaxComponent {
     },
     Builtin {
         datatype: String,
+        range: RangeType,
         multipliers: Vec<SyntaxComponentMultiplier>,
     },
 }
@@ -281,6 +303,15 @@ impl CssSyntax {
 /// Parse a unit input
 fn parse_unit(input: &str) -> IResult<&str, SyntaxComponent> {
     let (input, value) = float(input)?;
+
+    // nom's float parser accepts the textual forms "inf"/"infinity"/"nan", which makes it
+    // eat the front of grammar KEYWORDS: `infinite` parsed as Unit(inf, "inite") and could
+    // never match. A numeric literal in a grammar is always finite; reject the textual
+    // specials so keyword parsing gets these tokens instead.
+    if !value.is_finite() {
+        return Err(Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Float)));
+    }
+
     let (input, suffix) = opt(alpha1).parse(input)?;
 
     let Some(suffix) = suffix else {
@@ -834,9 +865,17 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
         parse_generic_keyword, // This is more of a catch-all
     ))
     .parse(input)?;
-    let (input, multipliers) = parse_multipliers(input)?;
+    let (rest, multipliers) = parse_multipliers(input)?;
 
-    component.update_multipliers(multipliers.clone());
+    // Only apply an explicit multiplier suffix (one that actually consumed input).
+    // `parse_multipliers` returns a default `[Once]` when no suffix is present; applying
+    // that would clobber a component's own multipliers. This matters for single-element
+    // groups such as `[ b{2} ]`, which unwrap to their inner component (`b{2}`) — that
+    // inner multiplier must survive.
+    if rest.len() != input.len() {
+        component.update_multipliers(multipliers.clone());
+    }
+    let input = rest;
 
     debug_print!("<- Parsed component_type: {:#?} {:?}", component, multipliers);
 
@@ -2367,16 +2406,18 @@ mod tests {
             CssSyntaxTree::new(vec![SyntaxComponent::Group {
                 combinator: GroupCombinators::ExactlyOne,
                 components: vec![
+                    // `[ left+ ]` unwraps to its inner component and must keep the `+`.
                     SyntaxComponent::GenericKeyword {
                         keyword: "left".to_string(),
-                        multipliers: vec![SyntaxComponentMultiplier::Once],
+                        multipliers: vec![SyntaxComponentMultiplier::OneOrMore],
                     },
                     SyntaxComponent::Group {
                         combinator: GroupCombinators::Juxtaposition,
                         components: vec![
+                            // `[ center? ]` likewise keeps the `?`.
                             SyntaxComponent::GenericKeyword {
                                 keyword: "center".to_string(),
-                                multipliers: vec![SyntaxComponentMultiplier::Once],
+                                multipliers: vec![SyntaxComponentMultiplier::Optional],
                             },
                             SyntaxComponent::GenericKeyword {
                                 keyword: "top".to_string(),

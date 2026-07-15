@@ -23,7 +23,6 @@ use gosub_engine::{
     Action, DefaultRenderConfig, EngineConfig, EngineError, GosubEngine, NavigationId,
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
-use parking_lot::RwLock;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
@@ -152,9 +151,9 @@ async fn main() -> Result<(), EngineError> {
     let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
         Some(EngineConfig::builder().max_zones(1).build().expect("cfg")),
         Arc::new(backend),
-        Arc::new(RwLock::new(DefaultCompositor::default())),
+        Arc::new(DefaultCompositor::default()),
     );
-    let engine_join = engine.start().expect("start");
+    let engine_join = tokio::spawn(engine.start().expect("start"));
     let mut events = engine.subscribe_events();
 
     let zone_services = ZoneServices {
@@ -242,9 +241,7 @@ async fn main() -> Result<(), EngineError> {
     stop_server.cancel();
     tokio::time::sleep(Duration::from_millis(100)).await;
     engine.shutdown().await?;
-    if let Some(h) = engine_join {
-        let _ = h.await;
-    }
+    let _ = engine_join.await;
 
     // ── Report ────────────────────────────────────────────────────────────────
     println!("Checks:");

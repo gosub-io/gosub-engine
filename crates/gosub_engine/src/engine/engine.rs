@@ -26,18 +26,16 @@ use crate::engine::types::{EventChannel, IoChannel};
 use crate::engine::DEFAULT_CHANNEL_CAPACITY;
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
-use crate::net::{spawn_io_thread, FetcherConfig, IoHandle};
-use crate::util::spawn_named;
+use crate::net::{fetcher_config_from, spawn_io_thread, IoHandle};
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineConfig, EngineError};
 use anyhow::Result;
 use gosub_config::Config;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
-use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tracing::instrument;
 
@@ -48,7 +46,9 @@ pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig
     /// Active render backend, concrete per the module config `C`.
     render_backend: Arc<C::RenderBackend>,
     /// Compositor sink that receives finished frames, concrete per the module config `C`.
-    compositor: Arc<RwLock<C::CompositorSink>>,
+    /// Shared behind a plain `Arc`: the sink is interior-mutable (`submit_frame(&self)`), so no
+    /// outer `RwLock` is required.
+    compositor: Arc<C::CompositorSink>,
     /// The engine's single font system (the config's `FontSystem`), shared with the layouter
     /// (measurement) and the renderer (drawing) so the two agree.
     font_system: Arc<Mutex<C::FontSystem>>,
@@ -79,8 +79,11 @@ pub struct EngineContext {
     /// Per-engine settings store (key/value config with persistence and change subscriptions).
     /// A clone of this handle is threaded down to each zone and tab.
     pub config_store: Config,
-    /// I/O thread handle
-    pub io_tx: Arc<RwLock<Option<IoChannel>>>,
+    /// I/O submission channel, installed once when the engine starts (`start()`), read by each
+    /// zone at creation. A `OnceLock` rather than `Arc<RwLock<Option<..>>>`: it is set exactly once
+    /// and never swapped, and `EngineContext` is already shared behind an `Arc`, so no inner lock
+    /// or `Arc` is needed. Reading before `start()` yields `None` (`EngineError::IoNotStarted`).
+    pub io_tx: OnceLock<IoChannel>,
     /// Map for requests to tabs
     pub request_reference_map: Arc<RwLock<RequestReferenceMap>>,
 }
@@ -91,7 +94,7 @@ impl Default for EngineContext {
             event_tx: broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY).0,
             config: Arc::new(EngineConfig::default()),
             config_store: crate::engine::settings_store::default_config(),
-            io_tx: Arc::new(RwLock::new(None)),
+            io_tx: OnceLock::new(),
             request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
         }
     }
@@ -105,17 +108,16 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// ```
     /// # use gosub_engine as ge;
     /// # use std::sync::Arc;
-    /// # use parking_lot::RwLock;
     /// # use gosub_render_pipeline::render::backends::null::NullBackend;
     /// # use gosub_render_pipeline::render::DefaultCompositor;
     /// let backend = NullBackend::new();
     /// let compositor = DefaultCompositor::default();
-    /// let engine = ge::GosubEngine::<ge::DefaultRenderConfig>::new(None, Arc::new(backend), Arc::new(RwLock::new(compositor)));
+    /// let engine = ge::GosubEngine::<ge::DefaultRenderConfig>::new(None, Arc::new(backend), Arc::new(compositor));
     /// ```
     pub fn new(
         config: Option<EngineConfig>,
         backend: Arc<C::RenderBackend>,
-        compositor: Arc<RwLock<C::CompositorSink>>,
+        compositor: Arc<C::CompositorSink>,
     ) -> Self {
         let resolved_config = config.unwrap_or_default();
 
@@ -130,7 +132,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 event_tx: event_tx.clone(),
                 config: Arc::new(resolved_config),
                 config_store: crate::engine::settings_store::default_config(),
-                io_tx: Arc::new(RwLock::new(None)),
+                io_tx: OnceLock::new(),
                 request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
             }),
             render_backend: backend,
@@ -145,44 +147,33 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         }
     }
 
-    /// Starts the engine and returns the join handle of the main run loop task.
-    pub fn start(&mut self) -> Result<Option<JoinHandle<()>>, EngineError> {
+    /// Starts the engine's I/O runtime and returns the main run-loop future.
+    ///
+    /// The returned future is intentionally **not** spawned: the caller decides how to drive it —
+    /// `tokio::spawn` it onto a background task, `.await` it inline, or poll it inside a `select!`.
+    /// This keeps the engine from imposing a runtime/threading model on the embedder (it can be
+    /// driven on the caller's current task/thread). The engine is considered running as soon as
+    /// this returns `Ok`; driving the future processes engine commands such as shutdown.
+    pub fn start(&mut self) -> Result<impl std::future::Future<Output = ()> + 'static, EngineError> {
         if self.running {
             return Err(EngineError::AlreadyRunning);
         }
 
         // Start I/O thread, building the fetcher config from the settings store.
-        let cfg = &self.context.config_store;
-        let body_secs = cfg.get_uint("net.timeout.body_secs");
-        let io_cfg = FetcherConfig {
-            global_slots: cfg.get_uint("net.http.global_slots"),
-            h1_per_origin: cfg.get_uint("net.http.per_origin_h1"),
-            h2_per_origin: cfg.get_uint("net.http.per_origin_h2"),
-            connect_timeout: Duration::from_secs(cfg.get_uint("net.timeout.connect_secs") as u64),
-            req_timeout: Duration::from_secs(cfg.get_uint("net.timeout.request_secs") as u64),
-            read_idle_timeout: Duration::from_secs(cfg.get_uint("net.timeout.read_idle_secs") as u64),
-            // A body timeout of 0 means "no limit".
-            total_body_timeout: (body_secs > 0).then(|| Duration::from_secs(body_secs as u64)),
-            // Read at fetcher-construction time for now; making the fetcher pick up
-            // store changes on the fly is a later gosub-sonar concern.
-            user_agent: Some(cfg.get_string("net.user_agent")),
-        };
+        let io_cfg = fetcher_config_from(&self.context.config_store);
         let io_handle = spawn_io_thread(io_cfg, self.context.clone());
-        let io_tx = io_handle.subscribe();
-        {
-            let mut guard = self.context.io_tx.write();
-            *guard = Some(io_tx);
-        }
+        // Set once; `start()` already refuses to run twice, so this never races or overwrites.
+        let _ = self.context.io_tx.set(io_handle.subscribe());
         self.io_handle = Some(io_handle);
 
         // Start metrics HTTP server (GET http://127.0.0.1:9090/metrics)
         #[cfg(feature = "metrics")]
         crate::metrics::start(9090);
 
-        // Start main engine run loop
-        let join_handle = self.run().map(|task| spawn_named("Engine runner", task));
-
-        Ok(join_handle)
+        // Hand the run-loop future to the caller to drive (spawn / await / select!) rather than
+        // spawning it ourselves. `run()` yields `None` only if the loop was already taken, which
+        // cannot happen here since `self.running` was false above.
+        self.run().ok_or(EngineError::AlreadyRunning)
     }
 
     /// Return a receiver for engine events.
@@ -195,12 +186,23 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     }
 
     /// Give this to zones/tabs when constructing them.
-    pub fn compositor(&self) -> Arc<RwLock<C::CompositorSink>> {
+    pub fn compositor(&self) -> Arc<C::CompositorSink> {
         Arc::clone(&self.compositor)
     }
 
-    /// Run the engine’s inbound command loop in a dedicated thread/task.
-    pub fn run<'b>(&mut self) -> Option<impl std::future::Future<Output = ()> + 'b> {
+    /// Get a clone of the engine’s command sender (mainly for testing or
+    /// custom handles).
+    #[cfg(test)]
+    #[allow(unused)]
+    fn command_sender(&self) -> mpsc::Sender<EngineCommand> {
+        self.cmd_tx.clone()
+    }
+
+    /// Build the engine’s inbound command-loop future (owns everything it needs, hence `'static`).
+    ///
+    /// Returns `None` if the loop was already taken (engine already started). The caller drives the
+    /// future; this method does not spawn it.
+    pub fn run(&mut self) -> Option<impl std::future::Future<Output = ()> + 'static> {
         self.running = true;
 
         let _ = self.context.event_tx.send(EngineEvent::EngineStarted);
@@ -377,7 +379,7 @@ mod tests {
         GosubEngine::new(
             Some(settings),
             Arc::new(NullBackend::new()),
-            Arc::new(RwLock::new(DefaultCompositor::default())),
+            Arc::new(DefaultCompositor::default()),
         )
     }
 
@@ -389,7 +391,7 @@ mod tests {
 
         let mut engine = engine_with_max_zones(1);
         let _event_rx = engine.subscribe_events();
-        let _join = engine.start().expect("start");
+        let _join = tokio::spawn(engine.start().expect("start"));
 
         let mut zone_services = services();
         zone_services.cookie_store = Some(store.clone());
@@ -440,7 +442,7 @@ mod tests {
 
         let mut engine = engine_with_max_zones(1);
         let _event_rx = engine.subscribe_events();
-        let _join = engine.start().expect("start");
+        let _join = tokio::spawn(engine.start().expect("start"));
 
         let zone_cfg = ZoneConfig::builder()
             .accept_languages("fr-CH, fr;q=0.9")
@@ -482,7 +484,7 @@ mod tests {
 
         let mut engine = engine_with_max_zones(1);
         let mut event_rx = engine.subscribe_events();
-        let _join = engine.start().expect("start");
+        let _join = tokio::spawn(engine.start().expect("start"));
 
         let mut zone_services = services();
         zone_services.cookie_store = Some(store.clone());
@@ -536,7 +538,7 @@ mod tests {
         // Keep a receiver alive: create_zone emits ZoneCreated on the broadcast bus.
         let _event_rx = engine.subscribe_events();
         // Zones need the I/O runtime.
-        let _join = engine.start().expect("start");
+        let _join = tokio::spawn(engine.start().expect("start"));
 
         // `None` config also exercises the default_zone_config fallback.
         engine.create_zone(None, services(), None).expect("first zone fits");
