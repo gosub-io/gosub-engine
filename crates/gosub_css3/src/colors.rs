@@ -930,10 +930,12 @@ lazy_static! {
     ];
 }
 
+// CSS keywords are ASCII case-insensitive, so `graytext` and `RED` are as valid as
+// `GrayText` and `red`.
 #[must_use]
 pub fn is_system_color(name: &str) -> bool {
     for entry in &CSS_SYSTEM_COLOR_NAMES {
-        if entry == &name {
+        if entry.eq_ignore_ascii_case(name) {
             return true;
         }
     }
@@ -943,7 +945,7 @@ pub fn is_system_color(name: &str) -> bool {
 #[must_use]
 pub fn is_named_color(name: &str) -> bool {
     for entry in *CSS_COLORNAMES {
-        if entry.name == name {
+        if entry.name.eq_ignore_ascii_case(name) {
             return true;
         }
     }
