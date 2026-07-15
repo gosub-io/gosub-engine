@@ -319,6 +319,34 @@ fn css_property_url<S: CssSystem>(p: &S::Property) -> Option<String> {
     None
 }
 
+/// Extract a solid colour from a `background` shorthand value (e.g. `background: #fff`,
+/// `background: white`, or `background: #fff url(...) no-repeat`). Returns the first colour
+/// token found, or `None` when the shorthand carries no colour. Components are 0..=255.
+fn css_property_bg_color<S: CssSystem>(p: &S::Property) -> Option<(u8, u8, u8, u8)> {
+    // Single-value shorthand: a bare `<color>` (hex/function collapse to a concrete colour at
+    // parse time; a named/system colour arrives as a string).
+    if let Some(s) = p.as_string() {
+        if let Some(c) = css_system_color(s) {
+            return Some(c);
+        }
+    }
+    if let Some((r, g, b, a)) = p.parse_color() {
+        return Some((r as u8, g as u8, b as u8, a as u8));
+    }
+    // Multi-token shorthand: pick the first token that is a concrete colour.
+    if let Some(list) = p.as_list() {
+        for v in list {
+            if let Some((r, g, b, a)) = v.as_color() {
+                return Some((r as u8, g as u8, b as u8, a as u8));
+            }
+            if let Some(c) = v.as_string().and_then(css_system_color) {
+                return Some(c);
+            }
+        }
+    }
+    None
+}
+
 // ── Gradient parsing ──────────────────────────────────────────────────────────
 
 /// Search a property value (the `background-image` longhand or a `background` shorthand
@@ -1043,6 +1071,17 @@ where
         if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, css_name) {
             if let Some(v) = css_property_to_value::<C::CssSystem>(p, prop) {
                 return Some(v);
+            }
+        }
+
+        // `background-color` may be written via the `background` shorthand (e.g. `background: #fff`).
+        // The shorthand is stored under its own key and is not expanded to longhands, so fall back
+        // to extracting the colour token from it when the longhand is absent.
+        if matches!(prop, StyleProperty::BackgroundColor) {
+            if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, "background") {
+                if let Some((r, g, b, a)) = css_property_bg_color::<C::CssSystem>(p) {
+                    return Some(Value::Color(r, g, b, a));
+                }
             }
         }
         None
