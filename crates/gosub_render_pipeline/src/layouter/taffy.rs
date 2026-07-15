@@ -883,9 +883,11 @@ impl TaffyLayouter {
         let layout = doc.background_image_layout(dom_node_id);
 
         // Store the intrinsic size + layout; the painter finalizes the tile geometry once the box
-        // is known. A raster image is used directly. An SVG that tiles at a box-independent size
-        // (`auto`/explicit length) is rasterized to a raster tile so it reuses the raster path; a
-        // `cover`/`contain` SVG stays on the SVG paint path (scaled to the box).
+        // is known. A raster image is used directly. An SVG background is rasterized to a raster
+        // tile at a box-independent size (its intrinsic size, or an explicit `background-size`
+        // length) so it reuses the single raster path for repeat / cover / contain; `compute_bg_tiling`
+        // then scales that raster for cover/contain once the box is known. (An SVG intrinsic size is
+        // typically large — e.g. 400×300 — so cover/contain downscale and stay crisp.)
         match &*self.media_store.get(media_id, MediaType::Image) {
             Media::Image(mi) => Some(BackgroundMedia::Image {
                 media_id,
@@ -894,24 +896,19 @@ impl TaffyLayouter {
             }),
             Media::Svg(ms) => {
                 let size = ms.svg.tree.size();
-                let tile_dim = match layout.size {
-                    BgSize::Auto => Some((size.width(), size.height())),
-                    BgSize::Length(w, h) => Some((w, h)),
-                    BgSize::Cover | BgSize::Contain => None,
+                let (rw, rh) = match layout.size {
+                    BgSize::Length(w, h) => (w, h),
+                    _ => (size.width(), size.height()),
                 };
-                match tile_dim {
-                    Some((tw, th)) => {
-                        let rw = (tw.round() as u32).max(1);
-                        let rh = (th.round() as u32).max(1);
-                        match self.media_store.svg_raster_tile(media_id, rw, rh) {
-                            Some(raster_id) => Some(BackgroundMedia::Image {
-                                media_id: raster_id,
-                                natural: (rw as f32, rh as f32),
-                                layout,
-                            }),
-                            None => Some(BackgroundMedia::Svg(media_id)),
-                        }
-                    }
+                let rw = (rw.round() as u32).max(1);
+                let rh = (rh.round() as u32).max(1);
+                match self.media_store.svg_raster_tile(media_id, rw, rh) {
+                    Some(raster_id) => Some(BackgroundMedia::Image {
+                        media_id: raster_id,
+                        natural: (rw as f32, rh as f32),
+                        layout,
+                    }),
+                    // Rasterization failed — fall back to the (stretch) SVG paint path.
                     None => Some(BackgroundMedia::Svg(media_id)),
                 }
             }
