@@ -288,6 +288,12 @@ fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
         }
     }
 
+    // Fold the tile's own dimensions into the content hash: an edge tile whose size changes
+    // (e.g. after the page height changes) but whose commands are identical must not reuse a
+    // baked texture cut for the old dimensions.
+    fnv!(&tile.rect.width.to_bits().to_le_bytes());
+    fnv!(&tile.rect.height.to_bits().to_le_bytes());
+
     (tile.rect.x.to_bits(), tile.rect.y.to_bits(), tile.layer_id.as_u64(), h)
 }
 /// Sequential per-tile rasterization, used by GPU backends (e.g. Vello) whose shared

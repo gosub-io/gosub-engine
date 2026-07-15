@@ -400,11 +400,26 @@ impl<C: RenderConfiguration> Zone<C> {
     }
 
     /// Closes every tab in this zone. Used by `GosubEngine::close_zone`.
+    ///
+    /// Signals every tab's worker to stop first, then awaits their joins concurrently, so total
+    /// shutdown time is bounded by the slowest tab rather than the sum of every tab's timeout.
     pub(crate) async fn close(mut self) {
-        let tab_ids = self.list_tabs();
-        for tab_id in tab_ids {
-            self.close_tab(tab_id).await;
-        }
+        let secs = self.context.config_store.get_uint("engine.io_shutdown_secs") as u64;
+        let tabs: Vec<_> = self.tabs.drain().collect();
+
+        let waits = tabs.into_iter().map(|(tab_id, info)| async move {
+            // A send error means the worker already exited; awaiting the join handle is
+            // still correct in that case.
+            let _ = info.cmd_tx.send(TabCommand::CloseTab).await;
+            match tokio::time::timeout(std::time::Duration::from_secs(secs), info.join_handle).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => log::warn!("Tab {tab_id} worker join error: {e}"),
+                // The worker keeps running detached and cleans up whenever it exits.
+                Err(_) => log::warn!("Tab {tab_id} worker did not stop within {secs}s"),
+            }
+        });
+
+        futures::future::join_all(waits).await;
     }
 
     /// Lists all tab IDs in this zone.

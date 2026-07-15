@@ -438,7 +438,9 @@ impl CookieJar for DefaultCookieJar {
             cookie.expires = if let Some(ma) = max_age {
                 if ma <= 0 {
                     // Max-Age=0 (or negative) means delete the cookie immediately.
-                    bucket.retain(|c| c.name != cookie.name);
+                    // Cookies are unique by (name, domain, path) — RFC 6265bis §5.6 — so
+                    // only evict the exact match, not every same-named cookie in this origin.
+                    bucket.retain(|c| !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path));
                     continue;
                 }
                 Some(now + ma)

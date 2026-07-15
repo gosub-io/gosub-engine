@@ -194,7 +194,16 @@ pub(crate) fn provision_persistent_jar(
     };
 
     let handle = CookieJarHandle::new(PersistentCookieJar::new(zone_id, inner, store));
-    jars.write().insert(zone_id, handle.clone());
+
+    // Re-check under the write lock: another thread may have provisioned this zone's jar between
+    // our read miss and now. Every `PersistentCookieJar` snapshots the whole jar back to the store,
+    // so two live handles for one zone would make concurrent mutations last-write-wins and drop
+    // cookies. Return the already-cached handle if present; only the loser's `load()` is wasted.
+    let mut guard = jars.write();
+    if let Some(existing) = guard.get(&zone_id) {
+        return Some(existing.clone());
+    }
+    guard.insert(zone_id, handle.clone());
     Some(handle)
 }
 
