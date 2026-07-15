@@ -1,13 +1,13 @@
 use gosub_render_pipeline::common::media::{MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::border::BorderStyle;
 use gosub_render_pipeline::painter::commands::brush::Brush;
-use gosub_render_pipeline::painter::commands::gradient::{Gradient, LinearGradient};
+use gosub_render_pipeline::painter::commands::gradient::{Gradient, LinearGradient, Tiling};
 use gosub_render_pipeline::painter::commands::rectangle::{BlendMode as CssBlendMode, Rectangle};
 use gosub_render_pipeline::tiler::Tile;
 use skia_safe::gradient::{shaders, Colors as GradientColors, Gradient as SkGradient, Interpolation};
 use skia_safe::{
     images, AlphaType, BlendMode as SkBlendMode, Canvas, Color, Color4f, ColorType, Data, FilterMode, ISize, ImageInfo,
-    MipmapMode, Paint, Point, RRect, Rect, SamplingOptions, TileMode,
+    Matrix, MipmapMode, Paint, Point, RRect, Rect, SamplingOptions, TileMode,
 };
 
 /// CSS `mix-blend-mode` → Skia paint blend mode. The paint blends against the canvas content
@@ -55,7 +55,10 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_
             paint.set_anti_alias(true);
             paint.set_blend_mode(to_skia_blend_mode(cmd.blend_mode()));
             if let Brush::Gradient(Gradient::Linear(g)) = brush {
-                apply_linear_gradient(&mut paint, g, r.x as f32, r.y as f32, r.width as f32, r.height as f32);
+                match &g.tiling {
+                    Some(tiling) => apply_tiled_gradient(&mut paint, g, tiling, r.x as f32, r.y as f32),
+                    None => apply_linear_gradient(&mut paint, g, r.x as f32, r.y as f32, r.width as f32, r.height as f32),
+                }
             }
             draw_rect_or_rounded(
                 canvas,
@@ -224,6 +227,33 @@ fn apply_linear_gradient(paint: &mut Paint, g: &LinearGradient, x: f32, y: f32, 
         None,
     );
     if let Some(shader) = shader {
+        paint.set_shader(shader);
+    }
+}
+
+/// Install a repeating image shader for a tiled `background-image` gradient layer: rasterize
+/// one `background-size` tile and tile it in 2D, offset by `background-position`. The box at
+/// `(x, y)` is filled by the shader (the caller draws the rect).
+fn apply_tiled_gradient(paint: &mut Paint, g: &LinearGradient, tiling: &Tiling, x: f32, y: f32) {
+    let tw = (tiling.tile_size.0.round() as i32).max(1);
+    let th = (tiling.tile_size.1.round() as i32).max(1);
+
+    let rgba = g.rasterize_tile(tw as u32, th as u32);
+    let info = ImageInfo::new(ISize::new(tw, th), ColorType::RGBA8888, AlphaType::Unpremul, None);
+    let row_bytes = tw as usize * 4;
+    let Some(image) = images::raster_from_data(&info, Data::new_copy(&rgba), row_bytes) else {
+        log::warn!("Failed to build Skia gradient tile image");
+        return;
+    };
+
+    // Full-repeat (the default) tiles both axes; no-repeat clamps to the single tile. Skia
+    // tile modes are per-axis, so honour each independently.
+    let mode = |repeat: bool| if repeat { TileMode::Repeat } else { TileMode::Decal };
+    let tile_modes = (mode(tiling.repeat.0), mode(tiling.repeat.1));
+    let local = Matrix::translate((x + tiling.position.0, y + tiling.position.1));
+    // Nearest keeps the tile edges crisp and avoids bleeding across the repeat seam.
+    let sampling = SamplingOptions::new(FilterMode::Nearest, MipmapMode::None);
+    if let Some(shader) = image.to_shader(tile_modes, sampling, Some(&local)) {
         paint.set_shader(shader);
     }
 }

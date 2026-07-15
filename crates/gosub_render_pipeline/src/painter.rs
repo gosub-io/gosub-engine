@@ -10,6 +10,7 @@ use crate::layouter::{BackgroundMedia, ElementContext, LayoutElementId, LayoutEl
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::color::Color;
+use crate::painter::commands::gradient::Gradient;
 use crate::painter::commands::rectangle::{BlendMode, Radius, Rectangle};
 use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
@@ -222,18 +223,22 @@ impl Painter {
         }
     }
 
-    /// The fill for an element's background box: a `linear-gradient(...)` if present,
-    /// otherwise the solid `background-color` (transparent when unset).
-    fn background_brush(&self, node_id: NodeId) -> Brush {
+    /// The base fill for an element's background box plus any overlay `background-image`
+    /// gradient layers to paint on top, back-to-front.
+    ///
+    /// A lone non-tiled `linear-gradient(...)` becomes the base brush directly (preserving the
+    /// historical single-gradient path where the border/radius decorate the same rect).
+    /// Multiple layers — or any tiled layer (a repeated `background-size` cell) — instead stack
+    /// as separate rects over the solid `background-color`.
+    fn background_fill(&self, node_id: NodeId) -> (Brush, Vec<Gradient>) {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        if let Some(gradient) = doc.background_gradient(node_id) {
-            return Brush::gradient(gradient);
+        let layers = doc.background_layers(node_id);
+        let color = self.get_brush(node_id, &StyleProperty::BackgroundColor, Brush::solid(Color::TRANSPARENT));
+        match layers.as_slice() {
+            [] => (color, Vec::new()),
+            [Gradient::Linear(g)] if g.tiling.is_none() => (Brush::gradient(Gradient::Linear(g.clone())), Vec::new()),
+            _ => (color, layers),
         }
-        self.get_brush(
-            node_id,
-            &StyleProperty::BackgroundColor,
-            Brush::solid(Color::TRANSPARENT),
-        )
     }
 
     fn get_parent_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
@@ -386,8 +391,9 @@ impl Painter {
                 commands.push(PaintCommand::rectangle(r));
             }
             ElementContext::None => {
-                let brush = self.background_brush(dom_node_id);
-                let r = Rectangle::new(layout_element.box_model.border_box)
+                let (brush, overlay_layers) = self.background_fill(dom_node_id);
+                let border_box = layout_element.box_model.border_box;
+                let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));
                 let r = self.decorate_with_border_and_radius(dom_node_id, r);
@@ -396,6 +402,17 @@ impl Painter {
                 // background-image paints on top of the background-color.
                 if let Some(bg) = bg_media {
                     commands.extend(self.background_media_commands(bg, layout_element, dom_node_id));
+                }
+
+                // Stacked gradient layers (multi-layer / tiled backgrounds, e.g. a CSS
+                // checkerboard). CSS paints the first-listed layer on top, so emit them
+                // back-to-front over the base fill.
+                let blend = self.mix_blend_mode(dom_node_id);
+                for layer in overlay_layers.into_iter().rev() {
+                    let r = Rectangle::new(border_box)
+                        .with_background(Brush::gradient(layer))
+                        .with_blend_mode(blend);
+                    commands.push(PaintCommand::rectangle(r));
                 }
             }
         }
