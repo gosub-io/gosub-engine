@@ -2,6 +2,7 @@ pub mod commands;
 
 use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
+use crate::common::document::pipeline_doc::{BgImageLayout, BgSize};
 use crate::common::document::style::{lookup, BorderStyle as CssBorderStyle, Display, StyleProperty, Value};
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::media::MediaStore;
@@ -10,7 +11,7 @@ use crate::layouter::{BackgroundMedia, ElementContext, LayoutElementId, LayoutEl
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::color::Color;
-use crate::painter::commands::gradient::Gradient;
+use crate::painter::commands::gradient::{Gradient, Tiling};
 use crate::painter::commands::rectangle::{BlendMode, Radius, Rectangle};
 use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
@@ -330,7 +331,13 @@ impl Painter {
     ) -> Vec<PaintCommand> {
         let border_box = layout_element.box_model.border_box;
         match bg {
-            BackgroundMedia::Image(media_id, tiling) => {
+            BackgroundMedia::Image {
+                media_id,
+                natural,
+                layout,
+            } => {
+                // Finalize the tile geometry now that the box is known (cover/contain need it).
+                let tiling = compute_bg_tiling(natural, &layout, border_box.width as f32, border_box.height as f32);
                 let brush = Brush::image_tiled(media_id, tiling);
                 let r = Rectangle::new(border_box)
                     .with_background(brush)
@@ -518,4 +525,42 @@ fn css_border_style_to_paint(s: &CssBorderStyle) -> BorderStyle {
         CssBorderStyle::Hidden => BorderStyle::Hidden,
         CssBorderStyle::None => BorderStyle::None,
     }
+}
+
+/// Finalize a `background-image`'s tile geometry now that the element's border box (`box_w`×`box_h`)
+/// is known. Resolves `background-size` (`cover`/`contain` need the box) and `center` positioning
+/// into a [`Tiling`]: `cover`/`contain` produce a single aspect-preserved tile (no repeat), so the
+/// backend paints it once and lets the box clip (cover) or the background-color show (contain).
+/// Returns `None` if the intrinsic size or box is degenerate.
+fn compute_bg_tiling(natural: (f32, f32), layout: &BgImageLayout, box_w: f32, box_h: f32) -> Option<Tiling> {
+    let (nw, nh) = natural;
+    if nw <= 0.0 || nh <= 0.0 || box_w <= 0.0 || box_h <= 0.0 {
+        return None;
+    }
+
+    let (tw, th) = match layout.size {
+        BgSize::Auto => (nw, nh),
+        BgSize::Length(w, h) => (w, h),
+        // Preserve aspect: contain fits inside the box, cover fills it.
+        BgSize::Contain => {
+            let s = (box_w / nw).min(box_h / nh);
+            (nw * s, nh * s)
+        }
+        BgSize::Cover => {
+            let s = (box_w / nw).max(box_h / nh);
+            (nw * s, nh * s)
+        }
+    };
+    if tw <= 0.0 || th <= 0.0 {
+        return None;
+    }
+
+    let px = if layout.center.0 { (box_w - tw) / 2.0 } else { layout.position.0 };
+    let py = if layout.center.1 { (box_h - th) / 2.0 } else { layout.position.1 };
+
+    Some(Tiling {
+        tile_size: (tw, th),
+        position: (px, py),
+        repeat: layout.repeat,
+    })
 }

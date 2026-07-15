@@ -153,13 +153,19 @@ pub struct LayoutElementNode {
 
 /// A resolved CSS `background-image` together with its media kind.
 ///
-/// `Image` carries an optional tiling: `Some` repeats the image across the box per
-/// `background-repeat`/`-size`/`-position`, `None` scales it to fill (a `cover`/`contain`
-/// background). An SVG background that needs tiling is rasterized to a raster tile during layout
-/// and stored here as `Image`, so only one tiling path exists downstream.
+/// `Image` carries the image's intrinsic size and the resolved `background-repeat`/`-size`/
+/// `-position` layout; the painter finalizes the tile geometry once the element's border box is
+/// known (needed for `cover`/`contain`). An SVG background that tiles/repeats is rasterized to a
+/// raster tile during layout and stored here as `Image`, so only one tiling path exists downstream;
+/// a `cover`/`contain` SVG stays `Svg` and is scaled to the box by the SVG paint path.
 #[derive(Debug, Clone, Copy)]
 pub enum BackgroundMedia {
-    Image(MediaId, Option<crate::painter::commands::gradient::Tiling>),
+    Image {
+        media_id: MediaId,
+        /// Intrinsic image size in px (for a rasterized SVG tile, the tile's pixel size).
+        natural: (f32, f32),
+        layout: crate::common::document::pipeline_doc::BgImageLayout,
+    },
     Svg(MediaId),
 }
 

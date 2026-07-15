@@ -638,19 +638,35 @@ pub enum PipelineNodeKind {
     Element,
 }
 
+/// Resolved `background-size` keyword/value.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BgSize {
+    /// `auto` / absent — the image's intrinsic size.
+    Auto,
+    /// Explicit lengths in px.
+    Length(f32, f32),
+    /// `cover` — scale (preserving aspect) so the image fully covers the box, cropping overflow.
+    Cover,
+    /// `contain` — scale (preserving aspect) so the image fits inside the box, letterboxing.
+    Contain,
+}
+
 /// Resolved `background-repeat`/`-size`/`-position` for an element's (first) background layer,
-/// used to tile a raster/SVG `background-image`. Read from the `background` shorthand as well as
-/// the longhands, since pages often write `background: url(x) repeat`.
+/// used to size/tile a raster/SVG `background-image`. Read from the `background` shorthand as well
+/// as the longhands, since pages often write `background: url(x) repeat` (or `… center / cover`).
+///
+/// `cover`/`contain` depend on the box size, so the final tile geometry is computed at paint time
+/// (see the painter) from this layout plus the element's border box.
 #[derive(Debug, Clone, Copy)]
 pub struct BgImageLayout {
     /// Whether the tile repeats on the x / y axis (`background-repeat`; default repeat both).
     pub repeat: (bool, bool),
-    /// Tile origin offset from the box origin, in px (`background-position`; px only for now).
+    /// Tile origin offset from the box origin, in px (`background-position`, length form).
     pub position: (f32, f32),
-    /// Explicit `background-size` in px, if given as lengths; `None` means intrinsic size.
-    pub explicit_size: Option<(f32, f32)>,
-    /// `background-size` is `cover`/`contain`/`%` — scale the image to the box instead of tiling.
-    pub scale_to_box: bool,
+    /// Per-axis `center` keyword (`background-position: center`) — resolved against the box at paint.
+    pub center: (bool, bool),
+    /// Resolved `background-size`.
+    pub size: BgSize,
 }
 
 impl Default for BgImageLayout {
@@ -658,8 +674,8 @@ impl Default for BgImageLayout {
         BgImageLayout {
             repeat: (true, true),
             position: (0.0, 0.0),
-            explicit_size: None,
-            scale_to_box: false,
+            center: (false, false),
+            size: BgSize::Auto,
         }
     }
 }
@@ -1363,14 +1379,24 @@ where
         } else {
             (true, true)
         };
-        // `cover`/`contain` (and unresolved `%` sizes) scale the image to the box rather than tile.
-        let scale_to_box = explicit_size.is_none() && (has("cover") || has("contain"));
+        let size = match explicit_size {
+            Some((w, h)) => BgSize::Length(w, h),
+            None if has("cover") => BgSize::Cover,
+            None if has("contain") => BgSize::Contain,
+            None => BgSize::Auto,
+        };
+        // A length `background-position` wins; otherwise a bare `center` centers both axes.
+        let (position, center) = match position {
+            Some(pos) => (pos, (false, false)),
+            None if has("center") => ((0.0, 0.0), (true, true)),
+            None => ((0.0, 0.0), (false, false)),
+        };
 
         BgImageLayout {
             repeat,
-            position: position.unwrap_or((0.0, 0.0)),
-            explicit_size,
-            scale_to_box,
+            position,
+            center,
+            size,
         }
     }
 
