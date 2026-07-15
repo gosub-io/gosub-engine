@@ -803,20 +803,21 @@ impl TaffyLayouter {
                             // rasterizer scales the icon to whatever rect the element actually
                             // occupies, so display quality is unaffected.
                             let is_placeholder = self.media_store.is_placeholder(media_id);
-                            taffy_context = match media.borrow() {
+                            // Resolve the intrinsic size (and whether this is an SVG) in one borrow.
+                            let (dimension, is_svg) = match media.borrow() {
+                                // Use the SVG's intrinsic size so the element gets a non-zero box.
+                                // A failed/placeholder load uses the same small fixed size as images.
                                 Media::Svg(media_svg) => {
-                                    // Use the SVG's intrinsic size so the element gets a non-zero box.
-                                    // A failed/placeholder load uses the same small fixed size as images.
-                                    let dimension = if is_placeholder {
+                                    let d = if is_placeholder {
                                         geo::Dimension::new(32.0, 32.0)
                                     } else {
                                         let size = media_svg.svg.tree.size();
                                         geo::Dimension::new(size.width() as f64, size.height() as f64)
                                     };
-                                    Some(TaffyContext::svg(src.as_str(), media_id, dimension, dom_node.node_id))
+                                    (d, true)
                                 }
                                 Media::Image(media_image) => {
-                                    let dimension = if is_placeholder {
+                                    let d = if is_placeholder {
                                         geo::Dimension::new(32.0, 32.0)
                                     } else {
                                         geo::Dimension::new(
@@ -824,9 +825,30 @@ impl TaffyLayouter {
                                             media_image.image.height() as f64,
                                         )
                                     };
-                                    Some(TaffyContext::image(src.as_str(), media_id, dimension, dom_node.node_id))
+                                    (d, false)
+                                }
+                            };
+
+                            // Pin the intrinsic aspect ratio so a block-level replaced element keeps
+                            // its shape when only one axis is constrained (e.g. `width:100%; height:auto`
+                            // inside a `figure`). Without this, taffy's block layout leaves height
+                            // unconstrained and the image stretches to fill its box. Skip it when the
+                            // author fixed BOTH axes to definite lengths — the explicit box wins then,
+                            // matching CSS `aspect-ratio: auto` for replaced elements.
+                            if !is_placeholder && dimension.width > 0.0 && dimension.height > 0.0 {
+                                let both_fixed = taffy_style.size.width.into_option().is_some()
+                                    && taffy_style.size.height.into_option().is_some();
+                                let ratio = (dimension.width / dimension.height) as f32;
+                                if !both_fixed && ratio.is_finite() && ratio > 0.0 {
+                                    taffy_style.aspect_ratio = Some(ratio);
                                 }
                             }
+
+                            taffy_context = Some(if is_svg {
+                                TaffyContext::svg(src.as_str(), media_id, dimension, dom_node.node_id)
+                            } else {
+                                TaffyContext::image(src.as_str(), media_id, dimension, dom_node.node_id)
+                            });
                         }
                         MediaRequest::Pending => {
                             // Placeholder size: honour the HTML width/height attributes if present,

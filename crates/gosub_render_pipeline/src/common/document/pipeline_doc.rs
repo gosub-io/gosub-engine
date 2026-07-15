@@ -144,12 +144,27 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
                 return Some(Value::Keyword(intern(s)));
             }
             if let Some(list) = p.as_list() {
-                let names: String = list
-                    .iter()
-                    .filter(|v| !v.is_comma())
-                    .filter_map(|v| v.as_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                // The value is a flat token list: an unquoted multi-word family name is a run
+                // of space-separated identifier tokens (`DejaVu Sans` → `String("DejaVu")`,
+                // `String("Sans")`) and `Comma` separates alternative families. Rejoin adjacent
+                // tokens with a space (same family) and use ", " only at commas, so a name like
+                // "DejaVu Sans" survives intact instead of splitting into "DejaVu, Sans" (which
+                // matches no installed font and falls through to the generic fallback).
+                let mut names = String::new();
+                let mut need_space = false;
+                for v in list {
+                    if v.is_comma() {
+                        names.push_str(", ");
+                        need_space = false;
+                        continue;
+                    }
+                    let Some(s) = v.as_string() else { continue };
+                    if need_space {
+                        names.push(' ');
+                    }
+                    names.push_str(s);
+                    need_space = true;
+                }
                 if !names.is_empty() {
                     return Some(Value::Keyword(intern(&names)));
                 }
@@ -1315,9 +1330,21 @@ where
                         attr_map.set(k, v);
                     }
                 }
-                // Styles are accessed via `doc.get_own_style()` rather than stored in
+                // Most styles are accessed via `doc.get_own_style()` rather than stored in
                 // ElementData — CssTaffyConverter uses the PipelineDocument interface directly.
-                let element_data = ElementData::new(tag_name, Some(attr_map), false, None);
+                // `display`, however, drives the layouter's tag-name-based inline-vs-block
+                // grouping (Node::is_inline_element / is_block_element), which only reads the
+                // local NodeStyle. Carry the *cascaded* display onto the Node so author rules
+                // like `figcaption b { display: block }` are honored. Only set it when the
+                // cascade (UA or author) actually assigned one; leaving it `None` preserves the
+                // intrinsic tag-name fallback (the UA stylesheet is incomplete, so we must not
+                // substitute the CSS `inline` initial value get_style() would otherwise return).
+                let styles = self.get_own_style(id, &StyleProperty::Display).map(|display| {
+                    let mut style = NodeStyle::new();
+                    style.set(StyleProperty::Display, display);
+                    style
+                });
+                let element_data = ElementData::new(tag_name, Some(attr_map), false, styles);
                 NodeType::Element(element_data)
             }
             _ => return None,
