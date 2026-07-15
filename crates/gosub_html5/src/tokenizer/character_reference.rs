@@ -23,9 +23,7 @@ pub enum CcrState {
 impl Tokenizer<'_> {
     /// Consumes a character reference and places this in the tokenizer consume buffer
     /// ref: 8.2.4.69 Tokenizing character references
-    ///
-    /// @TODO: fix additional allowed char
-    pub fn consume_character_reference(&mut self, _additional_allowed_char: Option<Character>, as_attribute: bool) {
+    pub fn consume_character_reference(&mut self, as_attribute: bool) {
         let mut ccr_state = CcrState::CharacterReference;
         let mut char_ref_code: Option<u32> = Some(0);
 
