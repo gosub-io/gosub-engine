@@ -1,6 +1,6 @@
 use crate::cookies::SameSiteContext;
 use crate::engine::errors::NavigationError;
-use crate::engine::events::{EngineEvent, NavigationEvent, TabInternalCommand};
+use crate::engine::events::{EngineEvent, NavigationEvent};
 use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
@@ -10,18 +10,16 @@ use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{FetchRequest, FetchResult, Initiator, NetError, Priority, ResourceKind};
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
 use crate::storage::types::compute_partition_key;
-use crate::storage::{StorageEvent, StorageHandles};
+use crate::storage::StorageHandles;
 use crate::tab::scroll::{default_text_scroll, ScrollState};
 use crate::tab::services::EffectiveTabServices;
-use crate::tab::state::{TabActivityMode, TabRuntime, TabState};
+use crate::tab::state::{TabRuntime, TabState};
 use crate::tab::{TabId, TabSink};
 use crate::util::spawn_named;
 use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
 use gosub_render_pipeline::rasterizer::RasterStrategy;
-use gosub_render_pipeline::render::backend::{
-    CompositorSink, ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
-};
+use gosub_render_pipeline::render::backend::{CompositorSink, ErasedSurface, PresentMode, RenderBackend, SurfaceSize};
 use gosub_render_pipeline::render::Viewport;
 use http::{HeaderMap, Method};
 use std::sync::Arc;
@@ -61,7 +59,6 @@ struct ActiveNav {
 }
 
 struct NavJoin<C: RenderConfiguration> {
-    // nav_id: NavigationId,
     cancel: CancellationToken,
     // Wrapped in Option so the receiver can be extracted into `pending_nav_rx`
     // without dropping the cancel token from self.load.
@@ -89,8 +86,6 @@ pub struct TabWorker<C: RenderConfiguration> {
     pub context: BrowsingContext<C>,
     /// State of the tab (idle, loading, loaded, etc.)
     pub state: TabState,
-    /// Current tab mode (idle, live, background)
-    pub mode: TabActivityMode,
 
     /// Favicon binary data for the current tab
     pub favicon: Vec<u8>,
@@ -107,12 +102,8 @@ pub struct TabWorker<C: RenderConfiguration> {
 
     // ** Backend rendering
 
-    // Thumbnail image of the tab in case the tab is not visible
-    pub thumbnail: Option<RgbaImage>,
     // Surface on which the browsing context can render the tab
     surface: Option<Box<dyn ErasedSurface + Send>>,
-    // // Size of the surface (does not have to match viewport)
-    // surface_size: SurfaceSize,
     // Present mode for the surface?
     present_mode: PresentMode,
     /// The newest viewport requested by the tab, which may differ from the committed one.
@@ -132,12 +123,6 @@ pub struct TabWorker<C: RenderConfiguration> {
     load: Option<NavJoin<C>>,
     /// Current active navigation (if any)
     active_nav: Option<ActiveNav>,
-
-    // Send channel for internal commands (reserved for future worker-internal use)
-    #[allow(dead_code)]
-    internal_tx: mpsc::Sender<TabInternalCommand>,
-    // Receive channel for internal commands
-    internal_rx: mpsc::Receiver<TabInternalCommand>,
 }
 
 /// Whether a CSS `unicode-range` descriptor (e.g. `"U+0000-00FF, U+0131"`) includes the
@@ -304,8 +289,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
         sink: Arc<TabSink>,
         cmd_rx: mpsc::Receiver<TabCommand>,
     ) -> Self {
-        let (internal_tx, internal_rx) = mpsc::channel::<TabInternalCommand>(32);
-
         let config_store = zone_context.config_store.clone();
         let context = BrowsingContext::new(config_store.clone());
         let runtime = TabRuntime::with_fps(config_store.get_uint("renderer.tab.default_fps") as u32);
@@ -319,14 +302,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             cmd_rx,
             context,
             state: TabState::Idle,
-            mode: TabActivityMode::Active,
             favicon: vec![],
             title: config_store.get_string("useragent.tab.default_title"),
             pending_url: None,
             current_url: None,
             is_loading: false,
             is_error: false,
-            thumbnail: None,
             surface: None,
             present_mode: PresentMode::Fifo,
             desired_viewport: Default::default(),
@@ -338,8 +319,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
             runtime,
             load: None,
             active_nav: None,
-            internal_tx,
-            internal_rx,
         }
     }
 
@@ -402,12 +381,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
                             log::error!("Tab {:?} load receive error: {}", self.tab_id, e);
                         }
                     }
-                }
-
-                // Handle internal commands send by the tab itself
-                msg = self.internal_rx.recv() => {
-                    let Some(cmd) = msg else { break; };
-                    self.handle_internal_command(cmd);
                 }
 
                 // Handle incoming tab commands from the UA
@@ -547,11 +520,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
     }
 
-    fn handle_internal_command(&mut self, _cmd: TabInternalCommand) {}
-
     fn handle_tab_command(&mut self, cmd: TabCommand) -> ControlFlow {
         match cmd {
             TabCommand::CloseTab => ControlFlow::Break,
+            TabCommand::SetTitle { title } => {
+                self.title = title;
+                ControlFlow::Continue
+            }
             TabCommand::Navigate { url } => {
                 self.navigate_to(&url, false);
                 ControlFlow::Continue
@@ -680,7 +655,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             TabCommand::CancelNavigation => {
                 if let Some(load) = self.load.take() {
-                    log::warn!("**** Cancelling in-flight load for tab {:?}", self.tab_id);
+                    log::warn!("Cancelling in-flight load for tab {:?}", self.tab_id);
                     load.cancel.cancel();
                 }
                 ControlFlow::Continue
@@ -690,7 +665,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
             } => {
                 // Proxy the submit decision to the I/O thread
                 let _ = self.zone_context.io_tx.send(IoCommand::Decision {
-                    zone_id: self.zone_id,
                     token: decision_token,
                     action,
                 });
@@ -782,6 +756,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 fetch_headers.insert(http::header::COOKIE, val);
             }
         }
+        if let Some(langs) = &self.services.accept_language {
+            if let Ok(val) = langs.parse() {
+                fetch_headers.insert(http::header::ACCEPT_LANGUAGE, val);
+            }
+        }
 
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Document, Initiator::Navigation);
@@ -806,6 +785,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let io_tx = self.zone_context.io_tx.clone();
         let event_tx = self.zone_context.event_tx.clone();
         let cookie_jar = self.services.cookie_jar.clone();
+        let accept_language = self.services.accept_language.clone();
+        let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
 
         let span = tracing::info_span!(
             "tab_nav",
@@ -818,7 +799,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
         let parent_cancel_clone = parent_cancel.clone();
 
-        // Spawn the actual fetcher into a seperate task
+        // Spawn the actual fetcher into a separate task
         spawn_named("tab-fetcher", async move {
             let _enter = span.enter();
 
@@ -867,11 +848,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 enable_sniffing: false,
                 enable_sniffing_navigation_upgrade: false,
                 enable_pdf_viewer: false,
-                render_unknown_text_in_tab: false,
                 allow_download_without_user_activation: false,
             };
 
-            let mut hooks = ResourcePipelines::<C>::new(zone_id, io_tx.clone());
+            let mut hooks =
+                ResourcePipelines::<C>::new(zone_id, io_tx.clone(), accept_language.clone(), max_document_bytes);
 
             let outcome = route_response_for(
                 RequestDestination::Document,
@@ -902,35 +883,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         error: NavigationError::Other(anyhow!("Viewer rendering not supported yet")),
                     });
                 }
-                Ok(RoutedOutcome::DownloadStarted(_doc)) => {
-                    log::warn!("Tab[{:?}] downloads not supported yet", tab_id);
-                    let _ = tx_done.send(NavigationResult::Err {
-                        nav_id,
-                        error: NavigationError::Other(anyhow!("Download not supported yet")),
-                    });
-                }
-                Ok(RoutedOutcome::DownloadFinished(_doc)) => {
-                    log::warn!("Tab[{:?}] downloads not supported yet", tab_id);
-                    let _ = tx_done.send(NavigationResult::Err {
-                        nav_id,
-                        error: NavigationError::Other(anyhow!("Download not supported yet")),
-                    });
-                }
-                Ok(RoutedOutcome::CssLoaded(_doc)) => {
-                    // CSS loaded, but we don't do anything special here
-                    log::trace!("Tab[{:?}] RoutedOutcome::CssLoaded", tab_id);
-                }
-                Ok(RoutedOutcome::ScriptExecuted(_doc)) => {
-                    // JS executed, but we don't do anything special here
-                    log::trace!("Tab[{:?}] RoutedOutcome::ScriptExecuted", tab_id);
-                }
-                Ok(RoutedOutcome::ImageDecoded(_doc)) => {
-                    // Image decoded, but we don't do anything special here
-                    log::trace!("Tab[{:?}] RoutedOutcome::ImageDecoded", tab_id);
-                }
-                Ok(RoutedOutcome::FontLoaded(_doc)) => {
-                    // Font loaded, but we don't do anything special here
-                    log::trace!("Tab[{:?}] RoutedOutcome::FontLoaded", tab_id);
+                // Subresource outcomes need no main-frame navigation handling.
+                Ok(
+                    RoutedOutcome::CssLoaded(_)
+                    | RoutedOutcome::ScriptExecuted(_)
+                    | RoutedOutcome::ImageDecoded(_)
+                    | RoutedOutcome::FontLoaded(_),
+                ) => {
+                    log::trace!("Tab[{:?}] subresource outcome; nothing to do for navigation", tab_id);
                 }
                 Ok(RoutedOutcome::Blocked(reason)) => {
                     log::debug!("Tab[{:?}] RoutedOutcome::Blocked", tab_id);
@@ -947,12 +907,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
                             url: final_url.clone(),
                             error: Arc::new(anyhow!("Reason: {}", reason)),
                         },
-                    });
-                }
-                Ok(RoutedOutcome::Cancelled) => {
-                    let _ = tx_done.send(NavigationResult::Err {
-                        nav_id,
-                        error: NavigationError::Cancelled("Navigation cancelled".into()),
                     });
                 }
                 Err(e) => {
@@ -1228,45 +1182,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.runtime.dirty = true;
     }
 
-    /// Get the current snapshot image of the tab.
-    pub fn thumbnail(&self) -> Option<&RgbaImage> {
-        self.thumbnail.as_ref()
-    }
-
     /// Bind local+session storage handles into the underlying browsing context.
     /// Call this after creating the tab or when the zone’s storage changes.
     pub fn bind_storage(&mut self, storage: StorageHandles) {
         self.context.bind_storage(storage.local, storage.session);
-    }
-
-    /// Dispatch a storage event to same-origin documents in this tab (placeholder).
-    /// Intended for HTML5 storage event semantics.
-    #[allow(dead_code)] // placeholder API, not wired into the storage layer yet
-    pub(crate) fn dispatch_storage_events(&mut self, origin: &url::Origin, include_iframes: bool, ev: &StorageEvent) {
-        log::trace!(
-            "Tab[{:?}] dispatch_storage_events: origin={:?} include_iframes={} ev={:?}",
-            self.tab_id,
-            origin,
-            include_iframes,
-            ev
-        );
-
-        // Pseudocode stuff. need to fill in what it actually needs to do
-        // for doc in self.iter_documents(include_iframes) {
-        //     if doc.origin() == origin {
-        //         // Don’t fire the event at the *mutating document* itself.
-        //         if Some(self.id) == ev.source_tab && doc.is_the_mutating_document() {
-        //             continue;
-        //         }
-        //         doc.A().dispatch_storage_event(
-        //             ev.key.as_deref(),
-        //             ev.old_value.as_deref(),
-        //             ev.new_value.as_deref(),
-        //             doc.url().to_string(),
-        //             match ev.scope { StorageScope::Local => "local", StorageScope::Session => "session" }
-        //         );
-        //     }
-        // }
     }
 
     /// Ensure the tab has a surface of the given size, creating it if necessary.
@@ -1291,7 +1210,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
     fn cancel_current_nav(&mut self) {
         if let Some(active) = self.active_nav.take() {
             log::warn!(
-                "**** Cancelling active navigation for tab {:?} nav {:?}",
+                "Cancelling active navigation for tab {:?} nav {:?}",
                 self.tab_id,
                 active.nav_id
             );

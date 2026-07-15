@@ -52,7 +52,7 @@ impl TabHandle {
     ///
     /// # Example
     /// ```no_run,ignore
-    /// tab_handle.set_title("New Title");
+    /// tab_handle.set_title("New Title").await?;
     /// ```
     pub async fn set_title(&self, title: impl Into<String>) -> Result<(), EngineError> {
         self.send(TabCommand::SetTitle { title: title.into() }).await
@@ -67,8 +67,8 @@ impl TabHandle {
     /// ```no_run,ignore
     /// use gosub_render_pipeline::render::Viewport;
     ///
-    /// let viewport = Viewport { x: 0.0, y: 0.0, width: 1280.0, height: 720.0 };
-    /// tab_handle.set_viewport(viewport);
+    /// let viewport = Viewport { x: 0, y: 0, width: 1280, height: 720 };
+    /// tab_handle.set_viewport(viewport).await?;
     /// ```
     pub async fn set_viewport(&self, viewport: Viewport) -> Result<(), EngineError> {
         self.send(TabCommand::SetViewport {
@@ -87,7 +87,7 @@ impl TabHandle {
     ///
     /// # Example
     /// ```no_run,ignore
-    /// tab_handle.navigate_to("https://example.com");
+    /// tab_handle.navigate("https://example.com").await?;
     /// ```
     pub async fn navigate(&self, url: impl Into<String>) -> Result<(), EngineError> {
         self.send(TabCommand::Navigate { url: url.into() }).await

@@ -92,7 +92,7 @@ let services = ZoneServices {
     partition_policy: PartitionPolicy::None,
 };
 
-let mut zone = engine.create_zone(ZoneConfig::default(), services, None)?;
+let mut zone = engine.create_zone(None, services, None)?;
 ```
 
 `InMemoryLocalStore` and `InMemorySessionStore` give you ephemeral storage that disappears when the zone is dropped. For persistent cookies, pass a `CookieStore` in `ZoneServices::cookie_store` and set `cookie_jar` to `None`.

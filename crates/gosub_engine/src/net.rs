@@ -40,54 +40,6 @@
 //! 4. The engine calls [`decide_handling`] to turn that into a concrete
 //!    [`HandlingDecision`] / [`RenderTarget`] and proceeds accordingly.
 //!
-//! ## Examples
-//!
-//! ### Spawning the I/O thread once at engine startup
-//! ```rust,ignore
-//! use gosub_engine::net::{spawn_io_thread, IoHandle};
-//!
-//! // Typically done during Engine::start()
-//! let io_handle: IoHandle = spawn_io_thread()?;
-//! # Ok::<(), anyhow::Error>(())
-//! ```
-//!
-//! ### Submitting a fetch job to the I/O thread
-//! ```rust,ignore
-//! use std::sync::Arc;
-//! use gosub_engine::net::{submit_to_io, FetcherConfig, route_response_for};
-//!
-//! async fn fetch_and_route(io: &Arc<IoHandle>, url: &str) -> anyhow::Result<()> {
-//!     // Configure the fetcher (timeouts, limits, etc.)
-//!     let cfg = FetcherConfig::default();
-//!
-//!     // Submit the job to the I/O thread
-//!     let fetch_result = submit_to_io(io, move || async move {
-//!         // Your fetch call inside the I/O runtime, returning a FetchResult
-//!         // (implementation lives under `fetcher`).
-//!         // fetcher::perform_fetch(url, &cfg).await
-//!         # Ok::<_, anyhow::Error>(())
-//!     }).await?;
-//!
-//!     // Route the response to decide how to handle (document, bytes, download, etc.).
-//!     // let routed: RoutedOutcome = route_response_for(&request, &fetch_result, &cfg)?;
-//!     // decide_handling(...)
-//!     Ok(())
-//! }
-//! ```
-//!
-//! ### Working with a streamed body
-//! ```rust,ignore
-//! use gosub_engine::net::SharedBody;
-//!
-//! async fn consume_streamed(body: SharedBody) -> anyhow::Result<()> {
-//!     let mut reader = body.reader().await;
-//!     while let Some(chunk) = reader.next_chunk().await? {
-//!         // Feed chunk into your parser/decoder
-//!     }
-//!     Ok(())
-//! }
-//! ```
-//!
 //! ## Notes & conventions
 //! - **Never block** the I/O thread with CPU-heavy work; keep it for sockets, TLS, and disk I/O.
 //! - Prefer **streaming** (`SharedBody`) for large responses; use **buffered** only when you need

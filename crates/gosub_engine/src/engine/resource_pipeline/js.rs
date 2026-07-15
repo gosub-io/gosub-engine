@@ -28,7 +28,7 @@ impl JsPipeline for JsPipelineImpl {
         peek_buf: PeekBuf,
         shared: Arc<SharedBody>,
     ) -> anyhow::Result<DummyJsDocument> {
-        // Normally, we send chunks to the Font parser. Right now, we just collect everything
+        // Normally, we send chunks to the JS parser. Right now, we just collect everything
         match stream_to_bytes(peek_buf, shared).await {
             Ok(buf) => Ok(String::from_utf8_lossy(buf.as_ref()).to_string()),
             Err(e) => Err(anyhow::anyhow!("Failed to read JS stream: {}", e)),

@@ -38,14 +38,22 @@ impl IoHandle {
 
     #[instrument(name = "io.shutdown", level = "debug", skip(self))]
     pub async fn shutdown(self) {
-        log::trace!("signal: global shutdown -> I/O thread");
-        self.shutdown_token.cancel();
+        let IoHandle {
+            tx_submit,
+            shutdown_token,
+            join_handle,
+        } = self;
 
-        log::trace!("signal: closing submit channel");
-        drop(self.tx_submit.clone());
+        log::trace!("signal: global shutdown -> I/O thread");
+        shutdown_token.cancel();
+
+        // Note: subscribers hold clones of this sender, so the channel only fully
+        // closes once they drop theirs; the cancellation token is the real signal.
+        log::trace!("signal: dropping our submit channel handle");
+        drop(tx_submit);
 
         log::trace!("await: I/O thread join");
-        match self.join_handle.await {
+        match join_handle.await {
             Ok(()) => {
                 log::debug!("I/O thread has exited cleanly");
             }
@@ -84,8 +92,6 @@ pub struct IoRouter {
     /// Pending UA decisions (render/download/...) keyed by decision token.
     /// Tokens are process-wide unique, so one hub serves all zones.
     decision_hub: Arc<DecisionHub>,
-    // // Send "true" when we want to shut down the IO thread including ALL zone fetchers
-    // io_shutdown_rx: watch::Receiver<bool>,
 }
 
 impl IoRouter {
@@ -140,18 +146,18 @@ impl IoRouter {
     )]
     pub async fn shutdown_zone(&self, zone_id: ZoneId) -> bool {
         log::trace!("removing zone fetcher");
-        if let Some((_, entry)) = self.zones.remove(&zone_id) {
-            // Shutdown the fetcher
-            log::trace!("signal: shutdown to zone fetcher");
-            entry.shutdown.cancel();
-            // Wait for it to finish
-            log::trace!("await: zone fetcher join");
-            let _ = entry.join.await;
+        let Some((_, entry)) = self.zones.remove(&zone_id) else {
+            return false;
+        };
 
-            true
-        } else {
-            false
-        }
+        // Shutdown the fetcher
+        log::trace!("signal: shutdown to zone fetcher");
+        entry.shutdown.cancel();
+        // Wait for it to finish
+        log::trace!("await: zone fetcher join");
+        let _ = entry.join.await;
+
+        true
     }
 
     /// Shutdown the IO thread
@@ -232,7 +238,7 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                                 Err(e) => log::error!("Failed to create fetcher for zone {zone_id}: {e}"),
                             }
                         }
-                        Some(IoCommand::Decision { zone_id: _, token, action }) => {
+                        Some(IoCommand::Decision { token, action }) => {
                             // Decisions are engine-owned (gosub-sonar has no decision hub);
                             // tokens are unique so a single hub covers every zone.
                             router.decision_hub.fulfill(token, action);
@@ -298,7 +304,6 @@ mod tests {
         sleep(Duration::from_millis(10)).await;
 
         // Global shutdown should complete promptly
-        // (Assumes IoHandle::shutdown() exists, as in your earlier code.)
         timeout(Duration::from_secs(2), handle.shutdown())
             .await
             .expect("global shutdown timed out");

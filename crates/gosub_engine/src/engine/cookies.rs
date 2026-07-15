@@ -47,7 +47,7 @@
 //! };
 //!
 //! let zone_cfg = ZoneConfig::default();
-//! let _zone = engine.create_zone(zone_cfg, services, None)?;
+//! let _zone = engine.create_zone(Some(zone_cfg), services, None)?;
 //! # Ok(()) }
 //! ```
 //!
@@ -75,7 +75,7 @@
 //! };
 //!
 //! let zone_cfg = ZoneConfig::default();
-//! let _zone = engine.create_zone(zone_cfg, services, None)?;
+//! let _zone = engine.create_zone(Some(zone_cfg), services, None)?;
 //! # Ok(()) }
 //! ```
 //!

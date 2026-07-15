@@ -50,8 +50,6 @@ winit = { workspace = true, optional = true }
 
 eframe = { workspace = true, features = ["wgpu"], optional = true }
 egui = { workspace = true, optional = true }
-num_cpus = "1.17.0"
-rayon = "1"
 time = "0.3.41"
 tokio-util = { workspace = true, features = ["io"] }
 tempfile = { workspace = true }

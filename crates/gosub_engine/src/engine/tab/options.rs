@@ -39,16 +39,17 @@ pub struct TabDefaults {
 /// Per-tab overrides for configuration.
 ///
 /// A tab normally inherits its settings from the surrounding [`Zone`](crate::zone).
-/// By providing overrides, you can control services, identity, content flags,
-/// UI properties, and persistence for a single tab.
+/// By providing overrides, you can control services, partitioning, and identity
+/// for a single tab. Fields are added here as the engine grows the corresponding
+/// feature — overrides without a consumer don't exist.
 ///
 /// # Example
 /// ```no_run
 /// use gosub_engine::tab::{TabOverrides, TabCookieJar};
 ///
 /// let overrides = TabOverrides {
-///     cookie_jar: TabCookieJar::Ephemeral, // fresh cookie jar for this tab
-///     js_enabled: Some(false),             // disable JavaScript
+///     cookie_jar: TabCookieJar::Ephemeral,           // fresh cookie jar for this tab
+///     accept_language: Some("nl-NL,nl;q=0.9".into()), // per-tab Accept-Language
 ///     ..Default::default()
 /// };
 /// ```
@@ -64,33 +65,10 @@ pub struct TabOverrides {
     /// Storage scope (inherit zone service, ephemeral, or custom).
     pub storage_scope: TabStorageScope, // Default::Inherit
 
-    /// Cache mode (inherit, default, bypass, or ephemeral).
-    pub cache_mode: TabCacheMode, // Default::Inherit
-
     // --- Identity ---
-    /// Per-tab User-Agent override.
-    pub user_agent: Option<String>,
-
-    /// Per-tab `Accept-Language` override.
-    pub accept_language: Option<Vec<String>>,
-
-    // --- Content flags ---
-    /// Whether JavaScript is enabled for this tab.
-    pub js_enabled: Option<bool>,
-
-    /// Whether images are enabled for this tab.
-    pub images_enabled: Option<bool>,
-
-    // --- UI/Render ---
-    /// Zoom factor override (e.g. `1.0` = 100%).
-    pub zoom: Option<f32>,
-
-    // --- Persistence ---
-    /// Whether history persistence is enabled for this tab.
-    pub persist_history: Option<bool>,
-
-    /// Whether downloads are persisted for this tab.
-    pub persist_downloads: Option<bool>,
+    /// Per-tab `Accept-Language` header override. `None` = inherit the zone's
+    /// [`ZoneConfig::accept_languages`](crate::zone::ZoneConfig::accept_languages).
+    pub accept_language: Option<String>,
 }
 
 /// Policy for selecting a tab's cookie jar.
@@ -125,25 +103,4 @@ pub enum TabStorageScope {
 
     /// Custom storage service provided by the caller.
     Custom(Arc<StorageService>),
-}
-
-/// Cache policy for a tab.
-///
-/// Controls whether the tab uses the inherited cache policy, the default
-/// engine policy, bypasses the cache entirely, or uses an ephemeral
-/// per-tab cache.
-#[derive(Clone, Debug, Default)]
-pub enum TabCacheMode {
-    /// Use the zone/engine cache policy (default).
-    #[default]
-    Inherit,
-
-    /// Use the engine’s default cache policy.
-    Default,
-
-    /// Bypass the cache entirely.
-    Bypass,
-
-    /// Use an ephemeral per-tab cache.
-    Ephemeral,
 }

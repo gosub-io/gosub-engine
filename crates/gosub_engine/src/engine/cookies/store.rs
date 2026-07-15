@@ -32,7 +32,7 @@
 //!     cookie_jar: None, // engine will attach a PersistentCookieJar that snapshots to the store
 //!     partition_policy: PartitionPolicy::None,
 //! };
-//! let _zone = engine.create_zone(ZoneConfig::default(), services, None)?;
+//! let _zone = engine.create_zone(None, services, None)?;
 //! # Ok(()) }
 //! ```
 //!
@@ -55,7 +55,7 @@
 //!     cookie_jar: Some(DefaultCookieJar::new().into()),
 //!     partition_policy: PartitionPolicy::None,
 //! };
-//! let _zone = engine.create_zone(ZoneConfig::default(), services, None)?;
+//! let _zone = engine.create_zone(None, services, None)?;
 //! # Ok(()) }
 //! ```
 //!
@@ -78,7 +78,7 @@
 //!     cookie_jar: None,
 //!     partition_policy: PartitionPolicy::None,
 //! };
-//! let _zone = engine.create_zone(ZoneConfig::default(), services, None)?;
+//! let _zone = engine.create_zone(None, services, None)?;
 //! # Ok(()) }
 //! ```
 //!
@@ -100,8 +100,11 @@ mod json;
 mod sqlite;
 
 use crate::engine::cookies::cookie_jar::DefaultCookieJar;
-use crate::engine::cookies::cookies::CookieJarHandle;
+use crate::engine::cookies::cookies::{CookieJarHandle, CookieStoreHandle};
+use crate::engine::cookies::persistent_cookie_jar::PersistentCookieJar;
 use crate::engine::zone::ZoneId;
+use parking_lot::RwLock;
+use std::collections::HashMap;
 
 /// In-memory cookie store
 pub use in_memory::InMemoryCookieStore;
@@ -124,9 +127,9 @@ pub trait CookieStore: Send + Sync {
     /// ### Expectations
     /// - Should return the *same logical jar instance* for a given `zone_id`
     ///   across calls, so all holders observe consistent state.
-    /// - May create the jar lazily on first request.
-    /// - Return `None` if the store no longer manages this zone (e.g., after removal)
-    ///   or if provisioning fails irrecoverably.
+    /// - May create the jar lazily on first request; after `remove_zone`/`release_zone`
+    ///   a subsequent call provisions a fresh jar.
+    /// - Return `None` only when provisioning fails irrecoverably.
     fn jar_for(&self, zone_id: ZoneId) -> Option<CookieJarHandle>;
 
     /// Persists the cookie state for `zone_id` from a provided snapshot.
@@ -150,9 +153,93 @@ pub trait CookieStore: Send + Sync {
     /// This operation should be **idempotent** and must not panic.
     fn remove_zone(&self, zone_id: ZoneId);
 
+    /// Releases the in-memory jar for a **closed** zone: persists a final snapshot
+    /// (for persisting stores) and evicts the cache entry, leaving the durable data
+    /// intact so the zone's cookies are available when it is opened again.
+    ///
+    /// Contrast with [`CookieStore::remove_zone`], which *deletes* the persisted data.
+    ///
+    /// This operation should be **idempotent** and must not panic.
+    fn release_zone(&self, zone_id: ZoneId);
+
     /// Persists all known zone jars to durable storage.
     ///
     /// Called during graceful shutdown or at explicit flush points. Implementations
     /// should make a **best-effort** to write all dirty state and avoid panicking.
     fn persist_all(&self);
+}
+
+/// Shared `jar_for` implementation for persisting stores (JSON, SQLite).
+///
+/// Returns the cached jar for `zone_id` when present; otherwise calls `load` for the
+/// zone's persisted state, wraps it in a [`PersistentCookieJar`] bound to `store_self`
+/// (so every mutation writes back to the store), and caches the handle.
+pub(crate) fn provision_persistent_jar(
+    jars: &RwLock<HashMap<ZoneId, CookieJarHandle>>,
+    store_self: &RwLock<Option<CookieStoreHandle>>,
+    zone_id: ZoneId,
+    load: impl FnOnce() -> DefaultCookieJar,
+) -> Option<CookieJarHandle> {
+    if let Some(jar) = jars.read().get(&zone_id) {
+        return Some(jar.clone());
+    }
+
+    let inner: CookieJarHandle = load().into();
+    let store = match store_self.read().as_ref() {
+        Some(store) => store.clone(),
+        None => {
+            log::error!("store_self not initialized; cannot provision cookie jar");
+            return None;
+        }
+    };
+
+    let handle = CookieJarHandle::new(PersistentCookieJar::new(zone_id, inner, store));
+
+    // Re-check under the write lock: another thread may have provisioned this zone's jar between
+    // our read miss and now. Every `PersistentCookieJar` snapshots the whole jar back to the store,
+    // so two live handles for one zone would make concurrent mutations last-write-wins and drop
+    // cookies. Return the already-cached handle if present; only the loser's `load()` is wasted.
+    let mut guard = jars.write();
+    if let Some(existing) = guard.get(&zone_id) {
+        return Some(existing.clone());
+    }
+    guard.insert(zone_id, handle.clone());
+    Some(handle)
+}
+
+/// Shared `release_zone` cache eviction for persisting stores (JSON, SQLite).
+///
+/// Removes the zone's jar from the cache and returns a final snapshot to persist,
+/// when the cached jar has the [`PersistentCookieJar`]-around-[`DefaultCookieJar`] shape.
+pub(crate) fn evict_and_snapshot(
+    jars: &RwLock<HashMap<ZoneId, CookieJarHandle>>,
+    zone_id: ZoneId,
+) -> Option<DefaultCookieJar> {
+    let handle = jars.write().remove(&zone_id)?;
+    let jar = handle.read();
+    let persist = jar.as_any().downcast_ref::<PersistentCookieJar>()?;
+    let inner = persist.inner.read();
+    inner.as_any().downcast_ref::<DefaultCookieJar>().cloned()
+}
+
+/// Shared `persist_all` snapshot loop for persisting stores (JSON, SQLite).
+///
+/// Calls `save` with a snapshot of every cached jar that is a [`PersistentCookieJar`]
+/// wrapping a [`DefaultCookieJar`] — the only shape these stores mint, and the only one
+/// with a stable serialization.
+pub(crate) fn snapshot_cached_jars(
+    jars: &HashMap<ZoneId, CookieJarHandle>,
+    mut save: impl FnMut(ZoneId, &DefaultCookieJar),
+) {
+    for (zone_id, jar_handle) in jars {
+        let jar = jar_handle.read();
+        let Some(persist) = jar.as_any().downcast_ref::<PersistentCookieJar>() else {
+            continue;
+        };
+        let inner = persist.inner.read();
+        let Some(default) = inner.as_any().downcast_ref::<DefaultCookieJar>() else {
+            continue;
+        };
+        save(*zone_id, default);
+    }
 }

@@ -1,6 +1,6 @@
 use crate::engine::events::{CancelReason, ResourceEvent};
 use crate::engine::types::{EventChannel, RequestId};
-use crate::events::{EngineEvent, NavigationEvent};
+use crate::events::EngineEvent;
 use crate::net::emitter::NetObserver;
 use crate::net::events::NetEvent;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
@@ -19,7 +19,7 @@ pub struct EngineEventEmitter {
     event_tx: EventChannel,
     /// The resource kind (e.g., Document, Script, Image, etc.)
     kind: ResourceKind,
-    //// The initiator of the request
+    /// The initiator of the request
     initiator: Initiator,
 }
 
@@ -43,19 +43,6 @@ impl EngineEventEmitter {
             kind,
             initiator,
         }
-    }
-
-    /// Emit a navigation event
-    ///
-    /// Currently unused: the NetEvent::DecisionRequired arm moved out of the net layer when
-    /// fetching moved to the gosub-sonar crate. The engine-side decide step will emit
-    /// NavigationEvent::DecisionRequired through here once it is wired up.
-    #[allow(dead_code)]
-    fn emit_navigation_event(&self, ev: NavigationEvent) {
-        let _ = self.event_tx.send(EngineEvent::Navigation {
-            tab_id: self.tab_id,
-            event: ev,
-        });
     }
 
     /// Emit a resource event

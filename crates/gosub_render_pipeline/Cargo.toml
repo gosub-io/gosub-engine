@@ -26,6 +26,7 @@ cow-utils = { workspace = true }
 parking_lot = { workspace = true }
 parley = { workspace = true, default-features = true }
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
+rayon = "1"
 gosub_interface = { version = "0.1.2", path = "../gosub_interface", registry = "gosub" }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 gosub_lattice = { version = "0.1.0", path = "../gosub_lattice", registry = "gosub" }

@@ -117,7 +117,7 @@ impl ZoneConfig {
     }
 }
 
-/// Builder for [`ZoneConfig`], mirroring `EngineSettingsBuilder`.
+/// Builder for [`ZoneConfig`], mirroring `EngineConfigBuilder`.
 #[derive(Debug, Clone, Default)]
 pub struct ZoneConfigBuilder {
     inner: ZoneConfig,
@@ -275,7 +275,7 @@ mod tests {
             .default_font_size(18)
             .minimum_font_size(12)
             .enable_local_file_access(true)
-            .partition_policy(PartitionPolicy::TopLevelOrigin) // or whatever variants you have
+            .partition_policy(PartitionPolicy::TopLevelOrigin)
             .build()
             .expect("valid config");
 
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn zero_tabs_is_invalid() {
         let err = ZoneConfig::builder().max_tabs(0).build().unwrap_err();
-        matches!(err, ZoneConfigError::ZeroTabs);
+        assert!(matches!(err, ZoneConfigError::ZeroTabs));
     }
 
     #[test]

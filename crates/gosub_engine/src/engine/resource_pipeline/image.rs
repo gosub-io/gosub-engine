@@ -28,7 +28,7 @@ impl ImagePipeline for ImagePipelineImpl {
         peek_buf: PeekBuf,
         shared: Arc<SharedBody>,
     ) -> anyhow::Result<image::DynamicImage> {
-        // Normally, we send chunks to the Font parser. Right now, we just collect everything
+        // Normally, we send chunks to the image decoder. Right now, we just collect everything
         match stream_to_bytes(peek_buf, shared).await {
             Ok(buf) => ImageReader::new(Cursor::new(buf))
                 .with_guessed_format()?

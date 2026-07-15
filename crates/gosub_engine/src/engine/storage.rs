@@ -64,7 +64,7 @@
 //!     Arc::new(compositor),
 //! );
 //!
-//! // 4) Attach storage via ZoneServices and create the zone
+//! // 3) Attach storage via ZoneServices and create the zone
 //! let services = ZoneServices {
 //!     storage: storage.clone(),
 //!     cookie_store: None,
@@ -72,7 +72,7 @@
 //!     partition_policy: PartitionPolicy::None,
 //! };
 //!
-//! let _zone = engine_handle.create_zone(ZoneConfig::default(), services, None)?;
+//! let _zone = engine_handle.create_zone(None, services, None)?;
 //! # Ok(()) }
 //! ```
 //!

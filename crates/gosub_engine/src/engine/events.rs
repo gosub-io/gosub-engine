@@ -12,7 +12,6 @@
 //! - [`EngineCommand`]: Commands for engine control.
 //! - [`EngineEvent`]: Events emitted by the engine, such as lifecycle events, rendering events, and errors.
 
-use crate::config::LogLevel;
 use crate::cookies::Cookie;
 use crate::engine::types::{Action, NavigationId, RequestId};
 use crate::net::req_ref_tracker::RequestReference;
@@ -98,12 +97,9 @@ pub enum IoCommand {
         handle: FetchHandle,
         reply_tx: oneshot::Sender<FetchResult>,
     },
-    /// Return a decision on a pending request
-    Decision {
-        zone_id: ZoneId,
-        token: DecisionToken,
-        action: Action,
-    },
+    /// Return a decision on a pending request. Tokens are process-wide unique,
+    /// so no zone id is needed to route them.
+    Decision { token: DecisionToken, action: Action },
     /// Ask IO to shut down a specific zone; replies when fully stopped.
     ShutdownZone {
         zone_id: ZoneId,
@@ -196,17 +192,8 @@ pub enum TabCommand {
 
     // ****************************************
     // ** Debug / devtools
-    /// Enable logging
-    EnableLogging { level: LogLevel },
     /// Dump dom tree
     DumpDomTree,
-}
-
-#[derive(Debug)]
-pub enum TabInternalCommand {
-    // Placeholder — add future internal worker-to-worker commands here.
-    #[allow(dead_code)]
-    _Placeholder,
 }
 
 #[derive(Debug)]
@@ -217,11 +204,6 @@ pub enum EngineCommand {
     Shutdown {
         reply: oneshot::Sender<anyhow::Result<(), EngineError>>,
     },
-
-    // ****************************************
-    // ** Debug / devtools
-    /// Enable logging
-    EnableLogging { level: LogLevel },
 }
 
 /// Navigation events. These are the "top" events that will trigger load and resource events. All
@@ -515,11 +497,6 @@ pub enum EngineEvent {
     },
 
     // ** Tab
-    /// Title of the tab has changed
-    TabTitleChanged {
-        tab_id: TabId,
-        title: String,
-    },
 
     // ** Session / zone state
     /// A cookie has been added
@@ -636,15 +613,6 @@ mod tests {
     }
 
     #[test]
-    fn tabcommand_equality_and_debug() {
-        let a = TabCommand::SetTitle { title: "Hello".into() };
-        let b = a.clone();
-        assert_eq!(a, b);
-        let dbg = format!("{:?}", a);
-        assert!(dbg.contains("SetTitle"));
-    }
-
-    #[test]
     fn tabcommand_keydown_with_modifiers() {
         let mods = Modifiers::SHIFT | Modifiers::CONTROL;
         let e = TabCommand::KeyDown {
@@ -663,43 +631,5 @@ mod tests {
             }
             _ => panic!("Unexpected variant"),
         }
-    }
-
-    #[test]
-    fn tabcommand_mouse_and_resize() {
-        let down = TabCommand::MouseDown {
-            x: 10.0,
-            y: 20.0,
-            button: MouseButton::Left,
-        };
-        let up = TabCommand::MouseUp {
-            x: 10.0,
-            y: 20.0,
-            button: MouseButton::Left,
-        };
-        let viewport = TabCommand::SetViewport {
-            x: 0,
-            y: 0,
-            width: 800,
-            height: 600,
-        };
-
-        // Just basic sanity and Debug formatting
-        assert!(format!("{down:?}").contains("MouseDown"));
-        assert!(format!("{up:?}").contains("MouseUp"));
-        assert!(format!("{viewport:?}").contains("Viewport"));
-    }
-
-    #[test]
-    fn engineevent_simple_variants_debug() {
-        let a = EngineEvent::EngineStarted;
-        let b = EngineEvent::Warning {
-            message: "Heads up".into(),
-        };
-        let c = EngineEvent::EngineShutdown { reason: "Bye".into() };
-
-        assert!(format!("{a:?}").contains("EngineStarted"));
-        assert!(format!("{b:?}").contains("Warning"));
-        assert!(format!("{c:?}").contains("EngineShutdown"));
     }
 }

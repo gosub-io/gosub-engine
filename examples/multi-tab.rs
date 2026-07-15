@@ -6,7 +6,7 @@ use gosub_engine::{
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::ZoneConfig,
     zone::ZoneServices,
-    DefaultRenderConfig, EngineError, EngineSettings, GosubEngine,
+    DefaultRenderConfig, EngineConfig, EngineError, GosubEngine,
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 
@@ -80,7 +80,7 @@ async fn main() -> Result<(), EngineError> {
     // Configure the engine through the engine config builder. This will set up the main runtime
     // configuration of the engine. It's possible for some values to be changed at runtime, but
     // not all of them
-    let engine_cfg = EngineSettings::builder()
+    let engine_cfg = EngineConfig::builder()
         .max_zones(5)
         .build()
         .expect("Configuration is not valid");
@@ -125,7 +125,7 @@ async fn main() -> Result<(), EngineError> {
     // Create the zone. Note that we can define our own zone ID to keep zones deterministic
     // (like a user profile), and we give the zone handle to the event channel so we can
     // receive events related to the zone.
-    let mut zone = engine.create_zone(zone_cfg, zone_services, None)?;
+    let mut zone = engine.create_zone(Some(zone_cfg), zone_services, None)?;
 
     let mut tab_id_to_idx: HashMap<TabId, usize> = HashMap::new();
 

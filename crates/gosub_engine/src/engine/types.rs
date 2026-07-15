@@ -11,14 +11,8 @@ pub enum Action {
     Render,
     /// Stream will be downloaded to the specified path
     Download { dest: std::path::PathBuf },
-    /// Stream will be opened in an external application
-    OpenExternal,
     /// Stream will be cancelled
     Cancel,
-    /// Stream will be rendered and mirrored to the specified path
-    RenderAndMirror { dest: std::path::PathBuf },
-    /// Stream will be shown as source (for HTML documents)
-    ViewSource,
 }
 
 /// Navigation ID is the same for each complete load, including iframes, resources redirect etc

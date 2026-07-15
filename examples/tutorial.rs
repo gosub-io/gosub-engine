@@ -15,8 +15,8 @@ use gosub_engine::{
     events::{EngineEvent, NavigationEvent, TabCommand},
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     tab::{TabDefaults, TabHandle},
-    zone::{ZoneConfig, ZoneServices},
-    Action, DefaultRenderConfig, EngineError, EngineSettings, GosubEngine,
+    zone::ZoneServices,
+    Action, DefaultRenderConfig, EngineConfig, EngineError, GosubEngine,
 };
 use gosub_render_pipeline::render::{backends::null::NullBackend, DefaultCompositor, Viewport};
 use std::sync::Arc;
@@ -32,10 +32,10 @@ async fn main() -> Result<(), EngineError> {
     //   - a render backend (NullBackend here — no pixels, just navigation)
     //   - a compositor (receives Redraw events and composites them into a frame)
     //
-    // EngineSettings lets you tune limits like max_zones; Default is fine to start.
+    // EngineConfig lets you tune limits like max_zones; Default is fine to start.
     let backend = NullBackend::new();
     let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
-        Some(EngineSettings::default()),
+        Some(EngineConfig::default()),
         Arc::new(backend),
         Arc::new(DefaultCompositor::default()),
     );
@@ -60,7 +60,7 @@ async fn main() -> Result<(), EngineError> {
         cookie_jar: Some(DefaultCookieJar::new().into()),
         partition_policy: PartitionPolicy::None,
     };
-    let mut zone = engine.create_zone(ZoneConfig::default(), services, None)?;
+    let mut zone = engine.create_zone(None, services, None)?;
 
     // ── Step 3: Open a tab ───────────────────────────────────────────────────────
     //

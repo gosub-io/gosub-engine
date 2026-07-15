@@ -39,33 +39,21 @@ pub struct DecisionOutcome {
 }
 
 // Final decision for the response.
+//
+// Deliberately minimal: variants for open-externally, block-on-type-mismatch,
+// nosniff enforcement and silent cancellation were removed until the features
+// that produce them exist.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandlingDecision {
     /// Resource needs to be rendered based on its target (html parser, css parser, js engine, image decoder, etc).
     Render(RenderTarget),
     /// Resource should be downloaded to the given path.
     Download { path: PathBuf },
-    /// Resource should be opened externally (e.g. PDF in external viewer).
-    OpenExternal,
-    /// Resource should be blocked for the given reason.
-    Block(BlockReason),
-    /// Resource should be cancelled (aborted silently).
-    Cancel,
 }
 
 /// Reason on why the response was blocked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlockReason {
-    /// The resource’s MIME type (declared/sniffed) is incompatible with the request destination.
-    /// Example: `<img>` got back `text/html`.
-    TypeMismatch,
-    /// The response had `X-Content-Type-Options: nosniff`, and the declared MIME type
-    /// was missing or not one of the allowed safe types for this destination.
-    /// Example: `<script>` got back `text/plain; nosniff`.
-    NosniffMismatch,
-    /// The response MIME type was present but not recognized or supported by the engine.
-    /// Example: `application/vnd.ms-excel` with no registered handler.
-    TypeUnknown,
     /// A user agent or site policy explicitly forbids this load.
     /// Example: mixed-content block, CSP violation, or UA rule against auto-downloads.
     Policy,
@@ -74,9 +62,6 @@ pub enum BlockReason {
 impl std::fmt::Display for BlockReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BlockReason::TypeMismatch => write!(f, "type mismatch"),
-            BlockReason::NosniffMismatch => write!(f, "nosniff mismatch"),
-            BlockReason::TypeUnknown => write!(f, "unknown type"),
             BlockReason::Policy => write!(f, "policy block"),
         }
     }
@@ -93,14 +78,8 @@ pub enum RenderTarget {
     JsEngine,
     /// Send to the image decoder.
     ImageDecoder,
-    /// Send to the audio pipeline.
-    MediaPipeline,
     /// Send to the font manager
     FontLoader,
     /// Send to the PDF viewer
     PdfViewer,
-    /// Send to a generic text viewer (for `text/plain` and similar)
-    TextViewer,
-    // fetch/xhr -> JS
-    BodyToJs,
 }

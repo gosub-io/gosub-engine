@@ -67,17 +67,20 @@ fn schema_from(json: &str, name: &str) -> Vec<SettingInfo> {
 fn parse_schema(json: &str) -> anyhow::Result<Vec<SettingInfo>> {
     let mut schema = Vec::new();
 
-    if let Value::Object(sections) = serde_json::from_str(json)? {
-        for (section_prefix, entries) in &sections {
-            let entries: Vec<JsonEntry> = serde_json::from_value(entries.clone())?;
-            for entry in entries {
-                schema.push(SettingInfo {
-                    key: format!("{section_prefix}.{}", entry.key),
-                    description: entry.description,
-                    default: Setting::from_str(&entry.default)?,
-                    constraint: entry.values.as_deref().and_then(Constraint::parse),
-                });
-            }
+    // Non-object JSON yields an empty schema (not an error).
+    let Value::Object(sections) = serde_json::from_str(json)? else {
+        return Ok(schema);
+    };
+
+    for (section_prefix, entries) in &sections {
+        let entries: Vec<JsonEntry> = serde_json::from_value(entries.clone())?;
+        for entry in entries {
+            schema.push(SettingInfo {
+                key: format!("{section_prefix}.{}", entry.key),
+                description: entry.description,
+                default: Setting::from_str(&entry.default)?,
+                constraint: entry.values.as_deref().and_then(Constraint::parse),
+            });
         }
     }
 

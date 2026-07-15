@@ -14,10 +14,7 @@
 //! - Zones own their own cookies and storage.
 //! - Tabs are controlled via a `TabHandle`.
 //! - Tabs emit events (navigation, resource loading, rendering) that you can handle in your UA.
-//! - The engine is designed to be **modular** and **extensible**.
-//! - You can plug in your own networking stack, render backend, storage backend, etc.
-//! - The engine is built using **Tokio** and **async/await**.
-//! - It is designed to be **thread-safe** and **concurrent**.
+//! - The engine is built on **Tokio**; render backend, storage backend, and cookie store are pluggable.
 //! - The engine is still a work in progress and is not yet production-ready.
 //!
 //! ## Quick start
@@ -26,7 +23,7 @@
 //! use std::sync::Arc;
 //! use url::Url;
 //!
-//! use gosub_engine::{EngineSettings, GosubEngine};
+//! use gosub_engine::{EngineConfig, GosubEngine};
 //! use gosub_render_pipeline::render::Viewport;
 //! use gosub_render_pipeline::render::backends::null::NullBackend;
 //! use gosub_render_pipeline::render::DefaultCompositor;
@@ -41,7 +38,7 @@
 //!     let backend = NullBackend::new();
 //!     let compositor = DefaultCompositor::default();
 //!     let mut engine_handle: GosubEngine = GosubEngine::new(
-//!         Some(EngineSettings::default()),
+//!         Some(EngineConfig::default()),
 //!         Arc::new(backend),
 //!         Arc::new(compositor),
 //!     );
@@ -58,7 +55,7 @@
 //!     };
 //!
 //!     // 3) Create a zone (ZoneHandle)
-//!     let mut zone = engine_handle.create_zone(ZoneConfig::default(), services, None)?;
+//!     let mut zone = engine_handle.create_zone(None, services, None)?;
 //!
 //!     // 4) Create a tab (TabHandle)
 //!     let tab_handle = zone.create_tab(Default::default(), None).await?;
@@ -182,9 +179,9 @@ pub use engine::cookies;
 /// Storage APIs for local/session data.
 pub use engine::storage;
 
-// EngineSettings at crate root:
+// EngineConfig at crate root:
 #[doc(inline)]
-pub use crate::engine::config::EngineSettings;
+pub use crate::engine::config::EngineConfig;
 
 #[doc(inline)]
 pub use crate::engine::cookies::SameSiteContext;
@@ -198,7 +195,5 @@ pub mod events {
 
 /// Configuration options for the Gosub engine.
 pub mod config {
-    pub use crate::engine::config::{
-        CookiePartitioning, GpuOptions, LogLevel, ProxyConfig, RedirectPolicy, SandboxMode, TlsConfig,
-    };
+    pub use crate::engine::config::{EngineConfig, EngineConfigBuilder, EngineConfigError};
 }

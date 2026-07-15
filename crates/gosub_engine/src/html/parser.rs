@@ -27,7 +27,7 @@ pub struct ResourceHint {
     /// The `rel` attribute value if applicable.
     pub rel: Option<String>, // e.g. "stylesheet"
     /// The attribute we discovered this from.
-    pub from_attr: &'static str, // e.g. "href" or "src
+    pub from_attr: &'static str, // e.g. "href" or "src"
     /// The referrer URL if applicable.
     pub referrer: Option<Url>,
     /// Whether this is a cross-origin request.
@@ -38,33 +38,10 @@ pub struct ResourceHint {
     pub priority: Priority,
 }
 
-/// A dummy document structure that is a placeholder for an actual DOM document.
-#[derive(Debug, Clone, PartialEq)]
-pub struct DummyDocument {
-    /// The final URL of the document (after redirects).
-    pub final_url: Url,
-    /// The document title, if any.
-    pub title: Option<String>,
-    /// Whole HTML as UTF-8 (best-effort).
-    pub raw_html: String,
-}
-
-impl DummyDocument {
-    /// Synthesize a dummy document from a string.
-    pub fn from(html: String, final_url: Url) -> Self {
-        let title = discover_title(&html);
-        Self {
-            final_url,
-            title,
-            raw_html: html,
-        }
-    }
-}
-
-/// Error type for this dummy parser.
+/// Errors from buffering and parsing a main document stream.
 #[derive(thiserror::Error, Debug)]
 pub enum DocumentError {
-    /// UTF-8 error
+    /// I/O error while reading the document stream.
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
 
@@ -77,16 +54,20 @@ pub enum DocumentError {
     Cancelled,
 }
 
-/// Configuration of the dummy HTML5 parser.
+/// Configuration for parsing a main document (see [`parse_main_document_stream`]).
 #[derive(Debug, Clone)]
-pub struct DummyHtml5Config {
-    /// Max bytes to buffer from the stream. We read the entire stream up to this limit.
+pub struct HtmlParseConfig {
+    /// Max bytes to buffer from the stream; a larger document is truncated (with a warning).
+    /// The engine reads this from the `net.document.max_bytes` setting.
     pub max_bytes: usize,
 }
 
-impl Default for DummyHtml5Config {
+impl Default for HtmlParseConfig {
     fn default() -> Self {
-        Self { max_bytes: 1024 * 1024 } // 1 MiB
+        // Matches the `net.document.max_bytes` schema default.
+        Self {
+            max_bytes: 10 * 1024 * 1024,
+        }
     }
 }
 
@@ -102,7 +83,7 @@ pub async fn parse_main_document_stream<C, R, F>(
     base_url: Url,
     mut reader: R,
     cancel: CancellationToken,
-    cfg: DummyHtml5Config,
+    cfg: HtmlParseConfig,
     mut on_discover: F,
 ) -> Result<EngineDocument<C>, DocumentError>
 where
@@ -131,6 +112,10 @@ where
         // If we hit the cap, we still drain the stream to EOF quickly
         // to avoid keeping the connection open unnecessarily.
         if buf.len() >= cfg.max_bytes {
+            log::warn!(
+                "Document {base_url} exceeds the {} byte limit (net.document.max_bytes); parsing truncated content",
+                cfg.max_bytes
+            );
             // Drain (non-blocking-ish) without growing memory
             // We don't strictly need to, but it's polite to the transport.
             let mut drain = [0u8; 16 * 1024];
@@ -204,34 +189,28 @@ static RE_DEFER_ATTR: Lazy<Regex> = Lazy::new(|| re(r#"\bdefer\b"#));
 static RE_IMG_SRC: Lazy<Regex> =
     Lazy::new(|| re(r#"(?is)<\s*img\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#));
 
-static RE_TITLE: Lazy<Regex> = Lazy::new(|| re(r#"(?is)<\s*title\s*>\s*(?P<title>.*?)\s*<\s*/\s*title\s*>"#));
-
-fn discover_title(html: &str) -> Option<String> {
-    RE_TITLE
-        .captures(html)
-        .and_then(|c| c.name("title").map(|m| m.as_str().trim().to_string()))
-}
-
 fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
     let mut out = Vec::new();
 
     // Stylesheets
     for cap in RE_LINK_STYLESHEET.captures_iter(html) {
-        if let Some(m) = cap.name("href") {
-            if let Ok(u) = resolve(base, unquote(m.as_str())) {
-                out.push(ResourceHint {
-                    url: u,
-                    dest: RequestDestination::Document,
-                    referrer: None,
-                    cross_origin: false,
-                    integrity: None,
-                    kind: ResourceKind::Stylesheet,
-                    rel: Some("stylesheet".to_string()),
-                    from_attr: "href",
-                    priority: Priority::High,
-                });
-            }
-        }
+        let Some(m) = cap.name("href") else {
+            continue;
+        };
+        let Ok(u) = resolve(base, unquote(m.as_str())) else {
+            continue;
+        };
+        out.push(ResourceHint {
+            url: u,
+            dest: RequestDestination::Document,
+            referrer: None,
+            cross_origin: false,
+            integrity: None,
+            kind: ResourceKind::Stylesheet,
+            rel: Some("stylesheet".to_string()),
+            from_attr: "href",
+            priority: Priority::High,
+        });
     }
 
     // Scripts
@@ -240,40 +219,44 @@ fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
         let tag_lower = tag.cow_to_ascii_lowercase();
         // A script is blocking unless it has async or defer attributes
         let blocking = !RE_ASYNC_ATTR.is_match(tag_lower.as_ref()) && !RE_DEFER_ATTR.is_match(tag_lower.as_ref());
-        if let Some(m) = cap.name("src") {
-            if let Ok(u) = resolve(base, unquote(m.as_str())) {
-                out.push(ResourceHint {
-                    url: u,
-                    kind: ResourceKind::Script { blocking },
-                    rel: None,
-                    from_attr: "src",
-                    dest: RequestDestination::Script,
-                    referrer: None,
-                    cross_origin: false,
-                    integrity: None,
-                    priority: Priority::Normal,
-                });
-            }
-        }
+        let Some(m) = cap.name("src") else {
+            continue;
+        };
+        let Ok(u) = resolve(base, unquote(m.as_str())) else {
+            continue;
+        };
+        out.push(ResourceHint {
+            url: u,
+            kind: ResourceKind::Script { blocking },
+            rel: None,
+            from_attr: "src",
+            dest: RequestDestination::Script,
+            referrer: None,
+            cross_origin: false,
+            integrity: None,
+            priority: Priority::Normal,
+        });
     }
 
     // Images
     for cap in RE_IMG_SRC.captures_iter(html) {
-        if let Some(m) = cap.name("src") {
-            if let Ok(u) = resolve(base, unquote(m.as_str())) {
-                out.push(ResourceHint {
-                    url: u,
-                    kind: ResourceKind::Image,
-                    rel: None,
-                    from_attr: "src",
-                    dest: RequestDestination::Image,
-                    referrer: None,
-                    cross_origin: false,
-                    integrity: None,
-                    priority: Priority::Low,
-                });
-            }
-        }
+        let Some(m) = cap.name("src") else {
+            continue;
+        };
+        let Ok(u) = resolve(base, unquote(m.as_str())) else {
+            continue;
+        };
+        out.push(ResourceHint {
+            url: u,
+            kind: ResourceKind::Image,
+            rel: None,
+            from_attr: "src",
+            dest: RequestDestination::Image,
+            referrer: None,
+            cross_origin: false,
+            integrity: None,
+            priority: Priority::Low,
+        });
     }
 
     out
@@ -325,7 +308,7 @@ mod tests {
             base.clone(),
             reader_from_str(html),
             cancel,
-            DummyHtml5Config::default(),
+            HtmlParseConfig::default(),
             |h| hints.push(h),
         )
         .await
@@ -359,7 +342,7 @@ mod tests {
             base,
             reader,
             cancel,
-            DummyHtml5Config::default(),
+            HtmlParseConfig::default(),
             |_h| {},
         )
         .await;
@@ -374,7 +357,7 @@ mod tests {
     async fn truncates_at_max_bytes() {
         let base = Url::parse("https://e.test/").unwrap();
         let big = "A".repeat(150_000); // 150 KiB
-        let cfg = DummyHtml5Config { max_bytes: 64 * 1024 }; // 64 KiB
+        let cfg = HtmlParseConfig { max_bytes: 64 * 1024 }; // 64 KiB
 
         // Just verify truncated input still produces a valid document (no panic).
         parse_main_document_stream::<DefaultRenderConfig, _, _>(
@@ -386,12 +369,5 @@ mod tests {
         )
         .await
         .unwrap();
-    }
-
-    #[test]
-    fn discover_title_basic() {
-        assert_eq!(discover_title("<title>x</title>").as_deref(), Some("x"));
-        assert_eq!(discover_title("<TITLE>  spaced \n</TITLE>").as_deref(), Some("spaced"));
-        assert!(discover_title("<head></head>").is_none());
     }
 }

@@ -19,7 +19,7 @@
 //! let jar = zone.cookie_jar(); // -> CookieJarHandle
 //! let cookies_header = {
 //!     let guard = jar.read();
-//!     guard.get_request_cookies(&request_url, Some(&page_url))
+//!     guard.get_request_cookies(&request_url, Some(&page_url), SameSiteContext::SameSite)
 //! };
 //!
 //! // Store cookies from a response (pass top_level for third-party enforcement).
@@ -68,7 +68,7 @@ use std::sync::Arc;
 /// ```ignore,no_run
 /// let jar: CookieJarHandle = zone.cookie_jar();
 /// {
-///     let cookies = jar.read().get_request_cookies(&url, Some(&top_level_url));
+///     let cookies = jar.read().get_request_cookies(&url, Some(&top_level_url), SameSiteContext::SameSite);
 /// }
 /// {
 ///     let mut guard = jar.write();
@@ -143,20 +143,8 @@ where
 /// since callers hold only `&self` when invoking trait methods.
 ///
 /// Typical use is at **build/initialization time** to mint a per-zone jar.
+#[derive(Clone)]
 pub struct CookieStoreHandle(Arc<dyn CookieStore + Send + Sync>);
-
-impl Clone for CookieStoreHandle {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-
-    fn clone_from(&mut self, source: &Self)
-    where
-        Self:,
-    {
-        self.0.clone_from(&source.0);
-    }
-}
 
 impl<T> From<Arc<T>> for CookieStoreHandle
 where
@@ -177,11 +165,16 @@ impl CookieStoreHandle {
     pub fn persist_zone_from_snapshot(&self, zone: ZoneId, snap: &DefaultCookieJar) {
         self.0.persist_zone_from_snapshot(zone, snap);
     }
-    pub fn remove_zone(&self, zone: ZoneId) {
-        self.0.remove_zone(zone);
-    }
     pub fn persist_all(&self) {
         self.0.persist_all();
+    }
+    pub fn release_zone(&self, zone: ZoneId) {
+        self.0.release_zone(zone);
+    }
+    /// Deletes the zone's persisted cookie data (e.g. "clear cookies" / profile removal).
+    /// For closing a zone while keeping its data, use [`Self::release_zone`] instead.
+    pub fn remove_zone(&self, zone: ZoneId) {
+        self.0.remove_zone(zone);
     }
     pub fn jar_for(&self, zone: ZoneId) -> Option<CookieJarHandle> {
         self.0.jar_for(zone)
@@ -218,7 +211,9 @@ pub struct Cookie {
 
     /// SameSite policy (`"Strict"`, `"Lax"`, or `"None"`).
     ///
-    /// `None` implies cross-site allowed (must also set `secure=true` in modern browsers).
+    /// `Option::None` means the attribute was absent; the jar then applies the
+    /// modern default of **Lax**. The string value `"None"` (cross-site allowed)
+    /// additionally requires `secure=true`.
     /// Consider modeling as an enum in the future.
     pub same_site: Option<String>,
 

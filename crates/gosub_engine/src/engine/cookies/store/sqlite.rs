@@ -40,7 +40,6 @@ use r2d2_sqlite::rusqlite::params;
 use r2d2_sqlite::SqliteConnectionManager;
 
 use crate::engine::cookies::cookie_jar::{CookieJar, DefaultCookieJar};
-use crate::engine::cookies::persistent_cookie_jar::PersistentCookieJar;
 use crate::engine::cookies::store::CookieStore;
 use crate::engine::cookies::{Cookie, CookieJarHandle, CookieStoreHandle};
 use crate::engine::zone::ZoneId;
@@ -268,31 +267,9 @@ impl CookieStore for SqliteCookieStore {
     /// - That jar is wrapped in a [`PersistentCookieJar`] bound to this store
     ///   (via `store_self`) so that subsequent mutations persist automatically.
     fn jar_for(&self, zone_id: ZoneId) -> Option<CookieJarHandle> {
-        {
-            let jars = self.jars.read();
-            if let Some(jar) = jars.get(&zone_id) {
-                return Some(jar.clone());
-            }
-        }
-
-        let jar = self.load_zone(zone_id);
-        let arc_jar: CookieJarHandle = jar.into();
-
-        let store_ref = self.store_self.read();
-        let store = match store_ref.as_ref() {
-            Some(store) => store.clone(),
-            None => {
-                log::error!("store_self not initialized; cannot provision cookie jar");
-                return None;
-            }
-        };
-
-        let persistent = PersistentCookieJar::new(zone_id, arc_jar.clone(), store);
-        let handle = CookieJarHandle::new(persistent);
-
-        self.jars.write().insert(zone_id, handle.clone());
-
-        Some(handle)
+        crate::cookies::store::provision_persistent_jar(&self.jars, &self.store_self, zone_id, || {
+            self.load_zone(zone_id)
+        })
     }
 
     /// Persists a snapshot of `zone_id`'s jar to SQLite.
@@ -300,6 +277,13 @@ impl CookieStore for SqliteCookieStore {
     /// Called by [`PersistentCookieJar`] after each mutation.
     fn persist_zone_from_snapshot(&self, zone_id: ZoneId, snapshot: &DefaultCookieJar) {
         self.save_zone(zone_id, snapshot);
+    }
+
+    /// Persists a final snapshot for `zone_id` and evicts its cached jar; database rows stay.
+    fn release_zone(&self, zone_id: ZoneId) {
+        if let Some(snapshot) = crate::cookies::store::evict_and_snapshot(&self.jars, zone_id) {
+            self.save_zone(zone_id, &snapshot);
+        }
     }
 
     /// Removes `zone_id` from both the in-memory cache and the database.
@@ -314,15 +298,6 @@ impl CookieStore for SqliteCookieStore {
     /// are snapshotted here to keep the on-disk format stable.
     fn persist_all(&self) {
         let jars = self.jars.read();
-
-        for (zone_id, jar_handle) in jars.iter() {
-            let jar = jar_handle.read();
-            if let Some(persist) = jar.as_any().downcast_ref::<PersistentCookieJar>() {
-                let inner = persist.inner.read();
-                if let Some(default) = inner.as_any().downcast_ref::<DefaultCookieJar>() {
-                    self.save_zone(*zone_id, default);
-                }
-            }
-        }
+        crate::cookies::store::snapshot_cached_jars(&jars, |zone_id, snapshot| self.save_zone(zone_id, snapshot));
     }
 }

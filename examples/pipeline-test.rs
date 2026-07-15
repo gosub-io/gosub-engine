@@ -20,7 +20,7 @@ use gosub_engine::{
     cookies::DefaultCookieJar,
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::{ZoneConfig, ZoneServices},
-    Action, DefaultRenderConfig, EngineError, EngineSettings, GosubEngine, NavigationId,
+    Action, DefaultRenderConfig, EngineConfig, EngineError, GosubEngine, NavigationId,
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -149,7 +149,7 @@ async fn main() -> Result<(), EngineError> {
     // Start engine.
     let backend = gosub_render_pipeline::render::backends::null::NullBackend::new();
     let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
-        Some(EngineSettings::builder().max_zones(1).build().expect("cfg")),
+        Some(EngineConfig::builder().max_zones(1).build().expect("cfg")),
         Arc::new(backend),
         Arc::new(DefaultCompositor::default()),
     );
@@ -166,7 +166,7 @@ async fn main() -> Result<(), EngineError> {
         partition_policy: PartitionPolicy::None,
     };
     let mut zone = engine.create_zone(
-        ZoneConfig::builder().max_tabs(1).build().expect("zone cfg"),
+        Some(ZoneConfig::builder().max_tabs(1).build().expect("zone cfg")),
         zone_services,
         None,
     )?;
