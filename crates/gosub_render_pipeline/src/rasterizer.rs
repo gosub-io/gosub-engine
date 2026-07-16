@@ -15,7 +15,7 @@ pub trait Rasterable {
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId>;
 
     /// The font system this rasterizer draws with, exposed as `dyn FontSystem` so the
-    /// layout engine can share the same instance — text is then measured and drawn against
+    /// layout engine can share the same instance - text is then measured and drawn against
     /// one font collection (consistent metrics, fonts loaded once).
     ///
     /// Returns `None` for rasterizers that don't shape through a [`FontSystem`] (the null
@@ -73,13 +73,13 @@ pub struct BakedTile {
     pub page_x: f64,
     pub page_y: f64,
     /// Owning layer id. Needed to disambiguate tiles from different layers that share the same
-    /// page position — e.g. the base layer and a `position: sticky` header both have a tile at
+    /// page position - e.g. the base layer and a `position: sticky` header both have a tile at
     /// the top-left `(0,0)`. Carry-over between renders must therefore key tiles by
     /// position *and* layer; position alone collapses them.
     pub layer_id: u64,
     pub width: u32,
     pub height: u32,
-    /// Tile pixels — CPU bytes (Cairo/Skia) or an opaque GPU texture id (Vello/wgpu).
+    /// Tile pixels - CPU bytes (Cairo/Skia) or an opaque GPU texture id (Vello/wgpu).
     pub pixels: TilePixels,
     /// In-memory byte order of the pixels (CPU variant), set by the rasterizer that produced it.
     pub format: crate::render::backend::PixelFormat,
@@ -107,7 +107,7 @@ fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
         PaintCommand,
     };
 
-    // Minimal inline FNV-1a hasher — no trait bounds needed on the types being hashed.
+    // Minimal inline FNV-1a hasher - no trait bounds needed on the types being hashed.
     let mut h: u64 = 14695981039346656037;
     macro_rules! fnv {
         ($bytes:expr) => {
@@ -410,7 +410,7 @@ pub fn rasterize_parallel(
 
             let key = tile_cache_key(tile);
 
-            // Cache hit: same content as the previous render — reuse pixels.
+            // Cache hit: same content as the previous render - reuse pixels.
             if let Some(&(w, h, ref data)) = prev_tile_cache.get(&key) {
                 let baked = BakedTile {
                     page_x: tile.rect.x,
@@ -496,7 +496,7 @@ pub fn cpu_cached_tiles(baked: &[BakedTile]) -> Vec<CachedTile> {
         .collect()
 }
 
-/// Placed GPU tiles for the current page, in page coordinates — handed to a GPU backend's
+/// Placed GPU tiles for the current page, in page coordinates - handed to a GPU backend's
 /// `composite_tiles` step. Empty for CPU backends.
 pub fn collect_placed_gpu_tiles(baked: &[BakedTile]) -> Vec<crate::render::backend::PlacedGpuTile> {
     baked

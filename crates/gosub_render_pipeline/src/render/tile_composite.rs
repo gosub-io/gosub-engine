@@ -19,7 +19,7 @@ use crate::render::backend::{anchored_tile_pos, blend_over_argb_u32, scale_premu
 /// into.
 ///
 /// `buf` is row-major with `stride` pixels per row. Tile content is clipped to the `width × height`
-/// device-pixel region whose top-left corner sits at (`origin_x`, `origin_y`) within `buf` — the
+/// device-pixel region whose top-left corner sits at (`origin_x`, `origin_y`) within `buf` - the
 /// offset lets a host reserve rows for its own chrome (e.g. an address bar) while still handing the
 /// whole window buffer. For an own-buffer host sized exactly to the content, use `origin_x = 0`,
 /// `origin_y = 0`, `stride = width`.
@@ -38,7 +38,7 @@ pub struct TileTarget<'a> {
 /// Source-over composite the visible `tiles` into `target`.
 ///
 /// Each tile is placed by resolving its anchor against the page `scroll` (CSS px) via
-/// [`anchored_tile_pos`] — which handles normal-flow, `fixed` and `sticky` uniformly — then scaling
+/// [`anchored_tile_pos`] - which handles normal-flow, `fixed` and `sticky` uniformly - then scaling
 /// to device pixels by `dpr`. Tiles are premultiplied; per-tile `opacity` fades the layer as a
 /// whole before the blend. Tiles fully outside the target region are skipped; partially-visible
 /// tiles are clipped.

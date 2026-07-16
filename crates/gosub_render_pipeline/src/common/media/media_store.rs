@@ -127,7 +127,7 @@ impl MediaStore {
         });
 
         if spawned.is_err() {
-            // Couldn't spawn — drop the in-flight marker so a later attempt can retry.
+            // Couldn't spawn - drop the in-flight marker so a later attempt can retry.
             self.pending.write().remove(&h);
         }
 
@@ -181,7 +181,7 @@ impl MediaStore {
         };
 
         let mut cache = self.cache.write();
-        // Another thread may have inserted while we were loading — don't overwrite
+        // Another thread may have inserted while we were loading - don't overwrite
         cache.entry(h).or_insert(media_id);
 
         Ok(media_id)
@@ -239,7 +239,7 @@ impl MediaStore {
 
     fn load_media_from_source(&self, src: &str) -> anyhow::Result<MediaId> {
         log::debug!("Loading non-cached media from path: {}", src);
-        // `data:` URIs carry the bytes inline — decode them directly instead of going to the network.
+        // `data:` URIs carry the bytes inline - decode them directly instead of going to the network.
         let media = if let Some(rest) = src.strip_prefix("data:") {
             let (mime, bytes) = decode_data_uri(rest)?;
             self.decode_media(src, mime.as_deref(), &bytes)?
@@ -337,7 +337,7 @@ impl MediaStore {
 
 /// Decode the body of a `data:` URI (everything after `data:`) into its MIME type and raw bytes.
 /// Handles the `[<mime>][;base64],<data>` form: base64 payloads are decoded, and plain payloads
-/// are percent-decoded. The MIME is a hint only — the decoder registry re-sniffs the real format.
+/// are percent-decoded. The MIME is a hint only - the decoder registry re-sniffs the real format.
 fn decode_data_uri(rest: &str) -> anyhow::Result<(Option<String>, Vec<u8>)> {
     let (meta, data) = rest
         .split_once(',')
@@ -422,7 +422,7 @@ mod tests {
     }
 
     /// Each of PNG/JPEG/GIF must decode through `load_media_from_data` and land in the
-    /// store with its real dimensions — not collapse to the fallback placeholder.
+    /// store with its real dimensions - not collapse to the fallback placeholder.
     #[test]
     fn decodes_png_jpeg_gif() {
         for format in [ImageFormat::Png, ImageFormat::Jpeg, ImageFormat::Gif] {

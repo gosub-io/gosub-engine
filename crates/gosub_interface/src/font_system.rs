@@ -89,7 +89,7 @@ pub struct ResolvedFont {
 /// A single positioned glyph.
 ///
 /// `x` and `y` are in pixels, with `y` already including the baseline and any
-/// line offsets — (0, 0) is the top-left of the shaped block, not the baseline.
+/// line offsets - (0, 0) is the top-left of the shaped block, not the baseline.
 #[derive(Debug, Clone, Copy)]
 pub struct ShapedGlyph {
     pub id: u32,
@@ -219,16 +219,16 @@ impl TextStyle {
 
 // Core trait
 
-/// A swappable font system — the entire surface the engine and layouter need.
+/// A swappable font system - the entire surface the engine and layouter need.
 ///
 /// It registers fonts, **resolves** CSS font queries to concrete fonts (with their raw bytes),
 /// **shapes** text into positioned glyph runs, and **measures** it. All of it goes through
 /// whichever font system the engine was configured with, so layout boxes are sized by the very
-/// engine whose glyphs will be drawn (Parley, Pango, Skia, cosmic-text, …) — measurement,
+/// engine whose glyphs will be drawn (Parley, Pango, Skia, cosmic-text, …) - measurement,
 /// shaping, and drawing can't disagree.
 ///
 /// Drawing itself is *not* on this trait: painting the [`ShapedText`] returned by
-/// [`FontSystem::shape`] is the render backend's job — glyph IDs + a [`crate::font::FontBlob`]
+/// [`FontSystem::shape`] is the render backend's job - glyph IDs + a [`crate::font::FontBlob`]
 /// are everything a rasterizer needs, so any font system serves any backend.
 ///
 /// # Threading

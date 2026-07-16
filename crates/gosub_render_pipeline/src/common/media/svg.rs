@@ -12,7 +12,7 @@ pub struct RenderedSvg {
 #[derive(Clone)]
 pub struct Svg {
     pub tree: usvg::Tree,
-    /// Rendered cache — dimension and pixel data kept under one lock for consistency.
+    /// Rendered cache - dimension and pixel data kept under one lock for consistency.
     pub rendered: Arc<RwLock<RenderedSvg>>,
 }
 

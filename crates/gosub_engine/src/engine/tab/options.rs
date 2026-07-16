@@ -5,8 +5,8 @@
 //! via [`TabOverrides`].
 //!
 //! There are two primary entry points:
-//! - [`TabDefaults`] — baseline values for new tabs (initial URL, title, viewport).
-//! - [`TabOverrides`] — per-tab overrides for services, identity, content, UI, and persistence.
+//! - [`TabDefaults`] - baseline values for new tabs (initial URL, title, viewport).
+//! - [`TabOverrides`] - per-tab overrides for services, identity, content, UI, and persistence.
 //!
 //! Together, these structures provide fine-grained control over how each tab behaves
 //! within the Gosub engine.
@@ -41,7 +41,7 @@ pub struct TabDefaults {
 /// A tab normally inherits its settings from the surrounding [`Zone`](crate::zone).
 /// By providing overrides, you can control services, partitioning, and identity
 /// for a single tab. Fields are added here as the engine grows the corresponding
-/// feature — overrides without a consumer don't exist.
+/// feature - overrides without a consumer don't exist.
 ///
 /// # Example
 /// ```no_run

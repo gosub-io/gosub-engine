@@ -10,7 +10,7 @@ pub fn resolve_var(values: &[CssValue], custom_props: &HashMap<String, CssValue>
         return vec![value.clone()];
     }
 
-    // Variable not found — use the fallback if provided
+    // Variable not found - use the fallback if provided
     if let Some(fallback) = values.get(1).cloned() {
         return vec![fallback];
     }

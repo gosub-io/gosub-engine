@@ -2,8 +2,8 @@
 //!
 //! `gosub_config` provides the configuration *machinery* but is agnostic of which settings exist.
 //! The engine owns the schema: the set of known keys with their types, defaults, constraints and
-//! descriptions. It lives in two embedded files — `settings.json` (engine settings) and
-//! `useragent-settings.json` (user-agent settings, merged under the `useragent` namespace) — which
+//! descriptions. It lives in two embedded files - `settings.json` (engine settings) and
+//! `useragent-settings.json` (user-agent settings, merged under the `useragent` namespace) - which
 //! are parsed here into the [`SettingInfo`] lists that seed a [`Config`].
 
 use gosub_config::settings::{Constraint, Setting, SettingInfo};

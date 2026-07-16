@@ -78,7 +78,7 @@ impl CssSyntaxTree {
 
 /// Returns true when `input` is exactly one CSS-wide keyword (`inherit`, `initial`,
 /// `unset`, `revert`, `revert-layer`). These are valid for any property but must stand
-/// alone — `margin: inherit inherit` is invalid — so a single value is required. The real
+/// alone - `margin: inherit inherit` is invalid - so a single value is required. The real
 /// parser lowers them to `CssValue::String`, but the dedicated `Inherit`/`Initial`
 /// variants are also accepted for callers that build values directly.
 fn is_css_wide_keyword(input: &[CssValue]) -> bool {
@@ -100,7 +100,7 @@ fn is_css_wide_keyword(input: &[CssValue]) -> bool {
 /// its own vendor's values, and rejecting them all would drop widely-deployed
 /// declarations. Accepting keeps cascade behavior identical (a later standard value
 /// still wins) without maintaining a per-value alias table. Only a single bare
-/// identifier is covered — vendor keywords inside larger values stay strict, and
+/// identifier is covered - vendor keywords inside larger values stay strict, and
 /// unprefixed legacy values (`display: box`) stay rejected, as in real browsers.
 const VENDOR_PREFIXES: [&str; 6] = ["-webkit-", "-moz-", "-ms-", "-o-", "-khtml-", "-apple-"];
 
@@ -340,7 +340,7 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
         SyntaxComponent::Builtin { datatype, range, .. } => {
             // A math function may be used wherever a numeric datatype is allowed (CSS
             // Values & Units §10), e.g. `width: calc(100% - 20px)`. The expression is
-            // accepted opaquely — calc bodies are stored as raw text for the layout
+            // accepted opaquely - calc bodies are stored as raw text for the layout
             // engine to evaluate, so neither its type nor a `[min,max]` range can be
             // checked here.
             if let CssValue::Function(name, _) = value {
@@ -429,7 +429,7 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                 // `<alpha()>` (css-color-hdr) is an alternative of `<color-function>`, so it
                 // denotes a FUNCTION named `alpha`, not a bare numeric. It must not fall
                 // through to the permissive catch-all below (any string would match <color>),
-                // and it must not match bare numerics either — that made `color: 0` valid and
+                // and it must not match bare numerics either - that made `color: 0` valid and
                 // let a leading `0` offset in box-shadow claim the shadow-color slot. No data
                 // source carries its argument grammar, so arguments are accepted opaquely.
                 "alpha()" => match value {
@@ -643,7 +643,7 @@ fn match_group_at_least_one_any_order<'a>(
     mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     // Same rotation strategy as match_group_all_any_order: a single greedy pass can
-    // hand a value to the wrong operand (`transition: ease all 300ms` — the
+    // hand a value to the wrong operand (`transition: ease all 300ms` - the
     // <custom-ident> transition-property grabs `ease` before the easing operand gets a
     // chance). The shorthand-resolver path keeps the single pass (side effects).
     if shorthand_resolver.is_none() {

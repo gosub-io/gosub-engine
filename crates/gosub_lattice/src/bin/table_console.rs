@@ -1,4 +1,4 @@
-/// Console table renderer — run with:
+/// Console table renderer - run with:
 ///   cargo run --bin table_console -p gosub_lattice
 ///
 /// Each demo mirrors an integration test in `src/tests.rs`, so the same
@@ -39,7 +39,7 @@ fn main() {
         .render();
     println!("{out}");
 
-    // 4. rowspan that would cross thead→tbody boundary — must be clamped
+    // 4. rowspan that would cross thead→tbody boundary - must be clamped
     println!("=== rowspan clamped at section boundary ===");
     let out = MockTable::new(60.0)
         .header_row(vec![
@@ -76,7 +76,7 @@ fn main() {
     println!("{out}");
 
     // 7. Explicit width clamped to content (test 20): width=6 on a cell whose
-    //    content is naturally 12 wide — the column comes out 12, not 6.
+    //    content is naturally 12 wide - the column comes out 12, not 6.
     println!("=== explicit width clamped up to content width ===");
     let out = MockTable::new(50.0)
         .body_row(vec![
@@ -87,7 +87,7 @@ fn main() {
     println!("{out}");
 
     // 8. Anonymous-box fixups (tests 14/15): bare rows directly under the table
-    //    get an anonymous body group — the table renders as if wrapped in <tbody>.
+    //    get an anonymous body group - the table renders as if wrapped in <tbody>.
     println!("=== anonymous group: bare rows directly under the table ===");
     let mut tree = MockTree::new(1.0, 0.0);
     let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
@@ -104,7 +104,7 @@ fn main() {
     }
 
     // 9. Section order normalization (test 13): source order is tfoot, tbody,
-    //    thead — the layout renders header → body → footer regardless.
+    //    thead - the layout renders header → body → footer regardless.
     println!("=== source order tfoot/tbody/thead → renders head/body/foot ===");
     let mut tree = MockTree::new(1.0, 0.0);
     let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);

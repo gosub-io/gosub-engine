@@ -3,7 +3,7 @@
 //! Usage: cargo run --example gtk4-skia -- https://example.com
 //!
 //! GTK4 is used only for windowing; Skia handles all rasterization and fonts.
-//! No gtk4::init() needed for fonts — unlike the Cairo backend, Skia is self-contained.
+//! No gtk4::init() needed for fonts - unlike the Cairo backend, Skia is self-contained.
 
 use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
@@ -45,7 +45,7 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 });
 
 /// Cached tile render state extracted from the latest engine TileCache frame.
-/// Lives on the GTK main thread — no locking needed.
+/// Lives on the GTK main thread - no locking needed.
 struct TileDrawState {
     tiles: Arc<Vec<CachedTile>>,
     dpr: u32,
@@ -115,7 +115,7 @@ fn main() {
                     TabDefaults {
                         url: None,
                         title: Some("Gosub Skia".to_string()),
-                        // No initial viewport — let connect_resize set it with the correct DPR.
+                        // No initial viewport - let connect_resize set it with the correct DPR.
                         // If we pre-set a viewport here (DPR=1), the engine won't recreate the
                         // surface when connect_resize sends the same CSS dimensions with DPR=2.
                         viewport: None,
@@ -136,7 +136,7 @@ fn main() {
         // compositor.  We extract the tiles + metadata here so the draw callback and
         // scroll handler can use them without any async roundtrip.
         let local_tiles: Rc<RefCell<Option<TileDrawState>>> = Rc::new(RefCell::new(None));
-        // Current scroll offset in CSS px — updated synchronously in the GTK scroll
+        // Current scroll offset in CSS px - updated synchronously in the GTK scroll
         // handler so every frame sees the very latest position without async latency.
         let local_scroll: Rc<Cell<(f32, f32)>> = Rc::new(Cell::new((0.0, 0.0)));
         // Handle for the active kinetic-scroll glib timeout (if any).
@@ -181,7 +181,7 @@ fn main() {
                             viewport_height,
                             page_height,
                         });
-                        // Sync scroll — the engine may have clamped it.
+                        // Sync scroll - the engine may have clamped it.
                         local_scroll.set((scroll_x, scroll_y));
                     }
                     da.queue_draw();
@@ -193,7 +193,7 @@ fn main() {
         //
         // Priority order:
         //   1. Local TileCache (zero-copy, uses up-to-date local scroll offset)
-        //   2. Compositor frame (CpuPixelsOwned / CpuPixelsPtr — initial page render fallback)
+        //   2. Compositor frame (CpuPixelsOwned / CpuPixelsPtr - initial page render fallback)
         let compositor_draw = compositor.clone();
         let local_tiles_draw = local_tiles.clone();
         let local_scroll_draw = local_scroll.clone();
@@ -218,7 +218,7 @@ fn main() {
             }
             drop(tiles_opt);
 
-            // Slow path: engine hasn't produced a TileCache yet — use the compositor frame.
+            // Slow path: engine hasn't produced a TileCache yet - use the compositor frame.
             match compositor_draw.frame_for(tab_id) {
                 None => {
                     log::debug!("[draw] no frame yet — placeholder");
@@ -312,7 +312,7 @@ fn main() {
                         page_height,
                         tiles,
                     } => {
-                        // This arm is only reached if local_tiles was empty — should be rare.
+                        // This arm is only reached if local_tiles was empty - should be rare.
                         let state = TileDrawState {
                             tiles,
                             dpr,
@@ -333,7 +333,7 @@ fn main() {
         // --- Scroll controller ---
         //
         // The local scroll offset is updated synchronously here (on the GTK main thread),
-        // so queue_draw() immediately sees the new position — zero async latency.
+        // so queue_draw() immediately sees the new position - zero async latency.
         // The engine is also notified via a Tokio task for its own state bookkeeping.
         let scroll_ctl = gtk4::EventControllerScroll::new(
             gtk4::EventControllerScrollFlags::BOTH_AXES | gtk4::EventControllerScrollFlags::KINETIC,
@@ -358,7 +358,7 @@ fn main() {
                 let delta_x = dx as f32 * SCROLL_MULTIPLIER;
                 let delta_y = dy as f32 * SCROLL_MULTIPLIER;
 
-                // Update local scroll immediately (synchronous — no async roundtrip).
+                // Update local scroll immediately (synchronous - no async roundtrip).
                 let (prev_x, prev_y) = local_scroll.get();
                 let max_y = local_tiles
                     .borrow()
@@ -389,7 +389,7 @@ fn main() {
             let kinetic_source = kinetic_source.clone();
             let da = drawing_area.clone();
             move |_ctl, vel_x, vel_y| {
-                // vel_x/vel_y are in "scroll units per millisecond" — same units as the
+                // vel_x/vel_y are in "scroll units per millisecond" - same units as the
                 // dx/dy deltas above, so multiply by 50 to get CSS px/ms.
                 let vx = Rc::new(Cell::new(vel_x as f32 * SCROLL_MULTIPLIER));
                 let vy = Rc::new(Cell::new(vel_y as f32 * SCROLL_MULTIPLIER));
@@ -408,7 +408,7 @@ fn main() {
                         *kinetic_source_inner.borrow_mut() = None;
                         return glib::ControlFlow::Break;
                     }
-                    // Exponential friction — decelerates to ~5% in ~1 second at 60fps.
+                    // Exponential friction - decelerates to ~5% in ~1 second at 60fps.
                     let friction = 0.93_f32;
                     vx.set(cur_vx * friction);
                     vy.set(cur_vy * friction);
@@ -485,7 +485,7 @@ fn main() {
                 // for the new viewport and reports the same DPR back in the tile-cache handle.
                 DEVICE_PIXEL_RATIO.store(render_dpr(area), std::sync::atomic::Ordering::Relaxed);
 
-                // Clear cached tiles — they were rasterized for the old viewport size.
+                // Clear cached tiles - they were rasterized for the old viewport size.
                 *local_tiles.borrow_mut() = None;
                 local_scroll.set((0.0, 0.0));
                 let tab = tab.borrow().clone();
@@ -641,8 +641,8 @@ fn main() {
 /// Composite a TileDrawState at the given scroll position into `cr`.
 /// Resolve the host device-pixel-ratio. Prefer the surface's *fractional* Wayland scale (e.g. 1.5)
 /// over `scale_factor()`, which reports an integer (often 1) under fractional scaling and would make
-/// us rasterize at logical resolution. Round up so a 1.5x surface renders at 2x then downscales —
-/// crisp — matching the Cairo backend.
+/// us rasterize at logical resolution. Round up so a 1.5x surface renders at 2x then downscales -
+/// crisp - matching the Cairo backend.
 fn render_dpr(widget: &impl IsA<gtk4::Widget>) -> u32 {
     let fractional = widget
         .native()
@@ -744,7 +744,7 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
     // `dst` is rendered at an integer DPR that is the ceil of the display's (possibly
     // fractional) scale, so the draw context resamples it to the real device resolution.
     // `Good` keeps that down/up-scale smooth (on a 1.5× display we rasterize at 2× then
-    // downscale — `Nearest` would alias that badly). All tiles were already CPU-blitted into
+    // downscale - `Nearest` would alias that badly). All tiles were already CPU-blitted into
     // this single surface, so there are no internal tile seams to worry about.
     cr.source().set_filter(gtk4::cairo::Filter::Good);
     cr.paint().unwrap_or_default();

@@ -288,7 +288,7 @@ impl Stream for ByteStream {
     fn location(&self) -> Location {
         // Find the last line that starts at or before char_pos. The stream advances
         // mostly monotonically, so start from the cached line index of the previous
-        // call and walk from there — amortized O(1) instead of a binary search per call.
+        // call and walk from there - amortized O(1) instead of a binary search per call.
         let mut idx = self.last_line_idx.get().min(self.line_starts.len() - 1);
         while idx > 0 && self.line_starts[idx] > self.char_pos {
             idx -= 1;
@@ -651,7 +651,7 @@ impl Debug for Location {
 fn decode_utf16_char(cu: u16, next_cu: impl FnOnce() -> Option<u16>) -> (Character, usize) {
     match cu {
         0xD800..=0xDBFF => {
-            // High surrogate — must be followed by a low surrogate
+            // High surrogate - must be followed by a low surrogate
             match next_cu() {
                 Some(low @ 0xDC00..=0xDFFF) => {
                     let codepoint = 0x10000u32 + ((u32::from(cu) - 0xD800) << 10) + (u32::from(low) - 0xDC00);
@@ -926,11 +926,11 @@ mod test {
         // "aé" = 0x61 0xC3 0xA9 (3 bytes for 2 chars)
         let mut stream = ByteStream::from_str("aéb", Encoding::UTF8);
         assert_eq!(stream.tell_bytes(), 0);
-        stream.read_and_next(); // 'a' — 1 byte
+        stream.read_and_next(); // 'a' - 1 byte
         assert_eq!(stream.tell_bytes(), 1);
-        stream.read_and_next(); // 'é' — 2 bytes
+        stream.read_and_next(); // 'é' - 2 bytes
         assert_eq!(stream.tell_bytes(), 3);
-        stream.read_and_next(); // 'b' — 1 byte
+        stream.read_and_next(); // 'b' - 1 byte
         assert_eq!(stream.tell_bytes(), 4);
     }
 
@@ -945,7 +945,7 @@ mod test {
 
     #[test]
     fn test_seek_bytes_updates_location() {
-        // "ab\ncd" — after seeking to byte 3 ('c') location should be (2,1)
+        // "ab\ncd" - after seeking to byte 3 ('c') location should be (2,1)
         let mut stream = ByteStream::from_str("ab\ncd", Encoding::UTF8);
         stream.seek_bytes(3);
         assert_eq!(stream.location(), Location::new(2, 1, 3));

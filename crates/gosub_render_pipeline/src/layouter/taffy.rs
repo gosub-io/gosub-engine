@@ -265,7 +265,7 @@ impl CanLayout for TaffyLayouter {
                     // Calculate text node
                     Some(TaffyContext::Text(text_ctx)) => {
                         let max_width = if text_ctx.no_wrap {
-                            // white-space: nowrap — measure at unlimited width so text never wraps
+                            // white-space: nowrap - measure at unlimited width so text never wraps
                             1_000_000_000.0_f64
                         } else {
                             match v_as.width {
@@ -409,7 +409,7 @@ impl TaffyLayouter {
             my_content_width
         };
 
-        // Absolute position of this node's content area — used as the base offset for direct children.
+        // Absolute position of this node's content area - used as the base offset for direct children.
         let children_offset = Coordinate::new(offset.x + layout.location.x as f64, offset.y + layout.location.y as f64);
 
         for child_id in child_ids {
@@ -473,7 +473,7 @@ impl TaffyLayouter {
     // Process inline elements by adding them to the taffy tree, wrapped in anonymous flex
     // containers. A run with no `<br>` produces a single wrapping container (the old behaviour); a
     // run containing `<br>` is split into one container per line box, which the block parent stacks
-    // vertically — that is how a `<br>` becomes a line break.
+    // vertically - that is how a `<br>` becomes a line break.
     fn process_inlines(
         &mut self,
         current_inline_group: &[InlineEntry],
@@ -572,12 +572,12 @@ impl TaffyLayouter {
 
     /// Split a text node that lives in a *mixed* inline run (alongside inline-level elements) into
     /// one inline box per word and push them onto `group`. This lets the text flow and wrap at word
-    /// boundaries around its sibling inline boxes, matching a browser line box — an atomic per-node
+    /// boundaries around its sibling inline boxes, matching a browser line box - an atomic per-node
     /// text box can only wrap as a whole, so it jumps to its own line after a preceding inline box.
     ///
     /// Words are emitted as tight boxes, separated (and edged, where the source had leading/trailing
     /// whitespace) by explicit single-space boxes. Each space is its own flex item, so it doubles as
-    /// a valid wrap point and carries exactly one space's width — attaching the space to the word
+    /// a valid wrap point and carries exactly one space's width - attaching the space to the word
     /// instead would double-count it against the trailing-NBSP fudge in the measure callback.
     fn push_text_words(
         &mut self,
@@ -628,7 +628,7 @@ impl TaffyLayouter {
     /// Build a single-word inline text box: a taffy leaf plus a `LayoutElementNode`, registered the
     /// same way `generate_taffy_element` registers a text node. Reuses `extract_taffy_data` (via the
     /// synthetic `word_node`) so all font/whitespace/decoration resolution is identical to the
-    /// whole-node path. `dom_to_layout_mapping` is intentionally not written — a text node maps to
+    /// whole-node path. `dom_to_layout_mapping` is intentionally not written - a text node maps to
     /// many word boxes and the single-slot map cannot represent that (word-level hit-testing is out
     /// of scope).
     fn build_text_word_leaf(
@@ -679,7 +679,7 @@ impl TaffyLayouter {
             return None;
         };
 
-        // Flex and grid containers are formatting contexts where ALL children — inline or block —
+        // Flex and grid containers are formatting contexts where ALL children - inline or block -
         // are direct layout participants. Wrapping inline children in an anonymous flex container
         // would insert an extra level that breaks the parent's `gap`, `align-items`, etc.
         let parent_is_flex_or_grid = matches!(taffy_style.display, Display::Flex | Display::Grid);
@@ -723,8 +723,8 @@ impl TaffyLayouter {
         let mut trailing_ws_count = 0usize;
         let render_node_children = render_node.children.clone();
 
-        // A "mixed" inline run — a (non-flex/grid) element with at least one inline-level *element*
-        // child, not just text — needs its text nodes split into per-word boxes so text flows and
+        // A "mixed" inline run - a (non-flex/grid) element with at least one inline-level *element*
+        // child, not just text - needs its text nodes split into per-word boxes so text flows and
         // wraps around the inline boxes like a browser line box. Pure-text blocks (no inline-element
         // children) keep the single whole-node run to preserve Parley text shaping/justification.
         let has_inline_element_child = !parent_is_flex_or_grid
@@ -760,14 +760,14 @@ impl TaffyLayouter {
                 continue;
             };
 
-            // In a flex/grid parent every child is a direct layout participant — inline or block —
+            // In a flex/grid parent every child is a direct layout participant - inline or block -
             // so skip the anonymous-container wrapping and add them straight to the parent.
             if parent_is_flex_or_grid {
                 // Still discard pure-whitespace text nodes; they carry no visual content.
                 if let NodeType::Text(text) = &child_node.node_type {
                     if text.trim().is_empty() {
                         // Drop leading whitespace (before any inline sibling). Keep inter-element
-                        // whitespace — it collapses to a single space in extract_taffy_data and
+                        // whitespace - it collapses to a single space in extract_taffy_data and
                         // visually separates adjacent inline elements (e.g. between </span><span>).
                         if current_inline_group.is_empty() {
                             continue;
@@ -805,7 +805,7 @@ impl TaffyLayouter {
                 let is_ws = if let NodeType::Text(text) = &child_node.node_type {
                     if text.trim().is_empty() {
                         // Drop leading whitespace (before any inline sibling). Keep inter-element
-                        // whitespace — it collapses to a single space in extract_taffy_data and
+                        // whitespace - it collapses to a single space in extract_taffy_data and
                         // visually separates adjacent inline elements (e.g. between </span><span>).
                         if current_inline_group.is_empty() {
                             continue;
@@ -852,7 +852,7 @@ impl TaffyLayouter {
         let child_ids = element_node.children.clone();
         layout_tree.arena.insert(layout_element_id, element_node);
         // Point every child (block and inline) back at this node so the containing block can be
-        // found by walking up — e.g. the cage for `position: sticky`.
+        // found by walking up - e.g. the cage for `position: sticky`.
         for child_id in child_ids {
             if let Some(child) = layout_tree.arena.get_mut(&child_id) {
                 child.parent = Some(layout_element_id);
@@ -895,7 +895,7 @@ impl TaffyLayouter {
         // tile at a box-independent size (its intrinsic size, or an explicit `background-size`
         // length) so it reuses the single raster path for repeat / cover / contain; `compute_bg_tiling`
         // then scales that raster for cover/contain once the box is known. (An SVG intrinsic size is
-        // typically large — e.g. 400×300 — so cover/contain downscale and stay crisp.)
+        // typically large - e.g. 400×300 - so cover/contain downscale and stay crisp.)
         match &*self.media_store.get(media_id, MediaType::Image) {
             Media::Image(mi) => Some(BackgroundMedia::Image {
                 media_id,
@@ -916,7 +916,7 @@ impl TaffyLayouter {
                         natural: (rw as f32, rh as f32),
                         layout,
                     }),
-                    // Rasterization failed — fall back to the (stretch) SVG paint path.
+                    // Rasterization failed - fall back to the (stretch) SVG paint path.
                     None => Some(BackgroundMedia::Svg(media_id)),
                 }
             }
@@ -958,7 +958,7 @@ impl TaffyLayouter {
                             // occupies, so display quality is unaffected.
                             let is_placeholder = self.media_store.is_placeholder(media_id);
                             // Resolve the intrinsic size, whether this is an SVG, and whether the
-                            // decoded raster is fully transparent (nothing visible to paint) — all
+                            // decoded raster is fully transparent (nothing visible to paint) - all
                             // in one borrow.
                             let (dimension, is_svg, is_transparent) = match media.borrow() {
                                 // Use the SVG's intrinsic size so the element gets a non-zero box.
@@ -995,7 +995,7 @@ impl TaffyLayouter {
                             // its shape when only one axis is constrained (e.g. `width:100%; height:auto`
                             // inside a `figure`). Without this, taffy's block layout leaves height
                             // unconstrained and the image stretches to fill its box. Skip it when the
-                            // author fixed BOTH axes to definite lengths — the explicit box wins then,
+                            // author fixed BOTH axes to definite lengths - the explicit box wins then,
                             // matching CSS `aspect-ratio: auto` for replaced elements.
                             if !is_placeholder && dimension.width > 0.0 && dimension.height > 0.0 {
                                 let both_fixed = taffy_style.size.width.into_option().is_some()
@@ -1145,7 +1145,7 @@ impl TaffyLayouter {
                 // Calculate vertical offset for centering based on the line height.
                 let text_offset = Coordinate::new(0.0, (line_height - font_size) / 2.0);
 
-                // Apply CSS white-space: normal — collapse newlines/runs of whitespace to a
+                // Apply CSS white-space: normal - collapse newlines/runs of whitespace to a
                 // single space and strip leading/trailing whitespace.  Raw HTML text nodes
                 // contain the literal source indentation (e.g. "\n    Red box…\n  ") which
                 // pango would render as a blank first line if left untouched.
@@ -1190,7 +1190,7 @@ impl TaffyLayouter {
                 }
 
                 // Apply `text-transform` (inherited from the parent element) to the run before it
-                // is measured and painted — TaffyContext::text is the single source used for both,
+                // is measured and painted - TaffyContext::text is the single source used for both,
                 // so transforming here keeps layout width and drawn glyphs in sync.
                 let text = apply_text_transform(text, doc.get_style(dom_node.node_id, &StyleProperty::TextTransform));
 
@@ -1227,7 +1227,7 @@ impl TaffyLayouter {
                     no_wrap,
                 ));
 
-                // Whitespace-only separator nodes must not grow — they should remain the
+                // Whitespace-only separator nodes must not grow - they should remain the
                 // natural width of a single space character so they don't consume the flex row.
             }
             NodeType::Comment(_) => {
@@ -1255,7 +1255,7 @@ fn to_absolute_url(uri: &str, base_uri: &str) -> String {
     // collapses `.`/`..`.
     match url::Url::parse(base_uri).and_then(|base| base.join(uri)) {
         Ok(joined) => joined.to_string(),
-        // Base URL unusable (e.g. empty for an inline document) — fall back to the raw reference.
+        // Base URL unusable (e.g. empty for an inline document) - fall back to the raw reference.
         Err(_) => uri.to_string(),
     }
 }
@@ -1379,7 +1379,7 @@ mod tests {
 
     #[test]
     fn relative_ref_replaces_base_last_segment() {
-        // A relative reference resolves against the document, *replacing* the page file —
+        // A relative reference resolves against the document, *replacing* the page file -
         // not appended after it (the bug this guards against).
         assert_eq!(
             to_absolute_url("assets/photo.jpg", "http://localhost:8765/image-test.html"),

@@ -1,6 +1,6 @@
 //! Generic glyph-run text painter (`text_glyphs` feature).
 //!
-//! Engine-neutral: asks the configured [`FontSystem`] — *whichever* engine that is — to shape the
+//! Engine-neutral: asks the configured [`FontSystem`] - *whichever* engine that is - to shape the
 //! text, then paints the returned glyph runs with `cairo_show_glyphs` against FreeType font faces
 //! created from the runs' raw font bytes. Works with any font system because the contract is font
 //! bytes + glyph IDs, not engine internals.
@@ -21,7 +21,7 @@ use std::rc::Rc;
 const PANGO_GLYPH_UNKNOWN_FLAG: u32 = 0x1000_0000;
 
 /// A cheap, stable identity for a font blob: length + head/tail content hash + collection index.
-/// Deliberately *not* the `Arc` data pointer — an address can be recycled for a different font
+/// Deliberately *not* the `Arc` data pointer - an address can be recycled for a different font
 /// after a blob is dropped, which would alias cache keys.
 fn blob_fingerprint(blob: &gosub_interface::font::FontBlob) -> (u64, u32) {
     use std::hash::{Hash, Hasher};
@@ -40,7 +40,7 @@ fn blob_fingerprint(blob: &gosub_interface::font::FontBlob) -> (u64, u32) {
 /// Global and immortal is **load-bearing**, not convenience: cairo internally caches
 /// `cairo_font_face_t`s keyed by `FT_Face` *pointer*. Per-thread caches (tiles rasterize on
 /// short-lived pool threads) freed their faces on thread death, and a later thread's new
-/// `FT_Face` allocated at a recycled address made cairo resurrect the stale entry — painting
+/// `FT_Face` allocated at a recycled address made cairo resurrect the stale entry - painting
 /// entire runs as solid boxes. Faces created once and never freed can't collide; it also means
 /// the multi-MB CJK/emoji fonts are copied once per process instead of once per thread.
 struct FaceCache {
@@ -50,7 +50,7 @@ struct FaceCache {
 
 #[allow(unsafe_code)]
 // SAFETY: the raw FT_Library/FT_Face/cairo_font_face_t pointers inside are only dereferenced
-// while holding the `FACES` mutex (creation) or by cairo during painting — and cairo-ft
+// while holding the `FACES` mutex (creation) or by cairo during painting - and cairo-ft
 // serialises its own FT_Face access internally (the unscaled-font lock around every FreeType
 // call). cairo font-face reference counting is itself thread-safe.
 unsafe impl Send for FaceCache {}

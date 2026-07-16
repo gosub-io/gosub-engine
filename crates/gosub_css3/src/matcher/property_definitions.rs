@@ -316,7 +316,7 @@ impl CssDefinitions {
             } => {
                 // A quoted reference (`<'name'>`) denotes a PROPERTY per the CSS value
                 // definition syntax, so resolve it from the property grammar before
-                // anything else — a same-named value type (e.g. the `<top>` used by
+                // anything else - a same-named value type (e.g. the `<top>` used by
                 // `<shape>`) must not shadow the property reference in `inset: <'top'>{1,4}`.
                 if *quoted && datatype != prop_name {
                     if let Some(resolved) = self.resolve_property_reference(datatype, multipliers) {
@@ -904,7 +904,7 @@ mod tests {
                 ],
             ),
             (
-                // `<'margin-top'>{1,4}` — the 1-to-4 value box shorthand (ranged multiplier).
+                // `<'margin-top'>{1,4}` - the 1-to-4 value box shorthand (ranged multiplier).
                 "margin",
                 &[
                     ("10px", true),
@@ -924,7 +924,7 @@ mod tests {
                 &[("10px", true), ("1px 2px 3px 4px", true), ("auto", false)],
             ),
             (
-                // `none | [ <'flex-grow'> <'flex-shrink'>? || <'flex-basis'> ]` — a `||`
+                // `none | [ <'flex-grow'> <'flex-shrink'>? || <'flex-basis'> ]` - a `||`
                 // any-order group with an embedded optional operand.
                 "flex",
                 &[
@@ -954,7 +954,7 @@ mod tests {
             ),
             (
                 // `[ ... <'font-size'> [ / <'line-height'> ]? <'font-family'># ] | ...`
-                // — exercises the `/` line-height separator inside a shorthand.
+                // - exercises the `/` line-height separator inside a shorthand.
                 "font",
                 &[
                     ("12px serif", true),
@@ -977,7 +977,7 @@ mod tests {
                 ],
             ),
             (
-                // `[ <bg-layer> , ]* <final-bg-layer>` — a single layer needs no comma, and
+                // `[ <bg-layer> , ]* <final-bg-layer>` - a single layer needs no comma, and
                 // additional layers are comma-separated. The generator rewrites the
                 // linearized `<bg-layer>#? , <final-bg-layer>` idiom into this spec form.
                 "background",
@@ -1016,7 +1016,7 @@ mod tests {
     }
 
     /// Coverage for the multipliers not exercised by the combinator regression test
-    /// (`*` zero-or-more, `!` at-least-one-in-group, and the ranged `{min,max}` form —
+    /// (`*` zero-or-more, `!` at-least-one-in-group, and the ranged `{min,max}` form -
     /// as opposed to the fixed `{2}` count tested elsewhere).
     #[test]
     fn test_multiplier_coverage() {
@@ -1025,19 +1025,19 @@ mod tests {
         }
         let (a, b) = (|| str!("a"), || str!("b"));
 
-        // `*` — zero or more, so the empty input is valid.
+        // `*` - zero or more, so the empty input is valid.
         assert!(m("a*", &[]));
         assert!(m("a*", &[a()]));
         assert!(m("a*", &[a(), a(), a()]));
 
-        // `!` — the group must produce at least one value even though every operand
+        // `!` - the group must produce at least one value even though every operand
         // inside it is individually optional.
         assert!(!m("[ a? b? ]!", &[]));
         assert!(m("[ a? b? ]!", &[a()]));
         assert!(m("[ a? b? ]!", &[b()]));
         assert!(m("[ a? b? ]!", &[a(), b()]));
 
-        // `{min,max}` — a genuine range (not the fixed `{2}` count): 1..=3 here.
+        // `{min,max}` - a genuine range (not the fixed `{2}` count): 1..=3 here.
         assert!(!m("a{1,3}", &[]));
         assert!(m("a{1,3}", &[a()]));
         assert!(m("a{1,3}", &[a(), a(), a()]));
@@ -1134,7 +1134,7 @@ mod tests {
     }
 
     /// The `/` separating two `<grid-line>`s (and font-size/line-height etc.) is a
-    /// structural delimiter. The `<custom-ident>` catch-all used to consume it — the
+    /// structural delimiter. The `<custom-ident>` catch-all used to consume it - the
     /// optional ident tail in `[ <integer> && <custom-ident>? ]` ate the slash, so any
     /// `grid-column` with a numeric or span left side and a second grid-line failed.
     /// calc() bodies are preserved as raw text (the old stream-slice approach returned
@@ -1146,10 +1146,10 @@ mod tests {
     /// the easing before the property name), and vendor-prefixed math functions.
     /// Micro-gaps surfaced by the 66k-file external corpus: `background-clip: text`
     /// (webref's <visual-box> misses it; use MDN's <bg-clip>), case-insensitive color
-    /// keywords, and percentage scale() — the bare legacy `scale()` value def shadowed
+    /// keywords, and percentage scale() - the bare legacy `scale()` value def shadowed
     /// the modern bracketed `<scale()>` under one loader key (Definition-typed entries
     /// now win). The corpus's `margin-top: 0 \9` rejections are the IE hack, whose whole
-    /// point is that modern parsers reject it — correct behavior, not a gap.
+    /// point is that modern parsers reject it - correct behavior, not a gap.
     #[test]
     fn test_external_corpus_micro_gaps() {
         let defs = get_css_definitions();
@@ -1259,7 +1259,7 @@ mod tests {
         assert!(ok("clip", "auto"));
         assert!(!ok("clip", "banana"));
         // <'top'> property references keep resolving to the property grammar, which
-        // accepts percentages — the <top> value type (`<length> | auto`) does not.
+        // accepts percentages - the <top> value type (`<length> | auto`) does not.
         assert!(ok("inset", "10% 20%"));
         assert!(ok("inset", "auto"));
     }
@@ -1354,7 +1354,7 @@ mod tests {
 
     /// `<alpha()>` in `<color-function>` denotes a function named `alpha`, not a bare
     /// numeric. When its builtin arm matched Zero/Number/Percentage, any bare `0` matched
-    /// `<color>` — so box-shadow's `&&` group let a leading `0` offset claim the
+    /// `<color>` - so box-shadow's `&&` group let a leading `0` offset claim the
     /// shadow-color slot, rejecting every zero-offset shadow.
     #[test]
     fn test_zero_offset_shadows_and_alpha_function() {
@@ -1435,7 +1435,7 @@ mod tests {
     }
 
     /// A value containing a `var()`/`env()` substitution is valid at parse time for any
-    /// property, wherever the substitution appears — its grammar cannot be checked until
+    /// property, wherever the substitution appears - its grammar cannot be checked until
     /// substitution happens (CSS Variables L1 §3).
     #[test]
     fn test_var_substitution() {

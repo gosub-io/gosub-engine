@@ -296,7 +296,7 @@ impl LayerList {
     /// An element is *promoted* to its own layer (taking its whole subtree with it) when it
     /// establishes a stacking context we handle:
     /// - `opacity < 1` (faded as a group), `position: fixed`/`sticky` (overlay/scroll-pinned): these
-    ///   are *compositing* reasons and promote even when already inside a group — a faded or pinned
+    ///   are *compositing* reasons and promote even when already inside a group - a faded or pinned
     ///   child must composite on its own so its fade/anchor is not lost into the parent layer.
     /// - a positioned element with an explicit `z-index`: this only *re-levels* its subtree, so it
     ///   promotes once (at the top of a group) and otherwise just passes its level down.
@@ -358,7 +358,7 @@ impl LayerList {
         let order = z_index.unwrap_or(inherited_order);
 
         // A *compositing* reason (fade/overlay) forces a layer even when nested, so the effect is not
-        // swallowed by the parent layer — e.g. a faded `<img>` inside a `z-index` container still
+        // swallowed by the parent layer - e.g. a faded `<img>` inside a `z-index` container still
         // gets its own faded layer. A plain positioned `z-index` only re-levels its subtree, so it
         // promotes once at the top of a group and otherwise just carries `order` downward.
         let compositing = own_opacity < 1.0 || is_fixed || sticky.is_some();

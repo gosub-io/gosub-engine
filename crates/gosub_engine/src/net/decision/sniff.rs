@@ -31,7 +31,7 @@ impl ResponseClass {
         let suffix = m.suffix().map(|s| s.as_str());
 
         // application/xhtml+xml: mime crate stores this as type=application,
-        // subtype=xhtml, suffix=xml — the "+xml" part is not part of subtype string.
+        // subtype=xhtml, suffix=xml - the "+xml" part is not part of subtype string.
         if top == "application" && sub == "xhtml" && suffix == Some("xml") {
             return ResponseClass::XHtml;
         }

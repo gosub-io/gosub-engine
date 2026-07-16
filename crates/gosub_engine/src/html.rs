@@ -23,7 +23,7 @@ use std::marker::PhantomData;
 
 /// The engine's default config, wiring the gosub_html5 document implementation together with the
 /// gosub_css3 style system, parameterized over the render backend `B`, font system `F`, and
-/// compositor sink `S` — in that order, so the rarely-changed compositor falls off as a default.
+/// compositor sink `S` - in that order, so the rarely-changed compositor falls off as a default.
 ///
 /// Embedders that use the default parse stack pick a backend (and optionally a font system):
 /// `DefaultRenderConfig<CairoBackend, PangoFontSystem>`. With no parameters, `DefaultRenderConfig` is the
@@ -68,8 +68,8 @@ where
 /// (the HTML parser produces that concrete type) and names the runtime render components.
 ///
 /// `RenderBackend`/`CompositorSink` live here rather than on `ModuleConfiguration` so that
-/// parse-only configs (parser test harnesses, fuzz targets) — which never render and must not
-/// depend on the renderer crates — only implement `ModuleConfiguration`. Engine code bounds on
+/// parse-only configs (parser test harnesses, fuzz targets) - which never render and must not
+/// depend on the renderer crates - only implement `ModuleConfiguration`. Engine code bounds on
 /// `C: RenderConfiguration`; the public `ModuleConfiguration` stays render-agnostic.
 pub trait RenderConfiguration: ModuleConfiguration<Document = DocumentImpl<Self>> {
     /// Low-level render backend (Cairo, Skia, Vello, null, …).

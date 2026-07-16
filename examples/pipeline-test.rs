@@ -132,7 +132,7 @@ fn check(label: &str, ok: bool) -> bool {
 
 #[tokio::main]
 async fn main() -> Result<(), EngineError> {
-    // Suppress all log/trace noise — we print our own output.
+    // Suppress all log/trace noise - we print our own output.
     let _ = tracing_subscriber::fmt().with_env_filter("error").try_init();
 
     // Bind on a random port.

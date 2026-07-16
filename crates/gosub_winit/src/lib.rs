@@ -3,9 +3,9 @@
 //! An embedder that wants a winit window backed by the GPU (`VelloBackend`) needs two pieces of
 //! boilerplate that are the same for every such app:
 //!
-//! - [`WinitWgpuContextProvider`] — the [`WgpuContextProvider`] the Vello backend renders through,
+//! - [`WinitWgpuContextProvider`] - the [`WgpuContextProvider`] the Vello backend renders through,
 //!   owning the shared `wgpu` device/queue and a registry of engine-created textures.
-//! - [`GpuPresenter`] — a wgpu surface + full-screen blit pipeline that puts a texture (Vello's
+//! - [`GpuPresenter`] - a wgpu surface + full-screen blit pipeline that puts a texture (Vello's
 //!   GPU frame) or a CPU RGBA buffer (the tile fallback) onto the window's swap chain.
 //!
 //! [`GpuPresenter::new`] also performs the fiddly, easy-to-get-wrong adapter/surface setup: it
@@ -122,7 +122,7 @@ impl GpuPresenter {
     ///
     /// The swap-chain format is chosen **non-sRGB** where possible: both the Vello GPU texture and
     /// the CPU tile blits already hold sRGB-encoded bytes, so an sRGB surface format would encode
-    /// them a second time — washing colors out (orange → yellow) and thinning anti-aliased glyph
+    /// them a second time - washing colors out (orange → yellow) and thinning anti-aliased glyph
     /// edges. A plain `Unorm` surface passes the bytes straight through to the (sRGB) display.
     ///
     /// This is `async` because `wgpu`'s adapter/device requests are; drive it on whatever runtime

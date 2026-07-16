@@ -16,7 +16,7 @@ pub use layouter::*;
 /// A client (browser, headless tool, test) defines a single zero-sized marker type and
 /// implements this trait once, naming every component as an associated type. The engine is
 /// generic over `C: ModuleConfiguration`, so the whole component set is resolved and checked
-/// at compile time — there is no runtime registry. Naming a component implies a dependency on
+/// at compile time - there is no runtime registry. Naming a component implies a dependency on
 /// the crate that provides it (you cannot name `CairoBackend` without compiling Cairo in).
 ///
 /// The narrow `Has*` view traits (e.g. [`HasCssSystem`]) are **derived automatically** from a

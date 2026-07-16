@@ -16,7 +16,7 @@ pub(crate) fn do_paint_svg(
     let media = media_store.get_svg(media_id);
     let r = rect.rect();
     let target_dim = r.dimension();
-    // `draw_image` carries no geometry of its own — it places the image's top-left at the
+    // `draw_image` carries no geometry of its own - it places the image's top-left at the
     // transform's origin. Fold the element's box position into the affine so the SVG lands at its
     // layout box, not the viewport origin (the rectangle painter bakes the position into the shape
     // path instead, so it only needs the bare `affine`).

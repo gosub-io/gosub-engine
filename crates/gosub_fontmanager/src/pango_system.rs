@@ -1,4 +1,4 @@
-//! `PangoFontSystem` — fontconfig lookup + Pango/HarfBuzz shaping (the Linux desktop stack).
+//! `PangoFontSystem` - fontconfig lookup + Pango/HarfBuzz shaping (the Linux desktop stack).
 //!
 //! Lives here (rather than in the Cairo renderer crate) because a font system is
 //! renderer-independent: it resolves, shapes, and measures; any glyph-painting backend can
@@ -21,20 +21,20 @@ const DEFAULT_FONT_FAMILY: &str = "sans";
 
 /// Serialises every direct fontconfig call in this module. Mutating the process-global config
 /// (`FcConfigAppFontAddFile`/`FcConfigBuildFonts`) while another thread matches against it
-/// (`FcFontMatch`) segfaults — fontconfig's documented thread safety does not cover concurrent
+/// (`FcFontMatch`) segfaults - fontconfig's documented thread safety does not cover concurrent
 /// mutation of the current config.
 static FONTCONFIG_LOCK: Mutex<()> = Mutex::new(());
 
 /// Register an in-memory `@font-face` font so Pango (via fontconfig) can discover it.
 ///
-/// The bytes are written to a uniquely-named file in the temp dir — intentionally left on
-/// disk for the process lifetime, since fontconfig references it by path — and added to the
+/// The bytes are written to a uniquely-named file in the temp dir - intentionally left on
+/// disk for the process lifetime, since fontconfig references it by path - and added to the
 /// process-global fontconfig config with `FcConfigAppFontAddFile`. fontconfig reads the
 /// font's own family name from its `name` table (so the family CSS asked for, e.g.
 /// "Source Serif 4", is what becomes available); `family_override` is informational.
 ///
 /// Because the font is added to the *process-global* config (not a per-thread Pango font
-/// map), any Pango `FcFontMap` built afterwards on any thread sees it — provided it is
+/// map), any Pango `FcFontMap` built afterwards on any thread sees it - provided it is
 /// registered before that font map is first built (the engine registers web fonts right
 /// after the document is set, before the first layout).
 fn register_font_via_fontconfig(data: &[u8], family_override: Option<&str>) -> Result<(), FontError> {
@@ -68,7 +68,7 @@ fn register_font_via_fontconfig(data: &[u8], family_override: Option<&str>) -> R
 
     #[allow(unsafe_code)] // fontconfig has no safe Rust binding for app-font registration
     // SAFETY: `FcConfigGetCurrent` returns the process-global config (auto-initialised, not
-    // null in practice — checked anyway). `FcConfigAppFontAddFile` reads the NUL-terminated
+    // null in practice - checked anyway). `FcConfigAppFontAddFile` reads the NUL-terminated
     // `c_path` (valid for the call, not retained by fontconfig) and copies what it needs;
     // `FcConfigBuildFonts` rebuilds the font set. No Rust aliasing/lifetime invariants apply.
     let added = unsafe {
@@ -138,7 +138,7 @@ fn to_fc_width(ratio: f32) -> c_int {
 }
 
 /// Match `families` (already mapped to fontconfig names, in priority order) against the
-/// process-global fontconfig config — the same database Pango itself resolves from — and return
+/// process-global fontconfig config - the same database Pango itself resolves from - and return
 /// the winning face. fontconfig always matches *something* after `FcDefaultSubstitute`, so this
 /// only errors when fontconfig is unavailable or the matched pattern lacks a file path.
 fn fontconfig_match(
@@ -362,7 +362,7 @@ impl PangoFontSystem {
 
     /// Build a laid-out Pango layout for `text` in `style` on a throwaway 1×1 surface (no pixels
     /// are drawn). The shared front half of `measure` and `shape`, and the same font-description
-    /// path as the rasterizer — so measuring, shaping, and painting all see identical fonts and
+    /// path as the rasterizer - so measuring, shaping, and painting all see identical fonts and
     /// line breaking.
     fn build_layout(&self, text: &str, style: &TextStyle) -> Option<pango::Layout> {
         use pangocairo::functions::{context_set_resolution, create_layout};
@@ -420,7 +420,7 @@ impl PangoFontSystem {
     /// Glyph IDs are FreeType glyph indices into the run's font file; positions are pixels with
     /// `y` on the baseline, per the [`ShapedGlyph`] contract. Each run's font is the one Pango
     /// actually chose (mid-string fallback included), routed back through fontconfig to obtain
-    /// its bytes — same database, so the description round-trip lands on the same file.
+    /// its bytes - same database, so the description round-trip lands on the same file.
     fn runs_from_layout(&mut self, layout: &pango::Layout, style: &TextStyle) -> ShapedText {
         let scale = pango::SCALE as f32;
         let (px_w, px_h) = layout.pixel_size();
@@ -503,7 +503,7 @@ impl PangoFontSystem {
 /// Pango as a swappable [`FontSystem`].
 ///
 /// Pango bundles the three jobs the trait names: fontconfig does the lookup (`resolve` queries it
-/// directly — the same database Pango picks fonts from), Pango/HarfBuzz do the shaping (`shape`
+/// directly - the same database Pango picks fonts from), Pango/HarfBuzz do the shaping (`shape`
 /// exports the `PangoLayout` glyph runs in neutral form), and `measure` reads the same layout's
 /// pixel size. The Cairo rasterizer still draws through Pango natively; the glyph runs exist so
 /// any [`ShapedText`]-painting backend can consume this font system too.
@@ -535,7 +535,7 @@ impl FontSystem for PangoFontSystem {
 
     fn families(&mut self) -> Vec<String> {
         // A throwaway pangocairo context (same construction as `build_layout`) reads the
-        // default font map — the fontconfig database, including web fonts registered before
+        // default font map - the fontconfig database, including web fonts registered before
         // the font map was first built.
         use pangocairo::functions::create_layout;
         let Ok(surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1) else {
@@ -579,7 +579,7 @@ impl FontSystem for PangoFontSystem {
 
 /// Process-wide `PangoFontSystem` singleton.
 ///
-/// Set by [`init`]; read by [`get`].  The `OnceLock` is intentional — GTK's
+/// Set by [`init`]; read by [`get`].  The `OnceLock` is intentional - GTK's
 /// font resolution is tied to the main thread and the result is immutable once
 /// resolved, so a static `Arc` is the correct primitive here.
 static PANGO_FONT_SYSTEM: OnceLock<Arc<PangoFontSystem>> = OnceLock::new();

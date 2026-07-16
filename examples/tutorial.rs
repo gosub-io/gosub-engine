@@ -29,7 +29,7 @@ async fn main() -> Result<(), EngineError> {
     //
     // GosubEngine is the central hub. It owns the event bus, networking stack,
     // and render backend. You provide:
-    //   - a render backend (NullBackend here — no pixels, just navigation)
+    //   - a render backend (NullBackend here - no pixels, just navigation)
     //   - a compositor (receives Redraw events and composites them into a frame)
     //
     // EngineConfig lets you tune limits like max_zones; Default is fine to start.
@@ -105,7 +105,7 @@ async fn main() -> Result<(), EngineError> {
 
     // ── Step 6: Shutdown ─────────────────────────────────────────────────────────
     //
-    // Always shut the engine down cleanly — this drains in-flight tasks and
+    // Always shut the engine down cleanly - this drains in-flight tasks and
     // flushes any pending state before the process exits.
     engine.shutdown().await?;
 
@@ -140,7 +140,7 @@ async fn handle_event(ev: EngineEvent, tab: &TabHandle) -> bool {
             }
             NavigationEvent::Finished { url, .. } => {
                 println!("  [nav] finished:  {url}");
-                true // navigation complete — stop the loop
+                true // navigation complete - stop the loop
             }
             NavigationEvent::Failed { url, error, .. } => {
                 println!("  [nav] FAILED:    {url}  ({error})");

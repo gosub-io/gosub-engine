@@ -68,7 +68,7 @@ impl From<&str> for RgbColor {
             return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
         }
         if value.starts_with("rgba(") {
-            // Rgba function — alpha from colors_transform is in 0..1 range; scale to 0..255
+            // Rgba function - alpha from colors_transform is in 0..1 range; scale to 0..255
             let Ok(rgb) = Rgb::from_str(value) else {
                 return RgbColor::default();
             };
@@ -82,7 +82,7 @@ impl From<&str> for RgbColor {
             return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
         }
         if value.starts_with("hsla(") {
-            // hsla() — alpha from colors_transform is in 0..1 range; scale to 0..255
+            // hsla() - alpha from colors_transform is in 0..1 range; scale to 0..255
             let Ok(hsl) = Hsl::from_str(value) else {
                 return RgbColor::default();
             };

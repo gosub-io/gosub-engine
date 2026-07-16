@@ -54,14 +54,14 @@ pub enum PresentMode {
 /// at the point of production (the rasterizer) so consumers never have to assume an
 /// order based on which backend feature happens to be compiled in. This matters
 /// because Cargo feature unification (e.g. `cargo build --all`) can enable several
-/// `backend_*` features at once, leaving a single rasterizer to win — its output
+/// `backend_*` features at once, leaving a single rasterizer to win - its output
 /// must be self-describing or colors silently swap.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PixelFormat {
-    /// Little-endian premultiplied ARGB32 — bytes are `[B, G, R, A]`. Produced by
+    /// Little-endian premultiplied ARGB32 - bytes are `[B, G, R, A]`. Produced by
     /// the Cairo and Skia rasterizers (Cairo `Format::ARgb32`, Skia n32).
     PreMulArgb32,
-    /// Premultiplied RGBA8 — bytes are `[R, G, B, A]`. Produced by the Vello rasterizer.
+    /// Premultiplied RGBA8 - bytes are `[R, G, B, A]`. Produced by the Vello rasterizer.
     Rgba8,
 }
 
@@ -177,7 +177,7 @@ pub struct WgpuTextureId(pub u64);
 /// page space (the same space as a tile's `page_x`/`page_y`). The sticky element lays out in normal
 /// flow (like `relative`); this constraint shifts its whole promoted layer by a scroll-dependent,
 /// cage-clamped translation when it would otherwise scroll past one of its insets. Insets are `None`
-/// when `auto` (that edge does not stick). `bottom`/`right` are not represented yet — they need the
+/// when `auto` (that edge does not stick). `bottom`/`right` are not represented yet - they need the
 /// viewport extent, which this struct does not carry.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StickyConstraint {
@@ -280,7 +280,7 @@ pub struct CachedTile {
 }
 
 /// A rasterized tile that lives in a GPU backend's texture store, positioned in page coordinates.
-/// The `texture_id` is opaque outside the backend that produced it — it resolves the GPU texture
+/// The `texture_id` is opaque outside the backend that produced it - it resolves the GPU texture
 /// in that backend's own store. Handed to [`RenderBackend::composite_tiles`].
 #[derive(Clone, Debug)]
 pub struct PlacedGpuTile {
@@ -361,7 +361,7 @@ pub enum ExternalHandle {
     },
 
     /// Frame was rendered directly into an OpenGL framebuffer (e.g. GTK4 GLArea).
-    /// No CPU pixels available — the GPU already wrote to the display framebuffer.
+    /// No CPU pixels available - the GPU already wrote to the display framebuffer.
     GlFramebufferRendered {
         frame_id: u64,
     },
@@ -552,17 +552,17 @@ mod tests {
             cage_h: 1000.0,
         };
 
-        // Phase 1 — flowing: scrolled less than the natural top, element still below the inset.
+        // Phase 1 - flowing: scrolled less than the natural top, element still below the inset.
         let (_, dy) = c.offset(0.0, 100.0); // natural_vp_y = 120 > 0 → no stick
         assert_eq!(dy, 0.0);
 
-        // Phase 2 — stuck: scrolled past the natural top, element pinned at inset 0.
+        // Phase 2 - stuck: scrolled past the natural top, element pinned at inset 0.
         let (_, dy) = c.offset(0.0, 500.0); // natural_vp_y = -280; want = 280, < slack 920
         assert_eq!(dy, 280.0);
         // viewport top = natural_y - scroll + dy = 220 - 500 + 280 = 0 (pinned at top:0).
         assert_eq!(220.0 - 500.0 + dy, 0.0);
 
-        // Phase 3 — shoved off: scrolled so far the cage bottom drags it; offset clamps to slack.
+        // Phase 3 - shoved off: scrolled so far the cage bottom drags it; offset clamps to slack.
         let (_, dy) = c.offset(0.0, 5000.0); // want = 4780, clamped to slack 920
         assert_eq!(dy, 920.0);
     }

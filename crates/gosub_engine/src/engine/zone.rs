@@ -7,12 +7,12 @@
 //!
 //! The `zone` module organizes this functionality into smaller components:
 //!
-//! - [`ZoneConfig`] — configuration for creating a new zone
+//! - [`ZoneConfig`] - configuration for creating a new zone
 //!   application to access a zone
-//! - [`ZoneId`] — a unique identifier for a zone
-//! - [`ZoneServices`] — collection of shared services bound to a zone
-//! - [`ZoneContext`] — context for zone operations
-//! - [`ZoneSink`] — a sink for zone events
+//! - [`ZoneId`] - a unique identifier for a zone
+//! - [`ZoneServices`] - collection of shared services bound to a zone
+//! - [`ZoneContext`] - context for zone operations
+//! - [`ZoneSink`] - a sink for zone events
 //!
 //! Internally, the [`Zone`] type manages the full state and lifecycle.
 

@@ -19,7 +19,7 @@ pub(crate) fn do_paint_svg(
     let target_dim = rect.rect().dimension();
 
     // Round the placement to integer CSS pixels. The tile context is scaled by `dpr`, so an
-    // integer CSS coordinate maps to an integer device pixel — keeping the glyph/icon on the
+    // integer CSS coordinate maps to an integer device pixel - keeping the glyph/icon on the
     // device grid. Without this the surface lands on a fractional device pixel (very visible
     // at dpr ≥ 2) and looks soft and shifted.
     let dest_x = (rect.rect().x - tile.rect.x).round();
@@ -31,7 +31,7 @@ pub(crate) fn do_paint_svg(
     let phys_w = (target_dim.width as u32 * dpr.max(1) as u32).max(1);
     let phys_h = (target_dim.height as u32 * dpr.max(1) as u32).max(1);
     // The cache stores physical pixels, so key it on the physical dimension (which also
-    // encodes dpr) — a dpr change re-renders rather than reusing a stale-resolution bitmap.
+    // encodes dpr) - a dpr change re-renders rather than reusing a stale-resolution bitmap.
     let phys_dim = Dimension::new(phys_w as f64, phys_h as f64);
 
     {

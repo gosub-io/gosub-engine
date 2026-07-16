@@ -100,7 +100,7 @@ impl Css3<'_> {
         ))
     }
 
-    /// Consumes any leftover custom-property value tokens up to — but not including — the
+    /// Consumes any leftover custom-property value tokens up to - but not including - the
     /// declaration's terminating top-level `;` or `}`. Brackets, parentheses and `{}` blocks
     /// nested within the value are skipped over so a terminator inside them is not mistaken
     /// for the end of the declaration.

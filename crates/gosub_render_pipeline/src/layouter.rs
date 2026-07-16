@@ -53,7 +53,7 @@ pub struct ElementContextText {
     /// When true (white-space: nowrap), the text is measured at unlimited width and must not wrap.
     pub no_wrap: bool,
     /// The definite container width (CSS px) that Parley received as its max_width during layout.
-    /// Renderers must use this — not content_box.width — as the word-wrap limit to avoid metric
+    /// Renderers must use this - not content_box.width - as the word-wrap limit to avoid metric
     /// mismatches between Parley (layout) and the rendering backend (e.g. Skia).
     pub available_width: f64,
 }
@@ -85,7 +85,7 @@ pub struct ElementContextImage {
     /// reserved box instead of stretching it to fill.
     pub placeholder: bool,
     /// The `alt` text to render inside the image box, `Some` only when the image itself shows
-    /// nothing meaningful — a broken/placeholder load, or a fully transparent image. Browsers
+    /// nothing meaningful - a broken/placeholder load, or a fully transparent image. Browsers
     /// display alt text in these cases (never over a normally-decoded, visible image).
     pub alt: Option<String>,
 }

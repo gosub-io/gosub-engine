@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-/// Pipeline benchmark — runs stages 1-5 against several HTML fixtures and prints
+/// Pipeline benchmark - runs stages 1-5 against several HTML fixtures and prints
 /// per-stage timing with mean ± stddev across N iterations.
 ///
 /// Usage:
@@ -7,11 +7,11 @@
 ///   cargo run --example pipeline_bench -p gosub_render_pipeline -- --iterations 20
 ///
 /// Stages timed:
-///   1. render-tree   — DOM → filtered RenderTree
-///   2. layout        — RenderTree → LayoutTree (Taffy)
-///   3. layering      — LayoutTree → LayerList
-///   4. tiling        — LayerList → TileList (256×256 grid)
-///   5. painting      — TileList → PaintCommands (all dirty tiles)
+///   1. render-tree   - DOM → filtered RenderTree
+///   2. layout        - RenderTree → LayoutTree (Taffy)
+///   3. layering      - LayoutTree → LayerList
+///   4. tiling        - LayerList → TileList (256×256 grid)
+///   5. painting      - TileList → PaintCommands (all dirty tiles)
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -224,10 +224,10 @@ fn main() {
         );
 
         // Each fixture gets its own layouter so the media store (images, SVGs) is warm
-        // for all timed iterations — we measure layout computation, not network I/O.
+        // for all timed iterations - we measure layout computation, not network I/O.
         let mut layouter = TaffyLayouter::new();
 
-        // Warm up — one throw-away run to prime the media store and OS caches.
+        // Warm up - one throw-away run to prime the media store and OS caches.
         let _ = run_pipeline_once(&fixture.html, &mut layouter);
 
         let mut rt_times = Vec::with_capacity(iterations);

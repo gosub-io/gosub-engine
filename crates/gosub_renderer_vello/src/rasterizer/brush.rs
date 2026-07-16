@@ -54,7 +54,7 @@ pub fn set_brush(brush: &Brush, rect: Rect, media_store: &MediaStore) -> (VelloB
             let image_data = ImageData {
                 data: Blob::<u8>::from(media.image.as_raw().to_vec()),
                 format: ImageFormat::Rgba8,
-                // Decoded `image::RgbaImage` pixels are straight (unpremultiplied) alpha —
+                // Decoded `image::RgbaImage` pixels are straight (unpremultiplied) alpha -
                 // the same interpretation the Skia backend uses. Declaring them premultiplied
                 // renders semi-transparent pixels too bright.
                 alpha_type: ImageAlphaType::Alpha,

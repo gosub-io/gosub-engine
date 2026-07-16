@@ -3,8 +3,8 @@
 //! Consolidation goal: one tile pipeline for every backend. The shared render pipeline lays out,
 //! tiles, dirty-tracks and rasterizes the page; a CPU backend's tiles land in `Vec<u8>` and the
 //! host blends them, while a GPU backend's tiles land in GPU textures and *this* compositor blits
-//! the visible ones into the surface. Nothing here is Vello-specific — it only needs a wgpu device
-//! and tile texture views — so it can move to a shared gpu-support crate and serve any wgpu backend.
+//! the visible ones into the surface. Nothing here is Vello-specific - it only needs a wgpu device
+//! and tile texture views - so it can move to a shared gpu-support crate and serve any wgpu backend.
 //!
 //! It does **no** tiling, rasterization, or caching: the engine owns all of that (the tile cache
 //! keyed by content hash already holds GPU tile ids across frames). This step just composites the
@@ -12,7 +12,7 @@
 //!
 //! Note: `copy_texture_to_texture` would be marginally simpler than this blit pass, but the surface
 //! is host-created with only `RENDER_ATTACHMENT` (not `COPY_DST`), so a render pass is the portable
-//! choice — and it gives correct premultiplied-alpha blending for free.
+//! choice - and it gives correct premultiplied-alpha blending for free.
 
 use gosub_render_pipeline::render::backend::{anchored_tile_pos, TileAnchor};
 use vello::wgpu;

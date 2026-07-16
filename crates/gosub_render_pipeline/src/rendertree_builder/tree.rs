@@ -49,7 +49,7 @@ pub struct RenderNode {
     pub children: Vec<RenderNodeId>,
 }
 
-/// A RenderTree holds a filtered view of the DOM — only the nodes that should be rendered.
+/// A RenderTree holds a filtered view of the DOM - only the nodes that should be rendered.
 #[derive(Clone)]
 pub struct RenderTree {
     pub doc: Arc<dyn PipelineDocument>,

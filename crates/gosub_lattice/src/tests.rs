@@ -249,7 +249,7 @@ mod layout_tests {
     }
 
     // 9. Vertical border-spacing: one gutter above the first row, one between
-    //    rows, one below the last — never doubled at group boundaries.
+    //    rows, one below the last - never doubled at group boundaries.
     #[test]
     fn vertical_spacing_gutters() {
         let (mut tree, root) = MockTable::new(100.0)
@@ -341,7 +341,7 @@ mod layout_tests {
     fn sections_reordered_from_source_order() {
         use crate::mock::MockTree;
 
-        // Source order: footer, body, header — like <tfoot> before <tbody> in HTML.
+        // Source order: footer, body, header - like <tfoot> before <tbody> in HTML.
         let mut tree = MockTree::new(0.0, 0.0);
         let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
         for (role, label, h) in [
@@ -546,7 +546,7 @@ mod layout_tests {
         assert_approx!(h, 16.0, "10 content + 2*1 border + 2*2 padding");
     }
 
-    // 23. Nested tables: lattice treats a nested table as opaque cell content —
+    // 23. Nested tables: lattice treats a nested table as opaque cell content -
     //     the host's `layout_cell` recurses (as the pipeline's post_process_tables
     //     does). This exercises the cooperation contract: the outer column width
     //     flows *down* as the inner table's available width, and the inner
@@ -558,7 +558,7 @@ mod layout_tests {
         use crate::TableTree;
 
         /// Delegates everything to `outer`, except that laying out `host_cell`
-        /// runs a full table layout on `inner` — a table inside a table.
+        /// runs a full table layout on `inner` - a table inside a table.
         struct NestedTree {
             outer: MockTree,
             inner: MockTree,

@@ -224,7 +224,7 @@ pub struct Cookie {
     ///
     /// Set once when the cookie is first stored; preserved on subsequent updates to
     /// the same (name, domain, path) triple so that creation order survives overwrites.
-    /// Used to break ties when two cookies have equal-length paths — earlier cookies
+    /// Used to break ties when two cookies have equal-length paths - earlier cookies
     /// are sent first (RFC 6265bis §5.5).
     ///
     /// Defaults to `0` so that cookies persisted before this field was added still

@@ -9,8 +9,8 @@ use crate::stylesheet::CssValue;
 /// returned as a `Unit(_, "px")`.
 ///
 /// Returns `None` (leaving the function unresolved) when any operand is not a plain
-/// length we can compare — e.g. a percentage (no containing block here) or a nested
-/// function — so callers can fall back to the original token.
+/// length we can compare - e.g. a percentage (no containing block here) or a nested
+/// function - so callers can fall back to the original token.
 pub fn resolve_math(func: &str, values: &[CssValue]) -> Option<CssValue> {
     // Drop the comma separators that the parser keeps between arguments.
     let operands: Option<Vec<f32>> = values

@@ -1,7 +1,7 @@
 //! Headless screenshot tool: loads a URL through the full gosub render pipeline and
 //! saves the result as a PNG without opening a window.
 //!
-//! Uses the Skia backend for **CPU** rasterization — no GPU, no wgpu adapter, and no
+//! Uses the Skia backend for **CPU** rasterization - no GPU, no wgpu adapter, and no
 //! system libraries (skia-safe is statically linked). The page is rasterized into small
 //! cached tiles (`ExternalHandle::TileCache`) which we composite here, so there is no
 //! GPU texture-size limit and pages of any height can be captured.
@@ -104,7 +104,7 @@ fn main() {
 
     let url = Url::parse(&url_str).expect("invalid URL");
 
-    // ── Engine setup (CPU backend — no GPU) ───────────────────────────────────
+    // ── Engine setup (CPU backend - no GPU) ───────────────────────────────────
     #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
     let backend = SkiaBackend::new();
     #[cfg(feature = "backend_cairo")]
@@ -320,7 +320,7 @@ fn main() {
                 // Premultiplied source-over the *existing* buffer (initialised to white), not a
                 // fixed white background: result = src_rgb + (255 - src_a)/255 * dst_rgb. Blending
                 // over the buffer (rather than overwriting) lets an upper layer's transparent
-                // regions reveal content from layers already composited beneath it — e.g. a
+                // regions reveal content from layers already composited beneath it - e.g. a
                 // promoted `position: fixed` navbar tile must not erase the rows behind it.
                 let inv_a = 255u32 - a;
                 let (d0, d1, d2) = (

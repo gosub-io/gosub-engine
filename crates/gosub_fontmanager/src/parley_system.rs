@@ -11,7 +11,7 @@ use parley::{Alignment, AlignmentOptions, FontContext, LayoutContext, Positioned
 /// A [`FontSystem`] implementation backed by Parley + Fontique.
 ///
 /// Holds a single `FontContext` (fontique collection) and `LayoutContext` so that
-/// all callers — the layout engine and every renderer — share the same font data and
+/// all callers - the layout engine and every renderer - share the same font data and
 /// produce consistent glyph metrics.
 ///
 /// Construct once at application start, wrap in `Arc<Mutex<ParleyFontSystem>>`, and
@@ -198,7 +198,7 @@ impl FontSystem for ParleyFontSystem {
 impl ParleyFontSystem {
     /// Shape `text` with an already-resolved font. Layout parameters (size, line height, wrap
     /// width, letter spacing, display scale) come from `style`; the font identity comes from
-    /// `font` — which is why measurement and drawing agree when both go through this path.
+    /// `font` - which is why measurement and drawing agree when both go through this path.
     fn shape_resolved(&mut self, text: &str, font: &ResolvedFont, style: &TextStyle) -> ShapedText {
         if text.is_empty() {
             return ShapedText::empty();
@@ -218,7 +218,7 @@ impl ParleyFontSystem {
         if let Some(lh) = style.line_height {
             builder.push_default(parley::StyleProperty::LineHeight(parley::LineHeight::Absolute(lh)));
         }
-        // Applied during measurement too — shaping without it would draw narrower than the
+        // Applied during measurement too - shaping without it would draw narrower than the
         // layout box that measurement reserved.
         if style.letter_spacing != 0.0 {
             builder.push_default(parley::StyleProperty::LetterSpacing(style.letter_spacing));
@@ -265,7 +265,7 @@ impl ParleyFontSystem {
                     if !glyphs.is_empty() {
                         // Use the run's *actual* font: parley may substitute a fallback for
                         // glyphs the requested family lacks (emoji, CJK, …), and the glyph ids
-                        // index into that fallback font — so drawing must use it, not the
+                        // index into that fallback font - so drawing must use it, not the
                         // originally requested `font`.
                         let prun = run.run();
                         let run_font = prun.font();
@@ -318,7 +318,7 @@ impl ParleyFontSystem {
 ///
 /// Passing the whole comma-joined string as a single family name (the old behaviour) never matches
 /// an installed family like `Verdana`, so resolution silently fell through to the `sans-serif`
-/// generic — picking a different (often thinner) font than the page author intended.
+/// generic - picking a different (often thinner) font than the page author intended.
 pub fn split_css_families(families: &str) -> Vec<&str> {
     let mut out: Vec<&str> = families
         .split(',')

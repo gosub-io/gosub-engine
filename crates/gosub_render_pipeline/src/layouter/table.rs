@@ -52,7 +52,7 @@ impl<'a> PipelineTableTree<'a> {
                 Some(Value::Display(Display::Table))
             );
             if is_table {
-                // Self-contained nested table — stop here, don't double-count its inner tables.
+                // Self-contained nested table - stop here, don't double-count its inner tables.
                 total += child.box_model.border_box.height as f32;
             } else {
                 // The table may be wrapped (e.g. in an anonymous box); keep descending.
@@ -171,7 +171,7 @@ fn cell_layout_to_box_model(layout: &CellLayout, abs: Coordinate) -> BoxModel {
     )
 }
 
-/// Returns the intrinsic content width of a layout subtree — the actual measured
+/// Returns the intrinsic content width of a layout subtree - the actual measured
 /// width of text/image leaf nodes, not the container's allocated width.
 ///
 /// Text leaf nodes carry the Parley-measured line width (e.g. "1." → ~20 px),
@@ -263,8 +263,8 @@ impl TableTree for PipelineTableTree<'_> {
 
     fn layout_cell(&mut self, id: DomNodeId, _available_width: f32) -> f32 {
         // Re-use the content height from the Taffy first pass, which correctly
-        // measured text via Parley. This is an approximation — cell content
-        // was measured in a flex context rather than block — but it is far better
+        // measured text via Parley. This is an approximation - cell content
+        // was measured in a flex context rather than block - but it is far better
         // than 0 and covers the most common case (single column of text).
         if let Some(&layout_id) = self.dom_to_layout.get(&id) {
             if let Some(element) = self.layout_tree.arena.get(&layout_id) {
@@ -312,7 +312,7 @@ pub fn post_process_tables(layout_tree: &mut LayoutTree, dom_to_layout: &HashMap
     // Two passes. Pass 1 is pre-order (outer→inner): it establishes column widths, which flow
     // top-down (a nested table reads its width from its already-sized parent cell). Pass 2 is
     // post-order (inner→outer): each table is re-laid-out *after* the tables nested inside its
-    // cells, so an outer cell's height now reflects its nested table's true height — height
+    // cells, so an outer cell's height now reflects its nested table's true height - height
     // flows bottom-up. A single reverse pass propagates through any table-nesting depth.
     for pass in 0..2 {
         let order: Vec<(DomNodeId, LayoutElementId)> = if pass == 0 {

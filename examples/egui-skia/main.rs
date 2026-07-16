@@ -2,7 +2,7 @@
 //!
 //! Usage: cargo run --example egui-skia -- https://example.com
 //!
-//! No GTK dependency — Skia has its own font system.
+//! No GTK dependency - Skia has its own font system.
 
 use eframe::{egui, CreationContext};
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
@@ -270,7 +270,7 @@ impl eframe::App for BrowserApp {
         let ctx = ui.ctx().clone();
 
         // Publish the DPR so the Skia backend rasterizes tiles at physical resolution. Use ceil so
-        // fractional scaling (e.g. 1.25) renders at 2x and egui downscales — crisp — rather than 1x
+        // fractional scaling (e.g. 1.25) renders at 2x and egui downscales - crisp - rather than 1x
         // upscaled (blurry). Matches gtk4-skia / egui-cairo.
         DEVICE_PIXEL_RATIO.store(
             (ctx.pixels_per_point().ceil() as u32).max(1),

@@ -1,4 +1,4 @@
-//! `SkiaFontSystem` — measurement and shaping through Skia's `textlayout` engine.
+//! `SkiaFontSystem` - measurement and shaping through Skia's `textlayout` engine.
 //!
 //! Lives here (rather than in the Skia renderer crate) because a font system is
 //! renderer-independent: it resolves, shapes, and measures; any glyph-painting backend can
@@ -202,7 +202,7 @@ thread_local! {
 /// Prune a CSS `font-family` list to the entries Skia should actually try, in order.
 ///
 /// Skia's `FontCollection` walks the list and, on Linux, fontconfig returns *some* face for *every*
-/// name — even an unknown one like `ui-monospace` — so an unavailable leading family silently
+/// name - even an unknown one like `ui-monospace` - so an unavailable leading family silently
 /// captures the platform default and the real generic (`monospace`) at the end of the chain is never
 /// reached.
 ///
@@ -260,7 +260,7 @@ pub(crate) fn resolve_family_list(families: &str) -> Vec<String> {
                 // Replace the generic with the concrete family fontconfig picks for it
                 // (what `fc-match` and Firefox use). Skia's textlayout resolves families via
                 // `matchFamily()`, whose fontconfig style-set is ordered differently from
-                // `matchFamilyStyle()` — it hands back e.g. FreeMono for `monospace` and
+                // `matchFamilyStyle()` - it hands back e.g. FreeMono for `monospace` and
                 // FreeSerif for `serif` instead of DejaVu Sans Mono / Noto Serif. Concrete
                 // names round-trip through textlayout unchanged, so resolve the generic here.
                 match fm.match_family_style(&name, normal) {
@@ -317,7 +317,7 @@ fn to_skia_slant(style: CssFontStyle) -> skia_safe::font_style::Slant {
 
 /// Build and lay out the measurement/shaping paragraph for `text` in `style`.
 ///
-/// This is the single source of truth for how a [`GosubTextStyle`] maps onto Skia's textlayout —
+/// This is the single source of truth for how a [`GosubTextStyle`] maps onto Skia's textlayout -
 /// `measure` reads this paragraph's extents and `shape` exports its glyph runs, so the two can't
 /// disagree.
 fn build_style_paragraph(fc: &FontCollection, text: &str, style: &GosubTextStyle) -> Paragraph {

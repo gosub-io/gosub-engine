@@ -48,7 +48,7 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 });
 
 /// Cached tile render state extracted from the latest engine TileCache frame.
-/// Lives on the GTK main thread — no locking needed.
+/// Lives on the GTK main thread - no locking needed.
 struct TileDrawState {
     tiles: Arc<Vec<CachedTile>>,
     dpr: u32,
@@ -77,7 +77,7 @@ fn main() {
         gosub_renderer_cairo::init_gtk_resources().expect("failed to init GTK resources");
 
         // Compositor-driven redraws: each `submit_frame` wakes the GTK main loop via the
-        // thread-safe `glib::idle_add` (no async channel involved, so no tokio-waker issues —
+        // thread-safe `glib::idle_add` (no async channel involved, so no tokio-waker issues -
         // the old tokio-channel signal didn't reliably wake the GTK main loop mid-scroll).
         // The DrawingArea doesn't exist yet, so the callback resolves it lazily via a OnceLock.
         let redraw_target: Arc<std::sync::OnceLock<glib::SendWeakRef<DrawingArea>>> =
@@ -132,7 +132,7 @@ fn main() {
                     TabDefaults {
                         url: None,
                         title: Some("Pipeline Browser".to_string()),
-                        // No initial viewport — let connect_resize set it with the correct DPR.
+                        // No initial viewport - let connect_resize set it with the correct DPR.
                         // If we pre-set a viewport here (DPR=1), the engine won't recreate the
                         // surface when connect_resize sends the same CSS dimensions with DPR=2.
                         viewport: None,
@@ -271,7 +271,7 @@ fn main() {
         // --- Scroll controller ---
         //
         // The local scroll offset is updated synchronously here (on the GTK main thread),
-        // so queue_draw() immediately sees the new position — zero async latency.
+        // so queue_draw() immediately sees the new position - zero async latency.
         // The engine is also notified via a Tokio task for its own state bookkeeping.
         let scroll_ctl = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::BOTH_AXES);
 
@@ -471,7 +471,7 @@ fn main() {
 ///
 /// `GtkWidget::scale_factor()` only ever reports an integer, so on a fractionally scaled
 /// display (e.g. 1.25× or 1.5×, common on Wayland) it returns 1 and the page is rasterized
-/// at logical resolution — the compositor then upscales the whole surface, blurring text.
+/// at logical resolution - the compositor then upscales the whole surface, blurring text.
 ///
 /// `GdkSurface::scale()` exposes the true fractional scale. We round it *up* to the next
 /// integer and render at that resolution; downscaling a slightly-too-large buffer to the
@@ -508,12 +508,12 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
         };
 
         // White opaque background: every byte 0xFF (premultiplied ARGB32 = 0xFFFF_FFFF per pixel).
-        // `fill` lowers to a single memset — far cheaper than a per-pixel loop, even in debug.
+        // `fill` lowers to a single memset - far cheaper than a per-pixel loop, even in debug.
         data.fill(0xFF);
 
         for tile in state.tiles.iter() {
-            // Resolve the tile's viewport position in CSS px — handles scroll, fixed and sticky
-            // uniformly — then scale to device px.
+            // Resolve the tile's viewport position in CSS px - handles scroll, fixed and sticky
+            // uniformly - then scale to device px.
             let (vx, vy) = anchored_tile_pos(
                 tile.page_x as f64,
                 tile.page_y as f64,
@@ -540,7 +540,7 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
             let tw_usize = tw as usize;
             let th_usize = th as usize;
             // Hoisted per-tile: a fully-opaque, non-faded tile already in the surface's byte order
-            // can be blitted row-by-row with a plain memcpy — no per-pixel work at all.
+            // can be blitted row-by-row with a plain memcpy - no per-pixel work at all.
             let faded = tile.opacity < 1.0;
             let can_memcpy = tile.opaque && !faded && matches!(tile.format, PixelFormat::PreMulArgb32);
 
@@ -567,7 +567,7 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
                 // opaque pixel overwrites, a transparent one is skipped (keep what's beneath), and
                 // only a partial-alpha pixel runs the full blend. The group fade applies only to
                 // faded layers. (Cairo tiles are PreMulArgb32, so `pixel_to_argb_u32` is the
-                // identity — no per-pixel channel swap.)
+                // identity - no per-pixel channel swap.)
                 for col in 0..copy_w {
                     let s = src_off + col * 4;
                     let d = dst_off + col * 4;

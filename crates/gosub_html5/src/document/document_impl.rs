@@ -445,7 +445,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
     }
 
-    /// Fetch a node reference by id (internal — not in the Document trait)
+    /// Fetch a node reference by id (internal - not in the Document trait)
     pub fn node_by_id(&self, node_id: NodeId) -> Option<&NodeImpl> {
         self.arena.node_ref(node_id)
     }

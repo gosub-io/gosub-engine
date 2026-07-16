@@ -556,8 +556,8 @@ impl CssDefinitions {
                 }
             }
 
-            // `border-radius` is `<lp>{1,4} [ / <lp>{1,4} ]?`, so — unlike margin/padding
-            // whose `{1,4}` sits on the top-level component — the top-level component is a
+            // `border-radius` is `<lp>{1,4} [ / <lp>{1,4} ]?`, so - unlike margin/padding
+            // whose `{1,4}` sits on the top-level component - the top-level component is a
             // Juxtaposition group whose FIRST child carries the `{1,4}` multiplier (the second
             // child is the optional `/ <vertical-radii>` part). Detect that shape and drive the
             // same {1,4}-value box expansion.
@@ -578,7 +578,7 @@ impl CssDefinitions {
                     });
 
                     if nested_quad {
-                        // [BR, BL, TR, TL] — see comment above.
+                        // [BR, BL, TR, TL] - see comment above.
                         for i in [2usize, 3, 1, 0] {
                             shorthands.push(Shorthand {
                                 name: computed[i].clone(),

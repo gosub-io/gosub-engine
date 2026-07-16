@@ -1,7 +1,7 @@
 //! Browsing context and tab runtime state.
 //!
 //! This module defines the [`BrowsingContext`] struct: the runtime state for a single
-//! tab's document and rendering — the parsed DOM, viewport, dirty-flag tracking, storage
+//! tab's document and rendering - the parsed DOM, viewport, dirty-flag tracking, storage
 //! handles, and the pipeline caches (tiles, render list, GPU scene) built from them.
 //!
 //! Loading itself lives in the tab worker; the worker hands a parsed document to the
@@ -30,7 +30,7 @@ use gosub_shared::node::NodeId;
 use std::any::Any;
 
 /// GPU-scene cache: the layer list (for hit-testing) plus the whole-page paint command list
-/// (for the backend to render). The GPU equivalent of [`PipelineCache`] — it skips tiling,
+/// (for the backend to render). The GPU equivalent of [`PipelineCache`] - it skips tiling,
 /// rasterization, and tile compositing.
 struct SceneCache {
     layer_list: Arc<LayerList>,
@@ -91,7 +91,7 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     render_list: RenderList,
     /// Render dirty flag, used to determine if the tab needs to be rendered
     render_dirty: bool,
-    /// Viewport size (width/height only — scroll offset lives in scroll_x/y)
+    /// Viewport size (width/height only - scroll offset lives in scroll_x/y)
     viewport: Viewport,
     /// Epoch of the scene, used to determine if the scene has changed
     scene_epoch: u64,
@@ -114,7 +114,7 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// GPU-scene cache (paint commands + layer list) for GPU backends. Mutually exclusive in
     /// practice with `pipeline_cache`: a tab uses one path or the other per its backend.
     scene_cache: Option<SceneCache>,
-    /// Set when only hover state changed — triggers a paint-only repaint (stages 4–6),
+    /// Set when only hover state changed - triggers a paint-only repaint (stages 4–6),
     /// skipping the expensive render-tree rebuild (stage 1) and layout (stage 2).
     hover_dirty: bool,
     /// The DOM node currently under the pointer (for :hover matching).
@@ -352,7 +352,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     self.config_store.get_uint("renderer.tile.size") as f64,
                 ));
             } else {
-                // No cached layout yet — fall back to a full rebuild.
+                // No cached layout yet - fall back to a full rebuild.
                 if let Some(doc) = &self.document {
                     self.pipeline_cache = Some(pipeline_build_cache(
                         doc.clone(),
@@ -410,7 +410,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// GPU-scene path: rebuild the page's paint-command list when content changed.
     ///
     /// Runs stages 1–3 (render tree → layout → layering) and paints every element into one
-    /// ordered command list — no tiling, rasterization, or tile compositing. Scroll-only changes
+    /// ordered command list - no tiling, rasterization, or tile compositing. Scroll-only changes
     /// don't rebuild anything (the backend re-renders with a new translate); they just advance the
     /// scene epoch so the worker emits a frame.
     pub fn rebuild_scene_cache_if_needed(&mut self) {
@@ -439,7 +439,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.scene_epoch = self.scene_epoch.wrapping_add(1);
     }
 
-    /// The active layer list for hit-testing — from the GPU scene cache or the CPU pipeline cache,
+    /// The active layer list for hit-testing - from the GPU scene cache or the CPU pipeline cache,
     /// whichever this tab's backend populates.
     fn active_layer_list(&self) -> Option<&Arc<LayerList>> {
         self.scene_cache
@@ -536,14 +536,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             (dom_node_id, Some(lei))
         });
 
-        // Common case: same element — skip the ancestor walk entirely.
+        // Common case: same element - skip the ancestor walk entirely.
         if new_leaf == self.hover_leaf {
             return (false, false, self.hover_link_url.clone());
         }
 
         self.hover_old_lei = self.hover_layout_element;
 
-        // Collect old and new ancestor chains — only these nodes need CSS cache invalidation.
+        // Collect old and new ancestor chains - only these nodes need CSS cache invalidation.
         self.hover_dirty_nodes.clear();
         if let Some(doc) = &self.document {
             let mut seen = std::collections::HashSet::new();
@@ -668,7 +668,7 @@ impl<C: RenderConfiguration> RenderContext for BrowsingContext<C> {
 
 /// GPU-scene build: stages 1–3 (render tree → layout → layering) plus a paint pass over every
 /// element, producing one ordered paint-command list for the whole page. Skips tiling,
-/// rasterization, and compositing — the backend renders the commands into a GPU texture.
+/// rasterization, and compositing - the backend renders the commands into a GPU texture.
 fn pipeline_build_scene<C: RenderConfiguration>(
     doc: Arc<EngineDocument<C>>,
     viewport: &Viewport,
@@ -887,7 +887,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
 
 /// Hover-only repaint: skip stages 1–2 (render-tree + layout), reuse the cached
 /// `LayerList`, and only repaint tiles that intersect the old or new hovered element.
-/// All other tiles are carried over from `prev_baked_tiles` unchanged — no CSS
+/// All other tiles are carried over from `prev_baked_tiles` unchanged - no CSS
 /// re-evaluation, no re-rasterization.
 #[allow(clippy::too_many_arguments)]
 fn pipeline_hover_repaint(
@@ -919,7 +919,7 @@ fn pipeline_hover_repaint(
 
     // Build a position-keyed lookup of previous baked tiles so non-hover tiles can be
     // carried over without any CSS re-evaluation or rasterization.
-    // Key: (page_x bits, page_y bits, layer_id) — deterministic since tile positions don't
+    // Key: (page_x bits, page_y bits, layer_id) - deterministic since tile positions don't
     // change. The layer id is essential: overlapping layers (e.g. the base layer and a sticky
     // header) share a page position, and keying by position alone would collapse them into one,
     // dropping the other tile and leaving a blank gap on the next hover repaint.
@@ -951,7 +951,7 @@ fn pipeline_hover_repaint(
         union
     };
 
-    // Full-page paint rect and back-to-front layer order — used both to re-emit carried tiles in
+    // Full-page paint rect and back-to-front layer order - used both to re-emit carried tiles in
     // order (below / in the early-return) and by stages 5–6 further down.
     let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, page_height.max(1.0));
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
@@ -970,7 +970,7 @@ fn pipeline_hover_repaint(
                 && tile_rect.y + tile_rect.height > hover_rect.y;
             if overlaps {
                 // Invalidate cached styles only for the hover-chain nodes (old + new ancestors).
-                // Non-hover elements in this tile keep their cached CSS — only the nodes that
+                // Non-hover elements in this tile keep their cached CSS - only the nodes that
                 // actually gained or lost :hover need re-evaluation.
                 doc.invalidate_style_for_nodes(hover_dirty_nodes);
                 continue;
@@ -983,7 +983,7 @@ fn pipeline_hover_repaint(
             }
         }
     } else {
-        // No hover element visible — carry every previous tile forward, but re-emit in
+        // No hover element visible - carry every previous tile forward, but re-emit in
         // back-to-front layer order (see order_baked_tiles_by_layer): `into_values()` is
         // unordered and would scramble overlapping-layer compositing.
         let all_tiles = order_baked_tiles_by_layer(&tile_list, &layer_ids, full_page_rect, prev_by_pos);
@@ -1047,7 +1047,7 @@ fn pipeline_hover_repaint(
 
     // Merge newly rasterized hover tiles + carried-over clean tiles, keyed by position+layer, then
     // re-emit in back-to-front layer order so overlapping layers composite correctly (a plain
-    // `dirty ++ clean` concat scrambles the order — `clean_baked` came out of a HashMap — which
+    // `dirty ++ clean` concat scrambles the order - `clean_baked` came out of a HashMap - which
     // corrupts overlap regions like a sticky header and every scroll frame reusing this cache).
     let by_key: std::collections::HashMap<(u64, u64, u64), BakedTile> = baked_tiles
         .into_iter()
@@ -1069,8 +1069,8 @@ fn pipeline_hover_repaint(
 
 /// Re-emit baked tiles in strict back-to-front layer order (the same order a full render
 /// produces them). The compositor blits tiles in list order with source-over, so overlapping
-/// layers — e.g. the base layer and a `position: sticky`/`fixed` header sharing a page position
-/// — must stay layer-ordered or a lower tile paints over a higher one. `by_key` maps
+/// layers (e.g. the base layer and a `position: sticky`/`fixed` header sharing a page position)
+/// must stay layer-ordered or a lower tile paints over a higher one. `by_key` maps
 /// `(page_x bits, page_y bits, layer_id)` → tile; positions with no baked tile (empty/transparent)
 /// are simply skipped.
 fn order_baked_tiles_by_layer(
