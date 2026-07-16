@@ -3237,7 +3237,6 @@ dependencies = [
  "gosub_render_pipeline",
  "gosub_renderer_vello",
  "gosub_shared",
- "gosub_taffy",
  "gosub_v8",
  "gosub_webexecutor",
  "gtk4",
@@ -3563,22 +3562,6 @@ dependencies = [
  "gosub_interface",
  "gosub_shared",
  "resvg",
-]
-
-[[package]]
-name = "gosub_taffy"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "gosub_fontmanager",
- "gosub_interface",
- "gosub_lattice",
- "gosub_shared",
- "log",
- "parking_lot",
- "parley",
- "regex",
- "taffy",
 ]
 
 [[package]]
