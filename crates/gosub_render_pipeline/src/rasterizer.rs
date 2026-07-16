@@ -332,7 +332,7 @@ pub fn rasterize_sequential(
                     match rasterizer.rasterize(tile, &mut texture_store, media_store) {
                         Some(texture_id) => {
                             tile.texture_id = Some(texture_id);
-                            tile.state = TileState::Clean;
+                            tile.state = TileState::Ready;
                         }
                         None => tile.state = TileState::Empty,
                     }
@@ -343,7 +343,7 @@ pub fn rasterize_sequential(
 
     let mut tiles: Vec<BakedTile> = Vec::with_capacity(tile_list.arena.len());
     for tile in tile_list.arena.values() {
-        if let (Some(texture_id), true) = (tile.texture_id, tile.state == TileState::Clean) {
+        if let (Some(texture_id), true) = (tile.texture_id, tile.state == TileState::Ready) {
             if let Some(tex) = texture_store.get(texture_id) {
                 tiles.push(BakedTile {
                     page_x: tile.rect.x,
@@ -456,7 +456,7 @@ pub fn rasterize_parallel(
         if let Some(tile) = tile_list.arena.get_mut(&tile_id) {
             match baked {
                 Some(b) => {
-                    tile.state = TileState::Clean;
+                    tile.state = TileState::Ready;
                     if let Some(entry) = cache_entry {
                         new_tile_cache.insert(entry.0, entry.1);
                     }

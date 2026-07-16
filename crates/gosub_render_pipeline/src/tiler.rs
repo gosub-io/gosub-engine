@@ -113,7 +113,7 @@ the rect starts at 0,0 to 50,25. Which is the top left quarter of the element.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TileState {
     /// Tile texture is clean and can be rendered
-    Clean,
+    Ready,
     /// Tile texture needs a repaint
     Dirty,
     /// Tile texture cannot be rendered by this backend

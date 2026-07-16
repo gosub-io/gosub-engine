@@ -976,7 +976,7 @@ fn pipeline_hover_repaint(
                 continue;
             }
 
-            tile.state = TileState::Clean;
+            tile.state = TileState::Ready;
             let key = (tile_rect.x.to_bits(), tile_rect.y.to_bits(), tile.layer_id.as_u64());
             if let Some(baked) = prev_by_pos.remove(&key) {
                 clean_baked.push(baked);
