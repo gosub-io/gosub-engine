@@ -139,12 +139,21 @@ impl TaffyContext {
         })
     }
 
-    fn image(src: &str, media_id: MediaId, dimension: geo::Dimension, node_id: DomNodeId) -> TaffyContext {
+    fn image(
+        src: &str,
+        media_id: MediaId,
+        dimension: geo::Dimension,
+        node_id: DomNodeId,
+        placeholder: bool,
+        alt: Option<String>,
+    ) -> TaffyContext {
         TaffyContext::Image(ElementContextImage {
             node_id,
             src: src.to_string(),
             media_id,
             dimension,
+            placeholder,
+            alt,
         })
     }
 
@@ -949,8 +958,10 @@ impl TaffyLayouter {
                             // rasterizer scales the icon to whatever rect the element actually
                             // occupies, so display quality is unaffected.
                             let is_placeholder = self.media_store.is_placeholder(media_id);
-                            // Resolve the intrinsic size (and whether this is an SVG) in one borrow.
-                            let (dimension, is_svg) = match media.borrow() {
+                            // Resolve the intrinsic size, whether this is an SVG, and whether the
+                            // decoded raster is fully transparent (nothing visible to paint) — all
+                            // in one borrow.
+                            let (dimension, is_svg, is_transparent) = match media.borrow() {
                                 // Use the SVG's intrinsic size so the element gets a non-zero box.
                                 // A failed/placeholder load uses the same small fixed size as images.
                                 Media::Svg(media_svg) => {
@@ -960,7 +971,7 @@ impl TaffyLayouter {
                                         let size = media_svg.svg.tree.size();
                                         geo::Dimension::new(size.width() as f64, size.height() as f64)
                                     };
-                                    (d, true)
+                                    (d, true, false)
                                 }
                                 Media::Image(media_image) => {
                                     let d = if is_placeholder {
@@ -971,7 +982,13 @@ impl TaffyLayouter {
                                             media_image.image.height() as f64,
                                         )
                                     };
-                                    (d, false)
+                                    // `.all()` short-circuits on the first opaque pixel, so this is
+                                    // cheap for the common (visible) image and only scans fully when
+                                    // the image really is transparent.
+                                    let transparent = !is_placeholder
+                                        && media_image.image.width() > 0
+                                        && media_image.image.as_raw().chunks_exact(4).all(|px| px[3] == 0);
+                                    (d, false, transparent)
                                 }
                             };
 
@@ -990,10 +1007,33 @@ impl TaffyLayouter {
                                 }
                             }
 
+                            // A broken/placeholder image still reserves the author's declared
+                            // box (HTML width/height attrs), matching Firefox, which draws a small
+                            // broken-image icon inside that reserved space rather than collapsing.
+                            if is_placeholder {
+                                if let Some(w) = data.get_attribute("width").and_then(|s| parse_px_attr(s)) {
+                                    taffy_style.size.width = Dimension::from_length(w);
+                                }
+                                if let Some(h) = data.get_attribute("height").and_then(|s| parse_px_attr(s)) {
+                                    taffy_style.size.height = Dimension::from_length(h);
+                                }
+                            }
+
+                            // Browsers show the `alt` text only when the image itself renders
+                            // nothing useful: a broken/placeholder load, or a fully transparent
+                            // image. A normally-decoded, visible image never shows its alt.
+                            let alt = if is_placeholder || is_transparent {
+                                data.get_attribute("alt")
+                                    .map(|s| s.trim().to_string())
+                                    .filter(|s| !s.is_empty())
+                            } else {
+                                None
+                            };
+
                             taffy_context = Some(if is_svg {
                                 TaffyContext::svg(src.as_str(), media_id, dimension, dom_node.node_id)
                             } else {
-                                TaffyContext::image(src.as_str(), media_id, dimension, dom_node.node_id)
+                                TaffyContext::image(src.as_str(), media_id, dimension, dom_node.node_id, is_placeholder, alt)
                             });
                         }
                         MediaRequest::Pending => {
@@ -1252,6 +1292,8 @@ fn to_element_context(taffy_context: Option<&TaffyContext>) -> ElementContext {
             image_ctx.media_id,
             image_ctx.dimension,
             image_ctx.node_id,
+            image_ctx.placeholder,
+            image_ctx.alt.clone(),
         ),
         Some(TaffyContext::Svg(svg_ctx)) => ElementContext::svg(
             svg_ctx.src.as_str(),

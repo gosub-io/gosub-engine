@@ -80,6 +80,14 @@ pub struct ElementContextImage {
     pub media_id: MediaId,
     /// Dimension of the image. Can be Dimension::ZERO if not known yet
     pub dimension: Dimension,
+    /// True when `media_id` is a fallback broken-image placeholder (the real image failed to
+    /// load). The painter draws the icon at its natural `dimension` in the top-left of the
+    /// reserved box instead of stretching it to fill.
+    pub placeholder: bool,
+    /// The `alt` text to render inside the image box, `Some` only when the image itself shows
+    /// nothing meaningful — a broken/placeholder load, or a fully transparent image. Browsers
+    /// display alt text in these cases (never over a normally-decoded, visible image).
+    pub alt: Option<String>,
 }
 
 /// Information about the given element that is needed for different phases of the rendering pipeline. For instance,
@@ -110,12 +118,21 @@ impl ElementContext {
         })
     }
 
-    pub fn image(src: &str, media_id: MediaId, dimension: Dimension, node_id: DomNodeId) -> ElementContext {
+    pub fn image(
+        src: &str,
+        media_id: MediaId,
+        dimension: Dimension,
+        node_id: DomNodeId,
+        placeholder: bool,
+        alt: Option<String>,
+    ) -> ElementContext {
         Self::Image(ElementContextImage {
             node_id,
             src: src.to_string(),
             media_id,
             dimension,
+            placeholder,
+            alt,
         })
     }
 

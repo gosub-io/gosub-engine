@@ -5,6 +5,7 @@ use crate::common::document::node::NodeId;
 use crate::common::document::pipeline_doc::{BgImageLayout, BgSize};
 use crate::common::document::style::{lookup, BorderStyle as CssBorderStyle, Display, StyleProperty, Value};
 use crate::common::font::{FontAlignment, FontInfo};
+use crate::common::geo::Rect;
 use crate::common::media::MediaStore;
 use crate::layering::layer::LayerList;
 use crate::layouter::{BackgroundMedia, ElementContext, LayoutElementId, LayoutElementNode};
@@ -242,6 +243,59 @@ impl Painter {
         }
     }
 
+    /// Build a paint command for an image's `alt` text, laid out inside its box. `icon_offset_x`
+    /// is the width already occupied by a broken-image icon at the top-left (0 when there's no
+    /// icon), so the text starts just past it. Returns `None` if there's no room or no font system.
+    fn image_alt_command(
+        &self,
+        node_id: NodeId,
+        alt: &str,
+        border_box: Rect,
+        icon_offset_x: f64,
+    ) -> Option<PaintCommand> {
+        const PAD: f64 = 3.0;
+        let x = border_box.x + icon_offset_x + PAD;
+        let y = border_box.y + PAD;
+        let width = border_box.width - icon_offset_x - PAD * 2.0;
+        let height = border_box.height - PAD * 2.0;
+        if width <= 1.0 || height <= 1.0 {
+            return None;
+        }
+        let rect = Rect::new(x, y, width, height);
+
+        let font_info = self.alt_font_info(node_id);
+        let brush = self.get_brush(node_id, &StyleProperty::Color, Brush::solid(Color::BLACK));
+        let shaped = self.shape_text(alt, &font_info, rect.width, rect.width);
+        Some(PaintCommand::text(Text::new(rect, alt, &font_info, brush, rect.width, shaped)))
+    }
+
+    /// A minimal [`FontInfo`] for `alt` text, taking the element's computed `font-family`/`font-size`
+    /// (falling back to the page defaults). Start-aligned, no decorations — matching how browsers
+    /// render the small placeholder label.
+    fn alt_font_info(&self, node_id: NodeId) -> FontInfo {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let size = match doc.get_style(node_id, &StyleProperty::FontSize) {
+            Value::Unit(px, _) => px as f64,
+            _ => 16.0,
+        };
+        let family = match doc.get_style(node_id, &StyleProperty::FontFamily) {
+            Value::Keyword(id) => lookup(id),
+            _ => "sans-serif".to_string(),
+        };
+        FontInfo {
+            family,
+            size,
+            weight: 400,
+            width: 100,
+            slant: 0,
+            line_height: size * 1.4,
+            letter_spacing: 0.0,
+            alignment: FontAlignment::Start,
+            underline: false,
+            line_through: false,
+        }
+    }
+
     fn get_parent_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         match doc.parent(node_id) {
@@ -390,12 +444,56 @@ impl Painter {
                 }
             }
             ElementContext::Image(image_ctx) => {
+                let border_box = layout_element.box_model.border_box;
+                let blend = self.mix_blend_mode(dom_node_id);
+
+                // CSS paints the element's background-color behind the (possibly transparent)
+                // replaced content, e.g. `<img style="background:#3a7">` with a transparent PNG
+                // shows the green through. Emit it first when it isn't fully transparent.
+                let (bg_brush, _) = self.background_fill(dom_node_id);
+                if !matches!(&bg_brush, Brush::Solid(c) if c.a() == 0.0) {
+                    let bg_r = Rectangle::new(border_box)
+                        .with_background(bg_brush)
+                        .with_blend_mode(blend);
+                    commands.push(PaintCommand::rectangle(self.decorate_with_border_and_radius(dom_node_id, bg_r)));
+                }
+
                 let brush = Brush::image(image_ctx.media_id);
-                let r = Rectangle::new(layout_element.box_model.border_box)
+                // A broken-image placeholder is drawn at its natural icon size in the top-left of
+                // the reserved box (like Firefox) rather than stretched to fill it.
+                let draw_box = if image_ctx.placeholder {
+                    let iw = (image_ctx.dimension.width).min(border_box.width);
+                    let ih = (image_ctx.dimension.height).min(border_box.height);
+                    Rect::new(border_box.x, border_box.y, iw, ih)
+                } else {
+                    border_box
+                };
+                let r = Rectangle::new(draw_box)
                     .with_background(brush)
-                    .with_blend_mode(self.mix_blend_mode(dom_node_id));
-                let r = self.decorate_with_border_and_radius(dom_node_id, r);
-                commands.push(PaintCommand::rectangle(r));
+                    .with_blend_mode(blend);
+                // The border/radius belongs to the element box, not the shrunk icon rect.
+                let border_target = if image_ctx.placeholder { border_box } else { draw_box };
+                let border_r = self.decorate_with_border_and_radius(dom_node_id, Rectangle::new(border_target));
+                if image_ctx.placeholder {
+                    commands.push(PaintCommand::rectangle(r));
+                    // Emit the element border separately so it frames the full reserved box.
+                    if self.has_border(dom_node_id) {
+                        commands.push(PaintCommand::rectangle(border_r));
+                    }
+                } else {
+                    let r = self.decorate_with_border_and_radius(dom_node_id, r);
+                    commands.push(PaintCommand::rectangle(r));
+                }
+
+                // `alt` text: browsers show it inside the box when the image renders nothing
+                // visible (broken/placeholder or fully transparent). For a placeholder it sits to
+                // the right of the broken-image icon; otherwise it starts at the box's top-left.
+                if let Some(alt) = &image_ctx.alt {
+                    let icon_w = if image_ctx.placeholder { draw_box.width } else { 0.0 };
+                    if let Some(cmd) = self.image_alt_command(dom_node_id, alt, border_box, icon_w) {
+                        commands.push(cmd);
+                    }
+                }
             }
             ElementContext::None => {
                 let (brush, overlay_layers) = self.background_fill(dom_node_id);

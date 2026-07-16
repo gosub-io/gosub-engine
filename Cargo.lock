@@ -3435,6 +3435,7 @@ name = "gosub_render_pipeline"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "bytemuck",
  "bytes",
  "cow-utils",
@@ -3452,6 +3453,7 @@ dependencies = [
  "log",
  "parking_lot",
  "parley",
+ "png",
  "rand 0.10.1",
  "rayon",
  "regex",

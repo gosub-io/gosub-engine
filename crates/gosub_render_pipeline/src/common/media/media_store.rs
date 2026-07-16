@@ -239,9 +239,14 @@ impl MediaStore {
 
     fn load_media_from_source(&self, src: &str) -> anyhow::Result<MediaId> {
         log::debug!("Loading non-cached media from path: {}", src);
-        let (content_type, raw_data) = self.fetch_resource(src)?;
-
-        let media = self.decode_media(src, content_type.as_deref(), &raw_data)?;
+        // `data:` URIs carry the bytes inline — decode them directly instead of going to the network.
+        let media = if let Some(rest) = src.strip_prefix("data:") {
+            let (mime, bytes) = decode_data_uri(rest)?;
+            self.decode_media(src, mime.as_deref(), &bytes)?
+        } else {
+            let (content_type, raw_data) = self.fetch_resource(src)?;
+            self.decode_media(src, content_type.as_deref(), &raw_data)?
+        };
 
         let media_id = self.allocate_media_id();
         self.entries.write().insert(media_id, Arc::new(media));
@@ -328,6 +333,53 @@ impl MediaStore {
 
         Ok((content_type, raw_bytes))
     }
+}
+
+/// Decode the body of a `data:` URI (everything after `data:`) into its MIME type and raw bytes.
+/// Handles the `[<mime>][;base64],<data>` form: base64 payloads are decoded, and plain payloads
+/// are percent-decoded. The MIME is a hint only — the decoder registry re-sniffs the real format.
+fn decode_data_uri(rest: &str) -> anyhow::Result<(Option<String>, Vec<u8>)> {
+    let (meta, data) = rest
+        .split_once(',')
+        .ok_or_else(|| anyhow::anyhow!("malformed data URI: missing ','"))?;
+
+    let is_base64 = meta.rsplit(';').any(|t| t.eq_ignore_ascii_case("base64"));
+    let mime = meta.split(';').next().filter(|s| !s.is_empty()).map(str::to_string);
+
+    let bytes = if is_base64 {
+        use base64::Engine;
+        // Data URIs may contain whitespace/newlines; strip it before decoding.
+        let cleaned: String = data.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+        base64::engine::general_purpose::STANDARD
+            .decode(cleaned.as_bytes())
+            .map_err(|e| anyhow::anyhow!("invalid base64 in data URI: {e}"))?
+    } else {
+        // Percent-decode a plain (text) payload, e.g. `data:image/svg+xml,<svg …>`.
+        percent_decode(data)
+    };
+
+    Ok((mime, bytes))
+}
+
+/// Minimal `%XX` percent-decoding for plain `data:` URI payloads. Invalid escapes are left as-is.
+fn percent_decode(s: &str) -> Vec<u8> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    out
 }
 
 /// Rasterize a `usvg` tree to a straight-alpha RGBA [`Image`] of `w`×`h` px (scaling the tree's
