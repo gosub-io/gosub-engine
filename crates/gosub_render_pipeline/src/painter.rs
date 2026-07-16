@@ -2,14 +2,17 @@ pub mod commands;
 
 use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
+use crate::common::document::pipeline_doc::{BgImageLayout, BgSize};
 use crate::common::document::style::{lookup, BorderStyle as CssBorderStyle, Display, StyleProperty, Value};
 use crate::common::font::{FontAlignment, FontInfo};
+use crate::common::geo::Rect;
 use crate::common::media::MediaStore;
 use crate::layering::layer::LayerList;
 use crate::layouter::{BackgroundMedia, ElementContext, LayoutElementId, LayoutElementNode};
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::color::Color;
+use crate::painter::commands::gradient::{Gradient, Tiling};
 use crate::painter::commands::rectangle::{BlendMode, Radius, Rectangle};
 use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
@@ -222,18 +225,81 @@ impl Painter {
         }
     }
 
-    /// The fill for an element's background box: a `linear-gradient(...)` if present,
-    /// otherwise the solid `background-color` (transparent when unset).
-    fn background_brush(&self, node_id: NodeId) -> Brush {
+    /// The base fill for an element's background box plus any overlay `background-image`
+    /// gradient layers to paint on top, back-to-front.
+    ///
+    /// A lone non-tiled `linear-gradient(...)` becomes the base brush directly (preserving the
+    /// historical single-gradient path where the border/radius decorate the same rect).
+    /// Multiple layers — or any tiled layer (a repeated `background-size` cell) — instead stack
+    /// as separate rects over the solid `background-color`.
+    fn background_fill(&self, node_id: NodeId) -> (Brush, Vec<Gradient>) {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
-        if let Some(gradient) = doc.background_gradient(node_id) {
-            return Brush::gradient(gradient);
-        }
-        self.get_brush(
+        let layers = doc.background_layers(node_id);
+        let color = self.get_brush(
             node_id,
             &StyleProperty::BackgroundColor,
             Brush::solid(Color::TRANSPARENT),
-        )
+        );
+        match layers.as_slice() {
+            [] => (color, Vec::new()),
+            [Gradient::Linear(g)] if g.tiling.is_none() => (Brush::gradient(Gradient::Linear(g.clone())), Vec::new()),
+            _ => (color, layers),
+        }
+    }
+
+    /// Build a paint command for an image's `alt` text, laid out inside its box. `icon_offset_x`
+    /// is the width already occupied by a broken-image icon at the top-left (0 when there's no
+    /// icon), so the text starts just past it. Returns `None` if there's no room or no font system.
+    fn image_alt_command(
+        &self,
+        node_id: NodeId,
+        alt: &str,
+        border_box: Rect,
+        icon_offset_x: f64,
+    ) -> Option<PaintCommand> {
+        const PAD: f64 = 3.0;
+        let x = border_box.x + icon_offset_x + PAD;
+        let y = border_box.y + PAD;
+        let width = border_box.width - icon_offset_x - PAD * 2.0;
+        let height = border_box.height - PAD * 2.0;
+        if width <= 1.0 || height <= 1.0 {
+            return None;
+        }
+        let rect = Rect::new(x, y, width, height);
+
+        let font_info = self.alt_font_info(node_id);
+        let brush = self.get_brush(node_id, &StyleProperty::Color, Brush::solid(Color::BLACK));
+        let shaped = self.shape_text(alt, &font_info, rect.width, rect.width);
+        Some(PaintCommand::text(Text::new(
+            rect, alt, &font_info, brush, rect.width, shaped,
+        )))
+    }
+
+    /// A minimal [`FontInfo`] for `alt` text, taking the element's computed `font-family`/`font-size`
+    /// (falling back to the page defaults). Start-aligned, no decorations — matching how browsers
+    /// render the small placeholder label.
+    fn alt_font_info(&self, node_id: NodeId) -> FontInfo {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let size = match doc.get_style(node_id, &StyleProperty::FontSize) {
+            Value::Unit(px, _) => px as f64,
+            _ => 16.0,
+        };
+        let family = match doc.get_style(node_id, &StyleProperty::FontFamily) {
+            Value::Keyword(id) => lookup(id),
+            _ => "sans-serif".to_string(),
+        };
+        FontInfo {
+            family,
+            size,
+            weight: 400,
+            width: 100,
+            slant: 0,
+            line_height: size * 1.4,
+            letter_spacing: 0.0,
+            alignment: FontAlignment::Start,
+            underline: false,
+            line_through: false,
+        }
     }
 
     fn get_parent_brush(&self, node_id: NodeId, css_prop: &StyleProperty, default: Brush) -> Brush {
@@ -325,8 +391,14 @@ impl Painter {
     ) -> Vec<PaintCommand> {
         let border_box = layout_element.box_model.border_box;
         match bg {
-            BackgroundMedia::Image(media_id) => {
-                let brush = Brush::image(media_id);
+            BackgroundMedia::Image {
+                media_id,
+                natural,
+                layout,
+            } => {
+                // Finalize the tile geometry now that the box is known (cover/contain need it).
+                let tiling = compute_bg_tiling(natural, &layout, border_box.width as f32, border_box.height as f32);
+                let brush = Brush::image_tiled(media_id, tiling);
                 let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));
@@ -378,16 +450,61 @@ impl Painter {
                 }
             }
             ElementContext::Image(image_ctx) => {
+                let border_box = layout_element.box_model.border_box;
+                let blend = self.mix_blend_mode(dom_node_id);
+
+                // CSS paints the element's background-color behind the (possibly transparent)
+                // replaced content, e.g. `<img style="background:#3a7">` with a transparent PNG
+                // shows the green through. Emit it first when it isn't fully transparent.
+                let (bg_brush, _) = self.background_fill(dom_node_id);
+                if !matches!(&bg_brush, Brush::Solid(c) if c.a() == 0.0) {
+                    let bg_r = Rectangle::new(border_box)
+                        .with_background(bg_brush)
+                        .with_blend_mode(blend);
+                    commands.push(PaintCommand::rectangle(
+                        self.decorate_with_border_and_radius(dom_node_id, bg_r),
+                    ));
+                }
+
                 let brush = Brush::image(image_ctx.media_id);
-                let r = Rectangle::new(layout_element.box_model.border_box)
-                    .with_background(brush)
-                    .with_blend_mode(self.mix_blend_mode(dom_node_id));
-                let r = self.decorate_with_border_and_radius(dom_node_id, r);
-                commands.push(PaintCommand::rectangle(r));
+                // A broken-image placeholder is drawn at its natural icon size in the top-left of
+                // the reserved box (like Firefox) rather than stretched to fill it.
+                let draw_box = if image_ctx.placeholder {
+                    let iw = (image_ctx.dimension.width).min(border_box.width);
+                    let ih = (image_ctx.dimension.height).min(border_box.height);
+                    Rect::new(border_box.x, border_box.y, iw, ih)
+                } else {
+                    border_box
+                };
+                let r = Rectangle::new(draw_box).with_background(brush).with_blend_mode(blend);
+                // The border/radius belongs to the element box, not the shrunk icon rect.
+                let border_target = if image_ctx.placeholder { border_box } else { draw_box };
+                let border_r = self.decorate_with_border_and_radius(dom_node_id, Rectangle::new(border_target));
+                if image_ctx.placeholder {
+                    commands.push(PaintCommand::rectangle(r));
+                    // Emit the element border separately so it frames the full reserved box.
+                    if self.has_border(dom_node_id) {
+                        commands.push(PaintCommand::rectangle(border_r));
+                    }
+                } else {
+                    let r = self.decorate_with_border_and_radius(dom_node_id, r);
+                    commands.push(PaintCommand::rectangle(r));
+                }
+
+                // `alt` text: browsers show it inside the box when the image renders nothing
+                // visible (broken/placeholder or fully transparent). For a placeholder it sits to
+                // the right of the broken-image icon; otherwise it starts at the box's top-left.
+                if let Some(alt) = &image_ctx.alt {
+                    let icon_w = if image_ctx.placeholder { draw_box.width } else { 0.0 };
+                    if let Some(cmd) = self.image_alt_command(dom_node_id, alt, border_box, icon_w) {
+                        commands.push(cmd);
+                    }
+                }
             }
             ElementContext::None => {
-                let brush = self.background_brush(dom_node_id);
-                let r = Rectangle::new(layout_element.box_model.border_box)
+                let (brush, overlay_layers) = self.background_fill(dom_node_id);
+                let border_box = layout_element.box_model.border_box;
+                let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));
                 let r = self.decorate_with_border_and_radius(dom_node_id, r);
@@ -396,6 +513,17 @@ impl Painter {
                 // background-image paints on top of the background-color.
                 if let Some(bg) = bg_media {
                     commands.extend(self.background_media_commands(bg, layout_element, dom_node_id));
+                }
+
+                // Stacked gradient layers (multi-layer / tiled backgrounds, e.g. a CSS
+                // checkerboard). CSS paints the first-listed layer on top, so emit them
+                // back-to-front over the base fill.
+                let blend = self.mix_blend_mode(dom_node_id);
+                for layer in overlay_layers.into_iter().rev() {
+                    let r = Rectangle::new(border_box)
+                        .with_background(Brush::gradient(layer))
+                        .with_blend_mode(blend);
+                    commands.push(PaintCommand::rectangle(r));
                 }
             }
         }
@@ -501,4 +629,50 @@ fn css_border_style_to_paint(s: &CssBorderStyle) -> BorderStyle {
         CssBorderStyle::Hidden => BorderStyle::Hidden,
         CssBorderStyle::None => BorderStyle::None,
     }
+}
+
+/// Finalize a `background-image`'s tile geometry now that the element's border box (`box_w`×`box_h`)
+/// is known. Resolves `background-size` (`cover`/`contain` need the box) and `center` positioning
+/// into a [`Tiling`]: `cover`/`contain` produce a single aspect-preserved tile (no repeat), so the
+/// backend paints it once and lets the box clip (cover) or the background-color show (contain).
+/// Returns `None` if the intrinsic size or box is degenerate.
+fn compute_bg_tiling(natural: (f32, f32), layout: &BgImageLayout, box_w: f32, box_h: f32) -> Option<Tiling> {
+    let (nw, nh) = natural;
+    if nw <= 0.0 || nh <= 0.0 || box_w <= 0.0 || box_h <= 0.0 {
+        return None;
+    }
+
+    let (tw, th) = match layout.size {
+        BgSize::Auto => (nw, nh),
+        BgSize::Length(w, h) => (w, h),
+        // Preserve aspect: contain fits inside the box, cover fills it.
+        BgSize::Contain => {
+            let s = (box_w / nw).min(box_h / nh);
+            (nw * s, nh * s)
+        }
+        BgSize::Cover => {
+            let s = (box_w / nw).max(box_h / nh);
+            (nw * s, nh * s)
+        }
+    };
+    if tw <= 0.0 || th <= 0.0 {
+        return None;
+    }
+
+    let px = if layout.center.0 {
+        (box_w - tw) / 2.0
+    } else {
+        layout.position.0
+    };
+    let py = if layout.center.1 {
+        (box_h - th) / 2.0
+    } else {
+        layout.position.1
+    };
+
+    Some(Tiling {
+        tile_size: (tw, th),
+        position: (px, py),
+        repeat: layout.repeat,
+    })
 }

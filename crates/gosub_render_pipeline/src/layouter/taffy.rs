@@ -1,6 +1,7 @@
 use cow_utils::CowUtils;
 
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
+use crate::common::document::pipeline_doc::BgSize;
 use crate::common::document::style::{lookup, FontWeight, StyleProperty, TextAlign, Unit, Value};
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
@@ -137,12 +138,21 @@ impl TaffyContext {
         })
     }
 
-    fn image(src: &str, media_id: MediaId, dimension: geo::Dimension, node_id: DomNodeId) -> TaffyContext {
+    fn image(
+        src: &str,
+        media_id: MediaId,
+        dimension: geo::Dimension,
+        node_id: DomNodeId,
+        placeholder: bool,
+        alt: Option<String>,
+    ) -> TaffyContext {
         TaffyContext::Image(ElementContextImage {
             node_id,
             src: src.to_string(),
             media_id,
             dimension,
+            placeholder,
+            alt,
         })
     }
 
@@ -560,6 +570,95 @@ impl TaffyLayouter {
         }
     }
 
+    /// Split a text node that lives in a *mixed* inline run (alongside inline-level elements) into
+    /// one inline box per word and push them onto `group`. This lets the text flow and wrap at word
+    /// boundaries around its sibling inline boxes, matching a browser line box — an atomic per-node
+    /// text box can only wrap as a whole, so it jumps to its own line after a preceding inline box.
+    ///
+    /// Words are emitted as tight boxes, separated (and edged, where the source had leading/trailing
+    /// whitespace) by explicit single-space boxes. Each space is its own flex item, so it doubles as
+    /// a valid wrap point and carries exactly one space's width — attaching the space to the word
+    /// instead would double-count it against the trailing-NBSP fudge in the measure callback.
+    fn push_text_words(
+        &mut self,
+        layout_tree: &mut LayoutTree,
+        text_node: &Node,
+        render_node_id: RenderNodeId,
+        group: &mut Vec<InlineEntry>,
+    ) {
+        let (had_leading, had_trailing, words) = {
+            let NodeType::Text(full) = &text_node.node_type else {
+                return;
+            };
+            (
+                full.starts_with(|c: char| c.is_ascii_whitespace()),
+                full.ends_with(|c: char| c.is_ascii_whitespace()),
+                full.split_whitespace().map(str::to_string).collect::<Vec<_>>(),
+            )
+        };
+        if words.is_empty() {
+            return;
+        }
+
+        // Interleave words with single-space tokens: [ ]? w0 [ ] w1 [ ] … [ ]?
+        let mut tokens: Vec<String> = Vec::with_capacity(words.len() * 2 + 1);
+        if had_leading {
+            tokens.push(" ".to_string());
+        }
+        let last = words.len() - 1;
+        for (i, word) in words.into_iter().enumerate() {
+            tokens.push(word);
+            if i < last {
+                tokens.push(" ".to_string());
+            }
+        }
+        if had_trailing {
+            tokens.push(" ".to_string());
+        }
+
+        for tok in tokens {
+            let mut token_node = text_node.clone();
+            token_node.node_type = NodeType::Text(tok);
+            if let Some(pair) = self.build_text_word_leaf(layout_tree, &token_node, render_node_id) {
+                group.push(InlineEntry::Item(pair.0, pair.1));
+            }
+        }
+    }
+
+    /// Build a single-word inline text box: a taffy leaf plus a `LayoutElementNode`, registered the
+    /// same way `generate_taffy_element` registers a text node. Reuses `extract_taffy_data` (via the
+    /// synthetic `word_node`) so all font/whitespace/decoration resolution is identical to the
+    /// whole-node path. `dom_to_layout_mapping` is intentionally not written — a text node maps to
+    /// many word boxes and the single-slot map cannot represent that (word-level hit-testing is out
+    /// of scope).
+    fn build_text_word_leaf(
+        &mut self,
+        layout_tree: &mut LayoutTree,
+        word_node: &Node,
+        render_node_id: RenderNodeId,
+    ) -> Option<(LayoutElementId, TaffyNodeId)> {
+        let (taffy_context, taffy_style) = self.extract_taffy_data(layout_tree, word_node)?;
+        let element_context = to_element_context(taffy_context.as_ref());
+        let taffy_id = match taffy_context {
+            Some(ctx) => self.tree.new_leaf_with_context(taffy_style, ctx).ok()?,
+            None => self.tree.new_leaf(taffy_style).ok()?,
+        };
+        let element_node = LayoutElementNode {
+            id: layout_tree.next_node_id(),
+            dom_node_id: word_node.node_id,
+            render_node_id,
+            parent: None,
+            box_model: box_model::BoxModel::ZERO,
+            children: vec![],
+            context: element_context,
+            background_media: None,
+        };
+        let layout_element_id = element_node.id;
+        layout_tree.arena.insert(layout_element_id, element_node);
+        self.layout_taffy_mapping.insert(layout_element_id, taffy_id);
+        Some((layout_element_id, taffy_id))
+    }
+
     // Process node and turn it into a taffy node. It will recursively process any children and takes care to wrap any multiple inline elements
     // into an anonymous taffy block element. This way we can sort of emulate inline elements within taffy.
     fn generate_taffy_element(
@@ -623,13 +722,41 @@ impl TaffyLayouter {
         // produce an empty flex row in the anonymous container, adding a spurious blank line.
         let mut trailing_ws_count = 0usize;
         let render_node_children = render_node.children.clone();
+
+        // A "mixed" inline run — a (non-flex/grid) element with at least one inline-level *element*
+        // child, not just text — needs its text nodes split into per-word boxes so text flows and
+        // wraps around the inline boxes like a browser line box. Pure-text blocks (no inline-element
+        // children) keep the single whole-node run to preserve Parley text shaping/justification.
+        let has_inline_element_child = !parent_is_flex_or_grid
+            && render_node_children.iter().any(|cid| {
+                layout_tree
+                    .render_tree
+                    .get_document_node_by_render_id(*cid)
+                    .is_some_and(|n| {
+                        matches!(n.node_type, NodeType::Element(_))
+                            && (n.is_inline_element() || n.is_inline_block_element())
+                    })
+            });
+
         for child_id in render_node_children.iter() {
-            let Some((child_layout_element_id, child_taffy_id)) = self.generate_taffy_element(layout_tree, *child_id)
-            else {
+            let Some(child_node) = layout_tree.render_tree.get_document_node_by_render_id(*child_id) else {
                 continue;
             };
 
-            let Some(child_node) = layout_tree.render_tree.get_document_node_by_render_id(*child_id) else {
+            // In a mixed inline run, split text into per-word inline boxes (see push_text_words).
+            // Whitespace-only nodes fall through to the normal NBSP-separator path below.
+            if has_inline_element_child {
+                if let NodeType::Text(text) = &child_node.node_type {
+                    if !text.trim().is_empty() {
+                        self.push_text_words(layout_tree, &child_node, *child_id, &mut current_inline_group);
+                        trailing_ws_count = 0;
+                        continue;
+                    }
+                }
+            }
+
+            let Some((child_layout_element_id, child_taffy_id)) = self.generate_taffy_element(layout_tree, *child_id)
+            else {
                 continue;
             };
 
@@ -761,11 +888,38 @@ impl TaffyLayouter {
             MediaRequest::Pending => return None,
         };
 
-        // Pick the renderer based on what was actually stored: an SVG (e.g. HN's
-        // `triangle.svg` votearrow) must go through the SVG paint path, not a raster blit.
+        let layout = doc.background_image_layout(dom_node_id);
+
+        // Store the intrinsic size + layout; the painter finalizes the tile geometry once the box
+        // is known. A raster image is used directly. An SVG background is rasterized to a raster
+        // tile at a box-independent size (its intrinsic size, or an explicit `background-size`
+        // length) so it reuses the single raster path for repeat / cover / contain; `compute_bg_tiling`
+        // then scales that raster for cover/contain once the box is known. (An SVG intrinsic size is
+        // typically large — e.g. 400×300 — so cover/contain downscale and stay crisp.)
         match &*self.media_store.get(media_id, MediaType::Image) {
-            Media::Svg(_) => Some(BackgroundMedia::Svg(media_id)),
-            Media::Image(_) => Some(BackgroundMedia::Image(media_id)),
+            Media::Image(mi) => Some(BackgroundMedia::Image {
+                media_id,
+                natural: (mi.image.width() as f32, mi.image.height() as f32),
+                layout,
+            }),
+            Media::Svg(ms) => {
+                let size = ms.svg.tree.size();
+                let (rw, rh) = match layout.size {
+                    BgSize::Length(w, h) => (w, h),
+                    _ => (size.width(), size.height()),
+                };
+                let rw = (rw.round() as u32).max(1);
+                let rh = (rh.round() as u32).max(1);
+                match self.media_store.svg_raster_tile(media_id, rw, rh) {
+                    Some(raster_id) => Some(BackgroundMedia::Image {
+                        media_id: raster_id,
+                        natural: (rw as f32, rh as f32),
+                        layout,
+                    }),
+                    // Rasterization failed — fall back to the (stretch) SVG paint path.
+                    None => Some(BackgroundMedia::Svg(media_id)),
+                }
+            }
         }
     }
 
@@ -803,20 +957,23 @@ impl TaffyLayouter {
                             // rasterizer scales the icon to whatever rect the element actually
                             // occupies, so display quality is unaffected.
                             let is_placeholder = self.media_store.is_placeholder(media_id);
-                            taffy_context = match media.borrow() {
+                            // Resolve the intrinsic size, whether this is an SVG, and whether the
+                            // decoded raster is fully transparent (nothing visible to paint) — all
+                            // in one borrow.
+                            let (dimension, is_svg, is_transparent) = match media.borrow() {
+                                // Use the SVG's intrinsic size so the element gets a non-zero box.
+                                // A failed/placeholder load uses the same small fixed size as images.
                                 Media::Svg(media_svg) => {
-                                    // Use the SVG's intrinsic size so the element gets a non-zero box.
-                                    // A failed/placeholder load uses the same small fixed size as images.
-                                    let dimension = if is_placeholder {
+                                    let d = if is_placeholder {
                                         geo::Dimension::new(32.0, 32.0)
                                     } else {
                                         let size = media_svg.svg.tree.size();
                                         geo::Dimension::new(size.width() as f64, size.height() as f64)
                                     };
-                                    Some(TaffyContext::svg(src.as_str(), media_id, dimension, dom_node.node_id))
+                                    (d, true, false)
                                 }
                                 Media::Image(media_image) => {
-                                    let dimension = if is_placeholder {
+                                    let d = if is_placeholder {
                                         geo::Dimension::new(32.0, 32.0)
                                     } else {
                                         geo::Dimension::new(
@@ -824,9 +981,66 @@ impl TaffyLayouter {
                                             media_image.image.height() as f64,
                                         )
                                     };
-                                    Some(TaffyContext::image(src.as_str(), media_id, dimension, dom_node.node_id))
+                                    // `.all()` short-circuits on the first opaque pixel, so this is
+                                    // cheap for the common (visible) image and only scans fully when
+                                    // the image really is transparent.
+                                    let transparent = !is_placeholder
+                                        && media_image.image.width() > 0
+                                        && media_image.image.as_raw().chunks_exact(4).all(|px| px[3] == 0);
+                                    (d, false, transparent)
+                                }
+                            };
+
+                            // Pin the intrinsic aspect ratio so a block-level replaced element keeps
+                            // its shape when only one axis is constrained (e.g. `width:100%; height:auto`
+                            // inside a `figure`). Without this, taffy's block layout leaves height
+                            // unconstrained and the image stretches to fill its box. Skip it when the
+                            // author fixed BOTH axes to definite lengths — the explicit box wins then,
+                            // matching CSS `aspect-ratio: auto` for replaced elements.
+                            if !is_placeholder && dimension.width > 0.0 && dimension.height > 0.0 {
+                                let both_fixed = taffy_style.size.width.into_option().is_some()
+                                    && taffy_style.size.height.into_option().is_some();
+                                let ratio = (dimension.width / dimension.height) as f32;
+                                if !both_fixed && ratio.is_finite() && ratio > 0.0 {
+                                    taffy_style.aspect_ratio = Some(ratio);
                                 }
                             }
+
+                            // A broken/placeholder image still reserves the author's declared
+                            // box (HTML width/height attrs), matching Firefox, which draws a small
+                            // broken-image icon inside that reserved space rather than collapsing.
+                            if is_placeholder {
+                                if let Some(w) = data.get_attribute("width").and_then(|s| parse_px_attr(s)) {
+                                    taffy_style.size.width = Dimension::from_length(w);
+                                }
+                                if let Some(h) = data.get_attribute("height").and_then(|s| parse_px_attr(s)) {
+                                    taffy_style.size.height = Dimension::from_length(h);
+                                }
+                            }
+
+                            // Browsers show the `alt` text only when the image itself renders
+                            // nothing useful: a broken/placeholder load, or a fully transparent
+                            // image. A normally-decoded, visible image never shows its alt.
+                            let alt = if is_placeholder || is_transparent {
+                                data.get_attribute("alt")
+                                    .map(|s| s.trim().to_string())
+                                    .filter(|s| !s.is_empty())
+                            } else {
+                                None
+                            };
+
+                            taffy_context = Some(if is_svg {
+                                TaffyContext::svg(src.as_str(), media_id, dimension, dom_node.node_id)
+                            } else {
+                                TaffyContext::image(
+                                    src.as_str(),
+                                    media_id,
+                                    dimension,
+                                    dom_node.node_id,
+                                    is_placeholder,
+                                    alt,
+                                )
+                            });
                         }
                         MediaRequest::Pending => {
                             // Placeholder size: honour the HTML width/height attributes if present,
@@ -1084,6 +1298,8 @@ fn to_element_context(taffy_context: Option<&TaffyContext>) -> ElementContext {
             image_ctx.media_id,
             image_ctx.dimension,
             image_ctx.node_id,
+            image_ctx.placeholder,
+            image_ctx.alt.clone(),
         ),
         Some(TaffyContext::Svg(svg_ctx)) => ElementContext::svg(
             svg_ctx.src.as_str(),

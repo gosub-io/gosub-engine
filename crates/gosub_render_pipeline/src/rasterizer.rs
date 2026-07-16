@@ -154,9 +154,21 @@ fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
                     hf32!(c.b());
                     hf32!(c.a());
                 }
-                Brush::Image(m) => {
+                Brush::Image(m, tiling) => {
                     fnv!(&[1]);
                     hu64!(m.as_u64());
+                    match tiling {
+                        Some(t) => {
+                            hbool!(true);
+                            hf32!(t.tile_size.0);
+                            hf32!(t.tile_size.1);
+                            hf32!(t.position.0);
+                            hf32!(t.position.1);
+                            hbool!(t.repeat.0);
+                            hbool!(t.repeat.1);
+                        }
+                        None => hbool!(false),
+                    }
                 }
                 Brush::Gradient(Gradient::Linear(g)) => {
                     fnv!(&[2]);

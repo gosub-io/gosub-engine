@@ -144,17 +144,23 @@ impl Color {
 
     /// Converts a css color, or even #rrggbbaa to a Color
     pub fn from_css(css_color: &str) -> Self {
-        let Ok(ccp_color) = ccpColor::from_html(css_color) else {
+        Self::try_from_css(css_color).unwrap_or_else(|| {
             log::error!("Failed to parse css color: {}", css_color);
-            return Color::BLACK;
-        };
+            Color::BLACK
+        })
+    }
 
-        Self {
+    /// Like [`Color::from_css`] but returns `None` instead of falling back to black when the
+    /// string is not a valid CSS color. Handles named colors and the `transparent` keyword
+    /// (e.g. as used in gradient colour stops).
+    pub fn try_from_css(css_color: &str) -> Option<Self> {
+        let ccp_color = ccpColor::from_html(css_color).ok()?;
+        Some(Self {
             r: ccp_color.r,
             g: ccp_color.g,
             b: ccp_color.b,
             a: ccp_color.a,
-        }
+        })
     }
 }
 

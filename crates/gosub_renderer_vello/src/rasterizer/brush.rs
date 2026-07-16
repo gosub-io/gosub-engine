@@ -1,11 +1,11 @@
 use gosub_render_pipeline::common::geo::Rect;
 use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::painter::commands::brush::Brush;
-use gosub_render_pipeline::painter::commands::gradient::Gradient as CssGradient;
+use gosub_render_pipeline::painter::commands::gradient::{Gradient as CssGradient, LinearGradient, Tiling};
 use vello::kurbo::Affine;
 use vello::peniko::color::{AlphaColor, DynamicColor, Rgba8};
 use vello::peniko::{
-    Blob, Brush as VelloBrush, ColorStop, Gradient as VelloGradient, ImageAlphaType, ImageBrush, ImageData,
+    Blob, Brush as VelloBrush, ColorStop, Extend, Gradient as VelloGradient, ImageAlphaType, ImageBrush, ImageData,
     ImageFormat, ImageSampler,
 };
 
@@ -22,6 +22,11 @@ pub fn set_brush(brush: &Brush, rect: Rect, media_store: &MediaStore) -> (VelloB
             (VelloBrush::Solid(AlphaColor::from(c)), None)
         }
         Brush::Gradient(CssGradient::Linear(g)) => {
+            // Tiled `background-image` layer: rasterize one `background-size` cell and repeat it
+            // as an image brush, offset by `background-position`.
+            if let Some(tiling) = &g.tiling {
+                return tiled_gradient_brush(g, tiling, rect);
+            }
             let ((x0, y0), (x1, y1)) = g.line(rect.width as f32, rect.height as f32);
             let stops: Vec<ColorStop> = g
                 .stops
@@ -43,7 +48,7 @@ pub fn set_brush(brush: &Brush, rect: Rect, media_store: &MediaStore) -> (VelloB
             .with_stops(stops.as_slice());
             (VelloBrush::Gradient(gradient), None)
         }
-        Brush::Image(media_id) => {
+        Brush::Image(media_id, tiling) => {
             let media = media_store.get_image(*media_id);
             let (iw, ih) = (media.image.width(), media.image.height());
             let image_data = ImageData {
@@ -56,17 +61,64 @@ pub fn set_brush(brush: &Brush, rect: Rect, media_store: &MediaStore) -> (VelloB
                 width: iw,
                 height: ih,
             };
-            let transform = (iw > 0 && ih > 0).then(|| {
-                Affine::translate((rect.x, rect.y))
-                    * Affine::scale_non_uniform(rect.width / iw as f64, rect.height / ih as f64)
-            });
+            let (sampler, transform) = match tiling {
+                // Tiled `background-image`: scale the image (iw×ih px) to `tile_size` (CSS px) and
+                // repeat it, offset by `background-position`. The fill shape (box) clips the tiling.
+                Some(t) if iw > 0 && ih > 0 => {
+                    let extend = |repeat: bool| if repeat { Extend::Repeat } else { Extend::Pad };
+                    let sampler = ImageSampler::default()
+                        .with_x_extend(extend(t.repeat.0))
+                        .with_y_extend(extend(t.repeat.1));
+                    let transform = Affine::translate((rect.x + t.position.0 as f64, rect.y + t.position.1 as f64))
+                        * Affine::scale_non_uniform(t.tile_size.0 as f64 / iw as f64, t.tile_size.1 as f64 / ih as f64);
+                    (sampler, Some(transform))
+                }
+                // Non-tiled: scale the single image copy to fill the whole rect.
+                _ => {
+                    let transform = (iw > 0 && ih > 0).then(|| {
+                        Affine::translate((rect.x, rect.y))
+                            * Affine::scale_non_uniform(rect.width / iw as f64, rect.height / ih as f64)
+                    });
+                    (ImageSampler::default(), transform)
+                }
+            };
             (
                 VelloBrush::Image(ImageBrush {
                     image: image_data,
-                    sampler: ImageSampler::default(),
+                    sampler,
                 }),
                 transform,
             )
         }
     }
+}
+
+/// Build a repeating image brush for a tiled `background-image` gradient layer: rasterize one
+/// tile at `background-size` and let the sampler repeat it, translated by `background-position`.
+/// The fill shape (the element box) clips the infinite tiling.
+fn tiled_gradient_brush(g: &LinearGradient, tiling: &Tiling, rect: Rect) -> (VelloBrush, Option<Affine>) {
+    let tw = (tiling.tile_size.0.round() as u32).max(1);
+    let th = (tiling.tile_size.1.round() as u32).max(1);
+    let rgba = g.rasterize_tile(tw, th);
+    let image_data = ImageData {
+        data: Blob::<u8>::from(rgba),
+        format: ImageFormat::Rgba8,
+        // Straight (unpremultiplied) alpha, matching the raster-image brush above.
+        alpha_type: ImageAlphaType::Alpha,
+        width: tw,
+        height: th,
+    };
+    // Full-repeat (the default) tiles both axes; no-repeat pads (clamps) instead.
+    let extend = |repeat: bool| if repeat { Extend::Repeat } else { Extend::Pad };
+    let sampler = ImageSampler::default()
+        .with_x_extend(extend(tiling.repeat.0))
+        .with_y_extend(extend(tiling.repeat.1));
+    let transform = Affine::translate((rect.x + tiling.position.0 as f64, rect.y + tiling.position.1 as f64));
+    (
+        VelloBrush::Image(ImageBrush {
+            image: image_data,
+            sampler,
+        }),
+        Some(transform),
+    )
 }

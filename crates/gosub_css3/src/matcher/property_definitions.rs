@@ -74,10 +74,8 @@ const BUILTIN_DATA_TYPES: [&str; 41] = [
 /// not constrain arbitrary arguments of a function inside the resolved grammar.
 fn apply_range(component: &mut SyntaxComponent, range: RangeType) {
     match component {
-        SyntaxComponent::Builtin { range: existing, .. } => {
-            if existing.is_empty() {
-                *existing = range;
-            }
+        SyntaxComponent::Builtin { range: existing, .. } if existing.is_empty() => {
+            *existing = range;
         }
         SyntaxComponent::Group { components, .. } => {
             for inner in components {

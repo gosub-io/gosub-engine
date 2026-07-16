@@ -3,7 +3,7 @@ use crate::common::document::style::{
     intern, BorderStyle, Display, FontWeight, NodeStyle, StyleProperty, TextAlign, TextWrap, Unit, Value,
 };
 use crate::painter::commands::color::Color;
-use crate::painter::commands::gradient::{ColorStop, Gradient, LinearGradient};
+use crate::painter::commands::gradient::{ColorStop, Gradient, LinearGradient, Tiling};
 use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem, CssValue};
@@ -144,12 +144,27 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
                 return Some(Value::Keyword(intern(s)));
             }
             if let Some(list) = p.as_list() {
-                let names: String = list
-                    .iter()
-                    .filter(|v| !v.is_comma())
-                    .filter_map(|v| v.as_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                // The value is a flat token list: an unquoted multi-word family name is a run
+                // of space-separated identifier tokens (`DejaVu Sans` → `String("DejaVu")`,
+                // `String("Sans")`) and `Comma` separates alternative families. Rejoin adjacent
+                // tokens with a space (same family) and use ", " only at commas, so a name like
+                // "DejaVu Sans" survives intact instead of splitting into "DejaVu, Sans" (which
+                // matches no installed font and falls through to the generic fallback).
+                let mut names = String::new();
+                let mut need_space = false;
+                for v in list {
+                    if v.is_comma() {
+                        names.push_str(", ");
+                        need_space = false;
+                        continue;
+                    }
+                    let Some(s) = v.as_string() else { continue };
+                    if need_space {
+                        names.push(' ');
+                    }
+                    names.push_str(s);
+                    need_space = true;
+                }
                 if !names.is_empty() {
                     return Some(Value::Keyword(intern(&names)));
                 }
@@ -304,34 +319,38 @@ fn css_property_url<S: CssSystem>(p: &S::Property) -> Option<String> {
     None
 }
 
+/// Extract a solid colour from a `background` shorthand value (e.g. `background: #fff`,
+/// `background: white`, or `background: #fff url(...) no-repeat`). Returns the first colour
+/// token found, or `None` when the shorthand carries no colour. Components are 0..=255.
+fn css_property_bg_color<S: CssSystem>(p: &S::Property) -> Option<(u8, u8, u8, u8)> {
+    // Single-value shorthand: a bare `<color>` (hex/function collapse to a concrete colour at
+    // parse time; a named/system colour arrives as a string).
+    if let Some(s) = p.as_string() {
+        if let Some(c) = css_system_color(s) {
+            return Some(c);
+        }
+    }
+    if let Some((r, g, b, a)) = p.parse_color() {
+        return Some((r as u8, g as u8, b as u8, a as u8));
+    }
+    // Multi-token shorthand: pick the first token that is a concrete colour.
+    if let Some(list) = p.as_list() {
+        for v in list {
+            if let Some((r, g, b, a)) = v.as_color() {
+                return Some((r as u8, g as u8, b as u8, a as u8));
+            }
+            if let Some(c) = v.as_string().and_then(css_system_color) {
+                return Some(c);
+            }
+        }
+    }
+    None
+}
+
 // ── Gradient parsing ──────────────────────────────────────────────────────────
 
 /// Search a property value (the `background-image` longhand or a `background` shorthand
 /// list) for a `linear-gradient(...)` and parse it into a [`Gradient`].
-fn css_property_gradient<S: CssSystem>(p: &S::Property) -> Option<Gradient> {
-    if let Some((name, args)) = p.as_function() {
-        if name.eq_ignore_ascii_case("linear-gradient") {
-            return parse_linear_gradient::<S>(args);
-        }
-    }
-    if let Some(list) = p.as_list() {
-        return list.iter().find_map(css_value_gradient::<S>);
-    }
-    None
-}
-
-fn css_value_gradient<S: CssSystem>(v: &S::Value) -> Option<Gradient> {
-    if let Some((name, args)) = v.as_function() {
-        if name.eq_ignore_ascii_case("linear-gradient") {
-            return parse_linear_gradient::<S>(args);
-        }
-    }
-    if let Some(list) = v.as_list() {
-        return list.iter().find_map(css_value_gradient::<S>);
-    }
-    None
-}
-
 /// Parse the argument list of a `linear-gradient(...)` into a [`Gradient`]: an optional
 /// leading direction (`to <side>[ <side>]` or an `<angle>`) followed by two or more colour
 /// stops. Stops without an explicit position are spread evenly between their neighbours.
@@ -362,10 +381,19 @@ fn parse_linear_gradient<S: CssSystem>(args: &[S::Value]) -> Option<Gradient> {
     let mut colors: Vec<Color> = Vec::new();
     let mut offsets: Vec<Option<f32>> = Vec::new();
     for group in groups.iter().skip(first_stop) {
-        let Some((r, g, b, a)) = group.iter().find_map(|v| v.as_color()) else {
+        // A stop colour is either a parsed `Color` (hex / rgb() / hsl()) or a bareword that
+        // only becomes a colour here: named colours and the `transparent` keyword tokenise as
+        // plain identifiers, so `as_color()` misses them. `#e6e6e6 25%, transparent 25%` in
+        // the checkerboard depends on `transparent` resolving to a zero-alpha stop.
+        let color = group
+            .iter()
+            .find_map(|v| v.as_color())
+            .map(|(r, g, b, a)| Color::from_rgba(r / 255.0, g / 255.0, b / 255.0, a / 255.0))
+            .or_else(|| group.iter().find_map(|v| v.as_string()).and_then(Color::try_from_css));
+        let Some(color) = color else {
             continue;
         };
-        colors.push(Color::from_rgba(r / 255.0, g / 255.0, b / 255.0, a / 255.0));
+        colors.push(color);
         offsets.push(group.iter().find_map(|v| v.as_percentage()).map(|p| p / 100.0));
     }
     let n = colors.len();
@@ -412,7 +440,11 @@ fn parse_linear_gradient<S: CssSystem>(args: &[S::Value]) -> Option<Gradient> {
         })
         .collect();
 
-    Some(Gradient::Linear(LinearGradient { angle_deg, stops }))
+    Some(Gradient::Linear(LinearGradient {
+        angle_deg,
+        stops,
+        tiling: None,
+    }))
 }
 
 /// Parse the leading direction group of a `linear-gradient`. Returns the gradient-line
@@ -452,11 +484,206 @@ fn parse_gradient_direction<S: CssSystem>(group: &[&S::Value]) -> Option<f32> {
     })
 }
 
+/// All `linear-gradient(...)` layers of a `background-image` property, in source order (the
+/// first listed layer paints on top). Non-gradient layers (`url()`, `none`) are skipped.
+fn property_gradient_layers<S: CssSystem>(p: &S::Property) -> Vec<LinearGradient> {
+    let mut out = Vec::new();
+    let mut push_fn = |name: &str, args: &[S::Value]| {
+        if name.eq_ignore_ascii_case("linear-gradient") {
+            if let Some(Gradient::Linear(g)) = parse_linear_gradient::<S>(args) {
+                out.push(g);
+            }
+        }
+    };
+    if let Some((name, args)) = p.as_function() {
+        push_fn(name, args);
+        return out;
+    }
+    if let Some(list) = p.as_list() {
+        for v in list {
+            if let Some((name, args)) = v.as_function() {
+                push_fn(name, args);
+            }
+        }
+    }
+    out
+}
+
+/// One resolved token from a `background-size`/`-position`/`-repeat` value.
+enum BgTok {
+    /// A `<length>` in px (bare `0` included).
+    Len(f32),
+    /// A `<percentage>` (0..100). The value is retained for future box-relative resolution;
+    /// today a percentage size/position falls back to "fill box" / zero offset.
+    #[allow(dead_code)]
+    Pct(f32),
+    /// A keyword (`cover`, `center`, `no-repeat`, …), lowercased.
+    Kw(String),
+}
+
+fn value_bg_tok<S: CssSystem>(v: &S::Value) -> Option<BgTok> {
+    if let Some((val, unit)) = v.as_unit() {
+        if unit.eq_ignore_ascii_case("px") {
+            return Some(BgTok::Len(val));
+        }
+    }
+    if let Some(pct) = v.as_percentage() {
+        return Some(BgTok::Pct(pct));
+    }
+    if let Some(n) = v.as_number() {
+        if n == 0.0 {
+            return Some(BgTok::Len(0.0)); // bare `0`
+        }
+    }
+    v.as_string()
+        .map(|s| BgTok::Kw(s.cow_to_ascii_lowercase().into_owned()))
+}
+
+fn prop_bg_tok<S: CssSystem>(p: &S::Property) -> Option<BgTok> {
+    if let Some((val, unit)) = p.as_unit() {
+        if unit.eq_ignore_ascii_case("px") {
+            return Some(BgTok::Len(val));
+        }
+    }
+    if let Some(pct) = p.as_percentage() {
+        return Some(BgTok::Pct(pct));
+    }
+    if let Some(n) = p.as_number() {
+        if n == 0.0 {
+            return Some(BgTok::Len(0.0));
+        }
+    }
+    p.as_string()
+        .map(|s| BgTok::Kw(s.cow_to_ascii_lowercase().into_owned()))
+}
+
+/// Split a `background-*` longhand into comma-separated groups (one per `<bg-layer>`).
+/// A scalar property (e.g. `background-repeat: repeat`) is a single group.
+fn bg_token_groups<S: CssSystem>(p: &S::Property) -> Vec<Vec<BgTok>> {
+    if let Some(list) = p.as_list() {
+        let mut groups: Vec<Vec<BgTok>> = vec![Vec::new()];
+        for v in list {
+            if v.is_comma() {
+                groups.push(Vec::new());
+            } else if let Some(t) = value_bg_tok::<S>(v) {
+                // `groups` is seeded with one Vec and only grows, so `last_mut` is always Some;
+                // handle it without `expect` (which the workspace lints deny).
+                if let Some(last) = groups.last_mut() {
+                    last.push(t);
+                }
+            }
+        }
+        return groups;
+    }
+    match prop_bg_tok::<S>(p) {
+        Some(t) => vec![vec![t]],
+        None => Vec::new(),
+    }
+}
+
+/// `background-size` group → tile size in px, or `None` for `auto`/`cover`/`contain`/`%`
+/// (which mean "fill the box", i.e. no tiling).
+fn resolve_bg_size(group: &[BgTok]) -> Option<(f32, f32)> {
+    let mut dims = Vec::new();
+    for t in group {
+        match t {
+            BgTok::Len(v) => dims.push(*v),
+            // Percentage- and keyword-sized backgrounds need the box size to resolve; treat
+            // them as "fill the box" for now (no tiling).
+            BgTok::Pct(_) | BgTok::Kw(_) => return None,
+        }
+    }
+    match dims.as_slice() {
+        [w] => Some((*w, *w)),
+        [w, h, ..] => Some((*w, *h)),
+        _ => None,
+    }
+}
+
+/// `background-position` group → (x, y) px phase offset. Percentages and edge keywords need
+/// the box size, so they resolve to 0 for now (px offsets — what the checkerboard uses — are
+/// exact).
+fn resolve_bg_position(group: &[BgTok]) -> (f32, f32) {
+    let lens: Vec<f32> = group
+        .iter()
+        .filter_map(|t| match t {
+            BgTok::Len(v) => Some(*v),
+            _ => None,
+        })
+        .collect();
+    match lens.as_slice() {
+        [x] => (*x, 0.0),
+        [x, y, ..] => (*x, *y),
+        _ => (0.0, 0.0),
+    }
+}
+
+/// `background-repeat` group → (repeat_x, repeat_y). Defaults to repeating both axes.
+fn resolve_bg_repeat(group: &[BgTok]) -> (bool, bool) {
+    let kws: Vec<&str> = group
+        .iter()
+        .filter_map(|t| match t {
+            BgTok::Kw(k) => Some(k.as_str()),
+            _ => None,
+        })
+        .collect();
+    let axis = |k: &str| k != "no-repeat"; // repeat / space / round all tile
+    match kws.as_slice() {
+        [] => (true, true),
+        ["repeat-x"] => (true, false),
+        ["repeat-y"] => (false, true),
+        [a] => (axis(a), axis(a)),
+        [a, b, ..] => (axis(a), axis(b)),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PipelineNodeKind {
     Text,
     Comment,
     Element,
+}
+
+/// Resolved `background-size` keyword/value.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BgSize {
+    /// `auto` / absent — the image's intrinsic size.
+    Auto,
+    /// Explicit lengths in px.
+    Length(f32, f32),
+    /// `cover` — scale (preserving aspect) so the image fully covers the box, cropping overflow.
+    Cover,
+    /// `contain` — scale (preserving aspect) so the image fits inside the box, letterboxing.
+    Contain,
+}
+
+/// Resolved `background-repeat`/`-size`/`-position` for an element's (first) background layer,
+/// used to size/tile a raster/SVG `background-image`. Read from the `background` shorthand as well
+/// as the longhands, since pages often write `background: url(x) repeat` (or `… center / cover`).
+///
+/// `cover`/`contain` depend on the box size, so the final tile geometry is computed at paint time
+/// (see the painter) from this layout plus the element's border box.
+#[derive(Debug, Clone, Copy)]
+pub struct BgImageLayout {
+    /// Whether the tile repeats on the x / y axis (`background-repeat`; default repeat both).
+    pub repeat: (bool, bool),
+    /// Tile origin offset from the box origin, in px (`background-position`, length form).
+    pub position: (f32, f32),
+    /// Per-axis `center` keyword (`background-position: center`) — resolved against the box at paint.
+    pub center: (bool, bool),
+    /// Resolved `background-size`.
+    pub size: BgSize,
+}
+
+impl Default for BgImageLayout {
+    fn default() -> Self {
+        BgImageLayout {
+            repeat: (true, true),
+            position: (0.0, 0.0),
+            center: (false, false),
+            size: BgSize::Auto,
+        }
+    }
 }
 
 // ── PipelineDocument trait ────────────────────────────────────────────────────
@@ -479,10 +706,19 @@ pub trait PipelineDocument: Send + Sync {
     /// Returns the own (explicitly-set) value for `prop` on node `id`, without recursing.
     fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value>;
 
-    /// The CSS `background` / `background-image` gradient for node `id`, if its background
-    /// is a (currently only linear) gradient. Returns `None` for solid/image backgrounds.
-    fn background_gradient(&self, _id: NodeId) -> Option<Gradient> {
-        None
+    /// The CSS `background-image` gradient layers for node `id`, in source order (the first
+    /// listed layer paints on top). Each layer carries its resolved `background-size` /
+    /// `-position` / `-repeat` tiling (or `None` tiling to fill the box). Empty for
+    /// solid/image backgrounds.
+    fn background_layers(&self, _id: NodeId) -> Vec<Gradient> {
+        Vec::new()
+    }
+
+    /// Resolved `background-repeat`/`-size`/`-position` for node `id`'s background image,
+    /// read from both the `background` shorthand and the longhands. Used to tile a raster/SVG
+    /// `background-image`. Defaults to "repeat both axes, intrinsic size, no offset".
+    fn background_image_layout(&self, _id: NodeId) -> BgImageLayout {
+        BgImageLayout::default()
     }
 
     /// Discard the computed-style cache so the next `get_own_style` call re-evaluates
@@ -892,6 +1128,17 @@ where
                 return Some(v);
             }
         }
+
+        // `background-color` may be written via the `background` shorthand (e.g. `background: #fff`).
+        // The shorthand is stored under its own key and is not expanded to longhands, so fall back
+        // to extracting the colour token from it when the longhand is absent.
+        if matches!(prop, StyleProperty::BackgroundColor) {
+            if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, "background") {
+                if let Some((r, g, b, a)) = css_property_bg_color::<C::CssSystem>(p) {
+                    return Some(Value::Color(r, g, b, a));
+                }
+            }
+        }
         None
     }
 
@@ -1025,25 +1272,141 @@ where
         None
     }
 
-    fn background_gradient(&self, id: NodeId) -> Option<Gradient> {
-        // Read the gradient from the pseudo-element's own map, never the owner's.
+    fn background_layers(&self, id: NodeId) -> Vec<Gradient> {
+        // Read the layers from the pseudo-element's own map, never the owner's.
         let arc = if is_pseudo_id(u64::from(id)) {
             let (owner, role) = decode_pseudo(id);
             if role_is_text(role) {
-                return None;
+                return Vec::new();
             }
-            self.pseudo_box(owner, role_is_after(role))?.styles.clone()
+            match self.pseudo_box(owner, role_is_after(role)) {
+                Some(pb) => pb.styles.clone(),
+                None => return Vec::new(),
+            }
         } else {
             self.cached_styles(id)
         };
+        let map = arc.as_ref();
+
+        let mut layers = Vec::new();
         for key in ["background-image", "background"] {
-            if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), key) {
-                if let Some(g) = css_property_gradient::<C::CssSystem>(p) {
-                    return Some(g);
+            if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, key) {
+                layers = property_gradient_layers::<C::CssSystem>(p);
+                if !layers.is_empty() {
+                    break;
                 }
             }
         }
-        None
+        if layers.is_empty() {
+            return Vec::new();
+        }
+
+        // `background-size/-position/-repeat` are per-layer lists cycled to the layer count.
+        let read_groups = |key: &str| {
+            <_ as CssPropertyMap<C::CssSystem>>::get(map, key)
+                .map(bg_token_groups::<C::CssSystem>)
+                .unwrap_or_default()
+        };
+        let size_groups = read_groups("background-size");
+        let pos_groups = read_groups("background-position");
+        let rep_groups = read_groups("background-repeat");
+        let pick =
+            |groups: &[Vec<BgTok>], i: usize| -> Option<usize> { (!groups.is_empty()).then(|| i % groups.len()) };
+
+        for (i, g) in layers.iter_mut().enumerate() {
+            let Some((tw, th)) = pick(&size_groups, i).and_then(|j| resolve_bg_size(&size_groups[j])) else {
+                continue; // no explicit size → fill the box (no tiling)
+            };
+            if tw <= 0.0 || th <= 0.0 {
+                continue;
+            }
+            let position = pick(&pos_groups, i)
+                .map(|j| resolve_bg_position(&pos_groups[j]))
+                .unwrap_or((0.0, 0.0));
+            let repeat = pick(&rep_groups, i)
+                .map(|j| resolve_bg_repeat(&rep_groups[j]))
+                .unwrap_or((true, true));
+            g.tiling = Some(Tiling {
+                tile_size: (tw, th),
+                position,
+                repeat,
+            });
+        }
+
+        layers.into_iter().map(Gradient::Linear).collect()
+    }
+
+    fn background_image_layout(&self, id: NodeId) -> BgImageLayout {
+        let arc = self.cached_styles(id);
+        let map = arc.as_ref();
+
+        // Collect keyword tokens (and any explicit px size) from the first background layer of the
+        // `background` shorthand and the relevant longhands. The shorthand carries repeat/size
+        // keywords inline (e.g. `background: url(x) no-repeat center / contain`), so it must be
+        // scanned too — the longhands are usually empty in that case.
+        let mut keywords: Vec<String> = Vec::new();
+        let mut explicit_size: Option<(f32, f32)> = None;
+        let mut position: Option<(f32, f32)> = None;
+
+        let mut scan = |key: &str, read_size: bool, read_pos: bool| {
+            let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, key) else {
+                return;
+            };
+            let groups = bg_token_groups::<C::CssSystem>(p);
+            let Some(group) = groups.first() else {
+                return;
+            };
+            if read_size && explicit_size.is_none() {
+                explicit_size = resolve_bg_size(group);
+            }
+            if read_pos && position.is_none() {
+                let pos = resolve_bg_position(group);
+                if pos != (0.0, 0.0) {
+                    position = Some(pos);
+                }
+            }
+            for t in group {
+                if let BgTok::Kw(k) = t {
+                    keywords.push(k.clone());
+                }
+            }
+        };
+        // The shorthand mixes position and size (split by `/`); reading its bare lengths as a
+        // position is unreliable, so only take position/size from the dedicated longhands.
+        scan("background", false, false);
+        scan("background-repeat", false, false);
+        scan("background-size", true, false);
+        scan("background-position", false, true);
+
+        let has = |k: &str| keywords.iter().any(|s| s == k);
+        let repeat = if has("no-repeat") {
+            (false, false)
+        } else if has("repeat-x") {
+            (true, false)
+        } else if has("repeat-y") {
+            (false, true)
+        } else {
+            (true, true)
+        };
+        let size = match explicit_size {
+            Some((w, h)) => BgSize::Length(w, h),
+            None if has("cover") => BgSize::Cover,
+            None if has("contain") => BgSize::Contain,
+            None => BgSize::Auto,
+        };
+        // A length `background-position` wins; otherwise a bare `center` centers both axes.
+        let (position, center) = match position {
+            Some(pos) => (pos, (false, false)),
+            None if has("center") => ((0.0, 0.0), (true, true)),
+            None => ((0.0, 0.0), (false, false)),
+        };
+
+        BgImageLayout {
+            repeat,
+            position,
+            center,
+            size,
+        }
     }
 
     fn clear_style_cache(&self) {
@@ -1137,9 +1500,21 @@ where
                         attr_map.set(k, v);
                     }
                 }
-                // Styles are accessed via `doc.get_own_style()` rather than stored in
+                // Most styles are accessed via `doc.get_own_style()` rather than stored in
                 // ElementData — CssTaffyConverter uses the PipelineDocument interface directly.
-                let element_data = ElementData::new(tag_name, Some(attr_map), false, None);
+                // `display`, however, drives the layouter's tag-name-based inline-vs-block
+                // grouping (Node::is_inline_element / is_block_element), which only reads the
+                // local NodeStyle. Carry the *cascaded* display onto the Node so author rules
+                // like `figcaption b { display: block }` are honored. Only set it when the
+                // cascade (UA or author) actually assigned one; leaving it `None` preserves the
+                // intrinsic tag-name fallback (the UA stylesheet is incomplete, so we must not
+                // substitute the CSS `inline` initial value get_style() would otherwise return).
+                let styles = self.get_own_style(id, &StyleProperty::Display).map(|display| {
+                    let mut style = NodeStyle::new();
+                    style.set(StyleProperty::Display, display);
+                    style
+                });
+                let element_data = ElementData::new(tag_name, Some(attr_map), false, styles);
                 NodeType::Element(element_data)
             }
             _ => return None,

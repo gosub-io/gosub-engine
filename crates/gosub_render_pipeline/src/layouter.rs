@@ -80,6 +80,14 @@ pub struct ElementContextImage {
     pub media_id: MediaId,
     /// Dimension of the image. Can be Dimension::ZERO if not known yet
     pub dimension: Dimension,
+    /// True when `media_id` is a fallback broken-image placeholder (the real image failed to
+    /// load). The painter draws the icon at its natural `dimension` in the top-left of the
+    /// reserved box instead of stretching it to fill.
+    pub placeholder: bool,
+    /// The `alt` text to render inside the image box, `Some` only when the image itself shows
+    /// nothing meaningful — a broken/placeholder load, or a fully transparent image. Browsers
+    /// display alt text in these cases (never over a normally-decoded, visible image).
+    pub alt: Option<String>,
 }
 
 /// Information about the given element that is needed for different phases of the rendering pipeline. For instance,
@@ -110,12 +118,21 @@ impl ElementContext {
         })
     }
 
-    pub fn image(src: &str, media_id: MediaId, dimension: Dimension, node_id: DomNodeId) -> ElementContext {
+    pub fn image(
+        src: &str,
+        media_id: MediaId,
+        dimension: Dimension,
+        node_id: DomNodeId,
+        placeholder: bool,
+        alt: Option<String>,
+    ) -> ElementContext {
         Self::Image(ElementContextImage {
             node_id,
             src: src.to_string(),
             media_id,
             dimension,
+            placeholder,
+            alt,
         })
     }
 
@@ -152,9 +169,20 @@ pub struct LayoutElementNode {
 }
 
 /// A resolved CSS `background-image` together with its media kind.
+///
+/// `Image` carries the image's intrinsic size and the resolved `background-repeat`/`-size`/
+/// `-position` layout; the painter finalizes the tile geometry once the element's border box is
+/// known (needed for `cover`/`contain`). An SVG background that tiles/repeats is rasterized to a
+/// raster tile during layout and stored here as `Image`, so only one tiling path exists downstream;
+/// a `cover`/`contain` SVG stays `Svg` and is scaled to the box by the SVG paint path.
 #[derive(Debug, Clone, Copy)]
 pub enum BackgroundMedia {
-    Image(MediaId),
+    Image {
+        media_id: MediaId,
+        /// Intrinsic image size in px (for a rasterized SVG tile, the tile's pixel size).
+        natural: (f32, f32),
+        layout: crate::common::document::pipeline_doc::BgImageLayout,
+    },
     Svg(MediaId),
 }
 

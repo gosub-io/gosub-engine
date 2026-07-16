@@ -289,6 +289,30 @@ mod tests {
     }
 
     #[test]
+    fn decodes_png_with_bad_chunk_crc() {
+        // A 1×1 grayscale+alpha PNG whose IDAT chunk carries an incorrect CRC (stored 0x018084a9,
+        // correct 0x1fa2b2f0). The strict `image` decoder rejects it; browsers tolerate it, so the
+        // RasterDecoder retries with checksum validation disabled. Bytes are the base64 payload of
+        // the `data:image/png` edge case on tests.gosub.io/images.html.
+        const BAD_CRC_PNG: &[u8] = &[
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x04, 0x00, 0x00, 0x00, 0xb5, 0x1c, 0x0c, 0x02, 0x00, 0x00, 0x00,
+            0x0b, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0xfc, 0xcf, 0xc0, 0x50, 0x0f, 0x00, 0x04, 0x85, 0x01, 0x80,
+            0x84, 0xa9, 0x8c, 0x21, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+        ];
+        let registry = MediaDecoderRegistry::with_defaults();
+        // Strict `image` decode fails on the bad CRC, so this exercises the lenient fallback.
+        assert!(image::load_from_memory(BAD_CRC_PNG).is_err());
+        let media = registry
+            .decode(Some("image/png"), BAD_CRC_PNG)
+            .expect("lenient png decode");
+        let img = expect_raster(media);
+        assert_eq!((img.width(), img.height()), (1, 1));
+        // The single pixel is a fully transparent white (gray 255, alpha 0).
+        assert_eq!(img.as_raw()[3], 0, "alpha must be transparent");
+    }
+
+    #[test]
     fn unsupported_bytes_error() {
         let registry = MediaDecoderRegistry::with_defaults();
         let err = registry.decode(None, b"not an image at all").unwrap_err();
