@@ -104,7 +104,12 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
                         None => {
                             pattern.set_filter(cairo::Filter::Bilinear);
                             pattern.set_extend(cairo::Extend::Pad);
-                            (img.width() as f64 / rect.width, img.height() as f64 / rect.height, rect.x, rect.y)
+                            (
+                                img.width() as f64 / rect.width,
+                                img.height() as f64 / rect.height,
+                                rect.x,
+                                rect.y,
+                            )
                         }
                     };
                     pattern.set_matrix(cairo::Matrix::new(sx, 0.0, 0.0, sy, -ox * sx, -oy * sy));

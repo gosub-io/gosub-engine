@@ -58,7 +58,9 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_
             if let Brush::Gradient(Gradient::Linear(g)) = brush {
                 match &g.tiling {
                     Some(tiling) => apply_tiled_gradient(&mut paint, g, tiling, r.x as f32, r.y as f32),
-                    None => apply_linear_gradient(&mut paint, g, r.x as f32, r.y as f32, r.width as f32, r.height as f32),
+                    None => {
+                        apply_linear_gradient(&mut paint, g, r.x as f32, r.y as f32, r.width as f32, r.height as f32)
+                    }
                 }
             }
             draw_rect_or_rounded(

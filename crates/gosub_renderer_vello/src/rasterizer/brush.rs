@@ -82,7 +82,13 @@ pub fn set_brush(brush: &Brush, rect: Rect, media_store: &MediaStore) -> (VelloB
                     (ImageSampler::default(), transform)
                 }
             };
-            (VelloBrush::Image(ImageBrush { image: image_data, sampler }), transform)
+            (
+                VelloBrush::Image(ImageBrush {
+                    image: image_data,
+                    sampler,
+                }),
+                transform,
+            )
         }
     }
 }

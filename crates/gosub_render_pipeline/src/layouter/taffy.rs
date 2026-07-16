@@ -37,7 +37,6 @@ fn parse_px_attr(v: &str) -> Option<f32> {
     s.trim().parse::<f32>().ok().filter(|n| *n >= 0.0)
 }
 
-
 // Cache key: (text, font_family, size_bits, line_height_bits, weight, max_width_bits,
 // letter_spacing_bits). Floats are stored as their bit pattern so the tuple is Hash + Eq.
 type MeasureKey = (String, String, u32, u32, i32, u32, u32);
@@ -1033,7 +1032,14 @@ impl TaffyLayouter {
                             taffy_context = Some(if is_svg {
                                 TaffyContext::svg(src.as_str(), media_id, dimension, dom_node.node_id)
                             } else {
-                                TaffyContext::image(src.as_str(), media_id, dimension, dom_node.node_id, is_placeholder, alt)
+                                TaffyContext::image(
+                                    src.as_str(),
+                                    media_id,
+                                    dimension,
+                                    dom_node.node_id,
+                                    is_placeholder,
+                                    alt,
+                                )
                             });
                         }
                         MediaRequest::Pending => {

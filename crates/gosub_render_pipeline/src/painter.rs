@@ -235,7 +235,11 @@ impl Painter {
     fn background_fill(&self, node_id: NodeId) -> (Brush, Vec<Gradient>) {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let layers = doc.background_layers(node_id);
-        let color = self.get_brush(node_id, &StyleProperty::BackgroundColor, Brush::solid(Color::TRANSPARENT));
+        let color = self.get_brush(
+            node_id,
+            &StyleProperty::BackgroundColor,
+            Brush::solid(Color::TRANSPARENT),
+        );
         match layers.as_slice() {
             [] => (color, Vec::new()),
             [Gradient::Linear(g)] if g.tiling.is_none() => (Brush::gradient(Gradient::Linear(g.clone())), Vec::new()),
@@ -266,7 +270,9 @@ impl Painter {
         let font_info = self.alt_font_info(node_id);
         let brush = self.get_brush(node_id, &StyleProperty::Color, Brush::solid(Color::BLACK));
         let shaped = self.shape_text(alt, &font_info, rect.width, rect.width);
-        Some(PaintCommand::text(Text::new(rect, alt, &font_info, brush, rect.width, shaped)))
+        Some(PaintCommand::text(Text::new(
+            rect, alt, &font_info, brush, rect.width, shaped,
+        )))
     }
 
     /// A minimal [`FontInfo`] for `alt` text, taking the element's computed `font-family`/`font-size`
@@ -455,7 +461,9 @@ impl Painter {
                     let bg_r = Rectangle::new(border_box)
                         .with_background(bg_brush)
                         .with_blend_mode(blend);
-                    commands.push(PaintCommand::rectangle(self.decorate_with_border_and_radius(dom_node_id, bg_r)));
+                    commands.push(PaintCommand::rectangle(
+                        self.decorate_with_border_and_radius(dom_node_id, bg_r),
+                    ));
                 }
 
                 let brush = Brush::image(image_ctx.media_id);
@@ -468,9 +476,7 @@ impl Painter {
                 } else {
                     border_box
                 };
-                let r = Rectangle::new(draw_box)
-                    .with_background(brush)
-                    .with_blend_mode(blend);
+                let r = Rectangle::new(draw_box).with_background(brush).with_blend_mode(blend);
                 // The border/radius belongs to the element box, not the shrunk icon rect.
                 let border_target = if image_ctx.placeholder { border_box } else { draw_box };
                 let border_r = self.decorate_with_border_and_radius(dom_node_id, Rectangle::new(border_target));
@@ -653,8 +659,16 @@ fn compute_bg_tiling(natural: (f32, f32), layout: &BgImageLayout, box_w: f32, bo
         return None;
     }
 
-    let px = if layout.center.0 { (box_w - tw) / 2.0 } else { layout.position.0 };
-    let py = if layout.center.1 { (box_h - th) / 2.0 } else { layout.position.1 };
+    let px = if layout.center.0 {
+        (box_w - tw) / 2.0
+    } else {
+        layout.position.0
+    };
+    let py = if layout.center.1 {
+        (box_h - th) / 2.0
+    } else {
+        layout.position.1
+    };
 
     Some(Tiling {
         tile_size: (tw, th),

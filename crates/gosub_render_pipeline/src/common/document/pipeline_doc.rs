@@ -535,7 +535,8 @@ fn value_bg_tok<S: CssSystem>(v: &S::Value) -> Option<BgTok> {
             return Some(BgTok::Len(0.0)); // bare `0`
         }
     }
-    v.as_string().map(|s| BgTok::Kw(s.to_ascii_lowercase()))
+    v.as_string()
+        .map(|s| BgTok::Kw(s.cow_to_ascii_lowercase().into_owned()))
 }
 
 fn prop_bg_tok<S: CssSystem>(p: &S::Property) -> Option<BgTok> {
@@ -552,7 +553,8 @@ fn prop_bg_tok<S: CssSystem>(p: &S::Property) -> Option<BgTok> {
             return Some(BgTok::Len(0.0));
         }
     }
-    p.as_string().map(|s| BgTok::Kw(s.to_ascii_lowercase()))
+    p.as_string()
+        .map(|s| BgTok::Kw(s.cow_to_ascii_lowercase().into_owned()))
 }
 
 /// Split a `background-*` longhand into comma-separated groups (one per `<bg-layer>`).
@@ -564,7 +566,11 @@ fn bg_token_groups<S: CssSystem>(p: &S::Property) -> Vec<Vec<BgTok>> {
             if v.is_comma() {
                 groups.push(Vec::new());
             } else if let Some(t) = value_bg_tok::<S>(v) {
-                groups.last_mut().expect("groups is never empty").push(t);
+                // `groups` is seeded with one Vec and only grows, so `last_mut` is always Some;
+                // handle it without `expect` (which the workspace lints deny).
+                if let Some(last) = groups.last_mut() {
+                    last.push(t);
+                }
             }
         }
         return groups;
@@ -1304,9 +1310,8 @@ where
         let size_groups = read_groups("background-size");
         let pos_groups = read_groups("background-position");
         let rep_groups = read_groups("background-repeat");
-        let pick = |groups: &[Vec<BgTok>], i: usize| -> Option<usize> {
-            (!groups.is_empty()).then(|| i % groups.len())
-        };
+        let pick =
+            |groups: &[Vec<BgTok>], i: usize| -> Option<usize> { (!groups.is_empty()).then(|| i % groups.len()) };
 
         for (i, g) in layers.iter_mut().enumerate() {
             let Some((tw, th)) = pick(&size_groups, i).and_then(|j| resolve_bg_size(&size_groups[j])) else {
@@ -1315,8 +1320,12 @@ where
             if tw <= 0.0 || th <= 0.0 {
                 continue;
             }
-            let position = pick(&pos_groups, i).map(|j| resolve_bg_position(&pos_groups[j])).unwrap_or((0.0, 0.0));
-            let repeat = pick(&rep_groups, i).map(|j| resolve_bg_repeat(&rep_groups[j])).unwrap_or((true, true));
+            let position = pick(&pos_groups, i)
+                .map(|j| resolve_bg_position(&pos_groups[j]))
+                .unwrap_or((0.0, 0.0));
+            let repeat = pick(&rep_groups, i)
+                .map(|j| resolve_bg_repeat(&rep_groups[j]))
+                .unwrap_or((true, true));
             g.tiling = Some(Tiling {
                 tile_size: (tw, th),
                 position,
