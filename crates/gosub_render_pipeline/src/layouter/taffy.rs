@@ -674,10 +674,7 @@ impl TaffyLayouter {
             .get_node_by_id(DomNodeId::from(render_node.node_id))?;
 
         // Extract taffy data from the DOM node
-        let Some((taffy_context, taffy_style)) = self.extract_taffy_data(layout_tree, &dom_node) else {
-            // Could not extract taffy data from the DOM node
-            return None;
-        };
+        let (taffy_context, taffy_style) = self.extract_taffy_data(layout_tree, &dom_node)?;
 
         // Flex and grid containers are formatting contexts where ALL children - inline or block -
         // are direct layout participants. Wrapping inline children in an anonymous flex container
