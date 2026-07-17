@@ -41,6 +41,23 @@ fn parse_px_attr(v: &str) -> Option<f32> {
 // letter_spacing_bits). Floats are stored as their bit pattern so the tuple is Hash + Eq.
 type MeasureKey = (String, String, u32, u32, i32, u32, u32);
 
+/// CSS `text-align` on a block, as `justify_content` for the anonymous flex containers holding its
+/// line boxes. A line box *is* that container, so this is what positions a run too short to fill it
+/// — a run that wraps already fills the line and is aligned by the shaper instead.
+///
+/// `justify` stays `None`: the shaper stretches a wrapped run itself, and flexing a single item
+/// can't emulate that.
+fn line_box_justify(align: &Value) -> Option<taffy::JustifyContent> {
+    let Value::TextAlign(ta) = align else {
+        return None;
+    };
+    match ta {
+        TextAlign::Center => Some(taffy::JustifyContent::CENTER),
+        TextAlign::End | TextAlign::Right => Some(taffy::JustifyContent::FLEX_END),
+        _ => None,
+    }
+}
+
 /// One entry in a run of inline content awaiting layout. `Item`s are normal inline boxes/text
 /// laid out inside an anonymous flex container; `Break` is a `<br>` that ends the current line box
 /// and, when standing alone, contributes an empty line of the carried line-height.
@@ -466,6 +483,7 @@ impl TaffyLayouter {
         current_inline_group: &[InlineEntry],
         element_node: &mut LayoutElementNode,
         leaf_id: TaffyNodeId,
+        justify: Option<taffy::JustifyContent>,
     ) {
         log::debug!("Processing inline elements: {:?}", current_inline_group.len());
 
@@ -482,16 +500,16 @@ impl TaffyLayouter {
                 InlineEntry::Item(id, taffy) => segment.push((*id, *taffy)),
                 InlineEntry::Break(lh) => {
                     if segment.is_empty() {
-                        self.emit_line(&[], Some(*lh), element_node, leaf_id);
+                        self.emit_line(&[], Some(*lh), element_node, leaf_id, justify);
                     } else {
-                        self.emit_line(&segment, None, element_node, leaf_id);
+                        self.emit_line(&segment, None, element_node, leaf_id, justify);
                         segment.clear();
                     }
                 }
             }
         }
         if !segment.is_empty() {
-            self.emit_line(&segment, None, element_node, leaf_id);
+            self.emit_line(&segment, None, element_node, leaf_id, justify);
         }
     }
 
@@ -504,6 +522,7 @@ impl TaffyLayouter {
         empty_line_height: Option<f64>,
         element_node: &mut LayoutElementNode,
         leaf_id: TaffyNodeId,
+        justify: Option<taffy::JustifyContent>,
     ) {
         // All inline elements (even a single one) are wrapped in an anonymous flex container.
         // This ensures the text measure function always receives AvailableSpace::Definite from
@@ -513,6 +532,8 @@ impl TaffyLayouter {
             display: Display::Flex,
             flex_direction: FlexDirection::Row,
             flex_wrap: FlexWrap::Wrap,
+            // The block's `text-align`: positions runs that don't fill the line box.
+            justify_content: justify,
             align_self: Some(AlignSelf::FLEX_START),
             // FlexStart ensures multi-row intrinsic height = sum of all row heights.
             // Taffy's default (None = Stretch) fails to include wrapped rows in the
@@ -653,6 +674,15 @@ impl TaffyLayouter {
             .get_node_by_id(DomNodeId::from(render_node.node_id))?;
 
         let (taffy_context, taffy_style) = self.extract_taffy_data(layout_tree, &dom_node)?;
+
+        // `text-align` inherits, so this is the block's computed value; the line boxes below are
+        // anonymous and have no style of their own to read.
+        let line_justify = line_box_justify(
+            &layout_tree
+                .render_tree
+                .doc
+                .get_style(dom_node.node_id, &StyleProperty::TextAlign),
+        );
 
         // Flex and grid containers are formatting contexts where ALL children - inline or block -
         // are direct layout participants. Wrapping inline children in an anonymous flex container
@@ -806,7 +836,7 @@ impl TaffyLayouter {
 
             // Strip trailing whitespace before flushing, then flush.
             current_inline_group.truncate(current_inline_group.len().saturating_sub(trailing_ws_count));
-            self.process_inlines(&current_inline_group, &mut element_node, leaf_id);
+            self.process_inlines(&current_inline_group, &mut element_node, leaf_id, line_justify);
             current_inline_group = Vec::new();
             trailing_ws_count = 0;
 
@@ -818,7 +848,7 @@ impl TaffyLayouter {
 
         // Strip trailing whitespace and deal with any remaining inline elements
         current_inline_group.truncate(current_inline_group.len().saturating_sub(trailing_ws_count));
-        self.process_inlines(&current_inline_group, &mut element_node, leaf_id);
+        self.process_inlines(&current_inline_group, &mut element_node, leaf_id, line_justify);
 
         // The layout-tree is the structure handed to the rest of the pipeline; taffy stays
         // internal to this layouter so other layout engines can be swapped in.
