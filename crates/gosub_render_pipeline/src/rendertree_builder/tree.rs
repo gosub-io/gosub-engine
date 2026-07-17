@@ -99,9 +99,8 @@ impl RenderTree {
 const INVISIBLE_ELEMENTS: [&str; 6] = ["head", "style", "script", "meta", "link", "title"];
 
 impl RenderTree {
-    /// Dumps the computed CSS properties of every element node in the render tree to a JSON file.
-    /// Output format is an array of objects, one per element, sorted by node_id:
-    /// `[{"node_id": 5, "tag": "p", "id": "", "class": "foo", "styles": {"color": "red", ...}}, ...]`
+    /// Dump each element's computed CSS to JSON: an array sorted by node_id, of
+    /// `{"node_id": 5, "tag": "p", "id": "", "class": "foo", "styles": {"color": "red", ...}}`.
     pub fn dump_css_to_json(&self, path: &str) {
         let mut entries: Vec<serde_json::Value> = Vec::new();
 

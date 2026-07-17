@@ -1,8 +1,7 @@
 //! Generic glyph-run text painter (`text_glyphs` feature).
 //!
-//! Engine-neutral: asks the configured [`FontSystem`] - *whichever* engine that is - to shape the
-//! text, then paints the returned glyph runs with `Scene::draw_glyphs`. Works with any font
-//! system because the contract is raw font bytes + glyph IDs, not engine internals.
+//! Font-engine-neutral: the contract is raw font bytes + glyph IDs, not engine internals, so any
+//! [`FontSystem`] implementation works here.
 
 use crate::rasterizer::brush::set_brush;
 use gosub_interface::font_system::ShapedRun;
@@ -24,8 +23,8 @@ pub fn do_paint_text(
     affine: Affine,
     media_store: &MediaStore,
 ) -> Result<(), anyhow::Error> {
-    // Shaping happened once at paint-command build time (the pipeline Painter, with the same
-    // font system the layouter measured with); this function only paints the glyph runs.
+    // Shaping already happened at paint-command build time, with the same font system the layouter
+    // measured with; this function only paints the runs.
     let shaped = &cmd.shaped;
     if shaped.is_empty() {
         return Ok(());
@@ -52,7 +51,7 @@ pub fn do_paint_text(
                 }),
             );
 
-        // Text decorations: a filled rect per run, using the run font's own metrics.
+        // Decorations are a filled rect per run, using the run font's own metrics.
         let mut decoration = |offset: f32, size: f32| {
             let x0 = cmd.rect.x + run.x as f64;
             let y0 = cmd.rect.y + (run.baseline + offset) as f64;
@@ -80,8 +79,7 @@ mod tests {
     use gosub_render_pipeline::painter::commands::brush::Brush;
     use gosub_render_pipeline::painter::commands::color::Color;
 
-    /// Shape "Hello" through the trait and encode it into a Vello scene - exercises the
-    /// `FontBlob` → `peniko::FontData` conversion and the glyph encoding without needing a GPU.
+    /// Exercises the `FontBlob` → `peniko::FontData` conversion and glyph encoding without a GPU.
     #[test]
     fn encodes_glyphs_into_scene() {
         let mut fs = ParleyFontSystem::new();

@@ -23,28 +23,21 @@ use gosub_interface::font_system::{FontStretch, FontSystem, FontWeight, ShapedTe
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-/// A whole-viewport paint command list plus the media store needed to resolve image/SVG ids.
-///
-/// Produced by the engine's GPU-scene path (one ordered list for the entire page, in z-order)
-/// and consumed by a GPU backend's `render`, which translates the commands into its native
-/// scene. This replaces the tile/rasterize/composite stages for GPU backends.
+/// A whole-viewport paint command list for the GPU-scene path, translated by a backend's `render`
+/// into its native scene. Replaces the tile/rasterize/composite stages for GPU backends.
 pub struct PaintScene {
-    /// All paint commands for the page, in paint order (bottom layer first).
+    /// Paint order, bottom layer first.
     pub commands: Vec<PaintCommand>,
-    /// Shared media store; commands reference images/SVGs by id and resolve them here.
     pub media_store: Arc<MediaStore>,
     /// Full laid-out page height in CSS pixels (for scroll clamping on the host).
     pub page_height: f64,
 }
 
-/// The neutral [`TextStyle`] for a text paint command - the same mapping the layouter's measure
-/// path uses, plus the wrap/alignment container, so shaping reproduces the measured box.
+/// The same [`TextStyle`] mapping the layouter measured with, so shaping reproduces its box.
 ///
-/// Wrap limit: Start-aligned text wraps within the container width the layouter used, so the
-/// shaped line breaks reproduce the measured ones (text fragments can carry whole multi-line
-/// paragraphs). Center/End/Justify text instead uses the fragment's own box as its alignment
-/// container - glyphs shifted outside the fragment rect would land in tiles that never repaint
-/// the command.
+/// Start-aligned text wraps at the layouter's container width to reproduce its line breaks (a
+/// fragment can carry a whole multi-line paragraph). Center/End/Justify wrap at the fragment's
+/// own box instead - glyphs shifted outside it would land in tiles that never repaint the command.
 fn paint_text_style(font_info: &FontInfo, rect_width: f64, available_width: f64) -> TextStyle {
     let align = match font_info.alignment {
         FontAlignment::Start => TextAlign::Start,
@@ -75,15 +68,12 @@ fn paint_text_style(font_info: &FontInfo, rect_width: f64, available_width: f64)
     }
 }
 
-/// Painter works with the layout tree and generates paint commands for the renderer. It does not
-/// generate a new data structure as output, but will update the existing layout elements with
-/// paint commands.
+/// Turns the layout tree into paint commands for the renderer.
 pub struct Painter {
     layer_list: Arc<LayerList>,
-    /// The engine's shared font system - the same instance the layouter measured with. Text is
-    /// shaped here, once, at command-build time; rasterizers paint the shaped runs. `None` (no
-    /// rasterizer font system, e.g. the null backend) produces commands with empty glyph runs,
-    /// which only engine-native text rasterizers can still draw.
+    /// The same instance the layouter measured with; text is shaped here once at command-build
+    /// time. `None` (e.g. the null backend) yields empty glyph runs, drawable only by
+    /// engine-native text rasterizers.
     font_system: Option<Arc<Mutex<dyn FontSystem>>>,
 }
 
@@ -107,15 +97,13 @@ impl Painter {
         fs.lock().shape(text, &style)
     }
 
-    // Generate paint commands for the given tile
     pub fn paint(&self, element: &TiledLayoutElement, state: &BrowserState) -> Vec<PaintCommand> {
         self.paint_element(element.id, state)
     }
 
-    /// Paint every element in the layer list into a single flat command list, in z-order
-    /// (`layer_ids` order) then paint order (`layer.elements` order). Used by GPU-scene
-    /// backends that render the whole viewport in one pass instead of per tile. The result
-    /// matches the z-ordering the tiler produces.
+    /// Flattens every element into one command list, in z-order (`layer_ids`) then paint order
+    /// (`layer.elements`) — matching the tiler's z-ordering. For GPU-scene backends that render
+    /// the whole viewport in one pass.
     pub fn paint_all(&self, state: &BrowserState) -> Vec<PaintCommand> {
         let mut out = Vec::new();
         let layer_ids = self.layer_list.layer_ids.read();
@@ -144,7 +132,6 @@ impl Painter {
         out
     }
 
-    /// Generate paint commands for a single layout element.
     pub fn paint_element(&self, element_id: LayoutElementId, state: &BrowserState) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
 
@@ -153,7 +140,6 @@ impl Painter {
         };
         let dom_node_id = layout_element.dom_node_id;
 
-        // Paint boxmodel for the hovered element if needed
         if state.debug_hover && state.current_hovered_element == Some(layout_element.id) {
             commands.extend(self.generate_boxmodel_commands(layout_element));
         }
@@ -187,9 +173,8 @@ impl Painter {
         self.apply_opacity(node_id, brush)
     }
 
-    /// Scales a brush's alpha by the element's `opacity`. This is a per-element approximation
-    /// (it does not group-composite the element with its descendants), which is exact for
-    /// leaf boxes such as a 1px `::before` divider and a reasonable approximation otherwise.
+    /// Scales a brush's alpha by the element's `opacity`. Per-element approximation — no group
+    /// compositing with descendants; exact for leaf boxes, approximate otherwise.
     fn apply_opacity(&self, node_id: NodeId, brush: Brush) -> Brush {
         // Elements promoted into an opacity compositing group are faded as a whole layer at
         // composite time; applying opacity per-element here too would darken them twice.
@@ -213,10 +198,9 @@ impl Painter {
         }
     }
 
-    /// The element's CSS `mix-blend-mode`, applied to its painted boxes so backends blend
-    /// them with the backdrop. Blending happens against whatever is already painted
-    /// beneath the element (tile content for canvas backends, the scene for Vello) - the
-    /// spec's stacking-context isolation rules are not modelled.
+    /// The element's CSS `mix-blend-mode`. Blends against whatever is already painted beneath it
+    /// (tile content for canvas backends, the scene for Vello) - stacking-context isolation is
+    /// not modelled.
     fn mix_blend_mode(&self, node_id: NodeId) -> BlendMode {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         match doc.get_style(node_id, &StyleProperty::MixBlendMode) {
@@ -225,13 +209,10 @@ impl Painter {
         }
     }
 
-    /// The base fill for an element's background box plus any overlay `background-image`
-    /// gradient layers to paint on top, back-to-front.
+    /// Base fill plus overlay `background-image` gradient layers to paint on top, back-to-front.
     ///
-    /// A lone non-tiled `linear-gradient(...)` becomes the base brush directly (preserving the
-    /// historical single-gradient path where the border/radius decorate the same rect).
-    /// Multiple layers - or any tiled layer (a repeated `background-size` cell) - instead stack
-    /// as separate rects over the solid `background-color`.
+    /// A lone non-tiled gradient becomes the base brush directly, so border/radius decorate the
+    /// same rect. Multiple or tiled layers instead stack as separate rects over `background-color`.
     fn background_fill(&self, node_id: NodeId) -> (Brush, Vec<Gradient>) {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let layers = doc.background_layers(node_id);
@@ -247,9 +228,8 @@ impl Painter {
         }
     }
 
-    /// Build a paint command for an image's `alt` text, laid out inside its box. `icon_offset_x`
-    /// is the width already occupied by a broken-image icon at the top-left (0 when there's no
-    /// icon), so the text starts just past it. Returns `None` if there's no room or no font system.
+    /// Paints an image's `alt` text inside its box. `icon_offset_x` is the width taken by a
+    /// broken-image icon at the top-left (0 if none), so the text starts past it.
     fn image_alt_command(
         &self,
         node_id: NodeId,
@@ -275,9 +255,8 @@ impl Painter {
         )))
     }
 
-    /// A minimal [`FontInfo`] for `alt` text, taking the element's computed `font-family`/`font-size`
-    /// (falling back to the page defaults). Start-aligned, no decorations - matching how browsers
-    /// render the small placeholder label.
+    /// Minimal [`FontInfo`] for `alt` text: the element's computed family/size, start-aligned and
+    /// undecorated, matching how browsers render the placeholder label.
     fn alt_font_info(&self, node_id: NodeId) -> FontInfo {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let size = match doc.get_style(node_id, &StyleProperty::FontSize) {
@@ -310,7 +289,6 @@ impl Painter {
         }
     }
 
-    /// Generates the wireframe commands for the given layout element
     fn generate_wireframe_commands(&self, layout_element: &LayoutElementNode) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
 
@@ -330,7 +308,6 @@ impl Painter {
         commands
     }
 
-    /// Generates the boxmodel commands for the given layout element
     fn generate_boxmodel_commands(&self, layout_element: &LayoutElementNode) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
 
@@ -409,7 +386,6 @@ impl Painter {
         }
     }
 
-    /// Generates the paint commands for the given layout element
     fn generate_element_commands(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
 
@@ -453,9 +429,8 @@ impl Painter {
                 let border_box = layout_element.box_model.border_box;
                 let blend = self.mix_blend_mode(dom_node_id);
 
-                // CSS paints the element's background-color behind the (possibly transparent)
-                // replaced content, e.g. `<img style="background:#3a7">` with a transparent PNG
-                // shows the green through. Emit it first when it isn't fully transparent.
+                // CSS paints background-color behind the (possibly transparent) replaced content,
+                // e.g. a transparent PNG on `<img style="background:#3a7">` shows green through.
                 let (bg_brush, _) = self.background_fill(dom_node_id);
                 if !matches!(&bg_brush, Brush::Solid(c) if c.a() == 0.0) {
                     let bg_r = Rectangle::new(border_box)
@@ -491,9 +466,8 @@ impl Painter {
                     commands.push(PaintCommand::rectangle(r));
                 }
 
-                // `alt` text: browsers show it inside the box when the image renders nothing
-                // visible (broken/placeholder or fully transparent). For a placeholder it sits to
-                // the right of the broken-image icon; otherwise it starts at the box's top-left.
+                // Browsers show `alt` inside the box when the image renders nothing visible. For a
+                // placeholder it sits right of the broken-image icon, else at the box's top-left.
                 if let Some(alt) = &image_ctx.alt {
                     let icon_w = if image_ctx.placeholder { draw_box.width } else { 0.0 };
                     if let Some(cmd) = self.image_alt_command(dom_node_id, alt, border_box, icon_w) {
@@ -531,7 +505,6 @@ impl Painter {
         commands
     }
 
-    /// Returns true when the element has a non-zero border on any edge.
     fn has_border(&self, dom_node_id: NodeId) -> bool {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopWidth) != 0.0
@@ -631,11 +604,9 @@ fn css_border_style_to_paint(s: &CssBorderStyle) -> BorderStyle {
     }
 }
 
-/// Finalize a `background-image`'s tile geometry now that the element's border box (`box_w`×`box_h`)
-/// is known. Resolves `background-size` (`cover`/`contain` need the box) and `center` positioning
-/// into a [`Tiling`]: `cover`/`contain` produce a single aspect-preserved tile (no repeat), so the
-/// backend paints it once and lets the box clip (cover) or the background-color show (contain).
-/// Returns `None` if the intrinsic size or box is degenerate.
+/// Resolves `background-size`/`-position` into a [`Tiling`], now that the border box is known.
+/// `cover`/`contain` yield a single aspect-preserved tile (no repeat), so the backend paints it
+/// once and lets the box clip (cover) or the background-color show (contain).
 fn compute_bg_tiling(natural: (f32, f32), layout: &BgImageLayout, box_w: f32, box_h: f32) -> Option<Tiling> {
     let (nw, nh) = natural;
     if nw <= 0.0 || nh <= 0.0 || box_w <= 0.0 || box_h <= 0.0 {

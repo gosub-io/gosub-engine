@@ -4,8 +4,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// A default compositor implementation that manages frames per tab
-/// and requests redraws when new frames are submitted.
+/// Default compositor: keeps the latest frame per tab and requests a redraw on submit.
 pub struct DefaultCompositor {
     frames: Arc<RwLock<HashMap<TabId, ExternalHandle>>>,
     redraw_cb: Box<dyn Fn() + Send + Sync + 'static>,
@@ -29,8 +28,8 @@ impl DefaultCompositor {
         (self.redraw_cb)();
     }
 
-    /// Returns a cloneable handle to the frames map, allowing external code
-    /// (e.g. a UI layer) to read the latest frame per tab without owning the compositor.
+    /// Lets external code (e.g. a UI layer) read the latest frame per tab without owning
+    /// the compositor.
     pub fn frames_arc(&self) -> Arc<RwLock<HashMap<TabId, ExternalHandle>>> {
         self.frames.clone()
     }

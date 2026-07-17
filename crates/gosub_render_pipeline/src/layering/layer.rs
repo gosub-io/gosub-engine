@@ -7,7 +7,6 @@ use std::collections::{HashMap, HashSet};
 use std::ops::AddAssign;
 use std::sync::Arc;
 
-/// ID for layers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LayerId(u64);
 
@@ -34,19 +33,14 @@ impl std::fmt::Display for LayerId {
 
 #[derive(Clone)]
 pub struct Layer {
-    /// Layer ID
     pub layer_id: LayerId,
-    /// Stacking order of the layer (from the promoting element's `z-index`; 0 by default). The
-    /// layer list is sorted by this so higher-`z-index` layers composite in front.
+    /// Stacking order (from the promoting element's `z-index`). The layer list is sorted by this
+    /// so higher-`z-index` layers composite in front.
     pub order: isize,
-    /// Group opacity applied to the whole layer at composite time (1.0 = fully opaque). Set when
-    /// the layer is promoted because its source element has CSS `opacity < 1` (a compositing
-    /// group): the layer's tiles are rasterized normally and the compositor fades them as a unit.
+    /// Group opacity: tiles rasterize normally and the compositor fades them as a unit.
     pub opacity: f32,
-    /// How the layer responds to scroll. `Fixed` (from `position: fixed`) pins the layer to the
-    /// viewport; the compositor composites its tiles without subtracting the scroll offset.
+    /// How the layer responds to scroll — `Fixed` layers composite without the scroll offset.
     pub anchor: TileAnchor,
-    /// Elements in this layer
     pub elements: Vec<LayoutElementId>,
 }
 
@@ -74,17 +68,13 @@ impl std::fmt::Debug for Layer {
 
 /// A list of layers that is returned by the pipeline stage
 pub struct LayerList {
-    /// Wrapped layout tree
     pub layout_tree: Arc<LayoutTree>,
-    /// List of all (unique) layer IDs
+    /// Sorted by stacking order; the compositor and hit-test both walk this.
     pub layer_ids: RwLock<Vec<LayerId>>,
-    /// List of actual layers
     pub layers: RwLock<HashMap<LayerId, Layer>>,
-    /// Next layer ID
     next_layer_id: RwLock<LayerId>,
-    /// DOM nodes whose paint should NOT receive per-element opacity, because they live in an
-    /// opacity compositing group that fades the whole layer once at composite time. The painter
-    /// checks this to avoid darkening such elements twice. See [`LayerList::is_opacity_grouped`].
+    /// DOM nodes that must NOT get per-element opacity: their layer is faded once at composite
+    /// time, so applying it twice would darken them. See [`LayerList::is_opacity_grouped`].
     opacity_group_nodes: RwLock<HashSet<NodeId>>,
 }
 
@@ -124,10 +114,8 @@ impl LayerList {
     }
 
     /// @TODO: This must be done through rstar!
-    /// Find the element at the given viewport coordinates, accounting for scroll. Element boxes are
-    /// in page space, so a scrolling layer is hit-tested at `viewport + scroll`; a `fixed` layer is
-    /// pinned to the viewport, so it is hit-tested at the raw viewport coordinate (no scroll).
-    /// Returns the topmost matching element, or None.
+    /// Topmost element at the given viewport coordinates. Element boxes are in page space, so a
+    /// scrolling layer is hit-tested at `viewport + scroll`, a `fixed` layer at the raw viewport.
     pub fn find_element_at(&self, vp_x: f64, vp_y: f64, scroll_x: f64, scroll_y: f64) -> Option<LayoutElementId> {
         // This assumes that the layers are ordered from top to bottom
         for layer_id in self.layer_ids.read().iter().rev() {
@@ -168,11 +156,9 @@ impl LayerList {
         None
     }
 
-    /// Build the sticky constraint for an element promoted because of `position: sticky`, or `None`
-    /// when the element is not sticky. The cage is the containing block's content box; for now we
-    /// approximate it with the parent's content box (there are no sub-scroll-containers yet, so the
-    /// scrollport is always the viewport). A root sticky element with no parent gets a zero-slack
-    /// cage (its own box), so it simply never sticks.
+    /// Sticky constraint for a `position: sticky` element, else `None`. The cage should be the
+    /// containing block's content box; we approximate it with the parent's, as there are no
+    /// sub-scroll-containers yet. A root sticky element gets a zero-slack cage and never sticks.
     fn sticky_constraint(&self, el: &LayoutElementNode) -> Option<StickyConstraint> {
         let doc = &self.layout_tree.render_tree.doc;
 
@@ -214,7 +200,6 @@ impl LayerList {
         self.new_promoted_layer(order, 1.0, TileAnchor::Scroll)
     }
 
-    /// Creates a new layer at the given order with a group opacity and scroll anchor, returns its id.
     pub fn new_promoted_layer(&self, order: isize, opacity: f32, anchor: TileAnchor) -> LayerId {
         let mut layer = Layer::new(self.next_layer_id(), order);
         layer.opacity = opacity;
@@ -226,14 +211,12 @@ impl LayerList {
         layer_id
     }
 
-    /// Group opacity for a layer (1.0 if the layer is unknown or fully opaque). Used by the
-    /// compositor to fade an opacity-promoted layer's tiles as a unit.
+    /// Group opacity for a layer; 1.0 if the layer is unknown.
     pub fn layer_opacity(&self, layer_id: LayerId) -> f32 {
         self.layers.read().get(&layer_id).map(|l| l.opacity).unwrap_or(1.0)
     }
 
-    /// Scroll anchor for a layer (`Scroll` if the layer is unknown). Used by the compositor to pin
-    /// `position: fixed` layers to the viewport.
+    /// Scroll anchor for a layer; `Scroll` if the layer is unknown.
     pub fn layer_anchor(&self, layer_id: LayerId) -> TileAnchor {
         self.layers.read().get(&layer_id).map(|l| l.anchor).unwrap_or_default()
     }
@@ -244,7 +227,6 @@ impl LayerList {
         self.opacity_group_nodes.read().contains(&node_id)
     }
 
-    /// Append an element to a layer, logging if the layer id is somehow missing.
     fn add_to_layer(&self, layer_id: LayerId, element_id: LayoutElementId) {
         if let Some(mut layers) = self.get_layer_mut(layer_id) {
             if let Some(layer) = layers.get_mut(&layer_id) {
@@ -291,22 +273,13 @@ impl LayerList {
             .sort_by_key(|id| layers.get(id).map(|l| l.order).unwrap_or(0));
     }
 
-    /// Walk the layout tree assigning each element to a layer.
+    /// Walk the layout tree assigning each element to a layer. An element is *promoted* to its own
+    /// layer (with its subtree) for a compositing reason (`opacity < 1`, `position: fixed`/`sticky`)
+    /// even when nested, or once for a positioned `z-index`, which only re-levels its subtree.
     ///
-    /// An element is *promoted* to its own layer (taking its whole subtree with it) when it
-    /// establishes a stacking context we handle:
-    /// - `opacity < 1` (faded as a group), `position: fixed`/`sticky` (overlay/scroll-pinned): these
-    ///   are *compositing* reasons and promote even when already inside a group - a faded or pinned
-    ///   child must composite on its own so its fade/anchor is not lost into the parent layer.
-    /// - a positioned element with an explicit `z-index`: this only *re-levels* its subtree, so it
-    ///   promotes once (at the top of a group) and otherwise just passes its level down.
-    ///
-    /// `in_promoted_group` is true while inside such a subtree; there we deliberately do NOT spin off
-    /// separate image layers, so an image with no compositing reason stays in the group layer and
-    /// moves/fades with it. `group_faded` is true only when the enclosing group's layer has
-    /// `opacity < 1`; it gates the per-element opacity skip (see [`LayerList::is_opacity_grouped`]).
-    /// `inherited_order` is the stacking level of the enclosing context; an element without its own
-    /// `z-index` composites at this level.
+    /// `in_promoted_group`: inside such a subtree, where images deliberately do NOT get their own
+    /// layer so they move/fade with the group. `group_faded`: the enclosing layer has `opacity < 1`,
+    /// which gates the per-element opacity skip. `inherited_order`: the enclosing stacking level.
     fn traverse(
         &self,
         layer_id: LayerId,
@@ -320,9 +293,8 @@ impl LayerList {
         };
         let doc = &self.layout_tree.render_tree.doc;
 
-        // Read the element's OWN (non-inherited) opacity and position: only the element that
-        // declares the stacking context establishes the group; descendants inherit the result
-        // through the layer and must not each re-promote.
+        // OWN (non-inherited) styles only: descendants inherit the group through the layer and
+        // must not each re-promote.
         let own_opacity = match doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Opacity) {
             Some(Value::Number(n)) | Some(Value::Unit(n, _)) => n,
             _ => 1.0,
@@ -331,14 +303,10 @@ impl LayerList {
             doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Position),
             Some(Value::Keyword(id)) if lookup(id) == "fixed"
         );
-        // `position: sticky` promotes like `fixed` but with a scroll-dependent, cage-clamped offset
-        // resolved at composite time. The constraint captures the element's natural box and its
-        // containing block, both already laid out by the time layering runs.
+        // Sticky promotes like `fixed`, but its offset is resolved from scroll at composite time.
         let sticky = self.sticky_constraint(layout_element);
 
-        // `z-index` only takes effect on positioned elements. An explicit integer establishes a
-        // stacking context whose layer must composite at that level (negative = behind, higher =
-        // in front) rather than in DOM order; `auto`/non-positioned leaves the level at 0.
+        // `z-index` only takes effect on positioned elements; `auto`/non-positioned stays at 0.
         let is_positioned = matches!(
             doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Position),
             Some(Value::Keyword(id)) if matches!(lookup(id).as_str(), "relative" | "absolute" | "fixed" | "sticky")
@@ -351,22 +319,17 @@ impl LayerList {
         } else {
             None
         };
-        // Stacking level for this element (and its promoted layer). The layer list is sorted by this
-        // after traversal, so e.g. a `z-index: 0` shipwreck composites below a `z-index: 1` text
-        // layer instead of on top of it (their DOM order alone would get this wrong). Without an own
-        // `z-index` an element composites at the enclosing context's level.
+        // Stacking level for this element; the layer list is sorted by it after traversal, since
+        // DOM order alone would put a `z-index: 0` layer on top of a `z-index: 1` one.
         let order = z_index.unwrap_or(inherited_order);
 
-        // A *compositing* reason (fade/overlay) forces a layer even when nested, so the effect is not
-        // swallowed by the parent layer - e.g. a faded `<img>` inside a `z-index` container still
-        // gets its own faded layer. A plain positioned `z-index` only re-levels its subtree, so it
-        // promotes once at the top of a group and otherwise just carries `order` downward.
+        // A compositing reason forces a layer even when nested, so the effect is not swallowed by
+        // the parent layer; a plain `z-index` promotes once and otherwise carries `order` downward.
         let compositing = own_opacity < 1.0 || is_fixed || sticky.is_some();
         if compositing || (z_index.is_some() && !in_promoted_group) {
             let layer_opacity = own_opacity.clamp(0.0, 1.0);
-            // `sticky` resolves its position from scroll at composite time; `fixed` pins to the
-            // viewport; opacity-only promotion still scrolls normally. (Opacity is realised via
-            // `layer_opacity` regardless, so a sticky+opacity element composes correctly.)
+            // Opacity is realised via `layer_opacity` regardless of the anchor, so a
+            // sticky+opacity element still composes correctly.
             let anchor = if let Some(c) = sticky {
                 TileAnchor::Sticky(c)
             } else if is_fixed {
@@ -377,8 +340,7 @@ impl LayerList {
             let group_layer_id = self.new_promoted_layer(order, layer_opacity, anchor);
             self.add_to_layer(group_layer_id, layout_element.id);
             let faded = layer_opacity < 1.0;
-            // Only a faded layer risks double-darkening, so only then skip the element's per-element
-            // opacity (here the promoting element's own opacity is what the layer fade realises).
+            // Only a faded layer risks double-darkening, so only then skip per-element opacity.
             if faded {
                 self.opacity_group_nodes.write().insert(layout_element.dom_node_id);
             }
@@ -394,15 +356,12 @@ impl LayerList {
             .unwrap_or(false);
 
         if is_image && !in_promoted_group {
-            // Standalone image: give it its own layer at its stacking level (its own `z-index` if
-            // positioned, otherwise the enclosing context's level).
             let image_layer_id = self.new_layer(order);
             self.add_to_layer(image_layer_id, layout_element.id);
         } else {
             self.add_to_layer(layer_id, layout_element.id);
-            // Inside a faded group, an element with no own opacity relies entirely on the layer
-            // fade, so its paint skips per-element opacity. An element that *does* declare its own
-            // opacity keeps applying it per-element (an approximation that stacks with the fade).
+            // In a faded group, an element with no own opacity relies entirely on the layer fade.
+            // One that declares its own keeps applying it per-element — an approximation.
             if in_promoted_group && group_faded && own_opacity >= 1.0 {
                 self.opacity_group_nodes.write().insert(layout_element.dom_node_id);
             }
@@ -421,8 +380,8 @@ impl LayerList {
     }
 }
 
-/// Read a CSS length inset as px, treating unitless numbers as px. Returns `None` for `auto`,
-/// missing values, or non-px units (percentage/em insets aren't resolved here yet).
+/// Read a CSS length inset as px, treating unitless numbers as px. `None` for `auto` and non-px
+/// units — percentage/em insets aren't resolved here yet.
 fn read_px(value: Option<Value>) -> Option<f64> {
     match value {
         Some(Value::Unit(v, Unit::Px)) => Some(v as f64),

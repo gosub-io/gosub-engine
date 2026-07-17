@@ -8,7 +8,6 @@ pub struct FontCache {
 }
 
 impl FontCache {
-    /// Create a new, empty font cache.
     pub fn new() -> Self {
         Self {
             fonts: HashMap::new(),

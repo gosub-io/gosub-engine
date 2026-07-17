@@ -7,11 +7,9 @@ use skia_safe::{images, AlphaType, Canvas, ColorType, Data, ImageInfo, Paint, Re
 
 /// Rasterize an SVG at physical resolution (CSS size × dpr) and blit it onto the tile canvas.
 ///
-/// The tile canvas is already scaled by `dpr` and translated into page space (see
-/// `SkiaRasterizer::rasterize`), so we place the image at its page-coordinate rect in CSS units
-/// and let that scale map it 1:1 onto device pixels - crisp on HiDPI instead of upscaled from
-/// CSS resolution. The rendered physical pixels are cached on the `Svg` (keyed by physical
-/// dimension) and shared with the Cairo backend, which uses the same premultiplied-BGRA byte order.
+/// The tile canvas is already dpr-scaled and translated into page space, so placing the image at
+/// its CSS-unit rect maps it 1:1 onto device pixels - crisp on HiDPI. The rendered pixels are
+/// cached on the `Svg` and shared with the Cairo backend (same premultiplied-BGRA byte order).
 pub fn do_paint_svg(
     canvas: &Canvas,
     _tile: &Tile,
@@ -30,7 +28,6 @@ pub fn do_paint_svg(
     // of reusing a stale-resolution bitmap.
     let phys_dim = Dimension::new(phys_w as f64, phys_h as f64);
 
-    // Fast path: reuse cached physical pixels when they match the requested dimension.
     {
         let cached = media.svg.rendered.read();
         if cached.dimension == phys_dim && !cached.data.is_empty() {

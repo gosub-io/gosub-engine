@@ -14,12 +14,9 @@ pub use gosub_interface::render::backend::RasterStrategy;
 pub trait Rasterable {
     fn rasterize(&self, tile: &Tile, texture_store: &mut TextureStore, media_store: &MediaStore) -> Option<TextureId>;
 
-    /// The font system this rasterizer draws with, exposed as `dyn FontSystem` so the
-    /// layout engine can share the same instance - text is then measured and drawn against
-    /// one font collection (consistent metrics, fonts loaded once).
-    ///
-    /// Returns `None` for rasterizers that don't shape through a [`FontSystem`] (the null
-    /// rasterizer, or the Pango/Cairo path); the layouter then uses its own instance.
+    /// The font system this rasterizer draws with, so the layouter can measure against the very
+    /// same font collection. `None` for rasterizers that don't shape through a [`FontSystem`]
+    /// (null, Pango/Cairo); the layouter then uses its own instance.
     fn font_system(&self) -> Option<Arc<Mutex<dyn FontSystem>>> {
         None
     }
@@ -40,29 +37,21 @@ impl Rasterable for NullRasterizer {
 }
 
 /// Type-erase a backend's rasterizer for return from `RenderBackend::create_rasterizer`.
-///
-/// `Rasterable` references pipeline-internal types (`Tile`, `TextureStore`, `MediaStore`) that
-/// cannot live in `gosub_interface`, so the trait method returns `Box<dyn Any>`. Backends box
-/// their `Box<dyn Rasterable>` through this helper; the engine recovers it with
-/// [`downcast_rasterizer`].
+/// `Rasterable` names pipeline-internal types that cannot live in `gosub_interface`, hence the
+/// `Box<dyn Any>` hop; the engine recovers it with [`downcast_rasterizer`].
 pub fn erase_rasterizer(rasterizer: Box<dyn Rasterable + Send + Sync>) -> Box<dyn Any + Send + Sync> {
     Box::new(rasterizer)
 }
 
-/// Recover a `Box<dyn Rasterable>` from the type-erased value produced by
-/// [`erase_rasterizer`] (via `RenderBackend::create_rasterizer`). Returns `None` for backends
-/// that don't supply a real rasterizer (the default no-op marker).
+/// Inverse of [`erase_rasterizer`]. `None` for backends that don't supply a real rasterizer
+/// (the default no-op marker).
 pub fn downcast_rasterizer(erased: Box<dyn Any + Send + Sync>) -> Option<Box<dyn Rasterable + Send + Sync>> {
     erased.downcast::<Box<dyn Rasterable + Send + Sync>>().ok().map(|b| *b)
 }
 
 // ---------------------------------------------------------------------------
-// Baked tiles + stage-6 rasterization strategies
-//
-// The per-strategy implementations behind `RasterStrategy` (parallel+cached
-// for CPU backends, sequential for GPU tile mode), plus the `BakedTile`
-// output type and the content-hash pixel cache they share. Callers pick the
-// strategy and own the caches; the rasterization itself lives here.
+// Baked tiles + stage-6 rasterization strategies.
+// Callers pick the `RasterStrategy` and own the caches; rasterization lives here.
 // ---------------------------------------------------------------------------
 
 use crate::common::texture::TilePixels;
@@ -72,10 +61,8 @@ use crate::render::backend::CachedTile;
 pub struct BakedTile {
     pub page_x: f64,
     pub page_y: f64,
-    /// Owning layer id. Needed to disambiguate tiles from different layers that share the same
-    /// page position - e.g. the base layer and a `position: sticky` header both have a tile at
-    /// the top-left `(0,0)`. Carry-over between renders must therefore key tiles by
-    /// position *and* layer; position alone collapses them.
+    /// Owning layer id. Carry-over between renders must key tiles by position *and* layer:
+    /// a base layer and a `position: sticky` header both have a tile at `(0,0)`.
     pub layer_id: u64,
     pub width: u32,
     pub height: u32,
@@ -185,7 +172,6 @@ fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
         };
     }
 
-    // Hash tile background.
     match tile.bgcolor {
         Some((r, g, b, a)) => {
             hbool!(true);
@@ -366,10 +352,8 @@ pub fn rasterize_sequential(
 }
 
 /// Parallel per-tile rasterization with the dirty-tile pixel cache, used by CPU backends
-/// (Cairo, Skia) whose rasterizers are `Send + Sync`. For each dirty tile: if its content
-/// hash matches an entry in `prev_tile_cache`, the previous render's pixels are reused;
-/// otherwise the tile is rasterized on a rayon worker. Returns the baked tiles plus the
-/// new pixel cache for the next render.
+/// (Cairo, Skia) whose rasterizers are `Send + Sync`. Dirty tiles whose content hash still
+/// matches `prev_tile_cache` reuse those pixels; the rest go to a rayon worker.
 pub fn rasterize_parallel(
     rasterizer: &(dyn Rasterable + Send + Sync),
     layer_ids: &[crate::layering::layer::LayerId],
@@ -397,10 +381,7 @@ pub fn rasterize_parallel(
         .filter(|&id| tile_list.arena.get(&id).is_some_and(|t| t.state == TileState::Dirty))
         .collect();
 
-    // Phase 2: parallel rasterization with dirty-tile cache.
-    // For each tile: compute a content hash; if it matches the previous render's cached
-    // pixels, reuse them (cache hit). Otherwise rasterize on this thread.
-    // Result: (tile_id, Option<BakedTile>, Option<new_cache_entry>)
+    // Phase 2: parallel rasterization, yielding (tile_id, baked tile, new cache entry).
     type CacheEntry = (TileCacheKey, (u32, u32, TilePixels));
     let results: Vec<(TileId, Option<BakedTile>, Option<CacheEntry>)> = dirty_ids
         .par_iter()
@@ -411,7 +392,6 @@ pub fn rasterize_parallel(
 
             let key = tile_cache_key(tile);
 
-            // Cache hit: same content as the previous render - reuse pixels.
             if let Some(&(w, h, ref data)) = prev_tile_cache.get(&key) {
                 let baked = BakedTile {
                     page_x: tile.rect.x,
@@ -427,7 +407,6 @@ pub fn rasterize_parallel(
                 return (tile_id, Some(baked), None);
             }
 
-            // Cache miss: rasterize and emit a new cache entry.
             let mut local_store = TextureStore::new();
             let baked = rasterizer
                 .rasterize(tile, &mut local_store, media_store)

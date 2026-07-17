@@ -5,10 +5,8 @@ use std::sync::{Arc, OnceLock};
 /// Number of leading bytes scanned when sniffing for an SVG root element.
 const SVG_SNIFF_LEN: usize = 1024;
 
-/// Return `usvg::Options` backed by a shared fontdb that has system fonts loaded.
-///
-/// The database is built once the first time this is called and then reused, so system font
-/// discovery only happens once per process.
+/// `usvg::Options` backed by a shared fontdb, built once and reused so system font discovery
+/// happens only once per process.
 fn svg_options() -> usvg::Options<'static> {
     static FONTDB: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
     let fontdb = Arc::clone(FONTDB.get_or_init(|| {
@@ -51,9 +49,8 @@ impl MediaDecoder for SvgDecoder {
     }
 
     fn supports_magic(&self, bytes: &[u8]) -> bool {
-        // SVG is XML text. Scan a bounded prefix for the `<svg` root element (case-insensitive,
-        // no allocation) so an optional XML declaration / doctype / BOM ahead of it does not
-        // hide the match.
+        // Scan a bounded prefix rather than matching at offset 0: an XML declaration, doctype or
+        // BOM can precede the `<svg` root.
         const NEEDLE: &[u8] = b"<svg";
         let len = bytes.len().min(SVG_SNIFF_LEN);
         bytes[..len]

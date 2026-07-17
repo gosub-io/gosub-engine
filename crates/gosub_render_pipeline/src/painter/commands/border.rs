@@ -17,7 +17,6 @@ pub enum BorderStyle {
 }
 
 impl BorderStyle {
-    /// True when this side paints nothing.
     pub fn is_invisible(&self) -> bool {
         matches!(self, BorderStyle::None | BorderStyle::Hidden)
     }
@@ -54,11 +53,9 @@ impl Border {
         }
     }
 
-    /// A border with independent per-side widths and styles (`[top, right, bottom, left]`).
-    /// The representative `width()`/`style()` (used by the uniform fast path and any single-value
-    /// consumer) are taken from the first visible side.
+    /// Independent per-side widths and styles. The single-value `width()`/`style()` fall back to
+    /// the first side that actually paints, for the uniform fast path and other scalar consumers.
     pub fn new_per_side(widths: [f32; 4], styles: [BorderStyle; 4], brushes: [Brush; 4]) -> Self {
-        // Pick a representative width/style from the first side that actually paints.
         let rep = (0..4).find(|&i| widths[i] > 0.0 && !styles[i].is_invisible());
         let (width, style) = match rep {
             Some(i) => (widths[i], styles[i].clone()),
@@ -74,19 +71,16 @@ impl Border {
         }
     }
 
-    /// True when all four sides share the same width and style, so the whole-rectangle stroke
-    /// path can be used. (Per-side colours are still allowed but only the first brush is used by
-    /// that fast path, matching prior behaviour.)
+    /// All four sides share width and style, so the whole-rectangle stroke path applies. Per-side
+    /// colours are still allowed, but that fast path only uses the first brush.
     pub fn is_uniform(&self) -> bool {
         self.widths.iter().all(|&w| w == self.widths[0]) && self.styles.iter().all(|s| *s == self.styles[0])
     }
 
-    /// Per-side widths `[top, right, bottom, left]`.
     pub fn widths(&self) -> [f32; 4] {
         self.widths
     }
 
-    /// Per-side styles `[top, right, bottom, left]`.
     pub fn styles(&self) -> [BorderStyle; 4] {
         self.styles.clone()
     }

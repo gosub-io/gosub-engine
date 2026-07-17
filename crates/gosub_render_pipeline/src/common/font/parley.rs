@@ -1,10 +1,8 @@
 use crate::common::font::FontAlignment;
 use parley::{Alignment, AlignmentOptions, FontContext, FontFamily, Layout, LayoutContext, LineHeight, StyleProperty};
 
-/// Build a Parley layout for `text` using the shared `font_cx`.
-///
-/// A local `LayoutContext` is created per call - it is pure scratch space
-/// (the expensive state lives in `font_cx`) so allocation cost is negligible.
+/// Build a Parley layout for `text` using the shared `font_cx`. The per-call `LayoutContext` is
+/// pure scratch space - the expensive state lives in `font_cx` - so allocating it is negligible.
 #[allow(clippy::too_many_arguments)]
 pub fn get_parley_layout(
     text: &str,

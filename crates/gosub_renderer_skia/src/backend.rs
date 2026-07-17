@@ -27,10 +27,8 @@ impl RenderBackend for SkiaBackend {
         "skia"
     }
 
-    /// Honour the host's device-pixel-ratio (set via the shared `DEVICE_PIXEL_RATIO`) so the engine
-    /// rasterizes tiles at physical resolution and reports the same DPR in the tile-cache handle -
-    /// the host then composites physical tiles at physical positions. Without this the default of 1
-    /// makes everything render at logical resolution and the window upscales it (blurry on HiDPI).
+    /// Honour the host's DPR so tiles rasterize at physical resolution and composite at physical
+    /// positions. Defaulting to 1 would render logical and let the window upscale (blurry HiDPI).
     fn device_pixel_ratio(&self) -> u32 {
         DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed).max(1)
     }

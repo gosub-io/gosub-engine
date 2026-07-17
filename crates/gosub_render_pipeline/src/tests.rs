@@ -41,8 +41,6 @@ mod rendertree_from_engine {
         rt
     }
 
-    // Basic sanity: a minimal document produces a non-empty tree
-
     #[test]
     fn minimal_document_has_root() {
         let rt = parse_to_rendertree("<html><body><p>Hello</p></body></html>");
@@ -50,11 +48,8 @@ mod rendertree_from_engine {
         assert!(rt.count_elements() > 0, "render tree must not be empty");
     }
 
-    // display:none must filter the node and its subtree out of the render tree
-
     #[test]
     fn display_none_element_is_excluded() {
-        // The <div id="hidden"> and everything inside it should not appear.
         let html = r#"
             <html>
             <head>
@@ -72,8 +67,6 @@ mod rendertree_from_engine {
         let rt = parse_to_rendertree(html);
         assert!(rt.root_id.is_some());
 
-        // Walk every render node and confirm none map to an element that has
-        // id="hidden" or is a descendant of it.
         let doc_ref = rt.doc.clone();
         for render_id in rt.arena.keys() {
             if let Some(node) = doc_ref.get_node_by_id(gosub_shared::node::NodeId::from(*render_id)) {
@@ -89,8 +82,6 @@ mod rendertree_from_engine {
             }
         }
     }
-
-    // Invisible structural elements (head, script, style) must be excluded
 
     #[test]
     fn head_and_script_are_excluded() {
@@ -119,8 +110,6 @@ mod rendertree_from_engine {
         }
     }
 
-    // CSS width/height values flow through to the StylePropertyList
-
     #[test]
     fn css_dimensions_are_extracted() {
         let html = r#"
@@ -143,7 +132,6 @@ mod rendertree_from_engine {
 
         let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
 
-        // Walk the gosub document to find the <div id="box"> node.
         let root = adapter.doc.root();
         let box_node_id = find_node_by_id_attr(&adapter.doc, root, "box");
         assert!(box_node_id.is_some(), "should find #box element");
@@ -162,7 +150,6 @@ mod rendertree_from_engine {
         );
     }
 
-    // letter-spacing (em) must resolve to px through the cascade and be inherited by text nodes
     #[test]
     fn letter_spacing_em_resolves_to_px_and_inherits() {
         let html = r#"
@@ -208,9 +195,7 @@ mod rendertree_from_engine {
         );
     }
 
-    // Unitless line-height must survive the cascade as a fractional multiplier
-    // (a regression here rounded `line-height: 1.7` to 2.0, inflating every paragraph).
-
+    // Regression: `line-height: 1.7` once rounded to 2.0, inflating every paragraph.
     #[test]
     fn unitless_line_height_keeps_fraction() {
         let html = r#"
@@ -255,8 +240,6 @@ mod rendertree_from_engine {
         }
     }
 
-    // mix-blend-mode must cascade to the element as a keyword the painter can map
-
     #[test]
     fn mix_blend_mode_reaches_element_style() {
         use crate::common::document::pipeline_doc::PipelineDocument;
@@ -296,8 +279,6 @@ mod rendertree_from_engine {
         assert_eq!(BlendMode::from_css_keyword(&kw), BlendMode::Normal);
     }
 
-    // html_node_id / body_node_id resolve to the correct elements
-
     #[test]
     fn html_and_body_node_ids_are_found() {
         use crate::common::document::pipeline_doc::PipelineDocument;
@@ -313,12 +294,10 @@ mod rendertree_from_engine {
         assert!(body_id.is_some(), "body_node_id must resolve");
         assert_ne!(html_id, body_id);
 
-        // The tag names must match.
         assert_eq!(adapter.tag_name(html_id.unwrap()), Some("html".to_string()));
         assert_eq!(adapter.tag_name(body_id.unwrap()), Some("body".to_string()));
     }
 
-    // Helper: DFS to find the first element whose `class` attribute matches.
     #[allow(dead_code)]
     fn find_node_by_class_dfs(
         doc: &DocumentImpl<Config>,
@@ -338,8 +317,7 @@ mod rendertree_from_engine {
         None
     }
 
-    // background-image must be readable from a stylesheet `background` shorthand (the HN
-    // `.votearrow` case), from the `background-image` longhand, and from an inline style.
+    // Covers the shorthand (the HN `.votearrow` case), the longhand, and an inline style.
     #[test]
     fn background_image_is_read_from_css() {
         use crate::common::document::pipeline_doc::PipelineDocument;
@@ -387,7 +365,6 @@ mod rendertree_from_engine {
         assert_eq!(url_of(plain), "none", "plain element should be `none`");
     }
 
-    // Helper: DFS to find the first element whose `id` attribute matches.
     fn find_node_by_id_attr(
         doc: &DocumentImpl<Config>,
         node: gosub_shared::node::NodeId,

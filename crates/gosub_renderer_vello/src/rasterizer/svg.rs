@@ -16,10 +16,9 @@ pub(crate) fn do_paint_svg(
     let media = media_store.get_svg(media_id);
     let r = rect.rect();
     let target_dim = r.dimension();
-    // `draw_image` carries no geometry of its own - it places the image's top-left at the
-    // transform's origin. Fold the element's box position into the affine so the SVG lands at its
-    // layout box, not the viewport origin (the rectangle painter bakes the position into the shape
-    // path instead, so it only needs the bare `affine`).
+    // `draw_image` places the image's top-left at the transform's origin, so the box position must
+    // be folded in or the SVG lands at the viewport origin. (The rectangle painter instead bakes
+    // the position into its shape path, which is why it only needs the bare `affine`.)
     let placement = affine * Affine::translate(Vec2::new(r.x, r.y));
 
     {

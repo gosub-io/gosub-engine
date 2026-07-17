@@ -1,7 +1,6 @@
 use csscolorparser::Color as ccpColor;
 
-/// Our colors are internally f32 (0.0 to 1.0) but we can convert them to u8 (0 to 255) with r8, g8, b8, a8
-/// It also allows creating colors by css name
+/// Channels are stored as f32 in `0.0..=1.0`; use `r8`/`g8`/`b8`/`a8` for the u8 (0-255) form.
 #[derive(Clone, Debug)]
 pub struct Color {
     r: f32,
@@ -142,7 +141,7 @@ impl Color {
         (self.a * 255.0) as u8
     }
 
-    /// Converts a css color, or even #rrggbbaa to a Color
+    /// Parses any CSS color form (named, `#rrggbbaa`, ...), falling back to black on failure.
     pub fn from_css(css_color: &str) -> Self {
         Self::try_from_css(css_color).unwrap_or_else(|| {
             log::error!("Failed to parse css color: {}", css_color);
@@ -150,9 +149,8 @@ impl Color {
         })
     }
 
-    /// Like [`Color::from_css`] but returns `None` instead of falling back to black when the
-    /// string is not a valid CSS color. Handles named colors and the `transparent` keyword
-    /// (e.g. as used in gradient colour stops).
+    /// Like [`Color::from_css`] but returns `None` on failure instead of black — callers such as
+    /// gradient stops need to tell `transparent` apart from a parse error.
     pub fn try_from_css(css_color: &str) -> Option<Self> {
         let ccp_color = ccpColor::from_html(css_color).ok()?;
         Some(Self {

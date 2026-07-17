@@ -1,6 +1,5 @@
 use crate::painter::commands::color::Color;
 
-/// A single colour stop along a gradient line.
 #[derive(Clone, Debug)]
 pub struct ColorStop {
     /// Position along the gradient line, `0.0` (start) .. `1.0` (end).
@@ -8,10 +7,8 @@ pub struct ColorStop {
     pub color: Color,
 }
 
-/// Tiling parameters for a gradient used as a repeated CSS `background-image` layer
-/// (`background-size` / `-position` / `-repeat`). When present the gradient paints one
-/// `tile_size` cell and repeats it across the box; when absent the gradient fills the whole
-/// box (the plain `linear-gradient(...)` case).
+/// Gradient as a repeated `background-image` layer: paints one `tile_size` cell and repeats it.
+/// Absent means the gradient fills the whole box (the plain `linear-gradient(...)` case).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tiling {
     /// One tile's size in device pixels (resolved `background-size`).
@@ -23,23 +20,19 @@ pub struct Tiling {
     pub repeat: (bool, bool),
 }
 
-/// A CSS `linear-gradient()`.
 #[derive(Clone, Debug)]
 pub struct LinearGradient {
-    /// Gradient-line angle in CSS degrees: `0` = to top, `90` = to right, `180` = to
-    /// bottom, increasing clockwise.
+    /// CSS degrees: `0` = to top, `90` = to right, `180` = to bottom, increasing clockwise.
     pub angle_deg: f32,
-    /// Colour stops in source order, each with a resolved `offset` in `0.0..=1.0`.
+    /// Source order, each with a resolved `offset` in `0.0..=1.0`.
     pub stops: Vec<ColorStop>,
     /// Tiling for a repeated `background-image` layer, or `None` to fill the whole box.
     pub tiling: Option<Tiling>,
 }
 
 impl LinearGradient {
-    /// Start and end points of the gradient line within a box of size `w`×`h`, following
-    /// the CSS spec geometry (the line is centred on the box and long enough that the
-    /// `0%`/`100%` stops sit on the box's edges/corners). Points are relative to the box
-    /// origin `(0, 0)`.
+    /// Gradient line within a `w`×`h` box, relative to the box origin. Per spec the line is
+    /// centred and long enough that the `0%`/`100%` stops land on the box's edges/corners.
     pub fn line(&self, w: f32, h: f32) -> ((f32, f32), (f32, f32)) {
         let theta = self.angle_deg.to_radians();
         // CSS direction vector: 0deg → up (0,-1), 90deg → right (1,0), 180deg → down (0,1).
@@ -52,9 +45,8 @@ impl LinearGradient {
         ((cx - dx * half, cy - dy * half), (cx + dx * half, cy + dy * half))
     }
 
-    /// Interpolated colour at parameter `t` (0.0 = line start, 1.0 = line end) along the
-    /// gradient. Stops are assumed sorted by non-decreasing offset; two stops sharing an
-    /// offset yield a hard edge (e.g. `#e6e6e6 25%, transparent 25%`).
+    /// Interpolated colour at `t` (0.0 = line start, 1.0 = line end). Stops must be sorted by
+    /// non-decreasing offset; two stops sharing one offset yield a hard edge.
     pub fn color_at(&self, t: f32) -> Color {
         match self.stops.as_slice() {
             [] => Color::TRANSPARENT,
@@ -89,8 +81,8 @@ impl LinearGradient {
         }
     }
 
-    /// Rasterize a single `tw`×`th` tile of this gradient into straight-alpha RGBA8 (row-major,
-    /// 4 bytes per pixel). Used to paint tiled `background-image` layers by repeating the tile.
+    /// Rasterize one `tw`×`th` tile into straight-alpha RGBA8 (row-major, 4 bytes per pixel),
+    /// to be repeated across a tiled `background-image` layer.
     pub fn rasterize_tile(&self, tw: u32, th: u32) -> Vec<u8> {
         let (w, h) = (tw as f32, th as f32);
         let ((x0, y0), (x1, y1)) = self.line(w, h);

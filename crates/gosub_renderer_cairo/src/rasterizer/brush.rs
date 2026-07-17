@@ -121,9 +121,8 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect, media_store: &MediaSto
     }
 }
 
-/// Paint a tiled `background-image` gradient layer: rasterize one `background-size` tile and
-/// install it as a repeating pattern offset by `background-position`. The caller has already
-/// built the fill path (the element box), so the pattern is clipped to it by `cr.fill()`.
+/// Rasterize one `background-size` tile and install it as a repeating pattern offset by
+/// `background-position`. The caller's already-built fill path clips it to the element box.
 fn set_tiled_gradient(cr: &Context, g: &LinearGradient, tiling: &Tiling, rect: Rect) {
     let tw = (tiling.tile_size.0.round() as i32).max(1);
     let th = (tiling.tile_size.1.round() as i32).max(1);

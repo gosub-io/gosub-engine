@@ -1,4 +1,3 @@
-/// A simple rectangle with a position (x, y) and dimensions (width, height).
 #[derive(Debug, Clone, Copy)]
 pub struct Rect {
     pub x: f64,
@@ -15,17 +14,14 @@ impl Rect {
         height: 0.0,
     };
 
-    /// Create a new rectangle with the given position and dimensions.
     pub fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
         Self { x, y, width, height }
     }
 
-    /// Returns the dimension of the rectangle.
     pub fn dimension(&self) -> Dimension {
         Dimension::new(self.width, self.height)
     }
 
-    /// Converts a coordinate and dimension into a rectangle.
     #[allow(unused)]
     pub fn from_coord_dimension(coord: Coordinate, dimension: Dimension) -> Self {
         Self {
@@ -36,7 +32,6 @@ impl Rect {
         }
     }
 
-    /// Returns a new rect that is shifted by the given coordinate.
     pub fn shift(&self, coord: Coordinate) -> Self {
         Self {
             x: self.x + coord.x,
@@ -75,7 +70,6 @@ impl Coordinate {
     }
 }
 
-/// Dimension in width and height. Together with a Dimension it forms a Rect.
 #[allow(unused)]
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub struct Dimension {

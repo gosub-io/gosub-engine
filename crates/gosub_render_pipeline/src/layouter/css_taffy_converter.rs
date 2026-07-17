@@ -576,7 +576,6 @@ fn parse_grid_placement(s: &str) -> Option<Line<GridPlacement>> {
             end: GridPlacement::Auto,
         });
     }
-    // Handle "start / end" notation
     if let Some(slash) = s.find('/') {
         let start_str = s[..slash].trim();
         let end_str = s[slash + 1..].trim();
@@ -585,7 +584,6 @@ fn parse_grid_placement(s: &str) -> Option<Line<GridPlacement>> {
             end: parse_single_placement(end_str),
         });
     }
-    // Single value
     Some(Line {
         start: parse_single_placement(s),
         end: GridPlacement::Auto,

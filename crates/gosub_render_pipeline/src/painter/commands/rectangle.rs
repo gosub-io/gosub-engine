@@ -2,8 +2,8 @@ use crate::common::geo::Rect;
 use crate::painter::commands::border::Border;
 use crate::painter::commands::brush::Brush;
 
-/// CSS `mix-blend-mode` for an element's painted box: how its pixels combine with the
-/// backdrop already painted beneath it. `Normal` is plain source-over.
+/// CSS `mix-blend-mode`: how a box's pixels combine with the backdrop beneath it.
+/// `Normal` is plain source-over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum BlendMode {
     #[default]

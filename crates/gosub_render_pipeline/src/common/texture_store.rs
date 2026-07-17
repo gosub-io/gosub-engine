@@ -45,8 +45,8 @@ impl TextureStore {
         id
     }
 
-    /// Register a GPU-resident tile by its opaque backend texture id. Used by GPU backends whose
-    /// rasterizer renders straight into a GPU texture (no CPU readback).
+    /// Register a GPU-resident tile by opaque backend id, for rasterizers that render straight
+    /// into a GPU texture with no CPU readback.
     pub fn add_gpu(
         &mut self,
         width: usize,

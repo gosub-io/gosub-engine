@@ -30,11 +30,8 @@ pub enum MediaType {
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct MediaSvg {
-    /// Source of the SVG
     src: String,
-    /// Hash of the source
     hash: Sha256Hash,
-    /// Actual SVG tree
     pub svg: Svg,
 }
 

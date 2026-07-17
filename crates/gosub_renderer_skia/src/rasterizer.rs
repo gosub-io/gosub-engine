@@ -18,9 +18,8 @@ mod text;
 
 pub struct SkiaRasterizer {
     dpi_scale_factor: f32,
-    /// The engine's shared font system, exposed to the layouter so it measures with the
-    /// configured instance. Skia draws text through `skia_safe`'s own text layout, so this is
-    /// not (yet) used for drawing.
+    /// Exposed to the layouter so it measures with the configured instance. Not used for drawing:
+    /// Skia draws text through `skia_safe`'s own text layout.
     font_system: Option<Arc<Mutex<dyn FontSystem>>>,
 }
 

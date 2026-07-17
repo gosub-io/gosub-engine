@@ -41,14 +41,12 @@ impl std::fmt::Display for LayoutElementId {
     }
 }
 
-/// Context for an element. It contains all information to paint the element.
 #[derive(Debug, Clone)]
 pub struct ElementContextText {
-    /// Node ID of the text in the DOM
     pub node_id: DomNodeId,
     pub font_info: FontInfo,
     pub text: String,
-    /// Additional offset for the text. This can happen when we have a lineheight and the text needs to be centered in the block
+    /// Offset that centers the text in the block when line-height exceeds the font size.
     pub text_offset: Coordinate,
     /// When true (white-space: nowrap), the text is measured at unlimited width and must not wrap.
     pub no_wrap: bool,
@@ -60,25 +58,19 @@ pub struct ElementContextText {
 
 #[derive(Debug, Clone)]
 pub struct ElementContextSvg {
-    /// Node ID of the SVG in the DOM
     pub node_id: DomNodeId,
-    /// Source of the SVG
     pub src: String,
-    /// ID of the SVG inside the media store
     pub media_id: MediaId,
-    /// Dimension of the SVG. Can be Dimension::ZERO if not known yet
+    /// `Dimension::ZERO` when not known yet.
     pub dimension: Dimension,
 }
 
 #[derive(Clone, Debug)]
 pub struct ElementContextImage {
-    /// Node ID of the image in the DOM
     pub node_id: DomNodeId,
-    /// Source of the image
     pub src: String,
-    /// ID of the image inside the image store
     pub media_id: MediaId,
-    /// Dimension of the image. Can be Dimension::ZERO if not known yet
+    /// `Dimension::ZERO` when not known yet.
     pub dimension: Dimension,
     /// True when `media_id` is a fallback broken-image placeholder (the real image failed to
     /// load). The painter draws the icon at its natural `dimension` in the top-left of the
@@ -90,8 +82,7 @@ pub struct ElementContextImage {
     pub alt: Option<String>,
 }
 
-/// Information about the given element that is needed for different phases of the rendering pipeline. For instance,
-/// image or text information.
+/// Per-element data (text, image, svg) needed by later phases of the rendering pipeline.
 #[derive(Debug, Clone)]
 pub enum ElementContext {
     None,
@@ -149,32 +140,23 @@ impl ElementContext {
 #[derive(Debug, Clone)]
 pub struct LayoutElementNode {
     pub id: LayoutElementId,
-    /// ID of the node in the DOM, contains the data, like element name, attributes, etc.
+    /// Holds the element data: name, attributes, etc.
     pub dom_node_id: DomNodeId,
-    /// ID of the node in the render tree. This is normally the same node ID as the dom node ID
+    /// Normally the same node ID as the dom node ID.
     pub render_node_id: RenderNodeId,
-    /// Parent in the layout tree (`None` for the root). Populated during tree construction; used to
-    /// walk up to an element's containing block (e.g. the cage for `position: sticky`).
+    /// `None` for the root. Used to walk up to an element's containing block (e.g. the cage for
+    /// `position: sticky`).
     pub parent: Option<LayoutElementId>,
-    /// Children of this node
     pub children: Vec<LayoutElementId>,
-    /// Generated box model for this node
     pub box_model: BoxModel,
-    /// Element context. Used by different parts of the render engine
     pub context: ElementContext,
-    /// The element's CSS `background-image`, resolved and loaded into the media store during
-    /// layout. `None` when the element has no background image. Carries the media kind so the
-    /// painter can pick raster (`Brush::image`) vs SVG (`PaintCommand::svg`) rendering.
+    /// Resolved CSS `background-image`, loaded into the media store during layout.
     pub background_media: Option<BackgroundMedia>,
 }
 
-/// A resolved CSS `background-image` together with its media kind.
-///
-/// `Image` carries the image's intrinsic size and the resolved `background-repeat`/`-size`/
-/// `-position` layout; the painter finalizes the tile geometry once the element's border box is
-/// known (needed for `cover`/`contain`). An SVG background that tiles/repeats is rasterized to a
-/// raster tile during layout and stored here as `Image`, so only one tiling path exists downstream;
-/// a `cover`/`contain` SVG stays `Svg` and is scaled to the box by the SVG paint path.
+/// A resolved CSS `background-image` and its media kind. The painter finalizes tile geometry once
+/// the border box is known. A tiling SVG is rasterized to an `Image` during layout so only one
+/// tiling path exists downstream; a `cover`/`contain` SVG stays `Svg`.
 #[derive(Debug, Clone, Copy)]
 pub enum BackgroundMedia {
     Image {
@@ -188,15 +170,10 @@ pub enum BackgroundMedia {
 
 #[derive(Clone)]
 pub struct LayoutTree {
-    /// Wrapped render tree
     pub render_tree: RenderTree,
-    /// Arena of layout nodes
     pub arena: HashMap<LayoutElementId, LayoutElementNode>,
-    /// Root node of the layout tree
     pub root_id: LayoutElementId,
-    /// Next node ID
     next_node_id: Arc<RwLock<LayoutElementId>>,
-    // Root width and height
     pub root_dimension: Dimension,
 }
 

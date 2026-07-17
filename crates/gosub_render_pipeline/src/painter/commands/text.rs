@@ -5,21 +5,16 @@ use gosub_interface::font_system::ShapedText;
 
 #[derive(Clone, Debug)]
 pub struct Text {
-    /// The rectangle in which the text should be drawn
     pub rect: Rect,
     pub font_info: FontInfo,
-    /// Actual text
     pub text: String,
-    /// Brush to paint the text with
     pub brush: Brush,
-    /// The container width (CSS px) that the layout engine used as the word-wrap limit.
-    /// Renderers should use this instead of `rect.width` to avoid metric-mismatch wrapping.
+    /// Word-wrap limit (CSS px) the layouter used. Renderers must prefer this over `rect.width`
+    /// to avoid metric-mismatch wrapping.
     pub available_width: f64,
-    /// Positioned glyph runs, shaped once at paint-command build time by the configured
-    /// `FontSystem` - the same instance the layouter measured with, so the glyphs painted are
-    /// by construction the glyphs that were measured. Glyph-based rasterizers (`text_glyphs`)
-    /// paint exactly these runs; engine-native rasterizers (Pango, Parley, Skia textlayout)
-    /// re-shape from `text` + `font_info` instead and ignore this field.
+    /// Shaped by the same `FontSystem` instance the layouter measured with, so painted glyphs are
+    /// by construction the measured ones. Glyph-based rasterizers paint these runs; engine-native
+    /// ones (Pango, Parley, Skia textlayout) re-shape from `text` + `font_info` and ignore this.
     pub shaped: ShapedText,
 }
 

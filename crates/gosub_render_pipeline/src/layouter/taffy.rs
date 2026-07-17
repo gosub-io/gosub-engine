@@ -51,11 +51,8 @@ enum InlineEntry {
 
 /// Layouter structure that uses taffy as layout engine
 pub struct TaffyLayouter {
-    /// Generated taffy tree
     tree: TaffyTree<TaffyContext>,
-    /// Root id of the taffy tree
     root_id: TaffyNodeId,
-    /// Mapping of layout element id to taffy node id
     layout_taffy_mapping: HashMap<LayoutElementId, TaffyNodeId>,
     /// Maps each layout element that lives inside an anonymous flex container to that
     /// container's taffy node id. The anonymous container exists in the taffy tree (between
@@ -66,19 +63,14 @@ pub struct TaffyLayouter {
     /// Media store for loading images/SVGs during layout. Shared (Arc) so the media loaded
     /// here is visible to the rasterization stage, which looks resources up by the same id.
     media_store: Arc<MediaStore>,
-    /// Shared font system used for text measurement. Locking once per measurement
-    /// call avoids keeping the guard alive across the full layout pass, which lets
-    /// other threads (e.g. the rasterizer) access the font collection between calls.
-    ///
-    /// `dyn FontSystem` so the same instance can be shared with the rasterizer (and
-    /// swapped for a non-Parley implementation). Measurement goes through the trait.
+    /// Locked once per measurement call rather than across the whole layout pass, so other
+    /// threads (e.g. the rasterizer) can access the font collection between calls. `dyn` so the
+    /// same instance can be shared with the rasterizer and swapped for a non-Parley impl.
     font_system: Arc<Mutex<dyn FontSystem>>,
-    /// Memoized text measurements. Taffy calls the measure function 2-4× per node
-    /// (MinContent, MaxContent, actual width). Caching by (text, font, max_width)
-    /// eliminates the redundant Parley shaping calls.
+    /// Taffy calls the measure function 2-4× per node (MinContent, MaxContent, actual width);
+    /// memoizing eliminates the redundant Parley shaping calls.
     measure_cache: HashMap<MeasureKey, Size<f32>>,
-    /// Reverse index: DOM node ID → layout element ID.
-    /// Built during generate_taffy_element and used by the table post-processing pass.
+    /// Reverse index used by the table post-processing pass.
     dom_to_layout_mapping: HashMap<DomNodeId, LayoutElementId>,
 }
 
@@ -252,7 +244,6 @@ impl CanLayout for TaffyLayouter {
         let font_system = Arc::clone(&self.font_system);
         let mut measure_cache: HashMap<MeasureKey, Size<f32>> = std::mem::take(&mut self.measure_cache);
 
-        // Compute the layout with a measure function
         if let Err(e) = self
             .tree
             .compute_layout_with_measure(self.root_id, size, |v_kd, v_as, _v_ni, v_nc, _v_s| {
@@ -262,7 +253,6 @@ impl CanLayout for TaffyLayouter {
                 }
 
                 match v_nc {
-                    // Calculate text node
                     Some(TaffyContext::Text(text_ctx)) => {
                         let max_width = if text_ctx.no_wrap {
                             // white-space: nowrap - measure at unlimited width so text never wraps
@@ -353,7 +343,6 @@ impl CanLayout for TaffyLayouter {
         self.populate_boxmodel(&mut layout_tree, root_id, Coordinate::ZERO, root_width);
         post_process_tables(&mut layout_tree, &self.dom_to_layout_mapping);
 
-        // get dimension of the root node
         if let Some(root) = layout_tree.get_node_by_id(root_id) {
             let w = root.box_model.margin_box.width as f32;
             let h = root.box_model.margin_box.height as f32;
@@ -365,7 +354,6 @@ impl CanLayout for TaffyLayouter {
 }
 
 impl TaffyLayouter {
-    // Populate the layout tree with the box models that we now can generate
     fn populate_boxmodel(
         &self,
         layout_tree: &mut LayoutTree,
@@ -435,7 +423,6 @@ impl TaffyLayouter {
         }
     }
 
-    /// Generate the layout tree from the render tree
     fn generate_tree(&mut self, render_tree: RenderTree, root_id: RenderNodeId) -> LayoutTree {
         self.measure_cache.clear();
         self.tree = TaffyTree::new();
@@ -482,7 +469,6 @@ impl TaffyLayouter {
     ) {
         log::debug!("Processing inline elements: {:?}", current_inline_group.len());
 
-        // No inline elements to process
         if current_inline_group.is_empty() {
             return;
         }
@@ -557,7 +543,6 @@ impl TaffyLayouter {
             log::warn!("Failed to add anonymous container to taffy tree: {:?}", e);
         }
 
-        // and add all the inline elements to the anonymous element
         for (inline_layout_element_id, inline_taffy_node_id) in items {
             if let Err(e) = self.tree.add_child(taffy_container_id, *inline_taffy_node_id) {
                 log::warn!("Failed to add inline child to taffy tree: {:?}", e);
@@ -570,15 +555,13 @@ impl TaffyLayouter {
         }
     }
 
-    /// Split a text node that lives in a *mixed* inline run (alongside inline-level elements) into
-    /// one inline box per word and push them onto `group`. This lets the text flow and wrap at word
-    /// boundaries around its sibling inline boxes, matching a browser line box - an atomic per-node
-    /// text box can only wrap as a whole, so it jumps to its own line after a preceding inline box.
+    /// Split a text node in a *mixed* inline run (alongside inline-level elements) into one inline
+    /// box per word, so text wraps around its sibling inline boxes like a browser line box - an
+    /// atomic per-node text box can only wrap as a whole, jumping to its own line instead.
     ///
-    /// Words are emitted as tight boxes, separated (and edged, where the source had leading/trailing
-    /// whitespace) by explicit single-space boxes. Each space is its own flex item, so it doubles as
-    /// a valid wrap point and carries exactly one space's width - attaching the space to the word
-    /// instead would double-count it against the trailing-NBSP fudge in the measure callback.
+    /// Words are separated by explicit single-space boxes; each space is its own flex item so it
+    /// doubles as a wrap point and carries exactly one space's width - attaching it to the word
+    /// would double-count against the trailing-NBSP fudge in the measure callback.
     fn push_text_words(
         &mut self,
         layout_tree: &mut LayoutTree,
@@ -625,12 +608,9 @@ impl TaffyLayouter {
         }
     }
 
-    /// Build a single-word inline text box: a taffy leaf plus a `LayoutElementNode`, registered the
-    /// same way `generate_taffy_element` registers a text node. Reuses `extract_taffy_data` (via the
-    /// synthetic `word_node`) so all font/whitespace/decoration resolution is identical to the
-    /// whole-node path. `dom_to_layout_mapping` is intentionally not written - a text node maps to
-    /// many word boxes and the single-slot map cannot represent that (word-level hit-testing is out
-    /// of scope).
+    /// Build a single-word inline text box, reusing `extract_taffy_data` so font/whitespace
+    /// resolution matches the whole-node path. `dom_to_layout_mapping` is intentionally not written
+    /// - one text node maps to many word boxes and the single-slot map cannot represent that.
     fn build_text_word_leaf(
         &mut self,
         layout_tree: &mut LayoutTree,
@@ -666,14 +646,12 @@ impl TaffyLayouter {
         layout_tree: &mut LayoutTree,
         render_node_id: RenderNodeId,
     ) -> Option<(LayoutElementId, TaffyNodeId)> {
-        // Find render node and dom node from the layout tree
         let render_node = layout_tree.render_tree.get_node_by_id(render_node_id)?;
         let dom_node = layout_tree
             .render_tree
             .doc
             .get_node_by_id(DomNodeId::from(render_node.node_id))?;
 
-        // Extract taffy data from the DOM node
         let (taffy_context, taffy_style) = self.extract_taffy_data(layout_tree, &dom_node)?;
 
         // Flex and grid containers are formatting contexts where ALL children - inline or block -
@@ -693,7 +671,6 @@ impl TaffyLayouter {
         };
 
         let Ok(leaf_id) = result else {
-            // Could not create a leaf node in the taffy tree
             return None;
         };
 
@@ -1090,7 +1067,6 @@ impl TaffyLayouter {
 
                 let doc = &layout_tree.render_tree.doc;
 
-                // Default font
                 let mut font_size = DEFAULT_FONT_SIZE;
                 let mut font_family = DEFAULT_FONT_FAMILY.to_string();
 
@@ -1223,9 +1199,6 @@ impl TaffyLayouter {
                     text_offset,
                     no_wrap,
                 ));
-
-                // Whitespace-only separator nodes must not grow - they should remain the
-                // natural width of a single space character so they don't consume the flex row.
             }
             NodeType::Comment(_) => {
                 // No need to layout for comment nodes. In fact, they should have been removed already

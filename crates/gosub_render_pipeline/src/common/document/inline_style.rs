@@ -4,8 +4,7 @@ use crate::common::document::style::{
 use cow_utils::CowUtils;
 use std::collections::HashMap;
 
-/// Parses a CSS inline `style` attribute value (e.g. `"color: red; width: 100px"`)
-/// into a `NodeStyle`.
+/// Parses an inline `style` attribute value (e.g. `"color: red; width: 100px"`).
 pub fn parse_inline_style_attr(style_attr: &str) -> NodeStyle {
     let mut style = NodeStyle::new();
     for declaration in style_attr.split(';') {
@@ -20,8 +19,7 @@ pub fn parse_inline_style_attr(style_attr: &str) -> NodeStyle {
     style
 }
 
-/// Extract the target of a `url(...)` token from a CSS value string, stripping surrounding
-/// quotes. Returns `None` when there is no `url()` (e.g. a gradient or plain color).
+/// Target of a `url(...)` token, dequoted. `None` when there is no `url()` (gradient, color, ...).
 fn parse_css_url(value: &str) -> Option<String> {
     let start = value.find("url(")? + "url(".len();
     let rest = &value[start..];
@@ -204,12 +202,9 @@ fn apply_border_shorthand(style: &mut NodeStyle, value: &str) {
 }
 
 fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
-    // Inline `style="…"` parsing has no access to custom properties (`--*`), which live in the
-    // stylesheet cascade. A `var(...)` value therefore can't be resolved here; storing its raw
-    // text would produce an invalid keyword that still *overrides* the (correctly resolved)
-    // cascade declaration - e.g. `style="color:var(--accent-glow)"` would paint black instead of
-    // deferring to `.arrow-link { color: var(--accent-light) }`. Per CSS, a declaration we can't
-    // compute is ignored, so skip it and let the cascade win.
+    // Custom properties (`--*`) live in the cascade, so `var(...)` can't be resolved here. Storing
+    // the raw text would yield an invalid keyword that still overrides the correctly-resolved
+    // cascade declaration. Per CSS an uncomputable declaration is ignored, so let the cascade win.
     if value.cow_to_ascii_lowercase().contains("var(") {
         return;
     }
@@ -481,9 +476,8 @@ fn parse_font_weight(value: &str) -> Value {
     }
 }
 
-/// Map HTML presentation attributes (e.g. `bgcolor`, `width`) to CSS `Value`s.
-/// These have lower specificity than any real CSS rule and are only consulted
-/// when neither the `style` attribute nor the stylesheet provides a value.
+/// Maps HTML presentation attributes (`bgcolor`, `width`, ...) to CSS values. They lose to any
+/// real CSS rule, so consult this only when neither `style` nor the stylesheet supplies a value.
 pub fn html_presentation_attr(attrs: &HashMap<String, String>, prop: &StyleProperty) -> Option<Value> {
     match prop {
         StyleProperty::BackgroundColor => {
@@ -523,13 +517,12 @@ mod tests {
 
     #[test]
     fn var_inline_declaration_is_ignored() {
-        // `var()` can't be resolved during inline parsing, so the declaration is dropped
-        // (leaving the cascade to supply the color) rather than stored as an invalid keyword
-        // that would paint black.
+        // Dropped rather than stored as an invalid keyword that would paint black, so the
+        // cascade still supplies the color.
         let style = parse_inline_style_attr("color: var(--accent-glow)");
         assert!(style.get_own(&StyleProperty::Color).is_none());
 
-        // A concrete color alongside the var() one still applies; only the var() part is skipped.
+        // Only var() is skipped — a concrete color still applies.
         let style = parse_inline_style_attr("color: #123456");
         assert!(matches!(
             style.get_own(&StyleProperty::Color),

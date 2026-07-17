@@ -3,11 +3,8 @@ use crate::common::geo::Dimension;
 use gosub_interface::font::FontStyle;
 use gosub_interface::font_system::{FontStretch, FontSystem, FontWeight, TextAlign, TextStyle};
 
-/// Measure `text` through the swappable [`FontSystem`] abstraction.
-///
-/// Builds a neutral [`TextStyle`] from `font_info` and asks the configured font system for the
-/// laid-out bounding box. Measurement goes through whichever engine the config selected (Parley,
-/// Pango, Skia, …), so layout boxes are sized by the same engine that will draw the text.
+/// Measure `text`'s bounding box via the configured [`FontSystem`], so layout boxes are sized by
+/// the same engine that will draw the text.
 pub fn get_text_layout(
     text: &str,
     font_info: &FontInfo,

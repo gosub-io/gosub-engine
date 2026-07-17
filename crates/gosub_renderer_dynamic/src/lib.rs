@@ -1,13 +1,11 @@
 //! A runtime-selectable render backend.
 //!
-//! [`DynamicRenderBackend`] bundles several concrete render backends (Cairo, Skia, Vello) behind
-//! a single [`RenderBackend`] and delegates every call to the one currently selected. This is the
-//! *only* place in the workspace that knows about the concrete backends together - the render
-//! pipeline and the engine stay fully renderer-agnostic and only ever see `dyn RenderBackend`.
+//! [`DynamicRenderBackend`] bundles the concrete backends (Cairo, Skia, Vello) behind a single
+//! [`RenderBackend`] and delegates to the selected one. This is the *only* place in the workspace
+//! that knows the concrete backends exist - the pipeline and engine only ever see `dyn RenderBackend`.
 //!
-//! A host enables the backends it can build on its platform via crate features (`cairo`, `skia`,
-//! `vello`) and registers them through the builder. Selection is by [`RenderBackendKind`] and can
-//! change at runtime via [`DynamicRenderBackend::set_active`].
+//! A host enables what it can build via crate features (`cairo`, `skia`, `vello`) and registers
+//! them through the builder; selection can change at runtime via [`DynamicRenderBackend::set_active`].
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -37,8 +35,8 @@ pub enum RenderBackendKind {
 }
 
 impl RenderBackendKind {
-    /// Reconstruct from the `u8` discriminant stored in the atomic. Any unknown value
-    /// (which cannot occur - only `self as u8` values are stored) maps to [`Null`](Self::Null).
+    /// Reconstruct from the `u8` stored in the atomic. Unknown values cannot occur (only
+    /// `self as u8` is ever stored), but map to [`Null`](Self::Null) anyway.
     fn from_u8(v: u8) -> Self {
         match v {
             1 => Self::Cairo,
@@ -53,9 +51,8 @@ type BoxedBackend = Arc<dyn RenderBackend + Send + Sync>;
 
 /// A [`RenderBackend`] that holds several backends at once and delegates to the active one.
 ///
-/// Build it with [`DynamicRenderBackend::builder`], then hand it to the engine as
-/// `Arc<dyn RenderBackend>`. Keep a clone of the `Arc<DynamicRenderBackend>` if you want to
-/// switch backends at runtime with [`set_active`](Self::set_active).
+/// Build with [`builder`](Self::builder) and hand to the engine as `Arc<dyn RenderBackend>`; keep a
+/// clone of the `Arc` to switch backends later via [`set_active`](Self::set_active).
 pub struct DynamicRenderBackend {
     backends: HashMap<RenderBackendKind, BoxedBackend>,
     null: BoxedBackend,
@@ -136,11 +133,8 @@ impl RenderBackend for DynamicRenderBackend {
     }
 }
 
-/// Builder for [`DynamicRenderBackend`].
-///
-/// Register the backends the host can construct, optionally pick the initial active one with
-/// [`active`](Self::active) (otherwise the first registered backend is active), then
-/// [`build`](Self::build).
+/// Builder for [`DynamicRenderBackend`]. Register the backends the host can construct; the initial
+/// active one is [`active`](Self::active), or the first registered if unset.
 #[derive(Default)]
 pub struct DynamicRenderBackendBuilder {
     backends: HashMap<RenderBackendKind, BoxedBackend>,
@@ -214,7 +208,7 @@ mod tests {
     #[test]
     fn selects_registered_and_rejects_unregistered() {
         let null: BoxedBackend = Arc::new(NullBackend::new());
-        // Register two backends under distinct kinds (using null instances as stand-ins).
+        // Null instances stand in for the real backends; only the selection logic is under test.
         let dynamic = DynamicRenderBackend::builder()
             .register(RenderBackendKind::Cairo, Arc::clone(&null))
             .register(RenderBackendKind::Vello, Arc::clone(&null))
@@ -222,13 +216,12 @@ mod tests {
 
         // First registered becomes active.
         assert_eq!(dynamic.active_kind(), RenderBackendKind::Cairo);
-        // Switch to a registered kind.
         assert!(dynamic.set_active(RenderBackendKind::Vello));
         assert_eq!(dynamic.active_kind(), RenderBackendKind::Vello);
         // Unregistered kind is rejected; selection unchanged.
         assert!(!dynamic.set_active(RenderBackendKind::Skia));
         assert_eq!(dynamic.active_kind(), RenderBackendKind::Vello);
-        // Null is always selectable.
+        // Null is always selectable, registered or not.
         assert!(dynamic.set_active(RenderBackendKind::Null));
     }
 }

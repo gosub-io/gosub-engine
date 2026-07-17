@@ -38,8 +38,6 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_
 
     if let Some(brush) = cmd.background() {
         if let Brush::Image(media_id, tiling) = brush {
-            // Raster images (`<img>`, background-image) are drawn from their decoded pixels;
-            // the other brushes fill a solid/gradient rect.
             draw_image_brush(
                 canvas,
                 cmd,
@@ -145,9 +143,8 @@ fn draw_rect_or_rounded(canvas: &Canvas, cmd: &Rectangle, x: f32, y: f32, w: f32
     }
 }
 
-/// Draw a raster image brush (decoded `<img>`/background-image pixels) into the box at
-/// `(x, y)`×`w`×`h`. The decoded buffer is unpremultiplied RGBA; Skia scales it to the box with
-/// linear sampling, and a rounded box clips the draw to its corner radius.
+/// Draw a raster image brush into the box at `(x, y)`×`w`×`h`. The decoded buffer is
+/// unpremultiplied RGBA; a rounded box clips the draw to its corner radius.
 #[allow(clippy::too_many_arguments)]
 fn draw_image_brush(
     canvas: &Canvas,
