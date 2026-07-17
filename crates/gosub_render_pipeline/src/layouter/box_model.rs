@@ -16,11 +16,8 @@ pub struct BoxModel {
     pub padding_box: geo::Rect,
     pub border_box: geo::Rect,
     pub margin_box: geo::Rect,
-    /// Thickness of the padding on each side.
     pub padding: Edges,
-    /// Thickness of the border on each side.
     pub border: Edges,
-    /// Thickness of the margin on each side.
     pub margin: Edges,
 }
 

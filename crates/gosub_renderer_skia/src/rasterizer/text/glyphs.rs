@@ -1,9 +1,7 @@
 //! Generic glyph-run text painter (`text_glyphs` feature).
 //!
-//! Engine-neutral: asks the configured [`FontSystem`] - *whichever* engine that is - to shape the
-//! text, then paints the returned glyph runs as Skia text blobs built from the runs' raw font
-//! bytes. Works with any font system because the contract is font bytes + glyph IDs, not engine
-//! internals.
+//! Font-system agnostic: the contract is font bytes + glyph IDs, not engine internals, so shaped
+//! runs from any [`FontSystem`] paint as Skia text blobs built from the runs' raw font bytes.
 
 use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::gradient::Gradient;
@@ -163,7 +161,6 @@ mod tests {
         let Some(bytes) = pixmap.bytes() else {
             panic!("failed to read pixel bytes");
         };
-        // Count pixels that are meaningfully darker than the white background.
         let dark = bytes
             .chunks_exact(4)
             .filter(|px| px[0] < 128 && px[1] < 128 && px[2] < 128)

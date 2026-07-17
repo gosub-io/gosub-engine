@@ -17,9 +17,8 @@ mod text;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 
 pub struct CairoRasterizer {
-    /// The engine's shared font system, exposed to the layouter so it measures with the
-    /// configured instance. Painting itself no longer needs it - text commands carry their
-    /// pre-shaped glyph runs.
+    /// Exposed to the layouter so it measures with the configured instance. Painting doesn't
+    /// need it - text commands carry their pre-shaped glyph runs.
     config_font_system: Option<Arc<Mutex<dyn FontSystem>>>,
 }
 
@@ -30,8 +29,7 @@ impl Default for CairoRasterizer {
 }
 
 impl CairoRasterizer {
-    /// Create a rasterizer with no shared engine font system (the layouter falls back to its
-    /// own instance for measurement).
+    /// No shared engine font system; the layouter falls back to its own instance for measurement.
     pub fn new() -> Self {
         Self {
             config_font_system: None,
@@ -85,8 +83,6 @@ impl Rasterable for CairoRasterizer {
                             rectangle::do_paint_rectangle(&cr.clone(), tile, command, media_store);
                         }
                         PaintCommand::Text(command) => {
-                            // The command carries its pre-shaped glyph runs; painting needs no
-                            // font system here.
                             if let Err(e) = text::glyphs::do_paint_text(&cr, tile, command, media_store) {
                                 log::warn!("Failed to paint text: {:?}", e);
                             }

@@ -1,9 +1,7 @@
 //! Generic glyph-run text painter (`text_glyphs` feature).
 //!
-//! Engine-neutral: asks the configured [`FontSystem`] - *whichever* engine that is - to shape the
-//! text, then paints the returned glyph runs with `cairo_show_glyphs` against FreeType font faces
-//! created from the runs' raw font bytes. Works with any font system because the contract is font
-//! bytes + glyph IDs, not engine internals.
+//! Font-system agnostic: the contract is font bytes + glyph IDs, not engine internals, so shaped
+//! runs from any [`FontSystem`] paint via `cairo_show_glyphs` against FreeType faces.
 //!
 //! Colour emoji render via cairo's FreeType colour-bitmap support (CBDT strikes); COLR-only
 //! fonts may still fall back to monochrome outlines depending on the cairo version.
@@ -166,9 +164,8 @@ mod tests {
     use gosub_render_pipeline::painter::commands::brush::Brush;
     use gosub_render_pipeline::painter::commands::color::Color;
 
-    /// End-to-end paint through the generic glyph path: shape "Hello" with the Pango font system
-    /// (as the pipeline Painter does at command-build time), paint the carried runs via FreeType
-    /// + `show_glyphs` onto a white surface, and assert dark pixels landed.
+    /// End-to-end paint through the generic glyph path: shape with the Pango font system, paint
+    /// the carried runs via FreeType + `show_glyphs`, and assert dark pixels landed.
     #[test]
     fn paints_visible_glyphs() {
         let mut fs = PangoFontSystem::new();

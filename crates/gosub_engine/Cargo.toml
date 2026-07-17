@@ -80,11 +80,10 @@ gdk4-wayland = { workspace = true, features = [
 gdk4-x11 = { workspace = true, optional = true }
 
 [features]
-default = ["sqlite_cookie_store", "parley_layout"]
+default = ["sqlite_cookie_store"]
 ui_eframe = ["dep:eframe", "dep:egui"]
 winit = ["dep:winit", "dep:wgpu"]
 sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
-parley_layout = []
 metrics = []
 
 wayland = ["gdk4-wayland"]

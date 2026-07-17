@@ -1,25 +1,11 @@
 //! Text shaping and cached drawing for Vello using Parley.
 //!
-//! This module provides a small text pipeline that:
-//! 1) resolves a font via your `FontManager`/`FontCache`,
-//! 2) shapes text with Parley (`FontContext`/`LayoutContext`),
-//! 3) caches positioned glyph runs keyed by [`TextKey`],
-//! 4) draws the cached runs into a Vello [`Scene`].
-//!
-//! Caching avoids repeating the (relatively expensive) shaping step when you
-//! draw the same text+font+size/wrap/alignment multiple times.
+//! Shaped glyph runs are cached by [`TextKey`] so redrawing the same text+font+size/wrap/alignment
+//! skips the (relatively expensive) shaping step.
 
 use crate::backend::font_cache::FontCache;
 use crate::backend::font_manager::FontManager;
-#[cfg(not(feature = "parley_layout"))]
-use parley::FontData as Font;
-#[cfg(feature = "parley_layout")]
-use parley::{FontData as Font, LayoutContext};
-// FontContext is always in the draw/shape signatures so that the caller
-// (VelloBackend) never needs cfg guards at the call site.
-use parley::FontContext;
-#[cfg(not(feature = "parley_layout"))]
-use skrifa::MetadataProvider;
+use parley::{FontContext, FontData as Font, LayoutContext};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -28,23 +14,13 @@ use vello::peniko::{Brush, Color, Fill};
 use vello::{Glyph, Scene};
 
 /// Cache key for shaped text.
-///
-/// Two keys are considered equal if they match on
-/// - `px`, `align`, `wrap`, and
-/// - both `text` and `font_name` content (pointer equality *or* string equality).
-///
-/// Notes:
-/// - `align` is present for future horizontal alignment logic (currently unused).
-/// - `wrap` is the max line width in pixels (if `None` or `Some(0)`, lines are unbounded).
 #[derive(Clone)]
 pub struct TextKey {
-    /// The text content to render.
     pub text: Arc<str>,
-    /// The font family name to use.
     pub font_name: Arc<str>,
     /// Font size in pixels.
     pub font_size: u32,
-    /// Optional max line width in pixels (if `None` or `Some(0)`, lines are unbounded).
+    /// Max line width in pixels; `None` or `Some(0)` means unbounded.
     pub wrap: Option<u32>,
     /// Horizontal alignment: 0=left, 1=center, 2=right (currently unused).
     pub align: u8,
@@ -73,30 +49,18 @@ impl Hash for TextKey {
     }
 }
 
-/// A shaped glyph run ready to draw with Vello.
-///
-/// Each run carries:
-/// - the resolved Vello [`Font`],
-/// - the font size in pixels,
-/// - the *absolute* glyph positions within the shaped block (y includes baseline/line offsets).
+/// A shaped glyph run ready to draw. Glyph positions are absolute within the shaped block -
+/// `y` already includes baseline and line offsets.
 pub struct CachedRun {
     pub vello_font: Font,
     pub font_size: f32,
     pub glyphs: Arc<[Glyph]>,
 }
 
-/// Stateful text renderer that shapes text (via Parley) and draws it (via Vello),
-/// with an internal cache keyed by [`TextKey`].
+/// Shapes text via Parley and draws it via Vello, caching shaped runs by [`TextKey`].
 ///
-/// # Pipeline
-/// - `shape()` resolves the font, builds a Parley layout, line-breaks it,
-///   then converts positioned glyphs into Vello `Glyph`s with y that already
-///   accounts for line height and baseline.
-/// - `draw()` looks up/creates cached runs and submits them to the [`Scene`]
-///   with a single affine translation for the target (x, y).
-///
-/// The `FontContext` (Parley's font collection) is injected by the caller rather
-/// than owned here, so all rendering components share the same font collection.
+/// The `FontContext` is injected by the caller rather than owned here, so all rendering components
+/// share one font collection.
 pub struct TextRenderer {
     cache: HashMap<TextKey, Arc<[CachedRun]>>,
 }
@@ -106,26 +70,8 @@ impl TextRenderer {
         Self { cache: HashMap::new() }
     }
 
-    #[allow(unused)]
-    pub fn clear_cache(&mut self) {
-        self.cache.clear();
-    }
-
-    /// Draw the given `key` at `(x, y)` with the RGBA color on the provided `scene`.
-    ///
-    /// If there is no cached shape for `key`, this will shape and cache it first.
-    ///
-    /// Coordinates:
-    /// - `(x, y)` is the top-left origin for the shaped block (not the baseline).
-    /// - Each cached run already encodes per-glyph baseline/line offsets.
-    ///
-    /// Performance:
-    /// - Multiple calls with the same `key` reuse shaping work.
-    /// - If you animate only the position/color, reuse the same `key`.
-    ///
-    /// `font_cx` is the shared Parley font collection. It is used by the `parley_layout`
-    /// shaping path; the skrifa fallback path ignores it but the parameter is kept
-    /// unconditional so the call site never needs `#[cfg]` guards.
+    /// Draw `key` with `(x, y)` as the top-left of the shaped block (not the baseline); shapes and
+    /// caches first if needed. Reusing a `key` across position/color changes reuses the shaping.
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
@@ -161,26 +107,8 @@ impl TextRenderer {
         }
     }
 
-    /// Shape `key.text` using Parley and return cached runs with absolute glyph positions.
-    ///
-    /// - Font resolution goes through the `FontManager`/`FontCache`.
-    /// - Line breaking:
-    ///   - If `wrap = Some(w) && w > 0`, lines are wrapped to `w` pixels.
-    ///   - Otherwise, lines are unbounded (`INFINITY`).
-    /// - Vertical metrics:
-    ///   - For each line we compute:
-    ///     - `lm = line.metrics()`
-    ///     - `baseline = lm.ascent`
-    ///     - add glyph `g.y`, and the run offset, onto `pen_y + baseline`
-    ///   - `pen_y` accumulates `lm.line_height` per line.
-    ///
-    /// Alignment:
-    /// - `align` is recorded in the key but currently not applied to advance/x positioning.
-    ///   When adding alignment, adjust each line's glyph x by the rag width delta.
-    ///
-    /// The `parley_layout` feature selects the Parley shaping path (uses `font_cx`).
-    /// Without it the skrifa path is used (maps codepoints directly, ignores `font_cx`).
-    #[cfg_attr(not(feature = "parley_layout"), allow(unused_variables))]
+    /// Shape `key.text` into runs with absolute glyph positions (`y` includes baseline + line
+    /// offsets). `key.align` is recorded but not yet applied to x positioning.
     fn shape(
         &mut self,
         fm: &mut FontManager,
@@ -188,7 +116,6 @@ impl TextRenderer {
         font_cx: &mut FontContext,
         key: &TextKey,
     ) -> Arc<[CachedRun]> {
-        // Resolve font
         let (vello_font, _resolved_name) = match fc.fetch(&key.font_name) {
             Some(f) => (f.0.clone(), f.1),
             None => match fm.resolve_ui_font(Some(&key.font_name), fontique::Attributes::default()) {
@@ -204,54 +131,6 @@ impl TextRenderer {
             },
         };
 
-        #[cfg(not(feature = "parley_layout"))]
-        {
-            let Some(font_ref) = to_font_ref(&vello_font) else {
-                log::warn!("Could not read font data for '{}'; dropping text run", key.font_name);
-                return Arc::from(Vec::new());
-            };
-            let axes = font_ref.axes();
-            let font_size = skrifa::instance::Size::new(key.font_size as f32);
-            let var_loc = axes.location(std::iter::empty::<(&str, f32)>());
-            let charmap = font_ref.charmap();
-            let metrics = font_ref.metrics(font_size, &var_loc);
-            let line_height = metrics.ascent - metrics.descent + metrics.leading;
-            let glyph_metrics = font_ref.glyph_metrics(font_size, &var_loc);
-
-            let mut pen_x = 0f32;
-            let mut pen_y = 0f32;
-
-            let glyphs = key
-                .text
-                .chars()
-                .filter_map(|ch| {
-                    if ch == '\n' {
-                        pen_y += line_height;
-                        pen_x = 0.0;
-                        return None;
-                    }
-                    let gid = charmap.map(ch).unwrap_or_default();
-                    let advance = glyph_metrics.advance_width(gid).unwrap_or_default();
-                    let x = pen_x;
-                    pen_x += advance;
-                    Some(Glyph {
-                        id: gid.to_u32(),
-                        x,
-                        y: pen_y,
-                    })
-                })
-                .collect::<Arc<[_]>>();
-
-            let out: Vec<CachedRun> = vec![CachedRun {
-                vello_font: vello_font.clone(),
-                font_size: key.font_size as f32,
-                glyphs,
-            }];
-
-            out.into()
-        }
-
-        #[cfg(feature = "parley_layout")]
         {
             // A fresh LayoutContext is cheap (it is pure scratch space).
             // FontContext is the expensive shared state - it is injected by the caller.
@@ -301,15 +180,5 @@ impl TextRenderer {
             }
             out.into()
         }
-    }
-}
-
-#[cfg(not(feature = "parley_layout"))]
-fn to_font_ref(font: &Font) -> Option<skrifa::raw::FontRef<'_>> {
-    use skrifa::raw::FileRef;
-    let file_ref = FileRef::new(font.data.as_ref()).ok()?;
-    match file_ref {
-        FileRef::Font(font) => Some(font),
-        FileRef::Collection(collection) => collection.get(font.index).ok(),
     }
 }

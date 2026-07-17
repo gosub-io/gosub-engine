@@ -1,5 +1,6 @@
 use gosub_render_pipeline::common::media::{MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
+use gosub_render_pipeline::render::backend::PixelFormat;
 use resvg::usvg::Transform;
 use vello::kurbo::{Affine, Vec2};
 use vello::peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
@@ -16,15 +17,14 @@ pub(crate) fn do_paint_svg(
     let media = media_store.get_svg(media_id);
     let r = rect.rect();
     let target_dim = r.dimension();
-    // `draw_image` carries no geometry of its own - it places the image's top-left at the
-    // transform's origin. Fold the element's box position into the affine so the SVG lands at its
-    // layout box, not the viewport origin (the rectangle painter bakes the position into the shape
-    // path instead, so it only needs the bare `affine`).
+    // `draw_image` places the image's top-left at the transform's origin, so the box position must
+    // be folded in or the SVG lands at the viewport origin. (The rectangle painter instead bakes
+    // the position into its shape path, which is why it only needs the bare `affine`.)
     let placement = affine * Affine::translate(Vec2::new(r.x, r.y));
 
     {
         let cached = media.svg.rendered.read();
-        if cached.dimension == target_dim && !cached.data.is_empty() {
+        if cached.is_usable(target_dim, PixelFormat::Rgba8) {
             let image = ImageData {
                 data: Blob::from(cached.data.clone()),
                 format: ImageFormat::Rgba8,
@@ -59,8 +59,7 @@ pub(crate) fn do_paint_svg(
     let new_data = pixmap.data().to_vec();
 
     let mut cached = media.svg.rendered.write();
-    cached.data = new_data;
-    cached.dimension = target_dim;
+    cached.store(target_dim, PixelFormat::Rgba8, new_data);
 
     let image = ImageData {
         data: Blob::from(cached.data.clone()),

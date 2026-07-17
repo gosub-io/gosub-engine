@@ -1,12 +1,8 @@
-//! Pluggable media decoding.
+//! Pluggable media decoding: [`MediaStore`](crate::common::media::MediaStore) stays
+//! format-agnostic by handing raw bytes plus an optional MIME hint to a [`MediaDecoderRegistry`].
 //!
-//! [`MediaStore`](crate::common::media::MediaStore) does not care whether a resource is PNG,
-//! JPEG, GIF or SVG - it hands the raw bytes (and an optional MIME hint) to a
-//! [`MediaDecoderRegistry`], which picks a [`MediaDecoder`] and produces a normalized
-//! [`DecodedMedia`].
-//!
-//! Raster formats are normalized to [`PixelBuffer::Rgba8`]; SVG is kept as a retained
-//! `usvg::Tree` ([`DecodedMedia::Vector`]) so it can be re-rasterized crisply at any size.
+//! Raster formats normalize to [`PixelBuffer::Rgba8`]; SVG stays a retained `usvg::Tree`
+//! ([`DecodedMedia::Vector`]) so it can be re-rasterized crisply at any size.
 
 mod raster;
 mod svg;
@@ -112,7 +108,6 @@ impl fmt::Debug for DecodedMedia {
     }
 }
 
-/// Failure modes when decoding media bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImageDecodeError {
     /// No registered decoder claimed the MIME type or recognised the magic bytes.
@@ -144,7 +139,6 @@ pub trait MediaDecoder: Send + Sync {
     /// Whether the leading bytes look like a format this decoder handles.
     fn supports_magic(&self, bytes: &[u8]) -> bool;
 
-    /// Decode the bytes into normalized media.
     fn decode(&self, bytes: &[u8]) -> Result<DecodedMedia, ImageDecodeError>;
 }
 
@@ -156,8 +150,7 @@ pub struct MediaDecoderRegistry {
 }
 
 impl MediaDecoderRegistry {
-    /// An empty registry. Use [`MediaDecoderRegistry::register`] to add decoders, or
-    /// [`MediaDecoderRegistry::with_defaults`] for the built-in set.
+    /// An empty registry; see [`MediaDecoderRegistry::with_defaults`] for the built-in set.
     pub fn new() -> Self {
         Self { decoders: Vec::new() }
     }
@@ -222,7 +215,6 @@ mod tests {
     use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
     use std::io::Cursor;
 
-    /// Encode a small solid image into `format`, returning the raw bytes.
     fn encode(format: ImageFormat) -> Vec<u8> {
         let rgba = DynamicImage::ImageRgba8(RgbaImage::from_pixel(8, 4, Rgba([200, 100, 50, 255])));
         let mut buf = Cursor::new(Vec::new());

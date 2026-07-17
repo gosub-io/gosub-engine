@@ -1,26 +1,16 @@
 //! Vello render backend.
 //!
-//! Vello is a **compute-based scene renderer**, not a canvas - so this backend works fundamentally
-//! differently from the canvas backends (Cairo, Skia), which tile + composite.
+//! Vello is a compute-based scene renderer, not a canvas, so there is no tile cache: the engine
+//! hands us one whole-viewport paint-command list and `render()` draws it as a single `Scene` in one
+//! GPU pass, re-rendered from scratch every frame (a scroll is just a translate). Cost scales with
+//! total scene size rather than visible content, so the tile path stays the better fit for Cairo/Skia.
 //!
-//! - **No tile cache.** Nothing here caches rasterized tiles. The engine builds one whole-viewport
-//!   paint-command list (`Painter::paint_all`) and `render()` turns it into a single Vello `Scene`
-//!   drawn in one GPU pass. Vello is immediate-mode / stateless between frames, so **every frame
-//!   re-renders the entire scene from scratch**: a hover or any content change rebuilds the command
-//!   list and redraws everything; a scroll re-renders the cached commands with a translate
-//!   transform. There is no dirty-region / per-tile incremental update (that's the tile path).
+//! Group opacity and fixed/sticky positioning are fused into that pass via `scene.push_layer` plus a
+//! per-anchor transform, driven by the painter's `PaintCommand::PushLayer`/`PopLayer` markers - not
+//! by a separate tile compositor.
 //!
-//! - **Compositing is fused into the render.** Group opacity and fixed/sticky/scroll positioning are
-//!   applied *during* the Vello pass via native layer push/pop (`scene.push_layer` with the group
-//!   alpha; a per-anchor transform for placement), driven by the `PaintCommand::PushLayer`/`PopLayer`
-//!   markers the painter emits around each promoted layer - not by a separate tile compositor.
-//!
-//! This trades the tile cache's incremental-update efficiency for "re-render the whole scene fast on
-//! the GPU," which is how Vello-native engines (e.g. Blitz) work. Cost scales with total scene size
-//! rather than visible content, so the tile path remains the better fit for the canvas backends.
-//!
-//! (An opt-in `GOSUB_VELLO_GPU_TILES=1` mode instead routes Vello through the shared GPU tile
-//! compositor like Skia-GPU - that path *does* tile. The default is the scene path described here.)
+//! (Opt-in `GOSUB_VELLO_GPU_TILES=1` instead routes Vello through the shared GPU tile compositor
+//! like Skia-GPU; that path *does* tile.)
 
 use crate::backend::font_cache::FontCache;
 use crate::backend::font_manager::FontManager;
@@ -64,10 +54,9 @@ pub struct WgpuResources {
     pub device: Arc<wgpu::Device>,
     pub queue: Arc<wgpu::Queue>,
     pub renderer: Mutex<Renderer>,
-    /// GPU-resident rasterized tiles, keyed by an opaque id handed back to the engine inside a
-    /// `TilePixels::Gpu`. Shared between the rasterizer (which renders + stores tiles) and the
-    /// backend compositor (which resolves ids → texture views to blit). This is the GPU sibling of
-    /// the pipeline's CPU `TextureStore`; it would live in a shared gpu-support crate once hoisted.
+    /// GPU-resident tiles, keyed by an opaque id handed to the engine inside a `TilePixels::Gpu`.
+    /// The GPU sibling of the pipeline's CPU `TextureStore`; shared by the rasterizer (stores) and
+    /// the backend compositor (resolves ids → views to blit).
     pub tile_textures: Mutex<std::collections::HashMap<u64, (wgpu::Texture, wgpu::TextureView)>>,
     pub next_tile_id: std::sync::atomic::AtomicU64,
 }
@@ -93,13 +82,10 @@ pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
     text_renderer: Mutex<TextRenderer>,
     font_manager: Mutex<FontManager>,
     font_cache: Mutex<FontCache>,
-    /// Shared font system. Holds the Parley font collection so that all text
-    /// shaping in this backend uses a single, consistent font discovery context.
+    /// Shared so all text shaping in this backend uses one font discovery context.
     font_system: Arc<Mutex<ParleyFontSystem>>,
-    /// When `GOSUB_VELLO_GPU_TILES=1`, this backend opts into the **shared tile pipeline**: the
-    /// engine rasterizes tiles into GPU textures (via our rasterizer) and calls `composite_tiles`,
-    /// instead of the one-shot whole-viewport scene path. Proves CPU and GPU backends can share one
-    /// pipeline, differing only in tile storage + who composites.
+    /// `GOSUB_VELLO_GPU_TILES=1`: opt into the shared tile pipeline (rasterize to GPU textures +
+    /// `composite_tiles`) instead of the one-shot whole-viewport scene path.
     gpu_tile_pipeline: bool,
     gpu_compositor: Mutex<crate::gpu_tiles::GpuTileCompositor>,
     /// Frame counter for rate-limited GPU-tile diagnostics.
@@ -138,8 +124,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
         })
     }
 
-    /// Expose the font system so callers can share it with `TaffyLayouter` or
-    /// `VelloRasterizer` to ensure consistent font discovery across layout and render.
+    /// Share with the layouter/rasterizer so layout and render use one font discovery context.
     pub fn font_system(&self) -> Arc<Mutex<ParleyFontSystem>> {
         Arc::clone(&self.font_system)
     }
@@ -270,9 +255,8 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                     // ARGB32 (Cairo/Skia, [B, G, R, A]) or already RGBA (Vello); `to_rgba` swaps only
                     // when needed, so colors are correct regardless of which rasterizer produced it.
                     let mut rgba = format.to_rgba(data).into_owned();
-                    // Fade the whole tile by the group opacity. Pixels are premultiplied, so scaling
-                    // all four channels keeps them premultiplied - the same factor the GPU tile path
-                    // applies in its blit shader.
+                    // Pixels are premultiplied, so scaling all four channels by the group opacity
+                    // keeps them premultiplied - same as the GPU tile path's blit shader.
                     if *opacity < 1.0 {
                         for b in rgba.iter_mut() {
                             *b = (*b as f32 * *opacity).round() as u8;
@@ -315,8 +299,7 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
     }
 
     fn render(&self, ctx: &mut dyn RenderContext, surface: &mut dyn ErasedSurface) -> Result<()> {
-        // GPU scene path: the engine hands us one viewport-level paint-command list. Translate it
-        // into a single Vello scene and render straight to our texture - no tiles, no readback.
+        // GPU scene path: one viewport-level paint-command list → one scene, no tiles, no readback.
         let scene = if let Some(scene) = self.build_scene_from_paint_commands(&*ctx) {
             scene
         } else {
@@ -351,8 +334,7 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
         &self,
         font_system: Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>>,
     ) -> Box<dyn Any + Send + Sync> {
-        // Hand the engine's shared font system to the rasterizer; it also exposes it to the
-        // layouter, so layout and rendering use the one instance.
+        // The rasterizer re-exposes this to the layouter, so layout and render share one instance.
         erase_rasterizer(Box::new(crate::VelloRasterizer::with_font_system(
             Arc::clone(&self.resources),
             font_system,
@@ -360,15 +342,14 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
     }
 
     fn raster_strategy(&self) -> RasterStrategy {
-        // Tiles are rasterized sequentially: every Vello tile shares one `Mutex<Renderer>`,
-        // so batching (not parallelism) is the win here.
+        // Every tile shares one `Mutex<Renderer>`, so parallel rasterization would just serialize
+        // on the lock; batching (not parallelism) is the win here.
         RasterStrategy::Sequential
     }
 
     fn renders_to_gpu_texture(&self) -> bool {
-        // Unlike Cairo/Skia (which ship CPU tiles for the host to composite), Vello composites
-        // the rasterized tiles into a single GPU texture via `render`/`composite_tiles` +
-        // `external_handle` and hands the host a `WgpuTextureId` to present directly.
+        // Unlike Cairo/Skia (CPU tiles for the host to composite), we composite into a single GPU
+        // texture and hand the host an opaque `WgpuTextureId` to present directly - no readback.
         true
     }
 
@@ -393,9 +374,8 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             .get_texture(s.texture_store_id)
             .ok_or_else(|| anyhow!("invalid texture id in VelloSurface"))?;
 
-        // Cull to the visible viewport - only blit tiles that intersect [scroll, scroll+viewport].
-        // Without this we'd issue a draw per tile for the WHOLE page every frame (thousands on a
-        // tall page), which makes scrolling crawl. Mirrors the CPU path's `pipeline_composite`.
+        // Cull to the visible viewport, or we'd issue a draw per tile for the WHOLE page every
+        // frame (thousands on a tall page). Mirrors the CPU path's `pipeline_composite`.
         let (vw, vh) = (viewport.0 as f32, viewport.1 as f32);
         let (sx, sy) = scroll;
         use gosub_render_pipeline::render::backend::TileAnchor;
@@ -418,7 +398,6 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
                 && t.page_y < oy + vh
         };
 
-        // Resolve each visible engine tile id → its resident GPU texture view (rasterized by our rasterizer).
         let views: Vec<(
             wgpu::TextureView,
             &gosub_render_pipeline::render::backend::PlacedGpuTile,
@@ -453,10 +432,8 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             &placed,
         );
 
-        // Rate-limited diagnostics: total page tiles vs visible-after-cull vs resident GPU tiles,
-        // plus the composite submit time. If `total` and `resident` are huge and growing, the page
-        // is rasterizing/keeping the whole page (first-paint cost / no eviction); `visible` should
-        // stay small while scrolling.
+        // Rate-limited diagnostics: `total`/`resident` huge and growing means the whole page is
+        // being rasterized/kept (no eviction); `visible` should stay small while scrolling.
         let n = self.diag_frame.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if n.is_multiple_of(60) {
             eprintln!(

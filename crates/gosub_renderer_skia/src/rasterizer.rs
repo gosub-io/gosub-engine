@@ -8,19 +8,17 @@ use gosub_render_pipeline::rasterizer::Rasterable;
 use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 use gosub_render_pipeline::tiler::Tile;
 use parking_lot::Mutex;
-use skia_safe::{Bitmap, Canvas, Matrix, Paint, Rect, SamplingOptions, TileMode};
+use skia_safe::Rect;
 use std::sync::Arc;
 
-mod paint;
 mod rectangle;
 mod svg;
 mod text;
 
 pub struct SkiaRasterizer {
     dpi_scale_factor: f32,
-    /// The engine's shared font system, exposed to the layouter so it measures with the
-    /// configured instance. Skia draws text through `skia_safe`'s own text layout, so this is
-    /// not (yet) used for drawing.
+    /// Exposed to the layouter so it measures with the configured instance. Not used for drawing:
+    /// Skia draws text through `skia_safe`'s own text layout.
     font_system: Option<Arc<Mutex<dyn FontSystem>>>,
 }
 
@@ -129,39 +127,4 @@ impl Rasterable for SkiaRasterizer {
 
         Some(texture_id)
     }
-}
-
-#[allow(unused)]
-const CHECKERED_COLOR_1: skia_safe::Color4f = skia_safe::Color4f::new(1.0, 1.0, 1.0, 1.0);
-#[allow(unused)]
-const CHECKERED_COLOR_2: skia_safe::Color4f = skia_safe::Color4f::new(1.0, 0.7, 0.7, 1.0);
-
-#[allow(unused)]
-fn clear_canvas(canvas: &Canvas, size: (i32, i32)) {
-    let tile_size = 8.0;
-
-    let mut bitmap = Bitmap::new();
-    bitmap.alloc_n32_pixels((2 * tile_size as i32, 2 * tile_size as i32), true);
-    {
-        let Some(tmp_canvas) = Canvas::from_bitmap(&bitmap, None) else {
-            return;
-        };
-        tmp_canvas.clear(CHECKERED_COLOR_1);
-
-        let paint = Paint::new(CHECKERED_COLOR_2, None);
-        tmp_canvas.draw_rect(Rect::new(tile_size, 0.0, tile_size * 2.0, tile_size), &paint);
-        tmp_canvas.draw_rect(Rect::new(0.0, tile_size, tile_size, tile_size * 2.0), &paint);
-    }
-
-    let Some(shader) = bitmap.as_image().to_shader(
-        (TileMode::Repeat, TileMode::Repeat),
-        SamplingOptions::default(),
-        Matrix::i(),
-    ) else {
-        return;
-    };
-
-    let mut paint = Paint::default();
-    paint.set_shader(shader);
-    canvas.draw_rect(Rect::new(0.0, 0.0, size.1 as f32, size.1 as f32), &paint);
 }

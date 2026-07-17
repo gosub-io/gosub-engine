@@ -20,14 +20,12 @@ pub fn intern(s: &str) -> u32 {
     id
 }
 
-/// Look up a previously-interned string by id.
 pub fn lookup(id: u32) -> String {
     interner().lock()[id as usize].clone()
 }
 
-// ── Sub-enums (unchanged from before) ────────────────────────────────────────
+// ── Sub-enums ────────────────────────────────────────────────────────────────
 
-#[allow(unused)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Unit {
     Px,
@@ -36,7 +34,6 @@ pub enum Unit {
     Percent,
 }
 
-#[allow(unused)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum BorderStyle {
     None,
@@ -51,7 +48,6 @@ pub enum BorderStyle {
     Outset,
 }
 
-#[allow(unused)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Display {
     Block,
@@ -71,7 +67,6 @@ pub enum Display {
     TableRowGroup,
 }
 
-#[allow(unused)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum FontWeight {
     Normal,
@@ -114,30 +109,22 @@ pub enum TextWrap {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
-    /// A length with a unit (px, em, rem, %).
     Unit(f32, Unit),
-    /// RGBA colour (each channel 0-255; alpha 255 = fully opaque).
+    /// Each channel 0-255; alpha 255 = fully opaque.
     Color(u8, u8, u8, u8),
     /// Unitless number (flex-grow, flex-shrink, aspect-ratio, …).
     Number(f32),
-    /// Percentage value.
     Percentage(f32),
-    /// A display mode.
     Display(Display),
-    /// Font weight.
     FontWeight(FontWeight),
-    /// Text-align value.
     TextAlign(TextAlign),
-    /// Text-wrap value.
     TextWrap(TextWrap),
-    /// Border style.
     BorderStyle(BorderStyle),
     /// An interned keyword string (font-family, position, flex-direction, …).
     Keyword(u32),
 }
 
 impl Value {
-    /// Convenience: build a keyword Value by interning the string.
     pub fn keyword(s: &str) -> Self {
         Value::Keyword(intern(s))
     }
@@ -399,7 +386,6 @@ impl StyleProperty {
         }
     }
 
-    /// Returns the metadata for this property (name, initial value, inherited flag).
     pub fn meta(&self) -> &'static PropertyMeta {
         property_meta(self.id())
     }
@@ -414,13 +400,13 @@ impl StyleProperty {
 pub struct PropertyMeta {
     pub name: &'static str,
     pub inherited: bool,
-    /// CSS-spec initial value, expressed without heap allocation.
-    /// Keyword values use a static str that is interned on first `initial_value()` call.
+    /// CSS-spec initial value, heap-free: keywords are static strs interned on first
+    /// `initial_value()` call.
     pub initial_kind: InitialKind,
 }
 
 impl PropertyMeta {
-    /// Returns the initial value as a `Value`, interning any keyword string on demand.
+    /// Interns the keyword string on demand.
     pub fn initial_value(&self) -> Value {
         self.initial_kind.to_value()
     }
@@ -460,7 +446,6 @@ pub fn property_meta(id: u8) -> &'static PropertyMeta {
     &PROPERTIES[id as usize]
 }
 
-// CSS-spec initial values and inherited flags for all 68 known properties.
 // Order MUST match StyleProperty::id().
 static PROPERTIES: &[PropertyMeta] = &[
     // 0  color - inherited; initial = black
@@ -529,7 +514,7 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Unit(0.0, Unit::Px),
     },
-    // 11 padding-top - not inherited; initial = 0
+    // 11 padding-top
     PropertyMeta {
         name: "padding-top",
         inherited: false,
@@ -553,29 +538,30 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Unit(0.0, Unit::Px),
     },
-    // 15 border-top-width - not inherited; initial = medium = 3px (but only applies when border-style != none)
+    // 15 border-top-width - not inherited; initial = medium = 3px.
+    // The style-none/hidden case computes to 0 in `get_style`, not here.
     PropertyMeta {
         name: "border-top-width",
         inherited: false,
-        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+        initial_kind: InitialKind::Unit(3.0, Unit::Px),
     },
     // 16 border-right-width
     PropertyMeta {
         name: "border-right-width",
         inherited: false,
-        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+        initial_kind: InitialKind::Unit(3.0, Unit::Px),
     },
     // 17 border-bottom-width
     PropertyMeta {
         name: "border-bottom-width",
         inherited: false,
-        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+        initial_kind: InitialKind::Unit(3.0, Unit::Px),
     },
     // 18 border-left-width
     PropertyMeta {
         name: "border-left-width",
         inherited: false,
-        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+        initial_kind: InitialKind::Unit(3.0, Unit::Px),
     },
     // 19 border-top-color - not inherited; initial = currentColor (black)
     PropertyMeta {
@@ -601,7 +587,7 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Color(0, 0, 0, 255),
     },
-    // 23 border-top-style - not inherited; initial = none
+    // 23 border-top-style
     PropertyMeta {
         name: "border-top-style",
         inherited: false,
@@ -625,55 +611,55 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::BorderStyle(BorderStyle::None),
     },
-    // 27 font-family - inherited; initial = implementation-dependent
+    // 27 font-family
     PropertyMeta {
         name: "font-family",
         inherited: true,
         initial_kind: InitialKind::Keyword("serif"),
     },
-    // 28 flex-basis - not inherited; initial = auto
+    // 28 flex-basis
     PropertyMeta {
         name: "flex-basis",
         inherited: false,
         initial_kind: InitialKind::Keyword("auto"),
     },
-    // 29 flex-direction - not inherited; initial = row
+    // 29 flex-direction
     PropertyMeta {
         name: "flex-direction",
         inherited: false,
         initial_kind: InitialKind::Keyword("row"),
     },
-    // 30 flex-grow - not inherited; initial = 0
+    // 30 flex-grow
     PropertyMeta {
         name: "flex-grow",
         inherited: false,
         initial_kind: InitialKind::Number(0.0),
     },
-    // 31 flex-shrink - not inherited; initial = 1
+    // 31 flex-shrink
     PropertyMeta {
         name: "flex-shrink",
         inherited: false,
         initial_kind: InitialKind::Number(1.0),
     },
-    // 32 flex-wrap - not inherited; initial = nowrap
+    // 32 flex-wrap
     PropertyMeta {
         name: "flex-wrap",
         inherited: false,
         initial_kind: InitialKind::Keyword("nowrap"),
     },
-    // 33 scrollbar-width - not inherited; initial = auto
+    // 33 scrollbar-width
     PropertyMeta {
         name: "scrollbar-width",
         inherited: false,
         initial_kind: InitialKind::Keyword("auto"),
     },
-    // 34 position - not inherited; initial = static
+    // 34 position
     PropertyMeta {
         name: "position",
         inherited: false,
         initial_kind: InitialKind::Keyword("static"),
     },
-    // 35 min-width - not inherited; initial = 0
+    // 35 min-width
     PropertyMeta {
         name: "min-width",
         inherited: false,
@@ -685,7 +671,7 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Unit(0.0, Unit::Px),
     },
-    // 37 max-width - not inherited; initial = none
+    // 37 max-width
     PropertyMeta {
         name: "max-width",
         inherited: false,
@@ -697,7 +683,7 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("none"),
     },
-    // 39 border-top-left-radius - not inherited; initial = 0
+    // 39 border-top-left-radius
     PropertyMeta {
         name: "border-top-left-radius",
         inherited: false,
@@ -721,43 +707,43 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Unit(0.0, Unit::Px),
     },
-    // 43 aspect-ratio - not inherited; initial = auto
+    // 43 aspect-ratio
     PropertyMeta {
         name: "aspect-ratio",
         inherited: false,
         initial_kind: InitialKind::Keyword("auto"),
     },
-    // 44 gap - not inherited; initial = normal
+    // 44 gap
     PropertyMeta {
         name: "gap",
         inherited: false,
         initial_kind: InitialKind::Keyword("normal"),
     },
-    // 45 align-items - not inherited; initial = normal
+    // 45 align-items
     PropertyMeta {
         name: "align-items",
         inherited: false,
         initial_kind: InitialKind::Keyword("normal"),
     },
-    // 46 align-self - not inherited; initial = auto
+    // 46 align-self
     PropertyMeta {
         name: "align-self",
         inherited: false,
         initial_kind: InitialKind::Keyword("auto"),
     },
-    // 47 align-content - not inherited; initial = normal
+    // 47 align-content
     PropertyMeta {
         name: "align-content",
         inherited: false,
         initial_kind: InitialKind::Keyword("normal"),
     },
-    // 48 text-align - inherited; initial = start
+    // 48 text-align
     PropertyMeta {
         name: "text-align",
         inherited: true,
         initial_kind: InitialKind::TextAlign(TextAlign::Start),
     },
-    // 49 inset-block-end - not inherited; initial = auto
+    // 49 inset-block-end
     PropertyMeta {
         name: "inset-block-end",
         inherited: false,
@@ -781,25 +767,25 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("auto"),
     },
-    // 53 justify-items - not inherited; initial = legacy
+    // 53 justify-items
     PropertyMeta {
         name: "justify-items",
         inherited: false,
         initial_kind: InitialKind::Keyword("legacy"),
     },
-    // 54 justify-self - not inherited; initial = auto
+    // 54 justify-self
     PropertyMeta {
         name: "justify-self",
         inherited: false,
         initial_kind: InitialKind::Keyword("auto"),
     },
-    // 55 justify-content - not inherited; initial = normal
+    // 55 justify-content
     PropertyMeta {
         name: "justify-content",
         inherited: false,
         initial_kind: InitialKind::Keyword("normal"),
     },
-    // 56 overflow-x - not inherited; initial = visible
+    // 56 overflow-x
     PropertyMeta {
         name: "overflow-x",
         inherited: false,
@@ -811,25 +797,25 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("visible"),
     },
-    // 58 box-sizing - not inherited; initial = content-box
+    // 58 box-sizing
     PropertyMeta {
         name: "box-sizing",
         inherited: false,
         initial_kind: InitialKind::Keyword("content-box"),
     },
-    // 59 line-height - inherited; initial = normal
+    // 59 line-height
     PropertyMeta {
         name: "line-height",
         inherited: true,
         initial_kind: InitialKind::Keyword("normal"),
     },
-    // 60 text-wrap - not inherited; initial = wrap
+    // 60 text-wrap
     PropertyMeta {
         name: "text-wrap",
         inherited: false,
         initial_kind: InitialKind::TextWrap(TextWrap::Wrap),
     },
-    // 61 grid-row - not inherited; initial = auto
+    // 61 grid-row
     PropertyMeta {
         name: "grid-row",
         inherited: false,
@@ -841,13 +827,13 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("auto"),
     },
-    // 63 grid-auto-flow - not inherited; initial = row
+    // 63 grid-auto-flow
     PropertyMeta {
         name: "grid-auto-flow",
         inherited: false,
         initial_kind: InitialKind::Keyword("row"),
     },
-    // 64 grid-template-rows - not inherited; initial = none
+    // 64 grid-template-rows
     PropertyMeta {
         name: "grid-template-rows",
         inherited: false,
@@ -859,7 +845,7 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("none"),
     },
-    // 66 grid-auto-rows - not inherited; initial = auto
+    // 66 grid-auto-rows
     PropertyMeta {
         name: "grid-auto-rows",
         inherited: false,
@@ -871,13 +857,13 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("auto"),
     },
-    // 68 font-style - inherited; initial = normal
+    // 68 font-style
     PropertyMeta {
         name: "font-style",
         inherited: true,
         initial_kind: InitialKind::Keyword("normal"),
     },
-    // 69 white-space - inherited; initial = normal
+    // 69 white-space
     PropertyMeta {
         name: "white-space",
         inherited: true,
@@ -889,7 +875,7 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: true,
         initial_kind: InitialKind::Keyword("none"),
     },
-    // 71 background-image - not inherited; initial = none
+    // 71 background-image
     PropertyMeta {
         name: "background-image",
         inherited: false,
@@ -901,13 +887,13 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("normal"),
     },
-    // 73 opacity - not inherited; initial = 1.0
+    // 73 opacity
     PropertyMeta {
         name: "opacity",
         inherited: false,
         initial_kind: InitialKind::Number(1.0),
     },
-    // 74 text-transform - inherited; initial = none
+    // 74 text-transform
     PropertyMeta {
         name: "text-transform",
         inherited: true,
@@ -925,7 +911,7 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: true,
         initial_kind: InitialKind::Keyword("normal"),
     },
-    // 77 mix-blend-mode - not inherited; initial = normal
+    // 77 mix-blend-mode
     PropertyMeta {
         name: "mix-blend-mode",
         inherited: false,
@@ -935,8 +921,8 @@ static PROPERTIES: &[PropertyMeta] = &[
 
 // ── NodeStyle - replaces StylePropertyList ────────────────────────────────────
 
-/// Per-node CSS properties. Only stores values explicitly set by stylesheet rules for
-/// THIS node. Lookup for inherited properties must recurse to the parent via the document.
+/// Per-node CSS properties: only values explicitly set for THIS node. Inherited properties must
+/// be looked up by recursing to the parent via the document.
 #[derive(Debug, Clone)]
 pub struct NodeStyle {
     /// Sorted ascending by property id for O(log n) binary search.
@@ -954,13 +940,13 @@ impl NodeStyle {
         Self { own: Vec::new() }
     }
 
-    /// Returns this node's own value for `prop` without parent recursion.
+    /// No parent recursion - own value only.
     pub fn get_own(&self, prop: &StyleProperty) -> Option<&Value> {
         let id = prop.id();
         self.own.binary_search_by_key(&id, |e| e.0).ok().map(|i| &self.own[i].1)
     }
 
-    /// Sets or replaces an own property (maintains sort order).
+    /// Maintains the id sort order `get_own`'s binary search relies on.
     pub fn set(&mut self, prop: StyleProperty, value: Value) {
         let id = prop.id();
         match self.own.binary_search_by_key(&id, |e| e.0) {
@@ -975,7 +961,7 @@ impl NodeStyle {
             .filter_map(|(id, val)| from_id(*id).map(|prop| (prop, val)))
     }
 
-    /// Returns all properties as (css-name, value-string) pairs, sorted by name.
+    /// All properties as (css-name, value-string) pairs, sorted by name.
     pub fn to_string_map(&self) -> Vec<(String, String)> {
         let mut pairs: Vec<(String, String)> = self
             .own
@@ -990,7 +976,6 @@ impl NodeStyle {
     }
 }
 
-/// Convert a property id back to a StyleProperty variant.
 fn from_id(id: u8) -> Option<StyleProperty> {
     match id {
         0 => Some(StyleProperty::Color),

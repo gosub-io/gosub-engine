@@ -1,9 +1,7 @@
 pub mod backend;
-pub mod compositor;
 pub mod rasterizer;
 
 pub use backend::{CairoBackend, CairoSurface};
-pub use compositor::{CairoCompositor, CairoCompositorConfig};
 #[cfg(feature = "pango")]
 pub use gosub_fontmanager::PangoFontSystem;
 pub use rasterizer::CairoRasterizer;

@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 pub use gosub_shared::node::NodeId;
 
-/// Map of attributes for a html element (a href, src, data-*, etc)
 #[derive(Debug, Clone)]
 pub struct AttrMap {
     attributes: HashMap<String, String>,
@@ -30,11 +29,6 @@ impl AttrMap {
     pub fn set(&mut self, key: &str, value: &str) {
         self.attributes.insert(key.to_string(), value.to_string());
     }
-
-    #[allow(unused)]
-    pub fn all(&self) -> &HashMap<String, String> {
-        &self.attributes
-    }
 }
 
 impl std::fmt::Display for AttrMap {
@@ -49,28 +43,19 @@ impl std::fmt::Display for AttrMap {
     }
 }
 
-/// Data for a html element (tag name, attributes, styles etc)
 #[derive(Clone, Debug)]
 pub struct ElementData {
     pub tag_name: String,
     pub attributes: AttrMap,
-    #[allow(unused)]
-    pub self_closing: bool,
     /// Own CSS properties for this element (only explicitly-set values; no inheritance).
     pub styles: NodeStyle,
 }
 
 impl ElementData {
-    pub fn new(
-        tag_name: String,
-        attributes: Option<AttrMap>,
-        is_self_closing: bool,
-        styles: Option<NodeStyle>,
-    ) -> ElementData {
+    pub fn new(tag_name: String, attributes: Option<AttrMap>, styles: Option<NodeStyle>) -> ElementData {
         ElementData {
             tag_name,
             attributes: attributes.unwrap_or_default(),
-            self_closing: is_self_closing,
             styles: styles.unwrap_or_default(),
         }
     }
@@ -79,19 +64,8 @@ impl ElementData {
         self.styles.get_own(key)
     }
 
-    #[allow(unused)]
     pub fn get_attribute(&self, key: &str) -> Option<&String> {
         self.attributes.get(key)
-    }
-
-    #[allow(unused)]
-    pub fn set_attribute(&mut self, key: &str, value: &str) {
-        self.attributes.set(key, value);
-    }
-
-    #[allow(unused)]
-    pub fn is_self_closing(&self) -> bool {
-        self.self_closing
     }
 
     pub fn is_inline_element(&self) -> bool {
@@ -154,10 +128,9 @@ impl Node {
         match &self.node_type {
             NodeType::Element(data) => match data.get_style(&StyleProperty::Display) {
                 Some(Value::Display(Display::Inline)) => true,
-                // When no display is explicitly set, use the HTML element's intrinsic type.
-                // CSS initial value is `inline`, but UA stylesheets set `block` for most
-                // HTML structural elements.  Defaulting unknown elements to inline here
-                // would incorrectly group <li>, <h2>, <div> etc. into inline flows.
+                // The CSS initial value is `inline`, but UA stylesheets make most structural
+                // elements `block` - defaulting to inline would group <li>, <h2>, <div> etc.
+                // into inline flows, so fall back to the tag's intrinsic type.
                 None => is_intrinsically_inline(&data.tag_name),
                 _ => false,
             },
@@ -181,10 +154,8 @@ impl Node {
     }
 }
 
-/// Returns true if `tag` is an HTML element that is inline by spec when no CSS is applied.
-/// Block-level elements (`div`, `p`, `h1`–`h6`, `li`, `section`, etc.) return false so that
-/// missing `display` in NodeStyle (e.g. from a UA-stylesheet gap) does not accidentally put
-/// them into an inline formatting context.
+/// Inline-by-spec HTML elements. Block-level tags return false so a missing `display` (e.g. a
+/// UA-stylesheet gap) never drops them into an inline formatting context.
 fn is_intrinsically_inline(tag: &str) -> bool {
     matches!(
         tag.cow_to_ascii_lowercase().as_ref(),

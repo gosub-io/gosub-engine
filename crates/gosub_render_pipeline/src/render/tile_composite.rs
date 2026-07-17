@@ -1,11 +1,10 @@
 //! CPU host-side tile compositing.
 //!
 //! Tile-rasterizing backends (Cairo, Skia, Vello-CPU) hand the host an
-//! [`ExternalHandle::TileCache`](crate::render::backend::ExternalHandle::TileCache): a set of
-//! pre-rasterized, premultiplied tiles in page coordinates. To present a frame the host must place
-//! each visible tile at its scroll/anchor-resolved position and source-over blend it onto a
-//! background. Every windowing example used to reimplement that identical loop; this module is the
-//! one shared copy.
+//! [`ExternalHandle::TileCache`](crate::render::backend::ExternalHandle::TileCache) of
+//! pre-rasterized, premultiplied tiles in page coordinates. Presenting a frame means placing each
+//! visible tile at its scroll/anchor-resolved position and source-over blending it onto a
+//! background - this module is the one shared copy of that loop.
 //!
 //! The compositor works in the canonical premultiplied **ARGB** packing (`0xAARRGGBB`, see
 //! [`PixelFormat::pixel_to_argb_u32`]). Callers fill a `u32` buffer with an opaque background,
@@ -18,14 +17,11 @@ use crate::render::backend::{anchored_tile_pos, blend_over_argb_u32, scale_premu
 /// A rectangular region of a premultiplied-ARGB (`0xAARRGGBB`) `u32` buffer that tiles composite
 /// into.
 ///
-/// `buf` is row-major with `stride` pixels per row. Tile content is clipped to the `width × height`
-/// device-pixel region whose top-left corner sits at (`origin_x`, `origin_y`) within `buf` - the
-/// offset lets a host reserve rows for its own chrome (e.g. an address bar) while still handing the
-/// whole window buffer. For an own-buffer host sized exactly to the content, use `origin_x = 0`,
-/// `origin_y = 0`, `stride = width`.
+/// `buf` is row-major with `stride` pixels per row. Tiles are clipped to the `width × height`
+/// device-pixel region at (`origin_x`, `origin_y`); the offset lets a host reserve rows for its own
+/// chrome while still handing over the whole window buffer.
 ///
-/// The caller must fill `buf` with the desired **opaque** background (e.g. `0xFFFF_FFFF` white)
-/// before compositing; tiles are blended on top with source-over.
+/// The caller must fill `buf` with an **opaque** background first - tiles blend on with source-over.
 pub struct TileTarget<'a> {
     pub buf: &'a mut [u32],
     pub stride: usize,
@@ -35,16 +31,12 @@ pub struct TileTarget<'a> {
     pub height: usize,
 }
 
-/// Source-over composite the visible `tiles` into `target`.
+/// Source-over composite the visible `tiles` into `target`, the CPU counterpart to a GPU backend's
+/// own tile compositing.
 ///
-/// Each tile is placed by resolving its anchor against the page `scroll` (CSS px) via
-/// [`anchored_tile_pos`] - which handles normal-flow, `fixed` and `sticky` uniformly - then scaling
-/// to device pixels by `dpr`. Tiles are premultiplied; per-tile `opacity` fades the layer as a
-/// whole before the blend. Tiles fully outside the target region are skipped; partially-visible
-/// tiles are clipped.
-///
-/// This is the CPU counterpart to a GPU backend's own tile compositing, shared by the
-/// tile-rasterizing windowing examples so no host reimplements it.
+/// Placement resolves each tile's anchor against the page `scroll` (CSS px) via
+/// [`anchored_tile_pos`], then scales to device pixels by `dpr`. Tiles are premultiplied; per-tile
+/// `opacity` fades the layer as a whole before the blend.
 pub fn composite_tiles(tiles: &[CachedTile], dpr: u32, scroll: (f32, f32), target: &mut TileTarget<'_>) {
     let dpr_f = dpr as f64;
     let (scroll_x, scroll_y) = scroll;
@@ -65,7 +57,6 @@ pub fn composite_tiles(tiles: &[CachedTile], dpr: u32, scroll: (f32, f32), targe
         let tw = tile.width as i64;
         let th = tile.height as i64;
 
-        // Skip tiles wholly outside the content region.
         if px >= clip_w || py >= clip_h || px + tw <= 0 || py + th <= 0 {
             continue;
         }

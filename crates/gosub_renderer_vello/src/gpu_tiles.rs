@@ -1,18 +1,12 @@
 //! Shared GPU tile compositor for wgpu-based backends.
 //!
-//! Consolidation goal: one tile pipeline for every backend. The shared render pipeline lays out,
-//! tiles, dirty-tracks and rasterizes the page; a CPU backend's tiles land in `Vec<u8>` and the
-//! host blends them, while a GPU backend's tiles land in GPU textures and *this* compositor blits
-//! the visible ones into the surface. Nothing here is Vello-specific - it only needs a wgpu device
-//! and tile texture views - so it can move to a shared gpu-support crate and serve any wgpu backend.
+//! Blits GPU-resident tiles into the surface; the engine owns all tiling, rasterization and caching.
+//! Nothing here is Vello-specific (it needs only a wgpu device and tile texture views), so it can
+//! move to a shared gpu-support crate and serve any wgpu backend.
 //!
-//! It does **no** tiling, rasterization, or caching: the engine owns all of that (the tile cache
-//! keyed by content hash already holds GPU tile ids across frames). This step just composites the
-//! tiles it is handed.
-//!
-//! Note: `copy_texture_to_texture` would be marginally simpler than this blit pass, but the surface
-//! is host-created with only `RENDER_ATTACHMENT` (not `COPY_DST`), so a render pass is the portable
-//! choice - and it gives correct premultiplied-alpha blending for free.
+//! `copy_texture_to_texture` would be simpler than this blit pass, but the host-created surface has
+//! only `RENDER_ATTACHMENT` (not `COPY_DST`) - and a render pass gives premultiplied-alpha blending
+//! for free.
 
 use gosub_render_pipeline::render::backend::{anchored_tile_pos, TileAnchor};
 use vello::wgpu;
@@ -30,8 +24,8 @@ pub struct PlacedTileTex<'a> {
     pub anchor: TileAnchor,
 }
 
-/// Uniform handed to the blit shader for one tile: destination rect in target pixels plus the
-/// target dimensions (so the vertex shader can map to clip space). 32 bytes, std140-friendly.
+/// Per-tile blit uniform: destination rect plus target dimensions, so the vertex shader can map to
+/// clip space. 32 bytes, std140-friendly.
 struct BlitUniform {
     dst: [f32; 4],      // x, y, w, h  (target pixels)
     viewport: [f32; 2], // target width, height
@@ -116,8 +110,7 @@ impl BlitPipeline {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    // The uniform is read by both stages: the vertex shader uses dst/viewport,
-                    // the fragment shader fades the tile by `opacity`.
+                    // Both stages read it: vertex uses dst/viewport, fragment uses `opacity`.
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
@@ -206,8 +199,8 @@ impl BlitPipeline {
     }
 }
 
-/// Stateless-ish GPU tile compositor: clears the target and blits the visible GPU tiles into it.
-/// The only state is the lazily-built blit pipeline (keyed by target format).
+/// Clears the target and blits the visible GPU tiles into it. The only state is the lazily-built
+/// blit pipeline, rebuilt when the target format changes.
 #[derive(Default)]
 pub struct GpuTileCompositor {
     blit: Option<BlitPipeline>,
@@ -260,8 +253,7 @@ impl GpuTileCompositor {
             // Transient per-tile uniform buffers + bind groups, kept alive until the pass ends.
             let mut keep_alive: Vec<(wgpu::Buffer, wgpu::BindGroup)> = Vec::with_capacity(tiles.len());
             for tile in tiles {
-                // Fixed tiles pin to the viewport; sticky tiles get a clamped catch-up offset. The
-                // shared helper keeps this in lock-step with the CPU compositor.
+                // Shared helper keeps fixed/sticky placement in lock-step with the CPU compositor.
                 let (ex, ey) = anchored_tile_pos(
                     tile.page_x as f64,
                     tile.page_y as f64,
@@ -342,8 +334,8 @@ mod tests {
     use vello::peniko::{Color, Fill};
     use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene};
 
-    /// Render two solid-color tiles into GPU textures, composite them side by side with the shared
-    /// compositor, read back, and assert each tile landed in the right place. Skips if no adapter.
+    /// Composites two solid-color tiles side by side and reads back to check placement.
+    /// Skips if no wgpu adapter is available.
     #[test]
     fn gpu_tile_compositor_smoke() {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -368,7 +360,6 @@ mod tests {
             .expect("renderer"),
         );
 
-        // Rasterize one 256×256 tile of a given color into a GPU texture.
         let make_tile = |color: Color| -> wgpu::Texture {
             let mut scene = Scene::new();
             scene.fill(

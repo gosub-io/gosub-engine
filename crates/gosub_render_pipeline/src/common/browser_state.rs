@@ -13,23 +13,19 @@ pub enum WireframeState {
 
 /// Per-tab render settings passed through the pipeline instead of living in a global.
 pub struct BrowserState {
-    /// List of layers that will be visible are set to true
+    /// Indexed by layer id; `true` means the layer is drawn.
     pub visible_layer_list: Vec<bool>,
-    /// Defines if we need to draw wireframes, or the actual content, or both
+    /// Whether to draw wireframes, the actual content, or both.
     pub wireframed: WireframeState,
-    /// Just show the hovered debug node in wireframe
+    /// Restrict wireframing to the hovered node only.
     pub debug_hover: bool,
-    /// Show the tile grid
     pub show_tilegrid: bool,
     /// Draw a 1px red border around every table-cell element (set via GOSUB_DEBUG_TABLE_CELLS=1)
     pub debug_table_cells: bool,
-    /// When set, this is the element that is currently hovered upon
     pub current_hovered_element: Option<LayoutElementId>,
     /// Current viewport offset + size
     pub viewport: Rect,
-    /// LayerList that is currently being rendered
     pub tile_list: Option<RwLock<TileList>>,
-    /// Scale factor for DPI
     pub dpi_scale_factor: f32,
 }
 

@@ -26,7 +26,6 @@ base64 = { workspace = true }
 anyhow = { workspace = true }
 cow-utils = { workspace = true }
 parking_lot = { workspace = true }
-parley = { workspace = true, default-features = true }
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
 rayon = "1"
 gosub_interface = { version = "0.1.2", path = "../gosub_interface", registry = "gosub" }
@@ -43,7 +42,6 @@ gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
 url = { workspace = true }
 
 [features]
-parley_layout = []
 wayland = ["gdk4-wayland"]
 x11 = ["gdk4-x11"]
 

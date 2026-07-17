@@ -9,12 +9,10 @@ use vello::peniko::{
     ImageFormat, ImageSampler,
 };
 
-/// Build the Vello brush for a paint command, plus the brush transform to pass to
-/// `Scene::fill`/`stroke`. Image brushes need one: a Vello image brush paints the raw pixels
-/// anchored at the canvas origin, so without a transform the image lands at (0,0) at its
-/// natural size and the pad-extend sampler smears its edge pixels across the rest of the
-/// shape. The returned transform maps the image onto `rect` (translate + stretch), matching
-/// the Cairo/Skia backends' draw-into-dest-rect semantics. Solid/gradient brushes need none.
+/// Build the Vello brush plus the brush transform for `Scene::fill`/`stroke`. Only image brushes
+/// need a transform: Vello anchors image pixels at the canvas origin, so without one the image lands
+/// at (0,0) at natural size and the pad-extend sampler smears its edges across the shape. The
+/// transform maps it onto `rect`, matching Cairo/Skia's draw-into-dest-rect semantics.
 pub fn set_brush(brush: &Brush, rect: Rect, media_store: &MediaStore) -> (VelloBrush, Option<Affine>) {
     match brush {
         Brush::Solid(color) => {
@@ -62,8 +60,8 @@ pub fn set_brush(brush: &Brush, rect: Rect, media_store: &MediaStore) -> (VelloB
                 height: ih,
             };
             let (sampler, transform) = match tiling {
-                // Tiled `background-image`: scale the image (iw×ih px) to `tile_size` (CSS px) and
-                // repeat it, offset by `background-position`. The fill shape (box) clips the tiling.
+                // Tiled: scale the image (iw×ih px) to `tile_size` (CSS px) and repeat it, offset by
+                // `background-position`. The fill shape clips the tiling.
                 Some(t) if iw > 0 && ih > 0 => {
                     let extend = |repeat: bool| if repeat { Extend::Repeat } else { Extend::Pad };
                     let sampler = ImageSampler::default()
@@ -93,9 +91,8 @@ pub fn set_brush(brush: &Brush, rect: Rect, media_store: &MediaStore) -> (VelloB
     }
 }
 
-/// Build a repeating image brush for a tiled `background-image` gradient layer: rasterize one
-/// tile at `background-size` and let the sampler repeat it, translated by `background-position`.
-/// The fill shape (the element box) clips the infinite tiling.
+/// Tiled `background-image` gradient layer: rasterize one tile at `background-size` and let the
+/// sampler repeat it, offset by `background-position`. The fill shape clips the infinite tiling.
 fn tiled_gradient_brush(g: &LinearGradient, tiling: &Tiling, rect: Rect) -> (VelloBrush, Option<Affine>) {
     let tw = (tiling.tile_size.0.round() as u32).max(1);
     let th = (tiling.tile_size.1.round() as u32).max(1);

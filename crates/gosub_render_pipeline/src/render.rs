@@ -1,7 +1,6 @@
 pub mod backend;
 pub mod backends;
 pub mod compositor;
-pub mod compositor_router;
 pub mod render_context;
 pub mod render_list;
 pub mod tile_composite;

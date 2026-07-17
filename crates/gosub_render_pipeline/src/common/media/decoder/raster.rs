@@ -1,12 +1,10 @@
 use super::{DecodedMedia, ImageDecodeError, MediaDecoder};
 
-/// Decodes every raster format the `image` crate is compiled with (PNG/JPEG/GIF today; more
-/// when extra `image` features are enabled). The actual format is sniffed by the `image`
-/// crate from the bytes, so a wrong MIME hint between raster formats is harmless.
+/// Decodes every raster format the `image` crate is compiled with (PNG/JPEG/GIF today). `image`
+/// sniffs the real format from the bytes, so a wrong MIME hint between raster formats is harmless.
 pub struct RasterDecoder;
 
 impl RasterDecoder {
-    /// Strip any `;`-delimited parameters and return the trimmed essence of a MIME type.
     fn essence(mime: &str) -> &str {
         mime.split(';').next().unwrap_or(mime).trim()
     }
@@ -44,13 +42,12 @@ impl MediaDecoder for RasterDecoder {
     }
 }
 
-/// PNG signature check (first 8 bytes).
 fn is_png(bytes: &[u8]) -> bool {
     bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a])
 }
 
-/// Decode a PNG while ignoring chunk CRC errors, normalizing to 8-bit RGBA. This is the lenient
-/// path browsers use for PNGs with incorrect checksums.
+/// Decode a PNG ignoring chunk CRC errors, normalized to 8-bit RGBA - the lenient path browsers
+/// use for PNGs with incorrect checksums.
 fn decode_png_lenient(bytes: &[u8]) -> anyhow::Result<image::RgbaImage> {
     let mut options = png::DecodeOptions::default();
     options.set_ignore_checksums(true);

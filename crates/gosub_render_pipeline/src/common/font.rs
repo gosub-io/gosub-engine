@@ -1,5 +1,3 @@
-pub mod parley;
-
 #[derive(Debug, Clone)]
 pub enum FontAlignment {
     /// Start of the line (left for LTR, right for RTL)
@@ -12,7 +10,6 @@ pub enum FontAlignment {
 
 #[derive(Debug, Clone)]
 pub struct FontInfo {
-    /// Font family name(s)
     pub family: String,
     /// Font size in px
     pub size: f64,
@@ -26,7 +23,6 @@ pub struct FontInfo {
     pub line_height: f64,
     /// Extra spacing between characters in px (CSS `letter-spacing`; 0 = `normal`)
     pub letter_spacing: f64,
-    /// Font alignment
     pub alignment: FontAlignment,
     pub underline: bool,
     pub line_through: bool,

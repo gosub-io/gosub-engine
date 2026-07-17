@@ -16,9 +16,8 @@ use vello::kurbo::{Affine, Rect, Vec2};
 use vello::peniko::{Color, Fill, Mix};
 use vello::{AaConfig, RenderParams, Scene};
 
-/// The transform a promoted layer's commands draw under, given its anchor and the current scroll.
-/// Mirrors `anchored_tile_pos`: normal layers scroll, fixed layers ignore scroll, sticky layers get
-/// the clamped catch-up offset.
+/// The transform a promoted layer's commands draw under. Mirrors `anchored_tile_pos`: normal layers
+/// scroll, fixed layers ignore scroll, sticky layers get the clamped catch-up offset.
 fn layer_affine(anchor: TileAnchor, sx: f64, sy: f64) -> Affine {
     match anchor {
         TileAnchor::Scroll => Affine::translate(Vec2::new(-sx, -sy)),
@@ -35,12 +34,9 @@ mod rectangle;
 mod svg;
 mod text;
 
-/// Translate a flat list of paint commands into a Vello scene.
-///
-/// Shared by the per-tile rasterizer (called once per tile, clipped + translated to the tile)
-/// and the GPU-scene backend path (called once for the whole viewport, translated by `−scroll`).
-/// `size` bounds text layout; text commands carry their pre-shaped glyph runs, so no font
-/// system is needed here.
+/// Shared by the per-tile rasterizer (once per tile, translated to the tile) and the GPU-scene path
+/// (once for the whole viewport, translated by `−scroll`). `size` bounds text layout; commands carry
+/// pre-shaped glyph runs, so no font system is needed.
 pub(crate) fn paint_commands_to_scene(
     scene: &mut Scene,
     commands: &[PaintCommand],
@@ -50,10 +46,8 @@ pub(crate) fn paint_commands_to_scene(
     media_store: &MediaStore,
 ) {
     let (sx, sy) = scroll;
-    // The transform the current commands draw under. Starts at the caller's affine (per-tile
-    // translate for the tile path, `−scroll` for the whole-page scene path) and is swapped to a
-    // layer's anchor transform between PushLayer/PopLayer. The tile path never emits those, so it
-    // simply paints everything under the initial affine.
+    // Starts at the caller's affine and is swapped to a layer's anchor transform between
+    // PushLayer/PopLayer. The tile path never emits those, so it paints under the initial affine.
     let mut cur = affine;
     // (transform to restore, whether we pushed an opacity group) for each open PushLayer.
     let mut stack: Vec<(Affine, bool)> = Vec::new();
@@ -96,9 +90,8 @@ pub(crate) fn paint_commands_to_scene(
 
 pub struct VelloRasterizer {
     resources: Arc<WgpuResources>,
-    /// The engine's shared font system, exposed to the layouter via `Rasterable::font_system()`
-    /// so layout measures with the configured instance. Painting itself no longer needs it -
-    /// text commands carry their pre-shaped glyph runs.
+    /// Exposed to the layouter via `Rasterable::font_system()` so layout measures with the
+    /// configured instance. Painting no longer needs it - commands carry pre-shaped glyph runs.
     font_system: Arc<Mutex<dyn FontSystem>>,
 }
 
@@ -115,8 +108,7 @@ impl VelloRasterizer {
 }
 
 impl Rasterable for VelloRasterizer {
-    /// Share the engine's font system with the layouter so layout and rendering measure/draw
-    /// against the same instance.
+    /// Shared with the layouter so layout and render measure against the same instance.
     fn font_system(&self) -> Option<Arc<Mutex<dyn FontSystem>>> {
         Some(Arc::clone(&self.font_system))
     }
@@ -149,9 +141,8 @@ impl Rasterable for VelloRasterizer {
         let device: &vello::wgpu::Device = &self.resources.device;
         let queue: &vello::wgpu::Queue = &self.resources.queue;
 
-        // Render the tile straight into a GPU texture and keep it resident - no CPU readback. The
-        // texture is registered in the backend's shared tile store; the engine carries the opaque
-        // id through the normal tile cache and hands it back to `composite_tiles` for blitting.
+        // The tile stays GPU-resident - no readback. The engine only ever sees the opaque id, which
+        // it carries through the normal tile cache and hands back to `composite_tiles`.
         let texture = crate::gpu_tiles::create_tile_texture(device, tile_size.width as u32, tile_size.height as u32);
 
         let render_params = RenderParams {

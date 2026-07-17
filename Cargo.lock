@@ -3451,7 +3451,6 @@ dependencies = [
  "image",
  "log",
  "parking_lot",
- "parley",
  "png",
  "rand 0.10.1",
  "rayon",
@@ -3527,7 +3526,6 @@ dependencies = [
  "parley",
  "pollster 1.0.1",
  "resvg",
- "skrifa 0.42.1",
  "vello",
  "winit",
 ]

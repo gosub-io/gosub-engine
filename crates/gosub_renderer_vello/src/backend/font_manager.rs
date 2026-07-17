@@ -22,7 +22,6 @@ impl FontManager {
 
         let mut q = self.collection.query(&mut self.cache);
 
-        // Build a reasonable fallback stack:
         let mut families: Vec<QueryFamily> = Vec::new();
         if let Some(name) = prefer {
             families.push(QueryFamily::Named(name));

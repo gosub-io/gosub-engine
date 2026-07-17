@@ -1,14 +1,10 @@
 //! Inline-run collection - Stage 0 of the inline-formatting rework.
 //! See `docs/inline-run-rework-plan.md`.
 //!
-//! Collects a block's inline content (text nodes + flattened inline elements) into a flat list of
-//! styled [`InlineSegment`]s, split into line boxes at `<br>`, with CSS `white-space: normal`
-//! collapsing applied across segment boundaries and `text-transform` applied per segment.
+//! Collects a block's inline content into styled [`InlineSegment`]s, split into line boxes at `<br>`.
 //!
-//! This is scaffolding: it is **not yet wired into layout** (Stage 1 replaces the flex-based
-//! anonymous line container with a single run leaf built from this). Until then the doc-walking
-//! entry points are unused, hence the module-wide `dead_code` allow - it comes off in Stage 1. The
-//! whitespace-collapsing and line-box-splitting logic is pure and unit-tested below.
+//! Scaffolding: **not yet wired into layout** (Stage 1 replaces the flex-based anonymous line
+//! container with a single run leaf built from this), hence the module-wide `dead_code` allow.
 #![allow(dead_code)]
 
 use cow_utils::CowUtils;
@@ -208,11 +204,9 @@ fn split_line_boxes(entries: Vec<RawEntry>) -> Vec<Vec<TextEntry>> {
 
 /// Apply CSS `white-space: normal` collapsing to one line box and emit its segments.
 ///
-/// Runs of ASCII whitespace collapse to a single space, including across segment boundaries; the
-/// box's leading and trailing whitespace is trimmed. A whitespace-only segment (e.g. the text node
-/// between two inline elements) contributes the collapsed inter-element space to its neighbour
-/// rather than a segment of its own. `text-transform` is applied per segment after collapsing.
-/// NBSP (U+00A0) is intentionally not collapsed.
+/// Whitespace runs collapse to a single space across segment boundaries, and the box's leading and
+/// trailing whitespace is trimmed - so a whitespace-only segment (the text node between two inline
+/// elements) yields no segment of its own. NBSP (U+00A0) is intentionally not collapsed.
 fn finish_box(entries: Vec<TextEntry>) -> Vec<InlineSegment> {
     let mut out = Vec::new();
     // A collapsed space waiting to be emitted before the next non-space character; carries across

@@ -14,36 +14,6 @@ use std::fmt::Debug;
 use std::ops::AddAssign;
 use std::sync::Arc;
 
-/*
-
-TileList
-    wrapped(LayerList)
-    tiles: hashmap<LayerId, TileLayer>
-    arena of Tile
-    next_node_id
-    default_tile_dimension
-
-TileLayer
-    layer_id
-    tiles: Vec<TileId>
-    rstar_tree
-
- Tile
-    id
-    layer_id
-    elements: Vec<TiledLayoutElement>
-    texture_id
-    state
-    rect
-
- TiledLayoutElement
-    id
-    rect
-    position
-    paint_commands
- */
-
-/// Identifier for tiles
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileId(u64);
 
@@ -65,18 +35,15 @@ impl std::fmt::Display for TileId {
     }
 }
 
-/// An element that is laid out in a tile. It contains the paint commands to render the (partial)
-/// element onto the tile.
+/// The (possibly partial) part of an element that falls within a single tile.
 #[derive(Debug, Clone)]
 pub struct TiledLayoutElement {
-    /// Element to layout
     pub id: LayoutElementId,
-    /// Position and dimension of the element inside the tile. If the element is larger than the
-    /// tile, this will be a subset of the element.
+    /// Part of the element to draw, in element-local coordinates (a subset when the
+    /// element spans multiple tiles). See the diagram below.
     pub rect: Rect,
-    /// Coordinate of the element in the tile. It is the coordinate inside the tile where the element starts.
+    /// Where inside the tile the element starts. See the diagram below.
     pub position: Coordinate,
-    /// List of paint commands to execute in order to draw this elements onto the tile
     pub paint_commands: Vec<PaintCommand>,
 }
 
@@ -90,11 +57,8 @@ In tile 2, the rect of element 67 is (50, 0, 50, 25). The position is (0, 25)
 In tile 3, the rect of element 67 is (0, 25, 50, 25). The position is (50, 0).
 In tile 4, the rect of element 67 is (50, 25, 50, 25). The position is (0, 0).
 
-The position defines where the element will start in the tile.
-The rect defines the position and dimension of the element that needs to be rendered.
-
-In the first tile, the element starts at 50x25. Even though the element is 100x50 in side,
-the rect starts at 0,0 to 50,25. Which is the top left quarter of the element.
+So in tile 1 the element starts at 50x25; even though the element is 100x50, the rect
+covers only 0,0..50,25 - the top left quarter of the element.
 
     0                 100             200
     +------------------+----------------+
@@ -113,7 +77,7 @@ the rect starts at 0,0 to 50,25. Which is the top left quarter of the element.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TileState {
     /// Tile texture is clean and can be rendered
-    Clean,
+    Ready,
     /// Tile texture needs a repaint
     Dirty,
     /// Tile texture cannot be rendered by this backend
@@ -122,41 +86,31 @@ pub enum TileState {
     Empty,
 }
 
-/// Single tile in the tile list. It contains a list of elements that are laid out in the tile and
-/// has the (rendered) texture that will eventually be composited onto the screen.
+/// Single tile: the elements it covers plus the rendered texture that gets composited to screen.
 #[derive(Debug, Clone)]
 pub struct Tile {
-    /// Tile ID
     pub id: TileId,
-    /// Layer id on which this tile lives
     pub layer_id: LayerId,
-    /// Elements found in the tile
     pub elements: Vec<TiledLayoutElement>,
-    /// Texture that this tile is rendered to. If it does not have a texture id, it's not rendered
-    /// yet. Note that when the state is DIRTY, the texture_id is still valid, but the texture needs
-    /// to be repainted.
+    /// None means never rendered. When state is Dirty the id is still valid, but stale.
     pub texture_id: Option<TextureId>,
-    /// State of the tile
     pub state: TileState,
-    // Position and dimension of the tile in the layer
+    /// Position and dimension of the tile in layer coordinates.
     pub rect: Rect,
-    // Background color of the tile (actually, the background color of the whole canvas). We should use a different way to deal with this I think.
+    /// Background color of the whole canvas, not of this tile. We should deal with this differently.
     pub bgcolor: Option<(f32, f32, f32, f32)>,
 }
 
 /// Each layer has a list of tiles. Each tile has a list of elements that are laid out in that tile.
 #[derive(Debug, Clone)]
 pub struct TileLayer {
-    // Layer ID of this layer
     pub layer_id: LayerId,
-    // List of tiles inside this layer
     pub tiles: Vec<TileId>,
     /// R* tree for fast spatial queries of tiles inside this layer
     rstar_tree: rstar::RTree<GeomWithData<rstar::primitives::Rectangle<[f64; 2]>, TileId>>,
 }
 
 impl TileLayer {
-    // Find all tile ids in this layer that intersects with the given rect
     pub fn intersects_with(&self, rect: Rect) -> Vec<TileId> {
         self.rstar_tree
             .locate_in_envelope_intersecting(AABB::from_corners(
@@ -171,15 +125,11 @@ impl TileLayer {
 /// Main list of tiles per layer.
 #[derive(Clone)]
 pub struct TileList {
-    /// Wrapped layer list
     pub layer_list: Arc<LayerList>,
 
-    // Tile info per layer
     pub tiles: HashMap<LayerId, TileLayer>,
 
-    /// Arena of layout nodes
     pub arena: HashMap<TileId, Tile>,
-    /// Next node ID
     next_node_id: Arc<RwLock<TileId>>,
 
     pub default_tile_dimension: Dimension,
@@ -227,12 +177,10 @@ impl TileList {
         self.arena.get_mut(&tile_id)
     }
 
-    /// Returns a reference to the given tile or None when not found
     pub fn get_tile(&self, tile_id: TileId) -> Option<&Tile> {
         self.arena.get(&tile_id)
     }
 
-    /// Return all the tiles for the specific layer that intersects with the given viewport
     pub fn get_intersecting_tiles(&self, layer_id: LayerId, viewport: Rect) -> Vec<TileId> {
         let Some(tile_layer) = self.tiles.get(&layer_id) else {
             return vec![];
@@ -253,8 +201,8 @@ impl TileList {
         }
     }
 
-    /// Like `new`, but accepts an already-`Arc`-wrapped `LayerList` - used by
-    /// the hover-repaint fast path to avoid cloning the layout tree.
+    /// Like `new`, but reuses an `Arc`ed `LayerList`: the hover-repaint fast path
+    /// needs this to avoid cloning the layout tree.
     pub fn from_arc(layer_list: Arc<LayerList>, dimension: Dimension) -> Self {
         Self {
             layer_list,
@@ -281,7 +229,7 @@ impl TileList {
         let max_cols = (page_w / tile_w).ceil() as usize;
         let max_rows = (page_h / tile_h).ceil() as usize;
 
-        // Detect canvas color. We paint the whole canvas with the background color from either the html or body nodes.
+        // The whole canvas is painted with the background color of the html node, falling back to body.
         let mut bgcolor = get_background_color_from_node(
             self.layer_list.layout_tree.render_tree.doc.html_node_id(),
             self.layer_list.layout_tree.render_tree.doc.as_ref(),
@@ -295,16 +243,13 @@ impl TileList {
 
         let layer_list = self.layer_list.layers.read();
 
-        // iterate each layer
         for (layer_idx, layer_id) in self.layer_list.layer_ids.read().iter().enumerate() {
             let Some(layer) = layer_list.get(layer_id) else {
                 continue;
             };
 
-            // Compute the union bounding box of all elements in this layer so we only
-            // generate tiles that actually contain content. The first layer (the root
-            // background layer) always gets full-page coverage because it carries the
-            // canvas background color that other layers draw on top of.
+            // Only tile the union bounding box of the layer's elements. Layer 0 is the exception:
+            // it carries the canvas background color, so it needs full-page coverage.
             let (row_start, row_end, col_start, col_end) = if layer_idx == 0 || layer.elements.is_empty() {
                 (0, max_rows, 0, max_cols)
             } else {
@@ -324,7 +269,6 @@ impl TileList {
                     }
                 }
                 if min_x > max_x || min_y > max_y {
-                    // No visible elements - skip this layer entirely.
                     continue;
                 }
                 let cs = (min_x / tile_w).floor() as usize;
@@ -383,7 +327,6 @@ impl TileList {
                 continue;
             };
 
-            // iterate each element in the layer and assign it to the tiles it overlaps.
             for &element_id in &layer.elements {
                 let Some(element) = self.layer_list.layout_tree.get_node_by_id(element_id) else {
                     log::warn!("Warning: Element {:?} not found in layout tree!", element_id);

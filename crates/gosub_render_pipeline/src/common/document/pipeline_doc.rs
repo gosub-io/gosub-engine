@@ -16,8 +16,7 @@ use std::sync::Arc;
 
 // ── Bridge: CssProperty → Value ──────────────────────────────────────────────
 
-/// Convert a single `CssProperty` value into the internal `Value` representation.
-/// Returns `None` when the property carries no usable value (e.g. `CssValue::None`).
+/// `None` when the property carries no usable value (e.g. `CssValue::None`).
 fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) -> Option<Value> {
     match prop {
         // ── Color properties ───────────────────────────────────────────────
@@ -144,12 +143,9 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
                 return Some(Value::Keyword(intern(s)));
             }
             if let Some(list) = p.as_list() {
-                // The value is a flat token list: an unquoted multi-word family name is a run
-                // of space-separated identifier tokens (`DejaVu Sans` → `String("DejaVu")`,
-                // `String("Sans")`) and `Comma` separates alternative families. Rejoin adjacent
-                // tokens with a space (same family) and use ", " only at commas, so a name like
-                // "DejaVu Sans" survives intact instead of splitting into "DejaVu, Sans" (which
-                // matches no installed font and falls through to the generic fallback).
+                // The list is flat: `DejaVu Sans` arrives as two identifier tokens, and `Comma`
+                // separates alternative families. Rejoin adjacent tokens with a space so the name
+                // survives intact instead of splitting into "DejaVu, Sans", which matches no font.
                 let mut names = String::new();
                 let mut need_space = false;
                 for v in list {
@@ -182,10 +178,9 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
         }
 
         // ── Grid track lists: `repeat(3, 1fr)`, `210px 1fr`, `auto`, … ─────
-        // These are stored as a `Function` (repeat/minmax) or a multi-value `List`, neither of
-        // which `as_string()` returns, and a bare `1fr` is a `Unit` - so the default branch
-        // below would drop or mis-type them. Serialize back to a canonical CSS track-list
-        // string so the layouter's track-list parser (`parse_grid_template`) can read it.
+        // Stored as a `Function` (repeat/minmax) or a `List` - neither of which `as_string()`
+        // returns - and a bare `1fr` is a `Unit`, so the default branch would drop or mis-type
+        // them. Re-serialize to canonical CSS text for the layouter's `parse_grid_template`.
         StyleProperty::GridTemplateColumns
         | StyleProperty::GridTemplateRows
         | StyleProperty::GridAutoColumns
@@ -216,11 +211,8 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
                 // `ch` ≈ width of "0", `ex` ≈ x-height, `lh` ≈ line box.
                 let value = match unit {
                     "em" => Value::Unit(v, Unit::Em),
-                    // `ch` is the advance of the "0" glyph. Without font metrics here we
-                    // approximate it as 0.55em - the CSS-spec 0.5em fallback is for fonts with no
-                    // "0", but real proportional fonts (e.g. the system sans / Source Serif 4 used
-                    // by content here) sit nearer 0.52–0.6em, so 0.5em makes `ch`-based widths
-                    // (e.g. `max-width: 17ch`) too narrow and over-wraps. `ex` ≈ x-height ≈ 0.5em.
+                    // 0.55em, not the spec's 0.5em fallback: real proportional fonts sit nearer
+                    // 0.52-0.6em, so 0.5em makes `ch` widths (`max-width: 17ch`) over-wrap.
                     "ch" => Value::Unit(v * 0.55, Unit::Em),
                     "ex" => Value::Unit(v * 0.5, Unit::Em),
                     "ic" => Value::Unit(v, Unit::Em),
@@ -241,9 +233,8 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
     }
 }
 
-/// Serialize a single CSS value from a grid track list back into canonical CSS text
-/// (`1fr`, `210px`, `50%`, `auto`, `minmax(100px, 1fr)`, …). Used to reconstruct a
-/// `grid-template-*` string the layouter can parse.
+/// Serializes one grid track-list value back to canonical CSS text (`1fr`, `minmax(100px, 1fr)`,
+/// …), reconstructing a `grid-template-*` string the layouter can parse.
 fn grid_value_to_string<S: CssSystem>(v: &S::Value) -> String {
     if let Some(s) = v.as_string() {
         return s.to_string();
@@ -269,8 +260,8 @@ fn grid_value_to_string<S: CssSystem>(v: &S::Value) -> String {
     String::new()
 }
 
-/// Join the arguments of a grid function like `repeat(3, 1fr)` or `minmax(100px, 1fr)`,
-/// rendering the internal comma separators as `, ` and other arguments space-separated.
+/// Joins grid function args (`repeat(3, 1fr)`), rendering commas as `, ` and the rest
+/// space-separated.
 fn join_grid_args<S: CssSystem>(args: &[S::Value]) -> String {
     let mut out = String::new();
     for arg in args {
@@ -302,9 +293,8 @@ fn css_value_url<S: CssSystem>(v: &S::Value) -> Option<String> {
     None
 }
 
-/// Extract the first `url(...)` from a property's actual value. Handles both the
-/// `background-image` longhand (a bare `url()` function) and the `background` shorthand,
-/// whose value is a list like `[url(...), no-repeat]`.
+/// First `url(...)` in a property value - handles both the `background-image` longhand (a bare
+/// `url()` function) and the `background` shorthand (a list like `[url(...), no-repeat]`).
 fn css_property_url<S: CssSystem>(p: &S::Property) -> Option<String> {
     if let Some((name, args)) = p.as_function() {
         if name.eq_ignore_ascii_case("url") {
@@ -319,9 +309,7 @@ fn css_property_url<S: CssSystem>(p: &S::Property) -> Option<String> {
     None
 }
 
-/// Extract a solid colour from a `background` shorthand value (e.g. `background: #fff`,
-/// `background: white`, or `background: #fff url(...) no-repeat`). Returns the first colour
-/// token found, or `None` when the shorthand carries no colour. Components are 0..=255.
+/// First colour token of a `background` shorthand (`#fff url(...) no-repeat`), components 0..=255.
 fn css_property_bg_color<S: CssSystem>(p: &S::Property) -> Option<(u8, u8, u8, u8)> {
     // Single-value shorthand: a bare `<color>` (hex/function collapse to a concrete colour at
     // parse time; a named/system colour arrives as a string).
@@ -349,13 +337,9 @@ fn css_property_bg_color<S: CssSystem>(p: &S::Property) -> Option<(u8, u8, u8, u
 
 // ── Gradient parsing ──────────────────────────────────────────────────────────
 
-/// Search a property value (the `background-image` longhand or a `background` shorthand
-/// list) for a `linear-gradient(...)` and parse it into a [`Gradient`].
-/// Parse the argument list of a `linear-gradient(...)` into a [`Gradient`]: an optional
-/// leading direction (`to <side>[ <side>]` or an `<angle>`) followed by two or more colour
-/// stops. Stops without an explicit position are spread evenly between their neighbours.
+/// Parses `linear-gradient(...)` args: an optional leading direction (`to <side>[ <side>]` or an
+/// `<angle>`) then two or more stops. Positionless stops are spread evenly between neighbours.
 fn parse_linear_gradient<S: CssSystem>(args: &[S::Value]) -> Option<Gradient> {
-    // Split the flat argument list into comma-separated groups.
     let mut groups: Vec<Vec<&S::Value>> = Vec::new();
     let mut current: Vec<&S::Value> = Vec::new();
     for a in args {
@@ -377,14 +361,11 @@ fn parse_linear_gradient<S: CssSystem>(args: &[S::Value]) -> Option<Gradient> {
         }
     }
 
-    // Collect colour stops with their (optional) declared positions.
     let mut colors: Vec<Color> = Vec::new();
     let mut offsets: Vec<Option<f32>> = Vec::new();
     for group in groups.iter().skip(first_stop) {
-        // A stop colour is either a parsed `Color` (hex / rgb() / hsl()) or a bareword that
-        // only becomes a colour here: named colours and the `transparent` keyword tokenise as
-        // plain identifiers, so `as_color()` misses them. `#e6e6e6 25%, transparent 25%` in
-        // the checkerboard depends on `transparent` resolving to a zero-alpha stop.
+        // Named colours and `transparent` tokenise as plain identifiers, so `as_color()` misses
+        // them - fall back to string parsing, which `#e6e6e6 25%, transparent 25%` relies on.
         let color = group
             .iter()
             .find_map(|v| v.as_color())
@@ -447,9 +428,8 @@ fn parse_linear_gradient<S: CssSystem>(args: &[S::Value]) -> Option<Gradient> {
     }))
 }
 
-/// Parse the leading direction group of a `linear-gradient`. Returns the gradient-line
-/// angle in CSS degrees, or `None` if the group is not a direction (i.e. it is a colour
-/// stop and the gradient uses the default `to bottom`).
+/// Gradient-line angle in CSS degrees, or `None` if the group is a colour stop rather than a
+/// direction (so the gradient uses the default `to bottom`).
 fn parse_gradient_direction<S: CssSystem>(group: &[&S::Value]) -> Option<f32> {
     // Angle form: `45deg`, `0.25turn`, `1.5rad`, `100grad`.
     if let Some((v, unit)) = group.first().and_then(|first| first.as_unit()) {
@@ -600,9 +580,8 @@ fn resolve_bg_size(group: &[BgTok]) -> Option<(f32, f32)> {
     }
 }
 
-/// `background-position` group → (x, y) px phase offset. Percentages and edge keywords need
-/// the box size, so they resolve to 0 for now (px offsets - what the checkerboard uses - are
-/// exact).
+/// `background-position` group → (x, y) px phase offset. Percentages and edge keywords need the
+/// box size, so they resolve to 0 for now; px offsets are exact.
 fn resolve_bg_position(group: &[BgTok]) -> (f32, f32) {
     let lens: Vec<f32> = group
         .iter()
@@ -644,7 +623,6 @@ pub enum PipelineNodeKind {
     Element,
 }
 
-/// Resolved `background-size` keyword/value.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BgSize {
     /// `auto` / absent - the image's intrinsic size.
@@ -657,12 +635,9 @@ pub enum BgSize {
     Contain,
 }
 
-/// Resolved `background-repeat`/`-size`/`-position` for an element's (first) background layer,
-/// used to size/tile a raster/SVG `background-image`. Read from the `background` shorthand as well
-/// as the longhands, since pages often write `background: url(x) repeat` (or `… center / cover`).
-///
-/// `cover`/`contain` depend on the box size, so the final tile geometry is computed at paint time
-/// (see the painter) from this layout plus the element's border box.
+/// Resolved `background-repeat`/`-size`/`-position` for an element's first background layer. Read
+/// from the `background` shorthand as well as the longhands, since pages write `background: url(x)
+/// repeat`. `cover`/`contain` need the box size, so final tile geometry is computed at paint time.
 #[derive(Debug, Clone, Copy)]
 pub struct BgImageLayout {
     /// Whether the tile repeats on the x / y axis (`background-repeat`; default repeat both).
@@ -706,28 +681,24 @@ pub trait PipelineDocument: Send + Sync {
     /// Returns the own (explicitly-set) value for `prop` on node `id`, without recursing.
     fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value>;
 
-    /// The CSS `background-image` gradient layers for node `id`, in source order (the first
-    /// listed layer paints on top). Each layer carries its resolved `background-size` /
-    /// `-position` / `-repeat` tiling (or `None` tiling to fill the box). Empty for
-    /// solid/image backgrounds.
+    /// `background-image` gradient layers in source order (first listed paints on top), each
+    /// carrying its resolved tiling (`None` tiling = fill the box). Empty for solid/image
+    /// backgrounds.
     fn background_layers(&self, _id: NodeId) -> Vec<Gradient> {
         Vec::new()
     }
 
-    /// Resolved `background-repeat`/`-size`/`-position` for node `id`'s background image,
-    /// read from both the `background` shorthand and the longhands. Used to tile a raster/SVG
-    /// `background-image`. Defaults to "repeat both axes, intrinsic size, no offset".
+    /// Tiling for a raster/SVG `background-image`, read from both the `background` shorthand and
+    /// the longhands. Defaults to "repeat both axes, intrinsic size, no offset".
     fn background_image_layout(&self, _id: NodeId) -> BgImageLayout {
         BgImageLayout::default()
     }
 
-    /// Discard the computed-style cache so the next `get_own_style` call re-evaluates
-    /// CSS selectors (including `:hover`) from scratch.  No-op for backends that do
-    /// not cache styles.
+    /// Forces the next `get_own_style` to re-evaluate CSS selectors (including `:hover`) from
+    /// scratch. No-op for backends that do not cache styles.
     fn clear_style_cache(&self) {}
 
-    /// Discard cached computed styles for specific nodes only. More efficient than
-    /// `clear_style_cache` for hover repaints where only a few elements changed.
+    /// Cheaper than `clear_style_cache` for hover repaints where only a few elements changed.
     fn invalidate_style_for_nodes(&self, _ids: &[NodeId]) {}
 
     /// Returns the computed value for `prop` on node `id`:
@@ -735,6 +706,16 @@ pub trait PipelineDocument: Send + Sync {
     ///  2. parent's computed value if the property is inherited,
     ///  3. the CSS-spec initial value otherwise.
     fn get_style(&self, id: NodeId, prop: &StyleProperty) -> Value {
+        // A border whose style is none/hidden computes to zero width regardless of the declared or
+        // initial width. Enforced here so layout and paint can't disagree about the box.
+        if let Some(style_prop) = border_width_peer_style(prop) {
+            if let Value::BorderStyle(s) = self.get_style(id, &style_prop) {
+                if matches!(s, BorderStyle::None | BorderStyle::Hidden) {
+                    return Value::Unit(0.0, Unit::Px);
+                }
+            }
+        }
+
         let raw = if let Some(v) = self.get_own_style(id, prop) {
             v
         } else {
@@ -789,14 +770,11 @@ pub trait PipelineDocument: Send + Sync {
 
 // ── Pseudo-element (::before / ::after) synthetic nodes ───────────────────────
 //
-// CSS generated content (`::before` / `::after`) has no DOM node, but the whole render
-// pipeline is keyed by `NodeId`. We therefore mint *synthetic* NodeIds that the adapter
-// resolves on the fly: the rest of the pipeline (render-tree build, layout, paint) treats
-// them like any other node via the `PipelineDocument` interface.
+// Generated content has no DOM node, but the pipeline is keyed by `NodeId` - so mint synthetic
+// ids the adapter resolves on the fly, letting the rest of the pipeline treat them as normal nodes.
 //
-// Encoding: the top bit flags a synthetic id; the next two bits are the role; the remaining
-// bits hold the originating ("owner") element id. Real DOM ids are small, so the high bits
-// are free.
+// Encoding: top bit flags a synthetic id, next two bits are the role, the rest hold the owner
+// element id. Real DOM ids are small, so the high bits are free.
 const PSEUDO_FLAG: u64 = 1 << 62;
 const ROLE_BEFORE_ELEM: u64 = 0; // the ::before pseudo-element box
 const ROLE_AFTER_ELEM: u64 = 1; // the ::after pseudo-element box
@@ -811,7 +789,6 @@ fn encode_pseudo(owner: NodeId, role: u64) -> NodeId {
     NodeId::from(PSEUDO_FLAG | (u64::from(owner) << 2) | role)
 }
 
-/// Decodes a synthetic id into `(owner element id, role)`.
 fn decode_pseudo(id: NodeId) -> (NodeId, u64) {
     let v = u64::from(id) & !PSEUDO_FLAG;
     (NodeId::from(v >> 2), v & 0b11)
@@ -832,7 +809,6 @@ struct PseudoBox<P> {
     text: Option<String>,
 }
 
-/// Strips one matching pair of surrounding ASCII quotes from a CSS string token.
 fn unquote(s: &str) -> String {
     let b = s.as_bytes();
     if b.len() >= 2 && ((b[0] == b'"' && b[b.len() - 1] == b'"') || (b[0] == b'\'' && b[b.len() - 1] == b'\'')) {
@@ -842,8 +818,7 @@ fn unquote(s: &str) -> String {
     }
 }
 
-/// Maps a single `content` keyword/string token to its generated text.
-/// Returns `None` only for `none`/`normal`, which suppress the box entirely.
+/// `None` only for `none`/`normal`, which suppress the box entirely.
 fn content_token_to_string(s: &str) -> Option<String> {
     match s {
         "none" | "normal" => None,
@@ -855,9 +830,8 @@ fn content_token_to_string(s: &str) -> Option<String> {
     }
 }
 
-/// Resolves a `counter()` / `counters()` / unhandled function inside `content`.
-/// Counter state (counter-reset/counter-increment scoping) is not yet tracked, so counters
-/// currently resolve to empty text - generated boxes still appear, just without the number.
+/// Counter state (counter-reset/-increment scoping) is not tracked yet, so counters resolve to
+/// empty text - generated boxes still appear, just without the number.
 fn resolve_content_function<S: CssSystem>(name: &str, _args: &[S::Value]) -> String {
     if matches!(name, "counter" | "counters") {
         log::debug!("content: {name}() is not yet supported; rendering empty");
@@ -865,7 +839,6 @@ fn resolve_content_function<S: CssSystem>(name: &str, _args: &[S::Value]) -> Str
     String::new()
 }
 
-/// Resolves a single content list item (`S::Value`) to text.
 fn content_value_to_string<S: CssSystem>(v: &S::Value) -> Option<String> {
     if let Some(s) = v.as_string() {
         return content_token_to_string(s);
@@ -885,9 +858,7 @@ fn content_value_to_string<S: CssSystem>(v: &S::Value) -> Option<String> {
     None
 }
 
-/// Resolves a computed `content` property into the generated text string.
-/// `None` => no box should be generated (`content: none | normal`).
-/// `Some("")` => an empty box (e.g. `content: ""`).
+/// `None` => generate no box (`content: none | normal`); `Some("")` => an empty box.
 fn resolve_content<S: CssSystem>(p: &S::Property) -> Option<String> {
     // A single string/keyword token.
     if let Some(s) = p.as_string() {
@@ -944,8 +915,7 @@ where
         }
     }
 
-    /// Returns the materialized `::before`/`::after` pseudo-box for `owner`, or `None` if no
-    /// rule generates one. Computed and cached on first access.
+    /// `None` if no rule generates one. Computed and cached on first access.
     fn pseudo_box(
         &self,
         owner: NodeId,
@@ -989,7 +959,6 @@ where
         }))
     }
 
-    /// Returns the cached `PropertyMap` for `id`, computing and caching it on first access.
     fn cached_styles(&self, id: NodeId) -> Arc<<C::CssSystem as CssSystem>::PropertyMap> {
         {
             if let Some(arc) = self.style_cache.lock().get(&id) {
@@ -1129,9 +1098,8 @@ where
             }
         }
 
-        // `background-color` may be written via the `background` shorthand (e.g. `background: #fff`).
-        // The shorthand is stored under its own key and is not expanded to longhands, so fall back
-        // to extracting the colour token from it when the longhand is absent.
+        // The `background` shorthand is stored under its own key and never expanded to longhands,
+        // so extract the colour token from it when the longhand is absent.
         if matches!(prop, StyleProperty::BackgroundColor) {
             if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, "background") {
                 if let Some((r, g, b, a)) = css_property_bg_color::<C::CssSystem>(p) {
@@ -1340,10 +1308,8 @@ where
         let arc = self.cached_styles(id);
         let map = arc.as_ref();
 
-        // Collect keyword tokens (and any explicit px size) from the first background layer of the
-        // `background` shorthand and the relevant longhands. The shorthand carries repeat/size
-        // keywords inline (e.g. `background: url(x) no-repeat center / contain`), so it must be
-        // scanned too - the longhands are usually empty in that case.
+        // The shorthand carries repeat/size keywords inline (`background: url(x) no-repeat center
+        // / contain`) and then the longhands are usually empty, so scan both.
         let mut keywords: Vec<String> = Vec::new();
         let mut explicit_size: Option<(f32, f32)> = None;
         let mut position: Option<(f32, f32)> = None;
@@ -1464,12 +1430,7 @@ where
                 // treats the pseudo-element correctly. ::before/::after default to inline.
                 let mut style = NodeStyle::new();
                 style.set(StyleProperty::Display, self.get_style(id, &StyleProperty::Display));
-                NodeType::Element(ElementData::new(
-                    String::new(),
-                    Some(AttrMap::new()),
-                    false,
-                    Some(style),
-                ))
+                NodeType::Element(ElementData::new(String::new(), Some(AttrMap::new()), Some(style)))
             };
             return Some(Node {
                 node_id: id,
@@ -1500,21 +1461,18 @@ where
                         attr_map.set(k, v);
                     }
                 }
-                // Most styles are accessed via `doc.get_own_style()` rather than stored in
-                // ElementData - CssTaffyConverter uses the PipelineDocument interface directly.
-                // `display`, however, drives the layouter's tag-name-based inline-vs-block
-                // grouping (Node::is_inline_element / is_block_element), which only reads the
-                // local NodeStyle. Carry the *cascaded* display onto the Node so author rules
-                // like `figcaption b { display: block }` are honored. Only set it when the
-                // cascade (UA or author) actually assigned one; leaving it `None` preserves the
-                // intrinsic tag-name fallback (the UA stylesheet is incomplete, so we must not
-                // substitute the CSS `inline` initial value get_style() would otherwise return).
+                // Styles are normally read via `doc.get_own_style()`, but the layouter's
+                // inline-vs-block grouping reads the local NodeStyle only - so carry the cascaded
+                // `display` onto the Node for rules like `figcaption b { display: block }`.
+                // Only when the cascade assigned one: `None` preserves the intrinsic tag-name
+                // fallback, since the incomplete UA stylesheet makes get_style()'s `inline`
+                // initial value the wrong answer here.
                 let styles = self.get_own_style(id, &StyleProperty::Display).map(|display| {
                     let mut style = NodeStyle::new();
                     style.set(StyleProperty::Display, display);
                     style
                 });
-                let element_data = ElementData::new(tag_name, Some(attr_map), false, styles);
+                let element_data = ElementData::new(tag_name, Some(attr_map), styles);
                 NodeType::Element(element_data)
             }
             _ => return None,
@@ -1531,6 +1489,17 @@ where
 
 // ── Helpers used by the bridge ────────────────────────────────────────────────
 
+/// The `border-*-style` governing `prop`, or None if `prop` isn't a border width.
+fn border_width_peer_style(prop: &StyleProperty) -> Option<StyleProperty> {
+    Some(match prop {
+        StyleProperty::BorderTopWidth => StyleProperty::BorderTopStyle,
+        StyleProperty::BorderRightWidth => StyleProperty::BorderRightStyle,
+        StyleProperty::BorderBottomWidth => StyleProperty::BorderBottomStyle,
+        StyleProperty::BorderLeftWidth => StyleProperty::BorderLeftStyle,
+        _ => return None,
+    })
+}
+
 fn str_to_border_style(s: &str) -> BorderStyle {
     match s {
         "hidden" => BorderStyle::Hidden,
@@ -1546,9 +1515,8 @@ fn str_to_border_style(s: &str) -> BorderStyle {
     }
 }
 
-/// Maps CSS system color keywords to (r, g, b, a) sRGB values so they render as something
-/// sensible rather than defaulting to black. RgbColor::from returns black for any unrecognised
-/// string, so we intercept known system color names before the normal parse path.
+/// Intercepts system color keywords before the normal parse path, since `RgbColor::from` returns
+/// black for any string it doesn't recognise.
 fn css_system_color(name: &str) -> Option<(u8, u8, u8, u8)> {
     match name.cow_to_ascii_lowercase().as_ref() {
         // Highlight / mark

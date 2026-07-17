@@ -25,11 +25,10 @@ pub enum MediaRequest {
     Pending,
 }
 
-/// Media store keeps all the loaded media in memory so it can be referenced by its MediaID
+/// Keeps all loaded media in memory so it can be referenced by MediaId.
 pub struct MediaStore {
-    /// List of all media
     pub entries: RwLock<HashMap<MediaId, Arc<Media>>>,
-    /// List of all images by hash(src)
+    /// Keyed by hash(src)
     pub cache: RwLock<HashMap<Sha256Hash, MediaId>>,
     /// Hashes of resources currently being fetched in the background (dedupes in-flight requests)
     pending: RwLock<HashSet<Sha256Hash>>,
@@ -41,7 +40,6 @@ pub struct MediaStore {
     default_svg: Arc<Media>,
     /// Compiled-in placeholder returned when an image is missing or failed to load
     default_image: Arc<Media>,
-    /// Pluggable decoders that turn raw bytes into [`Media`]
     decoders: MediaDecoderRegistry,
 }
 
@@ -94,16 +92,10 @@ impl MediaStore {
         }
     }
 
-    /// Non-blocking media load.
-    ///
-    /// Returns [`MediaRequest::Ready`] immediately if the resource is already cached. Otherwise it
-    /// kicks off a background fetch (deduped against other in-flight requests for the same src) and
-    /// returns [`MediaRequest::Pending`] without blocking layout. When the fetch completes it stores
-    /// the media (or the placeholder on failure) and raises the `completed` flag; the engine polls
-    /// [`take_completed`](Self::take_completed) each frame and triggers a reflow so the now-cached
-    /// media is picked up.
-    ///
-    /// Takes `&Arc<Self>` so the background thread can share ownership of the store.
+    /// Non-blocking media load: cached hits return `Ready`, otherwise a background fetch (deduped
+    /// per src) starts and `Pending` is returned without blocking layout. On completion the
+    /// `completed` flag rises and the engine's [`take_completed`](Self::take_completed) poll
+    /// triggers a reflow. Takes `&Arc<Self>` so the fetch thread can share the store.
     pub fn request_media(self: &Arc<Self>, src: &str) -> MediaRequest {
         let h = hash_from_string(src);
 
@@ -134,14 +126,13 @@ impl MediaStore {
         MediaRequest::Pending
     }
 
-    /// Returns and clears the "a background fetch completed" flag. The engine calls this each frame;
-    /// a `true` result means new media is available and the page should be re-laid-out.
+    /// Returns and clears the "background fetch completed" flag; `true` means the engine should
+    /// re-lay-out the page to pick up the new media.
     pub fn take_completed(&self) -> bool {
         self.completed.swap(false, Ordering::Relaxed)
     }
 
-    /// Decode `data` (with an optional MIME hint) through the registry and wrap the result in a
-    /// [`Media`]. Shared by the data, source and inline decode paths.
+    /// Shared by the data, source and inline decode paths.
     fn decode_media(&self, src: &str, mime: Option<&str>, data: &[u8]) -> anyhow::Result<Media> {
         match self.decoders.decode(mime, data) {
             Ok(DecodedMedia::Raster(img)) => Ok(Media::image(src, img)),
@@ -150,12 +141,8 @@ impl MediaStore {
         }
     }
 
-    /// Load the given media from src into the media store, and return the media ID. Will also store the media(id) in cache
-    /// so the next call with the same src will return the same media ID without reloading.
-    ///
-    /// If the resource cannot be fetched or decoded, the default placeholder for the detected media
-    /// type is returned and the failure is cached so subsequent calls with the same URL skip the
-    /// network entirely.
+    /// Loads `src` into the store, caching by src so repeat calls never reload. Fetch/decode
+    /// failures cache the placeholder id, so a dead URL skips the network on later calls.
     pub fn load_media(&self, src: &str) -> anyhow::Result<MediaId> {
         let h = hash_from_string(src);
         let cache = self.cache.read();
@@ -197,9 +184,8 @@ impl MediaStore {
             }
         }
 
-        // The caller knows the kind of media, so pass it as a MIME hint. The registry still
-        // re-sniffs the actual format from the bytes, so the hint only steers the raster-vs-vector
-        // choice; raster data is detected by its magic bytes.
+        // The hint only steers the raster-vs-vector choice; the registry re-sniffs the actual
+        // format from the bytes anyway.
         let mime = match media_type {
             MediaType::Svg => Some("image/svg+xml"),
             MediaType::Image => None,
@@ -254,7 +240,7 @@ impl MediaStore {
         Ok(media_id)
     }
 
-    /// Returns a media image. If the media is not an image or does not exist, it will return the default media image id
+    /// Falls back to the default image if `media_id` is missing or is not an image.
     pub fn get_image(&self, media_id: MediaId) -> Arc<MediaImage> {
         let media = self.get(media_id, MediaType::Image);
         match &*media {
@@ -270,7 +256,7 @@ impl MediaStore {
         }
     }
 
-    /// Returns a media svg. If the media is not an svg or does not exist, it will return the default media svg id
+    /// Falls back to the default SVG if `media_id` is missing or is not an SVG.
     pub fn get_svg(&self, media_id: MediaId) -> Arc<MediaSvg> {
         let media = self.get(media_id, MediaType::Svg);
         match &*media {
@@ -286,9 +272,8 @@ impl MediaStore {
         }
     }
 
-    /// Returns true when `media_id` is one of the built-in fallback placeholders
-    /// (used when a resource failed to load). Callers can use this to avoid
-    /// propagating the placeholder's intrinsic pixel dimensions into layout.
+    /// True for the built-in fallback placeholders, so callers can avoid propagating a
+    /// placeholder's intrinsic pixel dimensions into layout.
     pub fn is_placeholder(&self, media_id: MediaId) -> bool {
         media_id == DEFAULT_IMAGE_ID || media_id == DEFAULT_SVG_ID
     }
@@ -298,7 +283,7 @@ impl MediaStore {
         entries.insert(media_id, media);
     }
 
-    /// Returns a media resource. If the media does not exist, it will return the default media resource as specified by the media_type
+    /// Falls back to `media_type`'s default resource if `media_id` does not exist.
     pub fn get(&self, media_id: MediaId, media_type: MediaType) -> Arc<Media> {
         let entries = self.entries.read();
 
@@ -308,7 +293,6 @@ impl MediaStore {
         }
     }
 
-    /// Returns the default media resource for the given media type
     fn default_media(&self, media_type: MediaType) -> Arc<Media> {
         match media_type {
             MediaType::Svg => Arc::clone(&self.default_svg),
@@ -316,10 +300,8 @@ impl MediaStore {
         }
     }
 
-    /// Fetch a resource from the web (or local file system, depending on the src) and return the
-    /// raw `Content-Type` header (if any) together with the body bytes. Format classification is
-    /// left to the decoder registry, which treats the content type as a hint and falls back to
-    /// magic-byte sniffing. This is blocking.
+    /// Blocking fetch returning the raw `Content-Type` header and body. Classification is left to
+    /// the decoder registry, which treats the content type as a hint only.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(Option<String>, Bytes)> {
         let url = Url::parse(src)?;
         let response = gosub_sonar::net::simple::sync_fetch(&url)?;
@@ -335,9 +317,8 @@ impl MediaStore {
     }
 }
 
-/// Decode the body of a `data:` URI (everything after `data:`) into its MIME type and raw bytes.
-/// Handles the `[<mime>][;base64],<data>` form: base64 payloads are decoded, and plain payloads
-/// are percent-decoded. The MIME is a hint only - the decoder registry re-sniffs the real format.
+/// Decodes a `data:` URI body (everything after `data:`) in its `[<mime>][;base64],<data>` form.
+/// The MIME is a hint only - the decoder registry re-sniffs the real format.
 fn decode_data_uri(rest: &str) -> anyhow::Result<(Option<String>, Vec<u8>)> {
     let (meta, data) = rest
         .split_once(',')
@@ -407,7 +388,6 @@ mod tests {
     use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
     use std::io::Cursor;
 
-    /// Encode a small solid image into `format`, returning the raw bytes.
     fn encode(format: ImageFormat) -> Vec<u8> {
         let rgba = DynamicImage::ImageRgba8(RgbaImage::from_pixel(8, 4, Rgba([200, 100, 50, 255])));
         let mut buf = Cursor::new(Vec::new());

@@ -21,7 +21,6 @@ pollster = { workspace = true }
 winit = { workspace = true }
 parley = { workspace = true, features = ["std"] }
 fontique = "0.9.0"
-skrifa = "0.42.1"
 
 
 [dev-dependencies]
@@ -29,8 +28,6 @@ image = { workspace = true }
 
 [features]
 default = []
-# Selects the Parley shaping path in the VelloBackend text renderer (skrifa fallback when off).
-parley_layout = []
 
 [lints]
 workspace = true

@@ -38,8 +38,6 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_
 
     if let Some(brush) = cmd.background() {
         if let Brush::Image(media_id, tiling) = brush {
-            // Raster images (`<img>`, background-image) are drawn from their decoded pixels;
-            // the other brushes fill a solid/gradient rect.
             draw_image_brush(
                 canvas,
                 cmd,
@@ -135,19 +133,33 @@ fn paint_per_side_border(canvas: &Canvas, cmd: &Rectangle) {
     }
 }
 
+/// `radius_x`/`radius_y` yield corners in CSS order (top-left, top-right, bottom-right,
+/// bottom-left), which is also the order Skia's radii array expects.
+fn rounded_rect(cmd: &Rectangle, rect: Rect) -> RRect {
+    let (x_tl, x_tr, x_br, x_bl) = cmd.radius_x();
+    let (y_tl, y_tr, y_br, y_bl) = cmd.radius_y();
+    RRect::new_rect_radii(
+        rect,
+        &[
+            Point::new(x_tl as f32, y_tl as f32),
+            Point::new(x_tr as f32, y_tr as f32),
+            Point::new(x_br as f32, y_br as f32),
+            Point::new(x_bl as f32, y_bl as f32),
+        ],
+    )
+}
+
 fn draw_rect_or_rounded(canvas: &Canvas, cmd: &Rectangle, x: f32, y: f32, w: f32, h: f32, paint: &Paint) {
     let skia_rect = Rect::from_xywh(x, y, w, h);
     if cmd.is_rounded() {
-        let (r_tl, _r_tr, _r_br, _r_bl) = cmd.radius_x();
-        canvas.draw_round_rect(skia_rect, r_tl as f32, r_tl as f32, paint);
+        canvas.draw_rrect(rounded_rect(cmd, skia_rect), paint);
     } else {
         canvas.draw_rect(skia_rect, paint);
     }
 }
 
-/// Draw a raster image brush (decoded `<img>`/background-image pixels) into the box at
-/// `(x, y)`×`w`×`h`. The decoded buffer is unpremultiplied RGBA; Skia scales it to the box with
-/// linear sampling, and a rounded box clips the draw to its corner radius.
+/// Draw a raster image brush into the box at `(x, y)`×`w`×`h`. The decoded buffer is
+/// unpremultiplied RGBA; a rounded box clips the draw to its corner radius.
 #[allow(clippy::too_many_arguments)]
 fn draw_image_brush(
     canvas: &Canvas,
@@ -204,8 +216,7 @@ fn draw_image_brush(
             paint.set_shader(shader);
         }
         if cmd.is_rounded() {
-            let (r_tl, ..) = cmd.radius_x();
-            canvas.draw_round_rect(dest, r_tl as f32, r_tl as f32, &paint);
+            canvas.draw_rrect(rounded_rect(cmd, dest), &paint);
         } else {
             canvas.draw_rect(dest, &paint);
         }
@@ -214,9 +225,8 @@ fn draw_image_brush(
 
     let sampling = SamplingOptions::new(FilterMode::Linear, MipmapMode::None);
     if cmd.is_rounded() {
-        let (r_tl, ..) = cmd.radius_x();
         canvas.save();
-        canvas.clip_rrect(RRect::new_rect_xy(dest, r_tl as f32, r_tl as f32), None, true);
+        canvas.clip_rrect(rounded_rect(cmd, dest), None, true);
         canvas.draw_image_rect_with_sampling_options(&image, None, dest, sampling, &paint);
         canvas.restore();
     } else {

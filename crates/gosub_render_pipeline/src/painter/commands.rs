@@ -11,7 +11,6 @@ pub mod image;
 pub mod rectangle;
 pub mod text;
 
-/// Generic that defines a top, right, bottom, and left value.
 #[derive(Clone, Debug)]
 pub struct Trbl<T> {
     pub top: T,
@@ -31,11 +30,10 @@ pub enum PaintCommand {
     Text(Text),
     Rectangle(Rectangle),
     Svg(PaintSvg),
-    /// Begin a compositing group for a promoted layer (CSS `opacity < 1`, `position: fixed`, or
-    /// `sticky`). A scene backend composites everything up to the matching [`PaintCommand::PopLayer`]
-    /// as a unit - fading it by `opacity` and positioning it per `anchor`. Only the GPU-scene path
-    /// (`Painter::paint_all`) emits these; the tile path applies opacity/anchor at composite instead
-    /// and never produces them (so tile rasterizers can ignore both variants).
+    /// Begin a compositing group for a promoted layer (`opacity < 1`, `position: fixed`/`sticky`):
+    /// everything up to the matching [`PaintCommand::PopLayer`] is composited as a unit.
+    /// Only the scene path (`Painter::paint_all`) emits these - the tile path applies opacity/anchor
+    /// at composite time, so tile rasterizers can ignore both variants.
     PushLayer {
         opacity: f32,
         anchor: TileAnchor,

@@ -25,16 +25,12 @@ impl std::fmt::Display for TextureId {
     }
 }
 
-/// Where a rasterized tile's pixels live. The render pipeline is backend-agnostic and stays
-/// free of any GPU API: a GPU-resident tile is referenced by an **opaque id** that only the
-/// backend which created it can resolve (via its own texture store). This is what lets one tile
-/// pipeline serve both CPU compositing backends (Cairo/Skia → `Cpu`) and GPU backends
-/// (Vello/other wgpu → `Gpu`) without the core depending on `wgpu`.
+/// Where a rasterized tile's pixels live. GPU tiles are referenced by an opaque id only their
+/// producing backend can resolve, which is what keeps this crate free of any dependency on `wgpu`.
 #[derive(Debug, Clone)]
 pub enum TilePixels {
-    /// CPU pixel buffer, stored as `Bytes` so it can be cloned/shared (cheap refcount bump) and
-    /// sliced zero-copy into BakedTile / CachedTile without any pixel buffer copies. Byte order is
-    /// given by the owning [`Texture`]'s `format`.
+    /// `Bytes` so tiles clone/slice into BakedTile / CachedTile without copying pixels. Byte order
+    /// is given by the owning [`Texture`]'s `format`.
     Cpu(bytes::Bytes),
     /// Opaque, backend-owned GPU texture id. Meaningful only to the backend that produced it.
     Gpu(u64),
@@ -47,12 +43,11 @@ pub struct Texture {
     pub width: usize,
     pub height: usize,
     pub pixels: TilePixels,
-    /// In-memory byte order of the pixels (for the CPU variant), set by the producing rasterizer.
+    /// In-memory byte order of the pixels (CPU variant), set by the producing rasterizer.
     pub format: crate::render::backend::PixelFormat,
 }
 
 impl Texture {
-    /// CPU pixel buffer, or `None` for a GPU-resident tile.
     pub fn cpu_data(&self) -> Option<&bytes::Bytes> {
         match &self.pixels {
             TilePixels::Cpu(d) => Some(d),
@@ -60,7 +55,6 @@ impl Texture {
         }
     }
 
-    /// Opaque GPU texture id, or `None` for a CPU tile.
     pub fn gpu_id(&self) -> Option<u64> {
         match &self.pixels {
             TilePixels::Gpu(id) => Some(*id),

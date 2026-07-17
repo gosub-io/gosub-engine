@@ -186,7 +186,7 @@ Selected by naming `CairoBackend` in the config (see [../configuration.md](../co
 - **Surface size:** `tile_css_width × DPR` by `tile_css_height × DPR` physical pixels.
 - **Context:** creates a `cairo::Context`, scales it by DPR so all CSS-pixel coordinates map to physical pixels, then dispatches commands:
   - `Rectangle` → `rectangle::do_paint_rectangle()` — path + fill; handles borders and border-radius.
-  - `Text` → `text::pango::do_paint_text()` with Pango (the `text_pango` feature, default) or Parley — see [../fonts.md](../fonts.md).
+  - `Text` → `text::pango::do_paint_text()` — draws the command's pre-shaped glyph runs via Pango (the `pango` feature, default) — see [../fonts.md](../fonts.md).
   - `Svg` → `svg::do_paint_svg()` via librsvg.
 - **Output:** premultiplied ARGB32 pixel data (`cairo::Format::ARgb32`), stride = `tile_phys_width × 4`.
 
