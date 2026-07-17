@@ -298,7 +298,6 @@ mod rendertree_from_engine {
         assert_eq!(adapter.tag_name(body_id.unwrap()), Some("body".to_string()));
     }
 
-    #[allow(dead_code)]
     fn find_node_by_class_dfs(
         doc: &DocumentImpl<Config>,
         node: gosub_shared::node::NodeId,

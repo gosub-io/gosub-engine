@@ -22,7 +22,6 @@ impl Rect {
         Dimension::new(self.width, self.height)
     }
 
-    #[allow(unused)]
     pub fn from_coord_dimension(coord: Coordinate, dimension: Dimension) -> Self {
         Self {
             x: coord.x,
@@ -55,7 +54,6 @@ impl From<Rect> for Dimension {
 }
 
 /// A coordinate is an X/Y position. Could be negative if needed.
-#[allow(unused)]
 #[derive(Clone, Copy, Debug)]
 pub struct Coordinate {
     pub x: f64,
@@ -70,7 +68,6 @@ impl Coordinate {
     }
 }
 
-#[allow(unused)]
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub struct Dimension {
     pub width: f64,
@@ -83,7 +80,6 @@ impl Dimension {
         height: 0.0,
     };
 
-    #[allow(unused)]
     pub fn new(width: f64, height: f64) -> Self {
         Self { width, height }
     }

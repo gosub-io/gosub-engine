@@ -33,8 +33,8 @@ impl RenderBackend for SkiaBackend {
         DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed).max(1)
     }
 
-    fn create_surface(&self, size: SurfaceSize, present: PresentMode) -> Result<Box<dyn ErasedSurface + Send>> {
-        Ok(Box::new(SkiaSurface::new(size, present)?))
+    fn create_surface(&self, size: SurfaceSize, _present: PresentMode) -> Result<Box<dyn ErasedSurface + Send>> {
+        Ok(Box::new(SkiaSurface::new(size)?))
     }
 
     fn render(&self, ctx: &mut dyn RenderContext, surface: &mut dyn ErasedSurface) -> Result<()> {
@@ -191,18 +191,15 @@ impl RenderBackend for SkiaBackend {
 pub struct SkiaSurface {
     size: SurfaceSize,
     pixels: Vec<u8>,
-    #[allow(dead_code)]
-    present: PresentMode,
     frame_id: u64,
 }
 
 impl SkiaSurface {
-    fn new(size: SurfaceSize, present: PresentMode) -> Result<Self> {
+    fn new(size: SurfaceSize) -> Result<Self> {
         let pixels = vec![0u8; size.width as usize * size.height as usize * 4];
         Ok(Self {
             size,
             pixels,
-            present,
             frame_id: 0,
         })
     }

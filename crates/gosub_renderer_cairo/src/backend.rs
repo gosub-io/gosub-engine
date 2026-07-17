@@ -23,13 +23,13 @@ impl RenderBackend for CairoBackend {
         "cairo"
     }
 
-    fn create_surface(&self, size: SurfaceSize, present: PresentMode) -> Result<Box<dyn ErasedSurface + Send>> {
+    fn create_surface(&self, size: SurfaceSize, _present: PresentMode) -> Result<Box<dyn ErasedSurface + Send>> {
         let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed);
         let physical = SurfaceSize {
             width: size.width * dpr,
             height: size.height * dpr,
         };
-        Ok(Box::new(CairoSurface::new(physical, present)?))
+        Ok(Box::new(CairoSurface::new(physical)?))
     }
 
     #[allow(unsafe_code)] // Blit creates a cairo image surface over borrowed pixel data
@@ -210,13 +210,11 @@ pub struct CairoSurface {
     pixels: Box<[u8]>,
     size: SurfaceSize,
     stride: i32,
-    #[allow(unused)]
-    present: PresentMode,
     frame_id: u64,
 }
 
 impl CairoSurface {
-    fn new(size: SurfaceSize, present: PresentMode) -> Result<Self> {
+    fn new(size: SurfaceSize) -> Result<Self> {
         let stride = cairo::Format::ARgb32
             .stride_for_width(size.width)
             .unwrap_or((size.width * 4) as i32);
@@ -227,7 +225,6 @@ impl CairoSurface {
             pixels,
             size,
             stride,
-            present,
             frame_id: 0,
         })
     }

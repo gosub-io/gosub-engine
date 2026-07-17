@@ -35,7 +35,6 @@ pub struct Svg {
 }
 
 impl Svg {
-    #[allow(unused)]
     pub fn new(tree: usvg::Tree) -> Svg {
         Svg {
             tree,

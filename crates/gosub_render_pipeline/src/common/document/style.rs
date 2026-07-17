@@ -26,7 +26,6 @@ pub fn lookup(id: u32) -> String {
 
 // ── Sub-enums ────────────────────────────────────────────────────────────────
 
-#[allow(unused)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Unit {
     Px,
@@ -35,7 +34,6 @@ pub enum Unit {
     Percent,
 }
 
-#[allow(unused)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum BorderStyle {
     None,
@@ -50,7 +48,6 @@ pub enum BorderStyle {
     Outset,
 }
 
-#[allow(unused)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Display {
     Block,
@@ -70,7 +67,6 @@ pub enum Display {
     TableRowGroup,
 }
 
-#[allow(unused)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum FontWeight {
     Normal,
