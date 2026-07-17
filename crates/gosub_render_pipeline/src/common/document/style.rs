@@ -553,29 +553,30 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Unit(0.0, Unit::Px),
     },
-    // 15 border-top-width - not inherited; initial = medium = 3px (but only applies when border-style != none)
+    // 15 border-top-width - not inherited; initial = medium = 3px.
+    // The style-none/hidden case computes to 0 in `get_style`, not here.
     PropertyMeta {
         name: "border-top-width",
         inherited: false,
-        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+        initial_kind: InitialKind::Unit(3.0, Unit::Px),
     },
     // 16 border-right-width
     PropertyMeta {
         name: "border-right-width",
         inherited: false,
-        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+        initial_kind: InitialKind::Unit(3.0, Unit::Px),
     },
     // 17 border-bottom-width
     PropertyMeta {
         name: "border-bottom-width",
         inherited: false,
-        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+        initial_kind: InitialKind::Unit(3.0, Unit::Px),
     },
     // 18 border-left-width
     PropertyMeta {
         name: "border-left-width",
         inherited: false,
-        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+        initial_kind: InitialKind::Unit(3.0, Unit::Px),
     },
     // 19 border-top-color - not inherited; initial = currentColor (black)
     PropertyMeta {

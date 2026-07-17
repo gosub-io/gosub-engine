@@ -75,10 +75,10 @@ impl<'a> CssTaffyConverter<'a> {
         ts.padding.right = self.get_lp(StyleProperty::PaddingRight, ts.padding.right);
         ts.padding.bottom = self.get_lp(StyleProperty::PaddingBottom, ts.padding.bottom);
         ts.padding.left = self.get_lp(StyleProperty::PaddingLeft, ts.padding.left);
-        ts.border.top = self.get_lp(StyleProperty::BorderTopWidth, ts.border.top);
-        ts.border.right = self.get_lp(StyleProperty::BorderRightWidth, ts.border.right);
-        ts.border.bottom = self.get_lp(StyleProperty::BorderBottomWidth, ts.border.bottom);
-        ts.border.left = self.get_lp(StyleProperty::BorderLeftWidth, ts.border.left);
+        ts.border.top = self.get_border_lp(StyleProperty::BorderTopWidth, ts.border.top);
+        ts.border.right = self.get_border_lp(StyleProperty::BorderRightWidth, ts.border.right);
+        ts.border.bottom = self.get_border_lp(StyleProperty::BorderBottomWidth, ts.border.bottom);
+        ts.border.left = self.get_border_lp(StyleProperty::BorderLeftWidth, ts.border.left);
         ts.size.width = self.get_dimension(StyleProperty::Width, ts.size.width);
         ts.size.height = self.get_dimension(StyleProperty::Height, ts.size.height);
         ts.min_size.width = self.get_dimension(StyleProperty::MinWidth, ts.min_size.width);
@@ -249,6 +249,20 @@ impl<'a> CssTaffyConverter<'a> {
                 CssUnit::Em | CssUnit::Rem => LengthPercentage::length(value * self.font_size_px()),
             },
             Some(Value::Number(value)) => LengthPercentage::length(value),
+            _ => default,
+        }
+    }
+
+    /// Border widths must resolve through the *computed* value: the initial width is `medium`
+    /// (3px) and `border-style: none` zeroes it, neither of which `get_own` can see.
+    fn get_border_lp(&self, prop: StyleProperty, default: LengthPercentage) -> LengthPercentage {
+        match self.doc.get_style(self.node_id, &prop) {
+            Value::Unit(value, unit) => match unit {
+                CssUnit::Px => LengthPercentage::length(value),
+                CssUnit::Percent => LengthPercentage::percent(value / 100.0),
+                CssUnit::Em | CssUnit::Rem => LengthPercentage::length(value * self.font_size_px()),
+            },
+            Value::Number(value) => LengthPercentage::length(value),
             _ => default,
         }
     }

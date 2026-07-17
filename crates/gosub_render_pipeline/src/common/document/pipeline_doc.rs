@@ -735,6 +735,16 @@ pub trait PipelineDocument: Send + Sync {
     ///  2. parent's computed value if the property is inherited,
     ///  3. the CSS-spec initial value otherwise.
     fn get_style(&self, id: NodeId, prop: &StyleProperty) -> Value {
+        // A border whose style is none/hidden computes to zero width regardless of the declared or
+        // initial width. Enforced here so layout and paint can't disagree about the box.
+        if let Some(style_prop) = border_width_peer_style(prop) {
+            if let Value::BorderStyle(s) = self.get_style(id, &style_prop) {
+                if matches!(s, BorderStyle::None | BorderStyle::Hidden) {
+                    return Value::Unit(0.0, Unit::Px);
+                }
+            }
+        }
+
         let raw = if let Some(v) = self.get_own_style(id, prop) {
             v
         } else {
@@ -1530,6 +1540,17 @@ where
 }
 
 // ── Helpers used by the bridge ────────────────────────────────────────────────
+
+/// The `border-*-style` governing `prop`, or None if `prop` isn't a border width.
+fn border_width_peer_style(prop: &StyleProperty) -> Option<StyleProperty> {
+    Some(match prop {
+        StyleProperty::BorderTopWidth => StyleProperty::BorderTopStyle,
+        StyleProperty::BorderRightWidth => StyleProperty::BorderRightStyle,
+        StyleProperty::BorderBottomWidth => StyleProperty::BorderBottomStyle,
+        StyleProperty::BorderLeftWidth => StyleProperty::BorderLeftStyle,
+        _ => return None,
+    })
+}
 
 fn str_to_border_style(s: &str) -> BorderStyle {
     match s {
