@@ -343,12 +343,14 @@ impl<'a> CssTaffyConverter<'a> {
         }
     }
 
+    /// `text-align` inherits, so this must read the computed value — `get_own` sees nothing on a
+    /// descendant that inherits it. `left`/`right` collapse onto `start`/`end` as elsewhere (LTR).
     fn get_text_align(&self, default: TextAlign) -> TextAlign {
-        match self.get_own(&StyleProperty::TextAlign) {
-            Some(Value::TextAlign(val)) => match val {
+        match self.doc.get_style(self.node_id, &StyleProperty::TextAlign) {
+            Value::TextAlign(val) => match val {
                 CssTextAlign::Center => TextAlign::LegacyCenter,
-                CssTextAlign::Start => TextAlign::LegacyLeft,
-                CssTextAlign::End => TextAlign::LegacyRight,
+                CssTextAlign::Start | CssTextAlign::Left => TextAlign::LegacyLeft,
+                CssTextAlign::End | CssTextAlign::Right => TextAlign::LegacyRight,
                 _ => default,
             },
             _ => default,

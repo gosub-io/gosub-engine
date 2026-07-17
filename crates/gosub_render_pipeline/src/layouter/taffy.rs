@@ -1094,10 +1094,13 @@ impl TaffyLayouter {
                     Value::Keyword(id) if lookup(id) == "italic"
                 );
 
+                // `left`/`right` are physical and `start`/`end` logical; they only coincide in LTR,
+                // which is all the pipeline handles today. Collapse them here rather than in the
+                // cascade, so the distinction survives for when direction is honoured.
                 let alignment = match doc.get_style(dom_node.node_id, &StyleProperty::TextAlign) {
                     Value::TextAlign(value) => match value {
                         TextAlign::Center => FontAlignment::Center,
-                        TextAlign::End => FontAlignment::End,
+                        TextAlign::End | TextAlign::Right => FontAlignment::End,
                         TextAlign::Justify => FontAlignment::Justify,
                         _ => FontAlignment::Start,
                     },
