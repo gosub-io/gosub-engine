@@ -201,7 +201,7 @@ getrandom = { workspace = true, features = ["wasm_js"] }
 # The renamed aliases force Cargo to merge features on those resolved versions.
 getrandom_v02 = { package = "getrandom", version = "0.2", features = ["js"] }
 getrandom_v03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
-# No default features on WASM: excludes sqlite_cookie_store (needs C SQLite) and parley_layout (needs freetype).
+# No default features on WASM: excludes sqlite_cookie_store (needs C SQLite).
 gosub_engine = { path = "./crates/gosub_engine", default-features = false }
 gosub_render_pipeline = { path = "./crates/gosub_render_pipeline" }
 gosub_renderer_vello = { path = "./crates/gosub_renderer_vello" }

@@ -5,15 +5,7 @@
 
 use crate::backend::font_cache::FontCache;
 use crate::backend::font_manager::FontManager;
-#[cfg(not(feature = "parley_layout"))]
-use parley::FontData as Font;
-#[cfg(feature = "parley_layout")]
-use parley::{FontData as Font, LayoutContext};
-// FontContext is always in the draw/shape signatures so that the caller
-// (VelloBackend) never needs cfg guards at the call site.
-use parley::FontContext;
-#[cfg(not(feature = "parley_layout"))]
-use skrifa::MetadataProvider;
+use parley::{FontContext, FontData as Font, LayoutContext};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -117,10 +109,6 @@ impl TextRenderer {
 
     /// Shape `key.text` into runs with absolute glyph positions (`y` includes baseline + line
     /// offsets). `key.align` is recorded but not yet applied to x positioning.
-    ///
-    /// The `parley_layout` feature selects the Parley shaping path; without it the skrifa path maps
-    /// codepoints directly and ignores `font_cx`.
-    #[cfg_attr(not(feature = "parley_layout"), allow(unused_variables))]
     fn shape(
         &mut self,
         fm: &mut FontManager,
@@ -143,54 +131,6 @@ impl TextRenderer {
             },
         };
 
-        #[cfg(not(feature = "parley_layout"))]
-        {
-            let Some(font_ref) = to_font_ref(&vello_font) else {
-                log::warn!("Could not read font data for '{}'; dropping text run", key.font_name);
-                return Arc::from(Vec::new());
-            };
-            let axes = font_ref.axes();
-            let font_size = skrifa::instance::Size::new(key.font_size as f32);
-            let var_loc = axes.location(std::iter::empty::<(&str, f32)>());
-            let charmap = font_ref.charmap();
-            let metrics = font_ref.metrics(font_size, &var_loc);
-            let line_height = metrics.ascent - metrics.descent + metrics.leading;
-            let glyph_metrics = font_ref.glyph_metrics(font_size, &var_loc);
-
-            let mut pen_x = 0f32;
-            let mut pen_y = 0f32;
-
-            let glyphs = key
-                .text
-                .chars()
-                .filter_map(|ch| {
-                    if ch == '\n' {
-                        pen_y += line_height;
-                        pen_x = 0.0;
-                        return None;
-                    }
-                    let gid = charmap.map(ch).unwrap_or_default();
-                    let advance = glyph_metrics.advance_width(gid).unwrap_or_default();
-                    let x = pen_x;
-                    pen_x += advance;
-                    Some(Glyph {
-                        id: gid.to_u32(),
-                        x,
-                        y: pen_y,
-                    })
-                })
-                .collect::<Arc<[_]>>();
-
-            let out: Vec<CachedRun> = vec![CachedRun {
-                vello_font: vello_font.clone(),
-                font_size: key.font_size as f32,
-                glyphs,
-            }];
-
-            out.into()
-        }
-
-        #[cfg(feature = "parley_layout")]
         {
             // A fresh LayoutContext is cheap (it is pure scratch space).
             // FontContext is the expensive shared state - it is injected by the caller.
@@ -240,15 +180,5 @@ impl TextRenderer {
             }
             out.into()
         }
-    }
-}
-
-#[cfg(not(feature = "parley_layout"))]
-fn to_font_ref(font: &Font) -> Option<skrifa::raw::FontRef<'_>> {
-    use skrifa::raw::FileRef;
-    let file_ref = FileRef::new(font.data.as_ref()).ok()?;
-    match file_ref {
-        FileRef::Font(font) => Some(font),
-        FileRef::Collection(collection) => collection.get(font.index).ok(),
     }
 }

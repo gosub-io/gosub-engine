@@ -140,11 +140,14 @@ Backend selection is **not** a feature flag — backends are separate crates nam
 
 | Crate | Flag | What it enables |
 |---|---|---|
-| `gosub_render_pipeline` | `parley_layout` | Parley shaping path in text layout (default via `gosub_engine`) |
 | `gosub_render_pipeline` | `wayland` / `x11` | GDK platform integration |
-| `gosub_renderer_cairo` | `text_pango` (default) / `text_parley` / `text_skia` | which text rasterizer paints glyphs — see [fonts.md](../fonts.md) |
-| `gosub_renderer_vello` | `text_parley` (default) / `text_skia` / `text_pango` | same, for Vello |
-| `gosub_renderer_vello` | `parley_layout` | Parley shaping in the Vello text renderer (skrifa fallback when off) |
+| `gosub_renderer_cairo` | `pango` (default) | `PangoFontSystem` (via `gosub_fontmanager`), GTK init, and the gdk-pixbuf image-brush path |
+| `gosub_engine` | `sqlite_cookie_store` (default) | SQLite-backed cookie store; off on WASM |
+| `gosub_engine` | `ui_eframe` / `winit` | host integrations |
+
+Text is shaped once by the painter through the configured `FontSystem` and travels in the paint
+command as positioned glyph runs, so which text engine paints is a matter of the configured font
+system, not a feature flag.
 
 ## Key constants
 
