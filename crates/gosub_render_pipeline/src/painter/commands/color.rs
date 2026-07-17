@@ -149,7 +149,7 @@ impl Color {
         })
     }
 
-    /// Like [`Color::from_css`] but returns `None` on failure instead of black — callers such as
+    /// Like [`Color::from_css`] but returns `None` on failure instead of black - callers such as
     /// gradient stops need to tell `transparent` apart from a parse error.
     pub fn try_from_css(css_color: &str) -> Option<Self> {
         let ccp_color = ccpColor::from_html(css_color).ok()?;

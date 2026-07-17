@@ -49,7 +49,7 @@ impl Hash for TextKey {
     }
 }
 
-/// A shaped glyph run ready to draw. Glyph positions are absolute within the shaped block —
+/// A shaped glyph run ready to draw. Glyph positions are absolute within the shaped block -
 /// `y` already includes baseline and line offsets.
 pub struct CachedRun {
     pub vello_font: Font,

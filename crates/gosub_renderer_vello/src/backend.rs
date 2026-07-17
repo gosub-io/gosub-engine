@@ -6,7 +6,7 @@
 //! total scene size rather than visible content, so the tile path stays the better fit for Cairo/Skia.
 //!
 //! Group opacity and fixed/sticky positioning are fused into that pass via `scene.push_layer` plus a
-//! per-anchor transform, driven by the painter's `PaintCommand::PushLayer`/`PopLayer` markers — not
+//! per-anchor transform, driven by the painter's `PaintCommand::PushLayer`/`PopLayer` markers - not
 //! by a separate tile compositor.
 //!
 //! (Opt-in `GOSUB_VELLO_GPU_TILES=1` instead routes Vello through the shared GPU tile compositor
@@ -349,7 +349,7 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
 
     fn renders_to_gpu_texture(&self) -> bool {
         // Unlike Cairo/Skia (CPU tiles for the host to composite), we composite into a single GPU
-        // texture and hand the host an opaque `WgpuTextureId` to present directly — no readback.
+        // texture and hand the host an opaque `WgpuTextureId` to present directly - no readback.
         true
     }
 

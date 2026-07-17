@@ -522,7 +522,7 @@ mod tests {
         let style = parse_inline_style_attr("color: var(--accent-glow)");
         assert!(style.get_own(&StyleProperty::Color).is_none());
 
-        // Only var() is skipped — a concrete color still applies.
+        // Only var() is skipped - a concrete color still applies.
         let style = parse_inline_style_attr("color: #123456");
         assert!(matches!(
             style.get_own(&StyleProperty::Color),

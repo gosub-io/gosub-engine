@@ -343,7 +343,7 @@ impl<'a> CssTaffyConverter<'a> {
         }
     }
 
-    /// `text-align` inherits, so this must read the computed value — `get_own` sees nothing on a
+    /// `text-align` inherits, so this must read the computed value - `get_own` sees nothing on a
     /// descendant that inherits it. `left`/`right` collapse onto `start`/`end` as elsewhere (LTR).
     fn get_text_align(&self, default: TextAlign) -> TextAlign {
         match self.doc.get_style(self.node_id, &StyleProperty::TextAlign) {

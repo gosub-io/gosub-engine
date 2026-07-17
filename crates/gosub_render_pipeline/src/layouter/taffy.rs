@@ -43,7 +43,7 @@ type MeasureKey = (String, String, u32, u32, i32, u32, u32);
 
 /// CSS `text-align` on a block, as `justify_content` for the anonymous flex containers holding its
 /// line boxes. A line box *is* that container, so this is what positions a run too short to fill it
-/// — a run that wraps already fills the line and is aligned by the shaper instead.
+/// - a run that wraps already fills the line and is aligned by the shaper instead.
 ///
 /// `justify` stays `None`: the shaper stretches a wrapped run itself, and flexing a single item
 /// can't emulate that.

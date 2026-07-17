@@ -293,7 +293,7 @@ fn css_value_url<S: CssSystem>(v: &S::Value) -> Option<String> {
     None
 }
 
-/// First `url(...)` in a property value — handles both the `background-image` longhand (a bare
+/// First `url(...)` in a property value - handles both the `background-image` longhand (a bare
 /// `url()` function) and the `background` shorthand (a list like `[url(...), no-repeat]`).
 fn css_property_url<S: CssSystem>(p: &S::Property) -> Option<String> {
     if let Some((name, args)) = p.as_function() {
@@ -365,7 +365,7 @@ fn parse_linear_gradient<S: CssSystem>(args: &[S::Value]) -> Option<Gradient> {
     let mut offsets: Vec<Option<f32>> = Vec::new();
     for group in groups.iter().skip(first_stop) {
         // Named colours and `transparent` tokenise as plain identifiers, so `as_color()` misses
-        // them — fall back to string parsing, which `#e6e6e6 25%, transparent 25%` relies on.
+        // them - fall back to string parsing, which `#e6e6e6 25%, transparent 25%` relies on.
         let color = group
             .iter()
             .find_map(|v| v.as_color())
@@ -770,7 +770,7 @@ pub trait PipelineDocument: Send + Sync {
 
 // ── Pseudo-element (::before / ::after) synthetic nodes ───────────────────────
 //
-// Generated content has no DOM node, but the pipeline is keyed by `NodeId` — so mint synthetic
+// Generated content has no DOM node, but the pipeline is keyed by `NodeId` - so mint synthetic
 // ids the adapter resolves on the fly, letting the rest of the pipeline treat them as normal nodes.
 //
 // Encoding: top bit flags a synthetic id, next two bits are the role, the rest hold the owner

@@ -67,7 +67,7 @@ mod tests {
     }
 
     /// Cairo/Skia (BGRA) and Vello (RGBA) share this cache, and at dpr 1 they key on the same
-    /// dimension — so format must be part of the match or one backend paints the other's bytes
+    /// dimension - so format must be part of the match or one backend paints the other's bytes
     /// with red and blue swapped.
     #[test]
     fn entry_is_not_reused_across_pixel_formats() {

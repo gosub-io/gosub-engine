@@ -129,7 +129,7 @@ impl Node {
             NodeType::Element(data) => match data.get_style(&StyleProperty::Display) {
                 Some(Value::Display(Display::Inline)) => true,
                 // The CSS initial value is `inline`, but UA stylesheets make most structural
-                // elements `block` — defaulting to inline would group <li>, <h2>, <div> etc.
+                // elements `block` - defaulting to inline would group <li>, <h2>, <div> etc.
                 // into inline flows, so fall back to the tag's intrinsic type.
                 None => is_intrinsically_inline(&data.tag_name),
                 _ => false,

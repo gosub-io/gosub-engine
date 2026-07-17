@@ -294,7 +294,7 @@ mod tests {
     }
 
     /// Every defaulted method must reach the active backend. A gap here is invisible at compile
-    /// time — the trait default silently answers instead — and cost Vello its GPU path once already.
+    /// time - the trait default silently answers instead - and cost Vello its GPU path once already.
     #[test]
     fn forwards_every_defaulted_method() {
         let mock: BoxedBackend = Arc::new(MockBackend::new());

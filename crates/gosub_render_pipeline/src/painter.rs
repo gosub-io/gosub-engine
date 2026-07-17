@@ -102,7 +102,7 @@ impl Painter {
     }
 
     /// Flattens every element into one command list, in z-order (`layer_ids`) then paint order
-    /// (`layer.elements`) — matching the tiler's z-ordering. For GPU-scene backends that render
+    /// (`layer.elements`) - matching the tiler's z-ordering. For GPU-scene backends that render
     /// the whole viewport in one pass.
     pub fn paint_all(&self, state: &BrowserState) -> Vec<PaintCommand> {
         let mut out = Vec::new();
@@ -173,7 +173,7 @@ impl Painter {
         self.apply_opacity(node_id, brush)
     }
 
-    /// Scales a brush's alpha by the element's `opacity`. Per-element approximation — no group
+    /// Scales a brush's alpha by the element's `opacity`. Per-element approximation - no group
     /// compositing with descendants; exact for leaf boxes, approximate otherwise.
     fn apply_opacity(&self, node_id: NodeId, brush: Brush) -> Brush {
         // Elements promoted into an opacity compositing group are faded as a whole layer at

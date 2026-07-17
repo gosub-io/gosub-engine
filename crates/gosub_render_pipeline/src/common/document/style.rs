@@ -940,7 +940,7 @@ impl NodeStyle {
         Self { own: Vec::new() }
     }
 
-    /// No parent recursion — own value only.
+    /// No parent recursion - own value only.
     pub fn get_own(&self, prop: &StyleProperty) -> Option<&Value> {
         let id = prop.id();
         self.own.binary_search_by_key(&id, |e| e.0).ok().map(|i| &self.own[i].1)

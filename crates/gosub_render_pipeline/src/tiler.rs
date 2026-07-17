@@ -58,7 +58,7 @@ In tile 3, the rect of element 67 is (0, 25, 50, 25). The position is (50, 0).
 In tile 4, the rect of element 67 is (50, 25, 50, 25). The position is (0, 0).
 
 So in tile 1 the element starts at 50x25; even though the element is 100x50, the rect
-covers only 0,0..50,25 — the top left quarter of the element.
+covers only 0,0..50,25 - the top left quarter of the element.
 
     0                 100             200
     +------------------+----------------+

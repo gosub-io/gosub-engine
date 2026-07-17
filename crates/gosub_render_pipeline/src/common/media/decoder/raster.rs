@@ -46,7 +46,7 @@ fn is_png(bytes: &[u8]) -> bool {
     bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a])
 }
 
-/// Decode a PNG ignoring chunk CRC errors, normalized to 8-bit RGBA — the lenient path browsers
+/// Decode a PNG ignoring chunk CRC errors, normalized to 8-bit RGBA - the lenient path browsers
 /// use for PNGs with incorrect checksums.
 fn decode_png_lenient(bytes: &[u8]) -> anyhow::Result<image::RgbaImage> {
     let mut options = png::DecodeOptions::default();

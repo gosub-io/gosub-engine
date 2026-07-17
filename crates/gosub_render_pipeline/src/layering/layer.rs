@@ -39,7 +39,7 @@ pub struct Layer {
     pub order: isize,
     /// Group opacity: tiles rasterize normally and the compositor fades them as a unit.
     pub opacity: f32,
-    /// How the layer responds to scroll — `Fixed` layers composite without the scroll offset.
+    /// How the layer responds to scroll - `Fixed` layers composite without the scroll offset.
     pub anchor: TileAnchor,
     pub elements: Vec<LayoutElementId>,
 }
@@ -351,7 +351,7 @@ impl LayerList {
         } else {
             self.add_to_layer(layer_id, layout_element.id);
             // In a faded group, an element with no own opacity relies entirely on the layer fade.
-            // One that declares its own keeps applying it per-element — an approximation.
+            // One that declares its own keeps applying it per-element - an approximation.
             if in_promoted_group && group_faded && own_opacity >= 1.0 {
                 self.opacity_group_nodes.write().insert(layout_element.dom_node_id);
             }
@@ -371,7 +371,7 @@ impl LayerList {
 }
 
 /// Read a CSS length inset as px, treating unitless numbers as px. `None` for `auto` and non-px
-/// units — percentage/em insets aren't resolved here yet.
+/// units - percentage/em insets aren't resolved here yet.
 fn read_px(value: Option<Value>) -> Option<f64> {
     match value {
         Some(Value::Unit(v, Unit::Px)) => Some(v as f64),
