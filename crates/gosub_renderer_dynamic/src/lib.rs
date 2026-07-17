@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gosub_render_pipeline::render::backend::{
-    ErasedSurface, ExternalHandle, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
+    ErasedSurface, ExternalHandle, PlacedGpuTile, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
 };
 use gosub_render_pipeline::render::backends::null::NullBackend;
 use gosub_render_pipeline::render::render_context::RenderContext;
@@ -131,6 +131,26 @@ impl RenderBackend for DynamicRenderBackend {
     fn device_pixel_ratio(&self) -> u32 {
         self.active_backend().device_pixel_ratio()
     }
+
+    fn renders_to_gpu_texture(&self) -> bool {
+        self.active_backend().renders_to_gpu_texture()
+    }
+
+    fn gpu_tile_compositing(&self) -> bool {
+        self.active_backend().gpu_tile_compositing()
+    }
+
+    fn composite_tiles(
+        &self,
+        surface: &mut dyn ErasedSurface,
+        tiles: &[PlacedGpuTile],
+        viewport: (u32, u32),
+        scroll: (f32, f32),
+        page_height: f32,
+    ) -> anyhow::Result<()> {
+        self.active_backend()
+            .composite_tiles(surface, tiles, viewport, scroll, page_height)
+    }
 }
 
 /// Builder for [`DynamicRenderBackend`]. Register the backends the host can construct; the initial
@@ -204,6 +224,103 @@ impl DynamicRenderBackendBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reports a distinct non-default value from every defaulted `RenderBackend` method, so
+    /// `forwards_every_defaulted_method` fails if `DynamicRenderBackend` forgets to delegate one
+    /// and silently inherits the trait default instead.
+    struct MockBackend {
+        inner: NullBackend,
+    }
+
+    impl MockBackend {
+        fn new() -> Self {
+            Self {
+                inner: NullBackend::new(),
+            }
+        }
+    }
+
+    impl RenderBackend for MockBackend {
+        fn name(&self) -> &'static str {
+            "mock"
+        }
+
+        fn create_surface(
+            &self,
+            size: SurfaceSize,
+            present: PresentMode,
+        ) -> anyhow::Result<Box<dyn ErasedSurface + Send>> {
+            self.inner.create_surface(size, present)
+        }
+
+        fn render(&self, context: &mut dyn RenderContext, surface: &mut dyn ErasedSurface) -> anyhow::Result<()> {
+            self.inner.render(context, surface)
+        }
+
+        fn snapshot(&self, surface: &mut dyn ErasedSurface, max_dim: u32) -> anyhow::Result<RgbaImage> {
+            self.inner.snapshot(surface, max_dim)
+        }
+
+        fn external_handle(&self, surface: &mut dyn ErasedSurface) -> anyhow::Result<ExternalHandle> {
+            self.inner.external_handle(surface)
+        }
+
+        fn raster_strategy(&self) -> gosub_render_pipeline::rasterizer::RasterStrategy {
+            gosub_render_pipeline::rasterizer::RasterStrategy::Sequential
+        }
+
+        fn device_pixel_ratio(&self) -> u32 {
+            3
+        }
+
+        fn renders_to_gpu_texture(&self) -> bool {
+            true
+        }
+
+        fn gpu_tile_compositing(&self) -> bool {
+            true
+        }
+
+        fn composite_tiles(
+            &self,
+            _surface: &mut dyn ErasedSurface,
+            _tiles: &[PlacedGpuTile],
+            _viewport: (u32, u32),
+            _scroll: (f32, f32),
+            _page_height: f32,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Every defaulted method must reach the active backend. A gap here is invisible at compile
+    /// time — the trait default silently answers instead — and cost Vello its GPU path once already.
+    #[test]
+    fn forwards_every_defaulted_method() {
+        let mock: BoxedBackend = Arc::new(MockBackend::new());
+        let dynamic = DynamicRenderBackend::builder()
+            .register(RenderBackendKind::Vello, mock)
+            .build();
+
+        assert_eq!(dynamic.name(), "mock");
+        assert_eq!(
+            dynamic.raster_strategy(),
+            gosub_render_pipeline::rasterizer::RasterStrategy::Sequential
+        );
+        assert_eq!(dynamic.device_pixel_ratio(), 3);
+        assert!(dynamic.renders_to_gpu_texture());
+        assert!(dynamic.gpu_tile_compositing());
+
+        let mut surface = dynamic
+            .create_surface(SurfaceSize { width: 1, height: 1 }, PresentMode::Fifo)
+            .expect("null surface");
+        assert!(
+            dynamic
+                .composite_tiles(surface.as_mut(), &[], (1, 1), (0.0, 0.0), 1.0)
+                .is_ok(),
+            "composite_tiles hit the trait default (bail) instead of the active backend"
+        );
+    }
 
     #[test]
     fn selects_registered_and_rejects_unregistered() {
