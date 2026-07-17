@@ -1,6 +1,7 @@
 use gosub_render_pipeline::common::geo::Dimension;
 use gosub_render_pipeline::common::media::{MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
+use gosub_render_pipeline::render::backend::PixelFormat;
 use gosub_render_pipeline::tiler::Tile;
 use resvg::usvg::Transform;
 use skia_safe::{images, AlphaType, Canvas, ColorType, Data, ImageInfo, Paint, Rect as SkRect, SamplingOptions};
@@ -30,7 +31,7 @@ pub fn do_paint_svg(
 
     {
         let cached = media.svg.rendered.read();
-        if cached.dimension == phys_dim && !cached.data.is_empty() {
+        if cached.is_usable(phys_dim, PixelFormat::PreMulArgb32) {
             blit(canvas, &cached.data, phys_w, phys_h, rect);
             return;
         }
@@ -53,8 +54,7 @@ pub fn do_paint_svg(
     }
 
     let mut cached = media.svg.rendered.write();
-    cached.data = data;
-    cached.dimension = phys_dim;
+    cached.store(phys_dim, PixelFormat::PreMulArgb32, data);
     blit(canvas, &cached.data, phys_w, phys_h, rect);
 }
 

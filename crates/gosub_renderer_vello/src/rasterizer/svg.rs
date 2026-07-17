@@ -1,5 +1,6 @@
 use gosub_render_pipeline::common::media::{MediaId, MediaStore};
 use gosub_render_pipeline::painter::commands::rectangle::Rectangle;
+use gosub_render_pipeline::render::backend::PixelFormat;
 use resvg::usvg::Transform;
 use vello::kurbo::{Affine, Vec2};
 use vello::peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
@@ -23,7 +24,7 @@ pub(crate) fn do_paint_svg(
 
     {
         let cached = media.svg.rendered.read();
-        if cached.dimension == target_dim && !cached.data.is_empty() {
+        if cached.is_usable(target_dim, PixelFormat::Rgba8) {
             let image = ImageData {
                 data: Blob::from(cached.data.clone()),
                 format: ImageFormat::Rgba8,
@@ -58,8 +59,7 @@ pub(crate) fn do_paint_svg(
     let new_data = pixmap.data().to_vec();
 
     let mut cached = media.svg.rendered.write();
-    cached.data = new_data;
-    cached.dimension = target_dim;
+    cached.store(target_dim, PixelFormat::Rgba8, new_data);
 
     let image = ImageData {
         data: Blob::from(cached.data.clone()),
