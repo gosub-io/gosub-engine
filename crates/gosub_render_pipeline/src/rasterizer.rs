@@ -308,6 +308,7 @@ fn tile_cache_key(tile: &crate::tiler::Tile) -> TileCacheKey {
 
     (tile.rect.x.to_bits(), tile.rect.y.to_bits(), tile.layer_id.as_u64(), h)
 }
+
 /// Sequential per-tile rasterization, used by GPU backends (e.g. Vello) whose shared
 /// `Mutex<Renderer>` rules out parallelism. No dirty-tile cache, so it returns an empty one.
 pub fn rasterize_sequential(
@@ -472,6 +473,7 @@ pub fn rasterize_parallel(
     timing_stop!(ts6);
     (tiles, new_tile_cache)
 }
+
 /// Build the CPU `CachedTile` list for the zero-copy scroll handle. GPU-resident tiles have no
 /// CPU pixel buffer (they're composited by the backend), so they're skipped here.
 pub fn cpu_cached_tiles(baked: &[BakedTile]) -> Vec<CachedTile> {
