@@ -1,6 +1,6 @@
 //! Generic glyph-run text painter (`text_glyphs` feature).
 //!
-//! Engine-neutral: asks the configured [`FontSystem`] — *whichever* engine that is — to shape the
+//! Engine-neutral: asks the configured [`FontSystem`] - *whichever* engine that is - to shape the
 //! text, then paints the returned glyph runs with `Scene::draw_glyphs`. Works with any font
 //! system because the contract is raw font bytes + glyph IDs, not engine internals.
 
@@ -80,7 +80,7 @@ mod tests {
     use gosub_render_pipeline::painter::commands::brush::Brush;
     use gosub_render_pipeline::painter::commands::color::Color;
 
-    /// Shape "Hello" through the trait and encode it into a Vello scene — exercises the
+    /// Shape "Hello" through the trait and encode it into a Vello scene - exercises the
     /// `FontBlob` → `peniko::FontData` conversion and the glyph encoding without needing a GPU.
     #[test]
     fn encodes_glyphs_into_scene() {

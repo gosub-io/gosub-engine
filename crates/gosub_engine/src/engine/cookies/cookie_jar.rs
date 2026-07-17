@@ -52,7 +52,7 @@ fn is_valid_cookie_domain(request_host: &str, domain: &str) -> bool {
     // `psl::List.domain()` returns None when the input has no registrable portion,
     // i.e. the input itself is a bare eTLD ("com", "co.uk", "github.io").
     // We combine this with `suffix().is_known()` to distinguish known eTLDs from
-    // labels that are simply absent from the PSL ("localhost", intranet names) —
+    // labels that are simply absent from the PSL ("localhost", intranet names) -
     // the latter should be allowed even though domain() also returns None for them.
     if psl::List.domain(domain.as_bytes()).is_none()
         && psl::List.suffix(domain.as_bytes()).is_some_and(|s| s.is_known())
@@ -66,8 +66,8 @@ fn is_valid_cookie_domain(request_host: &str, domain: &str) -> bool {
 /// Parse an HTTP date string into a Unix timestamp.
 ///
 /// Handles three formats in order of preference:
-/// 1. RFC 2822 with numeric offset (`+0000`) — e.g. from well-behaved clients.
-/// 2. RFC 1123 / HTTP-date (`GMT` timezone) — the dominant real-world format
+/// 1. RFC 2822 with numeric offset (`+0000`) - e.g. from well-behaved clients.
+/// 2. RFC 1123 / HTTP-date (`GMT` timezone) - the dominant real-world format
 ///    per RFC 7231 §7.1.1.1: `"Fri, 07 Aug 2007 08:04:19 GMT"`.
 /// 3. RFC 850 / obsolete format (`"Friday, 07-Aug-07 08:04:19 GMT"`).
 ///
@@ -85,7 +85,7 @@ fn parse_http_date(s: &str) -> Option<i64> {
 
     // 2. RFC 1123 "Fri, 07 Aug 2007 08:04:19 GMT"
     //    Strip the timezone suffix, then strip the optional "Day, " prefix before
-    //    parsing — chrono's %a can be locale-sensitive; avoiding it is more robust.
+    //    parsing - chrono's %a can be locale-sensitive; avoiding it is more robust.
     let bare = s.strip_suffix(" GMT").or_else(|| s.strip_suffix("GMT")).unwrap_or(s);
     // Strip "Weekday, " prefix if present.
     let bare = bare.find(", ").map(|i| &bare[i + 2..]).unwrap_or(bare);
@@ -235,9 +235,9 @@ pub trait CookieJar: Send + Sync {
 /// ### Third-party policy
 /// When `top_level` is provided to `get_request_cookies` or `store_response_cookies`,
 /// the `third_party_policy` field controls cross-site behavior:
-/// - `Allow` — legacy behavior, all cookies pass through.
-/// - `Block` — no cookies are sent or stored for third-party requests.
-/// - `SameSiteNoneOnly` — only `SameSite=None; Secure` cookies are allowed in
+/// - `Allow` - legacy behavior, all cookies pass through.
+/// - `Block` - no cookies are sent or stored for third-party requests.
+/// - `SameSiteNoneOnly` - only `SameSite=None; Secure` cookies are allowed in
 ///   third-party context.
 ///
 /// ### Parsing behavior
@@ -359,7 +359,7 @@ impl CookieJar for DefaultCookieJar {
                     // Trim the attribute name: "Secure =" is equivalent to "Secure".
                     match k.trim().cow_to_ascii_lowercase().as_ref() {
                         "path" => {
-                            // Strip surrounding double-quotes — browsers tolerate
+                            // Strip surrounding double-quotes - browsers tolerate
                             // quoted path values and the semicolon delimiter inside
                             // them splits the raw header, leaving a stray leading '"'.
                             let p = v.trim().trim_matches('"');
@@ -438,7 +438,7 @@ impl CookieJar for DefaultCookieJar {
             cookie.expires = if let Some(ma) = max_age {
                 if ma <= 0 {
                     // Max-Age=0 (or negative) means delete the cookie immediately.
-                    // Cookies are unique by (name, domain, path) — RFC 6265bis §5.6 — so
+                    // Cookies are unique by (name, domain, path) - RFC 6265bis §5.6 - so
                     // only evict the exact match, not every same-named cookie in this origin.
                     bucket.retain(|c| !(c.name == cookie.name && c.domain == cookie.domain && c.path == cookie.path));
                     continue;
@@ -457,7 +457,7 @@ impl CookieJar for DefaultCookieJar {
                 continue;
             }
 
-            // Cookies are unique by (name, domain, path) — RFC 6265bis §5.6.
+            // Cookies are unique by (name, domain, path) - RFC 6265bis §5.6.
             // On update, preserve the original creation time so path-based ordering
             // (RFC 6265bis §5.5) reflects when the cookie was *first* set.
             if let Some(existing) = bucket
@@ -748,7 +748,7 @@ mod tests {
         let mut jar = DefaultCookieJar::new().with_policy(ThirdPartyCookiePolicy::SameSiteNoneOnly);
         let resource = url("https://tracker.com/pixel");
         let top = url("https://example.com/");
-        // No SameSite=None; Secure — should be blocked.
+        // No SameSite=None; Secure - should be blocked.
         let h = headers(&["uid=x; Path=/"]);
         jar.store_response_cookies(&resource, &h, Some(&top));
 
@@ -841,7 +841,7 @@ mod tests {
     fn no_samesite_attribute_defaults_to_lax() {
         let mut jar = DefaultCookieJar::new();
         let req = url("https://example.com/");
-        // No SameSite attribute — RFC 6265bis defaults to Lax.
+        // No SameSite attribute - RFC 6265bis defaults to Lax.
         jar.store_response_cookies(&req, &headers(&["n=1; Path=/"]), None);
 
         assert_eq!(
@@ -892,16 +892,16 @@ mod tests {
                 .domain(h.as_bytes())
                 .and_then(|d| std::str::from_utf8(d.as_bytes()).ok().map(str::to_owned))
         };
-        // Known registrable domains — psl::List must return the eTLD+1.
+        // Known registrable domains - psl::List must return the eTLD+1.
         assert_eq!(reg("a.com"), Some("a.com".into()));
         assert_eq!(reg("a.co.uk"), Some("a.co.uk".into())); // co.uk IS a PSL entry
         assert_eq!(reg("a.github.io"), Some("a.github.io".into())); // github.io is a private PSL entry
         assert_eq!(reg("example.com"), Some("example.com".into()));
-        // Bare eTLDs — PSL must return None (no registrable portion above the suffix).
+        // Bare eTLDs - PSL must return None (no registrable portion above the suffix).
         assert_eq!(reg("com"), None);
         assert_eq!(reg("co.uk"), None);
         assert_eq!(reg("github.io"), None);
-        // Unknown labels — PSL must also return None (not in the list).
+        // Unknown labels - PSL must also return None (not in the list).
         assert_eq!(reg("localhost"), None);
     }
 
@@ -936,7 +936,7 @@ mod tests {
         let mut jar = DefaultCookieJar::new();
         let req = url("https://example.com/");
 
-        // Domain is a public suffix — entire cookie must be dropped.
+        // Domain is a public suffix - entire cookie must be dropped.
         jar.store_response_cookies(&req, &headers(&["id=1; Path=/; Domain=com"]), None);
         assert!(
             jar.get_request_cookies(&req, None, SameSiteContext::SameSite).is_none(),
@@ -959,7 +959,7 @@ mod tests {
     #[test]
     fn valid_subdomain_cookie_is_stored() {
         let mut jar = DefaultCookieJar::new();
-        // Server at foo.example.com sets Domain=example.com — that's valid.
+        // Server at foo.example.com sets Domain=example.com - that's valid.
         let req = url("https://foo.example.com/");
         jar.store_response_cookies(&req, &headers(&["s=1; Path=/; Domain=example.com"]), None);
 
@@ -1150,7 +1150,7 @@ mod tests {
     fn max_age_takes_precedence_over_expires() {
         let mut jar = DefaultCookieJar::new();
         let req = url("https://example.com/");
-        // Expires is in the past, but Max-Age is 1 hour from now — Max-Age wins.
+        // Expires is in the past, but Max-Age is 1 hour from now - Max-Age wins.
         let h = headers(&["t=1; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=3600"]);
         jar.store_response_cookies(&req, &h, None);
 

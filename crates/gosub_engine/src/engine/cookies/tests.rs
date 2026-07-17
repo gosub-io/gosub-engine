@@ -668,7 +668,7 @@ mod cookie_tests {
             match (passes, is_known) {
                 (true, false) => pass += 1,
                 (true, true) => {
-                    // Was listed as known-failing but now passes — remove from list.
+                    // Was listed as known-failing but now passes - remove from list.
                     unexpected_passes.push(tc.test.clone());
                     skip += 1;
                 }
@@ -1001,7 +1001,7 @@ mod cookie_tests {
     // ── WPT name suite runner ─────────────────────────────────────────────────
     //
     // Test vectors from WPT cookies/name/name.html.
-    // Nameless/name-only cookie tests (no '=' separator) are omitted — RFC 6265
+    // Nameless/name-only cookie tests (no '=' separator) are omitted - RFC 6265
     // §5.2 requires dropping those headers; browsers accept them as a quirk.
 
     #[test]

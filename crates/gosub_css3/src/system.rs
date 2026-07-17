@@ -132,7 +132,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                     let value = normalize_vendor_prefixes(value);
 
                     // `content` carries arbitrary tokens (strings, `attr()`, counters,
-                    // quotes) that the property-syntax matcher cannot validate — notably the
+                    // quotes) that the property-syntax matcher cannot validate - notably the
                     // empty string `content: ""`. Pass it through verbatim; the render
                     // pipeline resolves it into generated text itself.
                     if declaration.property == "content" {
@@ -150,7 +150,7 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                     }
 
                     // If the property has a definition, validate and expand shorthands.
-                    // If not (e.g. margin-top, padding-bottom — longhand properties not yet
+                    // If not (e.g. margin-top, padding-bottom - longhand properties not yet
                     // in the definition list), insert the value directly without validation.
                     match definitions.find_property(&declaration.property) {
                         Some(definition) => {
@@ -181,8 +181,8 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                                 // matcher supports, so common forms like
                                 // `background: url(x) no-repeat` or `background: #fff` fail
                                 // validation and would be dropped entirely. Recover the parts
-                                // the consumer understands — `background-image` (a `url()`)
-                                // and `background-color` (a color) — and emit them as the
+                                // the consumer understands - `background-image` (a `url()`)
+                                // and `background-color` (a color) - and emit them as the
                                 // corresponding longhands. Position/repeat/size are still
                                 // ignored.
                                 if declaration.property == "background" {
@@ -312,7 +312,7 @@ fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
                         if !matches!(part, CssSelectorPart::PseudoClass(n) if n == "hover") {
                             continue;
                         }
-                        // Found :hover — classify this compound.
+                        // Found :hover - classify this compound.
                         let mut specific = false;
                         for p in &compound {
                             match p {
@@ -332,7 +332,7 @@ fn hover_fingerprints_impl(sheets: &[CssStylesheet]) -> HoverFingerprints {
                             }
                         }
                         if !specific {
-                            // Bare :hover or *:hover — everything is sensitive.
+                            // Bare :hover or *:hover - everything is sensitive.
                             fp.has_universal = true;
                             return fp;
                         }
@@ -400,7 +400,7 @@ fn collect_custom_props<C: HasDocument<CssSystem = Css3System>>(
         chain.push(parent);
         cur = parent;
     }
-    chain.reverse(); // root first — descendants override ancestors
+    chain.reverse(); // root first - descendants override ancestors
 
     let mut custom_props: HashMap<String, CssValue> = HashMap::new();
     for node_id in chain {

@@ -424,7 +424,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                     continue;
                 };
 
-                // step 4.13.6 — duplicate the node (shallow copy) using trait methods
+                // step 4.13.6 - duplicate the node (shallow copy) using trait methods
                 let replace_node_id = self.document.duplicate_node(node_id);
 
                 self.active_formatting_elements[node_active_position] = ActiveElement::Node(replace_node_id);
@@ -450,7 +450,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             let insert_position = self.appropriate_place_insert(Some(common_ancestor));
             self.insert_element_helper(last_node_id, insert_position);
 
-            // step 4.15 — create new format node as shallow copy of format_elem
+            // step 4.15 - create new format node as shallow copy of format_elem
             let new_node_id = self.document.create_element(
                 &format_tag,
                 format_ns.as_deref(),
@@ -458,7 +458,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 gosub_shared::byte_stream::Location::default(),
             );
 
-            // step 4.16 — move children of further_block to new_node
+            // step 4.16 - move children of further_block to new_node
             let children: Vec<NodeId> = self.document.children(further_block_node_id).to_vec();
             for child in children {
                 self.document.relocate_node(child, new_node_id);

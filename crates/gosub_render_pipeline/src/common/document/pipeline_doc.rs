@@ -32,7 +32,7 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
                     return Some(Value::Color(r, g, b, a));
                 }
             }
-            // parse_color returns 0..255 range — matches Value::Color(u8, u8, u8, u8)
+            // parse_color returns 0..255 range - matches Value::Color(u8, u8, u8, u8)
             let (r, g, b, a) = p.parse_color()?;
             Some(Value::Color(r as u8, g as u8, b as u8, a as u8))
         }
@@ -183,7 +183,7 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
 
         // ── Grid track lists: `repeat(3, 1fr)`, `210px 1fr`, `auto`, … ─────
         // These are stored as a `Function` (repeat/minmax) or a multi-value `List`, neither of
-        // which `as_string()` returns, and a bare `1fr` is a `Unit` — so the default branch
+        // which `as_string()` returns, and a bare `1fr` is a `Unit` - so the default branch
         // below would drop or mis-type them. Serialize back to a canonical CSS track-list
         // string so the layouter's track-list parser (`parse_grid_template`) can read it.
         StyleProperty::GridTemplateColumns
@@ -217,7 +217,7 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
                 let value = match unit {
                     "em" => Value::Unit(v, Unit::Em),
                     // `ch` is the advance of the "0" glyph. Without font metrics here we
-                    // approximate it as 0.55em — the CSS-spec 0.5em fallback is for fonts with no
+                    // approximate it as 0.55em - the CSS-spec 0.5em fallback is for fonts with no
                     // "0", but real proportional fonts (e.g. the system sans / Source Serif 4 used
                     // by content here) sit nearer 0.52–0.6em, so 0.5em makes `ch`-based widths
                     // (e.g. `max-width: 17ch`) too narrow and over-wraps. `ex` ≈ x-height ≈ 0.5em.
@@ -226,7 +226,7 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
                     "ic" => Value::Unit(v, Unit::Em),
                     "lh" => Value::Unit(v * 1.4, Unit::Em),
                     // `rem` is root-relative (always 16px here) and everything else is
-                    // absolute/viewport — resolve straight to px, no element context needed.
+                    // absolute/viewport - resolve straight to px, no element context needed.
                     _ => Value::Unit(p.unit_to_px(), Unit::Px),
                 };
                 Some(value)
@@ -601,7 +601,7 @@ fn resolve_bg_size(group: &[BgTok]) -> Option<(f32, f32)> {
 }
 
 /// `background-position` group → (x, y) px phase offset. Percentages and edge keywords need
-/// the box size, so they resolve to 0 for now (px offsets — what the checkerboard uses — are
+/// the box size, so they resolve to 0 for now (px offsets - what the checkerboard uses - are
 /// exact).
 fn resolve_bg_position(group: &[BgTok]) -> (f32, f32) {
     let lens: Vec<f32> = group
@@ -647,13 +647,13 @@ pub enum PipelineNodeKind {
 /// Resolved `background-size` keyword/value.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BgSize {
-    /// `auto` / absent — the image's intrinsic size.
+    /// `auto` / absent - the image's intrinsic size.
     Auto,
     /// Explicit lengths in px.
     Length(f32, f32),
-    /// `cover` — scale (preserving aspect) so the image fully covers the box, cropping overflow.
+    /// `cover` - scale (preserving aspect) so the image fully covers the box, cropping overflow.
     Cover,
-    /// `contain` — scale (preserving aspect) so the image fits inside the box, letterboxing.
+    /// `contain` - scale (preserving aspect) so the image fits inside the box, letterboxing.
     Contain,
 }
 
@@ -669,7 +669,7 @@ pub struct BgImageLayout {
     pub repeat: (bool, bool),
     /// Tile origin offset from the box origin, in px (`background-position`, length form).
     pub position: (f32, f32),
-    /// Per-axis `center` keyword (`background-position: center`) — resolved against the box at paint.
+    /// Per-axis `center` keyword (`background-position: center`) - resolved against the box at paint.
     pub center: (bool, bool),
     /// Resolved `background-size`.
     pub size: BgSize,
@@ -857,7 +857,7 @@ fn content_token_to_string(s: &str) -> Option<String> {
 
 /// Resolves a `counter()` / `counters()` / unhandled function inside `content`.
 /// Counter state (counter-reset/counter-increment scoping) is not yet tracked, so counters
-/// currently resolve to empty text — generated boxes still appear, just without the number.
+/// currently resolve to empty text - generated boxes still appear, just without the number.
 fn resolve_content_function<S: CssSystem>(name: &str, _args: &[S::Value]) -> String {
     if matches!(name, "counter" | "counters") {
         log::debug!("content: {name}() is not yet supported; rendering empty");
@@ -1004,7 +1004,7 @@ where
     }
 
     fn compute_styles(&self, id: NodeId) -> (<C::CssSystem as CssSystem>::PropertyMap, NodeStyle) {
-        // CSS selectors cannot target text nodes — only elements.
+        // CSS selectors cannot target text nodes - only elements.
         if self.doc.node_type(id) == GosubNodeType::TextNode {
             return (Default::default(), NodeStyle::new());
         }
@@ -1014,7 +1014,7 @@ where
             prop.compute_value();
         }
 
-        // Inline `style` attribute has highest specificity — store separately.
+        // Inline `style` attribute has highest specificity - store separately.
         let inline_ns = if let Some(attrs) = self.doc.attributes(id) {
             if let Some(style_attr) = attrs.get("style") {
                 crate::common::document::inline_style::parse_inline_style_attr(style_attr)
@@ -1343,7 +1343,7 @@ where
         // Collect keyword tokens (and any explicit px size) from the first background layer of the
         // `background` shorthand and the relevant longhands. The shorthand carries repeat/size
         // keywords inline (e.g. `background: url(x) no-repeat center / contain`), so it must be
-        // scanned too — the longhands are usually empty in that case.
+        // scanned too - the longhands are usually empty in that case.
         let mut keywords: Vec<String> = Vec::new();
         let mut explicit_size: Option<(f32, f32)> = None;
         let mut position: Option<(f32, f32)> = None;
@@ -1501,7 +1501,7 @@ where
                     }
                 }
                 // Most styles are accessed via `doc.get_own_style()` rather than stored in
-                // ElementData — CssTaffyConverter uses the PipelineDocument interface directly.
+                // ElementData - CssTaffyConverter uses the PipelineDocument interface directly.
                 // `display`, however, drives the layouter's tag-name-based inline-vs-block
                 // grouping (Node::is_inline_element / is_block_element), which only reads the
                 // local NodeStyle. Carry the *cascaded* display onto the Node so author rules

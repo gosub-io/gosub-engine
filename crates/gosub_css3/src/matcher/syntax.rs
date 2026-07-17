@@ -870,7 +870,7 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
     // Only apply an explicit multiplier suffix (one that actually consumed input).
     // `parse_multipliers` returns a default `[Once]` when no suffix is present; applying
     // that would clobber a component's own multipliers. This matters for single-element
-    // groups such as `[ b{2} ]`, which unwrap to their inner component (`b{2}`) — that
+    // groups such as `[ b{2} ]`, which unwrap to their inner component (`b{2}`) - that
     // inner multiplier must survive.
     if rest.len() != input.len() {
         component.update_multipliers(multipliers.clone());

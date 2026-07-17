@@ -3,7 +3,7 @@ use crate::geo::{Point, Size};
 /// The CSS display role a node plays in the table layout algorithm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TableRole {
-    /// `display: table` — the outer table box
+    /// `display: table` - the outer table box
     Table,
     /// `display: table-caption`
     Caption,
@@ -21,7 +21,7 @@ pub enum TableRole {
     Row,
     /// `display: table-cell` (td, th)
     Cell,
-    /// Everything else — treated as anonymous cell content
+    /// Everything else - treated as anonymous cell content
     Other,
 }
 
@@ -134,10 +134,10 @@ impl Default for CellLayout {
 /// `table-layout` property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TableSizing {
-    /// `table-layout: auto` — column widths derived from content.
+    /// `table-layout: auto` - column widths derived from content.
     #[default]
     Auto,
-    /// `table-layout: fixed` — column widths from first row / `<col>` elements.
+    /// `table-layout: fixed` - column widths from first row / `<col>` elements.
     Fixed,
 }
 

@@ -1,4 +1,4 @@
-//! Inline-run collection — Stage 0 of the inline-formatting rework.
+//! Inline-run collection - Stage 0 of the inline-formatting rework.
 //! See `docs/inline-run-rework-plan.md`.
 //!
 //! Collects a block's inline content (text nodes + flattened inline elements) into a flat list of
@@ -7,7 +7,7 @@
 //!
 //! This is scaffolding: it is **not yet wired into layout** (Stage 1 replaces the flex-based
 //! anonymous line container with a single run leaf built from this). Until then the doc-walking
-//! entry points are unused, hence the module-wide `dead_code` allow — it comes off in Stage 1. The
+//! entry points are unused, hence the module-wide `dead_code` allow - it comes off in Stage 1. The
 //! whitespace-collapsing and line-box-splitting logic is pure and unit-tested below.
 #![allow(dead_code)]
 
@@ -53,7 +53,7 @@ pub struct InlineSegment {
     pub source: NodeId,
 }
 
-/// A text chunk as walked from the tree — still holding source whitespace, pre-collapse.
+/// A text chunk as walked from the tree - still holding source whitespace, pre-collapse.
 #[derive(Debug, Clone, PartialEq)]
 struct TextEntry {
     text: String,
@@ -228,7 +228,7 @@ fn finish_box(entries: Vec<TextEntry>) -> Vec<InlineSegment> {
                 if seen_non_space {
                     pending_space = true;
                 }
-                // Otherwise this is leading whitespace of the box — drop it.
+                // Otherwise this is leading whitespace of the box - drop it.
             } else {
                 if pending_space {
                     seg.push(' ');
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn whitespace_only_segment_becomes_single_inter_element_space() {
-        // "<span>A</span> <span>B</span>" — the " " text node between the spans.
+        // "<span>A</span> <span>B</span>" - the " " text node between the spans.
         let segs = finish_box(vec![te("A", 1), te(" ", 2), te("B", 3)]);
         assert_eq!(joined(&segs), "A B");
         // The whitespace-only node produces no segment of its own.

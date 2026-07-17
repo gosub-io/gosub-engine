@@ -22,7 +22,7 @@ fn svg_options() -> usvg::Options<'static> {
     }
 }
 
-/// Parses SVG into a retained `usvg::Tree`. Unlike raster decoders it does not rasterize —
+/// Parses SVG into a retained `usvg::Tree`. Unlike raster decoders it does not rasterize -
 /// the tree is kept so it can be re-rasterized crisply at any render size.
 pub struct SvgDecoder;
 

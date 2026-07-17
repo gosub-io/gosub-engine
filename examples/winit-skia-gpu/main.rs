@@ -4,7 +4,7 @@
 //!
 //! The engine rasterizes tiles on worker threads using SkiaRasterizer (CPU).
 //! The main (event-loop) thread receives a TileCache and composites the tiles
-//! directly onto the GL window surface via Skia's Ganesh GPU backend — no CPU
+//! directly onto the GL window surface via Skia's Ganesh GPU backend - no CPU
 //! readback required.
 
 #[link(name = "GL")]
@@ -543,7 +543,7 @@ fn main() {
 
     // Rasterize tiles on the CPU via the Skia backend; this example then uploads those tiles and
     // composites them onto the GL window surface through Skia's Ganesh GPU backend. (A NullBackend
-    // produces no tiles — the engine needs a real rasterizer to emit TileCache frames.)
+    // produces no tiles - the engine needs a real rasterizer to emit TileCache frames.)
     let backend = SkiaBackend::new();
     let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
     let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));

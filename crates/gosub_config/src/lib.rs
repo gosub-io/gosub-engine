@@ -64,7 +64,7 @@ struct Subscription {
 
 /// A shareable handle to a configuration store. Cloning is cheap (an `Arc` bump); all clones refer
 /// to the same underlying store, so subscriptions and writes made through one clone are visible to
-/// the others. This is the per-engine entry point to configuration — construct one and hand clones
+/// the others. This is the per-engine entry point to configuration - construct one and hand clones
 /// to whichever components need it.
 #[derive(Clone)]
 pub struct Config(Arc<RwLock<ConfigStore>>);
@@ -73,7 +73,7 @@ impl Config {
     /// Creates a config from the given settings schema, backed by a volatile in-memory store.
     ///
     /// `gosub_config` is agnostic of which settings exist: the caller (e.g. the engine) supplies
-    /// the schema — the set of known keys with their defaults and constraints. Only keys present
+    /// the schema - the set of known keys with their defaults and constraints. Only keys present
     /// in the schema can be read or written.
     #[must_use]
     pub fn new(schema: impl IntoIterator<Item = SettingInfo>) -> Self {
@@ -106,7 +106,7 @@ impl Config {
     /// `set`. Returns the number of settings actually merged.
     pub fn merge(&self, other: &Config, namespace: &str) -> usize {
         // Snapshot `other` first (its read guard is released at the end of this statement) so that
-        // acquiring our own write lock can never overlap with it — safe even if `other` is a clone
+        // acquiring our own write lock can never overlap with it - safe even if `other` is a clone
         // of `self`.
         let entries = other.0.read().snapshot();
         self.0.write().absorb(entries, namespace)

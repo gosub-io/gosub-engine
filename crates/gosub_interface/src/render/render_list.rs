@@ -124,10 +124,10 @@ impl Color {
 /// by the render backend.
 ///
 /// Variants:
-/// - [`DisplayItem::Clear`] — clear the entire surface to a color.
-/// - [`DisplayItem::Rect`] — draw a solid rectangle.
-/// - [`DisplayItem::TextRun`] — draw a run of text at a position.
-/// - [`DisplayItem::Blit`] — blit a rasterized tile (raw ARgb32 pixels).
+/// - [`DisplayItem::Clear`] - clear the entire surface to a color.
+/// - [`DisplayItem::Rect`] - draw a solid rectangle.
+/// - [`DisplayItem::TextRun`] - draw a run of text at a position.
+/// - [`DisplayItem::Blit`] - blit a rasterized tile (raw ARgb32 pixels).
 #[derive(Clone, Debug)]
 pub enum DisplayItem {
     /// Clear the entire surface with the given color.

@@ -14,7 +14,7 @@ use crate::TableTree;
 /// positions for every table-internal node (groups, rows, cells), and writes
 /// them back via [`TableTree::set_layout`].
 ///
-/// Returns `(content_width, content_height)` — the border-box size that the
+/// Returns `(content_width, content_height)` - the border-box size that the
 /// table occupies.  The caller is responsible for writing the table node's own
 /// layout (its position in the surrounding flow).
 pub fn compute_table_layout<T: TableTree>(
@@ -250,7 +250,7 @@ fn col_x_offsets(col_widths: &[f32], spacing_x: f32) -> Vec<f32> {
 }
 
 /// `row_y[i]` = y of the top edge of row `i` within its group, in px.
-/// The first row starts at 0 — the gutter above it belongs to the table
+/// The first row starts at 0 - the gutter above it belongs to the table
 /// (or to the previous group's bottom boundary), not to this group.
 fn row_y_offsets(row_heights: &[f32], spacing_y: f32) -> Vec<f32> {
     let mut offsets = Vec::with_capacity(row_heights.len());

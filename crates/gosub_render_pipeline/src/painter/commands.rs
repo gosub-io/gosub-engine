@@ -33,7 +33,7 @@ pub enum PaintCommand {
     Svg(PaintSvg),
     /// Begin a compositing group for a promoted layer (CSS `opacity < 1`, `position: fixed`, or
     /// `sticky`). A scene backend composites everything up to the matching [`PaintCommand::PopLayer`]
-    /// as a unit — fading it by `opacity` and positioning it per `anchor`. Only the GPU-scene path
+    /// as a unit - fading it by `opacity` and positioning it per `anchor`. Only the GPU-scene path
     /// (`Painter::paint_all`) emits these; the tile path applies opacity/anchor at composite instead
     /// and never produces them (so tile rasterizers can ignore both variants).
     PushLayer {

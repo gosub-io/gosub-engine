@@ -21,11 +21,11 @@ pub enum CssOrigin {
 /// Records which element types/classes/ids appear in a `:hover` compound selector, so the
 /// engine can skip style recalculation when the pointer moves between elements that no `:hover`
 /// rule targets. Computed by the [`CssSystem`] (via [`CssSystem::hover_fingerprints`]) because
-/// only the CSS implementation understands its own selector structure — the engine stays
+/// only the CSS implementation understands its own selector structure - the engine stays
 /// agnostic of how selectors are represented.
 #[derive(Default, Debug, Clone)]
 pub struct HoverFingerprints {
-    /// A bare `:hover` / `*:hover` rule exists — every node is hover-sensitive.
+    /// A bare `:hover` / `*:hover` rule exists - every node is hover-sensitive.
     pub has_universal: bool,
     /// Element type names that appear in a `:hover` compound.
     pub types: std::collections::HashSet<String>,
@@ -71,7 +71,7 @@ pub trait CssSystem: Clone + Debug + 'static {
 
     fn load_default_useragent_stylesheet() -> Self::Stylesheet;
 
-    /// Scan `sheets` and collect the [`HoverFingerprints`] — the element types/classes/ids that
+    /// Scan `sheets` and collect the [`HoverFingerprints`] - the element types/classes/ids that
     /// are the subject of a `:hover` rule. Lets the engine cheaply decide whether a hover change
     /// can affect styling without re-running selector matching.
     fn hover_fingerprints(sheets: &[Self::Stylesheet]) -> HoverFingerprints;

@@ -1,7 +1,7 @@
 //! Pluggable media decoding.
 //!
 //! [`MediaStore`](crate::common::media::MediaStore) does not care whether a resource is PNG,
-//! JPEG, GIF or SVG — it hands the raw bytes (and an optional MIME hint) to a
+//! JPEG, GIF or SVG - it hands the raw bytes (and an optional MIME hint) to a
 //! [`MediaDecoderRegistry`], which picks a [`MediaDecoder`] and produces a normalized
 //! [`DecodedMedia`].
 //!
@@ -149,7 +149,7 @@ pub trait MediaDecoder: Send + Sync {
 }
 
 /// Ordered set of decoders. The MIME hint (e.g. an HTTP `Content-Type`) is treated as a hint
-/// only — servers frequently send the wrong type, so a MIME-matched decoder that fails to
+/// only - servers frequently send the wrong type, so a MIME-matched decoder that fails to
 /// decode falls through to magic-byte sniffing before giving up.
 pub struct MediaDecoderRegistry {
     decoders: Vec<Box<dyn MediaDecoder>>,

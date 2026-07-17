@@ -238,7 +238,7 @@ impl CairoSurface {
         let h = self.size.height as i32;
         let stride = self.stride;
 
-        // SAFETY: `ptr` stays valid for the surface's lifetime — `self.pixels` is not
+        // SAFETY: `ptr` stays valid for the surface's lifetime - `self.pixels` is not
         // touched until the surface is flushed and dropped at the end of this call.
         let ptr = self.pixels.as_mut_ptr();
         let surface = unsafe { cairo::ImageSurface::create_for_data_unsafe(ptr, cairo::Format::ARgb32, w, h, stride)? };

@@ -33,16 +33,16 @@ pub enum StepPosition {
 pub enum Easing {
     /// Constant rate (`f(t) = t`).
     Linear,
-    /// Hermite smoothstep `t²(3 − 2t)` — zero slope at both ends. This is what gosub's scroll
+    /// Hermite smoothstep `t²(3 − 2t)` - zero slope at both ends. This is what gosub's scroll
     /// smoothing uses; very close to [`Easing::EaseInOut`] but cheaper and exactly symmetric.
     Smoothstep,
-    /// CSS `ease` — slow start, fast middle, slow end (bézier 0.25, 0.1, 0.25, 1).
+    /// CSS `ease` - slow start, fast middle, slow end (bézier 0.25, 0.1, 0.25, 1).
     Ease,
-    /// CSS `ease-in` — slow start (bézier 0.42, 0, 1, 1).
+    /// CSS `ease-in` - slow start (bézier 0.42, 0, 1, 1).
     EaseIn,
-    /// CSS `ease-out` — slow end (bézier 0, 0, 0.58, 1).
+    /// CSS `ease-out` - slow end (bézier 0, 0, 0.58, 1).
     EaseOut,
-    /// CSS `ease-in-out` — slow start and end (bézier 0.42, 0, 0.58, 1).
+    /// CSS `ease-in-out` - slow start and end (bézier 0.42, 0, 0.58, 1).
     EaseInOut,
     /// Cubic Bézier through `(0,0)`, `(x1,y1)`, `(x2,y2)`, `(1,1)`. Every CSS named curve is a
     /// specific instance of this. `x` control points are expected in `[0, 1]`.
@@ -364,7 +364,7 @@ impl ScrollAnimator for Spring {
 /// in-process-only escape hatch for a fully embedder-defined feel.
 #[derive(Clone)]
 pub enum ScrollBehavior {
-    /// Jump straight to the target — no animation (CSS `scroll-behavior: auto`, reduced-motion).
+    /// Jump straight to the target - no animation (CSS `scroll-behavior: auto`, reduced-motion).
     Instant,
     /// Fixed-duration tween reparameterized by `easing`.
     Tween {

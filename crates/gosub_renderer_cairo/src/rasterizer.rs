@@ -18,7 +18,7 @@ use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
 
 pub struct CairoRasterizer {
     /// The engine's shared font system, exposed to the layouter so it measures with the
-    /// configured instance. Painting itself no longer needs it — text commands carry their
+    /// configured instance. Painting itself no longer needs it - text commands carry their
     /// pre-shaped glyph runs.
     config_font_system: Option<Arc<Mutex<dyn FontSystem>>>,
 }
@@ -76,7 +76,7 @@ impl Rasterable for CairoRasterizer {
                 for command in &element.paint_commands {
                     match command {
                         // The tile path applies layer opacity/anchor at composite, so these
-                        // scene-only group markers never appear here — ignore them.
+                        // scene-only group markers never appear here - ignore them.
                         PaintCommand::PushLayer { .. } | PaintCommand::PopLayer => {}
                         PaintCommand::Svg(command) => {
                             svg::do_paint_svg(&cr.clone(), tile, &command.rect, command.media_id, media_store, dpr);

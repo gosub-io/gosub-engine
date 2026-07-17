@@ -18,9 +18,9 @@ use crate::system::Css3System;
 // Matches a complete selector (all parts) against the given node(id).
 //
 // `pseudo` selects what we are matching against:
-//   * `None`           — match the element itself. Any selector containing a `::pseudo-element`
+//   * `None`           - match the element itself. Any selector containing a `::pseudo-element`
 //                        part never matches (pseudo-elements are not the element).
-//   * `Some("before")` — match the `::before` pseudo-element of `node_id`. Only selectors that
+//   * `Some("before")` - match the `::before` pseudo-element of `node_id`. Only selectors that
 //                        explicitly carry the matching `::before` part match; the rest of the
 //                        compound is matched against the originating element as usual.
 pub(crate) fn match_selector<C: HasDocument>(
@@ -512,7 +512,7 @@ impl CssProperty {
         // Bare numbers and percentages are ratios/multipliers and must keep their fractional
         // value: rounding `opacity: 0.15` to 0 makes an element vanish, `line-height: 1.7`
         // to 2.0 inflates every paragraph, `flex-grow: 0.5` to 1 doubles an item's share.
-        // Relative units (em, rem, vw, vh) must not be rounded either — 1.5em rounded to
+        // Relative units (em, rem, vw, vh) must not be rounded either - 1.5em rounded to
         // 2.0em would make h2 render at h1 size. Only absolute lengths (px, pt, in, cm, mm)
         // are snapped to whole values here.
         match &self.used {

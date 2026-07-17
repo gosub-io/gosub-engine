@@ -28,7 +28,7 @@ pub struct WebEventLoop<E: FutureExecutor = TokioExecutor> {
     timers: WebTimers,
 }
 
-/// Handle to the event loop — use to spawn tasks or send messages.
+/// Handle to the event loop - use to spawn tasks or send messages.
 pub struct WebEventLoopHandle {
     pub rt: Handle,
     pub tx: Sender<WebEventLoopMessage>,

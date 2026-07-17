@@ -476,14 +476,14 @@ impl CssValue {
                 "px" => *val,
                 "em" => *val * 16.0,
                 "rem" => *val * 16.0,
-                // Absolute physical units — 1in = 96px
+                // Absolute physical units - 1in = 96px
                 "pt" => *val * (96.0 / 72.0),
                 "pc" => *val * (96.0 / 6.0),
                 "in" => *val * 96.0,
                 "cm" => *val * (96.0 / 2.54),
                 "mm" => *val * (96.0 / 25.4),
                 "q" => *val * (96.0 / 101.6),
-                // Viewport units — resolved against the current layout viewport (CSS px),
+                // Viewport units - resolved against the current layout viewport (CSS px),
                 // falling back to 1280×800 until the render flow sets the real size.
                 "vw" | "svw" | "lvw" | "dvw" => *val * layout_viewport().0 / 100.0,
                 "vh" | "svh" | "lvh" | "dvh" => *val * layout_viewport().1 / 100.0,
@@ -743,7 +743,7 @@ fn parse_css_color_function(name: &str, args: &[CssValue]) -> Option<RgbColor> {
             let (r, g, b) = oklab_to_srgb(l, a_ok, b_ok);
             Some(RgbColor::new(r, g, b, alpha))
         }
-        // color(srgb R G B) or color(display-p3 R G B) — treat as linear/sRGB for now.
+        // color(srgb R G B) or color(display-p3 R G B) - treat as linear/sRGB for now.
         "color" if nums.len() >= 3 => {
             // First element of args is the color space name (a String), skip it.
             let alpha = nums

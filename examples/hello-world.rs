@@ -24,7 +24,7 @@ fn init_tracing() {
     let _ = tracing_log::LogTracer::init();
 
     // Default to warn. The tab worker emits a WARN for every unimplemented TabCommand
-    // (e.g. SetTitle), which is expected during development — suppress it here so the example
+    // (e.g. SetTitle), which is expected during development - suppress it here so the example
     // output focuses on navigation and resource events.
     // Override via RUST_LOG, e.g. RUST_LOG=gosub_engine=debug for deeper inspection.
     let filter = EnvFilter::try_from_default_env()

@@ -2,7 +2,7 @@
 //!
 //! [`DynamicRenderBackend`] bundles several concrete render backends (Cairo, Skia, Vello) behind
 //! a single [`RenderBackend`] and delegates every call to the one currently selected. This is the
-//! *only* place in the workspace that knows about the concrete backends together — the render
+//! *only* place in the workspace that knows about the concrete backends together - the render
 //! pipeline and the engine stay fully renderer-agnostic and only ever see `dyn RenderBackend`.
 //!
 //! A host enables the backends it can build on its platform via crate features (`cairo`, `skia`,
@@ -38,7 +38,7 @@ pub enum RenderBackendKind {
 
 impl RenderBackendKind {
     /// Reconstruct from the `u8` discriminant stored in the atomic. Any unknown value
-    /// (which cannot occur — only `self as u8` values are stored) maps to [`Null`](Self::Null).
+    /// (which cannot occur - only `self as u8` values are stored) maps to [`Null`](Self::Null).
     fn from_u8(v: u8) -> Self {
         match v {
             1 => Self::Cairo,

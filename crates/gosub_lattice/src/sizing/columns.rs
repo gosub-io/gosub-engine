@@ -71,9 +71,9 @@ pub fn compute_column_widths<T: TableTree>(
         if total_natural > 0.0 {
             // Threshold-based distribution:
             //   - Narrow auto columns (intrinsic < 50 px) are structural (rank
-            //     numbers, vote buttons) — give them their natural width with a
+            //     numbers, vote buttons) - give them their natural width with a
             //     14 px floor so they stay visible.
-            //   - Wide auto columns are content columns — they share whatever
+            //   - Wide auto columns are content columns - they share whatever
             //     space remains after the narrow columns have taken their share.
             //     Multiple content columns share proportionally to their natural
             //     widths; if there are none, fall through to equal distribution.
@@ -102,13 +102,13 @@ pub fn compute_column_widths<T: TableTree>(
                     }
                 }
             } else {
-                // All auto columns are narrow — distribute remaining proportionally.
+                // All auto columns are narrow - distribute remaining proportionally.
                 for &col in &auto_cols {
                     explicit[col] = Some(remaining * natural[col] / total_natural);
                 }
             }
         } else {
-            // No content width data (mock trees) — fall back to equal distribution.
+            // No content width data (mock trees) - fall back to equal distribution.
             let equal = remaining / auto_cols.len() as f32;
             for &col in &auto_cols {
                 explicit[col] = Some(equal);

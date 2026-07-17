@@ -43,7 +43,7 @@ pub trait TableTree {
     /// content height the children occupy.
     ///
     /// For mock/test trees that carry no real child content, returning `0.0`
-    /// is correct — explicit CSS `height` on the cell will still be respected
+    /// is correct - explicit CSS `height` on the cell will still be respected
     /// by the row-height algorithm.
     fn layout_cell(&mut self, id: Self::NodeId, available_width: f32) -> f32;
 

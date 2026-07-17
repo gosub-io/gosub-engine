@@ -1,6 +1,6 @@
 //! Vello render backend.
 //!
-//! Vello is a **compute-based scene renderer**, not a canvas — so this backend works fundamentally
+//! Vello is a **compute-based scene renderer**, not a canvas - so this backend works fundamentally
 //! differently from the canvas backends (Cairo, Skia), which tile + composite.
 //!
 //! - **No tile cache.** Nothing here caches rasterized tiles. The engine builds one whole-viewport
@@ -13,14 +13,14 @@
 //! - **Compositing is fused into the render.** Group opacity and fixed/sticky/scroll positioning are
 //!   applied *during* the Vello pass via native layer push/pop (`scene.push_layer` with the group
 //!   alpha; a per-anchor transform for placement), driven by the `PaintCommand::PushLayer`/`PopLayer`
-//!   markers the painter emits around each promoted layer — not by a separate tile compositor.
+//!   markers the painter emits around each promoted layer - not by a separate tile compositor.
 //!
 //! This trades the tile cache's incremental-update efficiency for "re-render the whole scene fast on
 //! the GPU," which is how Vello-native engines (e.g. Blitz) work. Cost scales with total scene size
 //! rather than visible content, so the tile path remains the better fit for the canvas backends.
 //!
 //! (An opt-in `GOSUB_VELLO_GPU_TILES=1` mode instead routes Vello through the shared GPU tile
-//! compositor like Skia-GPU — that path *does* tile. The default is the scene path described here.)
+//! compositor like Skia-GPU - that path *does* tile. The default is the scene path described here.)
 
 use crate::backend::font_cache::FontCache;
 use crate::backend::font_manager::FontManager;
@@ -108,7 +108,7 @@ pub struct VelloBackend<C: WgpuContextProvider + Send + Sync> {
 
 impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
     pub fn new(context: Arc<C>) -> Result<Self> {
-        // Compile every AA pipeline so callers can pick `Area` (analytic coverage) for text — it is
+        // Compile every AA pipeline so callers can pick `Area` (analytic coverage) for text - it is
         // sharper for small glyphs than the multisampled methods and is Vello's recommended default.
         let renderer = Renderer::new(
             context.device(),
@@ -271,7 +271,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                     // when needed, so colors are correct regardless of which rasterizer produced it.
                     let mut rgba = format.to_rgba(data).into_owned();
                     // Fade the whole tile by the group opacity. Pixels are premultiplied, so scaling
-                    // all four channels keeps them premultiplied — the same factor the GPU tile path
+                    // all four channels keeps them premultiplied - the same factor the GPU tile path
                     // applies in its blit shader.
                     if *opacity < 1.0 {
                         for b in rgba.iter_mut() {
@@ -316,7 +316,7 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
 
     fn render(&self, ctx: &mut dyn RenderContext, surface: &mut dyn ErasedSurface) -> Result<()> {
         // GPU scene path: the engine hands us one viewport-level paint-command list. Translate it
-        // into a single Vello scene and render straight to our texture — no tiles, no readback.
+        // into a single Vello scene and render straight to our texture - no tiles, no readback.
         let scene = if let Some(scene) = self.build_scene_from_paint_commands(&*ctx) {
             scene
         } else {
@@ -393,7 +393,7 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
             .get_texture(s.texture_store_id)
             .ok_or_else(|| anyhow!("invalid texture id in VelloSurface"))?;
 
-        // Cull to the visible viewport — only blit tiles that intersect [scroll, scroll+viewport].
+        // Cull to the visible viewport - only blit tiles that intersect [scroll, scroll+viewport].
         // Without this we'd issue a draw per tile for the WHOLE page every frame (thousands on a
         // tall page), which makes scrolling crawl. Mirrors the CPU path's `pipeline_composite`.
         let (vw, vh) = (viewport.0 as f32, viewport.1 as f32);

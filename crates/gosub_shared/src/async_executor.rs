@@ -3,7 +3,7 @@
 //! The engine runs on native targets (threads available) and on wasm32 (single-threaded,
 //! futures driven by the JS event loop). That difference leaks into trait bounds: code that
 //! is generic over async work needs `Send`/`Sync` on native, but requiring them on wasm would
-//! reject perfectly fine single-threaded futures. The `WasmNot*` traits paper over this —
+//! reject perfectly fine single-threaded futures. The `WasmNot*` traits paper over this -
 //! they alias `Send`/`Sync` on native and are unconditional (bound-free) on wasm, so a single
 //! `T: WasmNotSend` bound means "Send where threads exist".
 //!

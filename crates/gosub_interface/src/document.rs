@@ -18,7 +18,7 @@ pub enum DocumentType {
 ///
 /// All node data is accessed through `NodeId` handles. The concrete storage
 /// (arena, column store, slotmap, etc.) is entirely hidden behind this trait.
-/// No `Node` struct is ever handed out — callers ask the document questions
+/// No `Node` struct is ever handed out - callers ask the document questions
 /// about a node by its ID.
 pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'static {
     // Construction
@@ -26,7 +26,7 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     /// Create a new empty document of the given type.
     fn new(document_type: DocumentType, url: Option<Url>) -> Self;
 
-    // Node creation — each returns the NodeId of the new node
+    // Node creation - each returns the NodeId of the new node
 
     fn create_element(
         &mut self,
@@ -52,7 +52,7 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     /// Shallow-copy a node: same type/data/attributes, no children, unattached.
     fn duplicate_node(&mut self, id: NodeId) -> NodeId;
 
-    // Tree structure — all navigation returns NodeId, never &Node
+    // Tree structure - all navigation returns NodeId, never &Node
 
     fn root(&self) -> NodeId;
     fn parent(&self, id: NodeId) -> Option<NodeId>;

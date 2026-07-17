@@ -3,7 +3,7 @@
 //! Usage: cargo run --example winit-vello -- https://example.com
 //!
 //! Press Ctrl+L to focus the address bar (URL shown in window title while typing).
-//! No GTK/Cairo dependency — pure winit + wgpu.
+//! No GTK/Cairo dependency - pure winit + wgpu.
 //!
 //! Architecture note: the wgpu adapter and device are created inside `resumed()`
 //! after the window exists, so the adapter can be selected for surface compatibility.
@@ -83,7 +83,7 @@ struct BrowserApp {
     modifiers: ModifiersState,
     /// Cursor position in physical pixels, as winit reports it.
     cursor: PhysicalPosition<f64>,
-    /// Engine viewport in *logical* (CSS) pixels — physical window size ÷ `scale`.
+    /// Engine viewport in *logical* (CSS) pixels - physical window size ÷ `scale`.
     viewport: (u32, u32),
     /// Display scale factor (physical ÷ logical px). The wgpu surface stays at physical size;
     /// the engine lays out and paints in logical px, and the full-screen blit upscales the
@@ -140,7 +140,7 @@ impl BrowserApp {
         };
 
         match handle {
-            // GPU path — the engine renders the whole display list into a single GPU
+            // GPU path - the engine renders the whole display list into a single GPU
             // texture (Vello's `raster_strategy() == None`) and hands us its id. Blit it
             // straight to the swap chain, no CPU round-trip.
             ExternalHandle::WgpuTextureId { id, .. } => {
@@ -150,7 +150,7 @@ impl BrowserApp {
                 }
             }
 
-            // CPU tile path — fallback for tile-rasterizing backends (Cairo/Skia). Composite
+            // CPU tile path - fallback for tile-rasterizing backends (Cairo/Skia). Composite
             // the visible tiles into an RGBA buffer, then upload + blit it via wgpu.
             ExternalHandle::TileCache {
                 tiles,
@@ -323,7 +323,7 @@ impl ApplicationHandler<()> for BrowserApp {
     /// Repaints are compositor-driven: the engine ticks at its own fps and, on every dirty update
     /// (resize, scroll, hover, animation, navigation), calls `submit_frame`, whose redraw callback
     /// wakes this loop through the event proxy (`user_event` → `request_redraw`). So there is no
-    /// need to re-arm a redraw every ~16ms — an idle page now costs zero presents.
+    /// need to re-arm a redraw every ~16ms - an idle page now costs zero presents.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         event_loop.set_control_flow(ControlFlow::Wait);
     }
@@ -514,7 +514,7 @@ fn main() {
     let event_loop = EventLoop::<()>::with_user_event().build().expect("event loop");
     let proxy = event_loop.create_proxy();
 
-    // The wgpu instance can be created here — it doesn't need a display handle.
+    // The wgpu instance can be created here - it doesn't need a display handle.
     // Adapter + device creation is deferred to resumed() where a window (and
     // therefore a surface) is available to pass as a compatibility hint.
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());

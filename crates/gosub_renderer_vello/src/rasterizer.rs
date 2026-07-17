@@ -97,7 +97,7 @@ pub(crate) fn paint_commands_to_scene(
 pub struct VelloRasterizer {
     resources: Arc<WgpuResources>,
     /// The engine's shared font system, exposed to the layouter via `Rasterable::font_system()`
-    /// so layout measures with the configured instance. Painting itself no longer needs it —
+    /// so layout measures with the configured instance. Painting itself no longer needs it -
     /// text commands carry their pre-shaped glyph runs.
     font_system: Arc<Mutex<dyn FontSystem>>,
 }
@@ -133,7 +133,7 @@ impl Rasterable for VelloRasterizer {
 
         for element in &tile.elements {
             // The tile path applies opacity/anchor at composite, so per-element commands carry no
-            // PushLayer/PopLayer — scroll is irrelevant here.
+            // PushLayer/PopLayer - scroll is irrelevant here.
             paint_commands_to_scene(
                 &mut scene,
                 &element.paint_commands,
@@ -149,7 +149,7 @@ impl Rasterable for VelloRasterizer {
         let device: &vello::wgpu::Device = &self.resources.device;
         let queue: &vello::wgpu::Queue = &self.resources.queue;
 
-        // Render the tile straight into a GPU texture and keep it resident — no CPU readback. The
+        // Render the tile straight into a GPU texture and keep it resident - no CPU readback. The
         // texture is registered in the backend's shared tile store; the engine carries the opaque
         // id through the normal tile cache and hands it back to `composite_tiles` for blitting.
         let texture = crate::gpu_tiles::create_tile_texture(device, tile_size.width as u32, tile_size.height as u32);

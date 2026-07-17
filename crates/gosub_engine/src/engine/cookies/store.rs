@@ -225,7 +225,7 @@ pub(crate) fn evict_and_snapshot(
 /// Shared `persist_all` snapshot loop for persisting stores (JSON, SQLite).
 ///
 /// Calls `save` with a snapshot of every cached jar that is a [`PersistentCookieJar`]
-/// wrapping a [`DefaultCookieJar`] — the only shape these stores mint, and the only one
+/// wrapping a [`DefaultCookieJar`] - the only shape these stores mint, and the only one
 /// with a stable serialization.
 pub(crate) fn snapshot_cached_jars(
     jars: &HashMap<ZoneId, CookieJarHandle>,

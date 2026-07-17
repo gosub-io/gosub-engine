@@ -5,7 +5,7 @@
 //! Real-world validation harness for the CSS value-syntax matcher.
 //!
 //! Runs a directory of `.css` files through the property-definition matcher and reports
-//! how much real-world CSS it accepts, plus a ranked breakdown of what it rejects — the
+//! how much real-world CSS it accepts, plus a ranked breakdown of what it rejects - the
 //! rejections are the interesting output, since they point at the next matcher gaps.
 //!
 //! Note: normal parsing does NOT run the matcher (`ParserConfig::match_values` is inert),

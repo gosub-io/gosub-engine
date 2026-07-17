@@ -114,7 +114,7 @@ impl ElementData {
 #[derive(Clone, Debug)]
 pub enum NodeType {
     Comment(String),
-    /// Text node — no own style; all properties inherited via the document parent chain.
+    /// Text node - no own style; all properties inherited via the document parent chain.
     Text(String),
     Element(ElementData),
 }

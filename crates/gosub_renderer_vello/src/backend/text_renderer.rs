@@ -254,7 +254,7 @@ impl TextRenderer {
         #[cfg(feature = "parley_layout")]
         {
             // A fresh LayoutContext is cheap (it is pure scratch space).
-            // FontContext is the expensive shared state — it is injected by the caller.
+            // FontContext is the expensive shared state - it is injected by the caller.
             let mut layout_cx: LayoutContext<[u8; 4]> = LayoutContext::new();
 
             let mut builder = layout_cx.ranged_builder(font_cx, key.text.as_ref(), 1.0, true);

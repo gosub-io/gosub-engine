@@ -1,4 +1,4 @@
-//! Gosub metrics CLI — fetches and displays timing stats from a running engine.
+//! Gosub metrics CLI - fetches and displays timing stats from a running engine.
 //!
 //! Usage:
 //!   cargo run --example metrics_cli                   # defaults: 127.0.0.1:9090

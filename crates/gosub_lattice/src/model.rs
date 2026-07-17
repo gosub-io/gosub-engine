@@ -92,7 +92,7 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
                 let row = anon_row(&mut group.rows);
                 row.cells.push(build_source_cell(tree, child));
             }
-            // Column, Other — not direct children of the table box
+            // Column, Other - not direct children of the table box
             TableRole::Table | TableRole::Column | TableRole::Other => {}
         }
     }
@@ -179,7 +179,7 @@ fn anon_row<N>(rows: &mut Vec<TableRow<N>>) -> &mut TableRow<N> {
 
 fn parse_table_sizing<T: TableTree>(tree: &T, node: T::NodeId) -> TableSizing {
     match tree.css_length(node, CssProp::TableLayout) {
-        // We use Px(1.0) as "fixed" sentinel — implementors should use this convention.
+        // We use Px(1.0) as "fixed" sentinel - implementors should use this convention.
         CssLength::Px(1.0) => TableSizing::Fixed,
         _ => TableSizing::Auto,
     }

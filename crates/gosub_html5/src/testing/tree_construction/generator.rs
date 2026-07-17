@@ -26,7 +26,7 @@ impl<C: HasDocument> TreeOutputGenerator<C> {
         let mut indent_level = indent_level;
         let mut output = Vec::new();
 
-        // Skip the document root — it's always the implicit container
+        // Skip the document root - it's always the implicit container
         if indent_level > 0 {
             output.push(format!(
                 "| {}{}",

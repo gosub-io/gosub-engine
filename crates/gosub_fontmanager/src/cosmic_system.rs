@@ -1,6 +1,6 @@
 //! A second [`FontSystem`] implementation, backed by **cosmic-text** (fontdb discovery +
 //! rustybuzz shaping + swash). It implements exactly the same trait as [`crate::ParleyFontSystem`],
-//! demonstrating that the font abstraction is engine-agnostic — the layouter can measure with it,
+//! demonstrating that the font abstraction is engine-agnostic - the layouter can measure with it,
 //! and a backend that paints [`ShapedText`] glyph runs can render with it.
 //!
 //! Note: cosmic-text doesn't expose the underlying shared font bytes, so `blob_for` copies them
@@ -103,7 +103,7 @@ impl CosmicFontSystem {
     /// cosmic-text doesn't expose the underlying shared `Arc<[u8]>`, so this copies the file
     /// bytes and assumes face index 0 (correct for single-face files; `.ttc` collections would
     /// need the real index). Only used to fill `FontBlob`, which a cosmic draw path doesn't yet
-    /// consume — so the copy is harmless for now.
+    /// consume - so the copy is harmless for now.
     fn blob_for(&mut self, id: fontdb::ID, weight: Weight) -> Option<FontBlob> {
         let font = self.inner.get_font(id, weight)?;
         Some(FontBlob::new(Arc::new(font.data().to_vec()), 0))
@@ -135,7 +135,7 @@ impl FontSystem for CosmicFontSystem {
     fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
         let mut families: Vec<Family> = query.families.iter().map(|f| css_family(f)).collect();
         // Bundled last-resort fallback so resolution always succeeds even with no system fonts
-        // (e.g. headless/CI) — Roboto is registered in `new()`.
+        // (e.g. headless/CI) - Roboto is registered in `new()`.
         families.push(Family::Name("Roboto"));
         let weight = Weight(query.weight.0);
         let fq = fontdb::Query {

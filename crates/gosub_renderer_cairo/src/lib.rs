@@ -10,7 +10,7 @@ pub use rasterizer::CairoRasterizer;
 
 /// Initialize GTK and Cairo/Pango font resources on the main thread before any
 /// background rendering begins. Required when using the Cairo/Pango backend outside
-/// a GTK window (e.g. egui, winit, headless). GTK4-window apps may skip this — GTK is
+/// a GTK window (e.g. egui, winit, headless). GTK4-window apps may skip this - GTK is
 /// already initialized by their `Application`. On headless systems set `GDK_BACKEND=offscreen`.
 ///
 /// # Errors

@@ -11,7 +11,7 @@ use crate::model::{build_model, RowGroup};
 use crate::types::{CellLayout, CssLength, CssProp, TableRole};
 use crate::TableTree;
 
-// MockCell — a single cell specification used by the builder
+// MockCell - a single cell specification used by the builder
 
 /// Cell specification used with [`MockTable`].
 #[derive(Clone)]
@@ -87,7 +87,7 @@ pub fn cell(label: impl Into<String>) -> MockCell {
     MockCell::new(label)
 }
 
-// MockTable — fluent builder
+// MockTable - fluent builder
 
 #[derive(Default)]
 pub struct MockTable {
@@ -186,7 +186,7 @@ impl MockTable {
     }
 }
 
-// MockTree — the in-memory node tree
+// MockTree - the in-memory node tree
 
 struct MockNode {
     role: TableRole,
@@ -427,7 +427,7 @@ pub fn render_tree(tree: &MockTree, root: u32) -> String {
 
     // Draw the very first top border once, then each row only draws its bottom.
     // The bottom of the last row in a section doubles as the visual separator to the
-    // next section — so we never get a double-line between sections.
+    // next section - so we never get a double-line between sections.
     let no_spans = vec![false; n_cols];
     let first_non_empty = sections.iter().find(|(g, _, _)| !g.is_empty());
     if let Some((_, grids, _)) = first_non_empty {
@@ -478,7 +478,7 @@ enum SectionKind {
 /// vertically into the next row).
 ///
 /// `row_spanned[c]` = `true` means column `c` has a rowspan cell that crosses
-/// this boundary — so the separator for that column is spaces, not dashes.
+/// this boundary - so the separator for that column is spaces, not dashes.
 fn h_border(
     col_char_w: &[usize],
     n_cols: usize,
@@ -511,13 +511,13 @@ fn h_border(
                 '+'
             }
         } else if pos == n_cols {
-            // Rightmost edge — always a real corner
+            // Rightmost edge - always a real corner
             '+'
         } else if left_spanned && right_spanned {
             // Both neighbours are spanning cells → vertical wall between them
             '|'
         } else if no_right_wall.get(pos - 1).copied().unwrap_or(false) {
-            // Inside a colspan — suppress the junction
+            // Inside a colspan - suppress the junction
             if left_spanned || right_spanned {
                 ' '
             } else {
@@ -572,7 +572,7 @@ fn content_row(
             col += colspan;
         } else {
             // Column occupied by a rowspan cell that started in an earlier row.
-            // Show as blank — the cell's wall on the right is `|` as usual.
+            // Show as blank - the cell's wall on the right is `|` as usual.
             let w = col_char_w.get(col).copied().unwrap_or(5);
             s.extend(std::iter::repeat_n(' ', w));
             s.push('|');

@@ -529,7 +529,7 @@ fn parse_grid_template(s: &str) -> Option<Vec<GridTemplateComponent<String>>> {
             continue;
         }
 
-        // `repeat(<count>, <track-list>)` — expand a fixed integer count into that many
+        // `repeat(<count>, <track-list>)` - expand a fixed integer count into that many
         // copies of its track list. `auto-fill`/`auto-fit` counts are not supported yet and
         // cause the whole value to be ignored (falls back to the default) rather than
         // mis-rendering.

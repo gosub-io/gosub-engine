@@ -1,8 +1,8 @@
 //! Engine-side scroll position and its smooth-scroll animation.
 //!
 //! [`ScrollState`] owns the float scroll offset, the target wheel deltas accumulate toward, and the
-//! per-axis [`ScrollAnimator`]s that ease between them. It is deliberately pure — it depends only on
-//! the animation primitives, not on the rest of the engine — so it can be unit-tested in isolation.
+//! per-axis [`ScrollAnimator`]s that ease between them. It is deliberately pure - it depends only on
+//! the animation primitives, not on the rest of the engine - so it can be unit-tested in isolation.
 //! The worker applies the integer positions it produces to the browsing context and drives [`tick`]
 //! from the render loop.
 //!
@@ -51,7 +51,7 @@ impl ScrollState {
 
     /// Accumulate a scroll delta (CSS px), clamping the target to `[0, max]` per axis.
     ///
-    /// Returns `Some(pos)` — the integer offset to apply *now* — for `Instant` behavior, or `None`
+    /// Returns `Some(pos)` - the integer offset to apply *now* - for `Instant` behavior, or `None`
     /// when the move will be animated over subsequent [`tick`](Self::tick) calls.
     pub(crate) fn scroll_by(&mut self, dx: f64, dy: f64, max_x: f64, max_y: f64) -> Option<(i32, i32)> {
         self.target.0 = (self.target.0 + dx).clamp(0.0, max_x);

@@ -126,7 +126,7 @@ pub struct TabWorker<C: RenderConfiguration> {
 }
 
 /// Whether a CSS `unicode-range` descriptor (e.g. `"U+0000-00FF, U+0131"`) includes the
-/// Basic-Latin letter `U+0041` ('A') — our proxy for "covers Latin-script text".
+/// Basic-Latin letter `U+0041` ('A') - our proxy for "covers Latin-script text".
 fn unicode_range_covers_basic_latin(range: &str) -> bool {
     const TARGET: u32 = 0x41; // 'A'
     for token in range.split([',', ' ', '\t', '\n', '\r']).filter(|t| !t.is_empty()) {
@@ -156,7 +156,7 @@ fn unicode_range_covers_basic_latin(range: &str) -> bool {
 /// with the `glyf`/`loca` tables stored in a transformed form. Skia and fontconfig don't
 /// decode it (e.g. Google Fonts serves WOFF2 to modern UAs like ours), so we decompress it
 /// to a flat SFNT here. Bare SFNT (`OTTO`/`true`/`ttcf`/`0x00010000`) and anything we don't
-/// recognise are returned unchanged — including WOFF1, which the backends already handle.
+/// recognise are returned unchanged - including WOFF1, which the backends already handle.
 /// On a decode error we log and return the original bytes so the subsequent `register_font`
 /// surfaces a single, consistent failure path.
 fn decode_web_font(bytes: Vec<u8>, font_url: &Url) -> Vec<u8> {
@@ -366,7 +366,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     }
                 }
 
-                // In-flight load completion — uses a persistent receiver so it is not
+                // In-flight load completion - uses a persistent receiver so it is not
                 // dropped when another arm fires in the same select! invocation.
                 result = async {
                     match pending_nav_rx.as_mut() {
@@ -930,7 +930,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
         // Advance an in-flight smooth scroll: ease the engine scroll one step toward its target and
         // keep the frame loop alive (mark dirty) until it settles exactly on the target. Dormant
-        // unless the scroll behavior is animated — `Instant` applies moves synchronously in the
+        // unless the scroll behavior is animated - `Instant` applies moves synchronously in the
         // MouseScroll handler, so `animating()` stays false there.
         if self.scroll.animating() {
             let now = std::time::Instant::now();
@@ -980,7 +980,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
         }
 
-        // TileCache path — used by CPU-compositing rasterizing backends (Cairo, Skia).
+        // TileCache path - used by CPU-compositing rasterizing backends (Cairo, Skia).
         //
         // These backends don't need the display-list render pipeline: tiles are rasterized
         // during stages 1-6 and the host composites them directly. A scroll-only fast path
@@ -1014,7 +1014,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             return Ok(());
         }
 
-        // GPU scene path — backends that composite to a GPU texture (Vello).
+        // GPU scene path - backends that composite to a GPU texture (Vello).
         //
         // Skips tiling/rasterization/compositing: the engine builds one viewport-level paint
         // command list (stages 1–3 + paint), and the backend renders it into a GPU texture.
@@ -1033,7 +1033,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             if render_backend.gpu_tile_compositing() {
                 {
                     // If `pipeline.rasterize` shows up here during a pure scroll, the page is being
-                    // re-rasterized (it should not be — scroll only re-composites cached tiles).
+                    // re-rasterized (it should not be - scroll only re-composites cached tiles).
                     let _t = gosub_shared::timing_guard!("gputile.rebuild");
                     self.context.rebuild_pipeline_cache_if_needed();
                 }

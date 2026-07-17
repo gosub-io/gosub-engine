@@ -253,7 +253,7 @@ impl TileList {
         }
     }
 
-    /// Like `new`, but accepts an already-`Arc`-wrapped `LayerList` — used by
+    /// Like `new`, but accepts an already-`Arc`-wrapped `LayerList` - used by
     /// the hover-repaint fast path to avoid cloning the layout tree.
     pub fn from_arc(layer_list: Arc<LayerList>, dimension: Dimension) -> Self {
         Self {
@@ -324,7 +324,7 @@ impl TileList {
                     }
                 }
                 if min_x > max_x || min_y > max_y {
-                    // No visible elements — skip this layer entirely.
+                    // No visible elements - skip this layer entirely.
                     continue;
                 }
                 let cs = (min_x / tile_w).floor() as usize;

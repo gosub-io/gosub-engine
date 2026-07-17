@@ -16,7 +16,7 @@ pub struct Text {
     /// Renderers should use this instead of `rect.width` to avoid metric-mismatch wrapping.
     pub available_width: f64,
     /// Positioned glyph runs, shaped once at paint-command build time by the configured
-    /// `FontSystem` — the same instance the layouter measured with, so the glyphs painted are
+    /// `FontSystem` - the same instance the layouter measured with, so the glyphs painted are
     /// by construction the glyphs that were measured. Glyph-based rasterizers (`text_glyphs`)
     /// paint exactly these runs; engine-native rasterizers (Pango, Parley, Skia textlayout)
     /// re-shape from `text` + `font_info` instead and ignore this field.

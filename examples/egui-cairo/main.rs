@@ -283,7 +283,7 @@ impl eframe::App for BrowserApp {
         let ctx = ui.ctx().clone();
 
         // Keep Cairo's DPR in sync with egui's pixel ratio. Use ceil (not round) so fractional
-        // scaling (e.g. 1.25) rasterizes tiles at 2x and egui *downscales* to the display — far
+        // scaling (e.g. 1.25) rasterizes tiles at 2x and egui *downscales* to the display - far
         // crisper than rounding to 1x and letting egui upscale (which blurs). Matches gtk4-cairo.
         let dpr = ctx.pixels_per_point().ceil() as u32;
         DEVICE_PIXEL_RATIO.store(dpr.max(1), std::sync::atomic::Ordering::Relaxed);

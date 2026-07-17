@@ -207,7 +207,7 @@ fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
     // Inline `style="…"` parsing has no access to custom properties (`--*`), which live in the
     // stylesheet cascade. A `var(...)` value therefore can't be resolved here; storing its raw
     // text would produce an invalid keyword that still *overrides* the (correctly resolved)
-    // cascade declaration — e.g. `style="color:var(--accent-glow)"` would paint black instead of
+    // cascade declaration - e.g. `style="color:var(--accent-glow)"` would paint black instead of
     // deferring to `.arrow-link { color: var(--accent-light) }`. Per CSS, a declaration we can't
     // compute is ignored, so skip it and let the cascade win.
     if value.cow_to_ascii_lowercase().contains("var(") {

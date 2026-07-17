@@ -95,7 +95,7 @@ impl Rasterable for SkiaRasterizer {
             for command in &element.paint_commands {
                 match command {
                     // The tile path applies layer opacity/anchor at composite, so these scene-only
-                    // group markers never appear here — ignore them.
+                    // group markers never appear here - ignore them.
                     PaintCommand::PushLayer { .. } | PaintCommand::PopLayer => {}
                     PaintCommand::Rectangle(command) => {
                         rectangle::do_paint_rectangle(canvas, tile, command, media_store);

@@ -9,9 +9,9 @@
 //!
 //! Gosub separates storage into two main categories:
 //!
-//! - **Local storage** — Persistent key/value data per `(origin, partition)`,
+//! - **Local storage** - Persistent key/value data per `(origin, partition)`,
 //!   shared by all tabs in a zone. Backed by a [`LocalStore`].
-//! - **Session storage** — Ephemeral key/value data per `(zone, tab, origin, partition)`,
+//! - **Session storage** - Ephemeral key/value data per `(zone, tab, origin, partition)`,
 //!   valid for the lifetime of a browsing session or until the tab is closed.
 //!   Backed by a [`SessionStore`].
 //!
@@ -24,14 +24,14 @@
 //!
 //! # Available types
 //!
-//! - [`PartitionKey`] — Identifies a storage partition
-//! - [`StorageArea`] — Trait for any storage backend.
-//! - [`LocalStore`], [`SessionStore`] — Type aliases for specific store traits.
-//! - [`StorageService`] — High-level handle for a zone's local+session storage.
-//! - [`Subscription`] — Used to observe storage change events.
-//! - [`StorageEvent`] — Describes a change in storage (key added, removed, etc.).
-//! - [`SqliteLocalStore`] — SQLite-backed persistent local storage.
-//! - [`InMemorySessionStore`] — In-memory session storage backend.
+//! - [`PartitionKey`] - Identifies a storage partition
+//! - [`StorageArea`] - Trait for any storage backend.
+//! - [`LocalStore`], [`SessionStore`] - Type aliases for specific store traits.
+//! - [`StorageService`] - High-level handle for a zone's local+session storage.
+//! - [`Subscription`] - Used to observe storage change events.
+//! - [`StorageEvent`] - Describes a change in storage (key added, removed, etc.).
+//! - [`SqliteLocalStore`] - SQLite-backed persistent local storage.
+//! - [`InMemorySessionStore`] - In-memory session storage backend.
 //!
 //! # Choosing a backend
 //!
@@ -78,8 +78,8 @@
 //!
 //! # See also
 //!
-//! - [`Zone`](crate::zone::Zone) — how storage services are bound to zones.
-//! - [`CookieJar`](crate::cookies::CookieJar) — for cookie storage.
+//! - [`Zone`](crate::zone::Zone) - how storage services are bound to zones.
+//! - [`CookieJar`](crate::cookies::CookieJar) - for cookie storage.
 //!
 
 use std::sync::Arc;

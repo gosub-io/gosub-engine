@@ -37,13 +37,13 @@ pub struct PaintScene {
     pub page_height: f64,
 }
 
-/// The neutral [`TextStyle`] for a text paint command — the same mapping the layouter's measure
+/// The neutral [`TextStyle`] for a text paint command - the same mapping the layouter's measure
 /// path uses, plus the wrap/alignment container, so shaping reproduces the measured box.
 ///
 /// Wrap limit: Start-aligned text wraps within the container width the layouter used, so the
 /// shaped line breaks reproduce the measured ones (text fragments can carry whole multi-line
 /// paragraphs). Center/End/Justify text instead uses the fragment's own box as its alignment
-/// container — glyphs shifted outside the fragment rect would land in tiles that never repaint
+/// container - glyphs shifted outside the fragment rect would land in tiles that never repaint
 /// the command.
 fn paint_text_style(font_info: &FontInfo, rect_width: f64, available_width: f64) -> TextStyle {
     let align = match font_info.alignment {
@@ -80,7 +80,7 @@ fn paint_text_style(font_info: &FontInfo, rect_width: f64, available_width: f64)
 /// paint commands.
 pub struct Painter {
     layer_list: Arc<LayerList>,
-    /// The engine's shared font system — the same instance the layouter measured with. Text is
+    /// The engine's shared font system - the same instance the layouter measured with. Text is
     /// shaped here, once, at command-build time; rasterizers paint the shaped runs. `None` (no
     /// rasterizer font system, e.g. the null backend) produces commands with empty glyph runs,
     /// which only engine-native text rasterizers can still draw.
@@ -215,7 +215,7 @@ impl Painter {
 
     /// The element's CSS `mix-blend-mode`, applied to its painted boxes so backends blend
     /// them with the backdrop. Blending happens against whatever is already painted
-    /// beneath the element (tile content for canvas backends, the scene for Vello) — the
+    /// beneath the element (tile content for canvas backends, the scene for Vello) - the
     /// spec's stacking-context isolation rules are not modelled.
     fn mix_blend_mode(&self, node_id: NodeId) -> BlendMode {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
@@ -230,7 +230,7 @@ impl Painter {
     ///
     /// A lone non-tiled `linear-gradient(...)` becomes the base brush directly (preserving the
     /// historical single-gradient path where the border/radius decorate the same rect).
-    /// Multiple layers — or any tiled layer (a repeated `background-size` cell) — instead stack
+    /// Multiple layers - or any tiled layer (a repeated `background-size` cell) - instead stack
     /// as separate rects over the solid `background-color`.
     fn background_fill(&self, node_id: NodeId) -> (Brush, Vec<Gradient>) {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
@@ -276,7 +276,7 @@ impl Painter {
     }
 
     /// A minimal [`FontInfo`] for `alt` text, taking the element's computed `font-family`/`font-size`
-    /// (falling back to the page defaults). Start-aligned, no decorations — matching how browsers
+    /// (falling back to the page defaults). Start-aligned, no decorations - matching how browsers
     /// render the small placeholder label.
     fn alt_font_info(&self, node_id: NodeId) -> FontInfo {
         let doc = &self.layer_list.layout_tree.render_tree.doc;

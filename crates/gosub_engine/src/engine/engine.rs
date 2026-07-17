@@ -149,7 +149,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
     /// Starts the engine's I/O runtime and returns the main run-loop future.
     ///
-    /// The returned future is intentionally **not** spawned: the caller decides how to drive it —
+    /// The returned future is intentionally **not** spawned: the caller decides how to drive it -
     /// `tokio::spawn` it onto a background task, `.await` it inline, or poll it inside a `select!`.
     /// This keeps the engine from imposing a runtime/threading model on the embedder (it can be
     /// driven on the caller's current task/thread). The engine is considered running as soon as

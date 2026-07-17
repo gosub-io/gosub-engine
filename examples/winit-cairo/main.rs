@@ -46,7 +46,7 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 });
 
 struct BrowserApp {
-    // Engine state — set up before the event loop starts.
+    // Engine state - set up before the event loop starts.
     #[allow(dead_code)]
     engine: GosubEngine<AppConfig>,
     #[allow(dead_code)]
@@ -57,7 +57,7 @@ struct BrowserApp {
     #[allow(dead_code)]
     proxy: EventLoopProxy<()>,
 
-    // Window / surface — created on `resumed`.
+    // Window / surface - created on `resumed`.
     window: Option<Arc<Window>>,
     surface: Option<Surface<Arc<Window>, Arc<Window>>>,
     surface_size: (u32, u32),
@@ -218,7 +218,7 @@ impl ApplicationHandler<()> for BrowserApp {
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {
-        // Engine produced a new frame — redraw.
+        // Engine produced a new frame - redraw.
         if let Some(window) = &self.window {
             window.request_redraw();
         }

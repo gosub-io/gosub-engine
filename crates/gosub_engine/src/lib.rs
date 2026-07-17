@@ -88,30 +88,30 @@
 //! ```
 //!
 //! ## Concepts
-//! - [`GosubEngine`] — engine entry point; creates zones, owns backend and event bus.
-//! - [`Zone`](crate::zone::Zone) — per-profile/session state (cookies, storage, tabs). Owned by the caller.
-//! - [`TabHandle`](crate::tab) — a single browsing context controlled via [`TabCommand`](crate::events::TabCommand).
-//! - [`RenderBackend`](gosub_render_pipeline::render::backend::RenderBackend) — pluggable renderer (e.g., Null, Cairo, Vello).
+//! - [`GosubEngine`] - engine entry point; creates zones, owns backend and event bus.
+//! - [`Zone`](crate::zone::Zone) - per-profile/session state (cookies, storage, tabs). Owned by the caller.
+//! - [`TabHandle`](crate::tab) - a single browsing context controlled via [`TabCommand`](crate::events::TabCommand).
+//! - [`RenderBackend`](gosub_render_pipeline::render::backend::RenderBackend) - pluggable renderer (e.g., Null, Cairo, Vello).
 //!
-//! ## Configuration — choosing your components
+//! ## Configuration - choosing your components
 //!
 //! The engine is generic over a single *configuration* type that names every pluggable
-//! component at compile time (there is no runtime registry — naming `CairoBackend` is what
+//! component at compile time (there is no runtime registry - naming `CairoBackend` is what
 //! pulls Cairo into your build). It comes in two layers:
 //!
-//! - [`ModuleConfiguration`](gosub_interface::config::ModuleConfiguration) — the parse/style
+//! - [`ModuleConfiguration`](gosub_interface::config::ModuleConfiguration) - the parse/style
 //!   stack: CSS system, DOM document, HTML parser. Parse-only tools (test harnesses, fuzzers)
 //!   that never paint implement only this.
-//! - [`RenderConfiguration`](crate::html::RenderConfiguration) — extends `ModuleConfiguration`
+//! - [`RenderConfiguration`](crate::html::RenderConfiguration) - extends `ModuleConfiguration`
 //!   with the runtime render components: the [`RenderBackend`](gosub_render_pipeline::render::backend::RenderBackend),
 //!   the compositor sink, and the font system. Anything that actually renders needs this.
 //!
 //! You almost never implement these by hand. [`DefaultRenderConfig<B, F, S>`](crate::DefaultRenderConfig)
 //! is a ready-made zero-sized marker that wires the standard gosub stack (`gosub_html5` +
 //! `gosub_css3`) and lets you pick the parts that vary:
-//! - `B` — render backend (`CairoBackend`, `SkiaBackend`, `VelloBackend`, `NullBackend`, …)
-//! - `F` — font system (defaults to `ParleyFontSystem`)
-//! - `S` — compositor sink (defaults to [`DefaultCompositor`](gosub_render_pipeline::render::DefaultCompositor))
+//! - `B` - render backend (`CairoBackend`, `SkiaBackend`, `VelloBackend`, `NullBackend`, …)
+//! - `F` - font system (defaults to `ParleyFontSystem`)
+//! - `S` - compositor sink (defaults to [`DefaultCompositor`](gosub_render_pipeline::render::DefaultCompositor))
 //!
 //! **To start a browser that renders**, alias your chosen stack once and hand it to the engine:
 //!
@@ -128,7 +128,7 @@
 //!
 //! With no type parameters, `DefaultRenderConfig` is the headless
 //! `DefaultRenderConfig<NullBackend, ParleyFontSystem, DefaultCompositor>` used in the Quick start
-//! above — which is why that example needs no backend choice. For complete winit / GTK4 / egui
+//! above - which is why that example needs no backend choice. For complete winit / GTK4 / egui
 //! setups with each backend, see the `examples/` directory.
 //!
 //! ## Persistence

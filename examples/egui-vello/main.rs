@@ -2,7 +2,7 @@
 //!
 //! Usage: cargo run --example egui-vello -- https://example.com
 //!
-//! No GTK dependency — pure egui + wgpu.
+//! No GTK dependency - pure egui + wgpu.
 
 use eframe::{egui, CreationContext};
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
@@ -318,7 +318,7 @@ impl BrowserApp {
             ExternalHandle::WgpuTextureId { id, .. } => {
                 // Re-register only when the underlying wgpu texture itself changes (e.g. on resize),
                 // NOT every frame. The engine renders new content into the SAME texture each frame,
-                // and egui re-samples it on every repaint — so keying on `frame_id` (which bumps
+                // and egui re-samples it on every repaint - so keying on `frame_id` (which bumps
                 // each frame) churned a bind-group free+register per frame and tanked the frame rate,
                 // making the scroll animation undersample. Key on the texture `id` instead.
                 let needs_update = self

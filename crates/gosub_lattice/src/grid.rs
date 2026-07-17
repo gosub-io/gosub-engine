@@ -36,7 +36,7 @@ impl<N: Copy> SectionGrid<N> {
     /// boundary between `row_idx` and `row_idx + 1`.
     ///
     /// Always returns all-`false` when `row_idx` is the last row of the section
-    /// because rowspan is clamped — nothing can cross a section boundary.
+    /// because rowspan is clamped - nothing can cross a section boundary.
     pub fn cols_spanned_at_boundary(&self, row_idx: usize) -> Vec<bool> {
         let mut spanned = vec![false; self.n_cols];
         if row_idx + 1 >= self.n_rows {
@@ -177,7 +177,7 @@ mod tests {
         let rows = vec![make_row(&[(1, 2), (1, 1)]), make_row(&[(1, 1)])];
         let grid = build_section_grid(&rows);
         assert_eq!(grid.n_cols, 2);
-        // A at (0,0), B at (0,1), C at (1,1) — col 1 because col 0 is spanned
+        // A at (0,0), B at (0,1), C at (1,1) - col 1 because col 0 is spanned
         let row1_cells: Vec<_> = grid.cells_in_row(1).collect();
         assert_eq!(row1_cells.len(), 1);
         assert_eq!(row1_cells[0].col, 1);

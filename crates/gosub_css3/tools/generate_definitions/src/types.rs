@@ -4,7 +4,7 @@ use std::fmt;
 
 /// A JSON field that may hold either a string or an array of strings (MDN uses
 /// both for `initial` and `computed`). Serializes as the array when non-empty,
-/// otherwise as the string — matching the Go tool's `StringMaybeArray`.
+/// otherwise as the string - matching the Go tool's `StringMaybeArray`.
 #[derive(Debug, Default, Clone)]
 pub struct StringMaybeArray {
     pub string: String,

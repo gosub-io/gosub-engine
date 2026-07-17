@@ -1,6 +1,6 @@
 //! Generic glyph-run text painter (`text_glyphs` feature).
 //!
-//! Engine-neutral: asks the configured [`FontSystem`] — *whichever* engine that is — to shape the
+//! Engine-neutral: asks the configured [`FontSystem`] - *whichever* engine that is - to shape the
 //! text, then paints the returned glyph runs as Skia text blobs built from the runs' raw font
 //! bytes. Works with any font system because the contract is font bytes + glyph IDs, not engine
 //! internals.
@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 /// A cheap, stable identity for a font blob: length + head/tail content hash + collection index.
-/// Deliberately *not* the `Arc` data pointer — an address can be recycled for a different font
+/// Deliberately *not* the `Arc` data pointer - an address can be recycled for a different font
 /// after a blob is dropped, which would alias cache keys.
 fn blob_fingerprint(blob: &gosub_interface::font::FontBlob) -> (u64, u32) {
     use std::hash::{Hash, Hasher};
