@@ -1,5 +1,3 @@
-pub mod parley;
-
 #[derive(Debug, Clone)]
 pub enum FontAlignment {
     /// Start of the line (left for LTR, right for RTL)

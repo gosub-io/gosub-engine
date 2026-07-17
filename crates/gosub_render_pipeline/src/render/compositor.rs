@@ -37,12 +37,6 @@ impl DefaultCompositor {
     pub fn frame_for(&self, tab_id: TabId) -> Option<ExternalHandle> {
         self.frames.read().get(&tab_id).cloned()
     }
-
-    pub fn frame_for_mut(&self, tab_id: TabId, f: impl FnOnce(&mut ExternalHandle)) {
-        if let Some(h) = self.frames.write().get_mut(&tab_id) {
-            f(h);
-        }
-    }
 }
 
 impl CompositorSink for DefaultCompositor {

@@ -1430,12 +1430,7 @@ where
                 // treats the pseudo-element correctly. ::before/::after default to inline.
                 let mut style = NodeStyle::new();
                 style.set(StyleProperty::Display, self.get_style(id, &StyleProperty::Display));
-                NodeType::Element(ElementData::new(
-                    String::new(),
-                    Some(AttrMap::new()),
-                    false,
-                    Some(style),
-                ))
+                NodeType::Element(ElementData::new(String::new(), Some(AttrMap::new()), Some(style)))
             };
             return Some(Node {
                 node_id: id,
@@ -1477,7 +1472,7 @@ where
                     style.set(StyleProperty::Display, display);
                     style
                 });
-                let element_data = ElementData::new(tag_name, Some(attr_map), false, styles);
+                let element_data = ElementData::new(tag_name, Some(attr_map), styles);
                 NodeType::Element(element_data)
             }
             _ => return None,

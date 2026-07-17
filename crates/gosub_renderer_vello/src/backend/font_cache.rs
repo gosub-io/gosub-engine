@@ -45,16 +45,4 @@ impl FontCache {
         self.fonts.insert(name.to_string(), font);
         self.resolved_names.insert(name.to_string(), resolved_name.to_string());
     }
-
-    #[allow(unused)]
-    pub fn clear(&mut self) {
-        self.fonts.clear();
-        self.resolved_names.clear();
-    }
-
-    #[allow(unused)]
-    pub fn remove(&mut self, name: &str) {
-        self.fonts.remove(name);
-        self.resolved_names.remove(name);
-    }
 }

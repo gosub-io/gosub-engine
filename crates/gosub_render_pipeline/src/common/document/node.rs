@@ -29,11 +29,6 @@ impl AttrMap {
     pub fn set(&mut self, key: &str, value: &str) {
         self.attributes.insert(key.to_string(), value.to_string());
     }
-
-    #[allow(unused)]
-    pub fn all(&self) -> &HashMap<String, String> {
-        &self.attributes
-    }
 }
 
 impl std::fmt::Display for AttrMap {
@@ -52,23 +47,15 @@ impl std::fmt::Display for AttrMap {
 pub struct ElementData {
     pub tag_name: String,
     pub attributes: AttrMap,
-    #[allow(unused)]
-    pub self_closing: bool,
     /// Own CSS properties for this element (only explicitly-set values; no inheritance).
     pub styles: NodeStyle,
 }
 
 impl ElementData {
-    pub fn new(
-        tag_name: String,
-        attributes: Option<AttrMap>,
-        is_self_closing: bool,
-        styles: Option<NodeStyle>,
-    ) -> ElementData {
+    pub fn new(tag_name: String, attributes: Option<AttrMap>, styles: Option<NodeStyle>) -> ElementData {
         ElementData {
             tag_name,
             attributes: attributes.unwrap_or_default(),
-            self_closing: is_self_closing,
             styles: styles.unwrap_or_default(),
         }
     }
@@ -77,19 +64,8 @@ impl ElementData {
         self.styles.get_own(key)
     }
 
-    #[allow(unused)]
     pub fn get_attribute(&self, key: &str) -> Option<&String> {
         self.attributes.get(key)
-    }
-
-    #[allow(unused)]
-    pub fn set_attribute(&mut self, key: &str, value: &str) {
-        self.attributes.set(key, value);
-    }
-
-    #[allow(unused)]
-    pub fn is_self_closing(&self) -> bool {
-        self.self_closing
     }
 
     pub fn is_inline_element(&self) -> bool {

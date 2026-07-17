@@ -78,11 +78,6 @@ impl TextRenderer {
         Self { cache: HashMap::new() }
     }
 
-    #[allow(unused)]
-    pub fn clear_cache(&mut self) {
-        self.cache.clear();
-    }
-
     /// Draw `key` with `(x, y)` as the top-left of the shaped block (not the baseline); shapes and
     /// caches first if needed. Reusing a `key` across position/color changes reuses the shaping.
     #[allow(clippy::too_many_arguments)]

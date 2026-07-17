@@ -237,16 +237,6 @@ impl LayerList {
         }
     }
 
-    #[allow(unused)]
-    fn get_layer(&self, layer_id: LayerId) -> Option<parking_lot::RwLockReadGuard<'_, HashMap<LayerId, Layer>>> {
-        let layers = self.layers.read();
-        if layers.contains_key(&layer_id) {
-            Some(layers)
-        } else {
-            None
-        }
-    }
-
     fn get_layer_mut(&self, layer_id: LayerId) -> Option<parking_lot::RwLockWriteGuard<'_, HashMap<LayerId, Layer>>> {
         let layers = self.layers.write();
         if layers.contains_key(&layer_id) {
