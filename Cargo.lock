@@ -3298,7 +3298,6 @@ dependencies = [
  "gosub_interface",
  "gosub_shared",
  "indexmap",
- "lazy_static",
  "log",
  "nom 8.0.0",
  "serde",

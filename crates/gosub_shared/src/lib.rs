@@ -9,6 +9,7 @@ pub mod animation;
 pub mod async_executor;
 pub mod byte_stream;
 pub mod config;
+pub mod css_colors;
 pub mod errors;
 pub mod font;
 pub mod geo;
