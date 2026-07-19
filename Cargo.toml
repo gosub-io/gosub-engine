@@ -111,7 +111,7 @@ vello = "0.8.0"
 wasm-bindgen = "0.2.114"
 wasm-bindgen-futures = "0.4.64"
 web-sys = "0.3.91"
-wgpu = "29.0.0"
+wgpu = "30.0.0"
 winit = "0.30.12"
 [[example]]
 name = "html5-parser"
