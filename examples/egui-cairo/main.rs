@@ -348,7 +348,7 @@ impl eframe::App for BrowserApp {
         // Address bar
         egui::Panel::top("addr")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(8, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if self.is_loading {
                         ui.spinner();
@@ -368,12 +368,12 @@ impl eframe::App for BrowserApp {
         // Status bar
         egui::Panel::bottom("status")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(4, 2)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.label(egui::RichText::new(&self.status_url).small());
             });
 
         // Browser content
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let panel_size = ui.available_size();
 
             if panel_size != self.last_panel_size && panel_size.x > 0.0 && panel_size.y > 0.0 {
