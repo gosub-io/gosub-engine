@@ -186,8 +186,8 @@ Selected by naming `CairoBackend` in the config (see [../configuration.md](../co
 - **Surface size:** `tile_css_width × DPR` by `tile_css_height × DPR` physical pixels.
 - **Context:** creates a `cairo::Context`, scales it by DPR so all CSS-pixel coordinates map to physical pixels, then dispatches commands:
   - `Rectangle` → `rectangle::do_paint_rectangle()` — path + fill; handles borders and border-radius.
-  - `Text` → `text::pango::do_paint_text()` — draws the command's pre-shaped glyph runs via Pango (the `pango` feature, default) — see [../fonts.md](../fonts.md).
-  - `Svg` → `svg::do_paint_svg()` via librsvg.
+  - `Text` → `text::glyphs::do_paint_text()` — draws the command's pre-shaped glyph runs with `show_glyphs` against FreeType faces; shaping happened earlier in the painter through the configured `FontSystem` — see [../fonts.md](../fonts.md).
+  - `Svg` → `svg::do_paint_svg()` via resvg.
 - **Output:** premultiplied ARGB32 pixel data (`cairo::Format::ARgb32`), stride = `tile_phys_width × 4`.
 
 ### Skia rasterizer (`crates/gosub_renderer_skia`)
@@ -198,7 +198,7 @@ Selected by naming `SkiaBackend` in the config (see [../configuration.md](../con
 - **Surface size:** `tile_css_width × DPR` by `tile_css_height × DPR` physical pixels; the canvas is scaled by DPR so paint commands stay in CSS coordinates.
 - **Context:** creates a `skia_safe` raster surface, clips to tile bounds, pre-translates canvas by `-tile.rect.x, -tile.rect.y` so paint commands work in page coordinates, then dispatches:
   - `Rectangle` → `rectangle::do_paint_rectangle()` — `draw_rect` / `draw_round_rect`; handles solid fills and borders.
-  - `Text` → `text::do_paint_text()` — word-wraps via `font.measure_str()`, renders with `draw_str()`.
+  - `Text` → `text::glyphs::do_paint_text()` — builds a `TextBlob` from the command's pre-shaped glyph run and draws it with `draw_text_blob()`.
   - `Svg` → `svg::do_paint_svg()`.
 - **Output:** premultiplied BGRA8888 (a `surfaces::raster` surface with an explicit `BGRA8888`/`Premul` `ImageInfo`), stride = `tile_phys_width × 4` — byte-for-byte compatible with Cairo's `ARgb32`.
 
