@@ -1,125 +1,61 @@
-# Render pipeline POC
+# gosub_render_pipeline
 
-This crate contains a proof of concept for a render pipeline that can be used to render a webpage.
+The render pipeline of the Gosub browser engine: DOM + CSSOM in, rasterized tiles out. It
+is a staged, tile-based pipeline — rasterized tiles are cached across frames, and a
+change re-runs only the stages it invalidates, so a pure scroll costs a re-composite
+instead of a re-render. The render backends (`gosub_renderer_cairo` / `_skia` / `_vello`)
+implement against the contracts surfaced here.
 
-The pipeline consists of multiple stages. Each stage is responsible for transforming the data from the previous stage into a new format or 
-updates on current data. Depending on any changes in the data, the pipeline can be re-run to update the rendering. It's possible that not 
-the whole pipeline needs to be re-run, but only a subset of the stages.
+The pipeline deliberately uses its own document/style/layout types, separate from the
+`gosub_interface` world where parsing happens; the adapter that joins the two sides is
+described in [docs/two-worlds.md](../../docs/two-worlds.md).
 
-The stages:
+## The stages
 
- - Rendertree generation - Convert the DOM tree into a render tree
- - Layout tree generation - Computing the layout of the elements
- - Layering - Grouping elements into layers
- - Tiling - Splitting the layout tree into tiles
- - Painting - Generating paint commands
- - Rasterizing - Executing paint commands onto tiles
- - Compositing - combine the tiles into a final image
+| # | Stage | Module | What it does |
+|---|-------|--------|--------------|
+| 1 | Render tree | `rendertree_builder` | DOM → `RenderTree`; prunes invisible nodes (`head`, `script`, ...) |
+| 2 | Layout | `layouter` | Box models via Taffy, plus the pipeline's own inline-run layout; text measured through the configured `FontSystem`; tables via `gosub_lattice` |
+| 3 | Layering | `layering` | Promotes `opacity` / `fixed` / `sticky` / `z-index` elements into layers → `LayerList` |
+| 4 | Tiling | `tiler` | Subdivides the page into tiles (256×256 by default) → `TileList` |
+| 5 | Painting | `painter` | Generates backend-agnostic `PaintCommand`s; glyph runs are pre-shaped here so backends only draw |
+| 6 | Rasterization | `rasterizer` | `Rasterable` backends execute the commands per tile → `BakedTile` pixel data |
+| 7 | Compositing | (engine + host) | Per-frame: visible cached tiles are composited with the scroll offset applied |
 
-The first step is generating the render tree. It will convert a DOM tree together with CSS styles into a tree of nodes that are needed for 
-generating layout. The node IDs in the render-tree are the same as the node IDs in the DOM tree and are interchangeable: NodeId(4) is the 
-same as RenderNodeId(4) though they have different types. 
+Stages 1–6 are driven by `gosub_engine`'s `BrowsingContext` (`pipeline_build_cache`) on
+content change; stage 7 runs every frame. Which path a tab takes — CPU tile cache
+(Cairo/Skia) or GPU scene (Vello) — is decided by the backend's capability queries
+(`raster_strategy()`, `renders_to_gpu_texture()`).
 
-The second step is to generate a layout. For this we use Taffy to compute all the layout elements and use pango for generating text layout.
-The layout elements are the building blocks for the layout tree. To make sure we are not dependent on taffy, the output of the layout tree is a 
-BoxModel system, where each element is confined into a box model. This box model holds the dimensions of the margin, padding, border and content.
+## The backend contract
 
-The third step is to generate layers. Layers are used to optimize rendering. They are used to group elements that can be rendered together.
-If there are elements with some kind of CSS animations, they can be moved to a separate layer, and let the compositor deal with this animation.
-This means that we do not need to rerender the layers or tiles, but merely update the position of the layers in the compositor. As a demonstration,
-we place all elements in layer 0, and place images inside layer 1.
+Backends implement two things:
 
-The next step is tiling. Here we convert the layout tree into elements of 256x256 pixels (tiles). This is done to optimize rendering dirty elements. 
-Only the tiles that are visible on the screen are rendered and cached. When the user scrolls, we only need to render the new tiles that are visible 
-on the screen. This however, can be done during idle time in the browser as well. Furthermore, if the user scrolls backwards, older tiles that are
-still valid do not have to be rendered again.
+- `RenderBackend` (from `gosub_interface`, re-exported via `render::backend`) — surfaces,
+  `render()`, capability queries, `ExternalHandle` output.
+- `Rasterable` (this crate, `rasterizer`) — per-tile execution of paint commands, with a
+  `RasterStrategy` (parallel-cached for CPU backends, sequential for Vello).
 
-The painting generates commands that are needed to render pixels onto the tiles. However, it does not execute this painting. It merely generates
-the commands.
+`common` holds what the stages share: the pipeline's document/style types, geometry, the
+media store (decoded images/SVG) and the texture store. Spatial queries (visible-element
+and hit tests) go through rstar R-trees.
 
-The rasterizing phase will get the tiles and the paint commands and execute the painting per tile into textures.
+## Features
 
-The final step is compositing. Here we combine the visible tiles in the layers onto the screen. When we have CSS animations like transitions, we
-do not need to repaint the tiles, but merely update the position of the tiles (or their opacity). The compositing will take care of this and returns 
-a fully rendered frame.
+`wayland` / `x11` — GDK platform integration (Linux only).
 
+## Further reading
 
-## Passing of data
-
-Each stage will take the data from the previous stage and transform it into a new format. Note that the data from earlier stages are still available 
-by wrapping these structures.
-
-For instance, the layering stage will take the layout tree and the render tree as input. The output of the layering stage is a list of layers.
-Note that we have a wrapped layout tree, which in turn has a wrapped render tree which in turn has a wrapped DOM document.
-
-## Data structure throughout the pipelines
-
-Note that each structure wraps the previous structure so it's always possible to look back into the previous stage for information. Normally,
-the layout list and dom nodes are important for later stages.
-
-```text
-TileList
-    - layers: HashMap<LayerId, Vec<TileId>>
-    - default_tile_width
-    - default_tile_height
-    - wrapped[layer_list]
-        - layers: Vec<Layer>
-                - id: LayerId
-                - order: isize
-                - elements: Vec<NodeId>
-        - wrapped[layout_tree]
-            - taffy_tree
-            - taffy_root_id
-            - root_layout_element: LayoutElementNode
-                - node_id: LayoutElementId
-                - dom_node_id: DomNodeId
-                - taffy_node_id: TaffyNodeId
-                - children: Vec<LayoutElementNode>
-                - box_model: BoxModel
-            - node_mapping
-            - wrapped[render_tree]: RenderTree
-                - root: RenderNode
-                    - node_id: NodeId
-                    - children: Vec<RenderNode>
-                - wrapped[doc]: Document
-                    - root: Node
-                        - node_id: NodeId
-                        - children: Vec<Node>
-                        - node_type: NodeType
-```
-
-
-# Directory layout
-
-Each stage has its own file in the `src` directory. The `main.rs` file contains the main function that runs the pipeline. If a stage is larger (most of them are), it will 
-be split into a module with the corresponding name. Some code is shared between stages (geometry, document, texture and images stores etc), and they are placed into the 
-`common` module. Note that it's possible for any pipeline module to use the `common` module, but not the other way around.
-
-
-# Main demo applications
-
-There are three demo applications, each running with its own backend.
-
-| Binary         | 2d rendering lib | text rendering lib |
-|----------------|------------------|--------------------|
-| pipeline-cairo | `cairo`            | `pangocairo`         |
-| pipeline-vello | `vello`            | `parley` or `skia`     |
-| pipeline-skia  | `skia`             | `skia`               |
-
-
-# Media store
-
-The media store is a simple in-memory store that keeps external (or inline) resources. It's used for storing images and SVG files but it allows to store 
-any kind of data. This media-store can be an offline cache for resources in the future. 
-
-
-# Texture store
-
-The texture store keeps all the textures from page tiles. This way we only need to rerender tiles when elements on them are dirty. For scrolling and other 
-purposes, we do not need to rerender the tiles but the compositor can take care of this. Even though we can use GPU accelerated rendering, we still need to 
-store the textures in memory. A good optimization might be to store the textures on the GPU and reference them in the texture store.
-
-# Rstar
-
-This pipeline relies on rstar for spatial searches. For instance, we need to know which elements are visible on the screen. Or which elements are at a certain position.
-Some of the pipeline data structures will have a separate rstar tree for this purpose. 
+- [docs/render-pipeline/README.md](../../docs/render-pipeline/README.md) — the full
+  pipeline documentation: two-phase design, entry points, fast paths
+- [docs/render-pipeline/stages.md](../../docs/render-pipeline/stages.md) — each stage in
+  depth
+- [docs/render-pipeline/data-structures.md](../../docs/render-pipeline/data-structures.md)
+  — the types flowing between stages
+- [docs/render-pipeline/layout.md](../../docs/render-pipeline/layout.md) — stage 2:
+  Taffy, inline emulation, tables
+- [docs/render-pipeline/layering-and-compositing.md](../../docs/render-pipeline/layering-and-compositing.md)
+  — layer promotion and the compositor
+- [docs/render-pipeline/backends.md](../../docs/render-pipeline/backends.md) — the
+  backend contract and host compositing
+- [docs/two-worlds.md](../../docs/two-worlds.md) — why the pipeline has its own types
