@@ -2,6 +2,7 @@ use crate::common::document::style::{
     intern, BorderStyle, Display, FontWeight, NodeStyle, StyleProperty, TextAlign, TextWrap, Unit, Value,
 };
 use cow_utils::CowUtils;
+use gosub_shared::css_colors::named_color_hex;
 use std::collections::HashMap;
 
 /// Parses an inline `style` attribute value (e.g. `"color: red; width: 100px"`).
@@ -40,29 +41,15 @@ fn parse_background_color_token(value: &str) -> Option<Value> {
 
 fn parse_named_color(value: &str) -> Value {
     match value {
-        "black" => Value::Color(0, 0, 0, 255),
-        "white" => Value::Color(255, 255, 255, 255),
-        "red" => Value::Color(255, 0, 0, 255),
-        "green" => Value::Color(0, 128, 0, 255),
-        "blue" => Value::Color(0, 0, 255, 255),
-        "yellow" => Value::Color(255, 255, 0, 255),
-        "orange" => Value::Color(255, 165, 0, 255),
-        "purple" => Value::Color(128, 0, 128, 255),
-        "pink" => Value::Color(255, 192, 203, 255),
-        "gray" | "grey" => Value::Color(128, 128, 128, 255),
-        "silver" => Value::Color(192, 192, 192, 255),
-        "maroon" => Value::Color(128, 0, 0, 255),
-        "navy" => Value::Color(0, 0, 128, 255),
-        "teal" => Value::Color(0, 128, 128, 255),
-        "aqua" | "cyan" => Value::Color(0, 255, 255, 255),
-        "fuchsia" | "magenta" => Value::Color(255, 0, 255, 255),
-        "lime" => Value::Color(0, 255, 0, 255),
-        "olive" => Value::Color(128, 128, 0, 255),
-        "transparent" => Value::Color(0, 0, 0, 0),
+        // Not in the named-color table: not a color, but a fully transparent value.
+        s if s.eq_ignore_ascii_case("transparent") => Value::Color(0, 0, 0, 0),
         s if s.starts_with("rgb(") => parse_rgb(s),
         s if s.starts_with("rgba(") => parse_rgba(s),
         s if s.starts_with('#') => parse_hex_color(s),
-        _ => Value::Keyword(intern(value)),
+        _ => match named_color_hex(value) {
+            Some(hex) => parse_hex_color(hex),
+            None => Value::Keyword(intern(value)),
+        },
     }
 }
 
@@ -513,6 +500,25 @@ mod tests {
         assert_eq!(parse_css_url(r#"url("x.gif") no-repeat"#).as_deref(), Some("x.gif"));
         assert_eq!(parse_css_url("#fff no-repeat"), None);
         assert_eq!(parse_css_url("url()"), None);
+    }
+
+    #[test]
+    fn named_colors_resolve_via_shared_table() {
+        let style = parse_inline_style_attr("color: rebeccapurple");
+        assert!(matches!(
+            style.get_own(&StyleProperty::Color),
+            Some(Value::Color(0x66, 0x33, 0x99, 255))
+        ));
+
+        // An unknown name still falls through to a keyword instead of a bogus color.
+        let style = parse_inline_style_attr("color: notacolor");
+        assert!(matches!(style.get_own(&StyleProperty::Color), Some(Value::Keyword(_))));
+
+        let style = parse_inline_style_attr("background-color: transparent");
+        assert!(matches!(
+            style.get_own(&StyleProperty::BackgroundColor),
+            Some(Value::Color(0, 0, 0, 0))
+        ));
     }
 
     #[test]
