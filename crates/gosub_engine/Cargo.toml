@@ -67,7 +67,7 @@ futures-core = { workspace = true }
 mime = "0.3.17"
 chrono = { workspace = true }
 regex = { workspace = true }
-mimetype-detector = "0.2.2"
+mimetype-detector = "0.3.11"
 image = { workspace = true }
 async-trait = "0.1.89"
 async-channel = "2.5.0"
