@@ -24,9 +24,8 @@ zone, and an event bus. Your user-agent (UA) drives everything via `TabCommand` 
 | `gosub_html5` | HTML5 tokenizer / parser |
 | `gosub_css3` | CSS3 tokenizer / parser |
 | [`gosub-sonar`](https://github.com/gosub-io/gosub-sonar) | Networking stack (async, streaming, priority-scheduled) — external crate |
-| `gosub_taffy` | Flexbox / grid layout (Taffy) |
 | `gosub_lattice` | CSS table layout |
-| `gosub_render_pipeline` | Render pipeline — stages, tiling, compositor |
+| `gosub_render_pipeline` | Render pipeline — layout (Taffy), stages, tiling, compositor |
 | `gosub_renderer_cairo` | Cairo render backend (CPU) |
 | `gosub_renderer_skia` | Skia render backend (CPU / GPU) |
 | `gosub_renderer_vello` | Vello / wgpu render backend (GPU) |

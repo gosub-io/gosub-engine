@@ -19,7 +19,7 @@ pub trait ModuleConfiguration: /* … */ {
 Three properties define the model:
 
 -   **Compile-time resolution.** The engine is generic over `C: ModuleConfiguration`; there is no runtime registry. Naming a component implies a Cargo dependency on the crate that provides it --- you cannot name `CairoBackend` without compiling Cairo in.
--   **Narrow `Has*` view traits.** Subsystem code doesn't bound on the full config; it asks for exactly what it needs (`HasCssSystem`, `HasDocument`, `HasHtmlParser`, `HasLayouter`, `HasFontSystem`). These are **derived automatically** from a `ModuleConfiguration` via blanket impls --- never implemented by hand. A function bounded on `C: HasDocument` therefore accepts any config, but can only touch the document and CSS system.
+-   **Narrow `Has*` view traits.** Subsystem code doesn't bound on the full config; it asks for exactly what it needs (`HasCssSystem`, `HasDocument`, `HasHtmlParser`). These three are **derived automatically** from a `ModuleConfiguration` via blanket impls --- never implemented by hand. A function bounded on `C: HasDocument` therefore accepts any config, but can only touch the document and CSS system. (`HasFontSystem` is the exception: it is not part of `ModuleConfiguration` and *is* implemented by hand, usually by `DefaultRenderConfig` --- see [fonts.md](fonts.md).)
 -   **Parse-only by design.** `ModuleConfiguration` deliberately contains no render types. The rendering extension, `RenderConfiguration` (adding `RenderBackend`, `CompositorSink`, `FontSystem`), lives in **`gosub_engine`** (`src/html.rs`), not here --- so parse-only configs (parser test harnesses, fuzz targets) never pull in renderer crates. `DefaultRenderConfig<Backend, FontSystem, Compositor>` is the ready-made implementation.
 
 ## The trait families
@@ -43,9 +43,9 @@ Three properties define the model:
 
 `CssProperty`/`CssValue` are deliberately lowest-common-denominator accessor traits (`as_string`, `as_unit`, `as_color`, `as_list`, ...) --- consumers like the pipeline's [document adapter](two-worlds.md) probe values through these and convert into their own representation. Implemented by `gosub_css3::Css3`.
 
-### Layout (`layout.rs`)
+### Layout --- not here
 
-The interface-world layout family: `Layouter<C>`, `LayoutTree<C>` (with its own node-id space), `LayoutNode`, `LayoutCache`, `Layout` (the per-node geometry), and `TextLayout`/`HasTextLayout` for shaped text. Implemented by `gosub_taffy` --- which is currently **dormant**: the live rendering path uses the pipeline's own layouter instead. See [The two worlds](two-worlds.md) before spending time here.
+There is deliberately **no** layout contract in `gosub_interface`. There used to be one (`layout.rs`'s `Layouter<C>` / `LayoutTree<C>` / `LayoutNode` / `TextLayout` family, plus a `HasLayouter` view); it was removed along with its only implementor, `gosub_taffy`. Layout lives entirely in `gosub_render_pipeline`, over the pipeline's own document types and behind its own `CanLayout` trait --- see [The two worlds](two-worlds.md).
 
 ### Fonts (`font.rs`, `font_system.rs`)
 

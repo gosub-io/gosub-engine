@@ -1,22 +1,22 @@
-# The two worlds: interface DOM vs. pipeline document
+# The two worlds: interface DOM vs. pipeline document
 
-The most confusing architectural fact in this workspace, stated up front: **there are two parallel document/style/layout stacks.** Both wrap the Taffy layout engine, both bridge table layout to `gosub_lattice`, and both even have a struct named `TaffyLayouter`. They are different types in different crates, and only one of them is on the live rendering path. This page explains what each world is, where the seam between them sits, and which code runs when.
+The most confusing architectural fact in this workspace, stated up front: **there are two parallel document/style models.** One is where parsing happens, the other is what the renderer consumes; they are different types in different crates and meet at exactly one adapter. This page explains what each world is, where the seam between them sits, and which code runs when.
+
+> **Layout is no longer part of the split.** This page used to describe *three* duplicated concerns --- document, style, *and* layout --- because `gosub_taffy` implemented the interface-world layout traits and shipped its own `TaffyLayouter` alongside the pipeline's. Both are gone: the crate was removed, and with it the now-unimplemented `gosub_interface::layout` / `HasLayouter` traits. There is exactly one layouter, and it lives in the pipeline.
 
 ## World 1: the interface world (parsing and styles)
 
-`gosub_interface` defines trait families for the engine's components --- `Document`, `Html5Parser`, `CssSystem`, `Layouter` --- tied together by `ModuleConfiguration`: a config type `C` names concrete implementations as associated types, checked at compile time (no runtime registry).
+`gosub_interface` defines trait families for the engine's components, tied together by `ModuleConfiguration`: a config type `C` names concrete implementations as associated types, checked at compile time (no runtime registry). The configuration names exactly three components:
 
-The implementations:
-
-| Trait | Implementation | Crate |
-|-------|----------------|-------|
-| `Document`, `Html5Parser` | DOM + spec-conformant HTML5 parser | `gosub_html5` |
-| `CssSystem` | tokenizer, parser, selector matcher, cascade | `gosub_css3` |
-| `Layouter` | `gosub_taffy::TaffyLayouter` | `gosub_taffy` |
+| Associated type | Trait | Implementation | Crate |
+|-----------------|-------|----------------|-------|
+| `Document` | `Document` | arena DOM | `gosub_html5` |
+| `HtmlParser` | `Html5Parser` | spec-conformant tokenizer + tree builder | `gosub_html5` |
+| `CssSystem` | `CssSystem` | tokenizer, parser, selector matcher, cascade | `gosub_css3` |
 
 This is the world where **parsing happens**. When a tab loads a page, the engine parses HTML into `C::Document` and stylesheets into `C::CssSystem` stylesheets. Generic engine code only ever sees the traits.
 
-`gosub_taffy` is the interesting resident: its `LayoutDocument<C>` implements Taffy's own traits (`TraversePartialTree`, `LayoutPartialTree`, `CacheTree`) *directly over the interface-world DOM*, so Taffy walks the real document without an intermediate tree. It is architecturally elegant --- and currently **dormant**: `gosub_engine` does not depend on it, and nothing in the workspace uses it on the rendering path. It survives as a re-export in the root crate's prelude (`src/prelude.rs`).
+`gosub_interface` hosts other contracts too --- `FontSystem`, and the `RenderBackend` / `CompositorSink` backend contracts under `render/`. Those are *not* part of this split: they are shared by both sides and live in `gosub_interface` only so a config can name a backend without inverting the dependency direction. See [interface.md](interface.md).
 
 ## World 2: the pipeline world (rendering)
 
@@ -24,10 +24,11 @@ This is the world where **parsing happens**. When a tab loads a page, the engine
 
 -   its own `Node` / `NodeType` / element data (`node.rs`);
 -   its own style model (`style.rs`): a closed `StyleProperty` enum and `Value` type with interned keywords, per-property metadata (inherited? initial value?), and its own inheritance + `em`/`rem` resolution;
--   its own layouter (`layouter/taffy.rs` --- the *other* `TaffyLayouter`, behind the pipeline-local `CanLayout` trait, documented in [render-pipeline/layout.md](render-pipeline/layout.md));
--   its own table bridge to `gosub_lattice` (`layouter/table.rs`).
+-   its own inline-style parsing (`inline_style.rs`).
 
 None of these types implement `gosub_interface` traits. The pipeline's style model is small and rendering-oriented (exactly the properties the painter needs, as plain enums), where the css3 world's property maps are fully general. This is what makes the pipeline independently testable --- its unit tests build documents from pipeline types directly, without an HTML parser or CSS engine in sight.
+
+The pipeline also owns the **only** layouter in the workspace: `layouter/taffy.rs`'s `TaffyLayouter`, behind the pipeline-local `CanLayout` trait (documented in [render-pipeline/layout.md](render-pipeline/layout.md)), plus its `gosub_lattice` table bridge in `layouter/table.rs`. There is no counterpart in world 1 anymore, so a search for `TaffyLayouter` now has exactly one answer.
 
 ## The seam: `PipelineDocument` + `GosubDocumentAdapter`
 
@@ -61,21 +62,20 @@ Everything upstream of that line is world 1; everything downstream is world 2.
                                           ├──► GosubDocumentAdapter ──► RenderTree ──► layout
   CSS   ──► gosub_css3  ──► stylesheets ──┘       │   (PipelineDocument)              ──► … ──► pixels
                                                   │
-  gosub_taffy (Layouter impl, dormant)            │   layouter/taffy.rs (the live layouter)
+                                                  │   layouter/taffy.rs (the only layouter)
 ```
 
 ## Duplications to be aware of
 
 | Concept | World 1 | World 2 |
 |---------|---------|---------|
-| Layouter struct | `gosub_taffy::TaffyLayouter`; dormant | `gosub_render_pipeline::layouter::taffy::TaffyLayouter`; live |
-| Layouter trait | `gosub_interface::layout::Layouter` | pipeline-local `CanLayout` |
-| Lattice table bridge | `gosub_taffy`’s `TableTree` adapter | `PipelineTableTree` in `layouter/table.rs` |
+| Document model | `C::Document` --- the arena DOM | own `Node`/`NodeType` under `common/document/` |
 | Style representation | `CssSystem` property maps; general | `StyleProperty`/`Value` enums; closed, render-oriented |
 | Node identity | `gosub_shared::node::NodeId` | same `NodeId`, plus synthetic pseudo-element ids |
+| Layout | *(none)* | `layouter/taffy.rs`, `CanLayout`, `PipelineTableTree` |
 
-When you search the workspace for `TaffyLayouter`, check the crate before drawing conclusions --- the two share a name and a dependency, nothing else.
+Layout is listed only to head off an old assumption: `gosub_interface` has **no** layout contract. `layout.rs` (`Layouter<C>`, `LayoutTree<C>`, `LayoutNode`, `LayoutCache`, `Layout`, `TextLayout`/`HasTextLayout`) and the `HasLayouter` view were removed once `gosub_taffy` --- their only implementor --- went away. Adding or swapping a layouter today means implementing the pipeline's `CanLayout`.
 
 ## Why it is this way (and where it might go)
 
-The trade is isolation versus duplication. Owning its document model lets the pipeline be developed and tested without routing every experiment through the full parse/cascade machinery, and gives the painter a closed style enum it can match on exhaustively; the cost is the duplicated layouters/bridges above and a translation layer on every rebuild. Should the two layouters ever merge, `gosub_taffy`'s trait-over-the-real-DOM approach and the pipeline's battle-tested inline/table handling are the two halves worth keeping.
+The trade is isolation versus duplication. Owning its document model lets the pipeline be developed and tested without routing every experiment through the full parse/cascade machinery, and gives the painter a closed style enum it can match on exhaustively; the cost is a translation layer on every rebuild and two places to teach about any new CSS property --- `css_property_to_value` in the adapter as well as `StyleProperty` in the pipeline. Collapsing the models further would mean either the pipeline consuming `CssProperty` directly (losing exhaustive matching) or the parse side producing pipeline values (losing generality); the adapter is the deliberate middle.

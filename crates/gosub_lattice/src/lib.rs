@@ -15,8 +15,8 @@ use std::hash::Hash;
 
 /// Adapter trait that `gosub_lattice` uses to read from and write to an external layout tree.
 ///
-/// The implementor (e.g. `gosub_taffy`'s `LayoutDocument`) translates between the engine's
-/// internal representations and the flat types expected here.
+/// The implementor (e.g. `gosub_render_pipeline`'s `PipelineTableTree`) translates between the
+/// engine's internal representations and the flat types expected here.
 pub trait TableTree {
     type NodeId: Copy + Clone + Eq + Hash + Debug;
 

@@ -200,12 +200,14 @@ absolute box positions.)
 ## Integrating lattice
 
 To drive lattice, implement [`TableTree`] over your tree and call `compute_table_layout`. The
-real integration in this workspace is `gosub_taffy`'s `LayoutDocument`, which:
+real integration in this workspace is `gosub_render_pipeline`'s `PipelineTableTree`, which:
 
-- maps its DOM `display` strings to `TableRole`,
-- maps `CssProp` variants to CSS property names and resolves them to `CssLength`,
-- implements `layout_cell` by running Taffy's block layout on the cell subtree,
-- implements `set_layout` by writing a `taffy::Layout` (location, size, border, padding).
+- maps the pipeline document's `Display` values to `TableRole`,
+- maps `CssProp` variants to `StyleProperty` and resolves them to `CssLength`,
+- implements `layout_cell` and `cell_content_width` by reading back the heights and intrinsic
+  widths the Taffy first pass already measured,
+- implements `set_layout` by buffering relative `CellLayout`s, converted to absolute positions
+  once the whole table is computed.
 
 A minimal sketch:
 

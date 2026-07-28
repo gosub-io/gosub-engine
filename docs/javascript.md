@@ -5,8 +5,8 @@ workspace crate depends on any of them — the only consumer is the `run-js` com
 (`src/bin/run-js.rs`, see [binaries.md](binaries.md)) and a prelude re-export.
 `gosub_html5` and `gosub_engine` have zero JS dependencies, so today no page script is
 ever executed: `<script>` elements are parsed into the DOM and (their sources prefetched
-by the [resource pipeline](resource-pipeline.md)) go no further. Like `gosub_taffy` in
-[the two worlds](two-worlds.md), this stack exists ahead of its integration.
+by the [resource pipeline](resource-pipeline.md)) go no further. This stack exists ahead of
+its integration.
 
 ```text
         page JS ──► gosub_v8 (V8 bindings)                     ── the engine

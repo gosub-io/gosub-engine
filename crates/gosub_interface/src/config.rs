@@ -1,6 +1,5 @@
 mod css_system;
 mod document;
-mod layouter;
 
 use crate::css3::CssSystem;
 use crate::document::Document;
@@ -9,7 +8,6 @@ use std::fmt::Debug;
 
 pub use css_system::*;
 pub use document::*;
-pub use layouter::*;
 
 /// Compile-time description of the engine components a client wires together.
 ///
@@ -24,8 +22,9 @@ pub use layouter::*;
 /// signatures keep using the narrow `Has*` bounds, and any `C: ModuleConfiguration` satisfies
 /// them.
 ///
-/// Additional components (font system, layouter, network stack, render backend, compositor) are
-/// added as associated types here as each is wired into the engine.
+/// Additional components (font system, network stack, render backend, compositor) are added as
+/// associated types here as each is wired into the engine. Layout is not one of them: it lives
+/// entirely in `gosub_render_pipeline`, behind that crate's own `CanLayout` trait.
 pub trait ModuleConfiguration: Clone + Debug + PartialEq + Send + Sync + 'static {
     /// CSS parser and property system.
     type CssSystem: CssSystem;
