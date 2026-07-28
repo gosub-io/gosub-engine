@@ -26,10 +26,6 @@ CSS3 tokenizer and parser. Parses stylesheets into a `CssStylesheet` (rules, sel
 
 ## Layout and rendering
 
-### gosub_taffy
-
-Flexbox / grid layout backed by the [Taffy](https://github.com/DioxusLabs/taffy) library. Implements the layout traits from `gosub_interface`. Currently dormant: the live rendering path uses `gosub_render_pipeline`'s own layouter instead --- see [`two-worlds.md`](two-worlds.md).
-
 ### gosub_lattice
 
 CSS table layout engine --- handles the table layout algorithm that Taffy does not cover. See [`lattice.md`](lattice.md) for the algorithm and the `TableTree` adapter contract.
@@ -37,6 +33,8 @@ CSS table layout engine --- handles the table layout algorithm that Taffy does n
 ### gosub_render_pipeline
 
 The render pipeline. Converts the DOM + CSSOM into a render tree with resolved styles and positions, runs the paint stages, tiles the output, and composites it. Render backends plug in here; this is the crate they implement against.
+
+It also owns the workspace's only layouter --- flexbox / grid / block boxes via the [Taffy](https://github.com/DioxusLabs/taffy) library, plus its own inline-run layout and the `gosub_lattice` table write-back. It works over its own document/style types rather than the `gosub_interface` ones; see [`two-worlds.md`](two-worlds.md) for that split and the adapter that joins it to the parse side.
 
 ### gosub_fontmanager
 
@@ -135,7 +133,6 @@ flowchart TD
     svg("gosub_svg")
     lattice("gosub_lattice")
     fontmgr("gosub_fontmanager")
-    taffy("gosub_taffy")
     pipeline("gosub_render_pipeline")
     cairo("gosub_renderer_cairo")
     skia("gosub_renderer_skia")
@@ -158,9 +155,6 @@ flowchart TD
     html5 --> svg
     shared --> lattice
     interface --> fontmgr
-    lattice --> taffy
-    fontmgr --> taffy
-    interface --> taffy
 
     interface --> pipeline
     fontmgr --> pipeline

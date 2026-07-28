@@ -15,10 +15,9 @@ Lattice knows nothing about DOM types, style storage, or which layout engine hos
 
 `layout_cell` and `cell_content_width` are the cooperation points with Taffy: lattice does grid geometry, the host engine does everything inside the cells.
 
-Two adapters exist --- one per [world](two-worlds.md):
+One adapter exists in the workspace: **`PipelineTableTree`** (`gosub_render_pipeline/src/layouter/table.rs`). Tables are first laid out by Taffy as ordinary blocks (wrong positions, but cell text is measured correctly), then `post_process_tables` runs lattice over every `display: table` node in two passes --- pre-order so column widths flow top-down into nested tables, reverse post-order so heights flow bottom-up out of them. See [render-pipeline/layout.md](render-pipeline/layout.md#tables-the-lattice-write-back).
 
--   **`PipelineTableTree`** (`gosub_render_pipeline/src/layouter/table.rs`) --- the live one. Tables are first laid out by Taffy as ordinary blocks (wrong positions, but cell text is measured correctly), then `post_process_tables` runs lattice over every `display: table` node in two passes --- pre-order so column widths flow top-down into nested tables, reverse post-order so heights flow bottom-up out of them. See [render-pipeline/layout.md](render-pipeline/layout.md#tables-the-lattice-write-back).
--   **`gosub_taffy`'s adapter** --- the interface-world counterpart (currently dormant along with the rest of that crate).
+(`gosub_taffy` used to carry a second, interface-world adapter; that crate has been removed --- see [the two worlds](two-worlds.md).)
 
 ## The algorithm (`compute_table_layout`)
 
