@@ -245,8 +245,9 @@ Documented so readers don't assume more than the engine does today:
 -   **`ThirdPartyCookiePolicy` is not wired up.** Jars are created with the
     default `Allow`; no production code path selects `Block` or
     `SameSiteNoneOnly` yet.
--   **`EngineConfig.cookie_jar_partitioning`** (`CookiePartitioning`) is
-    declared in the config but not yet consumed by the cookie subsystem.
+-   **`ZoneConfig.partition_policy`** (`PartitionPolicy`) is consumed by the
+    storage services but not by the cookie subsystem — jars are keyed per
+    zone only, with no per-top-level-site partitioning.
 
 ## Extension points
 

@@ -10,7 +10,6 @@ description = "V8 bindings for Gosub"
 log = { workspace = true }
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 gosub_webexecutor = { version = "0.1.1", registry = "gosub", path = "../gosub_webexecutor" }
-thiserror = { workspace = true }
 # TODO: v8 transitively pulls in adler via miniz_oxide (RUSTSEC-2025-0056, unmaintained).
 # Update this dependency once a new v8 release resolves it, then remove the advisory from audit.toml.
 v8 = "136.0.0"

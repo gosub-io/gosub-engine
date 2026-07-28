@@ -10,21 +10,6 @@ use skia_safe::{Canvas, Color4f, Font as SkFont, FontMgr, Paint, Point, Rect, Te
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-/// A cheap, stable identity for a font blob: length + head/tail content hash + collection index.
-/// Deliberately *not* the `Arc` data pointer - an address can be recycled for a different font
-/// after a blob is dropped, which would alias cache keys.
-fn blob_fingerprint(blob: &gosub_interface::font::FontBlob) -> (u64, u32) {
-    use std::hash::{Hash, Hasher};
-    let bytes = blob.as_u8();
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    bytes.len().hash(&mut h);
-    bytes[..bytes.len().min(1024)].hash(&mut h);
-    if bytes.len() > 1024 {
-        bytes[bytes.len() - 1024..].hash(&mut h);
-    }
-    (h.finish(), blob.index)
-}
-
 thread_local! {
     /// Typefaces instantiated from shaped-run font bytes; parsing a font file per glyph run
     /// would be prohibitive.
@@ -32,7 +17,7 @@ thread_local! {
 }
 
 fn typeface_for(blob: &gosub_interface::font::FontBlob) -> Option<Typeface> {
-    let key = blob_fingerprint(blob);
+    let key = blob.fingerprint();
     RUN_TYPEFACES.with(|cell| {
         cell.borrow_mut()
             .entry(key)

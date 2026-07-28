@@ -67,10 +67,10 @@ Start here, then dig into the topic you need.
 
 **Architecture**
 
-- [Networking — architecture](docs/net-architecture.md) and [design notes](docs/net-design.md)
+- [Networking — architecture](docs/network/net-architecture.md) and [design notes](docs/network/net-design.md)
 - [Cookies](docs/cookies.md)
 - [Storage (local / session)](docs/datastores.md)
-- [Pump](docs/pump.md) — moving HTTP stream data to targets
+- [Pump](docs/network/pump.md) — moving HTTP stream data to targets
 - [Render pipeline](docs/render-pipeline/README.md)
 
 
