@@ -13,7 +13,6 @@ log = { workspace = true }
 anyhow = { workspace = true, features = [] }
 colors-transform = "0.2.11"
 serde_json = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
 nom = { workspace = true }
 cow-utils = { workspace = true }
 indexmap = { version = "2.13.0", optional = true }

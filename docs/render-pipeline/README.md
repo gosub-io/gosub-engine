@@ -140,10 +140,9 @@ Backend selection is **not** a feature flag — backends are separate crates nam
 
 | Crate | Flag | What it enables |
 |---|---|---|
-| `gosub_render_pipeline` | `wayland` / `x11` | GDK platform integration |
 | `gosub_renderer_cairo` | `pango` (default) | `PangoFontSystem` (via `gosub_fontmanager`), GTK init, and the gdk-pixbuf image-brush path |
 | `gosub_engine` | `sqlite_cookie_store` (default) | SQLite-backed cookie store; off on WASM |
-| `gosub_engine` | `ui_eframe` / `winit` | host integrations |
+| `gosub_engine` | `metrics` | per-tab pipeline timing metrics |
 
 Text is shaped once by the painter through the configured `FontSystem` and travels in the paint
 command as positioned glyph runs, so which text engine paints is a matter of the configured font

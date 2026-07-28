@@ -10,12 +10,9 @@ taffy = { workspace = true, features = ["std", "taffy_tree", "flexbox", "grid", 
 log = { workspace = true }
 image = { workspace = true, features = ["png", "jpeg", "gif"] }
 png = { workspace = true }
-rand = { workspace = true }
 sha2 = "0.11.0"
-serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 csscolorparser = "0.8.3"
-regex = { workspace = true }
 rstar = "0.13.0"
 gosub-sonar = "0.1.0"
 url = { workspace = true }
@@ -32,18 +29,10 @@ gosub_interface = { version = "0.1.2", path = "../gosub_interface", registry = "
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 gosub_lattice = { version = "0.1.0", path = "../gosub_lattice", registry = "gosub" }
 
-[target.'cfg(target_os = "linux")'.dependencies]
-gdk4-wayland = { workspace = true, features = ["wayland_crate"], optional = true }
-gdk4-x11 = { workspace = true, optional = true }
-
 [dev-dependencies]
 gosub_html5 = { path = "../gosub_html5", registry = "gosub" }
 gosub_css3 = { path = "../gosub_css3", registry = "gosub" }
 url = { workspace = true }
-
-[features]
-wayland = ["gdk4-wayland"]
-x11 = ["gdk4-x11"]
 
 # Mirrors the workspace lints, except unsafe_code is "deny" instead of "forbid":
 # ExternalHandle carries raw GPU/surface handles and needs unsafe Send/Sync impls,

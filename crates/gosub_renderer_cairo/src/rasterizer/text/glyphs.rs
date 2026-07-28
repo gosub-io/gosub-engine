@@ -18,21 +18,6 @@ use std::rc::Rc;
 /// IDs don't index the font file, so painting them through FreeType would draw garbage.
 const PANGO_GLYPH_UNKNOWN_FLAG: u32 = 0x1000_0000;
 
-/// A cheap, stable identity for a font blob: length + head/tail content hash + collection index.
-/// Deliberately *not* the `Arc` data pointer - an address can be recycled for a different font
-/// after a blob is dropped, which would alias cache keys.
-fn blob_fingerprint(blob: &gosub_interface::font::FontBlob) -> (u64, u32) {
-    use std::hash::{Hash, Hasher};
-    let bytes = blob.as_u8();
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    bytes.len().hash(&mut h);
-    bytes[..bytes.len().min(1024)].hash(&mut h);
-    if bytes.len() > 1024 {
-        bytes[bytes.len() - 1024..].hash(&mut h);
-    }
-    (h.finish(), blob.index)
-}
-
 /// Process-global, immortal FreeType library + cairo font faces, one per distinct font file.
 ///
 /// Global and immortal is **load-bearing**, not convenience: cairo internally caches
@@ -66,7 +51,7 @@ fn faces() -> &'static parking_lot::Mutex<FaceCache> {
 /// A cairo font face for a shaped run's font bytes. The FreeType face it wraps stays alive in
 /// the global cache forever (cairo references, but does not own, the `FT_Face`).
 fn cairo_face_for(blob: &gosub_interface::font::FontBlob) -> Option<cairo::FontFace> {
-    let key = blob_fingerprint(blob);
+    let key = blob.fingerprint();
     let mut cache = faces().lock();
     if !cache.faces.contains_key(&key) {
         if cache.library.is_none() {

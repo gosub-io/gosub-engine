@@ -21,6 +21,23 @@ impl FontBlob {
     pub fn as_u8(&self) -> &[u8] {
         self.data.as_ref().as_ref()
     }
+
+    /// A cheap, stable identity for this blob: length + head/tail content hash + collection index.
+    /// Deliberately *not* the `Arc` data pointer - an address can be recycled for a different font
+    /// after a blob is dropped, which would alias cache keys. Used by the render backends to key
+    /// their per-font caches (FreeType faces, Skia typefaces).
+    #[must_use]
+    pub fn fingerprint(&self) -> (u64, u32) {
+        use std::hash::{Hash, Hasher};
+        let bytes = self.as_u8();
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        bytes.len().hash(&mut h);
+        bytes[..bytes.len().min(1024)].hash(&mut h);
+        if bytes.len() > 1024 {
+            bytes[bytes.len() - 1024..].hash(&mut h);
+        }
+        (h.finish(), self.index)
+    }
 }
 
 impl Debug for FontBlob {

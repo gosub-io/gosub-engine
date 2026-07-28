@@ -12,7 +12,6 @@ gosub_interface = { version = "0.1.2", registry = "gosub", path = "../gosub_inte
 slotmap = "1.1.1"
 tokio = { workspace = true, features = ["sync", "rt", "macros"] }
 pin-project = "1.1.11"
-log = { workspace = true }
 
 [lints]
 workspace = true

@@ -35,24 +35,13 @@ url = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 log = { workspace = true }
-lazy_static = { workspace = true }
-env_logger = "0.11.8"
-tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }
-tracing-log = { workspace = true }
 tracing = { workspace = true }
 
 r2d2 = { version = "0.8", optional = true }
 r2d2_sqlite = { version = "0.33", optional = true, features = ["bundled"] }
 
-wgpu = { workspace = true, optional = true }
-
-winit = { workspace = true, optional = true }
-
-eframe = { workspace = true, features = ["wgpu"], optional = true }
-egui = { workspace = true, optional = true }
 time = "0.3.41"
 tokio-util = { workspace = true, features = ["io"] }
-tempfile = { workspace = true }
 bitflags = "2.11.1"
 futures-util = { workspace = true }
 cow-utils = { workspace = true }
@@ -61,33 +50,21 @@ dashmap = { workspace = true }
 once_cell = { workspace = true }
 psl = "2"
 parking_lot = { workspace = true }
-indicatif = { workspace = true }
-tokio-stream = { workspace = true, features = ["sync"] }
-futures-core = { workspace = true }
 mime = "0.3.17"
 chrono = { workspace = true }
 regex = { workspace = true }
 mimetype-detector = "0.2.2"
 image = { workspace = true }
 async-trait = "0.1.89"
-async-channel = "2.5.0"
 allsorts = "0.17"
 
-[target.'cfg(target_os = "linux")'.dependencies]
-gdk4-wayland = { workspace = true, features = [
-    "wayland_crate",
-], optional = true }
-gdk4-x11 = { workspace = true, optional = true }
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [features]
 default = ["sqlite_cookie_store"]
-ui_eframe = ["dep:eframe", "dep:egui"]
-winit = ["dep:winit", "dep:wgpu"]
 sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
 metrics = []
-
-wayland = ["gdk4-wayland"]
-x11 = ["gdk4-x11"]
 
 [lints]
 workspace = true
