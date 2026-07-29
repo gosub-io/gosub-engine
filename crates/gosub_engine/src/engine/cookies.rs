@@ -1,8 +1,6 @@
-//! Cookie management system for the Gosub engine.
-//!
-//! This module defines the core types for storing, retrieving, and persisting HTTP
-//! cookies. Zones use a [`CookieJar`] (via a cheap, cloneable [`CookieJarHandle`])
-//! and can optionally persist jar mutations to a backend [`CookieStore`].
+//! Cookie storage and persistence. Zones use a [`CookieJar`] (via a cheap, cloneable
+//! [`CookieJarHandle`]) and can optionally persist jar mutations to a backend
+//! [`CookieStore`].
 //!
 //! ## Overview
 //!

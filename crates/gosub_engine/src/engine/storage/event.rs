@@ -2,33 +2,23 @@ use super::types::PartitionKey;
 use crate::tab::TabId;
 use crate::zone::ZoneId;
 
-/// Scope of the store
 #[derive(Copy, Clone, Debug)]
 pub enum StorageScope {
-    /// Local storage, typically not tied to a specific tab.
     Local,
-    /// Session storage, tied to a specific tab and valid only for the duration of that tab's session.
     Session,
 }
 
-/// Represents a storage event that occurred in a specific zone and partition, with details about the change.
+/// A change to a storage area, published on the zone's event bus.
 #[derive(Clone, Debug)]
 pub struct StorageEvent {
-    /// The zone in which the storage event occurred.
     pub zone: ZoneId,
-    /// The partition key indicating the storage partition (e.g., top-level origin).
     pub partition: PartitionKey,
-    /// The origin of the URL where the storage event occurred.
     pub origin: url::Origin,
-    /// The key that was changed in the storage.
+    /// `None` means the whole area was cleared.
     pub key: Option<String>,
-    /// The old value of the key before the change, if applicable.
     pub old_value: Option<String>,
-    /// The new value of the key after the change, if applicable.
     pub new_value: Option<String>,
-    /// The tab ID that triggered the storage event, if applicable.
     pub source_tab: Option<TabId>,
-    /// The scope of the storage event, indicating whether it is local or session storage.
     pub scope: StorageScope,
 }
 

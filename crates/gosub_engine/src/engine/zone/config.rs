@@ -33,20 +33,6 @@
 //! # Ok(()) }
 //! ```
 //!
-//! # Fields (summary)
-//! - `max_tabs`: Maximum number of tabs allowed in the zone (default: 16).
-//! - `user_agent`: Optional UA string to send with requests.
-//! - `accept_languages`: Optional `Accept-Language` header value.
-//! - `do_not_track`: Send `DNT: 1` header if `true`.
-//! - `javascript_enabled`: Execute JavaScript if `true`.
-//! - `images_enabled`: Load images if `true`.
-//! - `plugins_enabled`: Enable plugins if `true`.
-//! - `font_scale`: UI/content scale factor (validated range `0.25..=10.0`).
-//! - `default_font_family`: Optional default font family name.
-//! - `default_font_size`: Default font size in CSS px (default: 16).
-//! - `minimum_font_size`: Minimum allowed font size in CSS px (must be ≤ `default_font_size`).
-//! - `enable_local_file_access`: Allow `file://` (sandboxing concerns).
-//!
 //! # Notes
 //!
 //! Note that most of these fields are not implemented but are here to show

@@ -1,8 +1,6 @@
-//! Browsing context and tab runtime state.
-//!
-//! This module defines the [`BrowsingContext`] struct: the runtime state for a single
-//! tab's document and rendering - the parsed DOM, viewport, dirty-flag tracking, storage
-//! handles, and the pipeline caches (tiles, render list, GPU scene) built from them.
+//! [`BrowsingContext`]: the runtime state for a single tab's document and rendering -
+//! the parsed DOM, viewport, dirty-flag tracking, storage handles, and the pipeline
+//! caches (tiles, render list, GPU scene) built from them.
 //!
 //! Loading itself lives in the tab worker; the worker hands a parsed document to the
 //! context via `set_document`, after which the context rebuilds whichever render

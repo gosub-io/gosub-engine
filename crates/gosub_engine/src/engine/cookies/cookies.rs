@@ -1,15 +1,11 @@
-//! Cookie core types.
-//!
-//! This module defines the **type-erased handles** used throughout the engine
-//! and the serializable [`Cookie`] data structure.
+//! The type-erased cookie handles used throughout the engine and the serializable
+//! [`Cookie`] data structure.
 //!
 //! # Concurrency model
-//! - [`CookieJarHandle`] is `Arc<RwLock<dyn CookieJar + Send + Sync>>`.
-//!   - Callers take a **read lock** for non-mutating operations and a **write lock**
-//!     for mutating operations on the underlying jar.
-//! - [`CookieStoreHandle`] is `Arc<dyn CookieStore + Send + Sync>`.
-//!   - Stores are expected to manage their **own internal synchronization** (e.g. via
-//!     `parking_lot`, `Mutex`, connection pools, etc.). The trait methods take `&self`.
+//! - [`CookieJarHandle`]: callers take a **read lock** for non-mutating operations and
+//!   a **write lock** for mutating operations on the underlying jar.
+//! - [`CookieStoreHandle`]: stores manage their **own internal synchronization** (e.g. via
+//!   `parking_lot`, `Mutex`, connection pools, etc.) - the trait methods take `&self`.
 //!
 //! # Typical usage
 //! ```ignore,no_run
@@ -58,23 +54,8 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
 
-/// A handle to a cookie jar trait.
-///
-/// This is a reference-counted, read/write-locked pointer to a type-erased
-/// [`CookieJar`]. Obtain a **read lock** for queries and a **write lock** for
-/// mutations.
-///
-/// ### Example
-/// ```ignore,no_run
-/// let jar: CookieJarHandle = zone.cookie_jar();
-/// {
-///     let cookies = jar.read().get_request_cookies(&url, Some(&top_level_url), SameSiteContext::SameSite);
-/// }
-/// {
-///     let mut guard = jar.write();
-///     guard.clear();
-/// }
-/// ```
+/// A reference-counted, read/write-locked pointer to a type-erased [`CookieJar`].
+/// Obtain a **read lock** for queries and a **write lock** for mutations.
 #[derive(Clone, Debug)]
 pub struct CookieJarHandle(Arc<RwLock<Box<dyn CookieJar + Send + Sync>>>);
 
@@ -136,9 +117,8 @@ where
     }
 }
 
-/// A handle to a cookie store trait.
+/// A reference-counted pointer to a type-erased [`CookieStore`].
 ///
-/// This is a reference-counted pointer to a type-erased [`CookieStore`].
 /// Store implementations must be **`Send + Sync` and internally synchronized**,
 /// since callers hold only `&self` when invoking trait methods.
 ///
@@ -182,9 +162,6 @@ impl CookieStoreHandle {
 }
 
 /// A cookie as stored/serialized by the engine.
-///
-/// This structure captures the essential attributes of an HTTP cookie and
-/// is suitable for persistence (e.g., JSON, SQLite) via `serde`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Cookie {
     /// Cookie name (case-sensitive).
