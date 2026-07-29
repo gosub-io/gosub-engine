@@ -134,28 +134,38 @@ pub enum TabCommand {
         code: String,
         modifiers: Modifiers,
     },
+    /// Not yet handled: the tab worker logs and drops it.
     TextInput { text: String },
     /// @TODO: needed since we have TextInput?
     CharInput { ch: char },
 
     // ****************************************
     // ** Session / zone state
+    /// Not yet handled: the tab worker logs and drops it.
     SetCookie { cookie: Cookie },
+    /// Not yet handled: the tab worker logs and drops it.
     ClearCookies,
     /// @TODO: local / session??
+    /// Not yet handled: the tab worker logs and drops it.
     SetStorageItem { key: String, value: String },
+    /// Not yet handled: the tab worker logs and drops it.
     RemoveStorageItem { key: String },
+    /// Not yet handled: the tab worker logs and drops it.
     ClearStorage,
 
     // ****************************************
     // ** Media / scripting
     /// Execute given javascript (how about lua?)
+    /// Not yet handled: the tab worker logs and drops it.
     ExecuteScript { source: String },
+    /// Not yet handled: the tab worker logs and drops it.
     PlayMedia { element_id: u64 },
+    /// Not yet handled: the tab worker logs and drops it.
     PauseMedia { element_id: u64 },
 
     // ****************************************
     // ** Debug / devtools
+    /// Not yet handled: the tab worker logs and drops it.
     DumpDomTree,
 }
 
@@ -307,13 +317,16 @@ pub enum EngineEvent {
     // ****************************************
     // ** Engine lifecycle
     EngineStarted,
+    /// Not yet emitted by the engine.
     BackendChanged {
         old: String,
         new: String,
     },
+    /// Not yet emitted by the engine.
     Warning {
         message: String,
     },
+    /// Not yet emitted by the engine.
     EngineShutdown {
         reason: String,
     },
@@ -334,6 +347,7 @@ pub enum EngineEvent {
         handle: ExternalHandle,
     },
     /// Frame has been completed (@TODO: do we need this?)
+    /// Not yet emitted by the engine.
     FrameComplete {
         tab_id: TabId,
         frame_id: u64,
@@ -346,18 +360,22 @@ pub enum EngineEvent {
         tab_id: TabId,
         url: Option<String>,
     },
+    /// Not yet emitted by the engine; emission arrives with the pending mac-app patches.
     TitleChanged {
         tab_id: TabId,
         title: String,
     },
+    /// Not yet emitted by the engine.
     FavIconChanged {
         tab_id: TabId,
         favicon: Vec<u8>,
     },
+    /// Not yet emitted by the engine; emission arrives with the pending mac-app patches.
     LocationChanged {
         tab_id: TabId,
         url: String,
     },
+    /// Not yet emitted by the engine.
     TabResized {
         tab_id: TabId,
         viewport: Viewport,
@@ -382,6 +400,7 @@ pub enum EngineEvent {
 
     // ********************************************
     // ** Networking
+    /// Not yet emitted by the engine.
     ConnectionEstablished {
         tab_id: TabId,
         url: String,
@@ -401,6 +420,7 @@ pub enum EngineEvent {
     // ** Tab
 
     // ** Session / zone state
+    /// Not yet emitted by the engine.
     CookieAdded {
         tab_id: TabId,
         cookie: Cookie,
@@ -416,15 +436,18 @@ pub enum EngineEvent {
 
     // ****************************************
     // ** Media / scripting
+    /// Not yet emitted by the engine.
     MediaStarted {
         tab_id: TabId,
         element_id: u64,
     },
+    /// Not yet emitted by the engine.
     MediaPaused {
         tab_id: TabId,
         element_id: u64,
     },
     /// Result of a script is returned (console stuff?)
+    /// Not yet emitted by the engine.
     ScriptResult {
         tab_id: TabId,
         result: serde_json::Value,
@@ -432,17 +455,20 @@ pub enum EngineEvent {
 
     // ****************************************
     // ** Errors / diagnostics
+    /// Not yet emitted by the engine.
     NetworkError {
         tab_id: TabId,
         url: Url,
         message: String,
     },
+    /// Not yet emitted by the engine.
     JavaScriptError {
         tab_id: TabId,
         message: String,
         line: u32,
         column: u32,
     },
+    /// Not yet emitted by the engine.
     TabCrashed {
         tab_id: TabId,
         reason: String,

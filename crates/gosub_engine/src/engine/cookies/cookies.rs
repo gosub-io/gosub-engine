@@ -51,7 +51,6 @@ use crate::zone::ZoneId;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::ops::Deref;
 use std::sync::Arc;
 
 /// A reference-counted, read/write-locked pointer to a type-erased [`CookieJar`].
@@ -66,20 +65,6 @@ impl Debug for dyn CookieJar + Send + Sync {
 }
 
 impl CookieJarHandle {
-    /// Pointer equality: are these two handles backed by the same Arc?
-    pub fn ptr_eq(this: &Self, other: &Self) -> bool {
-        Arc::ptr_eq(&this.0, &other.0)
-    }
-}
-
-impl PartialEq for CookieJarHandle {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-impl Eq for CookieJarHandle {}
-
-impl CookieJarHandle {
     pub fn new<T>(jar: T) -> Self
     where
         T: CookieJar + Send + Sync + 'static,
@@ -87,18 +72,16 @@ impl CookieJarHandle {
         Self(Arc::new(RwLock::new(Box::new(jar))))
     }
 
+    /// Pointer equality: are these two handles backed by the same Arc?
+    pub fn ptr_eq(this: &Self, other: &Self) -> bool {
+        Arc::ptr_eq(&this.0, &other.0)
+    }
+
     pub fn read(&self) -> RwLockReadGuard<'_, Box<dyn CookieJar + Send + Sync>> {
         self.0.read()
     }
     pub fn write(&self) -> RwLockWriteGuard<'_, Box<dyn CookieJar + Send + Sync>> {
         self.0.write()
-    }
-}
-
-impl Deref for CookieJarHandle {
-    type Target = RwLock<Box<dyn CookieJar + Send + Sync>>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 
