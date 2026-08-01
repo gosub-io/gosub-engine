@@ -59,6 +59,7 @@ mod io_runtime;
 pub mod req_ref_tracker;
 mod router;
 mod shared_body;
+pub mod tab_identity;
 pub mod types;
 mod utils;
 

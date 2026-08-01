@@ -7,6 +7,7 @@ use crate::engine::types::{EventChannel, IoChannel};
 use crate::engine::DEFAULT_CHANNEL_CAPACITY;
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
+use crate::net::tab_identity::TabIdentityRegistry;
 use crate::net::{fetcher_config_from, spawn_io_thread, IoHandle};
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineConfig, EngineError};
@@ -67,6 +68,10 @@ pub struct EngineContext {
     pub io_tx: OnceLock<IoChannel>,
     /// Map for requests to tabs
     pub request_reference_map: Arc<RwLock<RequestReferenceMap>>,
+    /// Which cookie jar and top-level document each tab has. The I/O side reads
+    /// this to attach cookies itself, so no cookie value is ever handled by tab
+    /// code — see [`TabIdentityRegistry`].
+    pub tab_identities: Arc<TabIdentityRegistry>,
 }
 
 impl Default for EngineContext {
@@ -77,6 +82,7 @@ impl Default for EngineContext {
             config_store: crate::engine::settings_store::default_config(),
             io_tx: OnceLock::new(),
             request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
+            tab_identities: Arc::new(TabIdentityRegistry::new()),
         }
     }
 }
@@ -115,6 +121,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 config_store: crate::engine::settings_store::default_config(),
                 io_tx: OnceLock::new(),
                 request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
+                tab_identities: Arc::new(TabIdentityRegistry::new()),
             }),
             render_backend: backend,
             compositor,
@@ -356,6 +363,86 @@ mod tests {
             Arc::new(NullBackend::new()),
             Arc::new(DefaultCompositor::default()),
         )
+    }
+
+    /// The inversion, end to end: the I/O side stores a `Set-Cookie` from one
+    /// navigation and attaches it to the next, with no cookie code on the tab
+    /// path at all. Both halves are covered — a failure to store and a failure to
+    /// attach look identical here, which is why the second request is inspected
+    /// rather than the jar.
+    #[tokio::test]
+    async fn cookies_are_stored_and_replayed_by_the_io_side() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        // Only the second request matters; the first exists to hand out the cookie.
+        let second_request = Arc::new(Mutex::new(String::new()));
+        let captured = second_request.clone();
+
+        tokio::spawn(async move {
+            for i in 0..2 {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buf = vec![0u8; 4096];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                if i == 1 {
+                    *captured.lock() = String::from_utf8_lossy(&buf[..n]).to_string();
+                }
+
+                let body = b"<html><title>hi</title></html>";
+                let set_cookie = if i == 0 {
+                    "Set-Cookie: sid=abc123; Path=/\r\n"
+                } else {
+                    ""
+                };
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{set_cookie}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes()).await;
+                let _ = stream.write_all(body).await;
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let _event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        // One tab for both navigations: with no zone store or jar configured every
+        // tab gets its own jar, so a second tab would start empty.
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        tab.navigate(format!("http://127.0.0.1:{port}/first"))
+            .await
+            .expect("first navigation");
+        // The store happens on the I/O side after the response arrives, so the
+        // second navigation must not start until the first has been answered.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        tab.navigate(format!("http://127.0.0.1:{port}/second"))
+            .await
+            .expect("second navigation");
+
+        let mut request = String::new();
+        for _ in 0..100 {
+            request = second_request.lock().clone();
+            if !request.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        use cow_utils::CowUtils;
+        assert!(
+            request.cow_to_ascii_lowercase().contains("cookie: sid=abc123"),
+            "the I/O side should have stored and replayed the cookie, got:\n{request}"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
     }
 
     #[tokio::test]

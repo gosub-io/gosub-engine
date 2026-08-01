@@ -1,10 +1,13 @@
+use crate::cookies::SameSiteContext;
 use crate::engine::types::IoChannel;
 use crate::engine::EngineContext;
 use crate::events::IoCommand;
 use crate::net::decision_hub::DecisionHub;
 use crate::net::fetcher::{EngineNetContext, Fetcher, FetcherConfig};
 use crate::net::req_ref_tracker::RequestRefTracker;
+use crate::net::tab_identity::{TabIdentity, TabIdentityRegistry};
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
+use crate::tab::TabId;
 use crate::util::spawn_named;
 use crate::zone::ZoneId;
 use crate::EngineError;
@@ -104,6 +107,11 @@ impl IoRouter {
         }
     }
 
+    /// Who each tab is, for resolving cookies without trusting the request.
+    pub fn tab_identities(&self) -> &TabIdentityRegistry {
+        &self.engine_ctx.tab_identities
+    }
+
     pub fn get_or_spawn_zone_fetcher(&self, zone_id: ZoneId) -> Result<Arc<Fetcher>, EngineError> {
         if let Some(f) = self.zones.get(&zone_id) {
             return Ok(f.fetcher.clone());
@@ -180,8 +188,69 @@ impl IoRouter {
     }
 }
 
+/// Put the requesting tab's cookies on an outbound request.
+fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIdentity>) {
+    req.key_data.headers.remove(http::header::COOKIE);
+
+    let Some(identity) = identity else {
+        return;
+    };
+    let context = same_site_context(identity.top_level.as_ref(), &req.key_data.url);
+    let Some(cookies) =
+        identity
+            .cookie_jar
+            .read()
+            .get_request_cookies(&req.key_data.url, identity.top_level.as_ref(), context)
+    else {
+        return;
+    };
+    if let Ok(value) = cookies.parse() {
+        req.key_data.headers.insert(http::header::COOKIE, value);
+    }
+}
+
+/// Classify a request against the document that caused it, so `SameSite`
+/// cookies are withheld from genuinely cross-site loads.
+fn same_site_context(top_level: Option<&url::Url>, url: &url::Url) -> SameSiteContext {
+    match top_level {
+        // A request with no document behind it is the document load itself.
+        None => SameSiteContext::SameSite,
+        Some(top) if top.host_str() == url.host_str() && top.scheme() == url.scheme() => SameSiteContext::SameSite,
+        Some(_) => SameSiteContext::CrossSite,
+    }
+}
+
+/// Wrap a reply channel so `Set-Cookie` is recorded on this side before the
+/// result reaches the requester, which receives it unchanged.
+fn store_response_cookies_then_forward(
+    identity: TabIdentity,
+    reply_tx: oneshot::Sender<FetchResult>,
+) -> oneshot::Sender<FetchResult> {
+    let (inner_tx, inner_rx) = oneshot::channel::<FetchResult>();
+
+    spawn_named("io-cookie-store", async move {
+        // An error means the fetcher dropped the channel (cancelled or failed);
+        // there is then no response whose cookies could be stored.
+        let Ok(result) = inner_rx.await else {
+            return;
+        };
+        if let Some(meta) = result.meta() {
+            identity.cookie_jar.write().store_response_cookies(
+                &meta.final_url,
+                &meta.headers,
+                identity.top_level.as_ref(),
+            );
+        }
+        let _ = reply_tx.send(result);
+    });
+
+    inner_tx
+}
+
+/// Submit a fetch on behalf of `tab_id`.
 pub async fn submit_to_io(
     zone_id: ZoneId,
+    tab_id: Option<TabId>,
     req: FetchRequest,
     io_tx: IoChannel,
     parent_cancel: Option<CancellationToken>,
@@ -201,6 +270,7 @@ pub async fn submit_to_io(
     io_tx
         .send(IoCommand::Fetch {
             zone_id,
+            tab_id,
             req,
             handle: handle.clone(),
             reply_tx,
@@ -230,7 +300,20 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                 }
                 maybe_req = rx_submit.recv() => {
                     match maybe_req {
-                        Some(IoCommand::Fetch { zone_id, req, handle, reply_tx }) => {
+                        Some(IoCommand::Fetch { zone_id, tab_id, mut req, handle, reply_tx }) => {
+                            // Cookies are attached here, never by the requester: see
+                            // `net::tab_identity`. `identity` is None for a tab that has
+                            // closed or never registered, which sends no cookies.
+                            let identity = tab_id.and_then(|id| router.tab_identities().get(id));
+                            attach_request_cookies(&mut req, identity.as_ref());
+
+                            // The reply is intercepted so `Set-Cookie` is stored on this
+                            // side too; the requester still receives the untouched result.
+                            let reply_tx = match identity {
+                                Some(id) => store_response_cookies_then_forward(id, reply_tx),
+                                None => reply_tx,
+                            };
+
                             // The I/O thread must keep running; drop the request on fetcher failure.
                             match router.get_or_spawn_zone_fetcher(zone_id) {
                                 Ok(fetcher) => fetcher.submit(req, handle.cancel.clone(), reply_tx).await,
@@ -268,6 +351,107 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use tokio::time::{sleep, timeout};
+
+    /// Cookie attachment: what the I/O side puts on a request, given who is asking.
+    mod cookies {
+        use super::*;
+        use crate::cookies::{CookieJarHandle, DefaultCookieJar};
+        use http::Method;
+        use url::Url;
+
+        fn jar_with(url: &str, set_cookie: &str) -> CookieJarHandle {
+            let jar: CookieJarHandle = DefaultCookieJar::new().into();
+            let mut headers = http::HeaderMap::new();
+            headers.append(http::header::SET_COOKIE, set_cookie.parse().unwrap());
+            jar.write()
+                .store_response_cookies(&Url::parse(url).unwrap(), &headers, None);
+            jar
+        }
+
+        fn request_to(url: &str) -> FetchRequest {
+            FetchRequest::builder(Method::GET, Url::parse(url).unwrap()).build()
+        }
+
+        fn cookie_header(req: &FetchRequest) -> Option<&str> {
+            req.key_data.headers.get(http::header::COOKIE).map(|v| {
+                #[allow(clippy::unwrap_used)] // test-only: values are ASCII literals
+                v.to_str().unwrap()
+            })
+        }
+
+        #[test]
+        fn a_tab_gets_its_own_cookies() {
+            let identity = TabIdentity {
+                cookie_jar: jar_with("https://example.com/", "sid=abc; Path=/"),
+                top_level: Some(Url::parse("https://example.com/page").unwrap()),
+            };
+            let mut req = request_to("https://example.com/api");
+            attach_request_cookies(&mut req, Some(&identity));
+
+            assert_eq!(cookie_header(&req), Some("sid=abc"));
+        }
+
+        #[test]
+        fn no_identity_means_no_cookies() {
+            // A closed or unregistered tab must not borrow anyone else's jar.
+            let mut req = request_to("https://example.com/api");
+            attach_request_cookies(&mut req, None);
+
+            assert_eq!(cookie_header(&req), None);
+        }
+
+        #[test]
+        fn a_cookie_header_from_the_requester_is_discarded() {
+            // The property the whole inversion rests on: a compromised tab cannot
+            // send cookies of its own choosing, not even for its own origin.
+            let identity = TabIdentity {
+                cookie_jar: jar_with("https://example.com/", "sid=real; Path=/"),
+                top_level: Some(Url::parse("https://example.com/page").unwrap()),
+            };
+            let mut req = request_to("https://example.com/api");
+            req.key_data
+                .headers
+                .insert(http::header::COOKIE, "sid=forged; admin=1".parse().unwrap());
+
+            attach_request_cookies(&mut req, Some(&identity));
+
+            assert_eq!(cookie_header(&req), Some("sid=real"));
+        }
+
+        #[test]
+        fn a_forged_header_is_dropped_even_with_no_identity() {
+            let mut req = request_to("https://example.com/api");
+            req.key_data
+                .headers
+                .insert(http::header::COOKIE, "sid=forged".parse().unwrap());
+
+            attach_request_cookies(&mut req, None);
+
+            assert_eq!(cookie_header(&req), None, "an unidentified tab must send nothing");
+        }
+
+        #[test]
+        fn cross_site_requests_are_classified_as_such() {
+            let page = Url::parse("https://example.com/page").unwrap();
+
+            assert_eq!(
+                same_site_context(Some(&page), &Url::parse("https://example.com/api").unwrap()),
+                SameSiteContext::SameSite
+            );
+            assert_eq!(
+                same_site_context(Some(&page), &Url::parse("https://other.test/api").unwrap()),
+                SameSiteContext::CrossSite
+            );
+            // A scheme change is a site change: an http:// load must not receive
+            // cookies set for the https:// page.
+            assert_eq!(
+                same_site_context(Some(&page), &Url::parse("http://example.com/api").unwrap()),
+                SameSiteContext::CrossSite
+            );
+            // The document load itself has no document behind it.
+            assert_eq!(same_site_context(None, &page), SameSiteContext::SameSite);
+        }
+    }
 
     fn test_cfg() -> FetcherConfig {
         FetcherConfig {

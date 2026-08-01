@@ -77,6 +77,7 @@ impl Display for Modifiers {
 pub enum IoCommand {
     Fetch {
         zone_id: ZoneId,
+        tab_id: Option<TabId>,
         req: FetchRequest,
         handle: FetchHandle,
         reply_tx: oneshot::Sender<FetchResult>,
