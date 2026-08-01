@@ -1,10 +1,4 @@
 //! Benchmarks for the HTML5 parser covering both CPU time and heap allocations.
-//!
-//! Run timing:    cargo bench -p gosub_html5 --bench html_parser
-//! Run allocs:    cargo bench -p gosub_html5 --bench html_parser -- allocs
-//!
-//! The allocation benchmarks use a custom global allocator defined in this file
-//! (applies only to this benchmark binary).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, unsafe_code)]
 
 use std::alloc::{GlobalAlloc, Layout, System};

@@ -76,10 +76,6 @@ struct PipelineCache {
 }
 
 /// BrowsingContext dedicated to a specific tab
-///
-/// A BrowsingContext is a single instance of the engine that deals with a specific tab. Each tab
-/// has one BrowsingContext. These contexts though can use shared processes or threads, but not
-/// from other contexts, only from the main engine.
 pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
     /// Parsed DOM document
     document: Option<Arc<EngineDocument<C>>>,
@@ -351,12 +347,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Rebuild stages 1-6 (pipeline cache) if content has changed, without building a display
     /// list. Used by TileCache backends (Cairo, Skia, Vello) which composite tiles directly
     /// on the host thread and never consume the render list.
-    ///
-    /// Two paths:
-    /// - **Full pipeline** (`render_dirty`): runs stages 1–6 for the whole page and caches
-    ///   tiles. Triggered by navigation, DOM/style changes, or viewport resize.
-    /// - **Paint-only repaint** (`hover_dirty`): reuses the cached layout tree and repaints
-    ///   only the affected tiles, skipping stages 1–2.
     pub fn rebuild_pipeline_cache_if_needed(&mut self) {
         if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty {
             return;
@@ -410,12 +400,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     /// Build/refresh the device-agnostic render list if needed.
-    ///
-    /// Two paths:
-    /// - **Full pipeline** (`render_dirty`): runs stages 1–6 for the whole page, caches tiles,
-    ///   then composites. Triggered by navigation, DOM/style changes, or viewport resize.
-    /// - **Scroll composite** (`scroll_dirty`): re-composites visible tiles from the cache with
-    ///   the new scroll offset. No layout or rasterization work.
     pub fn rebuild_render_list_if_needed(&mut self) {
         if !self.render_dirty && !self.scroll_dirty {
             return;
@@ -453,11 +437,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     /// GPU-scene path: rebuild the page's paint-command list when content changed.
-    ///
-    /// Runs stages 1–3 (render tree → layout → layering) and paints every element into one
-    /// ordered command list - no tiling, rasterization, or tile compositing. Scroll-only changes
-    /// don't rebuild anything (the backend re-renders with a new translate); they just advance the
-    /// scene epoch so the worker emits a frame.
     pub fn rebuild_scene_cache_if_needed(&mut self) {
         if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty {
             return;
@@ -504,8 +483,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// If only the scroll offset changed (no content/layout change), returns a zero-copy
     /// `ExternalHandle::TileCache` that the host can composite directly, bypassing the Cairo
     /// render pipeline entirely. Returns `None` when a full render is needed.
-    ///
-    /// Calling this consumes the scroll-dirty flag and advances the scene epoch.
     pub fn take_scroll_handle(&mut self, dpr: u32) -> Option<ExternalHandle> {
         if !self.scroll_dirty || self.render_dirty || self.hover_dirty {
             return None;
@@ -575,11 +552,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     /// Hit-test at viewport coordinates `(vp_x, vp_y)` and update hover state.
-    ///
-    /// Returns `(visual_dirty, url_changed, link_url)`:
-    /// - `visual_dirty`: a node with a `:hover` CSS rule entered or left the hover chain → needs repaint.
-    /// - `url_changed`: the link URL under the cursor changed → caller should emit a `HoverUrl` event.
-    /// - `link_url`: the href of the nearest `<a>` ancestor, if any.
     pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> (bool, bool, Option<String>) {
         let _t_total = gosub_shared::timing_guard!("hover.total");
 
@@ -800,9 +772,6 @@ fn pipeline_build_scene<C: RenderConfiguration>(
 
 /// Runs pipeline stages 1–6 for the **entire page** (all tiles, not just the viewport slice)
 /// and returns a `PipelineCache` of rasterized tiles ready for repeated compositing.
-///
-/// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
-/// re-running layout or rasterization.
 fn pipeline_build_cache<C: RenderConfiguration>(
     doc: Arc<EngineDocument<C>>,
     viewport: &Viewport,
@@ -1154,9 +1123,6 @@ fn order_baked_tiles_by_layer(
 }
 
 /// Stage 7: composite visible tiles from the cache into `rl`.
-///
-/// Selects tiles that intersect `(scroll_x, scroll_y, vp_w, vp_h)` and blits them at
-/// screen-relative positions. This is the only work done on every scroll tick.
 fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w: f64, vp_h: f64, rl: &mut RenderList) {
     use gosub_shared::{timing_start, timing_stop};
     let ts7 = timing_start!("pipeline.composite");

@@ -2,15 +2,6 @@ use crate::stylesheet::CssValue;
 
 /// Resolve the math comparison functions `clamp()`, `min()` and `max()` over their
 /// length/number arguments.
-///
-/// Each operand is reduced to pixels via [`CssValue::unit_to_px`] (which handles px, em,
-/// rem, the absolute physical units and the viewport units), so mixed-unit expressions
-/// like `clamp(2.3rem, 5.5vw, 3.6rem)` collapse to a single pixel value. The result is
-/// returned as a `Unit(_, "px")`.
-///
-/// Returns `None` (leaving the function unresolved) when any operand is not a plain
-/// length we can compare - e.g. a percentage (no containing block here) or a nested
-/// function - so callers can fall back to the original token.
 pub fn resolve_math(func: &str, values: &[CssValue]) -> Option<CssValue> {
     // Drop the comma separators that the parser keeps between arguments.
     let operands: Option<Vec<f32>> = values

@@ -1,14 +1,4 @@
 //! Engine-side decision plumbing.
-//!
-//! When a top-level resource has loaded far enough for the UA to decide what to do with it
-//! (render, download, open externally, ...), the engine parks the fetch on a
-//! [`DecisionHub`] waiter and emits a `NavigationEvent::DecisionRequired` carrying a
-//! [`DecisionToken`]. The UA answers via the engine API, which resolves the waiter with
-//! the chosen [`Action`](crate::engine::types::Action).
-//!
-//! This used to live in the (now removed) `gosub_net` crate; the generic fetching layer
-//! moved to the external `gosub-sonar` crate, which has no notion of UA decisions, so the
-//! decision machinery is implemented here.
 
 use crate::engine::types::Action;
 use tokio::sync::oneshot;

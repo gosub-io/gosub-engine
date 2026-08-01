@@ -164,31 +164,15 @@ pub struct Cookie {
     pub secure: bool,
 
     /// Expiration time as **Unix timestamp** (seconds since 1970-01-01T00:00:00Z).
-    ///
-    /// Computed at receive time from `Max-Age` (preferred) or the `Expires` date header.
-    /// `None` means a session cookie that is not persisted across browser restarts.
     pub expires: Option<i64>,
 
     /// SameSite policy (`"Strict"`, `"Lax"`, or `"None"`).
-    ///
-    /// `Option::None` means the attribute was absent; the jar then applies the
-    /// modern default of **Lax**. The string value `"None"` (cross-site allowed)
-    /// additionally requires `secure=true`.
-    /// Consider modeling as an enum in the future.
     pub same_site: Option<String>,
 
     /// If `true`, cookie is blocked from access by client-side scripts (`document.cookie`).
     pub http_only: bool,
 
     /// Creation time as Unix timestamp in **milliseconds**.
-    ///
-    /// Set once when the cookie is first stored; preserved on subsequent updates to
-    /// the same (name, domain, path) triple so that creation order survives overwrites.
-    /// Used to break ties when two cookies have equal-length paths - earlier cookies
-    /// are sent first (RFC 6265bis §5.5).
-    ///
-    /// Defaults to `0` so that cookies persisted before this field was added still
-    /// deserialise correctly.
     #[serde(default)]
     pub created_at: i64,
 }

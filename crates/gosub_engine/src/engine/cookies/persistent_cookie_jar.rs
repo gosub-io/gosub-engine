@@ -22,10 +22,6 @@ impl PersistentCookieJar {
     }
 
     /// Snapshots the inner jar and persists it to the backing store.
-    ///
-    /// Persistence is best-effort: if the inner jar is not a [`DefaultCookieJar`]
-    /// (the downcast is required to obtain a cloneable snapshot), the snapshot is
-    /// skipped and an error is logged.
     fn persist(&self) {
         // Create a snapshot of the current state of the cookie jar. This is what we will store with "persist()"
         let snapshot = {

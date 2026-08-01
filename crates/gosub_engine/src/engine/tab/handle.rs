@@ -7,15 +7,6 @@ use gosub_render_pipeline::render::Viewport;
 use std::sync::Arc;
 
 /// A handle to a running [`Tab`](crate::tab).
-///
-/// The `TabHandle` is returned when a new tab is created within a zone.
-/// It acts as the **control interface** for the tab:
-/// - Sending asynchronous commands (title updates, navigation, viewport changes).
-/// - Holding a [`TabSink`], which can be used to subscribe to tab-related outputs.
-///
-/// Internally, commands are sent over an asynchronous [`tokio::sync::mpsc`] channel
-/// to the tab task. If the tab has already been closed, commands will fail with
-/// [`EngineError::ChannelClosed`].
 #[derive(Clone)]
 pub struct TabHandle {
     /// The unique identifier of the tab.
@@ -34,10 +25,6 @@ impl std::fmt::Debug for TabHandle {
 
 impl TabHandle {
     /// Send a raw [`TabCommand`] to the tab.
-    ///
-    /// This is the low-level method for interacting with a tab.
-    /// Higher-level helpers such as [`set_title`](Self::set_title) and
-    /// [`navigate`](Self::navigate) are built on top of this.
     ///
     /// # Errors
     /// Returns [`EngineError::ChannelClosed`] if the tab task is no longer running.

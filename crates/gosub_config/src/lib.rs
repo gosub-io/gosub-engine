@@ -50,10 +50,6 @@ pub trait StorageAdapter: Send + Sync {
 pub struct SubscriptionId(u64);
 
 /// Callback invoked when a watched setting changes. It receives the setting key and the new value.
-///
-/// The callback is invoked after the store's internal lock has been released, so it MAY read or
-/// write the same [`Config`] without deadlocking. Beware infinite recursion if a callback sets a
-/// key it also subscribes to.
 pub type SubscriptionCallback = Arc<dyn Fn(&str, &Setting) + Send + Sync>;
 
 struct Subscription {
@@ -71,10 +67,6 @@ pub struct Config(Arc<RwLock<ConfigStore>>);
 
 impl Config {
     /// Creates a config from the given settings schema, backed by a volatile in-memory store.
-    ///
-    /// `gosub_config` is agnostic of which settings exist: the caller (e.g. the engine) supplies
-    /// the schema - the set of known keys with their defaults and constraints. Only keys present
-    /// in the schema can be read or written.
     #[must_use]
     pub fn new(schema: impl IntoIterator<Item = SettingInfo>) -> Self {
         Config(Arc::new(RwLock::new(ConfigStore::new(schema))))
@@ -94,16 +86,6 @@ impl Config {
     }
 
     /// Merges every setting from `other` into this config under an optional namespace.
-    ///
-    /// Each of `other`'s settings is registered here with key `"{namespace}.{key}"` (or just
-    /// `key` when `namespace` is empty), carrying over its description, default, constraint and
-    /// *current* value. For example, merging a user-agent config under `"user_agent"` turns its
-    /// `tabs.close_position` into `user_agent.tabs.close_position`.
-    ///
-    /// This is a one-time snapshot copy, not a live link: later changes in `other` are not
-    /// reflected here. Keys that already exist are left untouched (and logged). Merged settings
-    /// live in memory only; they are not written to this config's storage adapter unless later
-    /// `set`. Returns the number of settings actually merged.
     pub fn merge(&self, other: &Config, namespace: &str) -> usize {
         // Snapshot `other` first (its read guard is released at the end of this statement) so that
         // acquiring our own write lock can never overlap with it - safe even if `other` is a clone
@@ -246,9 +228,6 @@ impl Config {
 /// Grants access to a [`Config`] handle. Subsystems that only need to read or watch settings
 /// should bound on `T: HasConfig` rather than taking a concrete context type, so they stay
 /// decoupled from how the engine is assembled.
-///
-/// A bare [`Config`] implements this (returning itself), and a runtime context that owns a
-/// `Config` implements it by returning a reference to that field.
 pub trait HasConfig {
     /// Returns the configuration handle.
     fn config(&self) -> &Config;

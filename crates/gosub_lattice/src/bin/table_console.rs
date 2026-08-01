@@ -1,8 +1,5 @@
 /// Console table renderer - run with:
 ///   cargo run --bin table_console -p gosub_lattice
-///
-/// Each demo mirrors an integration test in `src/tests.rs`, so the same
-/// scenarios the tests assert numerically can be eyeballed here.
 use gosub_lattice::mock::{cell, render_tree, MockTable, MockTree};
 use gosub_lattice::{compute_table_layout, TableRole};
 

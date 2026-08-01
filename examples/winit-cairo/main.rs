@@ -1,10 +1,4 @@
 //! Minimal browser window: Cairo rasterizer + winit toolkit + softbuffer presentation.
-//!
-//! Usage: cargo run --example winit-cairo -- https://example.com
-//!
-//! Cairo/Pango need GTK4 initialised for font rendering (no GTK window is created).
-//! On headless systems set GDK_BACKEND=offscreen.
-//! Press Ctrl+L to focus the address bar.
 
 use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};

@@ -7,13 +7,6 @@ use gosub_render_pipeline::render::Viewport;
 use std::sync::Arc;
 
 /// Default parameters for a newly created tab.
-///
-/// These values are *initial conditions* for the tab. They are optional and
-/// usually provided by the caller when creating a tab.
-///
-/// - [`url`](Self::url): initial URL to load
-/// - [`title`](Self::title): optional title (used if no document title is available)
-/// - [`viewport`](Self::viewport): initial viewport size
 #[derive(Clone, Debug, Default)]
 pub struct TabDefaults {
     /// Initial URL to navigate to.
@@ -62,9 +55,6 @@ pub struct TabOverrides {
 }
 
 /// Policy for selecting a tab's cookie jar.
-///
-/// Tabs can either inherit their zone’s cookie jar, create a temporary one,
-/// or use a fully custom [`CookieJarHandle`].
 #[derive(Clone, Debug, Default)]
 pub enum TabCookieJar {
     /// Use the zone’s cookie jar (default).
@@ -79,9 +69,6 @@ pub enum TabCookieJar {
 }
 
 /// Policy for selecting a tab's storage scope.
-///
-/// Tabs can either inherit their zone’s [`StorageService`], create an
-/// ephemeral in-memory service, or use a custom one.
 #[derive(Clone, Debug, Default)]
 pub enum TabStorageScope {
     /// Use the zone’s storage service (default).

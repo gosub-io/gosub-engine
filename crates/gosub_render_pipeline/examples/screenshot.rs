@@ -1,12 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 /// Renders a simple HTML page through the gosub pipeline and saves the result as a PNG.
-///
-/// Each element's computed box is painted with its CSS background-color. Text nodes are
-/// rendered as a semi-transparent dark bar (placeholder - real text rasterisation requires
-/// a font backend not available here).
-///
-/// Run with:
-///   cargo run --example screenshot -p gosub_render_pipeline
 use std::sync::Arc;
 
 use gosub_css3::system::Css3System;

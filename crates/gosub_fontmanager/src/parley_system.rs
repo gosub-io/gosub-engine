@@ -9,13 +9,6 @@ use parley::style::{FontStyle as ParleyStyle, FontWeight as ParleyWeight};
 use parley::{Alignment, AlignmentOptions, FontContext, LayoutContext, PositionedLayoutItem};
 
 /// A [`FontSystem`] implementation backed by Parley + Fontique.
-///
-/// Holds a single `FontContext` (fontique collection) and `LayoutContext` so that
-/// all callers - the layout engine and every renderer - share the same font data and
-/// produce consistent glyph metrics.
-///
-/// Construct once at application start, wrap in `Arc<Mutex<ParleyFontSystem>>`, and
-/// pass the same `Arc` into both the Taffy layouter and the rendering backend.
 pub struct ParleyFontSystem {
     font_cx: FontContext,
     layout_cx: LayoutContext<()>,
@@ -56,9 +49,6 @@ impl ParleyFontSystem {
 
 impl ParleyFontSystem {
     /// Grants direct access to the underlying Parley font collection.
-    ///
-    /// Used by `TaffyLayouter` so that the same font collection is shared between
-    /// the layout engine and rendering, ensuring consistent shaping.
     pub fn font_cx_mut(&mut self) -> &mut FontContext {
         &mut self.font_cx
     }
@@ -140,9 +130,6 @@ impl FontSystem for ParleyFontSystem {
     }
 
     /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
-    ///
-    /// Resolves the family (mapping generics, appending a `sans-serif` fallback) then lays it out
-    /// with Parley and reads the line extents.
     fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32) {
         if text.is_empty() {
             return (0.0, 0.0);
@@ -315,10 +302,6 @@ impl ParleyFontSystem {
 /// names, trimming whitespace and matching quotes. A trailing `sans-serif` generic is appended as
 /// an ultimate fallback if the list doesn't already end in a generic, so resolution always has a
 /// last resort.
-///
-/// Passing the whole comma-joined string as a single family name (the old behaviour) never matches
-/// an installed family like `Verdana`, so resolution silently fell through to the `sans-serif`
-/// generic - picking a different (often thinner) font than the page author intended.
 pub fn split_css_families(families: &str) -> Vec<&str> {
     let mut out: Vec<&str> = families
         .split(',')

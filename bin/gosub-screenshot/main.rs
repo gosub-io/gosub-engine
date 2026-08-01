@@ -1,10 +1,5 @@
 //! Headless screenshot tool: loads a URL through the full gosub render pipeline and
 //! saves the result as a PNG without opening a window.
-//!
-//! Uses the Skia backend for **CPU** rasterization - no GPU, no wgpu adapter, and no
-//! system libraries (skia-safe is statically linked). The page is rasterized into small
-//! cached tiles (`ExternalHandle::TileCache`) which we composite here, so there is no
-//! GPU texture-size limit and pages of any height can be captured.
 
 use clap::Parser;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};

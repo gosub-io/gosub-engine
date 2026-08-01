@@ -1,6 +1,4 @@
 //! Resource pipeline modules for processing different asset types.
-//!
-//! Each module defines a trait for parsing streams and byte slices of the respective asset type.
 
 use crate::engine::resource_pipeline::css::{CssPipeline, CssPipelineImpl};
 use crate::engine::resource_pipeline::font::{FontPipeline, FontPipelineImpl};

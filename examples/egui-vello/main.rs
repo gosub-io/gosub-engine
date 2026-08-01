@@ -1,8 +1,4 @@
 //! Minimal browser window: Vello (GPU) rasterizer + egui toolkit.
-//!
-//! Usage: cargo run --example egui-vello -- https://example.com
-//!
-//! No GTK dependency - pure egui + wgpu.
 
 use eframe::{egui, CreationContext};
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};

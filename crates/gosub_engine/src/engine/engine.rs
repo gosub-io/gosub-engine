@@ -129,12 +129,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     }
 
     /// Starts the engine's I/O runtime and returns the main run-loop future.
-    ///
-    /// The returned future is intentionally **not** spawned: the caller decides how to drive it -
-    /// `tokio::spawn` it onto a background task, `.await` it inline, or poll it inside a `select!`.
-    /// This keeps the engine from imposing a runtime/threading model on the embedder (it can be
-    /// driven on the caller's current task/thread). The engine is considered running as soon as
-    /// this returns `Ok`; driving the future processes engine commands such as shutdown.
     pub fn start(&mut self) -> Result<impl std::future::Future<Output = ()> + 'static, EngineError> {
         if self.running {
             return Err(EngineError::AlreadyRunning);
@@ -187,9 +181,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     }
 
     /// Build the engine’s inbound command-loop future (owns everything it needs, hence `'static`).
-    ///
-    /// Returns `None` if the loop was already taken (engine already started). The caller drives the
-    /// future; this method does not spawn it.
     pub fn run(&mut self) -> Option<impl std::future::Future<Output = ()> + 'static> {
         self.running = true;
 
@@ -311,10 +302,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
     /// Close a zone: stop its tabs and fetcher, release its cookie jar, and free
     /// its [`EngineConfig::max_zones`] slot.
-    ///
-    /// Persisted cookie data stays on disk (the zone can be reopened later with the
-    /// same [`ZoneId`]); only the in-memory state is released. Emits
-    /// [`EngineEvent::ZoneClosed`] when done.
     #[instrument(name = "engine.close_zone", level = "debug", skip(self, zone))]
     pub async fn close_zone(&mut self, zone: Zone<C>) {
         let zone_id = zone.id;

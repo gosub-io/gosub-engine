@@ -1,8 +1,4 @@
 /// A simple in-memory table tree used for testing and console rendering.
-///
-/// Build a table with [`MockTable`], call [`MockTable::render`] to get an ASCII
-/// diagram, or [`MockTable::into_tree`] to get the raw [`MockTree`] and run
-/// `compute_table_layout` yourself.
 use std::collections::HashMap;
 
 use crate::compute::compute_table_layout;
@@ -362,8 +358,6 @@ impl TableTree for MockTree {
 // ASCII renderer
 
 /// Render the table stored in `tree` as an ASCII-art string.
-///
-/// Requires that `compute_table_layout` has already been called on the tree.
 pub fn render_tree(tree: &MockTree, root: u32) -> String {
     let model = build_model(tree, root);
 
@@ -476,9 +470,6 @@ enum SectionKind {
 /// Draw a horizontal border line, correctly handling both colspan (no `+` inside
 /// a spanning cell horizontally) and rowspan (no `---` where a cell continues
 /// vertically into the next row).
-///
-/// `row_spanned[c]` = `true` means column `c` has a rowspan cell that crosses
-/// this boundary - so the separator for that column is spaces, not dashes.
 fn h_border(
     col_char_w: &[usize],
     n_cols: usize,

@@ -114,13 +114,6 @@ pub use json::JsonCookieStore;
 pub use sqlite::SqliteCookieStore;
 
 /// A cookie **store** mints per-zone cookie **jars** and (optionally) persists them.
-///
-/// Zones never store a `CookieStore`; they only hold a [`CookieJarHandle`].
-/// The store exists to:
-/// 1) provide the jar for a given [`ZoneId`], and
-/// 2) write/read cookie state to/from durable storage.
-///
-/// Implementations must be `Send + Sync` and safe for concurrent use.
 pub trait CookieStore: Send + Sync {
     /// Returns (or creates and returns) the cookie jar handle for `zone_id`.
     ///
@@ -133,47 +126,21 @@ pub trait CookieStore: Send + Sync {
     fn jar_for(&self, zone_id: ZoneId) -> Option<CookieJarHandle>;
 
     /// Persists the cookie state for `zone_id` from a provided snapshot.
-    ///
-    /// This allows the engine to push the current in-memory state (captured in
-    /// a [`DefaultCookieJar`] snapshot) into the store without requiring the store
-    /// to hold a direct reference to the live jar.
-    ///
-    /// Implementations may choose to:
-    /// - Replace the stored state, or
-    /// - Merge it (e.g., last-write-wins), depending on policy.
-    ///
-    /// This should be **best-effort** and must not panic.
     fn persist_zone_from_snapshot(&self, zone_id: ZoneId, snapshot: &DefaultCookieJar);
 
     /// Removes all persisted cookie data for `zone_id` from the store.
-    ///
-    /// Implementations should also drop any internal cache for this zone so that
-    /// subsequent calls to [`CookieStore::jar_for`] can recreate a fresh, empty jar (or return `None`).
-    ///
-    /// This operation should be **idempotent** and must not panic.
     fn remove_zone(&self, zone_id: ZoneId);
 
     /// Releases the in-memory jar for a **closed** zone: persists a final snapshot
     /// (for persisting stores) and evicts the cache entry, leaving the durable data
     /// intact so the zone's cookies are available when it is opened again.
-    ///
-    /// Contrast with [`CookieStore::remove_zone`], which *deletes* the persisted data.
-    ///
-    /// This operation should be **idempotent** and must not panic.
     fn release_zone(&self, zone_id: ZoneId);
 
     /// Persists all known zone jars to durable storage.
-    ///
-    /// Called during graceful shutdown or at explicit flush points. Implementations
-    /// should make a **best-effort** to write all dirty state and avoid panicking.
     fn persist_all(&self);
 }
 
 /// Shared `jar_for` implementation for persisting stores (JSON, SQLite).
-///
-/// Returns the cached jar for `zone_id` when present; otherwise calls `load` for the
-/// zone's persisted state, wraps it in a [`PersistentCookieJar`] bound to `store_self`
-/// (so every mutation writes back to the store), and caches the handle.
 pub(crate) fn provision_persistent_jar(
     jars: &RwLock<HashMap<ZoneId, CookieJarHandle>>,
     store_self: &RwLock<Option<CookieStoreHandle>>,
@@ -208,9 +175,6 @@ pub(crate) fn provision_persistent_jar(
 }
 
 /// Shared `release_zone` cache eviction for persisting stores (JSON, SQLite).
-///
-/// Removes the zone's jar from the cache and returns a final snapshot to persist,
-/// when the cached jar has the [`PersistentCookieJar`]-around-[`DefaultCookieJar`] shape.
 pub(crate) fn evict_and_snapshot(
     jars: &RwLock<HashMap<ZoneId, CookieJarHandle>>,
     zone_id: ZoneId,
@@ -223,10 +187,6 @@ pub(crate) fn evict_and_snapshot(
 }
 
 /// Shared `persist_all` snapshot loop for persisting stores (JSON, SQLite).
-///
-/// Calls `save` with a snapshot of every cached jar that is a [`PersistentCookieJar`]
-/// wrapping a [`DefaultCookieJar`] - the only shape these stores mint, and the only one
-/// with a stable serialization.
 pub(crate) fn snapshot_cached_jars(
     jars: &HashMap<ZoneId, CookieJarHandle>,
     mut save: impl FnMut(ZoneId, &DefaultCookieJar),

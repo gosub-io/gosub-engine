@@ -12,8 +12,6 @@ pub type Number = f32;
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     /// A [`<at-keyword-token>`](<https://drafts.csswg.org/css-syntax/#at-keyword-token>-     diagram)
-    ///
-    /// The value does not include the `@` marker.
     AtKeyword(String),
     Ident(String),
     Function(String),
@@ -28,18 +26,12 @@ pub enum TokenType {
     Percentage(Number),
     Number(Number),
     /// A [`<string-token>`](https://drafts.csswg.org/css-syntax/#string-token-diagram)
-    ///
-    /// The value does not include the quotes.
     QuotedString(String),
     /// A `<bad-string-token>`
-    ///
-    /// This token always indicates a parse error.
     BadString(String),
     /// A [`<whitespace-token>`](https://drafts.csswg.org/css-syntax/#whitespace-token-diagram)
     Whitespace(String),
     /// A [`<hash-token>`](https://drafts.csswg.org/css-syntax/#hash-token-diagram) (with the type flag set to "unrestricted")
-    ///
-    /// The value does not include the `#` marker.
     Hash(String),
     /// A `<delim-token>`
     Delim(char),
@@ -543,9 +535,6 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// 4.3.6. [Consume a unicode-range token](https://www.w3.org/TR/css-syntax-3/#consume-unicode-range-token)
-    ///
-    /// Consumes `U+` followed by up to 6 hex digits, optional `?` wildcards, and an optional
-    /// `-<hex>` range end. The token stores the raw textual form.
     fn consume_unicode_range_token(&mut self) -> Token {
         let loc = self.current_location();
 
@@ -591,8 +580,6 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// 4.3.5. [Consume a string token](https://www.w3.org/TR/css-syntax-3/#consume-string-token)
-    ///
-    /// Returns either a `<string-token>` or `<bad-string-token>`.
     fn consume_string_token(&mut self) -> Token {
         let loc = self.current_location();
 
@@ -645,8 +632,6 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// 4.3.12. [Consume a number](https://www.w3.org/TR/css-syntax-3/#consume-number)
-    ///
-    /// Note: for the sake of simplicity, we exclude the number type mentioned in the algorithm.
     fn consume_number(&mut self) -> Number {
         let mut value = String::new();
         let lookahead = self.current_char();
@@ -682,8 +667,6 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// 4.3.4. [Consume an ident-like token](https://www.w3.org/TR/css-syntax-3/#consume-ident-like-token)
-    ///
-    /// Returns: `<ident-token>`, `<function-token>`, `<url-token>`, or `<bad-url-token>`.
     fn consume_ident_like_seq(&mut self) -> Token {
         let loc = self.current_location();
 
@@ -709,8 +692,6 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// 4.3.6. [Consume a url token](https://www.w3.org/TR/css-syntax-3/#consume-a-url-token)
-    ///
-    /// Returns either a `<url-token>` or a `<bad-url-token>`
     fn consume_url(&mut self) -> Token {
         let mut url = String::new();
 
@@ -753,8 +734,6 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// 4.3.14. [Consume the remnants of a bad url](https://www.w3.org/TR/css-syntax-3/#consume-remnants-of-bad-url)
-    ///
-    /// Used is to consume enough of the input stream to reach a recovery point where normal tokenizing can resume.
     fn consume_remnants_of_bad_url(&mut self) {
         loop {
             // recovery point
@@ -814,11 +793,6 @@ impl<'stream> Tokenizer<'stream> {
 
     /// 4.3.11. [Consume an ident
     /// sequence](https://www.w3.org/TR/css-syntax-3/#consume-name)
-    ///
-    /// Note: that algorithm does not do the verification that are necessary to
-    /// ensure the returned code points would constitute an <ident-token>.
-    /// Caller should ensure that the stream starts with an ident sequence before calling this
-    /// algorithm.
     fn consume_ident(&mut self) -> String {
         let mut value = String::new();
 

@@ -16,12 +16,6 @@ impl Css3<'_> {
     }
 
     /// Disambiguates, inside a style block, between a nested style rule and a declaration.
-    ///
-    /// Per CSS Nesting, a construct is a nested rule when its prelude is followed by a `{ ... }`
-    /// block, and a declaration when it terminates at a `;` or at the block's closing `}`. We
-    /// scan ahead from the current position for whichever comes first at the top level, ignoring
-    /// any content nested inside parentheses, brackets or functions (e.g. `calc(...)`, attribute
-    /// selectors, `:is(...)`), which can never contain a top-level `{`.
     fn starts_nested_rule(&mut self) -> bool {
         let mut depth: usize = 0;
         let mut offset = 0;
@@ -51,13 +45,6 @@ impl Css3<'_> {
 
     /// Reads until the end of a rule (or the end of the enclosing block), in case there is a
     /// syntax error.
-    ///
-    /// A rule is either a statement that ends at a top-level `;` (e.g. a block-less at-rule) or a
-    /// construct whose body is a `{ ... }` block. To resynchronise at the next rule boundary we
-    /// balance nested `()`, `[]`, `{}` and functions: a top-level `;` ends a block-less rule, and
-    /// once we have entered and matched a `{ ... }` block we stop right after its closing `}`. A
-    /// `}` seen while still at the top level belongs to an enclosing block we did not open, so we
-    /// leave it in place for that block to consume.
     pub(crate) fn parse_until_rule_end(&mut self) {
         let mut depth: usize = 0;
         while let Ok(t) = self.consume_any() {

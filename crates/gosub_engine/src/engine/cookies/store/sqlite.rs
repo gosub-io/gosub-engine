@@ -56,8 +56,6 @@ pub struct SqliteCookieStore {
 impl SqliteCookieStore {
     /// Opens (or creates) a SQLite database at `path` and ensures the schema exists.
     ///
-    /// Returns an `Arc<Self>` ready to be used as a `CookieStoreHandle`.
-    ///
     /// # Errors
     /// Returns [`EngineError::CookieStore`] if the pool cannot be created or the
     /// `cookies` table cannot be created/migrated.
@@ -131,8 +129,6 @@ impl SqliteCookieStore {
     }
 
     /// Loads all cookies for `zone_id` from the database into a new [`DefaultCookieJar`].
-    ///
-    /// Best-effort: on database errors an empty jar is returned and the error is logged.
     fn load_zone(&self, zone_id: ZoneId) -> DefaultCookieJar {
         let mut jar = DefaultCookieJar::new();
         let Some(conn) = self.conn() else {
@@ -182,9 +178,6 @@ impl SqliteCookieStore {
     }
 
     /// Replaces all cookies for `zone_id` with the contents of `jar` in a transaction.
-    ///
-    /// DELETEs the existing rows for the zone and INSERTs the new set.
-    /// Best-effort: on database errors the snapshot is skipped and the error is logged.
     fn save_zone(&self, zone_id: ZoneId, jar: &DefaultCookieJar) {
         let Some(mut conn) = self.conn() else {
             return;

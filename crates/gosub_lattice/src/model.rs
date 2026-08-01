@@ -45,10 +45,6 @@ pub struct SourceCell<N> {
 }
 
 /// Walk `tree` starting from `table_node` and build the typed `TableModel`.
-///
-/// Anonymous row groups and rows are generated where the CSS spec requires them
-/// (§17.2.1): a bare `Row` directly under the table becomes a body row group;
-/// a bare `Cell` directly under a row group becomes an anonymous row.
 pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<T::NodeId> {
     let mut model = TableModel {
         node: table_node,

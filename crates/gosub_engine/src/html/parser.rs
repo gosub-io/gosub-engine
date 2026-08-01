@@ -73,12 +73,6 @@ impl Default for HtmlParseConfig {
 
 /// Main entry point: buffer the HTML stream, parse it into a real DOM document,
 /// and report discovered sub-resources.
-///
-/// - `base_url`: used to resolve relative URLs and as the document URL.
-/// - `reader`: the response body stream (after the UA has chosen Render).
-/// - `cancel`: cancellation token (tab/nav cancellation).
-/// - `cfg`: buffer limit config.
-/// - `on_discover`: callback invoked for each sub-resource hint found.
 pub async fn parse_main_document_stream<C, R, F>(
     base_url: Url,
     mut reader: R,

@@ -50,9 +50,6 @@ use std::fmt;
 use crate::zone::ZoneConfig;
 
 /// Overall engine configuration (engine-wide, set-once knobs).
-///
-/// Use [`EngineConfig::default()`] for sensible defaults, or
-/// [`EngineConfig::builder()`] to customize with validation.
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
     /// Maximum number of zones that can be created within this engine.
