@@ -769,12 +769,6 @@ pub trait PipelineDocument: Send + Sync {
 }
 
 // ── Pseudo-element (::before / ::after) synthetic nodes ───────────────────────
-//
-// Generated content has no DOM node, but the pipeline is keyed by `NodeId` - so mint synthetic
-// ids the adapter resolves on the fly, letting the rest of the pipeline treat them as normal nodes.
-//
-// Encoding: top bit flags a synthetic id, next two bits are the role, the rest hold the owner
-// element id. Real DOM ids are small, so the high bits are free.
 const PSEUDO_FLAG: u64 = 1 << 62;
 const ROLE_BEFORE_ELEM: u64 = 0; // the ::before pseudo-element box
 const ROLE_AFTER_ELEM: u64 = 1; // the ::after pseudo-element box

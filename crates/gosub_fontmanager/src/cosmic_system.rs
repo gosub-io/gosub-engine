@@ -2,9 +2,6 @@
 //! rustybuzz shaping + swash). It implements exactly the same trait as [`crate::ParleyFontSystem`],
 //! demonstrating that the font abstraction is engine-agnostic - the layouter can measure with it,
 //! and a backend that paints [`ShapedText`] glyph runs can render with it.
-//!
-//! Note: cosmic-text doesn't expose the underlying shared font bytes, so `blob_for` copies them
-//! when filling a [`FontBlob`] (cached upstream by whoever holds the `ResolvedFont`).
 
 use cosmic_text::{
     fontdb, Align, Attrs, Buffer, Family, FontSystem as CosmicTextFontSystem, Metrics, Shaping, Stretch, Style, Weight,
@@ -47,10 +44,6 @@ struct RawRun {
 }
 
 /// Decoration metrics estimated from the font size.
-///
-/// cosmic-text doesn't surface the font's own underline/strikeout tables, so use the common
-/// conventions (underline ~1/10 em below the baseline, strikeout ~1/4 em above, both ~1/14 em
-/// thick) until a swash-based lookup replaces this.
 fn heuristic_metrics(size: f32) -> RunMetrics {
     RunMetrics {
         underline_offset: size * 0.1,
@@ -99,11 +92,6 @@ impl CosmicFontSystem {
     }
 
     /// Raw font bytes for a resolved face, as a [`FontBlob`].
-    ///
-    /// cosmic-text doesn't expose the underlying shared `Arc<[u8]>`, so this copies the file
-    /// bytes and assumes face index 0 (correct for single-face files; `.ttc` collections would
-    /// need the real index). Only used to fill `FontBlob`, which a cosmic draw path doesn't yet
-    /// consume - so the copy is harmless for now.
     fn blob_for(&mut self, id: fontdb::ID, weight: Weight) -> Option<FontBlob> {
         let font = self.inner.get_font(id, weight)?;
         Some(FontBlob::new(Arc::new(font.data().to_vec()), 0))

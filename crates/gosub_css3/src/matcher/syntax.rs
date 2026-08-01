@@ -498,10 +498,6 @@ fn parse_component_doubleampersand_list(input: &str) -> IResult<&str, SyntaxComp
 /// as another case, when we find a ], we are at the end of a group, so that will also be the
 /// end of this juxtaposition group. The only extra check we need to do if we reach the end
 /// of the input. If so, then we are also at the end of the group.
-///
-/// This function will return the input with leading spaces removed, but keeps the next separator
-/// or char for the parser to pick up. Finally, it will return a boolean true if it's not the end
-/// of the juxtaposition group, or false when the end is found.
 fn juxtaseparator(input: &str) -> IResult<&str, bool> {
     let (input, _) = space0(input)?;
 

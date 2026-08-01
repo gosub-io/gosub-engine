@@ -1,12 +1,4 @@
 //! Minimal GoSub tutorial example.
-//!
-//! Demonstrates the core lifecycle:
-//!   Engine → Zone → Tab → Navigate → Event loop → Shutdown
-//!
-//! Run with:
-//!   cargo run --example tutorial -- https://example.com
-//!
-//! See docs/tutorial.md for a step-by-step walkthrough.
 // Example code: panicking on bad input is the desired behavior, as in any test code.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -26,13 +18,6 @@ async fn main() -> Result<(), EngineError> {
     let url = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".into());
 
     // ── Step 1: Create the engine ────────────────────────────────────────────────
-    //
-    // GosubEngine is the central hub. It owns the event bus, networking stack,
-    // and render backend. You provide:
-    //   - a render backend (NullBackend here - no pixels, just navigation)
-    //   - a compositor (receives Redraw events and composites them into a frame)
-    //
-    // EngineConfig lets you tune limits like max_zones; Default is fine to start.
     let backend = NullBackend::new();
     let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
         Some(EngineConfig::default()),
@@ -47,10 +32,6 @@ async fn main() -> Result<(), EngineError> {
     let mut events = engine.subscribe_events();
 
     // ── Step 2: Create a zone ────────────────────────────────────────────────────
-    //
-    // A Zone is an isolated browsing profile: it owns cookies, local/session
-    // storage, and a set of tabs. Think of it like a browser profile or a
-    // private window. Multiple zones can coexist within one engine instance.
     let services = ZoneServices {
         storage: Arc::new(StorageService::new(
             Arc::new(InMemoryLocalStore::new()),
@@ -64,9 +45,6 @@ async fn main() -> Result<(), EngineError> {
     let mut zone = engine.create_zone(None, services, None)?;
 
     // ── Step 3: Open a tab ───────────────────────────────────────────────────────
-    //
-    // A Tab is a single browsing context (like a browser tab). You control it
-    // through the returned TabHandle by sending TabCommands.
     let tab = zone
         .create_tab(
             TabDefaults {
@@ -79,17 +57,10 @@ async fn main() -> Result<(), EngineError> {
         .expect("cannot create tab");
 
     // ── Step 4: Navigate ─────────────────────────────────────────────────────────
-    //
-    // TabCommand::Navigate kicks off the async fetch + parse pipeline. The engine
-    // emits EngineEvent::Navigation events as the load progresses.
     println!("Navigating to {url}");
     tab.send(TabCommand::Navigate { url }).await?;
 
     // ── Step 5: Event loop ───────────────────────────────────────────────────────
-    //
-    // The engine is event-driven: your application reacts to EngineEvent values
-    // received from the channel returned by subscribe_events().
-    // We stop once navigation finishes (or fails), or when Ctrl-C is pressed.
     loop {
         tokio::select! {
             Ok(ev) = events.recv() => {
@@ -105,9 +76,6 @@ async fn main() -> Result<(), EngineError> {
     }
 
     // ── Step 6: Shutdown ─────────────────────────────────────────────────────────
-    //
-    // Always shut the engine down cleanly - this drains in-flight tasks and
-    // flushes any pending state before the process exits.
     engine.shutdown().await?;
 
     let _ = join_handle.await;

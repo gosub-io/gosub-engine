@@ -18,11 +18,6 @@ pub type TaskId = u64;
 /// Request references indicate what initiated a request without the net layer needing to know
 /// about higher-level engine concepts like tabs. This keeps the net module independent of the
 /// engine's tab/navigation machinery while still allowing it to emit typed events.
-///
-/// The external `gosub-sonar` fetching crate only knows opaque `u64` correlation tags
-/// ([`gosub_sonar::RequestReference`]); use [`REF_REGISTRY`] to intern an engine reference
-/// into a sonar tag when building a `FetchRequest` and to resolve it back in fetcher
-/// callbacks.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub enum RequestReference {
     /// Main doc for a tab
@@ -51,9 +46,6 @@ impl Display for RequestReference {
 
 /// Process-wide interning registry between the engine's rich [`RequestReference`] and the
 /// opaque `Tagged(u64)` references gosub-sonar carries through its fetch pipeline.
-///
-/// Entries currently live for the lifetime of the process (one small entry per navigation /
-/// load group); if that ever matters, cleanup can be tied to `on_ref_done` finalization.
 pub static REF_REGISTRY: LazyLock<RefRegistry> = LazyLock::new(RefRegistry::new);
 
 pub struct RefRegistry {

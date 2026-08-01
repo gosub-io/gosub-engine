@@ -15,11 +15,6 @@ pub enum DocumentType {
 }
 
 /// Storage-agnostic document interface.
-///
-/// All node data is accessed through `NodeId` handles. The concrete storage
-/// (arena, column store, slotmap, etc.) is entirely hidden behind this trait.
-/// No `Node` struct is ever handed out - callers ask the document questions
-/// about a node by its ID.
 pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'static {
     // Construction
 

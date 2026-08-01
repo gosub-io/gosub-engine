@@ -1,7 +1,4 @@
 //! Text shaping and cached drawing for Vello using Parley.
-//!
-//! Shaped glyph runs are cached by [`TextKey`] so redrawing the same text+font+size/wrap/alignment
-//! skips the (relatively expensive) shaping step.
 
 use crate::backend::font_cache::FontCache;
 use crate::backend::font_manager::FontManager;
@@ -58,9 +55,6 @@ pub struct CachedRun {
 }
 
 /// Shapes text via Parley and draws it via Vello, caching shaped runs by [`TextKey`].
-///
-/// The `FontContext` is injected by the caller rather than owned here, so all rendering components
-/// share one font collection.
 pub struct TextRenderer {
     cache: HashMap<TextKey, Arc<[CachedRun]>>,
 }

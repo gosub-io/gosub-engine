@@ -62,8 +62,6 @@ pub struct JsonCookieStore {
 impl JsonCookieStore {
     /// Creates (or opens) a JSON cookie store at `path`.
     ///
-    /// If the file does not exist, an empty structure is written to disk.
-    ///
     /// # Errors
     /// Returns [`EngineError::CookieStore`] if the initial write of an empty file fails.
     pub fn new(path: PathBuf) -> Result<Arc<Self>, EngineError> {
@@ -87,9 +85,6 @@ impl JsonCookieStore {
     }
 
     /// Loads and deserializes the full cookie store file.
-    ///
-    /// Returns an empty structure if the file cannot be read or deserialized
-    /// (the error is logged).
     fn load_file(&self) -> CookieStoreFile {
         let contents = match fs::read_to_string(&self.path) {
             Ok(contents) => contents,
@@ -106,8 +101,6 @@ impl JsonCookieStore {
     }
 
     /// Serializes and writes the full cookie store file (pretty-printed).
-    ///
-    /// Best-effort: serialization or I/O errors are logged and the write is skipped.
     fn save_file(&self, store_file: &CookieStoreFile) {
         let contents = match serde_json::to_vec_pretty(store_file) {
             Ok(contents) => contents,

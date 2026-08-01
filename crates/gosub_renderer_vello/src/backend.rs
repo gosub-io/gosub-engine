@@ -1,16 +1,4 @@
 //! Vello render backend.
-//!
-//! Vello is a compute-based scene renderer, not a canvas, so there is no tile cache: the engine
-//! hands us one whole-viewport paint-command list and `render()` draws it as a single `Scene` in one
-//! GPU pass, re-rendered from scratch every frame (a scroll is just a translate). Cost scales with
-//! total scene size rather than visible content, so the tile path stays the better fit for Cairo/Skia.
-//!
-//! Group opacity and fixed/sticky positioning are fused into that pass via `scene.push_layer` plus a
-//! per-anchor transform, driven by the painter's `PaintCommand::PushLayer`/`PopLayer` markers - not
-//! by a separate tile compositor.
-//!
-//! (Opt-in `GOSUB_VELLO_GPU_TILES=1` instead routes Vello through the shared GPU tile compositor
-//! like Skia-GPU; that path *does* tile.)
 
 use crate::backend::font_cache::FontCache;
 use crate::backend::font_manager::FontManager;

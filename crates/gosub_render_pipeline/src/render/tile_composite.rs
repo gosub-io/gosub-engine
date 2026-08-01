@@ -1,27 +1,9 @@
 //! CPU host-side tile compositing.
-//!
-//! Tile-rasterizing backends (Cairo, Skia, Vello-CPU) hand the host an
-//! [`ExternalHandle::TileCache`](crate::render::backend::ExternalHandle::TileCache) of
-//! pre-rasterized, premultiplied tiles in page coordinates. Presenting a frame means placing each
-//! visible tile at its scroll/anchor-resolved position and source-over blending it onto a
-//! background - this module is the one shared copy of that loop.
-//!
-//! The compositor works in the canonical premultiplied **ARGB** packing (`0xAARRGGBB`, see
-//! [`PixelFormat::pixel_to_argb_u32`]). Callers fill a `u32` buffer with an opaque background,
-//! composite into a [`TileTarget`] region of it, and then either present the `u32` buffer directly
-//! (softbuffer ignores the high byte) or convert it to RGBA8 for a GPU texture via
-//! [`argb_u32_to_rgba8`].
 
 use crate::render::backend::{anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, CachedTile};
 
 /// A rectangular region of a premultiplied-ARGB (`0xAARRGGBB`) `u32` buffer that tiles composite
 /// into.
-///
-/// `buf` is row-major with `stride` pixels per row. Tiles are clipped to the `width × height`
-/// device-pixel region at (`origin_x`, `origin_y`); the offset lets a host reserve rows for its own
-/// chrome while still handing over the whole window buffer.
-///
-/// The caller must fill `buf` with an **opaque** background first - tiles blend on with source-over.
 pub struct TileTarget<'a> {
     pub buf: &'a mut [u32],
     pub stride: usize,
@@ -33,10 +15,6 @@ pub struct TileTarget<'a> {
 
 /// Source-over composite the visible `tiles` into `target`, the CPU counterpart to a GPU backend's
 /// own tile compositing.
-///
-/// Placement resolves each tile's anchor against the page `scroll` (CSS px) via
-/// [`anchored_tile_pos`], then scales to device pixels by `dpr`. Tiles are premultiplied; per-tile
-/// `opacity` fades the layer as a whole before the blend.
 pub fn composite_tiles(tiles: &[CachedTile], dpr: u32, scroll: (f32, f32), target: &mut TileTarget<'_>) {
     let dpr_f = dpr as f64;
     let (scroll_x, scroll_y) = scroll;
@@ -92,9 +70,6 @@ pub fn composite_tiles(tiles: &[CachedTile], dpr: u32, scroll: (f32, f32), targe
 }
 
 /// Convert a premultiplied-ARGB (`0xAARRGGBB`) `u32` buffer to RGBA8 bytes `[R, G, B, 255]`.
-///
-/// Alpha is forced opaque: the compositor blends onto an opaque background, so every output pixel
-/// is opaque, and this is the layout wgpu/egui textures expect.
 pub fn argb_u32_to_rgba8(buf: &[u32]) -> Vec<u8> {
     let mut rgba = Vec::with_capacity(buf.len() * 4);
     for &px in buf {

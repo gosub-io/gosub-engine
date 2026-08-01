@@ -1,12 +1,4 @@
 //! Integration tests for `compute_table_layout`.
-//!
-//! Each test builds a table via `MockTable`, runs the layout algorithm, then
-//! asserts exact positions and sizes.  All coordinates follow the CSS model:
-//!   - group position is relative to the table
-//!   - row position is relative to its group
-//!   - cell position is relative to its row
-//!
-//! Naming convention: `cell_ids[N]` returns cells in document (allocation) order.
 
 #[cfg(test)]
 mod layout_tests {

@@ -1,6 +1,4 @@
 /// RGBA color used for drawing commands.
-///
-/// Channels are represented as `f32` in the range `0.0 ..= 1.0`.
 #[derive(Debug, Clone, Copy)]
 pub struct Color {
     /// Red channel
@@ -119,15 +117,6 @@ impl Color {
 }
 
 /// A single display item representing a drawing command.
-///
-/// These commands are appended to a [`RenderList`] and later processed
-/// by the render backend.
-///
-/// Variants:
-/// - [`DisplayItem::Clear`] - clear the entire surface to a color.
-/// - [`DisplayItem::Rect`] - draw a solid rectangle.
-/// - [`DisplayItem::TextRun`] - draw a run of text at a position.
-/// - [`DisplayItem::Blit`] - blit a rasterized tile (raw ARgb32 pixels).
 #[derive(Clone, Debug)]
 pub enum DisplayItem {
     /// Clear the entire surface with the given color.

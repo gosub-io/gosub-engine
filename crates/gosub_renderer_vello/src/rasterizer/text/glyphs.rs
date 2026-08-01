@@ -1,7 +1,4 @@
 //! Generic glyph-run text painter (`text_glyphs` feature).
-//!
-//! Font-engine-neutral: the contract is raw font bytes + glyph IDs, not engine internals, so any
-//! [`FontSystem`] implementation works here.
 
 use crate::rasterizer::brush::set_brush;
 use gosub_interface::font_system::ShapedRun;

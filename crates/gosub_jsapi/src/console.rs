@@ -69,11 +69,7 @@ impl Console {
     ///
     /// # Arguments
     ///
-    /// * `printer`   the printer that will be used to print any data that is passed to the console.
-    ///
     /// # Returns
-    ///
-    /// A new Console struct
     #[must_use]
     pub fn new(printer: Box<dyn Printer>) -> Self {
         Self {

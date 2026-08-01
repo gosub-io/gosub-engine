@@ -14,25 +14,6 @@ pub(crate) use sniff::ResponseClass;
 pub mod types;
 
 /// Decide how the user agent should handle a fetched response.
-///
-/// The decision is based on (in order):
-/// 1) **UA policy gates** (feature flags like `enable_sniffing`, `enable_pdf_viewer`, etc.)
-/// 2) **Header signals** (declared `Content-Type`, `X-Content-Type-Options: nosniff`,
-///    `Content-Disposition` attachment/filename, etc.)
-/// 3) **Sniffed class** from a peek buffer (when allowed)
-///
-/// High-level rules:
-/// - If `Content-Disposition` indicates *attachment* and UA policy allows downloads without
-///   user activation, prefer **Download**.
-/// - If a trustworthy declared type is present, prefer it. If not trustworthy or absent,
-///   and sniffing is enabled (and not blocked by `nosniff`), use the **sniffed** class.
-/// - If the result is (or looks like) **PDF** and the UA has an embedded PDF viewer,
-///   prefer **Render(PdfViewer)**.
-/// - If navigation sniffing upgrade is enabled, allow HTML upgrade for mislabelled
-///   navigations (e.g., `text/plain` / `application/octet-stream` that sniff as HTML).
-///
-/// Returns a [`DecisionOutcome`] with both the *final* class and the auxiliary evidence
-/// (declared MIME, sniffed class, disposition flag).
 pub fn decide_handling(
     meta: &FetchResultMeta,
     dest: RequestDestination,

@@ -3,18 +3,6 @@ use crate::types::{CssLength, CssProp};
 use crate::TableTree;
 
 /// Compute column widths for a table with `n_cols` columns.
-///
-/// Algorithm:
-/// 1. The available space is `table_width` minus the horizontal border-spacing
-///    gutters (one between each pair of columns plus the outer two).
-/// 2. Scan the first non-empty row across all provided grids (header first,
-///    then body, then footer).  For each single-column cell in that row:
-///    - If it has an explicit CSS `width` in px or %, assign that to its column.
-///    - Record its pre-pass natural width (from `cell_content_width`) for use
-///      in step 3.
-/// 3. Remaining space is distributed to auto columns proportionally to their
-///    natural content width. Falls back to equal distribution if no content
-///    width information is available.
 pub fn compute_column_widths<T: TableTree>(
     tree: &T,
     n_cols: usize,

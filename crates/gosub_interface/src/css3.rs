@@ -17,12 +17,6 @@ pub enum CssOrigin {
 }
 
 /// Hover-sensitivity fingerprints for a set of stylesheets.
-///
-/// Records which element types/classes/ids appear in a `:hover` compound selector, so the
-/// engine can skip style recalculation when the pointer moves between elements that no `:hover`
-/// rule targets. Computed by the [`CssSystem`] (via [`CssSystem::hover_fingerprints`]) because
-/// only the CSS implementation understands its own selector structure - the engine stays
-/// agnostic of how selectors are represented.
 #[derive(Default, Debug, Clone)]
 pub struct HoverFingerprints {
     /// A bare `:hover` / `*:hover` rule exists - every node is hover-sensitive.

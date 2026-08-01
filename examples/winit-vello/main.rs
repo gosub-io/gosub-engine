@@ -1,14 +1,4 @@
 //! Minimal browser window: Vello (GPU) rasterizer + winit toolkit.
-//!
-//! Usage: cargo run --example winit-vello -- https://example.com
-//!
-//! Press Ctrl+L to focus the address bar (URL shown in window title while typing).
-//! No GTK/Cairo dependency - pure winit + wgpu.
-//!
-//! Architecture note: the wgpu adapter and device are created inside `resumed()`
-//! after the window exists, so the adapter can be selected for surface compatibility.
-//! On Wayland an incompatible adapter causes `get_current_texture()` to silently fail
-//! every frame, keeping the surface un-committed and the window invisible.
 
 // wgpu's deeply nested generic types push auto-trait (`Send`/`Sync`) solving past the default
 // limit of 128; nightly's `recursion_depth_exceeding_limit` lint makes that a hard error.

@@ -1,11 +1,4 @@
 //! A runtime-selectable render backend.
-//!
-//! [`DynamicRenderBackend`] bundles the concrete backends (Cairo, Skia, Vello) behind a single
-//! [`RenderBackend`] and delegates to the selected one. This is the *only* place in the workspace
-//! that knows the concrete backends exist - the pipeline and engine only ever see `dyn RenderBackend`.
-//!
-//! A host enables what it can build via crate features (`cairo`, `skia`, `vello`) and registers
-//! them through the builder; selection can change at runtime via [`DynamicRenderBackend::set_active`].
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,8 +12,6 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 /// Identifies a concrete render backend. Defined here, never in the pipeline, so the pipeline
 /// remains agnostic of which backends exist.
-///
-/// `#[repr(u8)]` so it can be stored lock-free in an [`AtomicU8`] (see `DynamicRenderBackend::active`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum RenderBackendKind {
@@ -50,9 +41,6 @@ impl RenderBackendKind {
 type BoxedBackend = Arc<dyn RenderBackend + Send + Sync>;
 
 /// A [`RenderBackend`] that holds several backends at once and delegates to the active one.
-///
-/// Build with [`builder`](Self::builder) and hand to the engine as `Arc<dyn RenderBackend>`; keep a
-/// clone of the `Arc` to switch backends later via [`set_active`](Self::set_active).
 pub struct DynamicRenderBackend {
     backends: HashMap<RenderBackendKind, BoxedBackend>,
     null: BoxedBackend,

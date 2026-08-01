@@ -1,8 +1,4 @@
 //! `PangoFontSystem` - fontconfig lookup + Pango/HarfBuzz shaping (the Linux desktop stack).
-//!
-//! Lives here (rather than in the Cairo renderer crate) because a font system is
-//! renderer-independent: it resolves, shapes, and measures; any glyph-painting backend can
-//! consume its output.
 
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
@@ -26,17 +22,6 @@ const DEFAULT_FONT_FAMILY: &str = "sans";
 static FONTCONFIG_LOCK: Mutex<()> = Mutex::new(());
 
 /// Register an in-memory `@font-face` font so Pango (via fontconfig) can discover it.
-///
-/// The bytes are written to a uniquely-named file in the temp dir - intentionally left on
-/// disk for the process lifetime, since fontconfig references it by path - and added to the
-/// process-global fontconfig config with `FcConfigAppFontAddFile`. fontconfig reads the
-/// font's own family name from its `name` table (so the family CSS asked for, e.g.
-/// "Source Serif 4", is what becomes available); `family_override` is informational.
-///
-/// Because the font is added to the *process-global* config (not a per-thread Pango font
-/// map), any Pango `FcFontMap` built afterwards on any thread sees it - provided it is
-/// registered before that font map is first built (the engine registers web fonts right
-/// after the document is set, before the first layout).
 fn register_font_via_fontconfig(data: &[u8], family_override: Option<&str>) -> Result<(), FontError> {
     use fontconfig_sys::{FcConfigAppFontAddFile, FcConfigBuildFonts, FcConfigGetCurrent};
     use std::io::Write as _;
@@ -235,15 +220,6 @@ fn pango_generic_family(name: &str) -> Option<&'static str> {
 // PangoFontSystem
 
 /// Font-system state for the Cairo/Pango backend.
-///
-/// Holds the cached `system-ui` family name, which must be resolved from the
-/// GTK main thread before any background rendering.  After [`init_from_gtk_thread`]
-/// is called the struct is read-only and can be shared freely behind an [`Arc`].
-///
-/// Obtain a shared instance via [`get`] (which returns the process-wide singleton
-/// initialised by [`init`]) or construct an independent instance with [`new`] and
-/// call [`PangoFontSystem::init_from_gtk_thread`] yourself.
-/// Font file bytes keyed by `(path, ttc index)`.
 type BlobCache = HashMap<(String, u32), Arc<Vec<u8>>>;
 
 pub struct PangoFontSystem {
@@ -271,9 +247,6 @@ impl PangoFontSystem {
     }
 
     /// Resolve and cache the system-ui font via GSettings.
-    ///
-    /// **Must** be called from the GTK main thread before any background rendering
-    /// begins.  Calling it a second time is a no-op.
     pub fn init_from_gtk_thread(&mut self) {
         if self.system_ui_font.is_none() {
             self.system_ui_font = get_system_ui_font_from_gsettings();
@@ -416,11 +389,6 @@ impl PangoFontSystem {
     }
 
     /// Walk a laid-out Pango layout and export its glyph runs in the neutral [`ShapedText`] form.
-    ///
-    /// Glyph IDs are FreeType glyph indices into the run's font file; positions are pixels with
-    /// `y` on the baseline, per the [`ShapedGlyph`] contract. Each run's font is the one Pango
-    /// actually chose (mid-string fallback included), routed back through fontconfig to obtain
-    /// its bytes - same database, so the description round-trip lands on the same file.
     fn runs_from_layout(&mut self, layout: &pango::Layout, style: &TextStyle) -> ShapedText {
         let scale = pango::SCALE as f32;
         let (px_w, px_h) = layout.pixel_size();
@@ -501,15 +469,6 @@ impl PangoFontSystem {
 }
 
 /// Pango as a swappable [`FontSystem`].
-///
-/// Pango bundles the three jobs the trait names: fontconfig does the lookup (`resolve` queries it
-/// directly - the same database Pango picks fonts from), Pango/HarfBuzz do the shaping (`shape`
-/// exports the `PangoLayout` glyph runs in neutral form), and `measure` reads the same layout's
-/// pixel size. The Cairo rasterizer still draws through Pango natively; the glyph runs exist so
-/// any [`ShapedText`]-painting backend can consume this font system too.
-///
-/// Note: Pango uses its own natural line height (matching how the Cairo rasterizer draws), so
-/// `TextStyle::line_height` is intentionally not applied during measurement or shaping.
 impl FontSystem for PangoFontSystem {
     fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError> {
         register_font_via_fontconfig(&data, family_override)
@@ -578,16 +537,9 @@ impl FontSystem for PangoFontSystem {
 // Process-wide singleton (required because GTK init must happen on main thread)
 
 /// Process-wide `PangoFontSystem` singleton.
-///
-/// Set by [`init`]; read by [`get`].  The `OnceLock` is intentional - GTK's
-/// font resolution is tied to the main thread and the result is immutable once
-/// resolved, so a static `Arc` is the correct primitive here.
 static PANGO_FONT_SYSTEM: OnceLock<Arc<PangoFontSystem>> = OnceLock::new();
 
 /// Initialise the singleton from the GTK main thread.
-///
-/// Called once at startup (e.g. from `crate::init_gtk_resources()`).
-/// Subsequent calls are silently ignored.
 pub fn init() {
     PANGO_FONT_SYSTEM.get_or_init(|| {
         let mut fs = PangoFontSystem::new();

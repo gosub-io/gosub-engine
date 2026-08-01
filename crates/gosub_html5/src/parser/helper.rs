@@ -240,9 +240,6 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
     // Implements the "appropriate place for inserting a node" algorithm.
     // https://html.spec.whatwg.org/multipage/parsing.html#appropriate-place-for-inserting-a-node
-    //
-    // The "no last table" sub-step (fragment case) is handled by the fallthrough at the
-    // bottom of this function, which returns the first element in the open elements stack.
     pub(crate) fn appropriate_place_insert(&self, override_node: Option<NodeId>) -> InsertionPositionMode<NodeId> {
         let current_node_id = *self.open_elements.last().unwrap_or(&NodeId::root());
         let target_id = override_node.unwrap_or(current_node_id);

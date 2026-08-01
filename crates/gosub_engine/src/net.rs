@@ -74,13 +74,9 @@ pub use decision_hub::DecisionToken;
 pub use shared_body::SharedBody;
 
 /// Spawn the dedicated **Tokio I/O thread** for all network work.
-///
-/// Returns an [`IoHandle`] you can clone and pass around.
 pub use io_runtime::spawn_io_thread;
 
 /// Submit a closure/future to the I/O runtime for execution.
-///
-/// Keeps network work off UI/main threads.
 pub use io_runtime::submit_to_io;
 
 /// Handle to the I/O runtime; cloneable and sendable across threads.

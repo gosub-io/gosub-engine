@@ -34,9 +34,6 @@ impl<N: Copy> SectionGrid<N> {
 
     /// For each column, returns `true` if a spanning cell crosses the horizontal
     /// boundary between `row_idx` and `row_idx + 1`.
-    ///
-    /// Always returns all-`false` when `row_idx` is the last row of the section
-    /// because rowspan is clamped - nothing can cross a section boundary.
     pub fn cols_spanned_at_boundary(&self, row_idx: usize) -> Vec<bool> {
         let mut spanned = vec![false; self.n_cols];
         if row_idx + 1 >= self.n_rows {
@@ -57,12 +54,6 @@ impl<N: Copy> SectionGrid<N> {
 }
 
 /// Run the CSS table-slot filling algorithm (HTML spec §4.9.11) on one section.
-///
-/// Rules:
-/// - Cells are placed left-to-right, skipping slots already occupied by a
-///   spanning cell from an earlier row in the **same section**.
-/// - `rowspan` is clamped to the number of rows remaining in the section,
-///   enforcing that spans never cross section boundaries.
 pub fn build_section_grid<N: Copy>(rows: &[TableRow<N>]) -> SectionGrid<N> {
     let n_rows = rows.len();
     let mut cells: Vec<PlacedCell<N>> = Vec::new();

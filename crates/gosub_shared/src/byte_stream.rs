@@ -24,9 +24,6 @@ pub enum Encoding {
 /// Defines a single character/element in the stream. This is either a UTF8 character, or
 /// a surrogate characters since these cannot be stored in a single char. Note that characters
 /// are not the same as bytes, since a single character can be multiple bytes in UTF8 or UTF16.
-///
-/// Eof is denoted as a separate element, so is Empty to indicate that the buffer is empty but
-/// not yet closed.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Character {
     /// Standard UTF character

@@ -289,7 +289,7 @@ dependencies = [
  "ndk-context",
  "ndk-sys",
  "num_enum",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -649,7 +649,7 @@ dependencies = [
  "num-traits",
  "pastey",
  "rayon",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "v_frame",
  "y4m",
 ]
@@ -710,6 +710,15 @@ name = "base64"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+
+[[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "bindgen"
@@ -1310,9 +1319,9 @@ dependencies = [
 
 [[package]]
 name = "console_log"
-version = "1.1.0"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86919cef3e37b9356ccf54d4421208c17ecfda01beae61393e7ffd72916c0ef1"
+checksum = "be8aed40e4edbf4d3b4431ab260b63fdc40f5780a4766824329ea0f1eefe3c0f"
 dependencies = [
  "log",
  "web-sys",
@@ -1879,7 +1888,7 @@ dependencies = [
  "epaint",
  "log",
  "profiling",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "type-map",
  "web-time",
  "wgpu",
@@ -3039,7 +3048,7 @@ dependencies = [
  "parking_lot",
  "reqwest",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -3113,7 +3122,7 @@ dependencies = [
  "serde",
  "serde_json",
  "testing_logger",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "wildmatch",
 ]
 
@@ -3172,7 +3181,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "time",
  "tokio",
  "tokio-util",
@@ -3220,7 +3229,7 @@ dependencies = [
  "serde",
  "serde_json",
  "test-case",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "url",
 ]
 
@@ -3233,6 +3242,16 @@ dependencies = [
  "gosub_shared",
  "parking_lot",
  "url",
+]
+
+[[package]]
+name = "gosub_ipc"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "libc",
+ "serde",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3344,6 +3363,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub_sandbox"
+version = "0.1.0"
+dependencies = [
+ "gosub_ipc",
+ "libc",
+ "seccompiler",
+ "tempfile",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "gosub_shared"
 version = "0.1.1"
 dependencies = [
@@ -3357,7 +3387,7 @@ dependencies = [
  "lazy_static",
  "parking_lot",
  "rand 0.10.1",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "uuid",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -3403,7 +3433,7 @@ version = "0.1.1"
 dependencies = [
  "gosub_shared",
  "paste",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -3439,7 +3469,7 @@ dependencies = [
  "hashbrown 0.16.1",
  "log",
  "presser",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "windows",
 ]
 
@@ -4208,7 +4238,7 @@ dependencies = [
  "jni-sys 0.4.1",
  "log",
  "simd_cesu8",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "walkdir",
  "windows-link",
 ]
@@ -4588,7 +4618,7 @@ dependencies = [
  "once_cell",
  "rustc-hash 1.1.0",
  "spirv",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "unicode-ident",
 ]
 
@@ -5766,7 +5796,7 @@ dependencies = [
  "rustc-hash 2.1.2",
  "rustls",
  "socket2",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "tokio",
  "tracing",
  "web-time",
@@ -5788,7 +5818,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "slab",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "tinyvec",
  "tracing",
  "web-time",
@@ -5969,7 +5999,7 @@ dependencies = [
  "rand 0.9.4",
  "rand_chacha 0.9.0",
  "simd_helpers",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "v_frame",
  "wasm-bindgen",
 ]
@@ -6229,7 +6259,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c51c9ae4df8a7fba42103df5c621fa3c37eccf3a3c650879e90fc48b11cc192c"
 dependencies = [
  "hashbrown 0.16.1",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -6454,6 +6484,15 @@ dependencies = [
  "memmap2",
  "smithay-client-toolkit 0.19.2",
  "tiny-skia 0.11.4",
+]
+
+[[package]]
+name = "seccompiler"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "345a3e4dddf721a478089d4697b83c6c0a8f5bf16086f6c13397e4534eb6e2e5"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -6808,7 +6847,7 @@ dependencies = [
  "log",
  "memmap2",
  "rustix 1.1.4",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "wayland-backend",
  "wayland-client",
  "wayland-csd-frame",
@@ -7159,11 +7198,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.20"
+version = "2.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
+checksum = "09a43598840e33d5b0331f38c5e30d13bb11c11210a4b58f0d9b18a5a5eefcd9"
 dependencies = [
- "thiserror-impl 2.0.20",
+ "thiserror-impl 2.0.19",
 ]
 
 [[package]]
@@ -7179,9 +7218,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.20"
+version = "2.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
+checksum = "43cbfe0cf76104d42a574802844187e84a305e531ed54455f11fbde0f10541cd"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7848,7 +7887,7 @@ dependencies = [
  "png",
  "skrifa 0.42.1",
  "static_assertions",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "vello_encoding",
  "vello_shaders",
  "wgpu",
@@ -7867,7 +7906,7 @@ dependencies = [
  "log",
  "peniko",
  "smallvec",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -7902,7 +7941,7 @@ dependencies = [
  "bytemuck",
  "log",
  "naga",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "vello_encoding",
 ]
 
@@ -8342,7 +8381,7 @@ dependencies = [
  "raw-window-handle",
  "rustc-hash 1.1.0",
  "smallvec",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "wgpu-core-deps-apple",
  "wgpu-core-deps-emscripten",
  "wgpu-core-deps-wasm",
@@ -8431,7 +8470,7 @@ dependencies = [
  "raw-window-metal",
  "renderdoc-sys",
  "smallvec",
- "thiserror 2.0.20",
+ "thiserror 2.0.19",
  "wasm-bindgen",
  "wayland-sys",
  "web-sys",

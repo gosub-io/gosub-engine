@@ -44,9 +44,6 @@ type MeasureKey = (String, String, u32, u32, i32, u32, u32);
 /// CSS `text-align` on a block, as `justify_content` for the anonymous flex containers holding its
 /// line boxes. A line box *is* that container, so this is what positions a run too short to fill it
 /// - a run that wraps already fills the line and is aligned by the shaper instead.
-///
-/// `justify` stays `None`: the shaper stretches a wrapped run itself, and flexing a single item
-/// can't emulate that.
 fn line_box_justify(align: &Value) -> Option<taffy::JustifyContent> {
     let Value::TextAlign(ta) = align else {
         return None;
@@ -183,9 +180,6 @@ impl Default for TaffyLayouter {
 
 impl TaffyLayouter {
     /// Create a layouter with its own font system.
-    ///
-    /// To share the font collection with other components (e.g. a `VelloRasterizer`)
-    /// use [`TaffyLayouter::with_font_system`] and pass the same `Arc` to both.
     pub fn new() -> Self {
         Self::with_font_system(Arc::new(Mutex::new(ParleyFontSystem::new())))
     }
@@ -579,10 +573,6 @@ impl TaffyLayouter {
     /// Split a text node in a *mixed* inline run (alongside inline-level elements) into one inline
     /// box per word, so text wraps around its sibling inline boxes like a browser line box - an
     /// atomic per-node text box can only wrap as a whole, jumping to its own line instead.
-    ///
-    /// Words are separated by explicit single-space boxes; each space is its own flex item so it
-    /// doubles as a wrap point and carries exactly one space's width - attaching it to the word
-    /// would double-count against the trailing-NBSP fudge in the measure callback.
     fn push_text_words(
         &mut self,
         layout_tree: &mut LayoutTree,

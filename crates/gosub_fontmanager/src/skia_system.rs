@@ -1,8 +1,4 @@
 //! `SkiaFontSystem` - measurement and shaping through Skia's `textlayout` engine.
-//!
-//! Lives here (rather than in the Skia renderer crate) because a font system is
-//! renderer-independent: it resolves, shapes, and measures; any glyph-painting backend can
-//! consume its output.
 
 use gosub_interface::font::{FontBlob, FontError, FontStyle as CssFontStyle};
 use gosub_interface::font_system::{
@@ -19,12 +15,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 // ── Registered web fonts ──────────────────────────────────────────────────────
-//
-// `@font-face` fonts are registered as raw bytes in a process-global registry (bytes are
-// `Send + Sync`; Skia's `Typeface`/`FontMgr` are not). Each thread lazily materialises the
-// bytes into a `TypefaceFontProvider` when the registry's generation changes, so both the
-// measure path (this module's `FontCollection`) and the draw path (`rasterizer::text`) see
-// newly-registered fonts without sharing non-`Send` Skia objects across threads.
 
 struct FontRegistry {
     generation: u64,
@@ -48,13 +38,6 @@ pub(crate) fn web_font_generation() -> u64 {
 
 /// Build a `FontMgr` (backed by a `TypefaceFontProvider`) containing every registered web
 /// font, or `None` if none are registered or none could be decoded.
-///
-/// A variable font is registered as one instance per standard CSS weight stop (100–900)
-/// within its `wght` axis range, not just its default instance. Google Fonts serves a single
-/// variable file for a multi-weight `@font-face` set (e.g. `wght@600;700` → one file whose
-/// default instance is 400); registering only the default made every bold-ish weight request
-/// fall back to faux-bold of the 400 instance. With per-weight instances,
-/// `FontCollection::matchStyle` selects the genuinely-instanced weight.
 fn build_web_font_mgr() -> Option<FontMgr> {
     let reg = registry().lock();
     if reg.fonts.is_empty() {
@@ -200,19 +183,6 @@ thread_local! {
 }
 
 /// Prune a CSS `font-family` list to the entries Skia should actually try, in order.
-///
-/// Skia's `FontCollection` walks the list and, on Linux, fontconfig returns *some* face for *every*
-/// name - even an unknown one like `ui-monospace` - so an unavailable leading family silently
-/// captures the platform default and the real generic (`monospace`) at the end of the chain is never
-/// reached.
-///
-/// We keep an entry when it's a real generic, or when it resolves to a *genuine* face: either an
-/// exact name match, or a fontconfig **alias** to a family other than the bare default fallback
-/// (e.g. `Arial` → Liberation Sans, which is what Firefox uses). We drop the newer pseudo-generics
-/// (`ui-*`, `system-ui`) and any name that only yields the default fallback, so the stack's trailing
-/// real generic decides instead of the platform default impersonating an unavailable family. If
-/// nothing survives, fall back to the original list so text still draws. Applied to both measure and
-/// draw so they stay on the same faces.
 pub(crate) fn resolve_family_list(families: &str) -> Vec<String> {
     RESOLVED_FAMILIES.with(|cell| {
         let mut cell = cell.borrow_mut();
@@ -316,10 +286,6 @@ fn to_skia_slant(style: CssFontStyle) -> skia_safe::font_style::Slant {
 }
 
 /// Build and lay out the measurement/shaping paragraph for `text` in `style`.
-///
-/// This is the single source of truth for how a [`GosubTextStyle`] maps onto Skia's textlayout -
-/// `measure` reads this paragraph's extents and `shape` exports its glyph runs, so the two can't
-/// disagree.
 fn build_style_paragraph(fc: &FontCollection, text: &str, style: &GosubTextStyle) -> Paragraph {
     let mut paragraph_style = ParagraphStyle::new();
     paragraph_style.set_text_align(match style.align {
@@ -364,12 +330,6 @@ fn build_style_paragraph(fc: &FontCollection, text: &str, style: &GosubTextStyle
 }
 
 /// A [`FontSystem`] backed by Skia's `skia_safe` text layout.
-///
-/// Measurement, shaping, and the Skia rasterizer's own drawing all go through the same
-/// thread-local [`FontCollection`], so they can't disagree. `resolve`/`shape` export concrete
-/// fonts (via `Typeface::to_font_data`) and positioned glyph runs in the neutral trait types, so
-/// a [`ShapedText`]-painting backend can consume this font system like any other; the Skia
-/// rasterizer itself still draws through textlayout natively.
 #[derive(Debug, Default)]
 pub struct SkiaFontSystem;
 

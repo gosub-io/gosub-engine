@@ -1,10 +1,4 @@
 //! Comprehensive table-driven cookie tests.
-//!
-//! Includes:
-//! - Hand-written cases covering specific parsing and matching semantics.
-//! - Runners for external test suites:
-//!   - `http-state` (Adam Barth's 222-case parser suite, via abarth/http-state)
-//!   - WPT attribute tests (expires, max-age, secure, samesite, httponly)
 
 #[cfg(test)]
 mod cookie_tests {
@@ -488,14 +482,6 @@ mod cookie_tests {
     }
 
     // ── http-state test suite runner ──────────────────────────────────────────
-    //
-    // Test vectors from https://github.com/abarth/http-state (222 cases).
-    // All tests use http://home.example.org:8888/cookie-parser as the
-    // set-from and send-to URL (plain HTTP, so Secure cookies are rejected).
-    //
-    // Known-failing tests are listed in KNOWN_FAILING below with the reason.
-    // The test panics if any test outside that list unexpectedly fails, or if
-    // a test in the list unexpectedly passes (regression in either direction).
 
     /// Tests we know diverge from the http-state expectations.
     /// Format: (test-id, reason)
@@ -560,10 +546,6 @@ mod cookie_tests {
     /// (~2013) but have since become past.  Only applied to tests where the expected
     /// result is that the cookie IS sent (non-empty `sent`), so tests that deliberately
     /// check expiry with intentionally old dates (e.g., 2007) are left unchanged.
-    ///
-    /// Strategy: replace any 4-digit year in the range `[2010, current_year]` that
-    /// appears in an `Expires=` attribute with 2099.  Years before 2010 were
-    /// intentionally past even when the tests were written.
     fn freshen_stale_expires(header: &str) -> String {
         use cow_utils::CowUtils;
         let lower = header.cow_to_ascii_lowercase();
@@ -711,9 +693,6 @@ mod cookie_tests {
     }
 
     // ── WPT attribute suite runner ────────────────────────────────────────────
-    //
-    // Test vectors extracted from WPT cookies/attributes/*.html embedded JS.
-    // All tests default to https://example.com/ unless overridden in the JSON.
 
     #[test]
     fn wpt_attributes_suite() {
@@ -790,9 +769,6 @@ mod cookie_tests {
     }
 
     // ── WPT domain suite runner ───────────────────────────────────────────────
-    //
-    // Test vectors extracted from WPT cookies/domain/*.sub.https.html.
-    // Each test specifies an explicit set_from and send_to URL.
 
     #[test]
     fn wpt_domain_suite() {
@@ -867,9 +843,6 @@ mod cookie_tests {
     }
 
     // ── WPT encoding suite runner ─────────────────────────────────────────────
-    //
-    // Test vectors from WPT cookies/encoding/charset.html.
-    // Verifies that UTF-8 cookie names and values are stored and returned intact.
 
     #[test]
     fn wpt_encoding_suite() {
@@ -927,9 +900,6 @@ mod cookie_tests {
     }
 
     // ── WPT value suite runner ────────────────────────────────────────────────
-    //
-    // Test vectors from WPT cookies/value/value.html.
-    // Omitted: nameless cookies, 4 KB size limit tests, newline-in-value test.
 
     #[test]
     fn wpt_value_suite() {
@@ -999,10 +969,6 @@ mod cookie_tests {
     }
 
     // ── WPT name suite runner ─────────────────────────────────────────────────
-    //
-    // Test vectors from WPT cookies/name/name.html.
-    // Nameless/name-only cookie tests (no '=' separator) are omitted - RFC 6265
-    // §5.2 requires dropping those headers; browsers accept them as a quirk.
 
     #[test]
     fn wpt_name_suite() {
@@ -1079,10 +1045,6 @@ mod cookie_tests {
     }
 
     // ── WPT ordering suite runner ─────────────────────────────────────────────
-    //
-    // Verifies RFC 6265bis §5.5 ordering: longer path first, then creation-time
-    // ascending for ties.  Unlike the other suites this compares the Cookie header
-    // as an ordered string, not a sorted set, because order is the whole point.
 
     #[test]
     fn wpt_ordering_suite() {

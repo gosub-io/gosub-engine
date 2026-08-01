@@ -293,14 +293,6 @@ fn unicode_range_covers_basic_latin(range: &str) -> bool {
 }
 
 /// Unwrap a downloaded web-font payload into raw SFNT bytes the font backends can decode.
-///
-/// WOFF2 (magic `wOF2`) is a Brotli-compressed wrapper around an OpenType/TrueType font,
-/// with the `glyf`/`loca` tables stored in a transformed form. Skia and fontconfig don't
-/// decode it (e.g. Google Fonts serves WOFF2 to modern UAs like ours), so we decompress it
-/// to a flat SFNT here. Bare SFNT (`OTTO`/`true`/`ttcf`/`0x00010000`) and anything we don't
-/// recognise are returned unchanged - including WOFF1, which the backends already handle.
-/// On a decode error we log and return the original bytes so the subsequent `register_font`
-/// surfaces a single, consistent failure path.
 fn decode_web_font(bytes: Vec<u8>, font_url: &Url) -> Vec<u8> {
     const WOFF2_MAGIC: &[u8; 4] = b"wOF2";
     if bytes.len() < 4 || &bytes[0..4] != WOFF2_MAGIC {
@@ -1874,17 +1866,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
 
         // TileCache path - used by CPU-compositing rasterizing backends (Cairo, Skia).
-        //
-        // These backends don't need the display-list render pipeline: tiles are rasterized
-        // during stages 1-6 and the host composites them directly. A scroll-only fast path
-        // skips stages 1-6 when only the offset changed.
-        //
-        // Backends that composite to a GPU texture (Vello) still rasterize tiles, but fall
-        // through to the display-list path below so the backend draws those tiles into a GPU
-        // texture and the host presents a `WgpuTextureId` instead of compositing CPU tiles.
-        //
-        // DPR comes from the backend: Cairo rasterizes at physical pixels (DPR > 1 on HiDPI);
-        // Skia and Vello rasterize at CSS pixels (DPR = 1).
         if render_backend.raster_strategy() != RasterStrategy::None && !render_backend.renders_to_gpu_texture() {
             let dpr = render_backend.device_pixel_ratio();
 
@@ -1908,11 +1889,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
 
         // GPU scene path - backends that composite to a GPU texture (Vello).
-        //
-        // Skips tiling/rasterization/compositing: the engine builds one viewport-level paint
-        // command list (stages 1–3 + paint), and the backend renders it into a GPU texture.
-        // The host then presents the resulting `WgpuTextureId`. Scroll re-renders with a new
-        // translate (no rebuild); only content/hover/size changes rebuild the command list.
         if render_backend.renders_to_gpu_texture() {
             let surface_recreated =
                 self.ensure_surface_tracked(render_backend.clone(), self.desired_viewport.as_size())?;

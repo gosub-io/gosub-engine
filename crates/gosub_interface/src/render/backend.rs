@@ -48,14 +48,6 @@ pub enum PresentMode {
 }
 
 /// In-memory byte order of a rasterized tile / pixel buffer.
-///
-/// Both variants are premultiplied; they differ only in channel byte order, so
-/// converting between them is a red/blue swap. A buffer is tagged with its format
-/// at the point of production (the rasterizer) so consumers never have to assume an
-/// order based on which backend feature happens to be compiled in. This matters
-/// because Cargo feature unification (e.g. `cargo build --all`) can enable several
-/// `backend_*` features at once, leaving a single rasterizer to win - its output
-/// must be self-describing or colors silently swap.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PixelFormat {
     /// Little-endian premultiplied ARGB32 - bytes are `[B, G, R, A]`. Produced by
@@ -97,10 +89,6 @@ fn swap_rb(data: &[u8]) -> Vec<u8> {
 impl PixelFormat {
     /// Reinterpret a little-endian 4-byte pixel (read as a `u32`) into the canonical
     /// `0xAARRGGBB` packing used for compositing, regardless of source channel order.
-    ///
-    /// On little-endian hosts, `PreMulArgb32` bytes `[B, G, R, A]` already read as
-    /// `0xAARRGGBB`, while `Rgba8` bytes `[R, G, B, A]` read as `0xAABBGGRR` and need
-    /// their red/blue channels swapped.
     #[inline(always)] // hot per-pixel compositor helper; force-inline even in debug (-O0)
     pub fn pixel_to_argb_u32(self, px: u32) -> u32 {
         match self {
@@ -118,10 +106,6 @@ impl PixelFormat {
 
 /// Alpha-blend a premultiplied source pixel over a premultiplied destination pixel,
 /// both packed as `0xAARRGGBB`. Returns the premultiplied `0xAARRGGBB` result.
-///
-/// This is the "source-over" Porter-Duff operator: `out = src + dst * (1 - src_alpha)`.
-/// Compositing tiles with this (rather than overwriting the destination) lets a
-/// transparent upper-layer tile reveal the content of lower layers beneath it.
 #[inline(always)] // hot per-pixel compositor helper; force-inline even in debug (-O0)
 pub fn blend_over_argb_u32(src: u32, dst: u32) -> u32 {
     let sa = src >> 24;
@@ -404,10 +388,6 @@ impl std::fmt::Debug for RgbaImage {
 }
 
 /// How the engine should drive a backend's rasterizer over the page's tiles.
-///
-/// Reported by [`RenderBackend::raster_strategy`] so the engine doesn't need to know
-/// which concrete backend is active. The rasterizer itself ([`RenderBackend::create_rasterizer`])
-/// is type-erased because it operates on pipeline-internal tile/texture types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RasterStrategy {
     /// Parallel per-tile rasterization with a dirty-tile pixel cache (CPU backends: Cairo, Skia).
@@ -439,25 +419,11 @@ pub trait RenderBackend: Send {
 
     /// Returns the backend's shared GPU resources, type-erased, when it has any
     /// (e.g. a Vello backend's wgpu device/queue/renderer). Returns `None` otherwise.
-    ///
-    /// The concrete type lives in the backend's own crate (the interface is renderer-agnostic),
-    /// so callers downcast the `Any` to the expected resource type.
     fn wgpu_resources(&self) -> Option<Arc<dyn Any + Send + Sync>> {
         None
     }
 
     /// Builds the per-tile rasterizer this backend pairs with, type-erased.
-    ///
-    /// The rasterizer operates on pipeline-internal types (`Tile`, `TextureStore`, `MediaStore`)
-    /// that cannot live in this interface crate, so it is returned as `Box<dyn Any>`. The render
-    /// pipeline boxes a `Box<dyn Rasterable>` inside it (see `gosub_render_pipeline::rasterizer`)
-    /// and downcasts it back. The engine calls this once and drives it per [`Self::raster_strategy`].
-    /// Defaults to a no-op marker; only backends with [`RasterStrategy`] other than
-    /// [`RasterStrategy::None`] need to override it.
-    ///
-    /// `font_system` is the engine's single shared font system (the config's `FontSystem`).
-    /// The rasterizer exposes it to the layouter so measurement uses the configured instance;
-    /// painting consumes the pre-shaped glyph runs carried on the text paint commands.
     fn create_rasterizer(
         &self,
         font_system: Arc<parking_lot::Mutex<dyn crate::font_system::FontSystem>>,
@@ -481,10 +447,6 @@ pub trait RenderBackend: Send {
     /// Whether the backend composites its rasterized tiles into a GPU texture and exposes it via
     /// [`Self::render`] + [`Self::external_handle`], rather than shipping CPU tiles for the host
     /// to composite (an `ExternalHandle::TileCache`).
-    ///
-    /// `false` (default) keeps the CPU TileCache path used by Cairo/Skia. `true` routes the tab
-    /// worker through the display-list path so the host receives an `ExternalHandle::WgpuTextureId`.
-    /// Only meaningful for backends whose [`Self::raster_strategy`] rasterizes tiles.
     fn renders_to_gpu_texture(&self) -> bool {
         false
     }
@@ -499,14 +461,6 @@ pub trait RenderBackend: Send {
 
     /// Composite GPU-resident tiles (produced by this backend's rasterizer, see
     /// [`Self::create_rasterizer`]) into `surface`, for the given viewport and scroll offset.
-    ///
-    /// This is the GPU analogue of the host's CPU tile compositing: the shared tile pipeline
-    /// rasterizes every tile (CPU bytes *or* a GPU texture id) and a GPU backend blits the visible
-    /// GPU tiles into its surface here, after which [`Self::external_handle`] yields the presentable
-    /// `WgpuTextureId`. `tiles` carry backend-owned `texture_id`s in page coordinates.
-    ///
-    /// Default is unsupported; only GPU backends override it. Lets one tile pipeline serve CPU and
-    /// GPU backends, differing only in where tile pixels live and who composites them.
     fn composite_tiles(
         &self,
         _surface: &mut dyn ErasedSurface,
@@ -522,9 +476,6 @@ pub trait RenderBackend: Send {
 /// Interface for compositors to receive frames from backends.
 pub trait CompositorSink: Send + Sync {
     /// Submit a finished frame for a tab.
-    ///
-    /// Takes `&self`: sinks are shared behind an `Arc` and must manage their own interior
-    /// mutability (the frame store is already lock-protected), so no outer `RwLock` is needed.
     fn submit_frame(&self, tab: TabId, handle: ExternalHandle);
 }
 
