@@ -162,6 +162,19 @@ impl Endpoint {
         })
     }
 
+    /// Adopt the link this process inherited across `exec`, named by the argv
+    /// token the parent produced with [`channel::Channel::to_argv`].
+    ///
+    /// # Correct use
+    #[cfg(feature = "multi-process")]
+    pub fn adopt_inherited(spec: &str) -> io::Result<Endpoint> {
+        // SAFETY: the contract above is the caller's; `from_argv` only requires
+        // that the token names a descriptor this process owns and has not
+        // otherwise adopted.
+        let channel = unsafe { channel::Channel::from_argv(spec)? };
+        Endpoint::from_channel(channel)
+    }
+
     pub fn send<T: Serialize>(&mut self, msg: &T) -> io::Result<()> {
         self.tx.send(msg)
     }

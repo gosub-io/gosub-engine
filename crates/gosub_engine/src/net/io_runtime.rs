@@ -95,21 +95,42 @@ pub struct IoRouter {
     /// Pending UA decisions (render/download/...) keyed by decision token.
     /// Tokens are process-wide unique, so one hub serves all zones.
     decision_hub: Arc<DecisionHub>,
+    /// The network process, if `net.process_isolation` is on and it started.
+    /// One for the whole engine: it holds no per-zone state, and the connection
+    /// pooling that *is* per-zone lives inside it.
+    #[cfg(feature = "process-isolation")]
+    net_process: Option<Arc<crate::net::process::client::NetProcess>>,
 }
 
 impl IoRouter {
     pub fn new(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Self {
+        #[cfg(feature = "process-isolation")]
+        let net_process = start_net_process(&engine_ctx);
+
         Self {
             zones: DashMap::new(),
             cfg,
             engine_ctx,
             decision_hub: Arc::new(DecisionHub::new()),
+            #[cfg(feature = "process-isolation")]
+            net_process,
         }
     }
 
     /// Who each tab is, for resolving cookies without trusting the request.
     pub fn tab_identities(&self) -> &TabIdentityRegistry {
         &self.engine_ctx.tab_identities
+    }
+
+    /// The network process, when this engine is running one.
+    #[cfg(feature = "process-isolation")]
+    pub fn net_process(&self) -> Option<Arc<crate::net::process::client::NetProcess>> {
+        self.net_process.clone()
+    }
+
+    #[cfg(not(feature = "process-isolation"))]
+    pub fn net_process(&self) -> Option<std::convert::Infallible> {
+        None
     }
 
     pub fn get_or_spawn_zone_fetcher(&self, zone_id: ZoneId) -> Result<Arc<Fetcher>, EngineError> {
@@ -186,6 +207,73 @@ impl IoRouter {
             let _ = j.await;
         }
     }
+}
+
+/// Start the network process if the setting asks for one.
+#[cfg(feature = "process-isolation")]
+fn start_net_process(engine_ctx: &Arc<EngineContext>) -> Option<Arc<crate::net::process::client::NetProcess>> {
+    if !engine_ctx.config_store.get_bool("net.process_isolation") {
+        return None;
+    }
+
+    match crate::net::process::client::NetProcess::spawn() {
+        Ok(net) => {
+            log::info!("network stack running in a separate, sandboxed process");
+            Some(Arc::new(net))
+        }
+        Err(e) => {
+            log::error!(
+                "net.process_isolation is on but the network process could not start ({e}); \
+                 falling back to in-process networking. Does this embedder call \
+                 gosub_engine::child_process::dispatch() at the top of main()?"
+            );
+            None
+        }
+    }
+}
+
+/// Hand a request to the network process and answer the caller when it replies.
+#[cfg(feature = "process-isolation")]
+fn dispatch_to_net_process(
+    net: Arc<crate::net::process::client::NetProcess>,
+    req: FetchRequest,
+    reply_tx: oneshot::Sender<FetchResult>,
+) {
+    use crate::net::process::protocol::FetchOutcome;
+
+    let url = req.key_data.url.to_string();
+    let method = req.key_data.method.as_str().to_string();
+    let headers = req
+        .key_data
+        .headers
+        .iter()
+        .filter_map(|(n, v)| v.to_str().ok().map(|v| (n.as_str().to_string(), v.to_string())))
+        .collect();
+
+    let spawned = std::thread::Builder::new()
+        .name("net-process-request".into())
+        .spawn(move || {
+            let outcome = net.fetch(url, method, headers, None);
+            let _ = reply_tx.send(match outcome {
+                FetchOutcome::Ok { .. } => match crate::net::process::client::outcome_to_result(outcome) {
+                    Ok(result) => result,
+                    Err(e) => FetchResult::Error(e),
+                },
+                FetchOutcome::Error(e) => FetchResult::Error(crate::net::process::client::net_error(e)),
+            });
+        });
+
+    if let Err(e) = spawned {
+        log::error!("could not dispatch to the network process: {e}");
+    }
+}
+
+#[cfg(not(feature = "process-isolation"))]
+fn dispatch_to_net_process(
+    _net: std::convert::Infallible,
+    _req: FetchRequest,
+    _reply_tx: oneshot::Sender<FetchResult>,
+) {
 }
 
 /// Put the requesting tab's cookies on an outbound request.
@@ -314,10 +402,17 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                                 None => reply_tx,
                             };
 
-                            // The I/O thread must keep running; drop the request on fetcher failure.
-                            match router.get_or_spawn_zone_fetcher(zone_id) {
-                                Ok(fetcher) => fetcher.submit(req, handle.cancel.clone(), reply_tx).await,
-                                Err(e) => log::error!("Failed to create fetcher for zone {zone_id}: {e}"),
+                            // Out of process where isolation is on, in-process otherwise.
+                            // Everything above this point — identity, cookies — is the
+                            // same either way, which is what makes the two modes
+                            // behave alike.
+                            match router.net_process() {
+                                Some(net) => dispatch_to_net_process(net, req, reply_tx),
+                                // The I/O thread must keep running; drop the request on fetcher failure.
+                                None => match router.get_or_spawn_zone_fetcher(zone_id) {
+                                    Ok(fetcher) => fetcher.submit(req, handle.cancel.clone(), reply_tx).await,
+                                    Err(e) => log::error!("Failed to create fetcher for zone {zone_id}: {e}"),
+                                },
                             }
                         }
                         Some(IoCommand::Decision { token, action }) => {

@@ -10,7 +10,7 @@ pub fn lock_down_renderer() {
 }
 
 #[cfg(feature = "multi-process")]
-pub fn lock_down_net() {}
+pub fn lock_down_net(_fs_allow: &[(&std::path::Path, bool)]) {}
 
 /// No confinement here either; the service runs unconfined like everything else
 /// on this platform.

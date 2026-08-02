@@ -131,6 +131,12 @@ path = "examples/hello-world.rs"
 name = "multi-tab"
 path = "examples/multi-tab.rs"
 
+# The only example that runs components in separate processes; the rest are
+# deliberately single-process (see its module docs).
+[[example]]
+name = "multi-process"
+path = "examples/multi-process.rs"
+
 [[example]]
 name = "metrics-cli"
 path = "examples/metrics_cli.rs"
