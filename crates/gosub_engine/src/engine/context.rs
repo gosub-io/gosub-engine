@@ -211,7 +211,10 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
 
 impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Creates a new runtime browsing context, sharing the given per-engine settings store.
-    pub(crate) fn new(config_store: Config) -> BrowsingContext<C> {
+    pub(crate) fn new(
+        config_store: Config,
+        loader: std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
+    ) -> BrowsingContext<C> {
         Self {
             document: None,
             storage: None,
@@ -240,7 +243,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_cursor: CursorShape::Default,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
-            media_store: std::sync::Arc::new(MediaStore::new()),
+            media_store: std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::with_loader(loader)),
             config_store,
             tile_budget: TileBudget::new(),
         }

@@ -6,6 +6,8 @@ use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::ModuleConfiguration;
 
+use gosub_bin::direct_loader::DirectResourceLoader;
+use gosub_html5::parser::Html5ParserOptions;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
@@ -23,7 +25,15 @@ fn main() {
     // Initialize a document and feed it together with the stream to the html5 parser
     let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
 
-    let _ = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None);
+    let _ = Html5Parser::<Config>::parse_document(
+        &mut stream,
+        &mut doc,
+        Some(Html5ParserOptions {
+            // A CLI tool has no engine to broker through, so it fetches directly.
+            resource_loader: Some(std::sync::Arc::new(DirectResourceLoader)),
+            ..Default::default()
+        }),
+    );
 
     // document now contains the html5 node tree
     println!("Generated tree: \n\n {doc}");
