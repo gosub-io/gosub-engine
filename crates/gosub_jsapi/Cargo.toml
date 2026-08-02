@@ -11,6 +11,7 @@ gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared"
 uuid = { workspace = true, features = ["v4"] }
 regex = { workspace = true }
 cow-utils = { workspace = true }
+encoding_rs = "0.8.35"
 
 [lints]
 workspace = true

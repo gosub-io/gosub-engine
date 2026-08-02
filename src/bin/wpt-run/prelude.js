@@ -136,13 +136,63 @@ if (typeof globalThis.DOMException === "undefined") {
     var native = globalThis.__gosub__;
     delete globalThis.__gosub__;
 
+    // Native error classes take precedence; anything else that looks like an
+    // error name ("InvalidCharacterError: ...") becomes a DOMException.
+    var NATIVE_ERRORS = {
+        RangeError: RangeError,
+        TypeError: TypeError,
+        SyntaxError: SyntaxError,
+        ReferenceError: ReferenceError,
+    };
+
     function rethrow(e) {
         var text = e instanceof Error ? String(e.message) : String(e);
         var m = /^([A-Za-z]+Error): ?([\s\S]*)$/.exec(text);
         if (m !== null) {
+            if (NATIVE_ERRORS[m[1]] !== undefined) {
+                throw new NATIVE_ERRORS[m[1]](m[2]);
+            }
             throw new globalThis.DOMException(m[2], m[1]);
         }
         throw e;
+    }
+
+    // BufferSource → Uint8Array view, per WebIDL. Construction over a
+    // detached buffer throws; WebIDL's "get a copy of the bytes" treats a
+    // detached buffer as empty instead (it can detach during options
+    // conversion, which runs first).
+    function bytesOf(input) {
+        if (input === undefined) {
+            return new Uint8Array(0);
+        }
+        if (input instanceof ArrayBuffer ||
+            (typeof SharedArrayBuffer !== "undefined" && input instanceof SharedArrayBuffer)) {
+            try {
+                return new Uint8Array(input);
+            } catch (e) {
+                return new Uint8Array(0);
+            }
+        }
+        if (ArrayBuffer.isView(input)) {
+            try {
+                return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+            } catch (e) {
+                return new Uint8Array(0);
+            }
+        }
+        throw new TypeError("input is not a BufferSource");
+    }
+
+    // Bytes cross the native boundary as "binary strings" (one code point in
+    // U+0000..=U+00FF per byte).
+    function toBinaryString(input) {
+        var bytes = bytesOf(input);
+        var parts = [];
+        var CHUNK = 0x2000;
+        for (var i = 0; i < bytes.length; i += CHUNK) {
+            parts.push(String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK)));
+        }
+        return parts.join("");
     }
 
     globalThis.btoa = function btoa(data) {
@@ -158,6 +208,72 @@ if (typeof globalThis.DOMException === "undefined") {
             return native.atob(String(data));
         } catch (e) {
             rethrow(e);
+        }
+    };
+
+    globalThis.TextEncoder = class TextEncoder {
+        get encoding() {
+            return "utf-8";
+        }
+
+        encode(input) {
+            // String() is the USVString conversion: as_string on the native
+            // side replaces lone surrogates with U+FFFD, as the spec requires.
+            var s = input === undefined ? "" : String(input);
+            var bin;
+            try {
+                bin = native.teEncode(s);
+            } catch (e) {
+                rethrow(e);
+            }
+            var out = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) {
+                out[i] = bin.charCodeAt(i);
+            }
+            return out;
+        }
+    };
+
+    globalThis.TextDecoder = class TextDecoder {
+        constructor(label, options) {
+            var l = label === undefined ? "utf-8" : String(label);
+            var opts = options === undefined || options === null ? {} : options;
+            var fatal = !!opts.fatal;
+            var ignoreBOM = !!opts.ignoreBOM;
+
+            var id;
+            try {
+                id = native.tdNew(l, fatal ? 1 : 0, ignoreBOM ? 1 : 0);
+            } catch (e) {
+                rethrow(e);
+            }
+
+            Object.defineProperty(this, "__id", { value: id, enumerable: false });
+            Object.defineProperty(this, "__encoding", { value: native.tdEncoding(id), enumerable: false });
+            Object.defineProperty(this, "__fatal", { value: fatal, enumerable: false });
+            Object.defineProperty(this, "__ignoreBOM", { value: ignoreBOM, enumerable: false });
+        }
+
+        get encoding() {
+            return this.__encoding;
+        }
+
+        get fatal() {
+            return this.__fatal;
+        }
+
+        get ignoreBOM() {
+            return this.__ignoreBOM;
+        }
+
+        decode(input, options) {
+            var stream = !!(options !== undefined && options !== null && options.stream);
+            var bin = toBinaryString(input);
+            try {
+                return native.tdDecode(this.__id, bin, stream ? 1 : 0);
+            } catch (e) {
+                rethrow(e);
+            }
         }
     };
 

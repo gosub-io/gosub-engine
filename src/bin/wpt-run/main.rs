@@ -6,11 +6,15 @@
 //! The wpt root is a checkout of <https://github.com/web-platform-tests/wpt>
 //! (a sparse checkout of `resources/` plus the test directories is enough).
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::rc::Rc;
 
 use gosub_jsapi::base64;
 use gosub_jsapi::dom_exception::DomException;
+use gosub_jsapi::text_encoding::{TextDecoder, TextEncoder};
 use gosub_shared::types::Result;
 use gosub_v8::{V8Context, V8Engine, V8Function, V8Object};
 use gosub_webexecutor::js::{
@@ -183,9 +187,120 @@ fn register_natives(ctx: &mut V8Context, wpt_root: PathBuf, test_dir: PathBuf) -
     })?;
     obj.set_method("readRelative", &read_relative)?;
 
+    let te_encode = jsapi_string_fn(ctx, |input| Ok(bytes_to_binary_string(&TextEncoder::new().encode(input))))?;
+    obj.set_method("teEncode", &te_encode)?;
+
+    // TextDecoders are stateful (streaming); JS holds an id into this map
+    let decoders: Rc<RefCell<HashMap<u32, TextDecoder>>> = Rc::new(RefCell::new(HashMap::new()));
+    let next_id = Rc::new(RefCell::new(0u32));
+
+    let td_new = {
+        let decoders = Rc::clone(&decoders);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let (Some(label), Some(fatal), Some(ignore_bom)) = (
+                arg_string(cb, 0),
+                arg_number(cb, 1),
+                arg_number(cb, 2),
+            ) else {
+                cb.error("tdNew requires (label, fatal, ignoreBOM) arguments");
+                return;
+            };
+
+            match TextDecoder::new(&label, fatal != 0.0, ignore_bom != 0.0) {
+                Ok(decoder) => {
+                    let mut id_ref = next_id.borrow_mut();
+                    *id_ref += 1;
+                    let id = *id_ref;
+                    decoders.borrow_mut().insert(id, decoder);
+                    match f64::from(id).to_web_value(ctx) {
+                        Ok(v) => cb.ret(v),
+                        Err(e) => cb.error(e),
+                    }
+                }
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("tdNew", &td_new)?;
+
+    let td_encoding = {
+        let decoders = Rc::clone(&decoders);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let Some(id) = arg_number(cb, 0) else {
+                cb.error("tdEncoding requires a decoder id");
+                return;
+            };
+            let name = decoders.borrow().get(&(id as u32)).map(TextDecoder::encoding);
+            match name {
+                Some(name) => match name.to_web_value(ctx) {
+                    Ok(v) => cb.ret(v),
+                    Err(e) => cb.error(e),
+                },
+                None => cb.error("tdEncoding: unknown decoder id"),
+            }
+        })?
+    };
+    obj.set_method("tdEncoding", &td_encoding)?;
+
+    let td_decode = {
+        let decoders = Rc::clone(&decoders);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let (Some(id), Some(input), Some(stream)) = (
+                arg_number(cb, 0),
+                arg_string(cb, 1),
+                arg_number(cb, 2),
+            ) else {
+                cb.error("tdDecode requires (id, bytes, stream) arguments");
+                return;
+            };
+            let Some(bytes) = binary_string_to_bytes(&input) else {
+                cb.error("tdDecode: input is not a binary string");
+                return;
+            };
+
+            let mut decoders = decoders.borrow_mut();
+            let Some(decoder) = decoders.get_mut(&(id as u32)) else {
+                cb.error("tdDecode: unknown decoder id");
+                return;
+            };
+
+            match decoder.decode(&bytes, stream != 0.0) {
+                Ok(out) => match out.to_web_value(ctx) {
+                    Ok(v) => cb.ret(v),
+                    Err(e) => cb.error(e),
+                },
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("tdDecode", &td_decode)?;
+
     ctx.set_on_global_object("__gosub__", obj.into())?;
 
     Ok(())
+}
+
+/// Bytes as a JS "binary string": one code point in U+0000..=U+00FF per byte.
+/// The prelude converts these to/from Uint8Array at the JS boundary.
+fn bytes_to_binary_string(bytes: &[u8]) -> String {
+    bytes.iter().copied().map(char::from).collect()
+}
+
+fn binary_string_to_bytes(s: &str) -> Option<Vec<u8>> {
+    s.chars().map(|c| u8::try_from(c as u32).ok()).collect()
+}
+
+fn arg_string(cb: &mut gosub_v8::V8FunctionCallBack, index: usize) -> Option<String> {
+    let ctx = cb.context();
+    cb.args().get(index, ctx).and_then(|v| v.as_string().ok())
+}
+
+fn arg_number(cb: &mut gosub_v8::V8FunctionCallBack, index: usize) -> Option<f64> {
+    let ctx = cb.context();
+    cb.args().get(index, ctx).and_then(|v| v.as_number().ok())
 }
 
 /// Wrap a string-in/string-out jsapi function as a JS function. A DomException
