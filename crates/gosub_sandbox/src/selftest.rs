@@ -656,7 +656,7 @@ fn run_macos_probe(probe: &str) {
         // green "renderer cannot reach the network" would be equally consistent
         // with the host having no network at all.
         "seatbelt-net-role-keeps-network" => {
-            crate::lock_down_net();
+            crate::lock_down_net(&[]);
             match try_connect() {
                 e if e == libc::ECONNREFUSED => std::process::exit(0),
                 e if e == libc::EPERM => std::process::exit(code::NOT_DENIED),

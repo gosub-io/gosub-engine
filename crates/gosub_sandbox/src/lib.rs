@@ -82,8 +82,23 @@ pub fn lock_down_renderer() {
 /// which is the one privilege this role keeps. Called once the IPC link is
 /// connected. Fail-closed.
 #[cfg(feature = "multi-process")]
-pub fn lock_down_net() {
-    imp::lock_down_net();
+pub fn lock_down_net(fs_allow: &[(&std::path::Path, bool)]) {
+    imp::lock_down_net(fs_allow);
+}
+
+/// The read-only paths [`lock_down_net`] normally wants: resolver configuration
+/// and the system trust store, filtered to those that exist on this host.
+/// Empty off Linux, where confinement gates files another way.
+#[cfg(feature = "multi-process")]
+pub fn net_filesystem_paths() -> Vec<std::path::PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        imp::net_filesystem_paths()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Vec::new()
+    }
 }
 
 /// Confine the **vault** (cookie store): the tightest filter of any role — the

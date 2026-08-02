@@ -99,6 +99,48 @@ const NET_EXTRA: &[libc::c_long] = &[
     libc::SYS_getpeername,
 ];
 
+/// What a *real* network stack needs on top of [`NET_EXTRA`], as opposed to the
+/// synthetic one this model was first written against.
+///
+/// Every entry here was added because a request died on it, not because it
+/// looked plausible — the `SIGSYS` handler names the offending call, which is
+/// what makes deriving this list tractable at all. Expect it to grow as more
+/// libc and TLS backend combinations are exercised; that is an argument for the
+/// libc/arch CI matrix, not for loosening the filter.
+#[cfg(feature = "multi-process")]
+const NET_RUNTIME_EXTRA: &[libc::c_long] = &[
+    // Async I/O readiness: tokio's reactor.
+    libc::SYS_epoll_create1,
+    libc::SYS_epoll_ctl,
+    libc::SYS_epoll_wait,
+    libc::SYS_epoll_pwait,
+    libc::SYS_eventfd2,
+    libc::SYS_poll,
+    libc::SYS_ppoll,
+    // Blocking-pool threads: DNS resolution runs on one.
+    libc::SYS_clone,
+    libc::SYS_clone3,
+    libc::SYS_set_robust_list,
+    libc::SYS_rt_sigtimedwait,
+    libc::SYS_tgkill,
+    // Enumerating the trust store directory, and following its symlinks.
+    libc::SYS_getdents64,
+    libc::SYS_readlinkat,
+    libc::SYS_readlink,
+    // Socket options and non-blocking flags the client sets per connection.
+    libc::SYS_ioctl,
+    libc::SYS_shutdown,
+    libc::SYS_bind,
+    libc::SYS_getpeername,
+    // Host and limit queries made while the stack initialises.
+    libc::SYS_uname,
+    libc::SYS_prlimit64,
+    libc::SYS_getuid,
+    libc::SYS_geteuid,
+    libc::SYS_getgid,
+    libc::SYS_getegid,
+];
+
 /// Extra syscalls the fork server needs on top of the baseline: making
 /// renderers, and reaping them.
 #[cfg(feature = "multi-process")]
@@ -272,10 +314,66 @@ pub fn lock_down_vault() {
 
 /// Cap the net component: the baseline plus the socket family.
 #[cfg(feature = "multi-process")]
-pub fn lock_down_net() {
+pub fn lock_down_net(fs_allow: &[(&std::path::Path, bool)]) {
     deny_debugger_attach();
-    let allowed: Vec<libc::c_long> = BASELINE.iter().chain(NET_EXTRA).copied().collect();
+
+    // A real network stack reads files, unlike the synthetic one this policy was
+    // first written against: TLS needs the system root certificates and DNS needs
+    // the resolver configuration. Denying `openat` outright made the process die
+    // on its first HTTPS request. So the syscall is allowed and **Landlock decides
+    // which paths it may reach** — seccomp bounds the operation, Landlock bounds
+    // the target. Without Landlock the filesystem is capped only by the caller's
+    // path list being short, which is why its absence is reported rather than
+    // passed over.
+    if !fs_allow.is_empty() {
+        match landlock::restrict(fs_allow) {
+            Ok(true) => eprintln!("[net] landlock active (filesystem scoped to resolver and CA paths)"),
+            Ok(false) => eprintln!("[net] landlock unavailable on this kernel; filesystem NOT path-scoped"),
+            Err(e) => eprintln!("[net] landlock could not be applied ({e}); filesystem NOT path-scoped"),
+        }
+    }
+
+    let allowed: Vec<libc::c_long> = BASELINE
+        .iter()
+        .chain(NET_EXTRA)
+        .chain(NET_RUNTIME_EXTRA)
+        .chain(FS_EXTRA)
+        .copied()
+        .collect();
     enforce("net", install(allowed));
+}
+
+/// The read-only paths a network stack needs on a typical Linux system:
+/// resolver configuration and the system trust store.
+///
+/// Only paths that exist are returned — Landlock rules name real objects, and
+/// distributions disagree about which of these are present. Empirically derived
+/// (a missing entry shows up as a `SIGSYS` naming `openat`, or a TLS handshake
+/// that cannot verify anything), so it is expected to grow as more platforms are
+/// exercised; the PoC's libc/arch CI matrix exists for exactly this reason.
+pub fn net_filesystem_paths() -> Vec<std::path::PathBuf> {
+    const CANDIDATES: &[&str] = &[
+        // Resolver configuration.
+        "/etc/resolv.conf",
+        "/etc/hosts",
+        "/etc/nsswitch.conf",
+        "/etc/gai.conf",
+        "/etc/host.conf",
+        "/etc/services",
+        // System trust stores, as the major distributions arrange them.
+        "/etc/ssl",
+        "/etc/pki",
+        "/etc/ca-certificates",
+        "/usr/share/ca-certificates",
+        "/usr/local/share/ca-certificates",
+        "/etc/ssl/certs/ca-certificates.crt",
+    ];
+
+    CANDIDATES
+        .iter()
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.exists())
+        .collect()
 }
 
 /// The syscalls a filesystem-capable service needs beyond the baseline to open

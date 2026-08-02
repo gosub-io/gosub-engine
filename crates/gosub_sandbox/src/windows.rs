@@ -147,7 +147,7 @@ pub fn lock_down_service(name: &str, _filesystem: bool, _device: bool, _fs_allow
 }
 
 #[cfg(feature = "multi-process")]
-pub fn lock_down_net() {
+pub fn lock_down_net(_fs_allow: &[(&std::path::Path, bool)]) {
     deny_debugger_attach();
     lock_down("net");
 }

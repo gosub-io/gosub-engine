@@ -58,6 +58,9 @@ pub mod events;
 mod fetcher;
 mod file_loader;
 mod io_runtime;
+/// The network stack running as a separate, sandboxed process.
+#[cfg(feature = "process-isolation")]
+pub mod process;
 pub mod req_ref_tracker;
 mod router;
 mod shared_body;

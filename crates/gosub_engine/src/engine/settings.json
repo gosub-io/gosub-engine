@@ -111,6 +111,12 @@
       "description": "Wall-clock deadline (seconds) for receiving the entire response body. 0 disables the limit."
     },
     {
+      "key": "process_isolation",
+      "type": "b",
+      "default": "b:false",
+      "description": "Run the network stack in a separate, sandboxed process. Requires the embedder to call gosub_engine::child_process::dispatch() first thing in main(); the engine falls back to in-process networking (with a warning) if the child cannot be started. Responses are buffered rather than streamed while isolation is on."
+    },
+    {
       "key": "http.global_slots",
       "type": "u",
       "default": "u:32",
