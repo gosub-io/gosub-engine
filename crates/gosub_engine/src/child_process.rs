@@ -63,23 +63,17 @@ fn run_role(role: &str, args: &[String]) -> i32 {
     // able to attach and read it.
     gosub_sandbox::deny_debugger_attach();
 
+    use crate::decoder_process::client::DECODER_ROLE;
+
     match role {
-        NET_ROLE => {
-            let Some(link) = args.first() else {
-                eprintln!("[gosub] child role '{role}' needs an IPC link argument");
-                return 2;
-            };
-            // Adopted once, here, before anything else in this process opens a
-            // descriptor — the ownership condition `adopt_inherited` documents.
-            let endpoint = match gosub_ipc::Endpoint::adopt_inherited(link) {
-                Ok(e) => e,
-                Err(e) => {
-                    eprintln!("[gosub] child role '{role}' could not adopt its link: {e}");
-                    return 2;
-                }
-            };
-            crate::net::process::child::serve(endpoint)
-        }
+        DECODER_ROLE => match adopt_link(role, args) {
+            Ok(endpoint) => crate::decoder_process::child::serve(endpoint),
+            Err(code) => code,
+        },
+        NET_ROLE => match adopt_link(role, args) {
+            Ok(endpoint) => crate::net::process::child::serve(endpoint),
+            Err(code) => code,
+        },
         other => {
             eprintln!("[gosub] unknown child role '{other}'");
             2
@@ -94,4 +88,17 @@ fn run_role(role: &str, _args: &[String]) -> i32 {
     // loudly rather than silently continuing into the embedder's `main`.
     eprintln!("[gosub] child role '{role}' requested, but this build has no process isolation");
     2
+}
+
+/// Take over the link this child inherited, or report why it could not.
+#[cfg(feature = "process-isolation")]
+fn adopt_link(role: &str, args: &[String]) -> Result<gosub_ipc::Endpoint, i32> {
+    let Some(link) = args.first() else {
+        eprintln!("[gosub] child role '{role}' needs an IPC link argument");
+        return Err(2);
+    };
+    gosub_ipc::Endpoint::adopt_inherited(link).map_err(|e| {
+        eprintln!("[gosub] child role '{role}' could not adopt its link: {e}");
+        2
+    })
 }

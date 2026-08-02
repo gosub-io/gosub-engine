@@ -20,12 +20,73 @@ fn main() {
         "direct" => direct(),
         "engine" => engine(),
         "guard" => guard(),
+        "decode" => decode(),
+        "decode-garbage" => decode_garbage(),
         other => {
             eprintln!("unknown scenario {other:?}; expected 'direct' or 'engine'");
             2
         }
     };
     std::process::exit(code);
+}
+
+/// A 2x2 RGBA PNG: red, green, blue, white.
+const SAMPLE_PNG: &[u8] = &[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00,
+    0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x06, 0x00, 0x00, 0x00, 0x72, 0xB6, 0x0D, 0x24, 0x00, 0x00, 0x00, 0x12, 0x49,
+    0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF, 0xC0, 0xF0, 0x1F, 0x0C, 0x81, 0x34, 0x18, 0x00, 0x00, 0x49, 0xC8,
+    0x09, 0xF7, 0xF9, 0xAB, 0xB6, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+];
+
+/// The decode boundary: real image bytes go into a throwaway process and the
+/// exact pixels come back.
+fn decode() -> i32 {
+    use gosub_engine::decoder_process::client::ProcessImageDecoder;
+    use gosub_interface::media_decoder::{BrokeredDecode, ImageDecoder};
+
+    match ProcessImageDecoder.decode(Some("image/png"), SAMPLE_PNG) {
+        Ok(BrokeredDecode::Raster(image)) => {
+            if (image.width, image.height) != (2, 2) {
+                eprintln!("expected a 2x2 image, got {}x{}", image.width, image.height);
+                return 1;
+            }
+            let expected: &[u8] = &[255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255];
+            if image.rgba.as_ref() != expected {
+                eprintln!("pixels did not survive the boundary: {:?}", image.rgba.as_ref());
+                return 1;
+            }
+            0
+        }
+        Ok(BrokeredDecode::Vector) => {
+            eprintln!("a PNG should not decode as a vector");
+            1
+        }
+        Err(e) => {
+            eprintln!("decode in a separate process failed: {e}");
+            1
+        }
+    }
+}
+
+/// Malformed input must come back as a refusal. This is the common case in the
+/// wild — a truncated or hostile image — and it must not hang or crash the
+/// broker.
+fn decode_garbage() -> i32 {
+    use gosub_engine::decoder_process::client::ProcessImageDecoder;
+    use gosub_interface::media_decoder::ImageDecoder;
+
+    // A PNG magic number followed by nonsense: it gets past a magic-byte sniff
+    // and dies inside the decoder, which is where the danger actually lives.
+    let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    bytes.extend(std::iter::repeat_n(0xA5, 4096));
+
+    match ProcessImageDecoder.decode(Some("image/png"), &bytes) {
+        Ok(other) => {
+            eprintln!("garbage should not have decoded, got {other:?}");
+            1
+        }
+        Err(_) => 0,
+    }
 }
 
 /// An embedder that never dispatched: re-exec landed here, in `main`, rather
@@ -160,7 +221,7 @@ fn engine() -> i32 {
         );
 
         // Read once when the I/O runtime starts, so it must be set before start().
-        if let Err(e) = engine.settings().set("net.process_isolation", Setting::Bool(true)) {
+        if let Err(e) = engine.settings().set("security.network_process", Setting::Bool(true)) {
             eprintln!("could not enable process isolation: {e}");
             return 1;
         }

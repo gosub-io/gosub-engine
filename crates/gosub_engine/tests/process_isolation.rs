@@ -1,4 +1,5 @@
-//! Process isolation for the network stack, exercised for real.
+//! Process isolation, exercised for real: the network stack and the image
+//! decoder each running in their own sandboxed process.
 
 // Nothing here exists without the machinery it drives; the single-process build
 // has no child roles to test.
@@ -8,14 +9,14 @@
 use std::process::Command;
 
 fn harness() -> &'static str {
-    env!("CARGO_BIN_EXE_net-process-harness")
+    env!("CARGO_BIN_EXE_isolation-harness")
 }
 
 fn run(scenario: &str) -> std::process::Output {
     Command::new(harness())
         .arg(scenario)
         .output()
-        .expect("spawn net-process-harness")
+        .expect("spawn isolation-harness")
 }
 
 /// The boundary itself: a request crosses into a separate, sandboxed process and
@@ -36,7 +37,7 @@ fn a_request_completes_through_the_network_process() {
     );
 }
 
-/// The wiring: an ordinary navigation with `net.process_isolation` on resolves
+/// The wiring: an ordinary navigation with `security.network_process` on resolves
 /// through the child rather than an in-process fetcher.
 #[test]
 fn a_navigation_resolves_with_process_isolation_enabled() {
@@ -44,6 +45,29 @@ fn a_navigation_resolves_with_process_isolation_enabled() {
     assert!(
         out.status.success(),
         "navigation under process isolation failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Image bytes cross into a throwaway, fully locked-down process and the exact
+/// pixels come back.
+#[test]
+fn an_image_decodes_in_a_separate_process() {
+    let out = run("decode");
+    assert!(
+        out.status.success(),
+        "decoding in a separate process failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Malformed input comes back as a refusal, not an image and not a hang.
+#[test]
+fn a_malformed_image_is_refused_rather_than_decoded() {
+    let out = run("decode-garbage");
+    assert!(
+        out.status.success(),
+        "malformed image handling failed:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
 }
@@ -56,7 +80,7 @@ fn an_undispatched_embedder_cannot_spawn_further_processes() {
         .args(["guard", gosub_engine::child_process::ROLE_FLAG, "net"])
         .env("GOSUB_HARNESS_SKIP_DISPATCH", "1")
         .output()
-        .expect("spawn net-process-harness");
+        .expect("spawn isolation-harness");
 
     assert!(
         out.status.success(),
@@ -72,7 +96,7 @@ fn an_unknown_child_role_is_refused() {
     let out = Command::new(harness())
         .args([gosub_engine::child_process::ROLE_FLAG, "no-such-role"])
         .output()
-        .expect("spawn net-process-harness");
+        .expect("spawn isolation-harness");
 
     assert!(
         !out.status.success(),
