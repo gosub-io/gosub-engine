@@ -173,6 +173,60 @@ if (typeof globalThis.DOMException === "undefined") {
         throw e;
     }
 
+    // %IteratorPrototype%, reached through any built-in iterator
+    var iteratorPrototypeBase = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
+
+    // A WebIDL default-iterator prototype: inherits %IteratorPrototype% (which
+    // supplies @@iterator), with `next` as an enumerable data property.
+    // entryAt(id, i) returns a JSON-encoded [key, value] or null.
+    function makeIteratorPrototype(entryAt) {
+        var proto = Object.create(iteratorPrototypeBase);
+        proto.next = function () {
+            var pair = JSON.parse(entryAt(this.__ownerId, this.__index));
+            if (pair === null) {
+                return { done: true, value: undefined };
+            }
+            this.__index++;
+            var value = this.__kind === "entries" ? pair : this.__kind === "keys" ? pair[0] : pair[1];
+            return { done: false, value: value };
+        };
+        return proto;
+    }
+
+    function createIterator(proto, ownerId, kind) {
+        var it = Object.create(proto);
+        Object.defineProperty(it, "__ownerId", { value: ownerId, writable: false });
+        Object.defineProperty(it, "__kind", { value: kind, writable: false });
+        Object.defineProperty(it, "__index", { value: 0, writable: true });
+        return it;
+    }
+
+    // WebIDL record<K, V> conversion: own keys in order, per-key descriptor
+    // check, key conversion BEFORE [[Get]] (symbol keys throw in the key
+    // converter), all before the caller applies any pair.
+    function convertRecord(init, convertKey, convertValue) {
+        var result = [];
+        var keys = Reflect.ownKeys(init);
+        for (var i = 0; i < keys.length; i++) {
+            var desc = Object.getOwnPropertyDescriptor(init, keys[i]);
+            if (desc !== undefined && desc.enumerable === true) {
+                var typedKey = convertKey(keys[i]);
+                result.push([typedKey, convertValue(init[keys[i]])]);
+            }
+        }
+        return result;
+    }
+
+    // WebIDL USVString conversion: symbols throw; lone surrogates are
+    // replaced natively when the string crosses into Rust
+    function toUSVString(v) {
+        if (typeof v === "symbol") {
+            throw new TypeError("Cannot convert a Symbol value to a string");
+        }
+        return String(v);
+    }
+
+
     // BufferSource → Uint8Array view, per WebIDL. Construction over a
     // detached buffer throws; WebIDL's "get a copy of the bytes" treats a
     // detached buffer as empty instead (it can detach during options
@@ -315,9 +369,10 @@ if (typeof globalThis.DOMException === "undefined") {
                     // record<USVString, USVString>: set-or-append, because two
                     // JS keys can collapse into one after USVString conversion
                     // (lone surrogates become U+FFFD)
+                    var recordPairs = convertRecord(init, toUSVString, toUSVString);
                     id = native.spNew("");
-                    for (var key of Object.keys(init)) {
-                        native.spSet(id, String(key), String(init[key]));
+                    for (var rp of recordPairs) {
+                        native.spSet(id, rp[0], rp[1]);
                     }
                 }
             } else {
@@ -385,15 +440,15 @@ if (typeof globalThis.DOMException === "undefined") {
         }
 
         entries() {
-            return makeSearchParamsIterator(this, "entries");
+            return createIterator(searchParamsIteratorPrototype, this.__id, "entries");
         }
 
         keys() {
-            return makeSearchParamsIterator(this, "keys");
+            return createIterator(searchParamsIteratorPrototype, this.__id, "keys");
         }
 
         values() {
-            return makeSearchParamsIterator(this, "values");
+            return createIterator(searchParamsIteratorPrototype, this.__id, "values");
         }
 
         forEach(callback, thisArg) {
@@ -410,25 +465,9 @@ if (typeof globalThis.DOMException === "undefined") {
         }
     };
 
-    // Live index-based iteration, per the spec's iterator semantics
-    function makeSearchParamsIterator(sp, kind) {
-        var i = 0;
-        var iterator = {
-            next: function () {
-                var pair = JSON.parse(native.spEntryAt(sp.__id, i));
-                if (pair === null) {
-                    return { done: true, value: undefined };
-                }
-                i++;
-                var value = kind === "entries" ? pair : kind === "keys" ? pair[0] : pair[1];
-                return { done: false, value: value };
-            },
-        };
-        iterator[Symbol.iterator] = function () {
-            return iterator;
-        };
-        return iterator;
-    }
+    var searchParamsIteratorPrototype = makeIteratorPrototype(function (id, i) {
+        return native.spEntryAt(id, i);
+    });
 
     Object.defineProperty(globalThis.URLSearchParams.prototype, Symbol.iterator, {
         value: globalThis.URLSearchParams.prototype.entries,
@@ -521,6 +560,148 @@ if (typeof globalThis.DOMException === "undefined") {
             return this.__sp;
         }
     };
+
+    // WebIDL ByteString conversion: symbols throw, other values stringify,
+    // code units above 255 are a TypeError
+    function toByteString(v) {
+        if (typeof v === "symbol") {
+            throw new TypeError("Cannot convert a Symbol value to a string");
+        }
+        var s = String(v);
+        for (var i = 0; i < s.length; i++) {
+            if (s.charCodeAt(i) > 255) {
+                throw new TypeError("Cannot convert to ByteString: character at index " + i + " is above U+00FF");
+            }
+        }
+        return s;
+    }
+
+    globalThis.Headers = class Headers {
+        constructor(init) {
+            Object.defineProperty(this, "__id", { value: native.hdrNew() });
+            if (init === undefined) {
+                return;
+            }
+            if (init === null || (typeof init !== "object" && typeof init !== "function")) {
+                throw new TypeError("Headers init must be a sequence or record");
+            }
+            if (typeof init[Symbol.iterator] === "function") {
+                // sequence<sequence<ByteString>>: validate all pairs first
+                var pairs = [];
+                for (var item of init) {
+                    var pair = Array.from(item);
+                    if (pair.length !== 2) {
+                        throw new TypeError("Headers init: each entry must be a [name, value] pair");
+                    }
+                    pairs.push(pair);
+                }
+                for (var p of pairs) {
+                    this.append(p[0], p[1]);
+                }
+            } else {
+                // record<ByteString, ByteString>
+                var recordPairs = convertRecord(init, toByteString, toByteString);
+                for (var rp of recordPairs) {
+                    this.append(rp[0], rp[1]);
+                }
+            }
+        }
+
+        append(name, value) {
+            if (arguments.length < 2) {
+                throw new TypeError("append requires 2 arguments");
+            }
+            try {
+                native.hdrAppend(this.__id, toByteString(name), toByteString(value));
+            } catch (e) {
+                rethrow(e);
+            }
+        }
+
+        delete(name) {
+            if (arguments.length < 1) {
+                throw new TypeError("delete requires 1 argument");
+            }
+            try {
+                native.hdrDelete(this.__id, toByteString(name));
+            } catch (e) {
+                rethrow(e);
+            }
+        }
+
+        get(name) {
+            if (arguments.length < 1) {
+                throw new TypeError("get requires 1 argument");
+            }
+            try {
+                return JSON.parse(native.hdrGet(this.__id, toByteString(name)));
+            } catch (e) {
+                rethrow(e);
+            }
+        }
+
+        getSetCookie() {
+            return JSON.parse(native.hdrGetSetCookie(this.__id));
+        }
+
+        has(name) {
+            if (arguments.length < 1) {
+                throw new TypeError("has requires 1 argument");
+            }
+            try {
+                return native.hdrHas(this.__id, toByteString(name)) === 1;
+            } catch (e) {
+                rethrow(e);
+            }
+        }
+
+        set(name, value) {
+            if (arguments.length < 2) {
+                throw new TypeError("set requires 2 arguments");
+            }
+            try {
+                native.hdrSet(this.__id, toByteString(name), toByteString(value));
+            } catch (e) {
+                rethrow(e);
+            }
+        }
+
+        entries() {
+            return createIterator(headersIteratorPrototype, this.__id, "entries");
+        }
+
+        keys() {
+            return createIterator(headersIteratorPrototype, this.__id, "keys");
+        }
+
+        values() {
+            return createIterator(headersIteratorPrototype, this.__id, "values");
+        }
+
+        forEach(callback, thisArg) {
+            if (typeof callback !== "function") {
+                throw new TypeError("forEach: callback is not a function");
+            }
+            for (var i = 0; ; i++) {
+                var pair = JSON.parse(native.hdrEntryAt(this.__id, i));
+                if (pair === null) {
+                    break;
+                }
+                callback.call(thisArg, pair[1], pair[0], this);
+            }
+        }
+    };
+
+    var headersIteratorPrototype = makeIteratorPrototype(function (id, i) {
+        return native.hdrEntryAt(id, i);
+    });
+
+    Object.defineProperty(globalThis.Headers.prototype, Symbol.iterator, {
+        value: globalThis.Headers.prototype.entries,
+        writable: true,
+        enumerable: false,
+        configurable: true,
+    });
 
     // console namespace per WebIDL: methods are own properties, the
     // [[Prototype]] is an empty object whose prototype is %Object.prototype%,

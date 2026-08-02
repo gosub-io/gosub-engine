@@ -15,6 +15,7 @@ use std::rc::Rc;
 use gosub_jsapi::base64;
 use gosub_jsapi::console::{Console, LogLevel, Printer};
 use gosub_jsapi::dom_exception::DomException;
+use gosub_jsapi::headers::Headers;
 use gosub_jsapi::text_encoding::{TextDecoder, TextEncoder};
 use gosub_jsapi::url::{Url, UrlSearchParams};
 use gosub_shared::types::Result;
@@ -181,7 +182,7 @@ fn run_test_file(
         return Ok((0, 1, 0));
     };
 
-    report(&results_json, expected)
+    report(&results_json, expected, &file_name)
 }
 
 /// Install `__gosub__.{atob,btoa,readRelative}` on the global object. The
@@ -317,6 +318,7 @@ fn register_natives(ctx: &mut V8Context, wpt_root: PathBuf, test_dir: PathBuf) -
 
     register_console_native(ctx, &obj)?;
     register_url_natives(ctx, &obj)?;
+    register_headers_natives(ctx, &obj)?;
 
     ctx.set_on_global_object("__gosub__", obj.into())?;
 
@@ -871,6 +873,192 @@ fn binary_string_to_bytes(s: &str) -> Option<Vec<u8>> {
     s.chars().map(|c| u8::try_from(c as u32).ok()).collect()
 }
 
+#[allow(clippy::too_many_lines)]
+fn register_headers_natives(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
+    let store: Rc<RefCell<HashMap<u32, Headers>>> = Rc::new(RefCell::new(HashMap::new()));
+    let next_id = Rc::new(RefCell::new(0u32));
+
+    let hdr_new = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let mut id_ref = next_id.borrow_mut();
+            *id_ref += 1;
+            let id = *id_ref;
+            store.borrow_mut().insert(id, Headers::new());
+            match f64::from(id).to_web_value(ctx) {
+                Ok(v) => cb.ret(v),
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("hdrNew", &hdr_new)?;
+
+    let hdr_append = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let (Some(id), Some(name), Some(value)) = (arg_number(cb, 0), arg_string(cb, 1), arg_string(cb, 2))
+            else {
+                cb.error("hdrAppend requires (id, name, value) arguments");
+                return;
+            };
+            let mut store = store.borrow_mut();
+            let Some(headers) = store.get_mut(&(id as u32)) else {
+                cb.error("hdrAppend: unknown headers id");
+                return;
+            };
+            match headers.append(&name, &value) {
+                Ok(()) => ret_undefined(cb),
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("hdrAppend", &hdr_append)?;
+
+    let hdr_set = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let (Some(id), Some(name), Some(value)) = (arg_number(cb, 0), arg_string(cb, 1), arg_string(cb, 2))
+            else {
+                cb.error("hdrSet requires (id, name, value) arguments");
+                return;
+            };
+            let mut store = store.borrow_mut();
+            let Some(headers) = store.get_mut(&(id as u32)) else {
+                cb.error("hdrSet: unknown headers id");
+                return;
+            };
+            match headers.set(&name, &value) {
+                Ok(()) => ret_undefined(cb),
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("hdrSet", &hdr_set)?;
+
+    let hdr_delete = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let (Some(id), Some(name)) = (arg_number(cb, 0), arg_string(cb, 1)) else {
+                cb.error("hdrDelete requires (id, name) arguments");
+                return;
+            };
+            let mut store = store.borrow_mut();
+            let Some(headers) = store.get_mut(&(id as u32)) else {
+                cb.error("hdrDelete: unknown headers id");
+                return;
+            };
+            match headers.delete(&name) {
+                Ok(()) => ret_undefined(cb),
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("hdrDelete", &hdr_delete)?;
+
+    let hdr_get = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let (Some(id), Some(name)) = (arg_number(cb, 0), arg_string(cb, 1)) else {
+                cb.error("hdrGet requires (id, name) arguments");
+                return;
+            };
+            let store = store.borrow();
+            let Some(headers) = store.get(&(id as u32)) else {
+                cb.error("hdrGet: unknown headers id");
+                return;
+            };
+            match headers.get(&name) {
+                Ok(value) => match serde_json::to_string(&value) {
+                    Ok(json) => match json.to_web_value(ctx) {
+                        Ok(v) => cb.ret(v),
+                        Err(e) => cb.error(e),
+                    },
+                    Err(e) => cb.error(e),
+                },
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("hdrGet", &hdr_get)?;
+
+    let hdr_has = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let (Some(id), Some(name)) = (arg_number(cb, 0), arg_string(cb, 1)) else {
+                cb.error("hdrHas requires (id, name) arguments");
+                return;
+            };
+            let store = store.borrow();
+            let Some(headers) = store.get(&(id as u32)) else {
+                cb.error("hdrHas: unknown headers id");
+                return;
+            };
+            match headers.has(&name) {
+                Ok(found) => match f64::from(u8::from(found)).to_web_value(ctx) {
+                    Ok(v) => cb.ret(v),
+                    Err(e) => cb.error(e),
+                },
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("hdrHas", &hdr_has)?;
+
+    let hdr_get_set_cookie = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let Some(id) = arg_number(cb, 0) else {
+                cb.error("hdrGetSetCookie requires a headers id");
+                return;
+            };
+            let store = store.borrow();
+            let Some(headers) = store.get(&(id as u32)) else {
+                cb.error("hdrGetSetCookie: unknown headers id");
+                return;
+            };
+            match serde_json::to_string(&headers.get_set_cookie()) {
+                Ok(json) => match json.to_web_value(ctx) {
+                    Ok(v) => cb.ret(v),
+                    Err(e) => cb.error(e),
+                },
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("hdrGetSetCookie", &hdr_get_set_cookie)?;
+
+    let hdr_entry_at = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let (Some(id), Some(index)) = (arg_number(cb, 0), arg_number(cb, 1)) else {
+                cb.error("hdrEntryAt requires (id, index) arguments");
+                return;
+            };
+            let store = store.borrow();
+            let Some(headers) = store.get(&(id as u32)) else {
+                cb.error("hdrEntryAt: unknown headers id");
+                return;
+            };
+            let entries = headers.sorted_entries();
+            match serde_json::to_string(&entries.get(index as usize)) {
+                Ok(json) => match json.to_web_value(ctx) {
+                    Ok(v) => cb.ret(v),
+                    Err(e) => cb.error(e),
+                },
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("hdrEntryAt", &hdr_entry_at)?;
+
+    Ok(())
+}
+
 /// Explicit undefined return for void natives — a callback that never calls
 /// `ret()` is treated as an error by the function glue.
 fn ret_undefined(cb: &mut gosub_v8::V8FunctionCallBack) {
@@ -955,7 +1143,7 @@ fn normalize_name(name: &str) -> String {
     out
 }
 
-fn report(results_json: &str, expected: &HashSet<String>) -> Result<(usize, usize, usize)> {
+fn report(results_json: &str, expected: &HashSet<String>, file_name: &str) -> Result<(usize, usize, usize)> {
     let results: serde_json::Value = serde_json::from_str(results_json)?;
 
     let mut pass = 0usize;
@@ -965,9 +1153,12 @@ fn report(results_json: &str, expected: &HashSet<String>) -> Result<(usize, usiz
     for test in results["tests"].as_array().map(Vec::as_slice).unwrap_or_default() {
         let name = normalize_name(test["name"].as_str().unwrap_or("<unnamed>"));
         let name = name.as_str();
+        // Expectations are scoped per file — the same test name can exist in
+        // several suites with different outcomes
+        let expectation_key = format!("{file_name} :: {name}");
         let status = test["status"].as_u64().unwrap_or(u64::MAX);
         if status == 0 {
-            if expected.contains(name) {
+            if expected.contains(&expectation_key) {
                 fail += 1;
                 println!("UNEXPECTED PASS: {name} — remove it from the expectations file");
             } else {
@@ -979,7 +1170,7 @@ fn report(results_json: &str, expected: &HashSet<String>) -> Result<(usize, usiz
             continue;
         }
 
-        if expected.contains(name) {
+        if expected.contains(&expectation_key) {
             xfail += 1;
             if std::env::var_os("WPT_RUN_VERBOSE").is_some() {
                 println!("XFAIL: {name}");
