@@ -24,6 +24,7 @@ fn main() {
         "decode-garbage" => decode_garbage(),
         "decode-many" => decode_many(),
         "fonts-under-lockdown" => fonts_under_lockdown(),
+        "webfont-under-lockdown" => webfont_under_lockdown(),
         other => {
             eprintln!("unknown scenario {other:?}; expected 'direct' or 'engine'");
             2
@@ -102,11 +103,18 @@ fn fonts_under_lockdown() -> i32 {
     // How expensive is the strategy this implies — warming every family a page
     // could name, since which ones it will name is unknowable in advance?
     if std::env::args().any(|a| a == "--warm-all") {
+        let rss_before_mib = rss_mib();
         let start = std::time::Instant::now();
         for family in &families {
             let _ = fonts.measure("Ag", &TextStyle::new(family.clone(), 16.0));
         }
-        println!("warmed all {} families in {:?}", families.len(), start.elapsed());
+        println!(
+            "warmed all {} families in {:?}, RSS {} -> {} MiB",
+            families.len(),
+            start.elapsed(),
+            rss_before_mib,
+            rss_mib()
+        );
     }
 
     gosub_sandbox::lock_down_renderer();
@@ -121,6 +129,62 @@ fn fonts_under_lockdown() -> i32 {
     }
     println!("shaped {cold_w:.1}x{cold_h:.1} under the renderer lockdown");
     0
+}
+
+/// The follow-up question to the warm-up finding: a page can introduce a font at
+/// any moment with `@font-face`, long after the sandbox is in place. Does that
+/// need a file, and therefore a process that can open one?
+fn webfont_under_lockdown() -> i32 {
+    use gosub_fontmanager::ParleyFontSystem;
+    use gosub_interface::font_system::{FontQuery, FontSystem, TextStyle};
+
+    let mut fonts = ParleyFontSystem::default();
+    let _ = fonts.families();
+
+    // Stand in for a downloaded font: bytes in hand, nothing else.
+    let Ok(resolved) = fonts.resolve(&FontQuery::new(&["sans-serif"])) else {
+        eprintln!("no resolvable font on this host to use as sample bytes");
+        return 2;
+    };
+    let downloaded: Vec<u8> = resolved.blob.data.as_ref().as_ref().to_vec();
+    if downloaded.is_empty() {
+        eprintln!("resolved font carried no bytes; the control is broken");
+        return 2;
+    }
+    println!("holding {} bytes of font data before lockdown", downloaded.len());
+
+    gosub_sandbox::lock_down_renderer();
+
+    // Everything from here is what a renderer would do on encountering
+    // `@font-face` mid-page.
+    if let Err(e) = fonts.register_font(downloaded, Some("gosub-webfont-test")) {
+        eprintln!("registering a web font under lockdown failed: {e:?}");
+        return 1;
+    }
+    let (w, h) = fonts.measure(
+        "Web font registered after the sandbox applied",
+        &TextStyle::new(resolved.family.clone(), 24.0),
+    );
+    if w <= 0.0 || h <= 0.0 {
+        eprintln!("shaping with the registered font produced an empty box ({w}x{h})");
+        return 1;
+    }
+    println!("registered and shaped {w:.1}x{h:.1} under the renderer lockdown");
+    0
+}
+
+/// Resident set size in MiB, from `/proc/self/statm` (pages), so the cost of a
+/// strategy is a number rather than an impression. 0 where unavailable.
+fn rss_mib() -> u64 {
+    let Ok(statm) = std::fs::read_to_string("/proc/self/statm") else {
+        return 0;
+    };
+    let pages: u64 = statm
+        .split_whitespace()
+        .nth(1)
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(0);
+    pages * 4096 / (1024 * 1024)
 }
 
 /// Decode the sample image repeatedly and report the wall-clock cost per image,

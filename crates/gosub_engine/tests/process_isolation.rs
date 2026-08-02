@@ -98,6 +98,23 @@ fn a_warmed_font_system_can_shape_under_the_renderer_lockdown() {
     );
 }
 
+/// A font that arrives *after* the sandbox is applied still works, as long as it
+/// arrives as bytes.
+#[test]
+fn a_web_font_can_be_registered_under_the_renderer_lockdown() {
+    let out = run("webfont-under-lockdown");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "registering a web font once confined should work:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// An embedder that enables isolation without dispatching must be stopped, not
 /// merely warned.
 #[test]
