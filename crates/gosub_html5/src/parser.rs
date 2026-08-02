@@ -5,6 +5,7 @@ use std::collections::HashMap;
 #[cfg(all(feature = "debug_parser", test))]
 use std::io::Write;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::parser::attr_replacements::{
@@ -25,6 +26,7 @@ use gosub_interface::node::NodeType;
 
 use gosub_interface::html5::ParserOptions;
 use gosub_interface::node::QuirksMode;
+use gosub_interface::resource_loader::ResourceLoader;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 use gosub_shared::config::{Context, ParserConfig};
 use gosub_shared::node::NodeId;
@@ -111,12 +113,15 @@ impl ActiveElement {
 
 pub struct Html5ParserOptions {
     pub scripting_enabled: bool,
+    /// How the parser pulls in an external stylesheet.
+    pub resource_loader: Option<Arc<dyn ResourceLoader>>,
 }
 
 impl ParserOptions for Html5ParserOptions {
     fn new(scripting: bool) -> Self {
         Self {
             scripting_enabled: scripting,
+            resource_loader: None,
         }
     }
 }
@@ -125,6 +130,7 @@ impl Default for Html5ParserOptions {
     fn default() -> Self {
         Self {
             scripting_enabled: true,
+            resource_loader: None,
         }
     }
 }
@@ -157,6 +163,9 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     form_element: Option<NodeId>,
     /// If true, scripting is enabled
     scripting_enabled: bool,
+    /// Supplied by the caller; `None` means external stylesheets are not fetched.
+    /// See [`Html5ParserOptions::resource_loader`].
+    resource_loader: Option<Arc<dyn ResourceLoader>>,
     /// if true, we can insert a frameset
     frameset_ok: bool,
     /// Foster parenting flag
@@ -278,6 +287,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         error_logger: Rc<RefCell<ErrorLogger>>,
         options: Option<Html5ParserOptions>,
     ) -> Self {
+        let opts = options.unwrap_or_default();
         Self {
             tokenizer,
             insertion_mode: InsertionMode::Initial,
@@ -292,7 +302,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             open_elements: Vec::new(),
             head_element: None,
             form_element: None,
-            scripting_enabled: options.unwrap_or_default().scripting_enabled,
+            scripting_enabled: opts.scripting_enabled,
+            resource_loader: opts.resource_loader,
             frameset_ok: true,
             foster_parenting: false,
             script_already_started: false,
@@ -332,6 +343,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             head_element: None,
             form_element: None,
             scripting_enabled: true,
+            resource_loader: None,
             frameset_ok: true,
             foster_parenting: false,
             script_already_started: false,
@@ -4063,7 +4075,15 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     #[cfg(not(target_arch = "wasm32"))]
     fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<<C::CssSystem as CssSystem>::Stylesheet> {
         let css = if url.scheme() == "http" || url.scheme() == "https" {
-            let response = match gosub_sonar::net::simple::sync_fetch(&url) {
+            // Brokered, never fetched here: the parser handles untrusted input and
+            // holds no network capability, so a caller that wants external
+            // stylesheets must hand one over (see `Html5ParserOptions`).
+            let Some(loader) = &self.resource_loader else {
+                warn!("No resource loader supplied; not loading external stylesheet {url}");
+                return None;
+            };
+
+            let response = match loader.load(&url) {
                 Ok(r) => r,
                 Err(err) => {
                     warn!("Could not load external stylesheet from {}. Error: {}", url, err);
@@ -4071,7 +4091,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 }
             };
 
-            if response.status != 200 {
+            if !response.is_ok() {
                 warn!(
                     "Could not load external stylesheet from {}. Status code {}",
                     url, response.status
@@ -4079,7 +4099,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 return None;
             }
 
-            match response.headers.get("content-type") {
+            match &response.content_type {
                 Some(ct) if !ct.starts_with("text/css") => {
                     warn!("External stylesheet has unexpected content type: {ct}");
                 }
@@ -4087,7 +4107,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 _ => {}
             }
 
-            match String::from_utf8(response.body) {
+            match String::from_utf8(response.body.to_vec()) {
                 Ok(css) => css,
                 Err(err) => {
                     warn!("Could not load external stylesheet from {url}. Error: {err}");
@@ -4225,6 +4245,80 @@ mod test {
             $self.document.attach(node_id, NodeId::root(), None);
             $self.open_elements.push(node_id);
         }};
+    }
+
+    /// A loader that records what it was asked for and answers from memory, so a
+    /// test can see which URLs the parser tried to pull in without any network.
+    #[derive(Debug, Default)]
+    struct RecordingLoader {
+        asked: parking_lot::Mutex<Vec<String>>,
+        css: String,
+    }
+
+    impl gosub_interface::resource_loader::ResourceLoader for RecordingLoader {
+        fn load(
+            &self,
+            url: &Url,
+        ) -> std::result::Result<
+            gosub_interface::resource_loader::LoadedResource,
+            gosub_interface::resource_loader::LoadError,
+        > {
+            self.asked.lock().push(url.to_string());
+            Ok(gosub_interface::resource_loader::LoadedResource {
+                status: 200,
+                content_type: Some("text/css".into()),
+                body: self.css.clone().into(),
+            })
+        }
+    }
+
+    fn parse_with_loader(html: &str, loader: Option<Arc<dyn ResourceLoader>>) -> DocumentImpl<Config> {
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
+        stream.read_from_str(html, Some(Encoding::UTF8));
+        stream.close();
+
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(Some(
+            #[allow(clippy::unwrap_used)]
+            Url::parse("https://example.com/index.html").unwrap(),
+        ));
+        let opts = Html5ParserOptions {
+            resource_loader: loader,
+            ..Default::default()
+        };
+        let _ = <Parser as gosub_interface::html5::Html5Parser<Config>>::parse(&mut stream, &mut doc, Some(opts));
+        doc
+    }
+
+    const LINKED: &str = r#"<html><head><link rel="stylesheet" href="/site.css"></head><body>x</body></html>"#;
+
+    #[test]
+    fn an_external_stylesheet_is_fetched_through_the_supplied_loader() {
+        let loader = Arc::new(RecordingLoader {
+            css: "body { color: red }".into(),
+            ..Default::default()
+        });
+        let doc = parse_with_loader(LINKED, Some(loader.clone()));
+
+        assert_eq!(
+            loader.asked.lock().as_slice(),
+            &["https://example.com/site.css".to_string()],
+            "the parser should have resolved the href and asked the loader for it"
+        );
+        use gosub_interface::document::Document as _;
+        assert_eq!(doc.stylesheets().len(), 1, "the fetched sheet should be attached");
+    }
+
+    #[test]
+    fn without_a_loader_the_parser_fetches_nothing() {
+        // The confinement property: parsing untrusted markup must not be able to
+        // reach the network on its own initiative. No loader, no request, no sheet.
+        let doc = parse_with_loader(LINKED, None);
+
+        use gosub_interface::document::Document as _;
+        assert!(
+            doc.stylesheets().is_empty(),
+            "a parser with no loader must not have loaded a stylesheet"
+        );
     }
 
     #[test]

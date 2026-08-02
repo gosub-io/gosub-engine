@@ -1,5 +1,6 @@
 use crate::engine::types::{IoChannel, PeekBuf, RequestId};
 use crate::html::{parse_main_document_stream, EngineDocument, RenderConfiguration, ResourceHint};
+use crate::net::brokered_loader::BrokeredLoader;
 use crate::net::req_ref_tracker::REF_REGISTRY;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResultMeta, Initiator};
 use crate::net::{submit_to_io, SharedBody};
@@ -78,15 +79,23 @@ impl HtmlPipelineImpl {
         C: RenderConfiguration,
         R: AsyncRead + Unpin + Send + 'static,
     {
-        let cfg = crate::html::HtmlParseConfig {
-            max_bytes: self.max_document_bytes,
-        };
-
         let io_tx = self.io_tx.clone();
         let zone_id = self.zone_id;
         let tab_id = self.tab_id;
         let parent_ref = request.reference;
         let parent_cancel = handle.cancel.clone();
+
+        let cfg = crate::html::HtmlParseConfig {
+            max_bytes: self.max_document_bytes,
+            // The parse happens on this tab's behalf, so its stylesheet loads carry
+            // the tab's identity and cookies like any other request — and are
+            // cancelled with the parse that wanted them.
+            resource_loader: Some(
+                BrokeredLoader::new(zone_id, Some(tab_id), io_tx.clone())
+                    .with_cancel(&parent_cancel)
+                    .shared(),
+            ),
+        };
 
         let child_handles = Arc::new(Mutex::new(Vec::<FetchHandle>::new()));
         let child_tasks = Arc::new(Mutex::new(Vec::<JoinHandle<()>>::new()));
@@ -297,7 +306,11 @@ mod tests {
         (tx, seen_children)
     }
 
-    #[tokio::test(flavor = "current_thread")]
+    // Multi-threaded on purpose: parsing blocks on the brokered stylesheet load,
+    // so the task answering IoCommands needs a thread of its own. On a
+    // current-thread runtime that load can only time out — the same constraint
+    // `net::brokered_loader` warns embedders about.
+    #[tokio::test(flavor = "multi_thread")]
     async fn parse_bytes_discovers_and_submits_subresources() {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
@@ -319,12 +332,14 @@ mod tests {
         // Assert: title extracted from DOM
         assert_eq!(crate::html::document_title(&doc).as_deref(), Some("Hello World"));
 
-        // Assert: 3 subresources were submitted (stylesheet, script, image)
+        // Three warm-up fetches from regex discovery (stylesheet, script, image),
+        // plus the parser's own brokered load of the `<link rel="stylesheet">` —
+        // which used to bypass this channel entirely by going straight to the network.
         let count = seen_children.lock().len();
-        assert_eq!(count, 3, "expected 3 subresource fetches, saw {}", count);
+        assert_eq!(count, 4, "expected 4 fetches, saw {}", count);
     }
 
-    #[tokio::test(flavor = "current_thread")]
+    #[tokio::test(flavor = "multi_thread")]
     async fn parse_bytes_cancels_children_on_finish() {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
