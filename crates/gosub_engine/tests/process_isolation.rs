@@ -1,5 +1,6 @@
 //! Process isolation, exercised for real: the network stack and the image
-//! decoder each running in their own sandboxed process.
+//! decoder each running in their own sandboxed process, plus the font property a
+//! future renderer process depends on.
 
 // Nothing here exists without the machinery it drives; the single-process build
 // has no child roles to test.
@@ -68,6 +69,31 @@ fn a_malformed_image_is_refused_rather_than_decoded() {
     assert!(
         out.status.success(),
         "malformed image handling failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A renderer process must be able to lay out text, and this pins the one
+/// arrangement under which it can.
+///
+/// A renderer denies `openat` — that is most of what makes it a renderer — but
+/// font stacks read font files lazily, on first use of a family. Measurement
+/// showed the laziness is **per family, not per shape**: a family resolved and
+/// shaped before the sandbox is applied goes on shaping new text at new sizes
+/// afterwards, while one first touched under the sandbox dies on `SIGSYS`.
+#[test]
+fn a_warmed_font_system_can_shape_under_the_renderer_lockdown() {
+    let out = run("fonts-under-lockdown");
+
+    // Exit 2 means the host has no fonts to test with, which is a skip rather
+    // than a failure: the property is about the sandbox, not the machine.
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "a warmed font system should still shape once confined:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
 }

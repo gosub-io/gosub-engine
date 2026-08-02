@@ -22,6 +22,8 @@ fn main() {
         "guard" => guard(),
         "decode" => decode(),
         "decode-garbage" => decode_garbage(),
+        "decode-many" => decode_many(),
+        "fonts-under-lockdown" => fonts_under_lockdown(),
         other => {
             eprintln!("unknown scenario {other:?}; expected 'direct' or 'engine'");
             2
@@ -66,6 +68,84 @@ fn decode() -> i32 {
             1
         }
     }
+}
+
+/// The open question for a renderer process: can text be laid out by a process
+/// confined the way a renderer must be?
+fn fonts_under_lockdown() -> i32 {
+    use gosub_fontmanager::ParleyFontSystem;
+    use gosub_interface::font_system::{FontQuery, FontSystem, TextStyle};
+
+    let mut fonts = ParleyFontSystem::default();
+
+    // Warm-up. `families()` is documented to populate lazily-built databases, and
+    // resolving plus shaping forces the actual file reads that follow.
+    let families = fonts.families();
+    println!("warm-up: {} families visible before lockdown", families.len());
+    if families.is_empty() {
+        eprintln!("no font families found; this host cannot answer the question");
+        return 2;
+    }
+    // Warm the *same* families the cold run below uses. If a family that has
+    // already been resolved and shaped still opens a file afterwards, the
+    // laziness is per-shape and no amount of warm-up will help; if it does not,
+    // it is per-family and exhaustive warm-up is a viable strategy.
+    for family in ["sans-serif", "serif"] {
+        let _ = fonts.resolve(&FontQuery::new(&[family]));
+        let (w, _) = fonts.measure("warm up the shaper", &TextStyle::new(family, 16.0));
+        if w <= 0.0 {
+            eprintln!("shaping '{family}' produced nothing before lockdown; the control is broken");
+            return 2;
+        }
+    }
+
+    // How expensive is the strategy this implies — warming every family a page
+    // could name, since which ones it will name is unknowable in advance?
+    if std::env::args().any(|a| a == "--warm-all") {
+        let start = std::time::Instant::now();
+        for family in &families {
+            let _ = fonts.measure("Ag", &TextStyle::new(family.clone(), 16.0));
+        }
+        println!("warmed all {} families in {:?}", families.len(), start.elapsed());
+    }
+
+    gosub_sandbox::lock_down_renderer();
+
+    // Text and a size never used above, so any per-face lazy load still pending
+    // has to happen now — after the sandbox is in place.
+    let cold_style = TextStyle::new("serif", 31.0);
+    let (cold_w, cold_h) = fonts.measure("Text shaped only after the sandbox applied", &cold_style);
+    if cold_w <= 0.0 || cold_h <= 0.0 {
+        eprintln!("shaping under lockdown produced an empty box ({cold_w}x{cold_h})");
+        return 1;
+    }
+    println!("shaped {cold_w:.1}x{cold_h:.1} under the renderer lockdown");
+    0
+}
+
+/// Decode the sample image repeatedly and report the wall-clock cost per image,
+/// so the price of a process per decode is a measured number rather than a
+/// guess. Count comes from argv[2], default 20.
+fn decode_many() -> i32 {
+    use gosub_engine::decoder_process::client::ProcessImageDecoder;
+    use gosub_interface::media_decoder::ImageDecoder;
+
+    let count: u32 = std::env::args().nth(2).and_then(|a| a.parse().ok()).unwrap_or(20);
+
+    let start = std::time::Instant::now();
+    for _ in 0..count {
+        if ProcessImageDecoder.decode(Some("image/png"), SAMPLE_PNG).is_err() {
+            eprintln!("decode failed during timing run");
+            return 1;
+        }
+    }
+    let elapsed = start.elapsed();
+    println!(
+        "{count} decodes in {:?} ({:.2} ms each)",
+        elapsed,
+        elapsed.as_secs_f64() * 1000.0 / f64::from(count)
+    );
+    0
 }
 
 /// Malformed input must come back as a refusal. This is the common case in the
