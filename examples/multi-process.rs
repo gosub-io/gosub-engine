@@ -10,8 +10,10 @@
 //!    engine starts a component by re-exec'ing *this* binary with a role
 //!    argument, so a child must reach its role before the embedder's own startup
 //!    runs. In the parent this returns immediately.
-//! 2. **Turn on `net.process_isolation` before [`GosubEngine::start`].** The
-//!    setting is read once, when the I/O runtime comes up.
+//! 2. **Turn on the isolation settings before [`GosubEngine::start`].**
+//!    `security.network_process` moves the network stack out;
+//!    `security.image_decoder_process` decodes each image in a throwaway
+//!    process. Both are read once, as the engine starts.
 //!
 //! Get (1) wrong and the engine says so and falls back to in-process networking
 //! rather than misbehaving: the child would otherwise re-enter this `main` and
@@ -19,24 +21,28 @@
 //!
 //! # What is actually separate today
 //!
-//! **One child process: the network stack.** Expect a process tree like
+//! Two components. A steady-state tree looks like
 //!
 //! ```text
-//! multi-process https://a https://b https://c      <- broker: tabs, DOM, cookies, storage
-//!  \_ multi-process --gosub-child-role net 11      <- the only component out of process
+//! multi-process https://a https://b            <- broker: tabs, DOM, cookies, storage
+//!  \_ multi-process --gosub-child-role net 11  <- the network stack, one for the engine
 //! ```
 //!
-//! Three things are worth knowing, because the tree does not show them:
+//! plus **one short-lived decoder per image**, which you will only catch in
+//! `ps` if you look while a page is loading — each decodes a single image and
+//! exits. That is deliberate: a decoder that exits cannot carry anything from
+//! one image into the next.
+//!
+//! Three things the tree does not show:
 //!
 //! * **One network process serves the whole engine**, not one per tab or per
 //!   zone. It holds no per-zone state; the connection pooling that *is* per-zone
-//!   lives inside it. More tabs will not produce more processes.
-//! * **Parsing, layout, painting and cookies all still run in the broker.**
-//!   Splitting those is the work of later phases (an ephemeral image decoder,
-//!   then per-origin renderers). Until then this is process isolation of the
-//!   network capability, not a fully multi-process browser.
-//! * The child shows as low-priority in `ps` (`N` in the state column) because
-//!   the sandbox lowers child scheduling priority along with its other limits.
+//!   lives inside it. More tabs will not produce more network processes.
+//! * **Parsing, layout, painting and cookies still run in the broker.** Per-origin
+//!   renderers are the next phase. Until then this isolates the network
+//!   capability and image decoding, not a fully multi-process browser.
+//! * Children show as low-priority in `ps` (`N` in the state column) because the
+//!   sandbox lowers child scheduling priority along with its other limits.
 //!
 //! Run it with:
 //!
@@ -101,10 +107,12 @@ async fn run(urls: Vec<String>) {
     );
 
     // (2) Before start(): the I/O runtime reads this as it comes up.
-    engine
-        .settings()
-        .set("net.process_isolation", Setting::Bool(true))
-        .expect("enable process isolation");
+    for key in ["security.network_process", "security.image_decoder_process"] {
+        engine
+            .settings()
+            .set(key, Setting::Bool(true))
+            .unwrap_or_else(|e| panic!("enable {key}: {e}"));
+    }
 
     let mut events = engine.subscribe_events();
     tokio::spawn(engine.start().expect("start engine"));
@@ -117,7 +125,8 @@ async fn run(urls: Vec<String>) {
         "broker pid {} — tabs, DOM, cookies and storage live here",
         std::process::id()
     );
-    println!("  └─ network: one child process for the whole engine (see --gosub-child-role net in ps)");
+    println!("  ├─ network: one child process for the whole engine (--gosub-child-role net)");
+    println!("  └─ decoder: one throwaway child per image, gone as soon as it has decoded");
     println!("     parsing, layout and painting are not yet split out; that is a later phase");
 
     let services = ZoneServices {

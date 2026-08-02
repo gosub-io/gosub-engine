@@ -1,8 +1,9 @@
 use crate::common::hash::{hash_from_data, hash_from_string, Sha256Hash};
 use crate::common::media::{
-    DecodedMedia, Image, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg,
+    DecodedImage, DecodedMedia, Image, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg,
 };
 use bytes::Bytes;
+use gosub_interface::media_decoder::{BrokeredDecode, ImageDecoder};
 use gosub_interface::resource_loader::{NoResourceLoader, ResourceLoader};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
@@ -45,6 +46,9 @@ pub struct MediaStore {
     /// How remote media is fetched. The store holds a loader rather than reaching
     /// for the network itself, so layout carries no network capability.
     loader: Arc<dyn ResourceLoader>,
+    /// Where raster decoding happens. `None` decodes in this process, which is
+    /// the default; the engine installs one to move it out.
+    decoder: Option<Arc<dyn ImageDecoder>>,
 }
 
 impl Default for MediaStore {
@@ -67,6 +71,15 @@ impl MediaStore {
 
     /// A store that pulls remote media through `loader`.
     pub fn with_loader(loader: Arc<dyn ResourceLoader>) -> MediaStore {
+        Self::with_loader_and_decoder(loader, None)
+    }
+
+    /// A store that also decodes raster images through `decoder` rather than in
+    /// this process. See [`ImageDecoder`].
+    pub fn with_loader_and_decoder(
+        loader: Arc<dyn ResourceLoader>,
+        decoder: Option<Arc<dyn ImageDecoder>>,
+    ) -> MediaStore {
         let decoders = MediaDecoderRegistry::with_defaults();
 
         #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in asset, exercised by every pipeline test
@@ -102,6 +115,7 @@ impl MediaStore {
             default_image,
             decoders,
             loader,
+            decoder,
         }
     }
 
@@ -147,6 +161,23 @@ impl MediaStore {
 
     /// Shared by the data, source and inline decode paths.
     fn decode_media(&self, src: &str, mime: Option<&str>, data: &[u8]) -> anyhow::Result<Media> {
+        if let Some(decoder) = &self.decoder {
+            match decoder.decode(mime, data) {
+                Ok(BrokeredDecode::Raster(raster)) => {
+                    // Length is checked against the dimensions rather than
+                    // trusted: the producer may be a compromised decoder.
+                    let image = DecodedImage::new_rgba8(raster.width, raster.height, raster.rgba.to_vec())
+                        .map_err(|e| anyhow::anyhow!("brokered decode of '{}' returned bad pixels: {}", src, e))?;
+                    return Ok(Media::image(src, image));
+                }
+                // Vector data: fall through and parse it here.
+                Ok(BrokeredDecode::Vector) => {}
+                Err(e) => {
+                    log::debug!("brokered decode of '{src}' did not produce an image ({e}); decoding locally");
+                }
+            }
+        }
+
         match self.decoders.decode(mime, data) {
             Ok(DecodedMedia::Raster(img)) => Ok(Media::image(src, img)),
             Ok(DecodedMedia::Vector(tree)) => Ok(Media::svg(src, Svg::new(*tree))),

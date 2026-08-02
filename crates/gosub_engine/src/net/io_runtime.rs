@@ -95,7 +95,7 @@ pub struct IoRouter {
     /// Pending UA decisions (render/download/...) keyed by decision token.
     /// Tokens are process-wide unique, so one hub serves all zones.
     decision_hub: Arc<DecisionHub>,
-    /// The network process, if `net.process_isolation` is on and it started.
+    /// The network process, if `security.network_process` is on and it started.
     /// One for the whole engine: it holds no per-zone state, and the connection
     /// pooling that *is* per-zone lives inside it.
     #[cfg(feature = "process-isolation")]
@@ -212,7 +212,7 @@ impl IoRouter {
 /// Start the network process if the setting asks for one.
 #[cfg(feature = "process-isolation")]
 fn start_net_process(engine_ctx: &Arc<EngineContext>) -> Option<Arc<crate::net::process::client::NetProcess>> {
-    if !engine_ctx.config_store.get_bool("net.process_isolation") {
+    if !engine_ctx.config_store.get_bool("security.network_process") {
         return None;
     }
 
@@ -223,7 +223,7 @@ fn start_net_process(engine_ctx: &Arc<EngineContext>) -> Option<Arc<crate::net::
         }
         Err(e) => {
             log::error!(
-                "net.process_isolation is on but the network process could not start ({e}); \
+                "security.network_process is on but the network process could not start ({e}); \
                  falling back to in-process networking. Does this embedder call \
                  gosub_engine::child_process::dispatch() at the top of main()?"
             );

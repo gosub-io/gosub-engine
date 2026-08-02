@@ -60,12 +60,12 @@ image = { workspace = true }
 async-trait = "0.1.89"
 allsorts = "0.17"
 
-# Exercises the network process from a binary that dispatches child roles the
-# way an embedder must; `tests/net_process.rs` runs it. Pointless without the
-# machinery it drives.
+# Exercises the isolated components from a binary that dispatches child roles the
+# way an embedder must; `tests/process_isolation.rs` runs it. Pointless without
+# the machinery it drives.
 [[bin]]
-name = "net-process-harness"
-path = "src/bin/net-process-harness.rs"
+name = "isolation-harness"
+path = "src/bin/isolation-harness.rs"
 required-features = ["process-isolation"]
 
 [dev-dependencies]
@@ -78,7 +78,7 @@ metrics = []
 # Compiles in the ability to run the network stack as a separate, sandboxed
 # process. Off leaves the engine single-process, which is what wasm and any
 # platform without process isolation need; the fetch path is otherwise identical.
-# Compiling it in does not enable it — see the `net.process_isolation` setting.
+# Compiling it in does not enable it — see the `security.network_process` setting.
 process-isolation = ["dep:gosub_ipc", "dep:gosub_sandbox"]
 
 [lints]

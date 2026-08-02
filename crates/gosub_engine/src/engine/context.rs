@@ -153,6 +153,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         config_store: Config,
         loader: std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
     ) -> BrowsingContext<C> {
+        // Raster decoding is the single most dangerous thing done with untrusted
+        // bytes, so where the setting allows it happens in a throwaway process.
+        // Read here rather than passed in: it is a property of how the engine was
+        // configured, not of this tab.
+        let decoder = image_decoder_from(&config_store);
         Self {
             document: None,
             storage: None,
@@ -178,7 +183,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_link_url: None,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
-            media_store: std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::with_loader(loader)),
+            media_store: std::sync::Arc::new(
+                gosub_render_pipeline::common::media::MediaStore::with_loader_and_decoder(loader, decoder),
+            ),
             config_store,
             tile_budget: TileBudget::new(),
         }
@@ -1157,6 +1164,19 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
     }
 
     timing_stop!(ts7);
+}
+
+/// The image decoder this engine should use, if any.
+#[cfg(feature = "process-isolation")]
+fn image_decoder_from(config: &Config) -> Option<std::sync::Arc<dyn gosub_interface::media_decoder::ImageDecoder>> {
+    config
+        .get_bool("security.image_decoder_process")
+        .then(|| std::sync::Arc::new(crate::decoder_process::client::ProcessImageDecoder) as _)
+}
+
+#[cfg(not(feature = "process-isolation"))]
+fn image_decoder_from(_config: &Config) -> Option<std::sync::Arc<dyn gosub_interface::media_decoder::ImageDecoder>> {
+    None
 }
 
 #[cfg(test)]

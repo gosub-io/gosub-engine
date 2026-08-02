@@ -105,12 +105,6 @@
       "description": "Wall-clock deadline (seconds) for receiving the entire response body. 0 disables the limit."
     },
     {
-      "key": "process_isolation",
-      "type": "b",
-      "default": "b:false",
-      "description": "Run the network stack in a separate, sandboxed process. Requires the embedder to call gosub_engine::child_process::dispatch() first thing in main(); the engine falls back to in-process networking (with a warning) if the child cannot be started. Responses are buffered rather than streamed while isolation is on."
-    },
-    {
       "key": "http.global_slots",
       "type": "u",
       "default": "u:32",
@@ -423,6 +417,18 @@
     }
   ],
   "security": [
+    {
+      "key": "network_process",
+      "type": "b",
+      "default": "b:false",
+      "description": "Run the network stack in a separate, sandboxed process. Requires the embedder to call gosub_engine::child_process::dispatch() first thing in main(); the engine falls back to in-process networking (with a warning) if the child cannot be started. Responses are buffered rather than streamed while this is on."
+    },
+    {
+      "key": "image_decoder_process",
+      "type": "b",
+      "default": "b:false",
+      "description": "Decode raster images in a throwaway, sandboxed process, one per image. Requires the embedder to call gosub_engine::child_process::dispatch() first thing in main(). Costs a process spawn per image; SVG is still parsed in-process, since a parsed vector tree cannot cross a process boundary."
+    },
     {
       "key": "sandbox_mode",
       "type": "s",
