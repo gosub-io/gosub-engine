@@ -4,3 +4,4 @@
 //!
 
 pub mod console;
+pub mod dom_exception;
