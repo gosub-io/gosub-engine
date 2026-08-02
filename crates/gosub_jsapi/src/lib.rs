@@ -7,3 +7,4 @@ pub mod base64;
 pub mod console;
 pub mod dom_exception;
 pub mod text_encoding;
+pub mod url;

@@ -3258,6 +3258,7 @@ dependencies = [
  "encoding_rs",
  "gosub_shared",
  "regex",
+ "url",
  "uuid",
 ]
 

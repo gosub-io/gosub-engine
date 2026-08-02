@@ -12,6 +12,7 @@ uuid = { workspace = true, features = ["v4"] }
 regex = { workspace = true }
 cow-utils = { workspace = true }
 encoding_rs = "0.8.35"
+url = { workspace = true }
 
 [lints]
 workspace = true

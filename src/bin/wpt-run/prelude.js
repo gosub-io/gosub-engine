@@ -104,15 +104,31 @@ if (typeof globalThis.DOMException === "undefined") {
         };
 
         class DOMException extends Error {
+            #brand = true;
+
             constructor(message, name) {
                 super(message === undefined ? "" : String(message));
                 this.name = name === undefined ? "Error" : String(name);
             }
 
             get code() {
+                // WebIDL branding: invoking the getter on a non-instance
+                // (e.g. the prototype itself) must throw
+                if (!(#brand in this)) {
+                    throw new TypeError("Illegal invocation");
+                }
                 return LEGACY_CODES[this.name] || 0;
             }
         }
+
+        // WebIDL accessors are enumerable, unlike class getters — the record
+        // conversion in URLSearchParams(init) relies on hitting this getter
+        var codeDescriptor = Object.getOwnPropertyDescriptor(DOMException.prototype, "code");
+        Object.defineProperty(DOMException.prototype, "code", {
+            get: codeDescriptor.get,
+            enumerable: true,
+            configurable: true,
+        });
 
         Object.keys(CONSTANTS).forEach(function (key) {
             var descriptor = {
@@ -274,6 +290,235 @@ if (typeof globalThis.DOMException === "undefined") {
             } catch (e) {
                 rethrow(e);
             }
+        }
+    };
+
+    globalThis.URLSearchParams = class URLSearchParams {
+        constructor(init) {
+            var id;
+            if (init !== undefined && init !== null && (typeof init === "object" || typeof init === "function")) {
+                if (typeof init[Symbol.iterator] === "function") {
+                    // sequence<sequence<USVString>>: validate all pairs before mutating
+                    var pairs = [];
+                    for (var item of init) {
+                        var pair = Array.from(item);
+                        if (pair.length !== 2) {
+                            throw new TypeError("URLSearchParams: each init entry must be a [name, value] pair");
+                        }
+                        pairs.push(pair);
+                    }
+                    id = native.spNew("");
+                    for (var p of pairs) {
+                        native.spAppend(id, String(p[0]), String(p[1]));
+                    }
+                } else {
+                    // record<USVString, USVString>: set-or-append, because two
+                    // JS keys can collapse into one after USVString conversion
+                    // (lone surrogates become U+FFFD)
+                    id = native.spNew("");
+                    for (var key of Object.keys(init)) {
+                        native.spSet(id, String(key), String(init[key]));
+                    }
+                }
+            } else {
+                var s = init === undefined ? "" : String(init);
+                if (s.charAt(0) === "?") {
+                    s = s.slice(1);
+                }
+                id = native.spNew(s);
+            }
+            Object.defineProperty(this, "__id", { value: id });
+        }
+
+        append(name, value) {
+            if (arguments.length < 2) {
+                throw new TypeError("append requires 2 arguments");
+            }
+            native.spAppend(this.__id, String(name), String(value));
+        }
+
+        delete(name, value) {
+            if (arguments.length < 1) {
+                throw new TypeError("delete requires 1 argument");
+            }
+            native.spDelete(this.__id, String(name), value === undefined ? 0 : 1, value === undefined ? "" : String(value));
+        }
+
+        get(name) {
+            if (arguments.length < 1) {
+                throw new TypeError("get requires 1 argument");
+            }
+            return JSON.parse(native.spGet(this.__id, String(name)));
+        }
+
+        getAll(name) {
+            if (arguments.length < 1) {
+                throw new TypeError("getAll requires 1 argument");
+            }
+            return JSON.parse(native.spGetAll(this.__id, String(name)));
+        }
+
+        has(name, value) {
+            if (arguments.length < 1) {
+                throw new TypeError("has requires 1 argument");
+            }
+            return native.spHas(this.__id, String(name), value === undefined ? 0 : 1, value === undefined ? "" : String(value)) === 1;
+        }
+
+        set(name, value) {
+            if (arguments.length < 2) {
+                throw new TypeError("set requires 2 arguments");
+            }
+            native.spSet(this.__id, String(name), String(value));
+        }
+
+        sort() {
+            native.spSort(this.__id);
+        }
+
+        get size() {
+            return native.spSize(this.__id);
+        }
+
+        toString() {
+            return native.spToString(this.__id);
+        }
+
+        entries() {
+            return makeSearchParamsIterator(this, "entries");
+        }
+
+        keys() {
+            return makeSearchParamsIterator(this, "keys");
+        }
+
+        values() {
+            return makeSearchParamsIterator(this, "values");
+        }
+
+        forEach(callback, thisArg) {
+            if (typeof callback !== "function") {
+                throw new TypeError("forEach: callback is not a function");
+            }
+            for (var i = 0; ; i++) {
+                var pair = JSON.parse(native.spEntryAt(this.__id, i));
+                if (pair === null) {
+                    break;
+                }
+                callback.call(thisArg, pair[1], pair[0], this);
+            }
+        }
+    };
+
+    // Live index-based iteration, per the spec's iterator semantics
+    function makeSearchParamsIterator(sp, kind) {
+        var i = 0;
+        var iterator = {
+            next: function () {
+                var pair = JSON.parse(native.spEntryAt(sp.__id, i));
+                if (pair === null) {
+                    return { done: true, value: undefined };
+                }
+                i++;
+                var value = kind === "entries" ? pair : kind === "keys" ? pair[0] : pair[1];
+                return { done: false, value: value };
+            },
+        };
+        iterator[Symbol.iterator] = function () {
+            return iterator;
+        };
+        return iterator;
+    }
+
+    Object.defineProperty(globalThis.URLSearchParams.prototype, Symbol.iterator, {
+        value: globalThis.URLSearchParams.prototype.entries,
+        writable: true,
+        enumerable: false,
+        configurable: true,
+    });
+
+    globalThis.URL = class URL {
+        constructor(url, base) {
+            if (arguments.length < 1) {
+                throw new TypeError("URL constructor requires an argument");
+            }
+            var id;
+            try {
+                id = base === undefined
+                    ? native.urlNew(String(url), 0, "")
+                    : native.urlNew(String(url), 1, String(base));
+            } catch (e) {
+                rethrow(e);
+            }
+            Object.defineProperty(this, "__id", { value: id });
+        }
+
+        static parse(url, base) {
+            try {
+                return base === undefined ? new URL(url) : new URL(url, base);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        static canParse(url, base) {
+            try {
+                void (base === undefined ? new URL(url) : new URL(url, base));
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        get href() { return native.urlGet(this.__id, "href"); }
+        set href(v) {
+            try {
+                native.urlSet(this.__id, "href", String(v));
+            } catch (e) {
+                rethrow(e);
+            }
+        }
+
+        toString() { return this.href; }
+        toJSON() { return this.href; }
+
+        get origin() { return native.urlGet(this.__id, "origin"); }
+
+        get protocol() { return native.urlGet(this.__id, "protocol"); }
+        set protocol(v) { native.urlSet(this.__id, "protocol", String(v)); }
+
+        get username() { return native.urlGet(this.__id, "username"); }
+        set username(v) { native.urlSet(this.__id, "username", String(v)); }
+
+        get password() { return native.urlGet(this.__id, "password"); }
+        set password(v) { native.urlSet(this.__id, "password", String(v)); }
+
+        get host() { return native.urlGet(this.__id, "host"); }
+        set host(v) { native.urlSet(this.__id, "host", String(v)); }
+
+        get hostname() { return native.urlGet(this.__id, "hostname"); }
+        set hostname(v) { native.urlSet(this.__id, "hostname", String(v)); }
+
+        get port() { return native.urlGet(this.__id, "port"); }
+        set port(v) { native.urlSet(this.__id, "port", String(v)); }
+
+        get pathname() { return native.urlGet(this.__id, "pathname"); }
+        set pathname(v) { native.urlSet(this.__id, "pathname", String(v)); }
+
+        get search() { return native.urlGet(this.__id, "search"); }
+        set search(v) { native.urlSet(this.__id, "search", String(v)); }
+
+        get hash() { return native.urlGet(this.__id, "hash"); }
+        set hash(v) { native.urlSet(this.__id, "hash", String(v)); }
+
+        get searchParams() {
+            if (this.__sp === undefined) {
+                var spId = native.urlSearchParamsId(this.__id);
+                var sp = Object.create(globalThis.URLSearchParams.prototype);
+                Object.defineProperty(sp, "__id", { value: spId });
+                Object.defineProperty(this, "__sp", { value: sp });
+            }
+            return this.__sp;
         }
     };
 
