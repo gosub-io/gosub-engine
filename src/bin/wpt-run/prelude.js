@@ -522,6 +522,92 @@ if (typeof globalThis.DOMException === "undefined") {
         }
     };
 
+    // console namespace per WebIDL: methods are own properties, the
+    // [[Prototype]] is an empty object whose prototype is %Object.prototype%,
+    // and the global slot is non-enumerable. Replaces V8's builtin console.
+    (function () {
+        var consoleObj = Object.create(Object.create(Object.prototype));
+
+        // WebIDL DOMString conversion: symbols throw, objects go via ToString
+        function toDOMString(v) {
+            if (typeof v === "symbol") {
+                throw new TypeError("Cannot convert a Symbol value to a string");
+            }
+            return String(v);
+        }
+
+        // Log arguments are "any": symbols stringify instead of throwing
+        function stringifyArg(v) {
+            return typeof v === "symbol" ? v.toString() : String(v);
+        }
+
+        function callNative(method, args) {
+            native.consoleCall(method, JSON.stringify(args));
+        }
+
+        ["log", "debug", "info", "warn", "error", "trace", "dirxml", "group", "groupCollapsed"].forEach(function (m) {
+            consoleObj[m] = function () {
+                var out = [];
+                for (var i = 0; i < arguments.length; i++) {
+                    out.push(stringifyArg(arguments[i]));
+                }
+                callNative(m, out);
+            };
+        });
+
+        ["count", "countReset", "time", "timeEnd"].forEach(function (m) {
+            consoleObj[m] = function (label) {
+                callNative(m, [arguments.length === 0 ? "default" : toDOMString(label)]);
+            };
+        });
+
+        consoleObj.timeLog = function (label) {
+            var args = [arguments.length === 0 ? "default" : toDOMString(label)];
+            for (var i = 1; i < arguments.length; i++) {
+                args.push(stringifyArg(arguments[i]));
+            }
+            callNative("timeLog", args);
+        };
+
+        consoleObj.assert = function (condition) {
+            var args = [!!condition];
+            for (var i = 1; i < arguments.length; i++) {
+                args.push(stringifyArg(arguments[i]));
+            }
+            callNative("assert", args);
+        };
+
+        consoleObj.dir = function (item) {
+            callNative("dir", arguments.length === 0 ? [] : [stringifyArg(item)]);
+        };
+
+        consoleObj.table = function (data) {
+            callNative("table", arguments.length === 0 ? [] : [stringifyArg(data)]);
+        };
+
+        consoleObj.groupEnd = function () {
+            callNative("groupEnd", []);
+        };
+
+        consoleObj.clear = function () {
+            callNative("clear", []);
+        };
+
+        Object.defineProperty(consoleObj, Symbol.toStringTag, {
+            value: "console",
+            writable: false,
+            enumerable: false,
+            configurable: true,
+        });
+
+        Object.defineProperty(globalThis, "console", {
+            value: consoleObj,
+            writable: true,
+            enumerable: false,
+            configurable: true,
+        });
+    })();
+
     // Just enough fetch() for testharness's fetch_json helper: resolves the
     // path against the test file's directory (or the wpt root for /-absolute
     // paths) via a native file read.

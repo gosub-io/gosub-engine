@@ -13,6 +13,7 @@ use std::process::ExitCode;
 use std::rc::Rc;
 
 use gosub_jsapi::base64;
+use gosub_jsapi::console::{Console, LogLevel, Printer};
 use gosub_jsapi::dom_exception::DomException;
 use gosub_jsapi::text_encoding::{TextDecoder, TextEncoder};
 use gosub_jsapi::url::{Url, UrlSearchParams};
@@ -314,9 +315,89 @@ fn register_natives(ctx: &mut V8Context, wpt_root: PathBuf, test_dir: PathBuf) -
     };
     obj.set_method("tdDecode", &td_decode)?;
 
+    register_console_native(ctx, &obj)?;
     register_url_natives(ctx, &obj)?;
 
     ctx.set_on_global_object("__gosub__", obj.into())?;
+
+    Ok(())
+}
+
+/// Prints console output straight to the runner's stdout
+struct StdoutPrinter;
+
+impl Printer for StdoutPrinter {
+    fn print(&mut self, log_level: LogLevel, args: &[&dyn std::fmt::Display], _options: &[&str]) {
+        let joined = args.iter().map(ToString::to_string).collect::<Vec<_>>().join(" ");
+        println!("[console.{log_level}] {joined}");
+    }
+
+    fn clear(&mut self) {}
+
+    fn end_group(&mut self) {}
+}
+
+/// One `consoleCall(method, argsJson)` native dispatching onto a per-context
+/// jsapi Console. Args arrive pre-stringified from the prelude (JSON array;
+/// assert's first element is the boolean condition).
+fn register_console_native(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
+    let console = Rc::new(RefCell::new(Console::new(Box::new(StdoutPrinter))));
+
+    let console_call = V8Function::new(ctx.clone(), move |cb| {
+        let (Some(method), Some(args_json)) = (arg_string(cb, 0), arg_string(cb, 1)) else {
+            cb.error("consoleCall requires (method, argsJson) arguments");
+            return;
+        };
+
+        let parsed: Vec<serde_json::Value> = match serde_json::from_str(&args_json) {
+            Ok(v) => v,
+            Err(e) => {
+                cb.error(format!("consoleCall: bad args JSON: {e}"));
+                return;
+            }
+        };
+        let strings: Vec<String> = parsed
+            .iter()
+            .map(|v| v.as_str().unwrap_or_default().to_owned())
+            .collect();
+        let refs: Vec<&dyn std::fmt::Display> = strings.iter().map(|s| s as &dyn std::fmt::Display).collect();
+        let first = strings.first().map(String::as_str).unwrap_or_default();
+
+        let mut console = console.borrow_mut();
+        match method.as_str() {
+            "assert" => {
+                let condition = parsed.first().and_then(serde_json::Value::as_bool).unwrap_or(false);
+                console.assert(condition, refs.get(1..).unwrap_or(&[]));
+            }
+            "log" => console.log(&refs),
+            "debug" => console.debug(&refs),
+            "info" => console.info(&refs),
+            "warn" => console.warn(&refs),
+            "error" => console.error(&refs),
+            "trace" => console.trace(&refs),
+            "dirxml" => console.dirxml(&refs),
+            "dir" => console.dir(&first, &[]),
+            "table" => console.table(first.to_owned(), &[]),
+            "group" => console.group(&refs),
+            "groupCollapsed" => console.group_collapsed(&refs),
+            "groupEnd" => {
+                console.group_end();
+            }
+            "clear" => console.clear(),
+            "count" => console.count(first),
+            "countReset" => console.count_reset(first),
+            "time" => console.time(first),
+            "timeLog" => console.time_log(first, refs.get(1..).unwrap_or(&[])),
+            "timeEnd" => console.time_end(first),
+            _ => {
+                cb.error(format!("consoleCall: unknown method '{method}'"));
+                return;
+            }
+        }
+        drop(console);
+        ret_undefined(cb);
+    })?;
+    obj.set_method("consoleCall", &console_call)?;
 
     Ok(())
 }
