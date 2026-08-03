@@ -80,7 +80,7 @@ impl CssSelector {
 }
 
 /// @todo: it would be nicer to have a struct for each type of selector part, but for now we'll keep it simple
-/// Represents a CSS selector part, which has a type and value (e.g. type=Class, class="my-class")
+/// A CSS selector part: a type plus its value (e.g. type=Class, class="my-class")
 #[derive(PartialEq, Clone, Default)]
 pub struct CssSelectorPart {
     pub type_: CssSelectorType,
@@ -125,7 +125,7 @@ impl Debug for CssSelectorPart {
     }
 }
 
-/// Represents a CSS selector type for this part
+/// The type of a selector part
 #[derive(Debug, PartialEq, Clone, Default)]
 pub enum CssSelectorType {
     Universal, // '*'

@@ -1,24 +1,5 @@
-//! Engine core implementation.
-//!
-//! This module defines the [`GosubEngine`] struct, which is the main entry point for
-//! creating and managing the engine, zones, and event bus. It also provides the
-//! [`EngineContext`] struct for sharing resources and configuration across the engine.
-//!
-//! # Overview
-//!
-//! The engine is responsible for running zones and handling events. It provides a
-//! command interface for starting, stopping, and configuring zones, as well as
-//! subscribing to events from the engine and zones.
-//!
-//! # Main Types
-//!
-//! - [`GosubEngine`]: The main engine struct.
-//! - [`EngineContext`]: Shared context for the engine, containing configuration and
-//!   backend information.
-//! - [`Zone`]: Represents a zone managed by the engine.
-//! - [`EngineCommand`]: Commands that can be sent to the engine.
-//! - [`EngineEvent`]: Events emitted by the engine, such as zone creation and
-//!   destruction.
+//! [`GosubEngine`]: the entry point that owns the zones, the I/O thread, and the
+//! [`EngineCommand`]/[`EngineEvent`] bus.
 
 use crate::cookies::CookieStoreHandle;
 use crate::engine::events::{EngineCommand, EngineEvent};
@@ -261,7 +242,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         }
     }
 
-    /// Create and register a new zone, returning a [`ZoneHandle`] for userland code.
+    /// Create and register a new zone, returning a [`Zone`] for userland code.
     ///
     /// - `config`: zone configuration (features, limits, identity); if `None`, the
     ///   engine's [`EngineConfig::default_zone_config`] is used

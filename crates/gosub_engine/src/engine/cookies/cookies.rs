@@ -1,15 +1,11 @@
-//! Cookie core types.
-//!
-//! This module defines the **type-erased handles** used throughout the engine
-//! and the serializable [`Cookie`] data structure.
+//! The type-erased cookie handles used throughout the engine and the serializable
+//! [`Cookie`] data structure.
 //!
 //! # Concurrency model
-//! - [`CookieJarHandle`] is `Arc<RwLock<dyn CookieJar + Send + Sync>>`.
-//!   - Callers take a **read lock** for non-mutating operations and a **write lock**
-//!     for mutating operations on the underlying jar.
-//! - [`CookieStoreHandle`] is `Arc<dyn CookieStore + Send + Sync>`.
-//!   - Stores are expected to manage their **own internal synchronization** (e.g. via
-//!     `parking_lot`, `Mutex`, connection pools, etc.). The trait methods take `&self`.
+//! - [`CookieJarHandle`]: callers take a **read lock** for non-mutating operations and
+//!   a **write lock** for mutating operations on the underlying jar.
+//! - [`CookieStoreHandle`]: stores manage their **own internal synchronization** (e.g. via
+//!   `parking_lot`, `Mutex`, connection pools, etc.) - the trait methods take `&self`.
 //!
 //! # Typical usage
 //! ```ignore,no_run
@@ -55,26 +51,10 @@ use crate::zone::ZoneId;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::ops::Deref;
 use std::sync::Arc;
 
-/// A handle to a cookie jar trait.
-///
-/// This is a reference-counted, read/write-locked pointer to a type-erased
-/// [`CookieJar`]. Obtain a **read lock** for queries and a **write lock** for
-/// mutations.
-///
-/// ### Example
-/// ```ignore,no_run
-/// let jar: CookieJarHandle = zone.cookie_jar();
-/// {
-///     let cookies = jar.read().get_request_cookies(&url, Some(&top_level_url), SameSiteContext::SameSite);
-/// }
-/// {
-///     let mut guard = jar.write();
-///     guard.clear();
-/// }
-/// ```
+/// A reference-counted, read/write-locked pointer to a type-erased [`CookieJar`].
+/// Obtain a **read lock** for queries and a **write lock** for mutations.
 #[derive(Clone, Debug)]
 pub struct CookieJarHandle(Arc<RwLock<Box<dyn CookieJar + Send + Sync>>>);
 
@@ -85,20 +65,6 @@ impl Debug for dyn CookieJar + Send + Sync {
 }
 
 impl CookieJarHandle {
-    /// Pointer equality: are these two handles backed by the same Arc?
-    pub fn ptr_eq(this: &Self, other: &Self) -> bool {
-        Arc::ptr_eq(&this.0, &other.0)
-    }
-}
-
-impl PartialEq for CookieJarHandle {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-impl Eq for CookieJarHandle {}
-
-impl CookieJarHandle {
     pub fn new<T>(jar: T) -> Self
     where
         T: CookieJar + Send + Sync + 'static,
@@ -106,18 +72,16 @@ impl CookieJarHandle {
         Self(Arc::new(RwLock::new(Box::new(jar))))
     }
 
+    /// Pointer equality: are these two handles backed by the same Arc?
+    pub fn ptr_eq(this: &Self, other: &Self) -> bool {
+        Arc::ptr_eq(&this.0, &other.0)
+    }
+
     pub fn read(&self) -> RwLockReadGuard<'_, Box<dyn CookieJar + Send + Sync>> {
         self.0.read()
     }
     pub fn write(&self) -> RwLockWriteGuard<'_, Box<dyn CookieJar + Send + Sync>> {
         self.0.write()
-    }
-}
-
-impl Deref for CookieJarHandle {
-    type Target = RwLock<Box<dyn CookieJar + Send + Sync>>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 
@@ -136,9 +100,8 @@ where
     }
 }
 
-/// A handle to a cookie store trait.
+/// A reference-counted pointer to a type-erased [`CookieStore`].
 ///
-/// This is a reference-counted pointer to a type-erased [`CookieStore`].
 /// Store implementations must be **`Send + Sync` and internally synchronized**,
 /// since callers hold only `&self` when invoking trait methods.
 ///
@@ -182,9 +145,6 @@ impl CookieStoreHandle {
 }
 
 /// A cookie as stored/serialized by the engine.
-///
-/// This structure captures the essential attributes of an HTTP cookie and
-/// is suitable for persistence (e.g., JSON, SQLite) via `serde`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Cookie {
     /// Cookie name (case-sensitive).

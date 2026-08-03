@@ -1,15 +1,5 @@
-//! Tab configuration options.
-//!
-//! This module defines the configuration types used when creating or customizing a tab.
-//! A tab can inherit settings from its parent [`Zone`](crate::zone), or override them
-//! via [`TabOverrides`].
-//!
-//! There are two primary entry points:
-//! - [`TabDefaults`] - baseline values for new tabs (initial URL, title, viewport).
-//! - [`TabOverrides`] - per-tab overrides for services, identity, content, UI, and persistence.
-//!
-//! Together, these structures provide fine-grained control over how each tab behaves
-//! within the Gosub engine.
+//! Tab configuration: a tab inherits settings from its parent [`Zone`](crate::zone)
+//! ([`TabDefaults`]) unless overridden per tab via [`TabOverrides`].
 
 use crate::cookies::CookieJarHandle;
 use crate::storage::{PartitionKey, StorageService};

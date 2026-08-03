@@ -1,6 +1,6 @@
 use crate::common::geo;
 
-/// Represents the thickness (or spacing) on each side.
+/// Thickness (or spacing) on each side.
 #[derive(Debug, Clone, Copy)]
 pub struct Edges {
     pub top: f64,
@@ -9,7 +9,7 @@ pub struct Edges {
     pub left: f64,
 }
 
-/// Represents a boxmodel of an element.
+/// The box model of an element.
 #[derive(Clone, Copy)]
 pub struct BoxModel {
     pub content_box: geo::Rect,
