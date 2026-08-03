@@ -63,7 +63,7 @@ jobs:
         run: |
           git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git "$RUNNER_TEMP/wpt"
           cd "$RUNNER_TEMP/wpt"
-          git sparse-checkout set resources common html/webappapis/atob fetch/data-urls/resources fetch/api/headers encoding url console webstorage
+          git sparse-checkout set resources common html/webappapis/atob fetch/data-urls/resources fetch/api/headers encoding url console webstorage dom/events dom/abort
           git checkout "$(cat "$GITHUB_WORKSPACE/tests/wpt/wpt-commit.txt")"
       - name: Run WPT conformance suites
         run: cargo nextest run --locked -p gosub_bin --test wpt_conformance --no-capture

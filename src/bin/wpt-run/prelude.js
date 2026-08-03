@@ -811,6 +811,509 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
         });
     })();
 
+    // DOM Event / CustomEvent / EventTarget / AbortController / AbortSignal.
+    // Listener-list bookkeeping and the signal dependency graph live in Rust
+    // (et*/sig* natives); JS keeps the values — callbacks, reasons, event
+    // objects — keyed by the numeric ids the natives hand out. The dispatch
+    // loop re-checks every listener through etBeginInvoke, so removals during
+    // dispatch (including signal aborts) take effect mid-flight, per spec.
+    (function () {
+        var stateMap = new WeakMap();
+
+        function st(ev) {
+            var s = stateMap.get(ev);
+            if (s === undefined) {
+                throw new TypeError("Illegal invocation");
+            }
+            return s;
+        }
+
+        // isTrusted is [LegacyUnforgeable]: an own accessor whose getter is
+        // one shared function across all Event instances
+        function isTrustedGetter() {
+            return st(this).trusted;
+        }
+
+        function setCanceled(s) {
+            if (s.cancelable && !s.inPassive) {
+                s.canceled = true;
+            }
+        }
+
+        // WebIDL dictionary conversion: declared members only, read via
+        // [[Get]] in lexicographic order (callers pass `names` pre-sorted)
+        function readMembers(init, names, out) {
+            if (init === undefined || init === null) {
+                return out;
+            }
+            if (typeof init !== "object" && typeof init !== "function") {
+                throw new TypeError("options is not an object");
+            }
+            for (var i = 0; i < names.length; i++) {
+                var value = init[names[i]];
+                if (value !== undefined) {
+                    out[names[i]] = value;
+                }
+            }
+            return out;
+        }
+
+        class Event {
+            constructor(type, eventInitDict) {
+                if (arguments.length < 1) {
+                    throw new TypeError("Event constructor requires at least 1 argument");
+                }
+                var t = String(type);
+                var raw = readMembers(eventInitDict, ["bubbles", "cancelable", "composed"], {});
+                stateMap.set(this, {
+                    type: t,
+                    bubbles: !!raw.bubbles,
+                    cancelable: !!raw.cancelable,
+                    composed: !!raw.composed,
+                    target: null,
+                    currentTarget: null,
+                    eventPhase: 0,
+                    canceled: false,
+                    stopProp: false,
+                    stopImmediate: false,
+                    dispatching: false,
+                    inPassive: false,
+                    trusted: false,
+                    timeStamp: Date.now(),
+                });
+                Object.defineProperty(this, "isTrusted", {
+                    get: isTrustedGetter,
+                    enumerable: true,
+                    configurable: false,
+                });
+            }
+
+            get type() { return st(this).type; }
+            get target() { return st(this).target; }
+            get srcElement() { return st(this).target; }
+            get currentTarget() { return st(this).currentTarget; }
+            get eventPhase() { return st(this).eventPhase; }
+            get bubbles() { return st(this).bubbles; }
+            get cancelable() { return st(this).cancelable; }
+            get composed() { return st(this).composed; }
+            get defaultPrevented() { return st(this).canceled; }
+            get timeStamp() { return st(this).timeStamp; }
+
+            get returnValue() { return !st(this).canceled; }
+            set returnValue(v) {
+                if (v === false) {
+                    setCanceled(st(this));
+                }
+            }
+
+            get cancelBubble() { return st(this).stopProp; }
+            set cancelBubble(v) {
+                if (v) {
+                    st(this).stopProp = true;
+                }
+            }
+
+            composedPath() {
+                var s = st(this);
+                return s.dispatching && s.currentTarget !== null ? [s.currentTarget] : [];
+            }
+
+            stopPropagation() { st(this).stopProp = true; }
+
+            stopImmediatePropagation() {
+                var s = st(this);
+                s.stopProp = true;
+                s.stopImmediate = true;
+            }
+
+            preventDefault() { setCanceled(st(this)); }
+
+            initEvent(type, bubbles, cancelable) {
+                var s = st(this);
+                if (s.dispatching) {
+                    return;
+                }
+                s.trusted = false;
+                s.target = null;
+                s.canceled = false;
+                s.stopProp = false;
+                s.stopImmediate = false;
+                s.type = String(type);
+                s.bubbles = !!bubbles;
+                s.cancelable = !!cancelable;
+            }
+        }
+
+        var PHASES = { NONE: 0, CAPTURING_PHASE: 1, AT_TARGET: 2, BUBBLING_PHASE: 3 };
+        Object.keys(PHASES).forEach(function (name) {
+            var descriptor = { value: PHASES[name], writable: false, enumerable: true, configurable: false };
+            Object.defineProperty(Event, name, descriptor);
+            Object.defineProperty(Event.prototype, name, descriptor);
+        });
+
+        globalThis.Event = Event;
+
+        globalThis.CustomEvent = class CustomEvent extends Event {
+            constructor(type, eventInitDict) {
+                if (arguments.length < 1) {
+                    throw new TypeError("CustomEvent constructor requires at least 1 argument");
+                }
+                super(type, eventInitDict);
+                var raw = readMembers(eventInitDict, ["detail"], {});
+                st(this).detail = raw.detail === undefined ? null : raw.detail;
+            }
+
+            get detail() { return st(this).detail; }
+
+            initCustomEvent(type, bubbles, cancelable, detail) {
+                var s = st(this);
+                this.initEvent(type, bubbles, cancelable);
+                if (!s.dispatching) {
+                    s.detail = detail === undefined ? null : detail;
+                }
+            }
+        };
+
+        // Callbacks referenced by numeric key on both sides of the boundary.
+        // The id map holds strong references: acceptable for a per-test context.
+        var callbackIds = new WeakMap();
+        var callbacksById = new Map();
+        var nextCallbackId = 1;
+
+        function callbackKey(cb) {
+            var id = callbackIds.get(cb);
+            if (id === undefined) {
+                id = nextCallbackId++;
+                callbackIds.set(cb, id);
+                callbacksById.set(id, cb);
+            }
+            return id;
+        }
+
+        var targetIds = new WeakMap();
+
+        function targetIdOf(t) {
+            var id = targetIds.get(t);
+            if (id === undefined) {
+                throw new TypeError("Illegal invocation");
+            }
+            return id;
+        }
+
+        function dispatchOn(targetObj, event) {
+            var tid = targetIdOf(targetObj);
+            var s = st(event);
+            s.dispatching = true;
+            s.target = targetObj;
+            s.currentTarget = targetObj;
+            s.eventPhase = 2; // AT_TARGET: a plain EventTarget has no tree to propagate through
+            var ids = JSON.parse(native.etSnapshot(tid, s.type));
+            for (var i = 0; i < ids.length; i++) {
+                if (s.stopImmediate) {
+                    break;
+                }
+                var info = JSON.parse(native.etBeginInvoke(tid, ids[i]));
+                if (info === null) {
+                    continue; // removed since the snapshot
+                }
+                var cb = callbacksById.get(info.cb);
+                s.inPassive = !!info.passive;
+                try {
+                    if (typeof cb === "function") {
+                        cb.call(targetObj, event);
+                    } else if (cb !== undefined && cb !== null && typeof cb.handleEvent === "function") {
+                        cb.handleEvent(event);
+                    }
+                } catch (e) {
+                    // "Report the exception": dispatch continues past a throwing listener
+                    try {
+                        console.error("uncaught exception in event listener: " + (e && e.message ? e.message : String(e)));
+                    } catch (ignored) { /* console must never break dispatch */ }
+                } finally {
+                    s.inPassive = false;
+                }
+            }
+            s.eventPhase = 0;
+            s.currentTarget = null;
+            s.stopProp = false;
+            s.stopImmediate = false;
+            s.dispatching = false;
+            return !s.canceled;
+        }
+
+        class EventTarget {
+            constructor() {
+                targetIds.set(this, native.etNewTarget());
+            }
+
+            addEventListener(type, callback) {
+                var tid = targetIdOf(this);
+                var t = String(type);
+                var options = arguments[2];
+
+                // (AddEventListenerOptions or boolean): objects are the
+                // dictionary (members read in lexicographic order), anything
+                // else lands in the boolean `capture` branch
+                var capture = false;
+                var once = false;
+                var passive = false;
+                var signal = null;
+                if (options !== undefined && options !== null && (typeof options === "object" || typeof options === "function")) {
+                    var rawCapture = options.capture;
+                    if (rawCapture !== undefined) {
+                        capture = !!rawCapture;
+                    }
+                    var rawOnce = options.once;
+                    if (rawOnce !== undefined) {
+                        once = !!rawOnce;
+                    }
+                    var rawPassive = options.passive;
+                    if (rawPassive !== undefined) {
+                        passive = !!rawPassive;
+                    }
+                    var rawSignal = options.signal;
+                    if (rawSignal !== undefined) {
+                        if (!(rawSignal instanceof AbortSignal)) {
+                            throw new TypeError("signal must be an AbortSignal object");
+                        }
+                        signal = rawSignal;
+                    }
+                } else {
+                    capture = !!options;
+                }
+
+                if (callback === undefined || callback === null) {
+                    return;
+                }
+                if (typeof callback !== "function" && typeof callback !== "object") {
+                    throw new TypeError("callback must be an object or a function");
+                }
+                if (signal !== null && signal.aborted) {
+                    return;
+                }
+                var lid = native.etAdd(tid, t, callbackKey(callback), capture ? 1 : 0, passive ? 1 : 0, once ? 1 : 0);
+                if (lid !== 0 && signal !== null) {
+                    native.sigLink(signalIdOf(signal), tid, lid);
+                }
+            }
+
+            removeEventListener(type, callback) {
+                var tid = targetIdOf(this);
+                var t = String(type);
+                var options = arguments[2];
+
+                // EventListenerOptions has only `capture` — passive and the
+                // rest must not be read here
+                var capture = false;
+                if (options !== undefined && options !== null && (typeof options === "object" || typeof options === "function")) {
+                    var rawCapture = options.capture;
+                    if (rawCapture !== undefined) {
+                        capture = !!rawCapture;
+                    }
+                } else {
+                    capture = !!options;
+                }
+
+                if (callback === undefined || callback === null) {
+                    return;
+                }
+                var id = callbackIds.get(callback);
+                if (id === undefined) {
+                    return; // never registered anywhere: nothing to remove
+                }
+                native.etRemove(tid, t, id, capture ? 1 : 0);
+            }
+
+            dispatchEvent(event) {
+                if (!(event instanceof Event)) {
+                    throw new TypeError("dispatchEvent expects an Event");
+                }
+                var s = st(event);
+                if (s.dispatching) {
+                    throw new globalThis.DOMException("The event is already being dispatched", "InvalidStateError");
+                }
+                s.trusted = false;
+                return dispatchOn(this, event);
+            }
+        }
+
+        globalThis.EventTarget = EventTarget;
+
+        // AbortSignal / AbortController. Reasons stay JS values; the aborted
+        // flag and dependent ordering live in the native graph.
+        var signalIds = new WeakMap();
+        var signalsByNativeId = new Map();
+        var signalReasons = new WeakMap();
+        var onabortHandlers = new WeakMap();
+        var onabortWrappers = new WeakMap();
+        var allowSignalConstruction = false;
+
+        function signalIdOf(s) {
+            var id = signalIds.get(s);
+            if (id === undefined) {
+                throw new TypeError("Illegal invocation");
+            }
+            return id;
+        }
+
+        function createSignalObject(nativeId) {
+            allowSignalConstruction = true;
+            var s;
+            try {
+                s = new AbortSignal();
+            } finally {
+                allowSignalConstruction = false;
+            }
+            signalIds.set(s, nativeId);
+            signalsByNativeId.set(nativeId, s);
+            return s;
+        }
+
+        // Abort: the native side marks the whole dependent cascade aborted
+        // (and drops signal-linked listeners) before any event fires; then
+        // reasons are set for every newly aborted signal, then the abort
+        // events fire in the native-provided order.
+        function abortTheSignal(signalObj, reason) {
+            var order = JSON.parse(native.sigAbort(signalIdOf(signalObj)));
+            for (var i = 0; i < order.length; i++) {
+                var obj = signalsByNativeId.get(order[i]);
+                if (obj !== undefined) {
+                    signalReasons.set(obj, reason);
+                }
+            }
+            for (var j = 0; j < order.length; j++) {
+                var target = signalsByNativeId.get(order[j]);
+                if (target !== undefined) {
+                    var ev = new Event("abort");
+                    st(ev).trusted = true; // fired by the implementation, not script
+                    dispatchOn(target, ev);
+                }
+            }
+        }
+
+        class AbortSignal extends EventTarget {
+            constructor() {
+                if (!allowSignalConstruction) {
+                    throw new TypeError("Illegal constructor");
+                }
+                super();
+            }
+
+            get aborted() {
+                return native.sigAborted(signalIdOf(this)) === 1;
+            }
+
+            get reason() {
+                signalIdOf(this); // brand check
+                return signalReasons.get(this);
+            }
+
+            get onabort() {
+                var handler = onabortHandlers.get(this);
+                return handler === undefined ? null : handler;
+            }
+
+            set onabort(value) {
+                if (typeof value === "function" || (typeof value === "object" && value !== null)) {
+                    if (!onabortWrappers.has(this)) {
+                        var self_ = this;
+                        var wrapper = function (e) {
+                            var handler = onabortHandlers.get(self_);
+                            if (typeof handler === "function") {
+                                handler.call(self_, e);
+                            }
+                        };
+                        onabortWrappers.set(this, wrapper);
+                        this.addEventListener("abort", wrapper);
+                    }
+                    onabortHandlers.set(this, value);
+                } else {
+                    onabortHandlers.delete(this);
+                }
+            }
+
+            throwIfAborted() {
+                if (this.aborted) {
+                    throw this.reason;
+                }
+            }
+
+            static abort(reason) {
+                var s = createSignalObject(native.sigNew());
+                native.sigAbort(signalIds.get(s)); // born aborted, no listeners to notify
+                signalReasons.set(
+                    s,
+                    reason === undefined ? new globalThis.DOMException("signal is aborted without reason", "AbortError") : reason
+                );
+                return s;
+            }
+
+            static timeout(ms) {
+                var delay = Number(ms);
+                var s = createSignalObject(native.sigNew());
+                setTimeout(function () {
+                    abortTheSignal(s, new globalThis.DOMException("signal timed out", "TimeoutError"));
+                }, delay);
+                return s;
+            }
+
+            static any(signals) {
+                var sourceIds = [];
+                for (var item of signals) {
+                    if (!(item instanceof AbortSignal)) {
+                        throw new TypeError("AbortSignal.any expects a sequence of AbortSignal objects");
+                    }
+                    sourceIds.push(signalIdOf(item));
+                }
+                var res = JSON.parse(native.sigNewDependent(JSON.stringify(sourceIds)));
+                var s = createSignalObject(res.id);
+                if (res.abortedFrom !== null) {
+                    // Born aborted: share the triggering source's reason instance
+                    signalReasons.set(s, signalReasons.get(signalsByNativeId.get(res.abortedFrom)));
+                }
+                return s;
+            }
+        }
+
+        globalThis.AbortSignal = AbortSignal;
+
+        var controllerSignals = new WeakMap();
+
+        globalThis.AbortController = class AbortController {
+            constructor() {
+                controllerSignals.set(this, createSignalObject(native.sigNew()));
+            }
+
+            get signal() {
+                var s = controllerSignals.get(this);
+                if (s === undefined) {
+                    throw new TypeError("Illegal invocation");
+                }
+                return s;
+            }
+
+            abort(reason) {
+                abortTheSignal(
+                    this.signal,
+                    reason === undefined ? new globalThis.DOMException("signal is aborted without reason", "AbortError") : reason
+                );
+            }
+        };
+
+        // The global object is an EventTarget (window): delegate to a hidden
+        // instance so globalThis.addEventListener("x", null) etc. work.
+        var globalTarget = new EventTarget();
+        globalThis.addEventListener = function addEventListener() {
+            return EventTarget.prototype.addEventListener.apply(globalTarget, arguments);
+        };
+        globalThis.removeEventListener = function removeEventListener() {
+            return EventTarget.prototype.removeEventListener.apply(globalTarget, arguments);
+        };
+        globalThis.dispatchEvent = function dispatchEvent() {
+            return EventTarget.prototype.dispatchEvent.apply(globalTarget, arguments);
+        };
+    })();
+
     // Web Storage. The native Storage lives in Rust; every DOMString crosses
     // the boundary JSON-escaped (JSON.stringify emits ASCII escapes for lone
     // surrogates, which a Rust String could not hold). Named access,
@@ -987,32 +1490,6 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
             configurable: true,
         });
 
-        // Minimal Event/StorageEvent, enough for the constructor and
-        // initStorageEvent surfaces (no dispatch — EventTarget comes later).
-        if (typeof globalThis.Event === "undefined") {
-            globalThis.Event = class Event {
-                constructor(type, eventInitDict = {}) {
-                    if (arguments.length < 1) {
-                        throw new TypeError("Event constructor requires at least 1 argument");
-                    }
-                    var init = eventInitDict === null || eventInitDict === undefined ? {} : eventInitDict;
-                    this.type = String(type);
-                    this.bubbles = !!init.bubbles;
-                    this.cancelable = !!init.cancelable;
-                    this.composed = !!init.composed;
-                    this.target = null;
-                    this.currentTarget = null;
-                    this.defaultPrevented = false;
-                    this.isTrusted = false;
-                    this.timeStamp = 0;
-                }
-
-                stopPropagation() {}
-                stopImmediatePropagation() {}
-                preventDefault() {}
-            };
-        }
-
         function toNullableString(v) {
             return v === undefined || v === null ? null : String(v);
         }
@@ -1047,9 +1524,9 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
                 if (arguments.length < 1) {
                     throw new TypeError("initStorageEvent requires at least 1 argument");
                 }
-                this.type = String(type);
-                this.bubbles = !!arguments[1];
-                this.cancelable = !!arguments[2];
+                // Reinitialize the Event base through initEvent (type/bubbles/
+                // cancelable live in Event's internal state, not own props)
+                this.initEvent(String(type), !!arguments[1], !!arguments[2]);
                 this.key = toNullableString(arguments[3]);
                 this.oldValue = toNullableString(arguments[4]);
                 this.newValue = toNullableString(arguments[5]);

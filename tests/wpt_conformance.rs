@@ -80,6 +80,20 @@ const SUITES: &[&str] = &[
     "fetch/api/headers/headers-normalize.any.js",
     "fetch/api/headers/headers-record.any.js",
     "fetch/api/headers/headers-structure.any.js",
+    // Event/EventTarget + AbortController/AbortSignal
+    "dom/events/AddEventListenerOptions-once.any.js",
+    "dom/events/AddEventListenerOptions-passive.any.js",
+    "dom/events/AddEventListenerOptions-signal.any.js",
+    "dom/events/Event-constructors.any.js",
+    "dom/events/Event-isTrusted.any.js",
+    "dom/events/EventTarget-addEventListener.any.js",
+    "dom/events/EventTarget-add-remove-listener.any.js",
+    "dom/events/EventTarget-constructible.any.js",
+    "dom/events/EventTarget-removeEventListener.any.js",
+    "dom/abort/abort-signal-any.any.js",
+    "dom/abort/AbortSignal.any.js",
+    "dom/abort/event.any.js",
+    "dom/abort/timeout.any.js",
     // Storage (localStorage/sessionStorage). The window_open/noopener/reopen
     // and cross-origin-iframe tests are omitted: they need real multi-window
     // browsing contexts, like the excluded live-server suites elsewhere.

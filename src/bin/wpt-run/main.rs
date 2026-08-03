@@ -15,6 +15,7 @@ use std::rc::Rc;
 use gosub_jsapi::base64;
 use gosub_jsapi::console::{Console, LogLevel, Printer};
 use gosub_jsapi::dom_exception::DomException;
+use gosub_jsapi::events::EventsHost;
 use gosub_jsapi::headers::Headers;
 use gosub_jsapi::storage::Storage;
 use gosub_jsapi::text_encoding::{TextDecoder, TextEncoder};
@@ -318,6 +319,7 @@ fn register_natives(ctx: &mut V8Context, wpt_root: PathBuf, test_dir: PathBuf) -
     register_url_natives(ctx, &obj)?;
     register_headers_natives(ctx, &obj)?;
     register_storage_natives(ctx, &obj)?;
+    register_events_natives(ctx, &obj)?;
 
     ctx.set_on_global_object("__gosub__", obj.into())?;
 
@@ -1227,6 +1229,216 @@ fn register_storage_natives(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
         })?
     };
     obj.set_method("stKeys", &st_keys)?;
+
+    Ok(())
+}
+
+/// EventTarget listener lists and the AbortSignal graph, backed by one shared
+/// `EventsHost`. Callback functions and abort reasons stay in JS; only their
+/// numeric keys cross the boundary.
+#[allow(clippy::too_many_lines)]
+fn register_events_natives(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
+    let host: Rc<RefCell<EventsHost>> = Rc::new(RefCell::new(EventsHost::new()));
+
+    let et_new_target = {
+        let host = Rc::clone(&host);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            #[allow(clippy::cast_precision_loss)]
+            match (host.borrow_mut().new_target() as f64).to_web_value(ctx) {
+                Ok(v) => cb.ret(v),
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("etNewTarget", &et_new_target)?;
+
+    let et_add = {
+        let host = Rc::clone(&host);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let (Some(target), Some(event_type), Some(callback), Some(capture), Some(passive), Some(once)) = (
+                arg_number(cb, 0),
+                arg_string(cb, 1),
+                arg_number(cb, 2),
+                arg_number(cb, 3),
+                arg_number(cb, 4),
+                arg_number(cb, 5),
+            ) else {
+                cb.error("etAdd requires (target, type, callback, capture, passive, once)");
+                return;
+            };
+            let added = host.borrow_mut().add_listener(
+                target as u64,
+                &event_type,
+                callback as u64,
+                capture != 0.0,
+                passive != 0.0,
+                once != 0.0,
+            );
+            #[allow(clippy::cast_precision_loss)]
+            match (added.unwrap_or(0) as f64).to_web_value(ctx) {
+                Ok(v) => cb.ret(v),
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("etAdd", &et_add)?;
+
+    let et_remove = {
+        let host = Rc::clone(&host);
+        V8Function::new(ctx.clone(), move |cb| {
+            let (Some(target), Some(event_type), Some(callback), Some(capture)) = (
+                arg_number(cb, 0),
+                arg_string(cb, 1),
+                arg_number(cb, 2),
+                arg_number(cb, 3),
+            ) else {
+                cb.error("etRemove requires (target, type, callback, capture)");
+                return;
+            };
+            host.borrow_mut()
+                .remove_listener(target as u64, &event_type, callback as u64, capture != 0.0);
+            ret_undefined(cb);
+        })?
+    };
+    obj.set_method("etRemove", &et_remove)?;
+
+    let et_snapshot = {
+        let host = Rc::clone(&host);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let (Some(target), Some(event_type)) = (arg_number(cb, 0), arg_string(cb, 1)) else {
+                cb.error("etSnapshot requires (target, type)");
+                return;
+            };
+            let snapshot = host.borrow().snapshot(target as u64, &event_type);
+            match serde_json::to_string(&snapshot) {
+                Ok(json) => match json.to_web_value(ctx) {
+                    Ok(v) => cb.ret(v),
+                    Err(e) => cb.error(e),
+                },
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("etSnapshot", &et_snapshot)?;
+
+    let et_begin_invoke = {
+        let host = Rc::clone(&host);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let (Some(target), Some(listener)) = (arg_number(cb, 0), arg_number(cb, 1)) else {
+                cb.error("etBeginInvoke requires (target, listener)");
+                return;
+            };
+            let info = host
+                .borrow_mut()
+                .begin_invoke(target as u64, listener as u64)
+                .map(|(callback, passive)| serde_json::json!({ "cb": callback, "passive": passive }));
+            match serde_json::to_string(&info) {
+                Ok(json) => match json.to_web_value(ctx) {
+                    Ok(v) => cb.ret(v),
+                    Err(e) => cb.error(e),
+                },
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("etBeginInvoke", &et_begin_invoke)?;
+
+    let sig_new = {
+        let host = Rc::clone(&host);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            #[allow(clippy::cast_precision_loss)]
+            match (host.borrow_mut().new_signal() as f64).to_web_value(ctx) {
+                Ok(v) => cb.ret(v),
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("sigNew", &sig_new)?;
+
+    let sig_new_dependent = {
+        let host = Rc::clone(&host);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let Some(sources_json) = arg_string(cb, 0) else {
+                cb.error("sigNewDependent requires a JSON array of source ids");
+                return;
+            };
+            let sources: Vec<u64> = match serde_json::from_str(&sources_json) {
+                Ok(s) => s,
+                Err(e) => {
+                    cb.error(format!("sigNewDependent: bad sources JSON: {e}"));
+                    return;
+                }
+            };
+            let (id, aborted_from) = host.borrow_mut().new_dependent(&sources);
+            match serde_json::to_string(&serde_json::json!({ "id": id, "abortedFrom": aborted_from })) {
+                Ok(json) => match json.to_web_value(ctx) {
+                    Ok(v) => cb.ret(v),
+                    Err(e) => cb.error(e),
+                },
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("sigNewDependent", &sig_new_dependent)?;
+
+    let sig_aborted = {
+        let host = Rc::clone(&host);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let Some(signal) = arg_number(cb, 0) else {
+                cb.error("sigAborted requires a signal id");
+                return;
+            };
+            let aborted = host.borrow().is_aborted(signal as u64);
+            match f64::from(u8::from(aborted)).to_web_value(ctx) {
+                Ok(v) => cb.ret(v),
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("sigAborted", &sig_aborted)?;
+
+    let sig_link = {
+        let host = Rc::clone(&host);
+        V8Function::new(ctx.clone(), move |cb| {
+            let (Some(signal), Some(target), Some(listener)) =
+                (arg_number(cb, 0), arg_number(cb, 1), arg_number(cb, 2))
+            else {
+                cb.error("sigLink requires (signal, target, listener)");
+                return;
+            };
+            host.borrow_mut()
+                .link_listener(signal as u64, target as u64, listener as u64);
+            ret_undefined(cb);
+        })?
+    };
+    obj.set_method("sigLink", &sig_link)?;
+
+    let sig_abort = {
+        let host = Rc::clone(&host);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let Some(signal) = arg_number(cb, 0) else {
+                cb.error("sigAbort requires a signal id");
+                return;
+            };
+            let order = host.borrow_mut().abort(signal as u64);
+            match serde_json::to_string(&order) {
+                Ok(json) => match json.to_web_value(ctx) {
+                    Ok(v) => cb.ret(v),
+                    Err(e) => cb.error(e),
+                },
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("sigAbort", &sig_abort)?;
 
     Ok(())
 }
