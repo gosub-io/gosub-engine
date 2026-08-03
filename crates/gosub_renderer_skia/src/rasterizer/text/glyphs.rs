@@ -147,7 +147,9 @@ mod tests {
             panic!("failed to read pixel bytes");
         };
         let dark = bytes
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|px| px[0] < 128 && px[1] < 128 && px[2] < 128)
             .count();
         assert!(dark > 20, "expected dark glyph pixels on the canvas, found {dark}");

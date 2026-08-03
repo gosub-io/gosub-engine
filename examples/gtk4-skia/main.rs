@@ -674,7 +674,7 @@ fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawSt
         };
 
         // White background (ARGB32 premultiplied little-endian = 0xFFFF_FFFF).
-        for b in data.chunks_exact_mut(4) {
+        for b in data.as_chunks_mut::<4>().0 {
             b[0] = 0xFF;
             b[1] = 0xFF;
             b[2] = 0xFF;

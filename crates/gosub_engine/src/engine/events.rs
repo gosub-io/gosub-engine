@@ -96,8 +96,12 @@ pub enum IoCommand {
 pub enum TabCommand {
     // ****************************************
     // ** Navigation / lifecycle
-    Navigate { url: String },
-    Reload { ignore_cache: bool },
+    Navigate {
+        url: String,
+    },
+    Reload {
+        ignore_cache: bool,
+    },
     CancelNavigation,
     /// Answer a pending [`NavigationEvent::DecisionRequired`].
     SubmitDecision {
@@ -110,20 +114,43 @@ pub enum TabCommand {
     // ****************************************
     // ** Rendering control
     /// Resume sending draw events to the tab's event channel, capped at `fps`.
-    ResumeDrawing { fps: u16 },
+    ResumeDrawing {
+        fps: u16,
+    },
     SuspendDrawing,
-    SetViewport { x: i32, y: i32, width: u32, height: u32 },
+    SetViewport {
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    },
 
     // ****************************************
     // ** Tab properties
-    SetTitle { title: String },
+    SetTitle {
+        title: String,
+    },
 
     // ****************************************
     // ** User input
-    MouseMove { x: f32, y: f32 },
-    MouseDown { x: f32, y: f32, button: MouseButton },
-    MouseUp { x: f32, y: f32, button: MouseButton },
-    MouseScroll { delta_x: f32, delta_y: f32 },
+    MouseMove {
+        x: f32,
+        y: f32,
+    },
+    MouseDown {
+        x: f32,
+        y: f32,
+        button: MouseButton,
+    },
+    MouseUp {
+        x: f32,
+        y: f32,
+        button: MouseButton,
+    },
+    MouseScroll {
+        delta_x: f32,
+        delta_y: f32,
+    },
     KeyDown {
         key: String,
         code: String,
@@ -135,21 +162,32 @@ pub enum TabCommand {
         modifiers: Modifiers,
     },
     /// Not yet handled: the tab worker logs and drops it.
-    TextInput { text: String },
+    TextInput {
+        text: String,
+    },
     /// @TODO: needed since we have TextInput?
-    CharInput { ch: char },
+    CharInput {
+        ch: char,
+    },
 
     // ****************************************
     // ** Session / zone state
     /// Not yet handled: the tab worker logs and drops it.
-    SetCookie { cookie: Cookie },
+    SetCookie {
+        cookie: Cookie,
+    },
     /// Not yet handled: the tab worker logs and drops it.
     ClearCookies,
     /// @TODO: local / session??
     /// Not yet handled: the tab worker logs and drops it.
-    SetStorageItem { key: String, value: String },
+    SetStorageItem {
+        key: String,
+        value: String,
+    },
     /// Not yet handled: the tab worker logs and drops it.
-    RemoveStorageItem { key: String },
+    RemoveStorageItem {
+        key: String,
+    },
     /// Not yet handled: the tab worker logs and drops it.
     ClearStorage,
 
@@ -157,11 +195,17 @@ pub enum TabCommand {
     // ** Media / scripting
     /// Execute given javascript (how about lua?)
     /// Not yet handled: the tab worker logs and drops it.
-    ExecuteScript { source: String },
+    ExecuteScript {
+        source: String,
+    },
     /// Not yet handled: the tab worker logs and drops it.
-    PlayMedia { element_id: u64 },
+    PlayMedia {
+        element_id: u64,
+    },
     /// Not yet handled: the tab worker logs and drops it.
-    PauseMedia { element_id: u64 },
+    PauseMedia {
+        element_id: u64,
+    },
 
     // ****************************************
     // ** Debug / devtools
@@ -180,10 +224,19 @@ pub enum EngineCommand {
 /// events triggered in this navigation will have the same navigation id.
 #[derive(Debug, Clone)]
 pub enum NavigationEvent {
-    Started { nav_id: NavigationId, url: Url },
+    Started {
+        nav_id: NavigationId,
+        url: Url,
+    },
     /// A new document will replace the current one
-    Committed { nav_id: NavigationId, url: Url },
-    Finished { nav_id: NavigationId, url: Url },
+    Committed {
+        nav_id: NavigationId,
+        url: Url,
+    },
+    Finished {
+        nav_id: NavigationId,
+        url: Url,
+    },
     Failed {
         nav_id: Option<NavigationId>,
         url: Url,
