@@ -2,8 +2,8 @@
 
 use gosub_interface::font::{FontBlob, FontError, FontStyle as CssFontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText, TextAlign as GosubTextAlign,
-    TextStyle as GosubTextStyle,
+    Confinement, FontQuery, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText,
+    TextAlign as GosubTextAlign, TextStyle as GosubTextStyle,
 };
 use parking_lot::Mutex;
 use skia_safe::textlayout::{
@@ -334,13 +334,9 @@ fn build_style_paragraph(fc: &FontCollection, text: &str, style: &GosubTextStyle
 pub struct SkiaFontSystem;
 
 impl FontSystem for SkiaFontSystem {
-    /// Skia cannot be confined, and says so rather than dying later.
-    fn prepare_for_confinement(&mut self) -> Result<(), FontError> {
-        Err(FontError::UnsupportedFeature(
-            "Skia's fontconfig-backed FontMgr consults the filesystem while shaping; \
-             this font system cannot run confined"
-                .into(),
-        ))
+    /// Skia needs the font paths readable, and no preparation helps or hurts.
+    fn prepare_for_confinement(&mut self) -> Confinement {
+        Confinement::FontPathsReadable
     }
 
     fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError> {

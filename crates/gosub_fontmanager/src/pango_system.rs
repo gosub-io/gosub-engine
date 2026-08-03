@@ -3,7 +3,8 @@
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText, TextAlign, TextStyle,
+    Confinement, FontQuery, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText, TextAlign,
+    TextStyle,
 };
 use gtk4::pango;
 use gtk4::pango::Weight;
@@ -470,11 +471,9 @@ impl PangoFontSystem {
 
 /// Pango as a swappable [`FontSystem`].
 impl FontSystem for PangoFontSystem {
-    /// Pango cannot be confined, and says so rather than dying later.
-    fn prepare_for_confinement(&mut self) -> Result<(), FontError> {
-        Err(FontError::UnsupportedFeature(
-            "fontconfig consults the filesystem while shaping; this font system cannot run confined".into(),
-        ))
+    /// Pango needs the font paths readable, and no preparation helps or hurts.
+    fn prepare_for_confinement(&mut self) -> Confinement {
+        Confinement::FontPathsReadable
     }
 
     fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError> {

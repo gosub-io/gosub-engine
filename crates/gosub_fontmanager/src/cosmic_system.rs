@@ -9,8 +9,8 @@ use cosmic_text::{
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontStretch, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText, TextAlign,
-    TextStyle,
+    Confinement, FontQuery, FontStretch, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText,
+    TextAlign, TextStyle,
 };
 use std::sync::Arc;
 
@@ -152,12 +152,12 @@ impl FontSystem for CosmicFontSystem {
     }
 
     /// Force every face in the database into cosmic-text's font cache.
-    fn prepare_for_confinement(&mut self) -> Result<(), FontError> {
+    fn prepare_for_confinement(&mut self) -> Confinement {
         let faces: Vec<(fontdb::ID, Weight)> = self.inner.db().faces().map(|f| (f.id, f.weight)).collect();
         for (id, weight) in faces {
             let _ = self.inner.get_font(id, weight);
         }
-        Ok(())
+        Confinement::Full
     }
 
     fn families(&mut self) -> Vec<String> {
