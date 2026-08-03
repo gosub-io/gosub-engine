@@ -990,7 +990,13 @@ impl TaffyLayouter {
                                     // the image really is transparent.
                                     let transparent = !is_placeholder
                                         && media_image.image.width() > 0
-                                        && media_image.image.as_raw().chunks_exact(4).all(|px| px[3] == 0);
+                                        && media_image
+                                            .image
+                                            .as_raw()
+                                            .as_chunks::<4>()
+                                            .0
+                                            .iter()
+                                            .all(|px| px[3] == 0);
                                     (d, false, transparent)
                                 }
                             };

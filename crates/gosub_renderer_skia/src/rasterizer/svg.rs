@@ -49,7 +49,7 @@ pub fn do_paint_svg(
     resvg::render(&media.svg.tree, Transform::from_scale(sx, sy), &mut pixmap.as_mut());
 
     let mut data = pixmap.data().to_vec();
-    for chunk in data.chunks_exact_mut(4) {
+    for chunk in data.as_chunks_mut::<4>().0 {
         chunk.swap(0, 2); // RGBA -> BGRA
     }
 
