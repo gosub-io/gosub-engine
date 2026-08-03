@@ -225,7 +225,9 @@ fn register_natives(ctx: &mut V8Context, wpt_root: PathBuf, test_dir: PathBuf) -
     })?;
     obj.set_method("readRelative", &read_relative)?;
 
-    let te_encode = jsapi_string_fn(ctx, |input| Ok(bytes_to_binary_string(&TextEncoder::new().encode(input))))?;
+    let te_encode = jsapi_string_fn(ctx, |input| {
+        Ok(bytes_to_binary_string(&TextEncoder::new().encode(input)))
+    })?;
     obj.set_method("teEncode", &te_encode)?;
 
     // TextDecoders are stateful (streaming); JS holds an id into this map
@@ -236,11 +238,9 @@ fn register_natives(ctx: &mut V8Context, wpt_root: PathBuf, test_dir: PathBuf) -
         let decoders = Rc::clone(&decoders);
         V8Function::new(ctx.clone(), move |cb| {
             let ctx = cb.context();
-            let (Some(label), Some(fatal), Some(ignore_bom)) = (
-                arg_string(cb, 0),
-                arg_number(cb, 1),
-                arg_number(cb, 2),
-            ) else {
+            let (Some(label), Some(fatal), Some(ignore_bom)) =
+                (arg_string(cb, 0), arg_number(cb, 1), arg_number(cb, 2))
+            else {
                 cb.error("tdNew requires (label, fatal, ignoreBOM) arguments");
                 return;
             };
@@ -286,11 +286,8 @@ fn register_natives(ctx: &mut V8Context, wpt_root: PathBuf, test_dir: PathBuf) -
         let decoders = Rc::clone(&decoders);
         V8Function::new(ctx.clone(), move |cb| {
             let ctx = cb.context();
-            let (Some(id), Some(input), Some(stream)) = (
-                arg_number(cb, 0),
-                arg_string(cb, 1),
-                arg_number(cb, 2),
-            ) else {
+            let (Some(id), Some(input), Some(stream)) = (arg_number(cb, 0), arg_string(cb, 1), arg_number(cb, 2))
+            else {
                 cb.error("tdDecode requires (id, bytes, stream) arguments");
                 return;
             };
@@ -454,8 +451,7 @@ fn register_url_natives(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
         let store = Rc::clone(&store);
         V8Function::new(ctx.clone(), move |cb| {
             let ctx = cb.context();
-            let (Some(input), Some(has_base), Some(base)) =
-                (arg_string(cb, 0), arg_number(cb, 1), arg_string(cb, 2))
+            let (Some(input), Some(has_base), Some(base)) = (arg_string(cb, 0), arg_number(cb, 1), arg_string(cb, 2))
             else {
                 cb.error("urlNew requires (input, hasBase, base) arguments");
                 return;
@@ -521,8 +517,7 @@ fn register_url_natives(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
     let url_set = {
         let store = Rc::clone(&store);
         V8Function::new(ctx.clone(), move |cb| {
-            let (Some(id), Some(prop), Some(value)) = (arg_number(cb, 0), arg_string(cb, 1), arg_string(cb, 2))
-            else {
+            let (Some(id), Some(prop), Some(value)) = (arg_number(cb, 0), arg_string(cb, 1), arg_string(cb, 2)) else {
                 cb.error("urlSet requires (id, prop, value) arguments");
                 return;
             };
@@ -623,8 +618,7 @@ fn register_url_natives(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
     let sp_append = {
         let store = Rc::clone(&store);
         V8Function::new(ctx.clone(), move |cb| {
-            let (Some(id), Some(name), Some(value)) = (arg_number(cb, 0), arg_string(cb, 1), arg_string(cb, 2))
-            else {
+            let (Some(id), Some(name), Some(value)) = (arg_number(cb, 0), arg_string(cb, 1), arg_string(cb, 2)) else {
                 cb.error("spAppend requires (id, name, value) arguments");
                 return;
             };
@@ -645,8 +639,7 @@ fn register_url_natives(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
     let sp_set = {
         let store = Rc::clone(&store);
         V8Function::new(ctx.clone(), move |cb| {
-            let (Some(id), Some(name), Some(value)) = (arg_number(cb, 0), arg_string(cb, 1), arg_string(cb, 2))
-            else {
+            let (Some(id), Some(name), Some(value)) = (arg_number(cb, 0), arg_string(cb, 1), arg_string(cb, 2)) else {
                 cb.error("spSet requires (id, name, value) arguments");
                 return;
             };
@@ -897,8 +890,7 @@ fn register_headers_natives(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
     let hdr_append = {
         let store = Rc::clone(&store);
         V8Function::new(ctx.clone(), move |cb| {
-            let (Some(id), Some(name), Some(value)) = (arg_number(cb, 0), arg_string(cb, 1), arg_string(cb, 2))
-            else {
+            let (Some(id), Some(name), Some(value)) = (arg_number(cb, 0), arg_string(cb, 1), arg_string(cb, 2)) else {
                 cb.error("hdrAppend requires (id, name, value) arguments");
                 return;
             };
@@ -918,8 +910,7 @@ fn register_headers_natives(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
     let hdr_set = {
         let store = Rc::clone(&store);
         V8Function::new(ctx.clone(), move |cb| {
-            let (Some(id), Some(name), Some(value)) = (arg_number(cb, 0), arg_string(cb, 1), arg_string(cb, 2))
-            else {
+            let (Some(id), Some(name), Some(value)) = (arg_number(cb, 0), arg_string(cb, 1), arg_string(cb, 2)) else {
                 cb.error("hdrSet requires (id, name, value) arguments");
                 return;
             };

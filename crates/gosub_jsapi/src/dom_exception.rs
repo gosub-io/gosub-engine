@@ -287,7 +287,10 @@ mod tests {
         let e = DomException::from(ErrorName::UrlMismatchError);
         assert_eq!(e.name(), "URLMismatchError");
         assert_eq!(e.code(), DomException::URL_MISMATCH_ERR);
-        assert_eq!(ErrorName::from_name("URLMismatchError"), Some(ErrorName::UrlMismatchError));
+        assert_eq!(
+            ErrorName::from_name("URLMismatchError"),
+            Some(ErrorName::UrlMismatchError)
+        );
     }
 
     #[test]

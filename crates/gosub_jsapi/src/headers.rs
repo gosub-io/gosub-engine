@@ -43,9 +43,12 @@ pub enum HeadersGuard {
 /// An HTTP token per RFC 9110: the only characters legal in a header name
 fn is_token(name: &str) -> bool {
     !name.is_empty()
-        && name
-            .bytes()
-            .all(|b| matches!(b, b'!' | b'#' | b'$' | b'%' | b'&' | b'\'' | b'*' | b'+' | b'-' | b'.' | b'^' | b'_' | b'`' | b'|' | b'~') || b.is_ascii_alphanumeric())
+        && name.bytes().all(|b| {
+            matches!(
+                b,
+                b'!' | b'#' | b'$' | b'%' | b'&' | b'\'' | b'*' | b'+' | b'-' | b'.' | b'^' | b'_' | b'`' | b'|' | b'~'
+            ) || b.is_ascii_alphanumeric()
+        })
 }
 
 /// Strip leading/trailing HTTP whitespace (the spec's "normalize")
@@ -73,7 +76,10 @@ impl Headers {
 
     #[must_use]
     pub fn with_guard(guard: HeadersGuard) -> Self {
-        Self { guard, list: Vec::new() }
+        Self {
+            guard,
+            list: Vec::new(),
+        }
     }
 
     fn check_mutable(&self) -> Result<(), HeadersError> {
@@ -259,7 +265,10 @@ mod tests {
         h.append("b", "2").unwrap();
         h.append("A", "3").unwrap();
         h.set("a", "9").unwrap();
-        assert_eq!(h.sorted_entries(), vec![("a".into(), "9".into()), ("b".into(), "2".into())]);
+        assert_eq!(
+            h.sorted_entries(),
+            vec![("a".into(), "9".into()), ("b".into(), "2".into())]
+        );
     }
 
     #[test]
@@ -294,6 +303,9 @@ mod tests {
         let mut h = Headers::with_guard(HeadersGuard::Immutable);
         assert_eq!(h.append("a", "1").unwrap_err(), HeadersError::Immutable);
         // Validation errors take precedence over the guard
-        assert!(matches!(h.append("bad name", "1").unwrap_err(), HeadersError::InvalidName(_)));
+        assert!(matches!(
+            h.append("bad name", "1").unwrap_err(),
+            HeadersError::InvalidName(_)
+        ));
     }
 }
