@@ -56,6 +56,8 @@ jobs:
         with:
           shared-key: wpt
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install dependencies
+        run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
       - uses: taiki-e/install-action@nextest
       - name: Checkout web-platform-tests (sparse, pinned)
         run: |
