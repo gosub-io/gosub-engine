@@ -20,6 +20,13 @@ fn run(scenario: &str) -> std::process::Output {
         .expect("spawn isolation-harness")
 }
 
+fn run_with_backend(scenario: &str, backend: &str) -> std::process::Output {
+    Command::new(harness())
+        .args([scenario, backend])
+        .output()
+        .expect("spawn isolation-harness")
+}
+
 /// The boundary itself: a request crosses into a separate, sandboxed process and
 /// the response comes back byte-for-byte.
 ///
@@ -111,6 +118,48 @@ fn a_web_font_can_be_registered_under_the_renderer_lockdown() {
     assert!(
         out.status.success(),
         "registering a web font once confined should work:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The same confinement property, for the *other* always-compiled font system —
+/// because the engine is generic over font systems, the property is per
+/// implementation, not per engine.
+///
+/// cosmic-text loads face data lazily per (face, weight), and shaping consults
+/// fallback faces a family-by-family warm-up never touches; the trait's default
+/// `prepare_for_confinement` measurably left it dying on `openat` under the
+/// sandbox. This pins its override, which loads every face in the database.
+#[test]
+fn cosmic_text_can_shape_under_the_renderer_lockdown() {
+    let out = run_with_backend("fonts-under-lockdown", "cosmic");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "a prepared cosmic-text font system should still shape once confined:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Web fonts after lockdown, for cosmic-text — the sequence a renderer actually
+/// runs is prepare, confine, then let content register fonts, and for
+/// cosmic-text the preparation is load-bearing even for a font that arrives as
+/// bytes, because shaping it still consults fallback faces.
+#[test]
+fn a_web_font_can_be_registered_with_cosmic_text_under_the_renderer_lockdown() {
+    let out = run_with_backend("webfont-under-lockdown", "cosmic");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "registering a web font once confined should work with cosmic-text:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
 }

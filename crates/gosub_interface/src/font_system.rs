@@ -219,6 +219,19 @@ pub trait FontSystem: Send + Sync + 'static {
     /// added via [`FontSystem::register_font`], sorted and de-duplicated.
     fn families(&mut self) -> Vec<String>;
 
+    /// Do everything that needs the filesystem *now*, because after this returns
+    /// the process may be confined and unable to open a file again.
+    fn prepare_for_confinement(&mut self) -> Result<(), FontError> {
+        for family in self.families() {
+            // Resolving locates the face; measuring forces whatever the resolve
+            // still left until first use. Failures are skipped rather than fatal:
+            // one unusable family should not stop the rest from being loaded.
+            let _ = self.resolve(&FontQuery::new(&[family.as_str()]));
+            let _ = self.measure("Ag", &TextStyle::new(family, 16.0));
+        }
+        Ok(())
+    }
+
     /// Shape `text` laid out in `style` into positioned glyph runs.
     fn shape(&mut self, text: &str, style: &TextStyle) -> ShapedText;
 

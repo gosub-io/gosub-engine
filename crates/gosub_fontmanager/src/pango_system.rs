@@ -470,6 +470,13 @@ impl PangoFontSystem {
 
 /// Pango as a swappable [`FontSystem`].
 impl FontSystem for PangoFontSystem {
+    /// Pango cannot be confined, and says so rather than dying later.
+    fn prepare_for_confinement(&mut self) -> Result<(), FontError> {
+        Err(FontError::UnsupportedFeature(
+            "fontconfig consults the filesystem while shaping; this font system cannot run confined".into(),
+        ))
+    }
+
     fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError> {
         register_font_via_fontconfig(&data, family_override)
     }

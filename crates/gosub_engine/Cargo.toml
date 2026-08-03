@@ -80,6 +80,12 @@ metrics = []
 # platform without process isolation need; the fetch path is otherwise identical.
 # Compiling it in does not enable it — see the `security.network_process` setting.
 process-isolation = ["dep:gosub_ipc", "dep:gosub_sandbox"]
+# Compile the feature-gated font systems into the isolation harness, so its
+# font scenarios can be pointed at every backend the engine supports — the
+# confinement contract has to hold per font stack, not just for the default.
+# Diagnostic only; nothing in the engine itself selects these.
+pango-fonts = ["gosub_fontmanager/pango"]
+skia-fonts = ["gosub_fontmanager/skia"]
 
 [lints]
 workspace = true
