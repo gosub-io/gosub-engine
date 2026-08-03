@@ -164,6 +164,44 @@ fn a_web_font_can_be_registered_with_cosmic_text_under_the_renderer_lockdown() {
     );
 }
 
+/// The middle sandbox tier: a renderer allowed to *read font paths and nothing
+/// else* (plus one private writable scratch), for font systems that consult
+/// the filesystem while shaping and so can never satisfy full confinement.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_font_system_can_shape_under_the_font_readable_lockdown() {
+    let out = run("fonts-under-font-readable-lockdown");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "shaping under the font-readable renderer profile failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Web fonts under the middle tier, including the writable-scratch arrangement
+/// some backends need (Pango stages a web font as a file; fontconfig's
+/// app-font API takes a path, not memory).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_web_font_can_be_registered_under_the_font_readable_lockdown() {
+    let out = run("webfont-under-font-readable-lockdown");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "registering a web font under the font-readable renderer profile failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// An embedder that enables isolation without dispatching must be stopped, not
 /// merely warned.
 #[test]

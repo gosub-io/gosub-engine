@@ -49,6 +49,8 @@ fn main() {
         "decode-many" => decode_many(),
         "fonts-under-lockdown" => with_font_backend!(fonts_under_lockdown),
         "webfont-under-lockdown" => with_font_backend!(webfont_under_lockdown),
+        "fonts-under-font-readable-lockdown" => with_font_backend!(fonts_under_font_readable_lockdown),
+        "webfont-under-font-readable-lockdown" => with_font_backend!(webfont_under_font_readable_lockdown),
         other => {
             eprintln!("unknown scenario {other:?}; expected 'direct' or 'engine'");
             2
@@ -140,6 +142,115 @@ fn fonts_under_lockdown<F: FontSystem + Default>() -> i32 {
         return 1;
     }
     println!("shaped {cold_w:.1}x{cold_h:.1} under the renderer lockdown");
+    0
+}
+
+/// The middle tier: can a font system that *cannot* be confined outright
+/// (fontconfig consults the filesystem while shaping) run in a renderer that is
+/// allowed to **read font paths and nothing else**?
+fn fonts_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
+    use gosub_interface::font_system::TextStyle;
+
+    let mut fonts = F::default();
+    println!("font backend: {}", std::any::type_name::<F>());
+
+    let families = fonts.families();
+    println!("{} families visible before lockdown", families.len());
+    if families.is_empty() {
+        eprintln!("no font families found; this host cannot answer the question");
+        return 2;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let paths = gosub_sandbox::font_filesystem_paths();
+        if paths.is_empty() {
+            eprintln!("no font paths exist on this host; the profile would test nothing");
+            return 2;
+        }
+        println!(
+            "font paths granted read-only: {}",
+            paths
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let refs: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
+        gosub_sandbox::lock_down_renderer_with_font_access(&refs);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the font-readable renderer tier exists only on Linux");
+        return 2;
+    }
+
+    // Never shaped, never warmed: the match runs cold, under the profile.
+    let cold_style = TextStyle::new("serif", 31.0);
+    let (cold_w, cold_h) = fonts.measure("Text shaped only after the sandbox applied", &cold_style);
+    if cold_w <= 0.0 || cold_h <= 0.0 {
+        eprintln!("shaping under the font-readable lockdown produced an empty box ({cold_w}x{cold_h})");
+        return 1;
+    }
+    println!("shaped {cold_w:.1}x{cold_h:.1} under the font-readable renderer lockdown");
+    0
+}
+
+/// Web fonts under the middle tier — the follow-up that decides whether the
+/// tier is actually usable, because `@font-face` is everywhere.
+fn webfont_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
+    use gosub_interface::font_system::{FontQuery, TextStyle};
+
+    let mut fonts = F::default();
+    println!("font backend: {}", std::any::type_name::<F>());
+    let _ = fonts.families();
+
+    let Ok(resolved) = fonts.resolve(&FontQuery::new(&["sans-serif"])) else {
+        eprintln!("no resolvable font on this host to use as sample bytes");
+        return 2;
+    };
+    let downloaded: Vec<u8> = resolved.blob.data.as_ref().as_ref().to_vec();
+    if downloaded.is_empty() {
+        eprintln!("resolved font carried no bytes; the control is broken");
+        return 2;
+    }
+    println!("holding {} bytes of font data before lockdown", downloaded.len());
+
+    #[cfg(target_os = "linux")]
+    {
+        let scratch = std::env::temp_dir().join(format!("gosub-webfont-scratch-{}", std::process::id()));
+        if std::fs::create_dir_all(&scratch).is_err() {
+            eprintln!("could not create the scratch directory; cannot set the tier up");
+            return 2;
+        }
+        // Backends that stage fonts as files use the standard temp dir; point
+        // it inside the ruleset so the write is scoped, not just allowed.
+        std::env::set_var("TMPDIR", &scratch);
+
+        let paths = gosub_sandbox::font_filesystem_paths();
+        let mut refs: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
+        refs.push((scratch.as_path(), true));
+        gosub_sandbox::lock_down_renderer_with_font_access(&refs);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the font-readable renderer tier exists only on Linux");
+        return 2;
+    }
+
+    if let Err(e) = fonts.register_font(downloaded, Some("gosub-webfont-test")) {
+        eprintln!("registering a web font under the font-readable lockdown failed: {e:?}");
+        return 1;
+    }
+    let (w, h) = fonts.measure(
+        "Web font registered after the sandbox applied",
+        &TextStyle::new(resolved.family.clone(), 24.0),
+    );
+    if w <= 0.0 || h <= 0.0 {
+        eprintln!("shaping with the registered font produced an empty box ({w}x{h})");
+        return 1;
+    }
+    println!("registered and shaped {w:.1}x{h:.1} under the font-readable renderer lockdown");
     0
 }
 
