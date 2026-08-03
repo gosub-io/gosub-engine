@@ -27,31 +27,16 @@ use uuid::Uuid;
 
 /// A unique identifier for a [`Zone`] within a [`GosubEngine`](crate::GosubEngine).
 ///
-/// Internally, a `ZoneId` wraps a [`Uuid`] to guarantee global uniqueness for
-/// each zone created in the engine.
+/// Wraps a [`Uuid`] as an implementation detail that may change without notice -
+/// treat `ZoneId` as an opaque handle rather than relying on its representation.
 ///
-/// **Note:** The use of [`Uuid`] is an implementation detail and may change in
-/// the future without notice. Always treat `ZoneId` as an opaque handle rather
-/// than relying on its internal representation.
-///
-/// # Purpose
-///
-/// A `ZoneId` allows the engine and user code to unambiguously reference and
-/// operate on a specific [`Zone`], even if multiple zones are created, closed,
-/// or restored across sessions.
-///
-/// # Examples
-///
-/// Creating a new `ZoneId` manually:
 /// ```
 /// use gosub_engine::zone::ZoneId;
 ///
 /// let id = ZoneId::new();
-/// println!("New zone ID: {:?}", id);
 ///
 /// let uuid = uuid::Uuid::parse_str("123e4567-e89b-12d3-a456-426614174000").expect("invalid uuid");
 /// let fixed_id = ZoneId::from(uuid);
-/// println!("Fixed zone ID: {}", fixed_id);
 /// ```
 ///
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

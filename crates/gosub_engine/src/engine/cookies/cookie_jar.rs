@@ -1,12 +1,9 @@
-//! Cookie jar abstraction and a simple in-memory implementation.
+//! A **cookie jar** holds all cookies belonging to a single zone; the engine passes
+//! request/response metadata to the jar so it can update and query cookies.
 //!
-//! A **cookie jar** represents all cookies belonging to a single zone. The engine
-//! passes request/response metadata to the jar so it can update and query cookies
-//! appropriately.
-//!
-//! This module defines the [`CookieJar`] trait and a reference implementation,
-//! [`DefaultCookieJar`], which stores cookies **in memory only** (no persistence)
-//! and parses a subset of RFC 6265 `Set-Cookie` semantics.
+//! [`CookieJar`] is the trait; [`DefaultCookieJar`] is the reference implementation,
+//! which stores cookies **in memory only** (no persistence) and parses a subset of
+//! RFC 6265 `Set-Cookie` semantics.
 //!
 //! ## Notes & limitations
 //! - The attributes `Expires`, `Max-Age`, `Path`, `Domain`, `Secure`,

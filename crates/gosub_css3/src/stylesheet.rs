@@ -218,7 +218,7 @@ impl CssSelector {
     }
 }
 
-/// Represents a CSS selector part, which has a type and value (e.g. type=Class, class="my-class")
+/// A CSS selector part: a type plus its value (e.g. type=Class, class="my-class")
 #[derive(PartialEq, Clone, Default)]
 pub enum CssSelectorPart {
     #[default]
@@ -298,7 +298,7 @@ impl Debug for CssSelectorPart {
     }
 }
 
-/// Represents a CSS selector type for this part
+/// The type of a selector part
 #[derive(Debug, PartialEq, Clone, Default)]
 pub enum CssSelectorType {
     Universal, // '*'

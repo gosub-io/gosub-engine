@@ -88,7 +88,7 @@ impl PixelFormat {
 /// Swap the red and blue channels of a tightly-packed 4-bytes-per-pixel buffer.
 fn swap_rb(data: &[u8]) -> Vec<u8> {
     let mut out = data.to_vec();
-    for px in out.chunks_exact_mut(4) {
+    for px in out.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
     }
     out

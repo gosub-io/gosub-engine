@@ -1,9 +1,5 @@
-//! Local and Session storage systems
-//!
-//! This module defines the traits, types, and implementations that power
-//! HTML5 **LocalStorage** and **SessionStorage** within the engine. It
-//! provides both in-memory and persistent backends, a unified service API,
-//! and event hooks for reacting to storage changes.
+//! HTML5 **LocalStorage** and **SessionStorage**: in-memory and persistent backends,
+//! a unified service API, and event hooks for reacting to storage changes.
 //!
 //! # Concepts
 //!
