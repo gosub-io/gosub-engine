@@ -151,6 +151,15 @@ impl FontSystem for CosmicFontSystem {
         })
     }
 
+    /// Force every face in the database into cosmic-text's font cache.
+    fn prepare_for_confinement(&mut self) -> Result<(), FontError> {
+        let faces: Vec<(fontdb::ID, Weight)> = self.inner.db().faces().map(|f| (f.id, f.weight)).collect();
+        for (id, weight) in faces {
+            let _ = self.inner.get_font(id, weight);
+        }
+        Ok(())
+    }
+
     fn families(&mut self) -> Vec<String> {
         // A face's `families` holds one name per localisation; the first entry is the
         // primary (typically English) name, which is what CSS matches against.

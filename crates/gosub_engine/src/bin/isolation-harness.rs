@@ -1,11 +1,35 @@
 //! Drives the network process end to end, from a binary that dispatches child
 //! roles the way a real embedder does.
 
+use gosub_interface::font_system::FontSystem;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::Arc;
 
 const BODY: &str = "<html><head><title>through the net process</title></head><body>ok</body></html>";
+
+/// Run a font scenario against the font system named by argv[2].
+macro_rules! with_font_backend {
+    ($scenario:ident) => {{
+        let backend = std::env::args().nth(2).unwrap_or_else(|| "parley".into());
+        match backend.as_str() {
+            "parley" => $scenario::<gosub_fontmanager::ParleyFontSystem>(),
+            "cosmic" => $scenario::<gosub_fontmanager::CosmicFontSystem>(),
+            #[cfg(feature = "pango-fonts")]
+            "pango" => $scenario::<gosub_fontmanager::PangoFontSystem>(),
+            #[cfg(feature = "skia-fonts")]
+            "skia" => $scenario::<gosub_fontmanager::SkiaFontSystem>(),
+            other => {
+                eprintln!(
+                    "font backend {other:?} is not compiled into this harness; \
+                     'parley' and 'cosmic' are always available, 'pango' and 'skia' \
+                     need the engine features 'pango-fonts' / 'skia-fonts'"
+                );
+                2
+            }
+        }
+    }};
+}
 
 fn main() {
     // First statement, exactly as the docs require of an embedder: in a child
@@ -23,8 +47,8 @@ fn main() {
         "decode" => decode(),
         "decode-garbage" => decode_garbage(),
         "decode-many" => decode_many(),
-        "fonts-under-lockdown" => fonts_under_lockdown(),
-        "webfont-under-lockdown" => webfont_under_lockdown(),
+        "fonts-under-lockdown" => with_font_backend!(fonts_under_lockdown),
+        "webfont-under-lockdown" => with_font_backend!(webfont_under_lockdown),
         other => {
             eprintln!("unknown scenario {other:?}; expected 'direct' or 'engine'");
             2
@@ -73,11 +97,11 @@ fn decode() -> i32 {
 
 /// The open question for a renderer process: can text be laid out by a process
 /// confined the way a renderer must be?
-fn fonts_under_lockdown() -> i32 {
-    use gosub_fontmanager::ParleyFontSystem;
-    use gosub_interface::font_system::{FontQuery, FontSystem, TextStyle};
+fn fonts_under_lockdown<F: FontSystem + Default>() -> i32 {
+    use gosub_interface::font_system::TextStyle;
 
-    let mut fonts = ParleyFontSystem::default();
+    let mut fonts = F::default();
+    println!("font backend: {}", std::any::type_name::<F>());
 
     // Warm-up. `families()` is documented to populate lazily-built databases, and
     // resolving plus shaping forces the actual file reads that follow.
@@ -87,35 +111,23 @@ fn fonts_under_lockdown() -> i32 {
         eprintln!("no font families found; this host cannot answer the question");
         return 2;
     }
-    // Warm the *same* families the cold run below uses. If a family that has
-    // already been resolved and shaped still opens a file afterwards, the
-    // laziness is per-shape and no amount of warm-up will help; if it does not,
-    // it is per-family and exhaustive warm-up is a viable strategy.
-    for family in ["sans-serif", "serif"] {
-        let _ = fonts.resolve(&FontQuery::new(&[family]));
-        let (w, _) = fonts.measure("warm up the shaper", &TextStyle::new(family, 16.0));
-        if w <= 0.0 {
-            eprintln!("shaping '{family}' produced nothing before lockdown; the control is broken");
-            return 2;
-        }
+    // Exercise the trait hook rather than hand-rolled warm-up: this is what a
+    // renderer will call, and it is the configured font system's own answer to
+    // "get ready to be confined". Timed and measured, because the cost of that
+    // answer is part of whether the strategy is usable.
+    let rss_before_mib = rss_mib();
+    let start = std::time::Instant::now();
+    if let Err(e) = fonts.prepare_for_confinement() {
+        eprintln!("this font system reports it cannot be confined: {e:?}");
+        return 3;
     }
-
-    // How expensive is the strategy this implies — warming every family a page
-    // could name, since which ones it will name is unknowable in advance?
-    if std::env::args().any(|a| a == "--warm-all") {
-        let rss_before_mib = rss_mib();
-        let start = std::time::Instant::now();
-        for family in &families {
-            let _ = fonts.measure("Ag", &TextStyle::new(family.clone(), 16.0));
-        }
-        println!(
-            "warmed all {} families in {:?}, RSS {} -> {} MiB",
-            families.len(),
-            start.elapsed(),
-            rss_before_mib,
-            rss_mib()
-        );
-    }
+    println!(
+        "prepare_for_confinement over {} families: {:?}, RSS {} -> {} MiB",
+        families.len(),
+        start.elapsed(),
+        rss_before_mib,
+        rss_mib()
+    );
 
     gosub_sandbox::lock_down_renderer();
 
@@ -134,11 +146,11 @@ fn fonts_under_lockdown() -> i32 {
 /// The follow-up question to the warm-up finding: a page can introduce a font at
 /// any moment with `@font-face`, long after the sandbox is in place. Does that
 /// need a file, and therefore a process that can open one?
-fn webfont_under_lockdown() -> i32 {
-    use gosub_fontmanager::ParleyFontSystem;
-    use gosub_interface::font_system::{FontQuery, FontSystem, TextStyle};
+fn webfont_under_lockdown<F: FontSystem + Default>() -> i32 {
+    use gosub_interface::font_system::{FontQuery, TextStyle};
 
-    let mut fonts = ParleyFontSystem::default();
+    let mut fonts = F::default();
+    println!("font backend: {}", std::any::type_name::<F>());
     let _ = fonts.families();
 
     // Stand in for a downloaded font: bytes in hand, nothing else.
@@ -152,6 +164,15 @@ fn webfont_under_lockdown() -> i32 {
         return 2;
     }
     println!("holding {} bytes of font data before lockdown", downloaded.len());
+
+    // The renderer's documented sequence: prepare, confine, and only then let
+    // content introduce fonts. Skipping the preparation here would test a
+    // sequence no renderer runs — and shaping a web font still consults
+    // fallback faces, which some backends (cosmic-text) load lazily per face.
+    if let Err(e) = fonts.prepare_for_confinement() {
+        eprintln!("this font system reports it cannot be confined: {e:?}");
+        return 3;
+    }
 
     gosub_sandbox::lock_down_renderer();
 
