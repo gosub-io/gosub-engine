@@ -49,8 +49,14 @@ jobs:
 
   wpt:
     runs-on: ubuntu-24.04
+    # This job checks out third-party content (web-platform-tests); keep the
+    # token read-only and out of .git/config
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

@@ -167,6 +167,8 @@ fn wpt_conformance() {
             l.starts_with("FAIL")
                 || l.starts_with("TIMEOUT")
                 || l.starts_with("NOTRUN")
+                || l.starts_with("PRECONDITION_FAILED")
+                || l.starts_with("UNKNOWN")
                 || l.starts_with("UNEXPECTED")
                 || l.starts_with("HARNESS")
                 || l.starts_with("uncaught")

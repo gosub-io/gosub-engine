@@ -163,8 +163,12 @@ fn run_test_file(
         ctx.run(&src)?;
     }
 
+    // An uncaught error can leave the harness with zero registered tests and
+    // a clean status; count it as a failure so a broken suite can't be green
+    let mut uncaught = 0usize;
     if let Err(e) = ctx.run(&test_src) {
         println!("uncaught error while running test file: {e}");
+        uncaught = 1;
     }
     ctx.run("done();")?;
 
@@ -184,7 +188,8 @@ fn run_test_file(
         return Ok((0, 1, 0));
     };
 
-    report(&results_json, expected, &file_name)
+    let (pass, fail, xfail) = report(&results_json, expected, &file_name)?;
+    Ok((pass, fail + uncaught, xfail))
 }
 
 /// Install the native half on `globalThis.__gosub__`; the prelude consumes

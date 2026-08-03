@@ -71,7 +71,9 @@ if (typeof globalThis.location === "undefined") {
 // both the constructor and the prototype.
 if (typeof globalThis.DOMException === "undefined") {
     (function () {
-        var LEGACY_CODES = {
+        // Null prototype: a name like "constructor" must miss, not find
+        // Object.prototype members
+        var LEGACY_CODES = Object.assign(Object.create(null), {
             IndexSizeError: 1,
             HierarchyRequestError: 3,
             WrongDocumentError: 4,
@@ -94,7 +96,7 @@ if (typeof globalThis.DOMException === "undefined") {
             TimeoutError: 23,
             InvalidNodeTypeError: 24,
             DataCloneError: 25,
-        };
+        });
         var CONSTANTS = {
             INDEX_SIZE_ERR: 1, DOMSTRING_SIZE_ERR: 2, HIERARCHY_REQUEST_ERR: 3,
             WRONG_DOCUMENT_ERR: 4, INVALID_CHARACTER_ERR: 5, NO_DATA_ALLOWED_ERR: 6,
@@ -395,7 +397,7 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
                     }
                 }
             } else {
-                var s = init === undefined ? "" : String(init);
+                var s = init === undefined ? "" : toUSVString(init);
                 if (s.charAt(0) === "?") {
                     s = s.slice(1);
                 }
@@ -408,42 +410,42 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
             if (arguments.length < 2) {
                 throw new TypeError("append requires 2 arguments");
             }
-            native.spAppend(this.__id, String(name), String(value));
+            native.spAppend(this.__id, toUSVString(name), toUSVString(value));
         }
 
         delete(name, value) {
             if (arguments.length < 1) {
                 throw new TypeError("delete requires 1 argument");
             }
-            native.spDelete(this.__id, String(name), value === undefined ? 0 : 1, value === undefined ? "" : String(value));
+            native.spDelete(this.__id, toUSVString(name), value === undefined ? 0 : 1, value === undefined ? "" : toUSVString(value));
         }
 
         get(name) {
             if (arguments.length < 1) {
                 throw new TypeError("get requires 1 argument");
             }
-            return JSON.parse(native.spGet(this.__id, String(name)));
+            return JSON.parse(native.spGet(this.__id, toUSVString(name)));
         }
 
         getAll(name) {
             if (arguments.length < 1) {
                 throw new TypeError("getAll requires 1 argument");
             }
-            return JSON.parse(native.spGetAll(this.__id, String(name)));
+            return JSON.parse(native.spGetAll(this.__id, toUSVString(name)));
         }
 
         has(name, value) {
             if (arguments.length < 1) {
                 throw new TypeError("has requires 1 argument");
             }
-            return native.spHas(this.__id, String(name), value === undefined ? 0 : 1, value === undefined ? "" : String(value)) === 1;
+            return native.spHas(this.__id, toUSVString(name), value === undefined ? 0 : 1, value === undefined ? "" : toUSVString(value)) === 1;
         }
 
         set(name, value) {
             if (arguments.length < 2) {
                 throw new TypeError("set requires 2 arguments");
             }
-            native.spSet(this.__id, String(name), String(value));
+            native.spSet(this.__id, toUSVString(name), toUSVString(value));
         }
 
         sort() {
