@@ -203,6 +203,30 @@ impl TextStyle {
 
 // Core trait
 
+/// How confined a renderer process using this font system may be — the answer
+/// [`FontSystem::prepare_for_confinement`] gives, and the sandbox tier it
+/// obligates the engine to apply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "the answer decides which sandbox tier the renderer gets; ignoring it defeats the preparation"]
+pub enum Confinement {
+    /// Everything this font system will ever need from the filesystem is now in
+    /// memory: the strictest renderer sandbox (no file access at all) works.
+    /// Fonts arriving later as bytes (`@font-face`) keep working.
+    Full,
+    /// This font system reads font files *while operating* — typically a
+    /// fontconfig-backed stack revalidating its caches at match time — so no
+    /// preparation can front-load it. The renderer works under a sandbox that
+    /// grants **read-only access to the platform font paths** plus one private
+    /// writable scratch directory (some stacks can only ingest a web font as a
+    /// file), and nothing else.
+    FontPathsReadable,
+    /// This font system cannot operate in an isolated renderer at all; the
+    /// string says why, so the refusal can be surfaced at configuration time.
+    /// The engine must fall back to single-process rendering rather than die on
+    /// the first page that uses an unusual typeface.
+    Unsupported(String),
+}
+
 /// A swappable font system - the entire surface the engine and layouter need.
 ///
 /// # Threading
@@ -219,9 +243,12 @@ pub trait FontSystem: Send + Sync + 'static {
     /// added via [`FontSystem::register_font`], sorted and de-duplicated.
     fn families(&mut self) -> Vec<String>;
 
-    /// Do everything that needs the filesystem *now*, because after this returns
-    /// the process may be confined and unable to open a file again.
-    fn prepare_for_confinement(&mut self) -> Result<(), FontError> {
+    /// Do everything that needs the filesystem *now*, then say how confined the
+    /// process may be: after this returns, the renderer applies the sandbox
+    /// tier the answer names, and a wrong answer dies on `SIGSYS` the first
+    /// time a page uses an unusual typeface — intermittent, content-dependent,
+    /// and invisible in testing.
+    fn prepare_for_confinement(&mut self) -> Confinement {
         for family in self.families() {
             // Resolving locates the face; measuring forces whatever the resolve
             // still left until first use. Failures are skipped rather than fatal:
@@ -229,7 +256,7 @@ pub trait FontSystem: Send + Sync + 'static {
             let _ = self.resolve(&FontQuery::new(&[family.as_str()]));
             let _ = self.measure("Ag", &TextStyle::new(family, 16.0));
         }
-        Ok(())
+        Confinement::Full
     }
 
     /// Shape `text` laid out in `style` into positioned glyph runs.

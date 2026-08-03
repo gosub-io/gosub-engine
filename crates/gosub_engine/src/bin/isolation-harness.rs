@@ -1,7 +1,7 @@
 //! Drives the network process end to end, from a binary that dispatches child
 //! roles the way a real embedder does.
 
-use gosub_interface::font_system::FontSystem;
+use gosub_interface::font_system::{Confinement, FontSystem};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::Arc;
@@ -116,12 +116,17 @@ fn fonts_under_lockdown<F: FontSystem + Default>() -> i32 {
     // Exercise the trait hook rather than hand-rolled warm-up: this is what a
     // renderer will call, and it is the configured font system's own answer to
     // "get ready to be confined". Timed and measured, because the cost of that
-    // answer is part of whether the strategy is usable.
+    // answer is part of whether the strategy is usable. This scenario tests the
+    // *full* lockdown, so any answer below `Full` ends it here — the tiered
+    // scenarios cover the rest.
     let rss_before_mib = rss_mib();
     let start = std::time::Instant::now();
-    if let Err(e) = fonts.prepare_for_confinement() {
-        eprintln!("this font system reports it cannot be confined: {e:?}");
-        return 3;
+    match fonts.prepare_for_confinement() {
+        Confinement::Full => {}
+        other => {
+            eprintln!("this font system does not support full confinement: {other:?}");
+            return 3;
+        }
     }
     println!(
         "prepare_for_confinement over {} families: {:?}, RSS {} -> {} MiB",
@@ -280,9 +285,14 @@ fn webfont_under_lockdown<F: FontSystem + Default>() -> i32 {
     // content introduce fonts. Skipping the preparation here would test a
     // sequence no renderer runs — and shaping a web font still consults
     // fallback faces, which some backends (cosmic-text) load lazily per face.
-    if let Err(e) = fonts.prepare_for_confinement() {
-        eprintln!("this font system reports it cannot be confined: {e:?}");
-        return 3;
+    // Full lockdown only: backends answering a weaker tier are covered by the
+    // font-readable scenarios.
+    match fonts.prepare_for_confinement() {
+        Confinement::Full => {}
+        other => {
+            eprintln!("this font system does not support full confinement: {other:?}");
+            return 3;
+        }
     }
 
     gosub_sandbox::lock_down_renderer();
