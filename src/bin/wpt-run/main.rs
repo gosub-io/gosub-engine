@@ -16,6 +16,7 @@ use gosub_jsapi::base64;
 use gosub_jsapi::console::{Console, LogLevel, Printer};
 use gosub_jsapi::dom_exception::DomException;
 use gosub_jsapi::headers::Headers;
+use gosub_jsapi::storage::Storage;
 use gosub_jsapi::text_encoding::{TextDecoder, TextEncoder};
 use gosub_jsapi::url::{Url, UrlSearchParams};
 use gosub_shared::types::Result;
@@ -316,6 +317,7 @@ fn register_natives(ctx: &mut V8Context, wpt_root: PathBuf, test_dir: PathBuf) -
     register_console_native(ctx, &obj)?;
     register_url_natives(ctx, &obj)?;
     register_headers_natives(ctx, &obj)?;
+    register_storage_natives(ctx, &obj)?;
 
     ctx.set_on_global_object("__gosub__", obj.into())?;
 
@@ -1046,6 +1048,185 @@ fn register_headers_natives(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
         })?
     };
     obj.set_method("hdrEntryAt", &hdr_entry_at)?;
+
+    Ok(())
+}
+
+/// Storage areas for `localStorage`/`sessionStorage`. Keys and values cross
+/// the boundary in their JSON-escaped form (the prelude JSON.stringifies every
+/// DOMString): JS strings may contain lone surrogates, which a Rust `String`
+/// cannot hold, but their JSON escapes are plain ASCII. The natives store the
+/// escaped text verbatim; only the prelude decodes it.
+#[allow(clippy::too_many_lines)]
+fn register_storage_natives(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
+    let store: Rc<RefCell<HashMap<u32, Storage>>> = Rc::new(RefCell::new(HashMap::new()));
+    let next_id = Rc::new(RefCell::new(0u32));
+
+    let st_new = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let mut id_ref = next_id.borrow_mut();
+            *id_ref += 1;
+            let id = *id_ref;
+            store.borrow_mut().insert(id, Storage::new());
+            match f64::from(id).to_web_value(ctx) {
+                Ok(v) => cb.ret(v),
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("stNew", &st_new)?;
+
+    let st_length = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let Some(id) = arg_number(cb, 0) else {
+                cb.error("stLength requires a storage id");
+                return;
+            };
+            let store = store.borrow();
+            let Some(storage) = store.get(&(id as u32)) else {
+                cb.error("stLength: unknown storage id");
+                return;
+            };
+            #[allow(clippy::cast_precision_loss)]
+            match (storage.len() as f64).to_web_value(ctx) {
+                Ok(v) => cb.ret(v),
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("stLength", &st_length)?;
+
+    let st_key = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let (Some(id), Some(index)) = (arg_number(cb, 0), arg_number(cb, 1)) else {
+                cb.error("stKey requires (id, index) arguments");
+                return;
+            };
+            let store = store.borrow();
+            let Some(storage) = store.get(&(id as u32)) else {
+                cb.error("stKey: unknown storage id");
+                return;
+            };
+            match serde_json::to_string(&storage.key(index as usize)) {
+                Ok(json) => match json.to_web_value(ctx) {
+                    Ok(v) => cb.ret(v),
+                    Err(e) => cb.error(e),
+                },
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("stKey", &st_key)?;
+
+    let st_get_item = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let (Some(id), Some(key)) = (arg_number(cb, 0), arg_string(cb, 1)) else {
+                cb.error("stGetItem requires (id, key) arguments");
+                return;
+            };
+            let store = store.borrow();
+            let Some(storage) = store.get(&(id as u32)) else {
+                cb.error("stGetItem: unknown storage id");
+                return;
+            };
+            match serde_json::to_string(&storage.get_item(&key)) {
+                Ok(json) => match json.to_web_value(ctx) {
+                    Ok(v) => cb.ret(v),
+                    Err(e) => cb.error(e),
+                },
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("stGetItem", &st_get_item)?;
+
+    let st_set_item = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let (Some(id), Some(key), Some(value)) = (arg_number(cb, 0), arg_string(cb, 1), arg_string(cb, 2)) else {
+                cb.error("stSetItem requires (id, key, value) arguments");
+                return;
+            };
+            let mut store = store.borrow_mut();
+            let Some(storage) = store.get_mut(&(id as u32)) else {
+                cb.error("stSetItem: unknown storage id");
+                return;
+            };
+            match storage.set_item(&key, &value) {
+                Ok(()) => ret_undefined(cb),
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("stSetItem", &st_set_item)?;
+
+    let st_remove_item = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let (Some(id), Some(key)) = (arg_number(cb, 0), arg_string(cb, 1)) else {
+                cb.error("stRemoveItem requires (id, key) arguments");
+                return;
+            };
+            let mut store = store.borrow_mut();
+            let Some(storage) = store.get_mut(&(id as u32)) else {
+                cb.error("stRemoveItem: unknown storage id");
+                return;
+            };
+            storage.remove_item(&key);
+            ret_undefined(cb);
+        })?
+    };
+    obj.set_method("stRemoveItem", &st_remove_item)?;
+
+    let st_clear = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let Some(id) = arg_number(cb, 0) else {
+                cb.error("stClear requires a storage id");
+                return;
+            };
+            let mut store = store.borrow_mut();
+            let Some(storage) = store.get_mut(&(id as u32)) else {
+                cb.error("stClear: unknown storage id");
+                return;
+            };
+            storage.clear();
+            ret_undefined(cb);
+        })?
+    };
+    obj.set_method("stClear", &st_clear)?;
+
+    let st_keys = {
+        let store = Rc::clone(&store);
+        V8Function::new(ctx.clone(), move |cb| {
+            let ctx = cb.context();
+            let Some(id) = arg_number(cb, 0) else {
+                cb.error("stKeys requires a storage id");
+                return;
+            };
+            let store = store.borrow();
+            let Some(storage) = store.get(&(id as u32)) else {
+                cb.error("stKeys: unknown storage id");
+                return;
+            };
+            match serde_json::to_string(&storage.keys()) {
+                Ok(json) => match json.to_web_value(ctx) {
+                    Ok(v) => cb.ret(v),
+                    Err(e) => cb.error(e),
+                },
+                Err(e) => cb.error(e),
+            }
+        })?
+    };
+    obj.set_method("stKeys", &st_keys)?;
 
     Ok(())
 }

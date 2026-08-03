@@ -80,6 +80,34 @@ const SUITES: &[&str] = &[
     "fetch/api/headers/headers-normalize.any.js",
     "fetch/api/headers/headers-record.any.js",
     "fetch/api/headers/headers-structure.any.js",
+    // Storage (localStorage/sessionStorage). The window_open/noopener/reopen
+    // and cross-origin-iframe tests are omitted: they need real multi-window
+    // browsing contexts, like the excluded live-server suites elsewhere.
+    "webstorage/defineProperty.window.js",
+    "webstorage/event_constructor.window.js",
+    "webstorage/event_initstorageevent.window.js",
+    "webstorage/missing_arguments.window.js",
+    "webstorage/set.window.js",
+    "webstorage/storage_builtins.window.js",
+    "webstorage/storage_clear.window.js",
+    "webstorage/storage_enumerate.window.js",
+    "webstorage/storage_functions_not_overwritten.window.js",
+    "webstorage/storage_getitem.window.js",
+    "webstorage/storage_indexing.window.js",
+    "webstorage/storage_in.window.js",
+    "webstorage/storage_key_empty_string.window.js",
+    "webstorage/storage_key.window.js",
+    "webstorage/storage_length.window.js",
+    "webstorage/storage_local_quota_independent_from_session.window.js",
+    "webstorage/storage_local_setitem_quotaexceedederr.window.js",
+    "webstorage/storage_removeitem.window.js",
+    "webstorage/storage_session_quota_independent_from_local.window.js",
+    "webstorage/storage_session_setitem_quotaexceedederr.window.js",
+    "webstorage/storage_set_value_enumerate.window.js",
+    "webstorage/storage_setitem.window.js",
+    "webstorage/storage_string_conversion.window.js",
+    "webstorage/storage_supported_property_names.window.js",
+    "webstorage/symbol-props.window.js",
 ];
 
 #[test]

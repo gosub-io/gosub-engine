@@ -6,6 +6,11 @@
 
 var self = globalThis;
 
+// .window.js tests address the global as `window`. testharness picks its
+// environment from `'document' in globalThis`, so this alias alone does not
+// flip it out of shell mode.
+globalThis.window = globalThis;
+
 // The .any.js wrapper normally provides this; every accessor answers "plain shell".
 globalThis.GLOBAL = {
     isWindow: function () { return false; },
@@ -145,6 +150,20 @@ if (typeof globalThis.DOMException === "undefined") {
     })();
 }
 
+// QuotaExceededError is no longer just a DOMException name: it is its own
+// interface deriving from DOMException, carrying optional quota/requested
+// members that default to null (and must exist — testharness checks `in`).
+if (typeof globalThis.QuotaExceededError === "undefined") {
+    globalThis.QuotaExceededError = class QuotaExceededError extends globalThis.DOMException {
+        constructor(message = "", options = {}) {
+            super(message, "QuotaExceededError");
+            var opts = options === null || options === undefined ? {} : options;
+            this.quota = opts.quota === undefined || opts.quota === null ? null : Number(opts.quota);
+            this.requested = opts.requested === undefined || opts.requested === null ? null : Number(opts.requested);
+        }
+    };
+}
+
 // Bridge the native bindings onto the global, translating Rust DomException
 // errors (thrown as plain Errors with a "Name: message" text) back into real
 // DOMExceptions.
@@ -167,6 +186,9 @@ if (typeof globalThis.DOMException === "undefined") {
         if (m !== null) {
             if (NATIVE_ERRORS[m[1]] !== undefined) {
                 throw new NATIVE_ERRORS[m[1]](m[2]);
+            }
+            if (m[1] === "QuotaExceededError") {
+                throw new globalThis.QuotaExceededError(m[2]);
             }
             throw new globalThis.DOMException(m[2], m[1]);
         }
@@ -787,6 +809,254 @@ if (typeof globalThis.DOMException === "undefined") {
             enumerable: false,
             configurable: true,
         });
+    })();
+
+    // Web Storage. The native Storage lives in Rust; every DOMString crosses
+    // the boundary JSON-escaped (JSON.stringify emits ASCII escapes for lone
+    // surrogates, which a Rust String could not hold). Named access,
+    // enumeration and defineProperty follow WebIDL's legacy-platform-object
+    // semantics via a Proxy: string keys map to the storage list, symbols fall
+    // through to the target, and prototype members are never shadowed
+    // (Storage has no [LegacyOverrideBuiltIns]).
+    (function () {
+        // target/proxy -> native storage id; methods run with this === proxy,
+        // traps receive the target, so both are registered
+        var storageIds = new WeakMap();
+
+        function idFor(obj) {
+            var id = storageIds.get(obj);
+            if (id === undefined) {
+                throw new TypeError("Illegal invocation");
+            }
+            return id;
+        }
+
+        function enc(v) {
+            return JSON.stringify(String(v));
+        }
+
+        // Native getters return JSON of (escaped-string | null): one parse
+        // yields the escaped form, the second the actual DOMString.
+        function unwrapOpt(raw) {
+            var escaped = JSON.parse(raw);
+            return escaped === null ? null : JSON.parse(escaped);
+        }
+
+        class Storage {
+            key(n) {
+                if (arguments.length < 1) {
+                    throw new TypeError("key requires 1 argument");
+                }
+                return unwrapOpt(native.stKey(idFor(this), n >>> 0));
+            }
+
+            getItem(key) {
+                if (arguments.length < 1) {
+                    throw new TypeError("getItem requires 1 argument");
+                }
+                return unwrapOpt(native.stGetItem(idFor(this), enc(key)));
+            }
+
+            setItem(key, value) {
+                if (arguments.length < 2) {
+                    throw new TypeError("setItem requires 2 arguments");
+                }
+                // Convert (and possibly throw) both arguments before mutating
+                var k = enc(key);
+                var v = enc(value);
+                try {
+                    native.stSetItem(idFor(this), k, v);
+                } catch (e) {
+                    rethrow(e);
+                }
+            }
+
+            removeItem(key) {
+                if (arguments.length < 1) {
+                    throw new TypeError("removeItem requires 1 argument");
+                }
+                native.stRemoveItem(idFor(this), enc(key));
+            }
+
+            clear() {
+                native.stClear(idFor(this));
+            }
+
+            get length() {
+                return native.stLength(idFor(this));
+            }
+        }
+
+        globalThis.Storage = Storage;
+
+        function makeStorage() {
+            var id = native.stNew();
+            var target = Object.create(Storage.prototype);
+
+            var handler = {
+                get: function (t, prop, receiver) {
+                    if (typeof prop === "symbol" || Reflect.has(t, prop)) {
+                        return Reflect.get(t, prop, receiver);
+                    }
+                    var v = unwrapOpt(native.stGetItem(id, enc(prop)));
+                    return v === null ? undefined : v;
+                },
+                set: function (t, prop, value, receiver) {
+                    if (typeof prop === "symbol") {
+                        return Reflect.set(t, prop, value, receiver);
+                    }
+                    var k = enc(prop);
+                    var v = enc(value); // may throw (value.toString) before storing
+                    try {
+                        native.stSetItem(id, k, v);
+                    } catch (e) {
+                        rethrow(e);
+                    }
+                    return true;
+                },
+                has: function (t, prop) {
+                    if (typeof prop === "symbol" || Reflect.has(t, prop)) {
+                        return Reflect.has(t, prop);
+                    }
+                    return JSON.parse(native.stGetItem(id, enc(prop))) !== null;
+                },
+                deleteProperty: function (t, prop) {
+                    if (typeof prop === "symbol") {
+                        return Reflect.deleteProperty(t, prop);
+                    }
+                    native.stRemoveItem(id, enc(prop));
+                    return true;
+                },
+                ownKeys: function (t) {
+                    var keys = JSON.parse(native.stKeys(id)).map(function (k) {
+                        return JSON.parse(k);
+                    });
+                    // Symbols defined directly on the target must be reported
+                    // (a non-configurable one is an ownKeys invariant)
+                    return keys.concat(Object.getOwnPropertySymbols(t));
+                },
+                getOwnPropertyDescriptor: function (t, prop) {
+                    if (typeof prop === "symbol") {
+                        return Reflect.getOwnPropertyDescriptor(t, prop);
+                    }
+                    // A named property shadowed by anything on the prototype
+                    // chain is not visible as an own property
+                    if (Reflect.has(t, prop)) {
+                        return undefined;
+                    }
+                    var v = unwrapOpt(native.stGetItem(id, enc(prop)));
+                    if (v === null) {
+                        return undefined;
+                    }
+                    return { value: v, writable: true, enumerable: true, configurable: true };
+                },
+                defineProperty: function (t, prop, desc) {
+                    if (typeof prop === "symbol") {
+                        return Reflect.defineProperty(t, prop, desc);
+                    }
+                    if (!("value" in desc)) {
+                        return false;
+                    }
+                    var k = enc(prop);
+                    var v = enc(desc.value);
+                    try {
+                        native.stSetItem(id, k, v);
+                    } catch (e) {
+                        rethrow(e);
+                    }
+                    return true;
+                },
+            };
+
+            var proxy = new Proxy(target, handler);
+            storageIds.set(target, id);
+            storageIds.set(proxy, id);
+            return proxy;
+        }
+
+        Object.defineProperty(globalThis, "localStorage", {
+            value: makeStorage(),
+            writable: true,
+            enumerable: true,
+            configurable: true,
+        });
+        Object.defineProperty(globalThis, "sessionStorage", {
+            value: makeStorage(),
+            writable: true,
+            enumerable: true,
+            configurable: true,
+        });
+
+        // Minimal Event/StorageEvent, enough for the constructor and
+        // initStorageEvent surfaces (no dispatch — EventTarget comes later).
+        if (typeof globalThis.Event === "undefined") {
+            globalThis.Event = class Event {
+                constructor(type, eventInitDict = {}) {
+                    if (arguments.length < 1) {
+                        throw new TypeError("Event constructor requires at least 1 argument");
+                    }
+                    var init = eventInitDict === null || eventInitDict === undefined ? {} : eventInitDict;
+                    this.type = String(type);
+                    this.bubbles = !!init.bubbles;
+                    this.cancelable = !!init.cancelable;
+                    this.composed = !!init.composed;
+                    this.target = null;
+                    this.currentTarget = null;
+                    this.defaultPrevented = false;
+                    this.isTrusted = false;
+                    this.timeStamp = 0;
+                }
+
+                stopPropagation() {}
+                stopImmediatePropagation() {}
+                preventDefault() {}
+            };
+        }
+
+        function toNullableString(v) {
+            return v === undefined || v === null ? null : String(v);
+        }
+
+        function toStorageOrNull(v) {
+            if (v === undefined || v === null) {
+                return null;
+            }
+            if (!(v instanceof Storage)) {
+                throw new TypeError("storageArea must be a Storage object or null");
+            }
+            return v;
+        }
+
+        globalThis.StorageEvent = class StorageEvent extends globalThis.Event {
+            constructor(type, eventInitDict = {}) {
+                if (arguments.length < 1) {
+                    throw new TypeError("StorageEvent constructor requires at least 1 argument");
+                }
+                super(type, eventInitDict);
+                var init = eventInitDict === null || eventInitDict === undefined ? {} : eventInitDict;
+                this.key = toNullableString(init.key);
+                this.oldValue = toNullableString(init.oldValue);
+                this.newValue = toNullableString(init.newValue);
+                // url is USVString (not nullable): null stringifies, undefined defaults
+                this.url = init.url === undefined ? "" : String(init.url);
+                this.storageArea = toStorageOrNull(init.storageArea);
+            }
+
+            // Single declared parameter: .length must be 1
+            initStorageEvent(type) {
+                if (arguments.length < 1) {
+                    throw new TypeError("initStorageEvent requires at least 1 argument");
+                }
+                this.type = String(type);
+                this.bubbles = !!arguments[1];
+                this.cancelable = !!arguments[2];
+                this.key = toNullableString(arguments[3]);
+                this.oldValue = toNullableString(arguments[4]);
+                this.newValue = toNullableString(arguments[5]);
+                this.url = arguments[6] === undefined ? "" : String(arguments[6]);
+                this.storageArea = toStorageOrNull(arguments[7]);
+            }
+        };
     })();
 
     // Just enough fetch() for testharness's fetch_json helper: resolves the
