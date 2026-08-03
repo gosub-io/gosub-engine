@@ -1,15 +1,7 @@
-//! The bookkeeping half of DOM `EventTarget` and `AbortSignal` per
-//! <https://dom.spec.whatwg.org/>: per-target event listener lists (with the
-//! spec's dedup, once and removed-while-dispatching semantics) and the abort
-//! signal dependency graph (flattened onto source signals, aborting dependents
-//! in creation order).
-//!
-//! JS-side values — callback functions, abort reasons, event objects — stay
-//! with the embedder, which refers to them here by opaque `u64` keys. The
-//! dispatch loop itself is driven from the embedder: `snapshot` clones the
-//! listener list as dispatch starts and `begin_invoke` re-checks each entry,
-//! so listeners removed mid-dispatch (directly or via a signal abort) are
-//! skipped exactly like the spec's removed flag.
+//! `EventTarget` listener lists and the `AbortSignal` dependency graph as
+//! described by <https://dom.spec.whatwg.org/>. JS-side values (callbacks,
+//! abort reasons, event objects) stay with the embedder, referenced here by
+//! opaque `u64` keys; the dispatch loop is driven from the embedder too.
 
 use std::collections::HashMap;
 
@@ -26,19 +18,15 @@ struct ListenerEntry {
 #[derive(Debug, Default)]
 struct SignalEntry {
     aborted: bool,
-    /// For a dependent signal: the source signals it follows (informational)
+    /// Dependent signal: the source signals it follows
     sources: Vec<u64>,
-    /// For a source signal: dependents in creation order — the order their
-    /// abort events must fire in after the source's own
+    /// Source signal: dependents in creation order (= abort event fire order)
     dependents: Vec<u64>,
-    /// Listeners to remove when this signal aborts (the addEventListener
-    /// `signal` option's abort algorithm)
+    /// Listeners to remove when this signal aborts
     listener_links: Vec<(u64, u64)>,
 }
 
-/// What an `abort` call changed: the signals that newly became aborted, in
-/// the order their abort events must fire. Empty when the signal was already
-/// aborted (aborting twice is a no-op).
+/// Signals newly aborted by an `abort` call, in abort event fire order
 pub type AbortOrder = Vec<u64>;
 
 #[derive(Debug, Default)]
@@ -62,9 +50,8 @@ impl EventsHost {
         self.next_target
     }
 
-    /// Add a listener; returns `None` when an equivalent listener (same type,
-    /// callback and capture — `once`/`passive` are not part of the identity)
-    /// is already present.
+    /// Add a listener; `None` when one with the same identity (type, callback,
+    /// capture — `once`/`passive` don't count) already exists
     pub fn add_listener(
         &mut self,
         target: u64,
@@ -94,17 +81,14 @@ impl EventsHost {
         Some(id)
     }
 
-    /// Remove by the (type, callback, capture) identity `removeEventListener`
-    /// uses. Presence in the list is the spec's removed flag: a removed
-    /// listener no longer resolves in `begin_invoke`.
     pub fn remove_listener(&mut self, target: u64, event_type: &str, callback: u64, capture: bool) {
         if let Some(list) = self.targets.get_mut(&target) {
             list.retain(|l| !(l.event_type == event_type && l.callback == callback && l.capture == capture));
         }
     }
 
-    /// The clone of the listener list dispatch starts from: listeners added
-    /// during dispatch are not invoked for the in-flight event.
+    /// The listener-list clone dispatch iterates: listeners added during
+    /// dispatch don't run for the in-flight event
     #[must_use]
     pub fn snapshot(&self, target: u64, event_type: &str) -> Vec<u64> {
         self.targets
@@ -118,10 +102,9 @@ impl EventsHost {
             .unwrap_or_default()
     }
 
-    /// Resolve a snapshot entry as it is about to be invoked. Returns the
-    /// callback key and passive flag, or `None` when the listener has been
-    /// removed since the snapshot. A `once` listener is removed here — before
-    /// its callback runs, so a nested identical dispatch cannot re-enter it.
+    /// Resolve a snapshot entry to (callback, passive), or `None` if it was
+    /// removed since the snapshot. A `once` listener is removed here, before
+    /// its callback runs, so a nested dispatch can't re-enter it.
     pub fn begin_invoke(&mut self, target: u64, listener: u64) -> Option<(u64, bool)> {
         let list = self.targets.get_mut(&target)?;
         let pos = list.iter().position(|l| l.id == listener)?;
@@ -143,13 +126,9 @@ impl EventsHost {
         self.signals.get(&signal).is_some_and(|s| s.aborted)
     }
 
-    /// Create a dependent signal following `sources` (`AbortSignal.any`).
-    ///
-    /// Dependents link to source (non-dependent) signals only: a composite
-    /// source contributes its own sources instead, so abort-event order stays
-    /// "originating signal first, then dependents in creation order". If any
-    /// source is already aborted, the new signal is created aborted and the
-    /// first such source is returned so the embedder can copy its reason.
+    /// Create a dependent signal (`AbortSignal.any`); dependents link to
+    /// non-dependent signals only. If a source is already aborted the new
+    /// signal starts aborted and that source is returned for reason copying.
     pub fn new_dependent(&mut self, sources: &[u64]) -> (u64, Option<u64>) {
         let id = self.new_signal();
 
@@ -195,9 +174,8 @@ impl EventsHost {
         }
     }
 
-    /// Abort a signal: marks it and all its not-yet-aborted dependents
-    /// aborted (all before the embedder fires any abort event), removes their
-    /// signal-linked listeners, and returns the abort-event firing order.
+    /// Mark a signal and its not-yet-aborted dependents aborted, remove their
+    /// linked listeners, and return the abort-event fire order
     pub fn abort(&mut self, signal: u64) -> AbortOrder {
         let newly: Vec<u64> = {
             let Some(entry) = self.signals.get(&signal) else {

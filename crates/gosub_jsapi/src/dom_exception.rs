@@ -3,12 +3,9 @@
 use std::error::Error;
 use std::fmt;
 
-/// The standard error names from the WebIDL error names table
-/// (<https://webidl.spec.whatwg.org/#dfn-error-names-table>).
-///
-/// A `DomException` can carry an arbitrary name (the constructor accepts any
-/// string), but these are the names the platform specs throw and the only ones
-/// that map to a non-zero legacy `code`.
+/// The WebIDL error names table
+/// (<https://webidl.spec.whatwg.org/#dfn-error-names-table>). A `DomException`
+/// can carry any name, but only these map to a non-zero legacy `code`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ErrorName {
     /// Deprecated: use `RangeError` instead

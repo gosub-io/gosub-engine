@@ -6,8 +6,7 @@ use cow_utils::CowUtils;
 use std::error::Error;
 use std::fmt;
 
-/// Validation failure. `Display` carries the `TypeError:` prefix — the same
-/// rethrow protocol as the other jsapi modules.
+/// `Display` carries the `TypeError:` prefix, like `DomException`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HeadersError {
     InvalidName(String),

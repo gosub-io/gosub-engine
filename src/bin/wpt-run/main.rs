@@ -187,8 +187,8 @@ fn run_test_file(
     report(&results_json, expected, &file_name)
 }
 
-/// Install `__gosub__.{atob,btoa,readRelative}` on the global object. The
-/// prelude moves them to their proper places and deletes `__gosub__`.
+/// Install the native half on `globalThis.__gosub__`; the prelude consumes
+/// it and deletes the object.
 fn register_natives(ctx: &mut V8Context, wpt_root: PathBuf, test_dir: PathBuf) -> Result<()> {
     let obj = V8Object::new(ctx.clone())?;
 
@@ -405,10 +405,9 @@ fn register_console_native(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
     Ok(())
 }
 
-/// URL objects and URLSearchParams lists, with the spec's mutual linkage: a
-/// params list created via `url.searchParams` writes back into the URL's query
-/// on every mutation, and the URL's `href`/`search` setters reinitialize the
-/// linked list.
+/// URL objects and URLSearchParams lists with the spec's mutual linkage:
+/// params mutations write back into the URL's query, and the URL's
+/// `href`/`search` setters reinitialize the linked list.
 #[derive(Default)]
 struct UrlStore {
     urls: HashMap<u32, (Url, Option<u32>)>,
@@ -1054,11 +1053,9 @@ fn register_headers_natives(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
     Ok(())
 }
 
-/// Storage areas for `localStorage`/`sessionStorage`. Keys and values cross
-/// the boundary in their JSON-escaped form (the prelude JSON.stringifies every
-/// DOMString): JS strings may contain lone surrogates, which a Rust `String`
-/// cannot hold, but their JSON escapes are plain ASCII. The natives store the
-/// escaped text verbatim; only the prelude decodes it.
+/// Storage areas for `localStorage`/`sessionStorage`. Keys/values cross the
+/// boundary JSON-escaped: JS strings can hold lone surrogates, a Rust `String`
+/// cannot, but their JSON escapes are plain ASCII. Only the prelude decodes.
 #[allow(clippy::too_many_lines)]
 fn register_storage_natives(ctx: &mut V8Context, obj: &V8Object) -> Result<()> {
     let store: Rc<RefCell<HashMap<u32, Storage>>> = Rc::new(RefCell::new(HashMap::new()));

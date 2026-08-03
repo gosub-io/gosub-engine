@@ -7,10 +7,8 @@ use encoding_rs::{CoderResult, Decoder, DecoderResult, Encoding, REPLACEMENT};
 use std::error::Error;
 use std::fmt;
 
-/// Errors thrown by this module. The `Display` text is prefixed with the JS
-/// error class the spec prescribes (`RangeError: ...` / `TypeError: ...`) so a
-/// binding layer can rethrow the right kind of exception — the same protocol
-/// `DomException`'s `Display` uses.
+/// `Display` is prefixed with the JS error class the spec prescribes
+/// (`RangeError:` / `TypeError:`) so a binding layer can rethrow the right kind
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EncodingError {
     /// The label is unknown or names the replacement encoding (spec: RangeError)

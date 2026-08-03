@@ -8,9 +8,7 @@ use std::fmt;
 
 use ::url::quirks;
 
-/// Parse failure. The `Display` text carries the JS error class prefix
-/// (`TypeError: ...`) — the same rethrow protocol as `DomException` and
-/// `EncodingError`.
+/// `Display` carries the `TypeError:` prefix, like `DomException`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UrlError(String);
 
@@ -152,9 +150,8 @@ impl Url {
     }
 
     /// The `URLSearchParams` update steps' empty-serialization case: null the
-    /// query, percent-encoding a lone trailing space of an opaque path first
-    /// so the serialization still round-trips (the `search` setter's
-    /// strip-all-spaces rule must not apply here).
+    /// query, percent-encoding a lone trailing space of an opaque path so the
+    /// serialization still round-trips.
     pub fn clear_query_for_params(&mut self) {
         if self.inner.cannot_be_a_base() {
             let path = self.inner.path();

@@ -1,18 +1,13 @@
-//! Runs the WPT conformance suites for the gosub_jsapi web APIs through the
-//! wpt-run binary.
+//! Runs the WPT conformance suites for gosub_jsapi through the wpt-run binary.
 //!
-//! Needs a checkout of <https://github.com/web-platform-tests/wpt> — point
-//! `WPT_ROOT` at it (a sparse checkout of the directories below plus
-//! `resources/` and `common/` is enough; see tests/wpt/wpt-commit.txt for the
-//! commit CI pins). Without `WPT_ROOT` the test skips, so a plain
-//! `cargo nextest run` stays green.
+//! Point `WPT_ROOT` at a web-platform-tests checkout (CI pins the commit in
+//! tests/wpt/wpt-commit.txt). Without `WPT_ROOT` the test skips.
 
 use std::path::PathBuf;
 use std::process::Command;
 
-/// The validated suites. Additions land here together with any new entries in
-/// tests/wpt/expected-failures.txt. Deliberately not a directory glob: a wpt
-/// update must not silently change what CI covers.
+/// Deliberately not a directory glob: a wpt update must not silently change
+/// what CI covers. Additions land together with expected-failures.txt entries.
 const SUITES: &[&str] = &[
     // atob/btoa
     "html/webappapis/atob/base64.any.js",
@@ -94,9 +89,8 @@ const SUITES: &[&str] = &[
     "dom/abort/AbortSignal.any.js",
     "dom/abort/event.any.js",
     "dom/abort/timeout.any.js",
-    // Storage (localStorage/sessionStorage). The window_open/noopener/reopen
-    // and cross-origin-iframe tests are omitted: they need real multi-window
-    // browsing contexts, like the excluded live-server suites elsewhere.
+    // Storage. The window_open/noopener/reopen and cross-origin-iframe tests
+    // are omitted: they need real multi-window browsing contexts.
     "webstorage/defineProperty.window.js",
     "webstorage/event_constructor.window.js",
     "webstorage/event_initstorageevent.window.js",

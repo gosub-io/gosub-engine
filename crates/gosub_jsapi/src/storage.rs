@@ -1,20 +1,14 @@
-//! The Web Storage `Storage` interface per
-//! <https://html.spec.whatwg.org/multipage/webstorage.html>: an ordered
-//! key/value map with a byte quota, backing `localStorage`/`sessionStorage`.
-//!
-//! Keys keep their insertion position when overwritten (the spec leaves order
-//! implementation-defined but requires it to stay stable between mutations,
-//! which `key(n)` exposes).
+//! The Web Storage `Storage` interface as described by
+//! <https://html.spec.whatwg.org/multipage/webstorage.html>, backing
+//! `localStorage`/`sessionStorage`.
 
 use std::error::Error;
 use std::fmt;
 
-/// The quota browsers conventionally give each origin: 5 MiB, measured in
-/// UTF-16 code units over all keys and values.
+/// The conventional per-origin quota: 5 MiB, counted in UTF-16 code units
 pub const DEFAULT_QUOTA: usize = 5 * 1024 * 1024;
 
-/// `Display` carries the error name prefix — the same rethrow protocol as the
-/// other jsapi modules.
+/// `Display` carries the error name prefix, like `DomException`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageError {
     QuotaExceeded,
@@ -30,8 +24,6 @@ impl fmt::Display for StorageError {
 
 impl Error for StorageError {}
 
-/// UTF-16 code units — the unit the quota is measured in, since that is what
-/// JS strings are made of.
 fn utf16_units(s: &str) -> usize {
     s.encode_utf16().count()
 }
@@ -85,9 +77,8 @@ impl Storage {
         self.entries.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
     }
 
-    /// Insert or overwrite. An overwritten key keeps its position; the quota
-    /// is checked against the total after the change, so shrinking a value
-    /// always succeeds.
+    /// Insert or overwrite; an overwritten key keeps its position (`key(n)`
+    /// exposes the order)
     pub fn set_item(&mut self, key: &str, value: &str) -> Result<(), StorageError> {
         let added = utf16_units(key) + utf16_units(value);
 

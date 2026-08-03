@@ -6,9 +6,8 @@
 
 var self = globalThis;
 
-// .window.js tests address the global as `window`. testharness picks its
-// environment from `'document' in globalThis`, so this alias alone does not
-// flip it out of shell mode.
+// testharness picks its environment from `'document' in globalThis`, so this
+// alias does not flip it out of shell mode
 globalThis.window = globalThis;
 
 // The .any.js wrapper normally provides this; every accessor answers "plain shell".
@@ -150,9 +149,8 @@ if (typeof globalThis.DOMException === "undefined") {
     })();
 }
 
-// QuotaExceededError is no longer just a DOMException name: it is its own
-// interface deriving from DOMException, carrying optional quota/requested
-// members that default to null (and must exist — testharness checks `in`).
+// No longer just a DOMException name: its own interface with quota/requested
+// members defaulting to null (testharness checks their presence with `in`)
 if (typeof globalThis.QuotaExceededError === "undefined") {
     globalThis.QuotaExceededError = class QuotaExceededError extends globalThis.DOMException {
         constructor(message = "", options = {}) {
@@ -249,9 +247,8 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
     }
 
 
-    // BufferSource → Uint8Array view, per WebIDL. Construction over a
-    // detached buffer throws; WebIDL's "get a copy of the bytes" treats a
-    // detached buffer as empty instead (it can detach during options
+    // BufferSource → Uint8Array view. A detached buffer reads as empty, per
+    // WebIDL's "get a copy of the bytes" (it can detach during options
     // conversion, which runs first).
     function bytesOf(input) {
         if (input === undefined) {
@@ -811,12 +808,9 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
         });
     })();
 
-    // DOM Event / CustomEvent / EventTarget / AbortController / AbortSignal.
-    // Listener-list bookkeeping and the signal dependency graph live in Rust
-    // (et*/sig* natives); JS keeps the values — callbacks, reasons, event
-    // objects — keyed by the numeric ids the natives hand out. The dispatch
-    // loop re-checks every listener through etBeginInvoke, so removals during
-    // dispatch (including signal aborts) take effect mid-flight, per spec.
+    // Event / CustomEvent / EventTarget / AbortController / AbortSignal.
+    // Listener lists and the signal graph live in Rust (et*/sig* natives);
+    // JS keeps callbacks, reasons and event objects, keyed by numeric id.
     (function () {
         var stateMap = new WeakMap();
 
@@ -1051,9 +1045,8 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
                 var t = String(type);
                 var options = arguments[2];
 
-                // (AddEventListenerOptions or boolean): objects are the
-                // dictionary (members read in lexicographic order), anything
-                // else lands in the boolean `capture` branch
+                // (AddEventListenerOptions or boolean): objects are the dict,
+                // anything else is the boolean capture branch
                 var capture = false;
                 var once = false;
                 var passive = false;
@@ -1169,10 +1162,8 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
             return s;
         }
 
-        // Abort: the native side marks the whole dependent cascade aborted
-        // (and drops signal-linked listeners) before any event fires; then
-        // reasons are set for every newly aborted signal, then the abort
-        // events fire in the native-provided order.
+        // The whole cascade is marked aborted and gets its reason before any
+        // abort event fires, then events fire in the native-provided order
         function abortTheSignal(signalObj, reason) {
             var order = JSON.parse(native.sigAbort(signalIdOf(signalObj)));
             for (var i = 0; i < order.length; i++) {
@@ -1314,13 +1305,9 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
         };
     })();
 
-    // Web Storage. The native Storage lives in Rust; every DOMString crosses
-    // the boundary JSON-escaped (JSON.stringify emits ASCII escapes for lone
-    // surrogates, which a Rust String could not hold). Named access,
-    // enumeration and defineProperty follow WebIDL's legacy-platform-object
-    // semantics via a Proxy: string keys map to the storage list, symbols fall
-    // through to the target, and prototype members are never shadowed
-    // (Storage has no [LegacyOverrideBuiltIns]).
+    // Web Storage. Strings cross the native boundary JSON-escaped (JS strings
+    // can hold lone surrogates, a Rust String can't). Named access goes
+    // through a Proxy with WebIDL legacy-platform-object semantics.
     (function () {
         // target/proxy -> native storage id; methods run with this === proxy,
         // traps receive the target, so both are registered
