@@ -301,6 +301,98 @@ pub fn lock_down_renderer() {
     enforce("renderer", install(BASELINE.to_vec()));
 }
 
+/// What a fontconfig-backed font stack does at match time, beyond opening the
+/// font file itself: probes cache freshness (`access`, or `faccessat` on
+/// architectures without it), lists font directories, and follows the symlinks
+/// distributions put under them. Empirically derived against Pango and Skia
+/// under the font-readable renderer profile — a missing entry shows up as a
+/// `SIGSYS` naming the syscall — and expected to grow per libc, exactly like
+/// [`NET_RUNTIME_EXTRA`] did.
+#[cfg(feature = "multi-process")]
+const FONT_READ_EXTRA: &[libc::c_long] = &[
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    libc::SYS_access,
+    libc::SYS_faccessat,
+    libc::SYS_faccessat2,
+    libc::SYS_getdents64,
+    libc::SYS_readlinkat,
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    libc::SYS_readlink,
+    // Skia's fontconfig wrapper resolves relative font paths against the
+    // working directory. Reads a string the process already owns.
+    libc::SYS_getcwd,
+    // Skia probes the filesystem a font lives on before mapping it (fstatfs on
+    // the open fd, statfs on the path). Filesystem metadata only.
+    libc::SYS_fstatfs,
+    libc::SYS_statfs,
+    // Readahead hint on the font file before mapping it. Advisory only.
+    libc::SYS_fadvise64,
+];
+
+/// Cap a renderer whose font system must read font files: the renderer
+/// baseline plus the file-reading syscalls, with **Landlock deciding which
+/// paths they may reach** (pass [`font_filesystem_paths`], read-only).
+#[cfg(feature = "multi-process")]
+pub fn lock_down_renderer_with_font_access(fs_allow: &[(&std::path::Path, bool)]) {
+    deny_debugger_attach();
+
+    // Landlock before seccomp, as everywhere: its own syscalls and the O_PATH
+    // anchor opens must run unfiltered, and it is what turns "may open files"
+    // into "may read the font paths and nothing else".
+    if !fs_allow.is_empty() {
+        match landlock::restrict(fs_allow) {
+            Ok(true) => eprintln!("[renderer+fonts] landlock active (filesystem scoped to font paths)"),
+            Ok(false) => {
+                eprintln!("[renderer+fonts] landlock unavailable on this kernel; filesystem NOT path-scoped")
+            }
+            Err(e) => {
+                eprintln!("[renderer+fonts] landlock could not be applied ({e}); filesystem NOT path-scoped")
+            }
+        }
+    }
+
+    let mut allowed = BASELINE.to_vec();
+    allowed.extend_from_slice(FS_EXTRA);
+    allowed.extend_from_slice(FONT_READ_EXTRA);
+    enforce("renderer+fonts", install(allowed));
+}
+
+/// The read-only paths a fontconfig-backed font stack needs on a typical Linux
+/// system: the font directories, the fontconfig configuration, and its caches.
+/// Only paths that exist are returned, like [`net_filesystem_paths`], and the
+/// list is expected to grow per distribution the same way.
+pub fn font_filesystem_paths() -> Vec<std::path::PathBuf> {
+    let mut candidates: Vec<std::path::PathBuf> = [
+        // Font files, as the major distributions arrange them.
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        // fontconfig's configuration tree and system-wide cache.
+        "/etc/fonts",
+        "/usr/share/fontconfig",
+        "/var/cache/fontconfig",
+    ]
+    .iter()
+    .map(std::path::PathBuf::from)
+    .collect();
+
+    // Per-user fonts and the per-user fontconfig cache. `HOME` rather than a
+    // full XDG resolution: this list only needs to cover what fontconfig will
+    // actually probe, and missing entries surface as a Landlock denial naming
+    // the path.
+    if let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) {
+        candidates.push(home.join(".fonts"));
+        candidates.push(home.join(".local/share/fonts"));
+        candidates.push(home.join(".cache/fontconfig"));
+    }
+    if let Some(xdg_cache) = std::env::var_os("XDG_CACHE_HOME").map(std::path::PathBuf::from) {
+        candidates.push(xdg_cache.join("fontconfig"));
+    }
+
+    candidates.retain(|p| p.exists());
+    candidates.dedup();
+    candidates
+}
+
 /// Cap the **vault** (cookie store): the same bare baseline as a renderer — no
 /// network, no `openat`, no `ioctl`, no exec — because it needs the least
 /// authority of any process. It only moves bytes on its inherited IPC fd and

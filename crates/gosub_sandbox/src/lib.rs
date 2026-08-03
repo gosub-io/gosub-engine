@@ -110,6 +110,25 @@ pub fn lock_down_vault() {
     imp::lock_down_vault();
 }
 
+/// Confine a renderer whose font system must read font files (fontconfig-backed
+/// stacks consult the filesystem *while shaping*; no warm-up reaches it): the
+/// renderer profile plus read-only, Landlock-scoped access to `fs_allow` — pass
+/// [`font_filesystem_paths`]. The WebKitGTK arrangement, and a measured tier
+/// between "fully confined" and "no isolation". Linux only. Fail-closed on the
+/// seccomp install; the Landlock portion is best-effort like the other roles.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn lock_down_renderer_with_font_access(fs_allow: &[(&std::path::Path, bool)]) {
+    imp::lock_down_renderer_with_font_access(fs_allow);
+}
+
+/// The read-only paths [`lock_down_renderer_with_font_access`] normally wants:
+/// font directories, fontconfig configuration, and its caches, filtered to
+/// those that exist on this host. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn font_filesystem_paths() -> Vec<std::path::PathBuf> {
+    imp::font_filesystem_paths()
+}
+
 /// What extra capability an engine-spawned service needs beyond the content
 /// baseline. Unlike a renderer or the decoder, these roles need a privilege the
 /// zygote gave up (filesystem or device access), which is why each is spawned
