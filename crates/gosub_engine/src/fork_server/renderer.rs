@@ -12,16 +12,19 @@ use std::sync::Arc;
 /// Tile edge in CSS pixels, matching the engine's default.
 const TILE_SIZE: f64 = 256.0;
 
-/// Parse, style, lay out, layer, tile, and paint `html`, measuring and
-/// shaping through `fonts`. Pure compute plus allocation: safe under the
-/// strictest renderer filter.
+/// Parse, style, lay out, layer, tile, paint — and, when the configuration
+/// provides a forked rasterizer, rasterize — `html`, measuring and shaping
+/// through `fonts`. Pure compute plus allocation: safe under the strictest
+/// renderer filter. Returns the summary and the baked tiles (empty without a
+/// rasterizer); sealing them into memfds is the caller's business, since that
+/// is transport, not rendering.
 pub fn render_page<C: RenderConfiguration>(
     html: &str,
     viewport_width: f64,
     viewport_height: f64,
     fonts: Arc<Mutex<dyn FontSystem>>,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
-) -> PageSummary {
+) -> (PageSummary, Vec<gosub_render_pipeline::rasterizer::BakedTile>) {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
     use gosub_render_pipeline::common::geo::{Dimension, Rect};
@@ -52,7 +55,7 @@ pub fn render_page<C: RenderConfiguration>(
     // media store must be passed at construction: `with_font_system` builds
     // a private default store first, which is exactly the filesystem-touching
     // construction this process can no longer do.
-    let mut layouter = TaffyLayouter::with_font_system_and_media_store(Arc::clone(&fonts), media_store);
+    let mut layouter = TaffyLayouter::with_font_system_and_media_store(Arc::clone(&fonts), Arc::clone(&media_store));
     let vp_dim =
         (viewport_width > 0.0 && viewport_height > 0.0).then(|| Dimension::new(viewport_width, viewport_height));
     let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
@@ -79,7 +82,7 @@ pub fn render_page<C: RenderConfiguration>(
         tile_list: None,
         dpi_scale_factor: 1.0,
     };
-    let painter = Painter::new(Arc::clone(&tile_list.layer_list), Some(fonts));
+    let painter = Painter::new(Arc::clone(&tile_list.layer_list), Some(Arc::clone(&fonts)));
 
     let mut painted_tiles: u64 = 0;
     let mut paint_commands: u64 = 0;
@@ -99,11 +102,31 @@ pub fn render_page<C: RenderConfiguration>(
         }
     }
 
-    PageSummary {
-        page_width,
-        page_height,
-        layer_count: layer_ids.len() as u64,
-        painted_tiles,
-        paint_commands,
-    }
+    // Stage 6, when this configuration can rasterize in a forked child.
+    // Sequential on purpose: the renderer filter has no `clone`, so the
+    // parallel strategy is not merely unwanted here, it is impossible.
+    let baked = match C::forked_tile_rasterizer(Arc::clone(&fonts)) {
+        Some(rasterizer) => {
+            let (baked, _tile_cache) = gosub_render_pipeline::rasterizer::rasterize_sequential(
+                rasterizer.as_ref(),
+                &layer_ids,
+                &mut tile_list,
+                full_page_rect,
+                &media_store,
+            );
+            baked
+        }
+        None => Vec::new(),
+    };
+
+    (
+        PageSummary {
+            page_width,
+            page_height,
+            layer_count: layer_ids.len() as u64,
+            painted_tiles,
+            paint_commands,
+        },
+        baked,
+    )
 }

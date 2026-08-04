@@ -3165,6 +3165,7 @@ dependencies = [
  "gosub_interface",
  "gosub_ipc",
  "gosub_render_pipeline",
+ "gosub_renderer_cairo",
  "gosub_sandbox",
  "gosub_shared",
  "http",

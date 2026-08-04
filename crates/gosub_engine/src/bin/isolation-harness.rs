@@ -8,6 +8,55 @@ use std::sync::Arc;
 
 const BODY: &str = "<html><head><title>through the net process</title></head><body>ok</body></html>";
 
+/// The harness's render configuration: null backend and compositor (nothing
+/// composites here), the scenario-selected font system — and, behind the
+/// `cairo-tiles` feature, the Cairo CPU rasterizer for forked renderers.
+struct TileConfig<F>(std::marker::PhantomData<F>);
+
+impl<F> Clone for TileConfig<F> {
+    fn clone(&self) -> Self {
+        Self(std::marker::PhantomData)
+    }
+}
+impl<F> std::fmt::Debug for TileConfig<F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TileConfig")
+    }
+}
+impl<F> PartialEq for TileConfig<F> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl<F: FontSystem + Default> gosub_interface::config::ModuleConfiguration for TileConfig<F> {
+    type CssSystem = gosub_css3::system::Css3System;
+    type Document = gosub_html5::document::document_impl::DocumentImpl<Self>;
+    type HtmlParser = gosub_html5::parser::Html5Parser<'static, Self>;
+}
+
+impl<F: FontSystem + Default> gosub_engine::html::RenderConfiguration for TileConfig<F> {
+    type RenderBackend = gosub_render_pipeline::render::backends::null::NullBackend;
+    type CompositorSink = gosub_render_pipeline::render::DefaultCompositor;
+    type FontSystem = F;
+
+    fn forked_tile_rasterizer(
+        font_system: std::sync::Arc<parking_lot::Mutex<dyn FontSystem>>,
+    ) -> Option<Box<dyn gosub_render_pipeline::rasterizer::Rasterable + Send + Sync>> {
+        #[cfg(feature = "cairo-tiles")]
+        {
+            Some(Box::new(gosub_renderer_cairo::CairoRasterizer::with_font_system(
+                font_system,
+            )))
+        }
+        #[cfg(not(feature = "cairo-tiles"))]
+        {
+            let _ = font_system;
+            None
+        }
+    }
+}
+
 /// Run a font scenario against the font system named by argv[2].
 macro_rules! with_font_backend {
     ($scenario:ident) => {{
@@ -42,23 +91,17 @@ fn main() {
     // this runs the role and exits, so nothing below executes there. Skipping it
     // is the mistake the `guard` scenario reproduces.
     if std::env::var_os("GOSUB_HARNESS_SKIP_DISPATCH").is_none() {
-        use gosub_engine::html::DefaultRenderConfig;
-        use gosub_render_pipeline::render::backends::null::NullBackend;
-        type HarnessConfig<F> = DefaultRenderConfig<NullBackend, F>;
-
         match std::env::var("GOSUB_HARNESS_FONT_BACKEND").as_deref() {
             Ok("cosmic") => {
-                gosub_engine::child_process::dispatch_with::<HarnessConfig<gosub_fontmanager::CosmicFontSystem>>()
+                gosub_engine::child_process::dispatch_with::<TileConfig<gosub_fontmanager::CosmicFontSystem>>()
             }
             #[cfg(feature = "pango-fonts")]
             Ok("pango") => {
-                gosub_engine::child_process::dispatch_with::<HarnessConfig<gosub_fontmanager::PangoFontSystem>>()
+                gosub_engine::child_process::dispatch_with::<TileConfig<gosub_fontmanager::PangoFontSystem>>()
             }
             #[cfg(feature = "skia-fonts")]
-            Ok("skia") => {
-                gosub_engine::child_process::dispatch_with::<HarnessConfig<gosub_fontmanager::SkiaFontSystem>>()
-            }
-            _ => gosub_engine::child_process::dispatch_with::<HarnessConfig<gosub_fontmanager::ParleyFontSystem>>(),
+            Ok("skia") => gosub_engine::child_process::dispatch_with::<TileConfig<gosub_fontmanager::SkiaFontSystem>>(),
+            _ => gosub_engine::child_process::dispatch_with::<TileConfig<gosub_fontmanager::ParleyFontSystem>>(),
         }
     }
 
@@ -291,8 +334,6 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
     #[cfg(target_os = "linux")]
     {
         use gosub_engine::fork_server::renderer;
-        use gosub_engine::html::DefaultRenderConfig;
-        use gosub_render_pipeline::render::backends::null::NullBackend;
 
         let mut fonts = F::default();
         println!("font backend: {}", std::any::type_name::<F>());
@@ -314,7 +355,7 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
 
         let shared: std::sync::Arc<parking_lot::Mutex<dyn FontSystem>> =
             std::sync::Arc::new(parking_lot::Mutex::new(fonts));
-        let summary = renderer::render_page::<DefaultRenderConfig<NullBackend, F>>(
+        let (summary, baked) = renderer::render_page::<TileConfig<F>>(
             "<html><body><h1>Under lockdown</h1><p>Rendered without a fork.</p></body></html>",
             1280.0,
             720.0,
@@ -324,6 +365,27 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
         if summary.page_height <= 0.0 || summary.paint_commands == 0 {
             eprintln!("implausible page under lockdown: {summary:?}");
             return 1;
+        }
+        // With a rasterizer compiled in, stage 6 must run under this sandbox
+        // too, and produce pixels that are actually ink rather than zeroes.
+        if cfg!(feature = "cairo-tiles") {
+            let inked: u64 = baked
+                .iter()
+                .map(|tile| match &tile.pixels {
+                    gosub_render_pipeline::common::texture::TilePixels::Cpu(bytes) => {
+                        bytes.iter().filter(|&&b| b != 0).count() as u64
+                    }
+                    gosub_render_pipeline::common::texture::TilePixels::Gpu(_) => 0,
+                })
+                .sum();
+            if baked.is_empty() || inked == 0 {
+                eprintln!("rasterization under lockdown produced no ink ({} tiles)", baked.len());
+                return 1;
+            }
+            println!(
+                "rasterized {} tiles under lockdown ({inked} non-zero bytes)",
+                baked.len()
+            );
         }
         println!(
             "rendered a {:.0}x{:.0} page under the renderer lockdown ({} paint commands)",
@@ -418,7 +480,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
             </body></html>
         "#;
         match server.render_page(html, (1280.0, 720.0)) {
-            Ok(summary) => {
+            Ok((summary, tiles)) => {
                 if summary.page_height <= 0.0 || summary.painted_tiles == 0 || summary.paint_commands == 0 {
                     eprintln!("the forked renderer produced an implausible page: {summary:?}");
                     return 1;
@@ -431,6 +493,26 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                     summary.painted_tiles,
                     summary.paint_commands
                 );
+                // With a rasterizer compiled in, the pixels must arrive as
+                // mapped shared memory — and be ink, not zeroes: these are
+                // the renderer's own pages, validated and sealed.
+                if cfg!(feature = "cairo-tiles") {
+                    let inked: u64 = tiles
+                        .iter()
+                        .map(|tile| tile.mapping.as_slice().iter().filter(|&&b| b != 0).count() as u64)
+                        .sum();
+                    if tiles.is_empty() || inked == 0 {
+                        eprintln!("no ink arrived over shared memory ({} tiles)", tiles.len());
+                        return 1;
+                    }
+                    println!(
+                        "received {} tiles over shared memory ({inked} non-zero bytes, zero-copy)",
+                        tiles.len()
+                    );
+                } else if !tiles.is_empty() {
+                    eprintln!("received tiles without a rasterizer compiled in?");
+                    return 1;
+                }
             }
             Err(e) => {
                 eprintln!("rendering in a forked renderer failed: {e}");

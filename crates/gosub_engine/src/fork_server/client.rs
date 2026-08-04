@@ -16,6 +16,14 @@ const READY_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long any later request may take. A fork plus one shape is milliseconds.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// One rasterized tile as the broker holds it: the wire header plus the
+/// mapped, validated, immutable pixels — the renderer's pages, not a copy.
+#[derive(Debug)]
+pub struct ReceivedTile {
+    pub header: crate::fork_server::protocol::TileHeader,
+    pub mapping: gosub_ipc::shm::TileMapping,
+}
+
 /// A running fork server, its announced confinement tier, and the link to it.
 pub struct ForkServer {
     link: Endpoint,
@@ -100,20 +108,31 @@ impl ForkServer {
     }
 
     /// Fork a renderer and run the pipeline over `html` in it — parse, style,
-    /// layout, layering, tiling, paint — under its tier sandbox, with the
-    /// inherited fonts. Returns the page summary it measured.
+    /// layout, layering, tiling, paint, and (when the configuration has a
+    /// forked rasterizer) rasterize — under its tier sandbox, with the
+    /// inherited fonts. Returns the measured summary plus the rasterized
+    /// tiles, whose pixels arrive as sealed memfds and are mapped — never
+    /// copied — into this process.
     pub fn render_page(
         &mut self,
         html: &str,
         viewport: (f64, f64),
-    ) -> anyhow::Result<crate::fork_server::protocol::PageSummary> {
+    ) -> anyhow::Result<(crate::fork_server::protocol::PageSummary, Vec<ReceivedTile>)> {
         self.link.send(&ToForkServer::RenderPage {
             html: html.to_string(),
             viewport_width: viewport.0,
             viewport_height: viewport.1,
         })?;
         match self.link.recv::<FromForkServer>()? {
-            FromForkServer::PageRendered(summary) => Ok(summary),
+            FromForkServer::PageRendered { summary, tiles } => {
+                let mut received = Vec::with_capacity(tiles.len());
+                for header in tiles {
+                    let fd = self.link.rx.recv_fd()?;
+                    let mapping = gosub_ipc::shm::map_sealed_tile(fd, header.width, header.height)?;
+                    received.push(ReceivedTile { header, mapping });
+                }
+                Ok((summary, received))
+            }
             FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
             other => anyhow::bail!("unexpected reply to RenderPage: {other:?}"),
         }
