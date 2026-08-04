@@ -836,6 +836,14 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
             }
         }
 
+        // WebIDL DOMString conversion: symbols throw instead of stringifying
+        function toDOMString(v) {
+            if (typeof v === "symbol") {
+                throw new TypeError("Cannot convert a Symbol value to a string");
+            }
+            return String(v);
+        }
+
         // WebIDL dictionary conversion: declared members only, read via
         // [[Get]] in lexicographic order (callers pass `names` pre-sorted)
         function readMembers(init, names, out) {
@@ -859,7 +867,7 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
                 if (arguments.length < 1) {
                     throw new TypeError("Event constructor requires at least 1 argument");
                 }
-                var t = String(type);
+                var t = toDOMString(type);
                 var raw = readMembers(eventInitDict, ["bubbles", "cancelable", "composed"], {});
                 stateMap.set(this, {
                     type: t,
@@ -934,7 +942,7 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
                 s.canceled = false;
                 s.stopProp = false;
                 s.stopImmediate = false;
-                s.type = String(type);
+                s.type = toDOMString(type);
                 s.bubbles = !!bubbles;
                 s.cancelable = !!cancelable;
             }
@@ -1044,7 +1052,7 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
 
             addEventListener(type, callback) {
                 var tid = targetIdOf(this);
-                var t = String(type);
+                var t = toDOMString(type);
                 var options = arguments[2];
 
                 // (AddEventListenerOptions or boolean): objects are the dict,
@@ -1094,7 +1102,7 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
 
             removeEventListener(type, callback) {
                 var tid = targetIdOf(this);
-                var t = String(type);
+                var t = toDOMString(type);
                 var options = arguments[2];
 
                 // EventListenerOptions has only `capture` — passive and the
@@ -1242,7 +1250,12 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
             }
 
             static timeout(ms) {
-                var delay = Number(ms);
+                // [EnforceRange] unsigned long long
+                var raw = Number(ms);
+                if (!Number.isFinite(raw) || Math.trunc(raw) < 0 || Math.trunc(raw) > 18446744073709551615) {
+                    throw new TypeError("milliseconds is out of range for unsigned long long");
+                }
+                var delay = Math.trunc(raw);
                 var s = createSignalObject(native.sigNew());
                 setTimeout(function () {
                     abortTheSignal(s, new globalThis.DOMException("signal timed out", "TimeoutError"));
@@ -1515,7 +1528,7 @@ if (typeof globalThis.QuotaExceededError === "undefined") {
                 }
                 // Reinitialize the Event base through initEvent (type/bubbles/
                 // cancelable live in Event's internal state, not own props)
-                this.initEvent(String(type), !!arguments[1], !!arguments[2]);
+                this.initEvent(type, !!arguments[1], !!arguments[2]);
                 this.key = toNullableString(arguments[3]);
                 this.oldValue = toNullableString(arguments[4]);
                 this.newValue = toNullableString(arguments[5]);
