@@ -49,6 +49,40 @@ pub fn dispatch() {
     std::process::exit(code);
 }
 
+/// Run a child role — including the fork server — if this process was started
+/// as one; otherwise return.
+pub fn dispatch_with<F: gosub_interface::font_system::FontSystem + Default>() {
+    let args: Vec<String> = std::env::args().collect();
+    let Some(flag_at) = args.iter().position(|a| a == ROLE_FLAG) else {
+        return;
+    };
+
+    let role = args.get(flag_at + 1).map(String::as_str).unwrap_or("");
+    let code = run_role_with::<F>(role, &args[flag_at + 2..]);
+    std::process::exit(code);
+}
+
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+fn run_role_with<F: gosub_interface::font_system::FontSystem + Default>(role: &str, args: &[String]) -> i32 {
+    use crate::fork_server::client::FORK_SERVER_ROLE;
+
+    if role == FORK_SERVER_ROLE {
+        gosub_sandbox::deny_debugger_attach();
+        return match adopt_link(role, args) {
+            Ok(endpoint) => crate::fork_server::child::serve::<F>(endpoint),
+            Err(code) => code,
+        };
+    }
+    run_role(role, args)
+}
+
+#[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+fn run_role_with<F: gosub_interface::font_system::FontSystem + Default>(role: &str, args: &[String]) -> i32 {
+    // No fork server here (feature off, or a platform with nothing to fork);
+    // every other role behaves exactly as under `dispatch`.
+    run_role(role, args)
+}
+
 /// Whether this process was started as a child role.
 pub fn is_child_process() -> bool {
     std::env::args().any(|a| a == ROLE_FLAG)

@@ -164,6 +164,11 @@ const FORK_SERVER_EXTRA: &[libc::c_long] = &[
     // kernel to clear on exit; neither can escalate.
     libc::SYS_set_robust_list,
     libc::SYS_set_tid_address,
+    // The private link each forked renderer talks over is created by the fork
+    // server *after* its own lockdown, one pair per fork. AF_UNIX only in
+    // practice; a socketpair reaches no network, so nothing here widens the
+    // no-sockets stance of the baseline.
+    libc::SYS_socketpair,
 ];
 
 /// Prove, on *this* machine, that the fork-server filter actually permits what
@@ -292,6 +297,159 @@ pub fn lock_down_fork_server() {
     }
     let allowed: Vec<libc::c_long> = BASELINE.iter().chain(FORK_SERVER_EXTRA).copied().collect();
     enforce("fork-server", install_fork_server(allowed));
+}
+
+/// Cap the fork server for a font system that answered
+/// `Confinement::FontPathsReadable`: [`lock_down_fork_server`] plus the
+/// file-reading syscalls, with Landlock granting exactly `fs_allow`.
+#[cfg(feature = "multi-process")]
+pub fn lock_down_fork_server_with_font_access(fs_allow: &[(&std::path::Path, bool)]) {
+    deny_debugger_attach();
+
+    if !fs_allow.is_empty() {
+        match landlock::restrict(fs_allow) {
+            Ok(true) => eprintln!("[fork-server+fonts] landlock active (filesystem scoped to font paths)"),
+            Ok(false) => {
+                eprintln!("[fork-server+fonts] landlock unavailable on this kernel; filesystem NOT path-scoped")
+            }
+            Err(e) => {
+                eprintln!("[fork-server+fonts] landlock could not be applied ({e}); filesystem NOT path-scoped")
+            }
+        }
+    }
+
+    // Same fail-closed clone3 story as `lock_down_fork_server` — see there.
+    if let Err(e) = install_clone3_enosys() {
+        eprintln!(
+            "[fork-server+fonts] FATAL: could not install clone3->ENOSYS pre-filter ({e}); \
+             refusing to run with clone3 unconstrained"
+        );
+        std::process::exit(1);
+    }
+    let allowed: Vec<libc::c_long> = BASELINE
+        .iter()
+        .chain(FORK_SERVER_EXTRA)
+        .chain(FS_EXTRA)
+        .chain(FONT_READ_EXTRA)
+        .copied()
+        .collect();
+    enforce("fork-server+fonts", install_fork_server(allowed));
+}
+
+/// Cap a renderer that was **forked from the fork server**, to the tier its
+/// font system answered: the plain renderer baseline, or — with `font_access`
+/// — the baseline plus the file-reading syscalls.
+#[cfg(feature = "multi-process")]
+pub fn lock_down_forked_renderer(font_access: bool) {
+    let mut allowed = BASELINE.to_vec();
+    if font_access {
+        allowed.extend_from_slice(FS_EXTRA);
+        allowed.extend_from_slice(FONT_READ_EXTRA);
+    }
+    let role = if font_access {
+        "renderer+fonts (forked)"
+    } else {
+        "renderer (forked)"
+    };
+    enforce(role, install(allowed));
+}
+
+/// Which side of a [`fork_process`] call this process is.
+#[cfg(feature = "multi-process")]
+pub enum Forked {
+    /// The original process; `pid` is the child to eventually [`reap_child`].
+    Parent { pid: i32 },
+    /// The new process. It must do its work and leave via [`exit_now`] — never
+    /// return into the caller's stack, which belongs to the parent's logic.
+    Child,
+}
+
+/// Fork the calling process.
+#[cfg(feature = "multi-process")]
+pub fn fork_process() -> std::io::Result<Forked> {
+    // SAFETY: fork itself is always safe to *call*; the single-threaded-caller
+    // requirement above is what makes the child side usable, and the one
+    // caller (the fork server) upholds it.
+    let pid = unsafe { libc::fork() };
+    match pid {
+        p if p < 0 => Err(std::io::Error::last_os_error()),
+        0 => Ok(Forked::Child),
+        p => Ok(Forked::Parent { pid: p }),
+    }
+}
+
+/// Wait for a forked child and return its raw wait status.
+#[cfg(feature = "multi-process")]
+pub fn reap_child(pid: i32) -> std::io::Result<i32> {
+    let mut status: libc::c_int = 0;
+    // SAFETY: `status` is a valid out-parameter; `pid` is our own child.
+    if unsafe { libc::waitpid(pid, &mut status, 0) } != pid {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(status)
+}
+
+/// Exit immediately, without running destructors or `atexit` handlers.
+#[cfg(feature = "multi-process")]
+pub fn exit_now(code: i32) -> ! {
+    // SAFETY: `_exit` is async-signal-safe and takes no pointers.
+    unsafe { libc::_exit(code) }
+}
+
+/// The write end of the pipe the PID-namespace anchor blocks on. Dropping it
+/// (or exiting) is what releases the anchor: the read gets EOF and PID 1
+/// exits, tearing the namespace down with the fork server.
+#[cfg(feature = "multi-process")]
+pub struct PidNamespaceAnchor {
+    write_fd: libc::c_int,
+}
+
+#[cfg(feature = "multi-process")]
+impl Drop for PidNamespaceAnchor {
+    fn drop(&mut self) {
+        // SAFETY: closing a descriptor this struct exclusively owns.
+        unsafe { libc::close(self.write_fd) };
+    }
+}
+
+/// Park a child as PID 1 of the fork server's PID namespace, for as long as
+/// the returned anchor lives.
+#[cfg(feature = "multi-process")]
+pub fn hold_pid_namespace_anchor() -> std::io::Result<PidNamespaceAnchor> {
+    let mut fds: [libc::c_int; 2] = [0; 2];
+    // SAFETY: `fds` is a valid two-slot out-array.
+    if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let (read_fd, write_fd) = (fds[0], fds[1]);
+
+    match fork_process()? {
+        Forked::Child => {
+            // SAFETY: closing the inherited copy of the parent's end.
+            unsafe { libc::close(write_fd) };
+            // Confine quietly (no lockdown banner — this is plumbing, not a
+            // component); an install failure leaves an idle read loop, which
+            // is not worth killing the namespace over.
+            let _ = install(BASELINE.to_vec());
+            loop {
+                let mut byte = 0u8;
+                // SAFETY: reading one byte into a valid buffer from an fd we own.
+                let n = unsafe { libc::read(read_fd, std::ptr::addr_of_mut!(byte).cast(), 1) };
+                let interrupted = n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted;
+                if !interrupted {
+                    break;
+                }
+            }
+            exit_now(0);
+        }
+        Forked::Parent { pid: _ } => {
+            // The anchor is reaped by namespace teardown, not by us: it outlives
+            // every renderer and exits only as the fork server does.
+            // SAFETY: closing the inherited copy of the child's end.
+            unsafe { libc::close(read_fd) };
+            Ok(PidNamespaceAnchor { write_fd })
+        }
+    }
 }
 
 /// Cap a renderer: pixels only — the baseline, no network, files, or exec.

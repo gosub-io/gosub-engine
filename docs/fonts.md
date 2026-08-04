@@ -24,6 +24,9 @@ pub trait FontSystem: Send + Sync + 'static {
     /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
     /// Provided: shapes and reads the bounding box; implementations may override.
     fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32) { … }
+    /// The confinement tier, knowable without an instance (see below).
+    /// Provided: answers `Confinement::Full`.
+    fn confinement() -> Confinement where Self: Sized { … }
     /// Load everything that needs the filesystem now, then answer how confined
     /// a renderer process using this font system may be (see below).
     /// Provided: warms every family and answers `Confinement::Full`.
@@ -64,6 +67,8 @@ Per implementation:
 - **Skia** — same fontconfig story on Linux (its default `FontMgr` is fontconfig-backed), so the same `FontPathsReadable` answer. Its font machinery additionally wants `getcwd`, `fstatfs`/`statfs`, and `fadvise64`, all included in the tier's allowlist. Its `FontCollection` is **thread-local**, which under full confinement would be an independent problem (a worker thread rebuilds its collection from scratch, re-reading files); under the font-readable tier it is harmless, since the paths stay reachable.
 
 The font-readable tier is the WebKitGTK arrangement (their fontconfig-based renderers get font directories bind-mounted read-only) and lives in `gosub_sandbox`: the renderer seccomp baseline plus the file-reading syscalls, with a **Landlock** ruleset confining those syscalls to `font_filesystem_paths()` — the font directories, fontconfig configuration, and caches, read-only. What an exploited renderer gains under it, compared to full confinement, is the ability to read world-readable font data and enumerate installed fonts; network, exec, devices, and all other filesystem access stay denied. On kernels without Landlock the path scoping degrades (the syscalls stay allowed unscoped), which is one more reason the engine applies the strongest tier the configured font system answers rather than defaulting to the relaxed one.
+
+The tier also decides how renderer processes are *created* (`gosub_engine::fork_server`). A `Full` system gets a **fork server**: a process that builds and prepares the font system once, confines itself, and forks renderers that inherit the warmed state copy-on-write — warm-up paid once, free per renderer. A `FontPathsReadable` system gets **no fork server**: warming buys nothing when the files stay reachable (renderers are exec'd fresh, ~3.7 ms), and the fork server deliberately never constructs such a stack — which is why `Confinement` is answerable *statically* via `FontSystem::confinement()`. That is not an optimization but a hard constraint, measured with Pango: GLib insists on spawning a worker thread during setup, a process that has unshared its PID namespace (as the fork server has) cannot create threads, and GLib escalates the failure to a fatal abort. Reaching the fork-server role requires `child_process::dispatch_with::<F>()` — plain `dispatch()` is type-erased and cannot construct the embedder's font system.
 
 ### How a font system reaches layout and rendering
 

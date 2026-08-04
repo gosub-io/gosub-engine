@@ -243,6 +243,15 @@ pub trait FontSystem: Send + Sync + 'static {
     /// added via [`FontSystem::register_font`], sorted and de-duplicated.
     fn families(&mut self) -> Vec<String>;
 
+    /// The confinement tier this font system supports, knowable **without an
+    /// instance**.
+    fn confinement() -> Confinement
+    where
+        Self: Sized,
+    {
+        Confinement::Full
+    }
+
     /// Do everything that needs the filesystem *now*, then say how confined the
     /// process may be: after this returns, the renderer applies the sandbox
     /// tier the answer names, and a wrong answer dies on `SIGSYS` the first
