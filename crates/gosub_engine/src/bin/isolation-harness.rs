@@ -12,6 +12,12 @@ const BODY: &str = "<html><head><title>through the net process</title></head><bo
 macro_rules! with_font_backend {
     ($scenario:ident) => {{
         let backend = std::env::args().nth(2).unwrap_or_else(|| "parley".into());
+        // Spawned children (the fork server) inherit this, which is how a
+        // re-exec — where type parameters cannot travel — ends up dispatching
+        // with the same font system the scenario is testing. A production
+        // embedder has no such indirection: it names its one font system in
+        // `dispatch_with` directly.
+        std::env::set_var("GOSUB_HARNESS_FONT_BACKEND", &backend);
         match backend.as_str() {
             "parley" => $scenario::<gosub_fontmanager::ParleyFontSystem>(),
             "cosmic" => $scenario::<gosub_fontmanager::CosmicFontSystem>(),
@@ -36,7 +42,14 @@ fn main() {
     // this runs the role and exits, so nothing below executes there. Skipping it
     // is the mistake the `guard` scenario reproduces.
     if std::env::var_os("GOSUB_HARNESS_SKIP_DISPATCH").is_none() {
-        gosub_engine::child_process::dispatch();
+        match std::env::var("GOSUB_HARNESS_FONT_BACKEND").as_deref() {
+            Ok("cosmic") => gosub_engine::child_process::dispatch_with::<gosub_fontmanager::CosmicFontSystem>(),
+            #[cfg(feature = "pango-fonts")]
+            Ok("pango") => gosub_engine::child_process::dispatch_with::<gosub_fontmanager::PangoFontSystem>(),
+            #[cfg(feature = "skia-fonts")]
+            Ok("skia") => gosub_engine::child_process::dispatch_with::<gosub_fontmanager::SkiaFontSystem>(),
+            _ => gosub_engine::child_process::dispatch_with::<gosub_fontmanager::ParleyFontSystem>(),
+        }
     }
 
     let scenario = std::env::args().nth(1).unwrap_or_default();
@@ -51,6 +64,7 @@ fn main() {
         "webfont-under-lockdown" => with_font_backend!(webfont_under_lockdown),
         "fonts-under-font-readable-lockdown" => with_font_backend!(fonts_under_font_readable_lockdown),
         "webfont-under-font-readable-lockdown" => with_font_backend!(webfont_under_font_readable_lockdown),
+        "fork-server" => with_font_backend!(fork_server_roundtrip),
         other => {
             eprintln!("unknown scenario {other:?}; expected 'direct' or 'engine'");
             2
@@ -257,6 +271,76 @@ fn webfont_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
     }
     println!("registered and shaped {w:.1}x{h:.1} under the font-readable renderer lockdown");
     0
+}
+
+/// The whole phase-4 chain, end to end: the fork server consumes the
+/// confinement answer and a forked renderer proves it was consumed correctly.
+fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::ForkServer;
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+
+        let mut server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        println!("fork server ready, tier: {:?}", server.confinement());
+
+        match server.confinement() {
+            ConfinementTier::Unsupported(reason) => {
+                eprintln!("this font system cannot run isolated ({reason}); nothing to fork");
+                server.shutdown();
+                return 1;
+            }
+            // No zygote for this tier: renderers are exec'd fresh, so the
+            // correct behaviour is a refusal that says exactly that.
+            ConfinementTier::FontPathsReadable => {
+                let reply = server.prove_shaping();
+                server.shutdown();
+                return match reply {
+                    Err(e) if e.to_string().contains("no use for a fork server") => {
+                        println!("fork refused as designed: {e}");
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("expected the designed refusal, got: {e}");
+                        1
+                    }
+                    Ok(_) => {
+                        eprintln!("a FontPathsReadable fork server should refuse to fork, but forked");
+                        1
+                    }
+                };
+            }
+            ConfinementTier::Full => {}
+        }
+
+        match server.prove_shaping() {
+            Ok((w, h)) => {
+                if w <= 0.0 || h <= 0.0 {
+                    eprintln!("forked renderer shaped an empty box ({w}x{h})");
+                    return 1;
+                }
+                println!("forked renderer shaped {w:.1}x{h:.1} under its tier sandbox");
+            }
+            Err(e) => {
+                eprintln!("fork proof failed: {e}");
+                return 1;
+            }
+        }
+        server.shutdown();
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
 }
 
 /// The follow-up question to the warm-up finding: a page can introduce a font at

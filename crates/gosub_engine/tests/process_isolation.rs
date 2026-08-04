@@ -202,6 +202,50 @@ fn a_web_font_can_be_registered_under_the_font_readable_lockdown() {
     );
 }
 
+/// The fork server consumes the confinement answer end to end: for a
+/// `Full`-tier font system it warms once, confines itself, and forks a
+/// renderer that shapes under the strictest sandbox using only inherited,
+/// copy-on-write font state.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_fork_server_forks_a_confined_renderer_for_a_full_tier_font_system() {
+    let out = run("fork-server");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the fork-server roundtrip failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("tier: Full"),
+        "expected the default font system to announce the Full tier:\n{stdout}"
+    );
+}
+
+/// The same roundtrip for the other always-compiled font system, whose warmed
+/// state is the per-face override — a forked renderer shaping proves the
+/// override's work really crosses the fork.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_fork_server_forks_a_confined_renderer_with_cosmic_text() {
+    let out = run_with_backend("fork-server", "cosmic");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the cosmic fork-server roundtrip failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// An embedder that enables isolation without dispatching must be stopped, not
 /// merely warned.
 #[test]

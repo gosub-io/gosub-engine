@@ -471,6 +471,15 @@ impl PangoFontSystem {
 
 /// Pango as a swappable [`FontSystem`].
 impl FontSystem for PangoFontSystem {
+    /// Statically [`Confinement::FontPathsReadable`] — and the static form
+    /// matters here: this stack cannot even be *constructed* in the fork
+    /// server (GLib spawns a worker thread; a PID-namespace-unshared process
+    /// cannot create threads; GLib aborts), so the tier must be answerable
+    /// without an instance.
+    fn confinement() -> Confinement {
+        Confinement::FontPathsReadable
+    }
+
     /// Pango needs the font paths readable, and no preparation helps or hurts.
     fn prepare_for_confinement(&mut self) -> Confinement {
         Confinement::FontPathsReadable

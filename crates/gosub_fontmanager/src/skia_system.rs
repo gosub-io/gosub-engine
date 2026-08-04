@@ -334,6 +334,12 @@ fn build_style_paragraph(fc: &FontCollection, text: &str, style: &GosubTextStyle
 pub struct SkiaFontSystem;
 
 impl FontSystem for SkiaFontSystem {
+    /// Statically [`Confinement::FontPathsReadable`], so the fork server knows
+    /// not to construct (or warm) this stack at all.
+    fn confinement() -> Confinement {
+        Confinement::FontPathsReadable
+    }
+
     /// Skia needs the font paths readable, and no preparation helps or hurts.
     fn prepare_for_confinement(&mut self) -> Confinement {
         Confinement::FontPathsReadable

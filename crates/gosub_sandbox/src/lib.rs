@@ -288,6 +288,61 @@ pub fn lock_down_fork_server() {
     imp::lock_down_fork_server();
 }
 
+/// Cap the fork server for a font system that needs the font-readable tier:
+/// [`lock_down_fork_server`] plus the file-reading syscalls, with Landlock
+/// scoping them to `fs_allow` — applied here, once, and inherited by every
+/// forked renderer. Linux only. Fail-closed on the seccomp install.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn lock_down_fork_server_with_font_access(fs_allow: &[(&std::path::Path, bool)]) {
+    imp::lock_down_fork_server_with_font_access(fs_allow);
+}
+
+/// Cap a renderer forked from the fork server, to the tier its font system
+/// answered: the renderer baseline, plus the file-reading syscalls when
+/// `font_access` is set (path scoping was inherited from the fork server's
+/// Landlock ruleset). Linux only. Fail-closed.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn lock_down_forked_renderer(font_access: bool) {
+    imp::lock_down_forked_renderer(font_access);
+}
+
+/// Which side of a [`fork_process`] call this process is. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub use imp::Forked;
+
+/// Fork the calling process. The caller must be single-threaded — see the
+/// backend for why the type system cannot enforce this. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn fork_process() -> std::io::Result<Forked> {
+    imp::fork_process()
+}
+
+/// Wait for a forked child and return its raw wait status. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn reap_child(pid: i32) -> std::io::Result<i32> {
+    imp::reap_child(pid)
+}
+
+/// Exit immediately without running destructors or `atexit` handlers — the only
+/// correct way out of a forked child. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn exit_now(code: i32) -> ! {
+    imp::exit_now(code)
+}
+
+/// Keeps the fork server's PID namespace alive; see [`hold_pid_namespace_anchor`].
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub use imp::PidNamespaceAnchor;
+
+/// Park a child as PID 1 of the fork server's (lazily-unshared) PID namespace,
+/// for as long as the returned anchor lives — without it, the first exiting
+/// child kills the namespace and every later `fork` fails with `ENOMEM`. Call
+/// before the fork-server lockdown. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn hold_pid_namespace_anchor() -> std::io::Result<PidNamespaceAnchor> {
+    imp::hold_pid_namespace_anchor()
+}
+
 /// Verify at startup that the fork-server filter permits what a forked
 /// renderer needs on *this* host's C library, aborting if it does not. Called
 /// straight after [`lock_down_fork_server`]. The allowlist is libc-sensitive in
