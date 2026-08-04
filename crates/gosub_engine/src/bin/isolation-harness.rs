@@ -42,13 +42,23 @@ fn main() {
     // this runs the role and exits, so nothing below executes there. Skipping it
     // is the mistake the `guard` scenario reproduces.
     if std::env::var_os("GOSUB_HARNESS_SKIP_DISPATCH").is_none() {
+        use gosub_engine::html::DefaultRenderConfig;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        type HarnessConfig<F> = DefaultRenderConfig<NullBackend, F>;
+
         match std::env::var("GOSUB_HARNESS_FONT_BACKEND").as_deref() {
-            Ok("cosmic") => gosub_engine::child_process::dispatch_with::<gosub_fontmanager::CosmicFontSystem>(),
+            Ok("cosmic") => {
+                gosub_engine::child_process::dispatch_with::<HarnessConfig<gosub_fontmanager::CosmicFontSystem>>()
+            }
             #[cfg(feature = "pango-fonts")]
-            Ok("pango") => gosub_engine::child_process::dispatch_with::<gosub_fontmanager::PangoFontSystem>(),
+            Ok("pango") => {
+                gosub_engine::child_process::dispatch_with::<HarnessConfig<gosub_fontmanager::PangoFontSystem>>()
+            }
             #[cfg(feature = "skia-fonts")]
-            Ok("skia") => gosub_engine::child_process::dispatch_with::<gosub_fontmanager::SkiaFontSystem>(),
-            _ => gosub_engine::child_process::dispatch_with::<gosub_fontmanager::ParleyFontSystem>(),
+            Ok("skia") => {
+                gosub_engine::child_process::dispatch_with::<HarnessConfig<gosub_fontmanager::SkiaFontSystem>>()
+            }
+            _ => gosub_engine::child_process::dispatch_with::<HarnessConfig<gosub_fontmanager::ParleyFontSystem>>(),
         }
     }
 
@@ -65,6 +75,7 @@ fn main() {
         "fonts-under-font-readable-lockdown" => with_font_backend!(fonts_under_font_readable_lockdown),
         "webfont-under-font-readable-lockdown" => with_font_backend!(webfont_under_font_readable_lockdown),
         "fork-server" => with_font_backend!(fork_server_roundtrip),
+        "render-under-lockdown" => with_font_backend!(render_under_lockdown),
         other => {
             eprintln!("unknown scenario {other:?}; expected 'direct' or 'engine'");
             2
@@ -273,6 +284,60 @@ fn webfont_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
     0
 }
 
+/// The render pipeline under the renderer lockdown, in *this* process — the
+/// same stages the forked renderer runs, minus the fork machinery, so a
+/// pipeline-vs-sandbox failure can be debugged (and bisected) directly.
+fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::renderer;
+        use gosub_engine::html::DefaultRenderConfig;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+
+        let mut fonts = F::default();
+        println!("font backend: {}", std::any::type_name::<F>());
+        let _ = fonts.families();
+        match fonts.prepare_for_confinement() {
+            Confinement::Full => {}
+            other => {
+                eprintln!("this scenario needs a fully-confinable font system, got {other:?}");
+                return 2;
+            }
+        }
+
+        // Constructing the media store decodes the placeholder SVG, whose
+        // decoder loads a system fontdb from disk — so it must precede the
+        // lockdown, exactly as it does in the fork server.
+        let media_store = std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
+
+        gosub_sandbox::lock_down_renderer();
+
+        let shared: std::sync::Arc<parking_lot::Mutex<dyn FontSystem>> =
+            std::sync::Arc::new(parking_lot::Mutex::new(fonts));
+        let summary = renderer::render_page::<DefaultRenderConfig<NullBackend, F>>(
+            "<html><body><h1>Under lockdown</h1><p>Rendered without a fork.</p></body></html>",
+            1280.0,
+            720.0,
+            shared,
+            media_store,
+        );
+        if summary.page_height <= 0.0 || summary.paint_commands == 0 {
+            eprintln!("implausible page under lockdown: {summary:?}");
+            return 1;
+        }
+        println!(
+            "rendered a {:.0}x{:.0} page under the renderer lockdown ({} paint commands)",
+            summary.page_width, summary.page_height, summary.paint_commands
+        );
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer lockdown exists only on Linux");
+        2
+    }
+}
+
 /// The whole phase-4 chain, end to end: the fork server consumes the
 /// confinement answer and a forked renderer proves it was consumed correctly.
 fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
@@ -330,6 +395,45 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
             }
             Err(e) => {
                 eprintln!("fork proof failed: {e}");
+                return 1;
+            }
+        }
+
+        // The renderer role proper: the whole pipeline (parse → style →
+        // layout → layering → tiling → paint) over a real page, in a fresh
+        // forked renderer, single-threaded, under the tier sandbox. The page
+        // exercises CSS (inline <style>), block flow, and enough text that a
+        // dead font system could not fake the numbers.
+        let html = r#"
+            <html><head><style>
+                body { margin: 0; }
+                h1 { font-size: 32px; }
+                .card { padding: 16px; background: #eee; }
+            </style></head>
+            <body>
+                <h1>Rendered in a forked renderer</h1>
+                <div class="card"><p>Laid out, layered, tiled and painted under the
+                renderer sandbox, shaping through fonts inherited copy-on-write from
+                the fork server. No file was opened past this point.</p></div>
+            </body></html>
+        "#;
+        match server.render_page(html, (1280.0, 720.0)) {
+            Ok(summary) => {
+                if summary.page_height <= 0.0 || summary.painted_tiles == 0 || summary.paint_commands == 0 {
+                    eprintln!("the forked renderer produced an implausible page: {summary:?}");
+                    return 1;
+                }
+                println!(
+                    "forked renderer rendered a {:.0}x{:.0} page: {} layers, {} tiles painted, {} paint commands",
+                    summary.page_width,
+                    summary.page_height,
+                    summary.layer_count,
+                    summary.painted_tiles,
+                    summary.paint_commands
+                );
+            }
+            Err(e) => {
+                eprintln!("rendering in a forked renderer failed: {e}");
                 return 1;
             }
         }

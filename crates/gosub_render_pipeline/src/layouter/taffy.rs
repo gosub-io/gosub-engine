@@ -186,12 +186,21 @@ impl TaffyLayouter {
 
     /// Create a layouter that shares an existing font system.
     pub fn with_font_system(font_system: Arc<Mutex<dyn FontSystem>>) -> Self {
+        Self::with_font_system_and_media_store(font_system, Arc::new(MediaStore::new()))
+    }
+
+    /// Create a layouter that shares an existing font system *and* media
+    /// store, constructing neither.
+    pub fn with_font_system_and_media_store(
+        font_system: Arc<Mutex<dyn FontSystem>>,
+        media_store: Arc<MediaStore>,
+    ) -> Self {
         Self {
             tree: TaffyTree::new(),
             root_id: TaffyNodeId::new(0),
             layout_taffy_mapping: HashMap::new(),
             anon_container_map: HashMap::new(),
-            media_store: Arc::new(MediaStore::new()),
+            media_store,
             font_system,
             measure_cache: HashMap::new(),
             dom_to_layout_mapping: HashMap::new(),
