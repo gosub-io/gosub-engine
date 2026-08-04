@@ -10,12 +10,15 @@
 //!
 //! ## Single-threaded, deliberately
 
-use crate::fork_server::protocol::{ConfinementTier, FromForkServer, PageSummary, ProofReply, ToForkServer};
+use crate::fork_server::protocol::{
+    ConfinementTier, FromForkServer, ProofReply, RenderedPage, TileHeader, ToForkServer,
+};
 use crate::fork_server::renderer;
 use crate::html::RenderConfiguration;
 use gosub_interface::font_system::{Confinement, FontSystem, TextStyle};
 use gosub_ipc::Endpoint;
 use parking_lot::Mutex;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::Arc;
 
 /// Run the fork server for the embedder's configuration `C`.
@@ -96,14 +99,41 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                 ConfinementTier::Unsupported(reason) => {
                     FromForkServer::Refused(format!("this font system cannot run isolated: {reason}"))
                 }
-                _ => fork_and_render::<C>(
-                    &mut fonts,
-                    &media_store,
-                    font_access,
-                    &html,
-                    viewport_width,
-                    viewport_height,
-                ),
+                // Multi-part reply (a message, then one fd per tile), so this
+                // arm sends for itself rather than producing a `reply`.
+                _ => {
+                    let outcome = fork_and_render::<C>(
+                        &mut fonts,
+                        &media_store,
+                        font_access,
+                        &html,
+                        viewport_width,
+                        viewport_height,
+                    );
+                    match outcome {
+                        Ok((summary, tiles)) => {
+                            let headers: Vec<TileHeader> = tiles.iter().map(|(header, _)| header.clone()).collect();
+                            if link
+                                .send(&FromForkServer::PageRendered {
+                                    summary,
+                                    tiles: headers,
+                                })
+                                .is_err()
+                            {
+                                return 1;
+                            }
+                            for (_, fd) in tiles {
+                                if link.tx.send_fd(fd.as_raw_fd()).is_err() {
+                                    return 1;
+                                }
+                                // `fd` drops here: SCM_RIGHTS duplicated it
+                                // into the broker, our copy is done.
+                            }
+                            continue;
+                        }
+                        Err(e) => FromForkServer::Refused(e),
+                    }
+                }
             },
         };
         if link.send(&reply).is_err() {
@@ -243,7 +273,7 @@ fn fork_and_prove<F: FontSystem>(fonts: &mut Option<F>, font_access: bool) -> Fr
 }
 
 /// The renderer role: run the pipeline over a page in a forked, confined
-/// child, and relay its summary.
+/// child, seal each rasterized tile into a memfd there, and collect the lot.
 fn fork_and_render<C: RenderConfiguration>(
     fonts: &mut Option<C::FontSystem>,
     media_store: &Arc<gosub_render_pipeline::common::media::MediaStore>,
@@ -251,24 +281,86 @@ fn fork_and_render<C: RenderConfiguration>(
     html: &str,
     viewport_width: f64,
     viewport_height: f64,
-) -> FromForkServer {
-    let result: Result<PageSummary, String> = fork_confined_task(font_access, || {
-        // Take ownership of this child's copy-on-write copy — the pipeline
-        // shares the font system as `Arc<Mutex<dyn FontSystem>>` between
-        // layout and paint. The parent's slot is untouched by this take:
-        // after `fork`, this `Option` is the child's own memory.
-        let owned = fonts.take()?;
-        let shared: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(owned));
-        Some(renderer::render_page::<C>(
-            html,
-            viewport_width,
-            viewport_height,
-            shared,
-            Arc::clone(media_store),
-        ))
-    });
-    match result {
-        Ok(summary) => FromForkServer::PageRendered(summary),
-        Err(e) => FromForkServer::Refused(e),
+) -> Result<(crate::fork_server::protocol::PageSummary, Vec<(TileHeader, OwnedFd)>), String> {
+    let (ours, theirs) = match gosub_ipc::channel::Channel::pair() {
+        Ok(pair) => pair,
+        Err(e) => return Err(format!("could not create the renderer link: {e}")),
+    };
+
+    match gosub_sandbox::fork_process() {
+        Err(e) => Err(format!("fork failed: {e}")),
+        Ok(gosub_sandbox::Forked::Child) => {
+            drop(ours);
+            let Ok(mut link) = Endpoint::from_channel(theirs) else {
+                gosub_sandbox::exit_now(1);
+            };
+            gosub_sandbox::lock_down_forked_renderer(font_access);
+
+            let Some(owned) = fonts.take() else {
+                gosub_sandbox::exit_now(1);
+            };
+            let shared: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(owned));
+            let (summary, baked) =
+                renderer::render_page::<C>(html, viewport_width, viewport_height, shared, Arc::clone(media_store));
+
+            // Seal every CPU tile into an immutable memfd. All of this —
+            // memfd_create, ftruncate, mmap, the seals — is in the renderer
+            // baseline precisely so a confined renderer can hand off pixels.
+            let mut headers: Vec<TileHeader> = Vec::new();
+            let mut fds: Vec<OwnedFd> = Vec::new();
+            for tile in &baked {
+                let gosub_render_pipeline::common::texture::TilePixels::Cpu(bytes) = &tile.pixels else {
+                    // GPU handles are process-local and cannot cross; a
+                    // forked rasterizer should never produce one.
+                    continue;
+                };
+                match gosub_ipc::shm::create_sealed_tile(tile.width, tile.height, |buf| {
+                    let n = buf.len().min(bytes.len());
+                    buf[..n].copy_from_slice(&bytes[..n]);
+                }) {
+                    Ok(fd) => {
+                        headers.push(TileHeader {
+                            page_x: tile.page_x,
+                            page_y: tile.page_y,
+                            layer_id: tile.layer_id,
+                            width: tile.width,
+                            height: tile.height,
+                            format: tile.format.into(),
+                        });
+                        fds.push(fd);
+                    }
+                    Err(_) => gosub_sandbox::exit_now(1),
+                }
+            }
+
+            let ok = link
+                .send(&RenderedPage {
+                    summary,
+                    tiles: headers,
+                })
+                .is_ok()
+                && fds.iter().all(|fd| link.tx.send_fd(fd.as_raw_fd()).is_ok());
+            gosub_sandbox::exit_now(if ok { 0 } else { 1 });
+        }
+        Ok(gosub_sandbox::Forked::Parent { pid }) => {
+            drop(theirs);
+            // Same EOF-or-broker-clock error model as `fork_confined_task`.
+            let received = (|| -> std::io::Result<_> {
+                let mut link = Endpoint::from_channel(ours)?;
+                let page = link.recv::<RenderedPage>()?;
+                let mut tiles = Vec::with_capacity(page.tiles.len());
+                for header in page.tiles {
+                    let fd = link.rx.recv_fd()?;
+                    tiles.push((header, fd));
+                }
+                Ok((page.summary, tiles))
+            })();
+            let status = gosub_sandbox::reap_child(pid);
+            match (received, status) {
+                (Ok(result), Ok(_)) => Ok(result),
+                (Err(e), _) => Err(format!("forked renderer sent no rendered page: {e}")),
+                (_, Err(e)) => Err(format!("forked renderer could not be reaped: {e}")),
+            }
+        }
     }
 }

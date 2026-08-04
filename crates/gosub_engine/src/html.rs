@@ -65,6 +65,15 @@ pub trait RenderConfiguration: ModuleConfiguration<Document = DocumentImpl<Self>
     /// Font system used for text measurement (layout) and shared with the renderer for drawing.
     /// The engine owns one instance, created via `Default`, and hands it to both.
     type FontSystem: FontSystem + Default;
+
+    /// A stage-6 tile rasterizer for a **forked renderer process**, or `None`
+    /// if forked renderers should stop after painting.
+    fn forked_tile_rasterizer(
+        font_system: std::sync::Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>>,
+    ) -> Option<Box<dyn gosub_render_pipeline::rasterizer::Rasterable + Send + Sync>> {
+        let _ = font_system;
+        None
+    }
 }
 
 impl<B, F, S> RenderConfiguration for DefaultRenderConfig<B, F, S>

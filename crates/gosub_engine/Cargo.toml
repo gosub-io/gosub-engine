@@ -16,6 +16,7 @@ gosub_html5 = { version = "0.1.1", path = "../gosub_html5" }
 gosub_css3 = { version = "0.1.2", path = "../gosub_css3" }
 gosub_interface = { version = "0.1.2", path = "../gosub_interface" }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
+gosub_renderer_cairo = { version = "0.1.0", path = "../gosub_renderer_cairo", registry = "gosub", default-features = false, optional = true }
 gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline" }
 uuid = { workspace = true, features = ["v4", "serde"] }
 reqwest = { workspace = true, default-features = true, features = ["json", "gzip", "brotli", "deflate", "cookies", "rustls", "stream"] }
@@ -88,6 +89,11 @@ process-isolation = ["dep:gosub_ipc", "dep:gosub_sandbox"]
 # Diagnostic only; nothing in the engine itself selects these.
 pango-fonts = ["gosub_fontmanager/pango"]
 skia-fonts = ["gosub_fontmanager/skia"]
+# Stage-6 rasterization in the isolation harness's forked renderers: the Cairo
+# CPU rasterizer, minus its GTK/Pango default features. Diagnostic, like the
+# font features — a real embedder supplies its own rasterizer through
+# `RenderConfiguration::forked_tile_rasterizer`.
+cairo-tiles = ["dep:gosub_renderer_cairo"]
 
 [lints]
 workspace = true

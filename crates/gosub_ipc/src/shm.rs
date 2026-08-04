@@ -90,6 +90,14 @@ pub struct TileMapping {
     len: usize,
 }
 
+impl std::fmt::Debug for TileMapping {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TileMapping")
+            .field("len", &self.len)
+            .finish_non_exhaustive()
+    }
+}
+
 // SAFETY: the mapping is PROT_READ over a memfd sealed with F_SEAL_WRITE (no
 // writer can exist in any process) and F_SEAL_SHRINK (the range stays valid),
 // so reading it from any thread is sound.
