@@ -246,6 +246,25 @@ fn the_fork_server_forks_a_confined_renderer_with_cosmic_text() {
     );
 }
 
+/// The render pipeline — parse, style, layout, layering, tiling, paint —
+/// under the strictest renderer sandbox, in-process (no fork machinery), so a
+/// pipeline-vs-sandbox regression is directly attributable.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_render_pipeline_runs_under_the_renderer_lockdown() {
+    let out = run("render-under-lockdown");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the pipeline under the renderer lockdown failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// An embedder that enables isolation without dispatching must be stopped, not
 /// merely warned.
 #[test]

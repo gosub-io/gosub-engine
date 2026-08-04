@@ -10,22 +10,26 @@
 //!
 //! ## Single-threaded, deliberately
 
-use crate::fork_server::protocol::{ConfinementTier, FromForkServer, ProofReply, ToForkServer};
+use crate::fork_server::protocol::{ConfinementTier, FromForkServer, PageSummary, ProofReply, ToForkServer};
+use crate::fork_server::renderer;
+use crate::html::RenderConfiguration;
 use gosub_interface::font_system::{Confinement, FontSystem, TextStyle};
 use gosub_ipc::Endpoint;
+use parking_lot::Mutex;
+use std::sync::Arc;
 
-/// Run the fork server for the embedder's configured font system `F`.
-pub fn serve<F: FontSystem + Default>(link: Endpoint) -> i32 {
-    match F::confinement() {
-        Confinement::Full => serve_warmed::<F>(link),
+/// Run the fork server for the embedder's configuration `C`.
+pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
+    match C::FontSystem::confinement() {
+        Confinement::Full => serve_warmed::<C>(link),
         other => decline(link, &other),
     }
 }
 
 /// The warmed zygote: build, prepare, confine per the instance answer, fork on
 /// request.
-fn serve_warmed<F: FontSystem + Default>(mut link: Endpoint) -> i32 {
-    let mut fonts = F::default();
+fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
+    let mut fonts = C::FontSystem::default();
     // Populate lazily-built databases before asking anything of them.
     let _ = fonts.families();
 
@@ -34,6 +38,13 @@ fn serve_warmed<F: FontSystem + Default>(mut link: Endpoint) -> i32 {
     // sandbox tier follows the report.
     let answer = fonts.prepare_for_confinement();
     let tier = ConfinementTier::from(&answer);
+
+    // The media store is the pipeline's other piece of lazily-file-loading
+    // state: constructing one decodes the placeholder SVG, whose decoder
+    // loads a system fontdb from disk. Built once here, pre-lockdown, and
+    // inherited copy-on-write by every forked renderer — the same move as
+    // the font warm-up, for the same reason.
+    let media_store = Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
 
     // First fork, deliberately: this process sits in a lazily-unshared PID
     // namespace, whose PID 1 is whatever forks first — and must then outlive
@@ -57,6 +68,11 @@ fn serve_warmed<F: FontSystem + Default>(mut link: Endpoint) -> i32 {
         return 1;
     }
 
+    // In an `Option` so a forked child can take ownership of its
+    // copy-on-write copy (the pipeline wants the font system behind an
+    // `Arc<Mutex<dyn FontSystem>>`). The parent's slot is never taken.
+    let mut fonts = Some(fonts);
+
     loop {
         let request = match link.recv::<ToForkServer>() {
             Ok(msg) => msg,
@@ -71,6 +87,23 @@ fn serve_warmed<F: FontSystem + Default>(mut link: Endpoint) -> i32 {
                     FromForkServer::Refused(format!("this font system cannot run isolated: {reason}"))
                 }
                 _ => fork_and_prove(&mut fonts, font_access),
+            },
+            ToForkServer::RenderPage {
+                html,
+                viewport_width,
+                viewport_height,
+            } => match &tier {
+                ConfinementTier::Unsupported(reason) => {
+                    FromForkServer::Refused(format!("this font system cannot run isolated: {reason}"))
+                }
+                _ => fork_and_render::<C>(
+                    &mut fonts,
+                    &media_store,
+                    font_access,
+                    &html,
+                    viewport_width,
+                    viewport_height,
+                ),
             },
         };
         if link.send(&reply).is_err() {
@@ -110,7 +143,7 @@ fn decline(mut link: Endpoint, answer: &Confinement) -> i32 {
         let reply = match request {
             ToForkServer::Ping => FromForkServer::Pong,
             ToForkServer::Shutdown => return 0,
-            ToForkServer::ForkProof => FromForkServer::Refused(refusal.clone()),
+            ToForkServer::ForkProof | ToForkServer::RenderPage { .. } => FromForkServer::Refused(refusal.clone()),
         };
         if link.send(&reply).is_err() {
             return 1;
@@ -144,59 +177,98 @@ fn confine_self(answer: &Confinement) -> bool {
     }
 }
 
-/// Fork a renderer, confine it to its tier, shape with the inherited fonts,
-/// and relay what it measured.
-fn fork_and_prove<F: FontSystem>(fonts: &mut F, font_access: bool) -> FromForkServer {
-    // A real `socketpair(2)`, created after our own lockdown — which is why
-    // `socketpair` is in the fork-server filter. (`gosub_ipc::local_pair` is
-    // the in-process mpsc stand-in and cannot cross a fork.)
+/// Fork a renderer, confine it to its tier, run `task` in it, and return what
+/// the child sent back over their private pair.
+fn fork_confined_task<R, T>(font_access: bool, task: T) -> Result<R, String>
+where
+    R: serde::Serialize + serde::de::DeserializeOwned,
+    T: FnOnce() -> Option<R>,
+{
     let (ours, theirs) = match gosub_ipc::channel::Channel::pair() {
         Ok(pair) => pair,
-        Err(e) => return FromForkServer::Refused(format!("could not create the renderer link: {e}")),
+        Err(e) => return Err(format!("could not create the renderer link: {e}")),
     };
 
     match gosub_sandbox::fork_process() {
-        Err(e) => FromForkServer::Refused(format!("fork failed: {e}")),
+        Err(e) => Err(format!("fork failed: {e}")),
         Ok(gosub_sandbox::Forked::Child) => {
-            // Split the endpoint *before* the renderer lockdown: the split is
-            // an `fcntl(F_DUPFD_CLOEXEC)`, which the inherited fork-server
-            // filter allows for exactly this moment and the renderer filter
-            // then denies.
             drop(ours);
             let Ok(mut link) = Endpoint::from_channel(theirs) else {
                 gosub_sandbox::exit_now(1);
             };
-            // From here on this is a renderer: confine, then use only what was
-            // inherited. The font system is the parent's, copy-on-write —
-            // nothing is loaded, which is the entire point.
+            // From here on this is a renderer: confine, then use only what
+            // was inherited copy-on-write.
             gosub_sandbox::lock_down_forked_renderer(font_access);
-            let (width, height) = fonts.measure(
-                "Shaped in a forked renderer with inherited fonts",
-                &TextStyle::new("serif", 21.0),
-            );
-            let ok = width > 0.0 && height > 0.0 && link.send(&ProofReply { width, height }).is_ok();
-            gosub_sandbox::exit_now(if ok { 0 } else { 1 });
+            let code = match task() {
+                Some(reply) if link.send(&reply).is_ok() => 0,
+                _ => 1,
+            };
+            gosub_sandbox::exit_now(code);
         }
         Ok(gosub_sandbox::Forked::Parent { pid }) => {
             // Close our copy of the child's half so a dead child reads as EOF.
-            // No read timeout here: setting one is a `setsockopt` the filter
-            // does not carry. A child that dies is an EOF; one that wedges is
-            // bounded by the broker's reply clock, which kills this whole
-            // process family rather than waiting on it.
             drop(theirs);
             let reply = match Endpoint::from_channel(ours) {
-                Ok(mut link) => link.recv::<ProofReply>(),
+                Ok(mut link) => link.recv::<R>(),
                 Err(e) => Err(e),
             };
             let status = gosub_sandbox::reap_child(pid);
             match (reply, status) {
-                (Ok(proof), Ok(_)) => FromForkServer::Proof {
-                    width: proof.width,
-                    height: proof.height,
-                },
-                (Err(e), _) => FromForkServer::Refused(format!("forked renderer sent no proof: {e}")),
-                (_, Err(e)) => FromForkServer::Refused(format!("forked renderer could not be reaped: {e}")),
+                (Ok(reply), Ok(_)) => Ok(reply),
+                (Err(e), _) => Err(format!("forked renderer sent no reply: {e}")),
+                (_, Err(e)) => Err(format!("forked renderer could not be reaped: {e}")),
             }
         }
+    }
+}
+
+/// The smallest fork: shape one line with the inherited fonts and report the
+/// measured box.
+fn fork_and_prove<F: FontSystem>(fonts: &mut Option<F>, font_access: bool) -> FromForkServer {
+    let result = fork_confined_task(font_access, || {
+        let fonts = fonts.as_mut()?;
+        let (width, height) = fonts.measure(
+            "Shaped in a forked renderer with inherited fonts",
+            &TextStyle::new("serif", 21.0),
+        );
+        (width > 0.0 && height > 0.0).then_some(ProofReply { width, height })
+    });
+    match result {
+        Ok(proof) => FromForkServer::Proof {
+            width: proof.width,
+            height: proof.height,
+        },
+        Err(e) => FromForkServer::Refused(e),
+    }
+}
+
+/// The renderer role: run the pipeline over a page in a forked, confined
+/// child, and relay its summary.
+fn fork_and_render<C: RenderConfiguration>(
+    fonts: &mut Option<C::FontSystem>,
+    media_store: &Arc<gosub_render_pipeline::common::media::MediaStore>,
+    font_access: bool,
+    html: &str,
+    viewport_width: f64,
+    viewport_height: f64,
+) -> FromForkServer {
+    let result: Result<PageSummary, String> = fork_confined_task(font_access, || {
+        // Take ownership of this child's copy-on-write copy — the pipeline
+        // shares the font system as `Arc<Mutex<dyn FontSystem>>` between
+        // layout and paint. The parent's slot is untouched by this take:
+        // after `fork`, this `Option` is the child's own memory.
+        let owned = fonts.take()?;
+        let shared: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(owned));
+        Some(renderer::render_page::<C>(
+            html,
+            viewport_width,
+            viewport_height,
+            shared,
+            Arc::clone(media_store),
+        ))
+    });
+    match result {
+        Ok(summary) => FromForkServer::PageRendered(summary),
+        Err(e) => FromForkServer::Refused(e),
     }
 }

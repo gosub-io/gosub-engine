@@ -99,6 +99,26 @@ impl ForkServer {
         }
     }
 
+    /// Fork a renderer and run the pipeline over `html` in it — parse, style,
+    /// layout, layering, tiling, paint — under its tier sandbox, with the
+    /// inherited fonts. Returns the page summary it measured.
+    pub fn render_page(
+        &mut self,
+        html: &str,
+        viewport: (f64, f64),
+    ) -> anyhow::Result<crate::fork_server::protocol::PageSummary> {
+        self.link.send(&ToForkServer::RenderPage {
+            html: html.to_string(),
+            viewport_width: viewport.0,
+            viewport_height: viewport.1,
+        })?;
+        match self.link.recv::<FromForkServer>()? {
+            FromForkServer::PageRendered(summary) => Ok(summary),
+            FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
+            other => anyhow::bail!("unexpected reply to RenderPage: {other:?}"),
+        }
+    }
+
     /// Ask for a clean exit, then make sure of it.
     pub fn shutdown(mut self) {
         let _ = self.link.send(&ToForkServer::Shutdown);

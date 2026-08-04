@@ -1,8 +1,8 @@
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText,
-    TextAlign, TextStyle,
+    Confinement, FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun,
+    ShapedText, TextAlign, TextStyle,
 };
 use parley::fontique::{Attributes, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache};
 use parley::style::{FontStyle as ParleyStyle, FontWeight as ParleyWeight};
@@ -108,6 +108,21 @@ impl FontSystem for ParleyFontSystem {
         out.sort_unstable();
         out.dedup();
         out
+    }
+
+    /// Load every *face* of every family into both source caches.
+    fn prepare_for_confinement(&mut self) -> Confinement {
+        let names: Vec<String> = self.font_cx.collection.family_names().map(str::to_string).collect();
+        for name in names {
+            let Some(family) = self.font_cx.collection.family_by_name(&name) else {
+                continue;
+            };
+            for font in family.fonts() {
+                let _ = font.load(Some(&mut self.font_cx.source_cache));
+                let _ = font.load(Some(&mut self.source_cache));
+            }
+        }
+        Confinement::Full
     }
 
     /// Shape `text` into positioned glyph runs, resolving `style.family` first so shaping starts

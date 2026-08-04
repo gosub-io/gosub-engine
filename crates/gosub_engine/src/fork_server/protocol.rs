@@ -35,6 +35,15 @@ pub enum ToForkServer {
     /// Fork a renderer, confine it to the announced tier, shape text with the
     /// inherited (copy-on-write) font system, and report the measured box.
     ForkProof,
+    /// Fork a renderer and run the render pipeline in it: parse `html`, style,
+    /// lay out against the viewport, layer, tile, and paint — single-threaded,
+    /// under the announced tier's sandbox, measuring and shaping through the
+    /// inherited font system. Replies with [`FromForkServer::PageRendered`].
+    RenderPage {
+        html: String,
+        viewport_width: f64,
+        viewport_height: f64,
+    },
     /// Exit cleanly.
     Shutdown,
 }
@@ -49,6 +58,8 @@ pub enum FromForkServer {
     Pong,
     /// A forked renderer shaped text under its tier sandbox and measured this.
     Proof { width: f32, height: f32 },
+    /// A forked renderer ran the pipeline over a page and measured this.
+    PageRendered(PageSummary),
     /// The request could not be served; the string says why (e.g. forking is
     /// refused under `Unsupported`, or the forked child died).
     Refused(String),
@@ -61,4 +72,17 @@ pub enum FromForkServer {
 pub struct ProofReply {
     pub width: f32,
     pub height: f32,
+}
+
+/// What a page came to, measured by the forked renderer that laid it out and
+/// painted it. Numbers rather than pixels: enough for the broker to assert
+/// the pipeline really ran (a dead font system collapses heights to zero; a
+/// dead painter produces no commands), pending the shm tile transport.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PageSummary {
+    pub page_width: f64,
+    pub page_height: f64,
+    pub layer_count: u64,
+    pub painted_tiles: u64,
+    pub paint_commands: u64,
 }
