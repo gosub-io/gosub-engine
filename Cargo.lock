@@ -3255,8 +3255,10 @@ name = "gosub_jsapi"
 version = "0.1.1"
 dependencies = [
  "cow-utils",
+ "encoding_rs",
  "gosub_shared",
  "regex",
+ "url",
  "uuid",
 ]
 
