@@ -24,6 +24,29 @@ pub struct ReceivedTile {
     pub mapping: gosub_ipc::shm::TileMapping,
 }
 
+impl ReceivedTile {
+    /// Hand this tile to the compositor: the exact [`CachedTile`] shape the
+    /// host-side tile compositing loop consumes — **still zero-copy**. The
+    /// mapping becomes the `Bytes`' owner (`Bytes::from_owner`), so the
+    /// compositor blends straight out of the renderer's sealed pages and the
+    /// mapping is unmapped when the last tile reference drops.
+    pub fn into_cached_tile(self) -> gosub_interface::render::backend::CachedTile {
+        // Alpha is the 4th byte in both supported formats ([B,G,R,A] / [R,G,B,A]).
+        let opaque = self.mapping.as_slice().chunks_exact(4).all(|px| px[3] == 0xFF);
+        gosub_interface::render::backend::CachedTile {
+            page_x: self.header.page_x as f32,
+            page_y: self.header.page_y as f32,
+            width: self.header.width,
+            height: self.header.height,
+            data: bytes::Bytes::from_owner(self.mapping),
+            format: self.header.format.into(),
+            opacity: self.header.opacity,
+            anchor: self.header.anchor.into(),
+            opaque,
+        }
+    }
+}
+
 /// A running fork server, its announced confinement tier, and the link to it.
 pub struct ForkServer {
     link: Endpoint,

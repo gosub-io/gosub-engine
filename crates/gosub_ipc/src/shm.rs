@@ -111,6 +111,16 @@ impl TileMapping {
     }
 }
 
+// So a mapping can *become* a `bytes::Bytes` via `Bytes::from_owner` — the
+// tile then flows through pixel-consuming code (`CachedTile.data`) with the
+// mapping as its backing storage, unmapped when the last reference drops.
+// Zero copies from the renderer's rasterizer to the compositor's blend.
+impl AsRef<[u8]> for TileMapping {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
 impl Drop for TileMapping {
     fn drop(&mut self) {
         // SAFETY: exactly the range mmap returned; mapped once, unmapped once.
