@@ -109,7 +109,8 @@ pub struct PageSummary {
 /// Everything about one rasterized tile except its pixels, which follow as a
 /// sealed memfd (see `gosub_ipc::shm` — the consumer derives the byte count
 /// from these dimensions and validates the fd against them, never trusting a
-/// length from the wire).
+/// length from the wire). Carries what the compositor's `CachedTile` needs,
+/// so a mapped tile converts without consulting the renderer again.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TileHeader {
     /// Position of this tile on the page, in CSS pixels.
@@ -120,6 +121,10 @@ pub struct TileHeader {
     pub width: u32,
     pub height: u32,
     pub format: TileWireFormat,
+    /// Group opacity of the tile's layer, applied by the compositor.
+    pub opacity: f32,
+    /// How the tile's layer responds to scroll.
+    pub anchor: TileWireAnchor,
 }
 
 /// The in-memory byte order of a shipped tile — the wire mirror of the
@@ -138,6 +143,83 @@ impl From<gosub_interface::render::backend::PixelFormat> for TileWireFormat {
         match format {
             PixelFormat::PreMulArgb32 => TileWireFormat::PreMulArgb32,
             PixelFormat::Rgba8 => TileWireFormat::Rgba8,
+        }
+    }
+}
+
+impl From<TileWireFormat> for gosub_interface::render::backend::PixelFormat {
+    fn from(format: TileWireFormat) -> Self {
+        use gosub_interface::render::backend::PixelFormat;
+        match format {
+            TileWireFormat::PreMulArgb32 => PixelFormat::PreMulArgb32,
+            TileWireFormat::Rgba8 => PixelFormat::Rgba8,
+        }
+    }
+}
+
+/// Wire mirror of the interface crate's `TileAnchor` (no serde there).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum TileWireAnchor {
+    Scroll,
+    Fixed,
+    Sticky(StickyWire),
+}
+
+/// Wire mirror of `StickyConstraint`: plain page-space geometry.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct StickyWire {
+    pub inset_top: Option<f64>,
+    pub inset_left: Option<f64>,
+    pub natural_x: f64,
+    pub natural_y: f64,
+    pub natural_w: f64,
+    pub natural_h: f64,
+    pub cage_x: f64,
+    pub cage_y: f64,
+    pub cage_w: f64,
+    pub cage_h: f64,
+}
+
+impl From<gosub_interface::render::backend::TileAnchor> for TileWireAnchor {
+    fn from(anchor: gosub_interface::render::backend::TileAnchor) -> Self {
+        use gosub_interface::render::backend::TileAnchor;
+        match anchor {
+            TileAnchor::Scroll => TileWireAnchor::Scroll,
+            TileAnchor::Fixed => TileWireAnchor::Fixed,
+            TileAnchor::Sticky(s) => TileWireAnchor::Sticky(StickyWire {
+                inset_top: s.inset_top,
+                inset_left: s.inset_left,
+                natural_x: s.natural_x,
+                natural_y: s.natural_y,
+                natural_w: s.natural_w,
+                natural_h: s.natural_h,
+                cage_x: s.cage_x,
+                cage_y: s.cage_y,
+                cage_w: s.cage_w,
+                cage_h: s.cage_h,
+            }),
+        }
+    }
+}
+
+impl From<TileWireAnchor> for gosub_interface::render::backend::TileAnchor {
+    fn from(anchor: TileWireAnchor) -> Self {
+        use gosub_interface::render::backend::{StickyConstraint, TileAnchor};
+        match anchor {
+            TileWireAnchor::Scroll => TileAnchor::Scroll,
+            TileWireAnchor::Fixed => TileAnchor::Fixed,
+            TileWireAnchor::Sticky(s) => TileAnchor::Sticky(StickyConstraint {
+                inset_top: s.inset_top,
+                inset_left: s.inset_left,
+                natural_x: s.natural_x,
+                natural_y: s.natural_y,
+                natural_w: s.natural_w,
+                natural_h: s.natural_h,
+                cage_x: s.cage_x,
+                cage_y: s.cage_y,
+                cage_w: s.cage_w,
+                cage_h: s.cage_h,
+            }),
         }
     }
 }

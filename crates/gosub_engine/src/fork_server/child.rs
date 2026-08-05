@@ -351,6 +351,8 @@ fn fork_and_render<C: RenderConfiguration>(
                             width: tile.width,
                             height: tile.height,
                             format: tile.format.into(),
+                            opacity: tile.opacity,
+                            anchor: tile.anchor.into(),
                         });
                         fds.push(fd);
                     }

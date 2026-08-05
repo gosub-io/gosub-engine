@@ -541,6 +541,39 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                         "received {} tiles over shared memory ({inked} non-zero bytes, zero-copy)",
                         tiles.len()
                     );
+
+                    // The consumer side, end to end: convert to the
+                    // compositor's `CachedTile` shape (asserting the pixels
+                    // are still the mapped pages, not a copy) and present a
+                    // frame through the production composite loop.
+                    use gosub_render_pipeline::render::tile_composite::{composite_tiles, TileTarget};
+                    let mapped_ptrs: Vec<*const u8> = tiles.iter().map(|t| t.mapping.as_slice().as_ptr()).collect();
+                    let cached: Vec<_> = tiles.into_iter().map(|t| t.into_cached_tile()).collect();
+                    for (cached_tile, mapped_ptr) in cached.iter().zip(&mapped_ptrs) {
+                        if cached_tile.data.as_ptr() != *mapped_ptr {
+                            eprintln!("a tile was copied on its way into the compositor");
+                            return 1;
+                        }
+                    }
+
+                    const BACKGROUND: u32 = 0xFF00_00FF; // opaque blue: absent from the page
+                    let (vw, vh) = (1280usize, 720usize);
+                    let mut frame = vec![BACKGROUND; vw * vh];
+                    let mut target = TileTarget {
+                        buf: &mut frame,
+                        stride: vw,
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: vw,
+                        height: vh,
+                    };
+                    composite_tiles(&cached, 1, (0.0, 0.0), &mut target);
+                    let presented = frame.iter().filter(|&&px| px != BACKGROUND).count();
+                    if presented == 0 {
+                        eprintln!("compositing the mapped tiles painted nothing over the background");
+                        return 1;
+                    }
+                    println!("composited a {vw}x{vh} frame from the mapped tiles ({presented} pixels changed)");
                 } else if !tiles.is_empty() {
                     eprintln!("received tiles without a rasterizer compiled in?");
                     return 1;
