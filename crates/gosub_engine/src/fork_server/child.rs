@@ -10,8 +10,9 @@
 //!
 //! ## Single-threaded, deliberately
 
+use crate::fork_server::loader::ForkedResourceLoader;
 use crate::fork_server::protocol::{
-    ConfinementTier, FromForkServer, ProofReply, RenderedPage, TileHeader, ToForkServer,
+    ConfinementTier, FromForkServer, FromRenderer, ProofReply, TileHeader, ToForkServer,
 };
 use crate::fork_server::renderer;
 use crate::html::RenderConfiguration;
@@ -47,7 +48,11 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
     // loads a system fontdb from disk. Built once here, pre-lockdown, and
     // inherited copy-on-write by every forked renderer — the same move as
     // the font warm-up, for the same reason.
-    let media_store = Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
+    let forked_loader = ForkedResourceLoader::disconnected();
+    let media_store = Arc::new(gosub_render_pipeline::common::media::MediaStore::with_loader(
+        Arc::clone(&forked_loader) as Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
+    ));
+    media_store.set_synchronous_fetch(true);
 
     // First fork, deliberately: this process sits in a lazily-unshared PID
     // namespace, whose PID 1 is whatever forks first — and must then outlive
@@ -85,6 +90,10 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
         let reply = match request {
             ToForkServer::Ping => FromForkServer::Pong,
             ToForkServer::Shutdown => return 0,
+            // Resource replies only make sense inside a RenderPage exchange,
+            // where the relay loop consumes them; one arriving here is a
+            // confused broker.
+            ToForkServer::Resource(_) => FromForkServer::Refused("resource reply with no render in flight".into()),
             ToForkServer::ForkProof => match &tier {
                 ConfinementTier::Unsupported(reason) => {
                     FromForkServer::Refused(format!("this font system cannot run isolated: {reason}"))
@@ -100,11 +109,15 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                     FromForkServer::Refused(format!("this font system cannot run isolated: {reason}"))
                 }
                 // Multi-part reply (a message, then one fd per tile), so this
-                // arm sends for itself rather than producing a `reply`.
+                // arm sends for itself rather than producing a `reply` — and
+                // it borrows the broker link for the duration, to relay the
+                // renderer's resource requests.
                 _ => {
                     let outcome = fork_and_render::<C>(
+                        &mut link,
                         &mut fonts,
                         &media_store,
+                        &forked_loader,
                         font_access,
                         &html,
                         viewport_width,
@@ -173,7 +186,9 @@ fn decline(mut link: Endpoint, answer: &Confinement) -> i32 {
         let reply = match request {
             ToForkServer::Ping => FromForkServer::Pong,
             ToForkServer::Shutdown => return 0,
-            ToForkServer::ForkProof | ToForkServer::RenderPage { .. } => FromForkServer::Refused(refusal.clone()),
+            ToForkServer::ForkProof | ToForkServer::RenderPage { .. } | ToForkServer::Resource(_) => {
+                FromForkServer::Refused(refusal.clone())
+            }
         };
         if link.send(&reply).is_err() {
             return 1;
@@ -273,10 +288,14 @@ fn fork_and_prove<F: FontSystem>(fonts: &mut Option<F>, font_access: bool) -> Fr
 }
 
 /// The renderer role: run the pipeline over a page in a forked, confined
-/// child, seal each rasterized tile into a memfd there, and collect the lot.
+/// child, seal each rasterized tile into a memfd there, and collect the lot —
+/// relaying the renderer's subresource requests to the broker along the way.
+#[allow(clippy::too_many_arguments)] // the serve loop's context, spelled out
 fn fork_and_render<C: RenderConfiguration>(
+    broker: &mut Endpoint,
     fonts: &mut Option<C::FontSystem>,
     media_store: &Arc<gosub_render_pipeline::common::media::MediaStore>,
+    forked_loader: &Arc<ForkedResourceLoader>,
     font_access: bool,
     html: &str,
     viewport_width: f64,
@@ -291,10 +310,16 @@ fn fork_and_render<C: RenderConfiguration>(
         Err(e) => Err(format!("fork failed: {e}")),
         Ok(gosub_sandbox::Forked::Child) => {
             drop(ours);
-            let Ok(mut link) = Endpoint::from_channel(theirs) else {
+            let Ok(link) = Endpoint::from_channel(theirs) else {
                 gosub_sandbox::exit_now(1);
             };
             gosub_sandbox::lock_down_forked_renderer(font_access);
+
+            // The link is shared between the loader (mid-render round trips)
+            // and the final result send — safe because this process is
+            // single-threaded and strictly alternates.
+            let link = Arc::new(Mutex::new(link));
+            forked_loader.connect(Arc::clone(&link));
 
             let Some(owned) = fonts.take() else {
                 gosub_sandbox::exit_now(1);
@@ -333,21 +358,45 @@ fn fork_and_render<C: RenderConfiguration>(
                 }
             }
 
+            let mut link = link.lock();
             let ok = link
-                .send(&RenderedPage {
+                .send(&FromRenderer::Rendered(crate::fork_server::protocol::RenderedPage {
                     summary,
                     tiles: headers,
-                })
+                }))
                 .is_ok()
                 && fds.iter().all(|fd| link.tx.send_fd(fd.as_raw_fd()).is_ok());
             gosub_sandbox::exit_now(if ok { 0 } else { 1 });
         }
         Ok(gosub_sandbox::Forked::Parent { pid }) => {
             drop(theirs);
-            // Same EOF-or-broker-clock error model as `fork_confined_task`.
+            // Same EOF-or-broker-clock error model as `fork_confined_task`,
+            // with one addition: until the child sends its result it may ask
+            // for resources, each relayed to the broker and answered before
+            // the next child message is read. Strict alternation, both links.
             let received = (|| -> std::io::Result<_> {
                 let mut link = Endpoint::from_channel(ours)?;
-                let page = link.recv::<RenderedPage>()?;
+                let page = loop {
+                    match link.recv::<FromRenderer>()? {
+                        FromRenderer::NeedResource { url } => {
+                            broker
+                                .send(&FromForkServer::NeedResource { url })
+                                .map_err(|e| std::io::Error::other(format!("broker unreachable: {e}")))?;
+                            match broker
+                                .recv::<ToForkServer>()
+                                .map_err(|e| std::io::Error::other(format!("broker sent no resource: {e}")))?
+                            {
+                                ToForkServer::Resource(reply) => link.send(&reply)?,
+                                other => {
+                                    return Err(std::io::Error::other(format!(
+                                        "expected a resource from the broker, got {other:?}"
+                                    )))
+                                }
+                            }
+                        }
+                        FromRenderer::Rendered(page) => break page,
+                    }
+                };
                 let mut tiles = Vec::with_capacity(page.tiles.len());
                 for header in page.tiles {
                     let fd = link.rx.recv_fd()?;

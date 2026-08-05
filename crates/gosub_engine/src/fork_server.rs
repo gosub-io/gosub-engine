@@ -9,5 +9,6 @@
 
 pub mod child;
 pub mod client;
+pub mod loader;
 pub mod protocol;
 pub mod renderer;

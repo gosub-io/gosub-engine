@@ -400,6 +400,34 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
     }
 }
 
+/// Answers a forked renderer's brokered subresource requests from memory,
+/// counting them — the harness's stand-in for the engine's cookie-attaching
+/// brokered loader.
+#[derive(Debug, Default)]
+struct HarnessResourceLoader {
+    served: std::sync::atomic::AtomicU64,
+}
+
+impl gosub_interface::resource_loader::ResourceLoader for HarnessResourceLoader {
+    fn load(
+        &self,
+        url: &url::Url,
+    ) -> Result<gosub_interface::resource_loader::LoadedResource, gosub_interface::resource_loader::LoadError> {
+        self.served.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if url.path().ends_with("/tile.png") {
+            Ok(gosub_interface::resource_loader::LoadedResource {
+                status: 200,
+                content_type: Some("image/png".into()),
+                body: bytes::Bytes::from_static(SAMPLE_PNG),
+            })
+        } else {
+            Err(gosub_interface::resource_loader::LoadError::Failed(format!(
+                "harness serves only tile.png, not {url}"
+            )))
+        }
+    }
+}
+
 /// The whole phase-4 chain, end to end: the fork server consumes the
 /// confinement answer and a forked renderer proves it was consumed correctly.
 fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
@@ -464,8 +492,10 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
         // The renderer role proper: the whole pipeline (parse → style →
         // layout → layering → tiling → paint) over a real page, in a fresh
         // forked renderer, single-threaded, under the tier sandbox. The page
-        // exercises CSS (inline <style>), block flow, and enough text that a
-        // dead font system could not fake the numbers.
+        // exercises CSS (inline <style>), block flow, enough text that a
+        // dead font system could not fake the numbers — and an image, which
+        // the renderer cannot fetch: its request must come back out through
+        // the fork server and be answered by the loader below.
         let html = r#"
             <html><head><style>
                 body { margin: 0; }
@@ -477,9 +507,11 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                 <div class="card"><p>Laid out, layered, tiled and painted under the
                 renderer sandbox, shaping through fonts inherited copy-on-write from
                 the fork server. No file was opened past this point.</p></div>
+                <img src="http://harness.invalid/tile.png" width="64" height="64">
             </body></html>
         "#;
-        match server.render_page(html, (1280.0, 720.0)) {
+        let loader = HarnessResourceLoader::default();
+        match server.render_page(html, (1280.0, 720.0), &loader) {
             Ok((summary, tiles)) => {
                 if summary.page_height <= 0.0 || summary.painted_tiles == 0 || summary.paint_commands == 0 {
                     eprintln!("the forked renderer produced an implausible page: {summary:?}");
@@ -513,6 +545,15 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                     eprintln!("received tiles without a rasterizer compiled in?");
                     return 1;
                 }
+                // The subresource inversion: the confined renderer cannot
+                // fetch, so its <img> must have arrived here as a brokered
+                // request and been served by our loader.
+                let served = loader.served.load(std::sync::atomic::Ordering::Relaxed);
+                if served == 0 {
+                    eprintln!("the renderer never asked for its image; brokered loads are not flowing");
+                    return 1;
+                }
+                println!("served {served} brokered subresource request(s) to the renderer");
             }
             Err(e) => {
                 eprintln!("rendering in a forked renderer failed: {e}");
