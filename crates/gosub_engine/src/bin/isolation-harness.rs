@@ -119,6 +119,7 @@ fn main() {
         "webfont-under-font-readable-lockdown" => with_font_backend!(webfont_under_font_readable_lockdown),
         "fork-server" => with_font_backend!(fork_server_roundtrip),
         "render-under-lockdown" => with_font_backend!(render_under_lockdown),
+        "engine-renderer-process" => with_font_backend!(engine_renderer_process),
         other => {
             eprintln!("unknown scenario {other:?}; expected 'direct' or 'engine'");
             2
@@ -396,6 +397,107 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
     #[cfg(not(target_os = "linux"))]
     {
         eprintln!("the renderer lockdown exists only on Linux");
+        2
+    }
+}
+
+/// The engine-side wiring: `GosubEngine` itself spawns the fork server when
+/// `security.renderer_process` is on, announces the tier, hands out the
+/// handle, and tears it down at shutdown.
+fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+
+        runtime.block_on(async move {
+            let mut engine: GosubEngine = GosubEngine::new(
+                None,
+                Arc::new(NullBackend::new()),
+                Arc::new(DefaultCompositor::default()),
+            );
+
+            if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
+                eprintln!("could not enable the renderer process: {e}");
+                return 1;
+            }
+
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+
+            let Some(tier) = engine.renderer_process_tier() else {
+                eprintln!("the engine did not start a renderer fork server");
+                return 1;
+            };
+            println!("engine renderer process tier: {tier:?}");
+
+            // For a Full-tier font system the engine must be able to render
+            // through its own handle; for FontPathsReadable the handle exists
+            // but declines forks (renderers are exec'd fresh, later work).
+            match tier {
+                ConfinementTier::Full => {
+                    let Some(server) = engine.renderer_process() else {
+                        eprintln!("tier announced but no handle exposed");
+                        return 1;
+                    };
+                    let outcome = server.lock().render_page(
+                        "<html><body><p>Rendered through the engine's fork server.</p></body></html>",
+                        (1280.0, 720.0),
+                        &gosub_interface::resource_loader::NoResourceLoader,
+                    );
+                    match outcome {
+                        Ok((summary, tiles)) => {
+                            if summary.page_height <= 0.0 || summary.paint_commands == 0 {
+                                eprintln!("implausible page through the engine handle: {summary:?}");
+                                return 1;
+                            }
+                            println!(
+                                "engine-held fork server rendered a {:.0}x{:.0} page ({} tiles over shm)",
+                                summary.page_width,
+                                summary.page_height,
+                                tiles.len()
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("rendering through the engine handle failed: {e}");
+                            return 1;
+                        }
+                    }
+                }
+                ConfinementTier::FontPathsReadable => {
+                    println!("tier declines forks by design; lifecycle wiring is what this run covered");
+                }
+                ConfinementTier::Unsupported(reason) => {
+                    eprintln!("unexpected Unsupported tier: {reason}");
+                    return 1;
+                }
+            }
+
+            if engine.shutdown().await.is_err() {
+                eprintln!("engine shutdown failed");
+                return 1;
+            }
+            0
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer process exists only on Linux");
         2
     }
 }
