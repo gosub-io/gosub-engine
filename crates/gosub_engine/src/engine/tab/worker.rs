@@ -46,6 +46,9 @@ pub enum NavigationResult<C: RenderConfiguration> {
         final_url: Url,
         title: Option<String>,
         doc: Arc<crate::html::EngineDocument<C>>,
+        /// The document's source text, captured when this engine renders
+        /// out-of-process (the renderer re-parses it there).
+        source: Option<Arc<str>>,
     },
     Err {
         nav_id: NavigationId,
@@ -284,10 +287,22 @@ impl<C: RenderConfiguration> TabWorker<C> {
         cmd_rx: mpsc::Receiver<TabCommand>,
     ) -> Self {
         let config_store = zone_context.config_store.clone();
-        let context = BrowsingContext::new(
+        #[allow(unused_mut)] // mut only used on the isolation-capable platform below
+        let mut context = BrowsingContext::new(
             config_store.clone(),
             BrokeredLoader::new(zone_id, Some(tab_id), zone_context.io_tx.clone()).shared(),
         );
+
+        // Hand the tab the engine's renderer fork server, when one is running
+        // and able to fork (a `FontPathsReadable` server declines forks, so
+        // installing it would only produce a refusal per render).
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if let Some(server) = zone_context.engine_context.renderer_process.get() {
+            use crate::fork_server::protocol::ConfinementTier;
+            if matches!(server.lock().confinement(), ConfinementTier::Full) {
+                context.set_renderer_process(Arc::clone(server));
+            }
+        }
         let runtime = TabRuntime::with_fps(config_store.get_uint("renderer.tab.default_fps") as u32);
 
         Self {
@@ -491,6 +506,27 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
     }
 
+    /// Whether this tab's full renders go to the engine's renderer fork
+    /// server. Decides both the routing and whether navigation captures the
+    /// document source (the renderer re-parses it there).
+    #[allow(clippy::needless_return)] // the cfg arms need explicit returns
+    fn remote_render_available(&self) -> bool {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            use crate::fork_server::protocol::ConfinementTier;
+            return self
+                .zone_context
+                .engine_context
+                .renderer_process
+                .get()
+                .is_some_and(|server| matches!(server.lock().confinement(), ConfinementTier::Full));
+        }
+        #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+        {
+            return false;
+        }
+    }
+
     fn on_nav_result(&mut self, res: NavigationResult<C>) {
         match res {
             NavigationResult::Ok {
@@ -498,8 +534,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 final_url,
                 title,
                 doc,
+                source,
             } => {
-                self.context.set_document(Arc::clone(&doc));
+                self.context.set_document(Arc::clone(&doc), source);
                 self.load_web_fonts(&doc, &final_url);
                 self.current_url = Some(final_url.clone());
                 if let Some(t) = title {
@@ -808,6 +845,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let event_tx = self.zone_context.event_tx.clone();
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
+        // Capture the document source only when a renderer process may need it
+        // (it re-parses there); otherwise skip the copy.
+        let capture_source = self.remote_render_available();
 
         let span = tracing::info_span!(
             "tab_nav",
@@ -878,6 +918,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 io_tx.clone(),
                 accept_language.clone(),
                 max_document_bytes,
+                capture_source,
             );
 
             let outcome = route_response_for(
@@ -891,7 +932,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             .await;
 
             match outcome {
-                Ok(RoutedOutcome::MainDocument(doc)) => {
+                Ok(RoutedOutcome::MainDocument(doc, source)) => {
                     use gosub_interface::document::Document as _;
                     let final_url = doc.url().unwrap_or_else(about_blank);
                     let title = crate::html::document_title(&doc);
@@ -900,6 +941,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         final_url,
                         title,
                         doc,
+                        source,
                     });
                 }
                 Ok(RoutedOutcome::ViewerRendered(_doc)) => {
@@ -1146,7 +1188,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
 
         // TileCache path - used by CPU-compositing rasterizing backends (Cairo, Skia).
-        if render_backend.raster_strategy() != RasterStrategy::None && !render_backend.renders_to_gpu_texture() {
+        let remote_render = self.context.remote_render_active();
+        if remote_render
+            || (render_backend.raster_strategy() != RasterStrategy::None && !render_backend.renders_to_gpu_texture())
+        {
             let dpr = render_backend.device_pixel_ratio();
 
             // Scroll-only fast path: tiles are still valid, only the offset changed.

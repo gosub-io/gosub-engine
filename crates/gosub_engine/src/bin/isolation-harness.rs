@@ -423,11 +423,8 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
         };
 
         runtime.block_on(async move {
-            let mut engine: GosubEngine = GosubEngine::new(
-                None,
-                Arc::new(NullBackend::new()),
-                Arc::new(DefaultCompositor::default()),
-            );
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine = GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
 
             if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
                 eprintln!("could not enable the renderer process: {e}");
@@ -486,6 +483,112 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                     eprintln!("unexpected Unsupported tier: {reason}");
                     return 1;
                 }
+            }
+
+            // The tab route: a real navigation whose frame is rendered by the
+            // fork server. The tab worker captures the document source, sends
+            // it out through `RenderPage`, and submits the returned tiles to
+            // the compositor — the same code path an embedder's window drives.
+            if matches!(engine.renderer_process_tier(), Some(ConfinementTier::Full)) {
+                use gosub_engine::events::{NavigationEvent, TabCommand};
+                use gosub_engine::storage::{
+                    InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService,
+                };
+                use gosub_engine::zone::ZoneServices;
+                use gosub_render_pipeline::render::backend::ExternalHandle;
+
+                let Ok((port, _server)) = serve_once() else {
+                    eprintln!("could not start the test server");
+                    return 1;
+                };
+                let mut events = engine.subscribe_events();
+                let services = ZoneServices {
+                    storage: Arc::new(StorageService::new(
+                        Arc::new(InMemoryLocalStore::new()),
+                        Arc::new(InMemorySessionStore::new()),
+                    )),
+                    cookie_store: None,
+                    cookie_jar: None,
+                    partition_policy: PartitionPolicy::None,
+                };
+                let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                    eprintln!("could not create a zone");
+                    return 1;
+                };
+                let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                    eprintln!("could not create a tab");
+                    return 1;
+                };
+                let _ = tab
+                    .send(TabCommand::SetViewport {
+                        x: 0,
+                        y: 0,
+                        width: 1280,
+                        height: 720,
+                    })
+                    .await;
+                if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                    eprintln!("navigate failed");
+                    return 1;
+                }
+                let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+
+                // Wait for the navigation, then for a frame to reach the
+                // compositor — both on a clock.
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+                loop {
+                    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    if remaining.is_zero() {
+                        eprintln!("timed out waiting for the navigation to finish");
+                        return 1;
+                    }
+                    match tokio::time::timeout(remaining, events.recv()).await {
+                        Ok(Ok(gosub_engine::events::EngineEvent::Navigation {
+                            event: NavigationEvent::Finished { .. },
+                            ..
+                        })) => break,
+                        Ok(Ok(gosub_engine::events::EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        })) => {
+                            eprintln!("navigation failed: {error}");
+                            return 1;
+                        }
+                        Ok(Ok(_)) => continue,
+                        _ => {
+                            eprintln!("event channel closed or timed out");
+                            return 1;
+                        }
+                    }
+                }
+
+                let frame = loop {
+                    if tokio::time::Instant::now() >= deadline {
+                        eprintln!("timed out waiting for a remotely rendered frame");
+                        return 1;
+                    }
+                    match compositor.frame_for(tab.tab_id) {
+                        Some(handle @ ExternalHandle::TileCache { .. }) => break handle,
+                        _ => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+                    }
+                };
+                let ExternalHandle::TileCache { tiles, page_height, .. } = frame else {
+                    eprintln!("expected a TileCache frame");
+                    return 1;
+                };
+                if page_height <= 0.0 {
+                    eprintln!("remotely rendered frame has no page height");
+                    return 1;
+                }
+                if cfg!(feature = "cairo-tiles") && tiles.is_empty() {
+                    eprintln!("remotely rendered frame carried no tiles");
+                    return 1;
+                }
+                println!(
+                    "tab frame rendered out-of-process: {} tiles, page height {page_height:.0}",
+                    tiles.len()
+                );
+                engine.close_zone(zone).await;
             }
 
             if engine.shutdown().await.is_err() {

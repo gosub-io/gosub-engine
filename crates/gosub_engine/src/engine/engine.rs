@@ -47,13 +47,6 @@ pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig
 
     /// I/O thread handle
     io_handle: Option<IoHandle>,
-
-    /// The fork server renderers are forked from, if `security.renderer_process`
-    /// is on and it started. One per engine, like the network process: what it
-    /// holds (a warmed font system, a confinement tier) is engine-wide state.
-    /// Behind a `Mutex` because its request/reply protocol is strictly serial.
-    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    renderer_process: Option<Mutex<crate::fork_server::client::ForkServer>>,
 }
 
 // Engine context that is shared downwards to zones. Renderer-agnostic: the render backend and
@@ -79,6 +72,14 @@ pub struct EngineContext {
     /// this to attach cookies itself, so no cookie value is ever handled by tab
     /// code — see [`TabIdentityRegistry`].
     pub tab_identities: Arc<TabIdentityRegistry>,
+    /// The fork server renderers are forked from, if `security.renderer_process`
+    /// is on and it started (set once at [`GosubEngine::start`], like `io_tx`).
+    /// One per engine: what it holds (a warmed font system, a confinement tier)
+    /// is engine-wide state. On the shared context so tab workers can route
+    /// their renders through it; behind a `Mutex` because its request/reply
+    /// protocol is strictly serial.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub renderer_process: OnceLock<Arc<Mutex<crate::fork_server::client::ForkServer>>>,
 }
 
 impl Default for EngineContext {
@@ -90,6 +91,8 @@ impl Default for EngineContext {
             io_tx: OnceLock::new(),
             request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
             tab_identities: Arc::new(TabIdentityRegistry::new()),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            renderer_process: OnceLock::new(),
         }
     }
 }
@@ -129,6 +132,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 io_tx: OnceLock::new(),
                 request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
                 tab_identities: Arc::new(TabIdentityRegistry::new()),
+                #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                renderer_process: OnceLock::new(),
             }),
             render_backend: backend,
             compositor,
@@ -139,8 +144,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             cmd_rx: Some(cmd_rx),
             io_handle: None,
             running: false,
-            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-            renderer_process: None,
         }
     }
 
@@ -184,7 +187,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         }
 
         match ForkServer::spawn() {
-            Ok(server) => {
+            Ok(mut server) => {
                 let tier = server.confinement().clone();
                 match tier {
                     ConfinementTier::Unsupported(reason) => {
@@ -196,7 +199,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                     }
                     tier => {
                         log::info!("renderer fork server ready (confinement tier: {tier:?})");
-                        self.renderer_process = Some(Mutex::new(server));
+                        // Set once, like `io_tx`; `start()` refuses to run twice.
+                        let _ = self.context.renderer_process.set(Arc::new(Mutex::new(server)));
                     }
                 }
             }
@@ -214,16 +218,17 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// and it started — the handle render routing goes through. `None` means
     /// this engine renders in-process.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    pub fn renderer_process(&self) -> Option<&Mutex<crate::fork_server::client::ForkServer>> {
-        self.renderer_process.as_ref()
+    pub fn renderer_process(&self) -> Option<&Arc<Mutex<crate::fork_server::client::ForkServer>>> {
+        self.context.renderer_process.get()
     }
 
     /// The confinement tier the renderer fork server announced, when one is
     /// running: how confined this engine's forked renderers are.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn renderer_process_tier(&self) -> Option<crate::fork_server::protocol::ConfinementTier> {
-        self.renderer_process
-            .as_ref()
+        self.context
+            .renderer_process
+            .get()
             .map(|server| server.lock().confinement().clone())
     }
 
@@ -293,9 +298,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Ask the fork server for a clean exit (it kills-and-reaps on drop
         // regardless, but a Shutdown lets it leave without a SIGKILL).
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        if let Some(server) = self.renderer_process.take() {
+        if let Some(server) = self.context.renderer_process.get() {
             log::trace!("signal: shutting down the renderer fork server");
-            server.into_inner().shutdown();
+            server.lock().shutdown();
         }
 
         // Shutdown I/O thread

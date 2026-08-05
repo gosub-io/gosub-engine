@@ -68,7 +68,10 @@ struct PipelineCache {
     /// Pre-built CachedTile list (Arc-shared pixel data) for zero-copy scroll handles.
     cached_tiles: Arc<Vec<CachedTile>>,
     /// Layer list retained for hit-testing (hover).
-    layer_list: Arc<LayerList>,
+    /// `None` for a page rendered out-of-process: the layer list is a
+    /// process-local structure, so hover repaint and hit testing are
+    /// unavailable there until hit-test data crosses the wire.
+    layer_list: Option<Arc<LayerList>>,
     /// Rasterized tile data keyed by (page_x, page_y, layer_id, content_hash).
     /// Passed to the next render so unchanged tiles skip rasterization.
     /// Value is (physical_width, physical_height, pixel_data).
@@ -145,6 +148,17 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// LRU bookkeeping + eviction for the tile caches, bounded by the
     /// `renderer.tile.cache_budget_mb` setting.
     tile_budget: TileBudget,
+    /// The loader subresources go through — kept beside the media store (which
+    /// also holds it) because an out-of-process render needs it directly: the
+    /// broker answers the remote renderer's resource requests with it.
+    loader: std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
+    /// The source text of the current document, kept when a renderer process
+    /// will re-parse it there. `None` when rendering in-process.
+    document_source: Option<std::sync::Arc<str>>,
+    /// The engine's renderer fork server, installed by the tab worker when
+    /// `security.renderer_process` produced a forking (`Full`-tier) server.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    renderer_process: Option<std::sync::Arc<parking_lot::Mutex<crate::fork_server::client::ForkServer>>>,
 }
 
 impl<C: RenderConfiguration> BrowsingContext<C> {
@@ -184,10 +198,39 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(
-                gosub_render_pipeline::common::media::MediaStore::with_loader_and_decoder(loader, decoder),
+                gosub_render_pipeline::common::media::MediaStore::with_loader_and_decoder(loader.clone(), decoder),
             ),
             config_store,
             tile_budget: TileBudget::new(),
+            loader,
+            document_source: None,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            renderer_process: None,
+        }
+    }
+
+    /// Route this tab's full renders through the engine's renderer fork
+    /// server. Installed once by the tab worker; see
+    /// [`Self::remote_render_active`] for when it actually engages.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn set_renderer_process(
+        &mut self,
+        server: std::sync::Arc<parking_lot::Mutex<crate::fork_server::client::ForkServer>>,
+    ) {
+        self.renderer_process = Some(server);
+    }
+
+    /// Whether full renders go out-of-process: a forking renderer is installed
+    /// *and* the current document's source is available to send it.
+    #[allow(clippy::needless_return)] // the cfg arms need explicit returns
+    pub fn remote_render_active(&self) -> bool {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            return self.renderer_process.is_some() && self.document_source.is_some();
+        }
+        #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+        {
+            return false;
         }
     }
 
@@ -214,9 +257,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.storage.as_ref().map(|s| s.session.clone())
     }
 
-    /// Sets the parsed DOM document for the given tab.
-    pub fn set_document(&mut self, doc: Arc<EngineDocument<C>>) {
+    /// Sets the parsed DOM document for the given tab, with the source text it
+    /// was parsed from when an out-of-process renderer will need to re-parse it.
+    pub fn set_document(&mut self, doc: Arc<EngineDocument<C>>, source: Option<std::sync::Arc<str>>) {
         self.document = Some(doc);
+        self.document_source = source;
         self.dom_dirty = true;
         self.style_dirty = true;
         self.layout_dirty = true;
@@ -306,6 +351,15 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Shared by [`Self::rebuild_pipeline_cache_if_needed`] and
     /// [`Self::rebuild_render_list_if_needed`].
     fn rebuild_full_pipeline(&mut self) {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if self.remote_render_active() && self.try_remote_pipeline() {
+            self.render_dirty = false;
+            self.hover_dirty = false;
+            self.dom_dirty = false;
+            self.style_dirty = false;
+            self.layout_dirty = false;
+            return;
+        }
         if let Some(doc) = &self.document {
             let prev_tile_cache = self
                 .pipeline_cache
@@ -354,6 +408,54 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
     }
 
+    /// Render the current document in a forked renderer process and adopt the
+    /// result as this tab's pipeline cache.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn try_remote_pipeline(&mut self) -> bool {
+        use gosub_render_pipeline::common::texture::TilePixels;
+        use gosub_render_pipeline::rasterizer::BakedTile;
+
+        let (Some(server), Some(source)) = (&self.renderer_process, &self.document_source) else {
+            return false;
+        };
+
+        let viewport = (self.viewport.width as f64, self.viewport.height as f64);
+        let result = server.lock().render_page(source, viewport, self.loader.as_ref());
+        match result {
+            Ok((summary, tiles)) => {
+                let baked: Vec<BakedTile> = tiles
+                    .into_iter()
+                    .map(|tile| BakedTile {
+                        page_x: tile.header.page_x,
+                        page_y: tile.header.page_y,
+                        layer_id: tile.header.layer_id,
+                        width: tile.header.width,
+                        height: tile.header.height,
+                        format: tile.header.format.into(),
+                        opacity: tile.header.opacity,
+                        anchor: tile.header.anchor.into(),
+                        // The mapping becomes the pixel storage: zero-copy
+                        // from the renderer's sealed pages to the compositor.
+                        pixels: TilePixels::Cpu(bytes::Bytes::from_owner(tile.mapping)),
+                    })
+                    .collect();
+                let cached_tiles = Arc::new(gosub_render_pipeline::rasterizer::cpu_cached_tiles(&baked));
+                self.pipeline_cache = Some(PipelineCache {
+                    tiles: baked,
+                    page_height: summary.page_height,
+                    cached_tiles,
+                    layer_list: None,
+                    tile_pixel_cache: Default::default(),
+                });
+                true
+            }
+            Err(e) => {
+                log::warn!("out-of-process render failed ({e}); rendering this page in-process");
+                false
+            }
+        }
+    }
+
     /// Rebuild stages 1-6 (pipeline cache) if content has changed, without building a display
     /// list. Used by TileCache backends (Cairo, Skia, Vello) which composite tiles directly
     /// on the host thread and never consume the render list.
@@ -365,14 +467,30 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.rebuild_full_pipeline();
         } else if self.hover_dirty {
             // Paint-only repaint: reuse the cached layout tree, skip stages 1–2.
+            // A remotely rendered page has no layer list to repaint from, so
+            // hover effects are a no-op there (see `PipelineCache::layer_list`).
+            let has_layer_list = self
+                .pipeline_cache
+                .as_ref()
+                .is_some_and(|cache| cache.layer_list.is_some());
+            if !has_layer_list && self.pipeline_cache.is_some() {
+                self.hover_dirty = false;
+                self.scroll_dirty = false;
+                return;
+            }
             if let Some(old_cache) = self.pipeline_cache.take() {
                 let PipelineCache {
-                    layer_list,
+                    layer_list: Some(layer_list),
                     page_height,
                     tile_pixel_cache: prev_tile_cache,
                     tiles: prev_baked_tiles,
                     ..
-                } = old_cache;
+                } = old_cache
+                else {
+                    // Checked above: the cache has a layer list; this arm
+                    // cannot run, and diverging satisfies let-else.
+                    return;
+                };
                 self.pipeline_cache = Some(pipeline_hover_repaint(
                     layer_list,
                     page_height,
@@ -479,7 +597,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.scene_cache
             .as_ref()
             .map(|c| &c.layer_list)
-            .or_else(|| self.pipeline_cache.as_ref().map(|c| &c.layer_list))
+            .or_else(|| self.pipeline_cache.as_ref().and_then(|c| c.layer_list.as_ref()))
     }
 
     /// The active full-page height, from whichever cache this tab populates.
@@ -918,7 +1036,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
         tiles: baked_tiles,
         page_height,
         cached_tiles,
-        layer_list: saved_layer_list,
+        layer_list: Some(saved_layer_list),
         tile_pixel_cache: new_tile_cache,
     }
 }
@@ -1030,7 +1148,7 @@ fn pipeline_hover_repaint(
             tiles: all_tiles,
             page_height,
             cached_tiles,
-            layer_list,
+            layer_list: Some(layer_list),
             tile_pixel_cache: prev_tile_cache,
         };
     }
@@ -1100,7 +1218,7 @@ fn pipeline_hover_repaint(
         tiles: all_baked_tiles,
         page_height,
         cached_tiles,
-        layer_list,
+        layer_list: Some(layer_list),
         tile_pixel_cache: new_tile_cache,
     }
 }

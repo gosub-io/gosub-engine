@@ -114,6 +114,9 @@ pub struct ZoneContext<C: RenderConfiguration = crate::html::DefaultRenderConfig
     pub(crate) font_system: Arc<Mutex<C::FontSystem>>,
     /// Per-engine settings store, cloned from the engine context and passed on to each tab.
     pub(crate) config_store: Config,
+    /// The engine-wide shared context, so tabs can reach engine-scoped state
+    /// installed after zone creation (e.g. the renderer fork server).
+    pub(crate) engine_context: Arc<EngineContext>,
 }
 
 // Things that are shared upwards to the engine
@@ -216,6 +219,7 @@ impl<C: RenderConfiguration> Zone<C> {
         let request_reference_map = engine_context.request_reference_map.clone();
         let tab_identities = engine_context.tab_identities.clone();
         let config_store = engine_context.config_store.clone();
+        let engine_context_for_tabs = Arc::clone(&engine_context);
 
         let zone = Self {
             engine_context,
@@ -239,6 +243,7 @@ impl<C: RenderConfiguration> Zone<C> {
                 render_backend,
                 font_system,
                 config_store,
+                engine_context: engine_context_for_tabs,
             }),
             id: zone_id,
             tabs: HashMap::new(),

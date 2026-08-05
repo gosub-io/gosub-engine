@@ -64,6 +64,11 @@ pub struct HtmlParseConfig {
     /// the parser has no network capability of its own (see
     /// `gosub_html5::parser::Html5ParserOptions::resource_loader`).
     pub resource_loader: Option<std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>>,
+    /// Also return the document's source text, for an engine that will hand it
+    /// to a renderer process (which re-parses; a DOM cannot cross a fork by
+    /// value). Off by default — retaining a copy of every document would tax
+    /// engines that render in-process.
+    pub capture_source: bool,
 }
 
 impl Default for HtmlParseConfig {
@@ -72,6 +77,7 @@ impl Default for HtmlParseConfig {
         Self {
             max_bytes: 10 * 1024 * 1024,
             resource_loader: None,
+            capture_source: false,
         }
     }
 }
@@ -84,7 +90,7 @@ pub async fn parse_main_document_stream<C, R, F>(
     cancel: CancellationToken,
     cfg: HtmlParseConfig,
     mut on_discover: F,
-) -> Result<EngineDocument<C>, DocumentError>
+) -> Result<(EngineDocument<C>, Option<std::sync::Arc<str>>), DocumentError>
 where
     C: RenderConfiguration,
     R: AsyncRead + Unpin + Send + 'static,
@@ -127,8 +133,12 @@ where
         }
     }
 
-    // Use lossy UTF-8 only for the fast resource-discovery regex scan.
+    // Use lossy UTF-8 only for the fast resource-discovery regex scan (and,
+    // when asked, the captured source).
     let html_lossy = String::from_utf8_lossy(&buf);
+    let source = cfg
+        .capture_source
+        .then(|| std::sync::Arc::<str>::from(html_lossy.as_ref()));
 
     // Fire sub-resource callbacks using the fast regex-based scanner so that
     // image/CSS/script fetches are submitted before the full parse completes.
@@ -158,7 +168,7 @@ where
     let ua = <C::CssSystem as CssSystem>::load_default_useragent_stylesheet();
     doc.add_stylesheet(ua);
 
-    Ok(doc)
+    Ok((doc, source))
 }
 
 // ======== Forgiving resource discovery (regex-based) ========
