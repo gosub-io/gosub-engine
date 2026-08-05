@@ -180,8 +180,11 @@ impl ForkServer {
         }
     }
 
-    /// Ask for a clean exit, then make sure of it.
-    pub fn shutdown(mut self) {
+    /// Ask for a clean exit, then make sure of it. `&mut self` rather than
+    /// consuming, so a handle shared behind a lock (the engine's) can be shut
+    /// down in place; afterwards the handle is inert and Drop has nothing to
+    /// kill.
+    pub fn shutdown(&mut self) {
         let _ = self.link.send(&ToForkServer::Shutdown);
         if let Some(mut child) = self.child.take() {
             let _ = child.wait();

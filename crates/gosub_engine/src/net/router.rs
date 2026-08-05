@@ -16,8 +16,10 @@ use std::sync::Arc;
 /// The outcome of routing a fetch result.
 #[derive(Debug)]
 pub enum RoutedOutcome<C: RenderConfiguration> {
-    /// The main document has been parsed and is ready.
-    MainDocument(Arc<EngineDocument<C>>),
+    /// The main document has been parsed and is ready. The second field is
+    /// the document's source text, captured when the engine renders
+    /// out-of-process (its renderer re-parses; a DOM cannot cross a fork).
+    MainDocument(Arc<EngineDocument<C>>, Option<Arc<str>>),
     /// The resource has been rendered in a viewer (text, image, pdf, etc.).
     ViewerRendered(Bytes),
 
@@ -181,7 +183,7 @@ pub async fn route_response_for<C: RenderConfiguration>(
     match (dest, outcome.decision, body_content) {
         (RequestDestination::Document, HandlingDecision::Render(target), body_content) => match target {
             RenderTarget::HtmlParser => {
-                let doc = match body_content {
+                let (doc, source) = match body_content {
                     BodyContent::Stream { shared } => {
                         hooks.html.parse_stream(request, handle, meta, peek_buf, shared).await?
                     }
@@ -189,7 +191,7 @@ pub async fn route_response_for<C: RenderConfiguration>(
                         hooks.html.parse_bytes(request, handle, meta, body.as_ref()).await?
                     }
                 };
-                Ok(RoutedOutcome::MainDocument(Arc::new(doc)))
+                Ok(RoutedOutcome::MainDocument(Arc::new(doc), source))
             }
             RenderTarget::CssParser => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
             RenderTarget::JsEngine => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),

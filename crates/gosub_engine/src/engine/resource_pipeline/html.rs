@@ -28,7 +28,7 @@ pub trait HtmlPipeline<C: RenderConfiguration> {
         meta: FetchResultMeta,
         peek_buf: PeekBuf,
         body: Arc<SharedBody>,
-    ) -> anyhow::Result<EngineDocument<C>>;
+    ) -> anyhow::Result<(EngineDocument<C>, Option<Arc<str>>)>;
 
     async fn parse_bytes(
         &mut self,
@@ -36,7 +36,7 @@ pub trait HtmlPipeline<C: RenderConfiguration> {
         handle: FetchHandle,
         meta: FetchResultMeta,
         body: &[u8],
-    ) -> anyhow::Result<EngineDocument<C>>;
+    ) -> anyhow::Result<(EngineDocument<C>, Option<Arc<str>>)>;
 }
 
 pub struct HtmlPipelineImpl {
@@ -49,6 +49,10 @@ pub struct HtmlPipelineImpl {
     accept_language: Option<String>,
     /// Max document size in bytes (`net.document.max_bytes`); larger documents are truncated.
     max_document_bytes: usize,
+    /// Also return the parsed document's source text (see
+    /// `HtmlParseConfig::capture_source`) — on when the engine renders
+    /// out-of-process and its renderer will need to re-parse.
+    capture_source: bool,
 }
 
 impl HtmlPipelineImpl {
@@ -58,6 +62,7 @@ impl HtmlPipelineImpl {
         io_tx: IoChannel,
         accept_language: Option<String>,
         max_document_bytes: usize,
+        capture_source: bool,
     ) -> Self {
         Self {
             io_tx,
@@ -65,6 +70,7 @@ impl HtmlPipelineImpl {
             tab_id,
             accept_language,
             max_document_bytes,
+            capture_source,
         }
     }
 
@@ -74,7 +80,7 @@ impl HtmlPipelineImpl {
         handle: FetchHandle,
         meta: FetchResultMeta,
         reader: R,
-    ) -> anyhow::Result<EngineDocument<C>>
+    ) -> anyhow::Result<(EngineDocument<C>, Option<Arc<str>>)>
     where
         C: RenderConfiguration,
         R: AsyncRead + Unpin + Send + 'static,
@@ -87,6 +93,7 @@ impl HtmlPipelineImpl {
 
         let cfg = crate::html::HtmlParseConfig {
             max_bytes: self.max_document_bytes,
+            capture_source: self.capture_source,
             // The parse happens on this tab's behalf, so its stylesheet loads carry
             // the tab's identity and cookies like any other request — and are
             // cancelled with the parse that wanted them.
@@ -212,7 +219,7 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl {
         meta: FetchResultMeta,
         peek_buf: PeekBuf,
         shared: Arc<SharedBody>,
-    ) -> anyhow::Result<EngineDocument<C>> {
+    ) -> anyhow::Result<(EngineDocument<C>, Option<Arc<str>>)> {
         let reader = SharedBody::combined_reader(peek_buf, shared);
         self.parse_with_reader::<C, _>(request, handle, meta, reader).await
     }
@@ -223,7 +230,7 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl {
         handle: FetchHandle,
         meta: FetchResultMeta,
         body: &[u8],
-    ) -> anyhow::Result<EngineDocument<C>> {
+    ) -> anyhow::Result<(EngineDocument<C>, Option<Arc<str>>)> {
         // parsing bytes is just creating a stream of those bytes and passing it to the stream reader
         let stream = stream::iter(vec![Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(body))]);
         let reader = StreamReader::new(stream);
@@ -330,14 +337,14 @@ mod tests {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, TabId::new(), io_tx, None, 10 * 1024 * 1024);
+        let mut pipeline = HtmlPipelineImpl::new(zone_id, TabId::new(), io_tx, None, 10 * 1024 * 1024, false);
 
         let (req, handle) = test_request("https://example.com/path/index.html");
         let meta = test_meta("https://example.com/path/index.html");
         let body = HTML_WITH_RESOURCES.as_bytes();
 
         // Act
-        let doc = HtmlPipeline::<DefaultRenderConfig>::parse_bytes(&mut pipeline, req, handle, meta, body)
+        let (doc, _source) = HtmlPipeline::<DefaultRenderConfig>::parse_bytes(&mut pipeline, req, handle, meta, body)
             .await
             .expect("parse_bytes should succeed");
 
@@ -359,7 +366,7 @@ mod tests {
         // Arrange
         let (io_tx, seen_children) = start_dummy_io();
         let zone_id = ZoneId::new();
-        let mut pipeline = HtmlPipelineImpl::new(zone_id, TabId::new(), io_tx, None, 10 * 1024 * 1024);
+        let mut pipeline = HtmlPipelineImpl::new(zone_id, TabId::new(), io_tx, None, 10 * 1024 * 1024, false);
 
         let (req, handle) = test_request("https://example.com/");
         let meta = test_meta("https://example.com/");

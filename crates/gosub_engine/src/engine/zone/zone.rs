@@ -118,6 +118,9 @@ pub struct ZoneContext<C: RenderConfiguration = crate::html::DefaultRenderConfig
     pub(crate) config_store: Config,
     /// `gosub://` page registry, shared from the engine context.
     pub(crate) internal_pages: crate::engine::internal_pages::InternalPages,
+    /// The engine-wide shared context, so tabs can reach engine-scoped state
+    /// installed after zone creation (e.g. the renderer fork server).
+    pub(crate) engine_context: Arc<EngineContext>,
 }
 
 // Things that are shared upwards to the engine
@@ -221,6 +224,7 @@ impl<C: RenderConfiguration> Zone<C> {
         let tab_identities = engine_context.tab_identities.clone();
         let config_store = engine_context.config_store.clone();
         let internal_pages = engine_context.internal_pages.clone();
+        let engine_context_for_tabs = Arc::clone(&engine_context);
 
         let zone = Self {
             engine_context,
@@ -245,6 +249,7 @@ impl<C: RenderConfiguration> Zone<C> {
                 font_system,
                 config_store,
                 internal_pages,
+                engine_context: engine_context_for_tabs,
             }),
             id: zone_id,
             tabs: HashMap::new(),
