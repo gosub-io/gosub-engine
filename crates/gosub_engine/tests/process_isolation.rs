@@ -265,6 +265,30 @@ fn the_render_pipeline_runs_under_the_renderer_lockdown() {
     );
 }
 
+/// The engine-side wiring: with `security.renderer_process` on, `start()`
+/// spawns the fork server, announces its tier, renders through the
+/// engine-held handle, and `shutdown()` tears it down cleanly.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_engine_spawns_the_renderer_fork_server_behind_its_setting() {
+    let out = run("engine-renderer-process");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the engine's renderer-process wiring failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("tier: Full"),
+        "expected the default font system to announce the Full tier through the engine:\n{stdout}"
+    );
+}
+
 /// An embedder that enables isolation without dispatching must be stopped, not
 /// merely warned.
 #[test]

@@ -48,6 +48,13 @@ pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig
 
     /// I/O thread handle
     io_handle: Option<IoHandle>,
+
+    /// The fork server renderers are forked from, if `security.renderer_process`
+    /// is on and it started. One per engine, like the network process: what it
+    /// holds (a warmed font system, a confinement tier) is engine-wide state.
+    /// Behind a `Mutex` because its request/reply protocol is strictly serial.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    renderer_process: Option<Mutex<crate::fork_server::client::ForkServer>>,
 }
 
 // Engine context that is shared downwards to zones. Renderer-agnostic: the render backend and
@@ -137,6 +144,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             cmd_rx: Some(cmd_rx),
             io_handle: None,
             running: false,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            renderer_process: None,
         }
     }
 
@@ -157,10 +166,70 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         #[cfg(feature = "metrics")]
         crate::metrics::start(9090);
 
+        // Spawn the renderer fork server if asked to. Blocks briefly (spawn
+        // plus font warm-up, ~200 ms typical) — acceptable at startup, and
+        // the answer decides engine-wide behaviour, so it belongs here.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.start_renderer_process();
+
         // Hand the run-loop future to the caller to drive (spawn / await / select!) rather than
         // spawning it ourselves. `run()` yields `None` only if the loop was already taken, which
         // cannot happen here since `self.running` was false above.
         self.run().ok_or(EngineError::AlreadyRunning)
+    }
+
+    /// Spawn the fork server when `security.renderer_process` asks for it.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn start_renderer_process(&mut self) {
+        use crate::fork_server::client::ForkServer;
+        use crate::fork_server::protocol::ConfinementTier;
+
+        if !self.context.config_store.get_bool("security.renderer_process") {
+            return;
+        }
+
+        match ForkServer::spawn() {
+            Ok(server) => {
+                let tier = server.confinement().clone();
+                match tier {
+                    ConfinementTier::Unsupported(reason) => {
+                        log::warn!(
+                            "security.renderer_process is on, but the configured font system cannot run \
+                             isolated ({reason}); rendering stays in-process"
+                        );
+                        server.shutdown();
+                    }
+                    tier => {
+                        log::info!("renderer fork server ready (confinement tier: {tier:?})");
+                        self.renderer_process = Some(Mutex::new(server));
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "security.renderer_process is on, but the fork server could not be started ({e}); \
+                     rendering stays in-process. The most likely cause is an embedder that has not \
+                     called gosub_engine::child_process::dispatch_with() first thing in main()."
+                );
+            }
+        }
+    }
+
+    /// The running renderer fork server, when `security.renderer_process` is on
+    /// and it started — the handle render routing goes through. `None` means
+    /// this engine renders in-process.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn renderer_process(&self) -> Option<&Mutex<crate::fork_server::client::ForkServer>> {
+        self.renderer_process.as_ref()
+    }
+
+    /// The confinement tier the renderer fork server announced, when one is
+    /// running: how confined this engine's forked renderers are.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn renderer_process_tier(&self) -> Option<crate::fork_server::protocol::ConfinementTier> {
+        self.renderer_process
+            .as_ref()
+            .map(|server| server.lock().confinement().clone())
     }
 
     /// Return a receiver for engine events.
@@ -231,6 +300,14 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
         // Persist cookie stores before tearing anything down.
         self.flush_persistence();
+
+        // Ask the fork server for a clean exit (it kills-and-reaps on drop
+        // regardless, but a Shutdown lets it leave without a SIGKILL).
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if let Some(server) = self.renderer_process.take() {
+            log::trace!("signal: shutting down the renderer fork server");
+            server.into_inner().shutdown();
+        }
 
         // Shutdown I/O thread
         log::trace!("signal: shutting down I/O thread");
