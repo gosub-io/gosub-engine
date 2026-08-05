@@ -46,6 +46,10 @@ pub enum ToForkServer {
     },
     /// Exit cleanly.
     Shutdown,
+    /// The broker's answer to [`FromForkServer::NeedResource`], relayed on to
+    /// the renderer that is blocked waiting for it. Only ever sent while a
+    /// [`RenderPage`](ToForkServer::RenderPage) exchange is in flight.
+    Resource(ResourceReply),
 }
 
 /// Fork server → broker.
@@ -71,6 +75,12 @@ pub enum FromForkServer {
     /// The request could not be served; the string says why (e.g. forking is
     /// refused under `Unsupported`, or the forked child died).
     Refused(String),
+    /// A renderer needs a subresource it has no capability to fetch — the
+    /// brokered-load inversion, mirroring cookies: the renderer names what it
+    /// wants, the broker performs the fetch where identity and cookies live,
+    /// and only bytes come back. Sent mid-[`RenderPage`](ToForkServer::RenderPage);
+    /// the broker answers with [`ToForkServer::Resource`] before anything else.
+    NeedResource { url: String },
 }
 
 /// What a forked renderer sends its parent over their private pair before
@@ -139,4 +149,27 @@ impl From<gosub_interface::render::backend::PixelFormat> for TileWireFormat {
 pub struct RenderedPage {
     pub summary: PageSummary,
     pub tiles: Vec<TileHeader>,
+}
+
+/// Everything a renderer can say to its parent over their private pair.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum FromRenderer {
+    /// Mid-render: fetch this for me. The parent relays it to the broker and
+    /// sends the [`ResourceReply`] back; the renderer is blocked until then.
+    NeedResource { url: String },
+    /// The final message: the page, with fds to follow.
+    Rendered(RenderedPage),
+}
+
+/// A fetched subresource (or its failure), as it travels broker → fork server
+/// → renderer. Mirrors `gosub_interface::resource_loader::LoadedResource`,
+/// which carries no serde.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ResourceReply {
+    Ok {
+        status: u16,
+        content_type: Option<String>,
+        body: Vec<u8>,
+    },
+    Failed(String),
 }

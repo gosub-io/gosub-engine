@@ -117,24 +117,43 @@ impl ForkServer {
         &mut self,
         html: &str,
         viewport: (f64, f64),
+        loader: &dyn gosub_interface::resource_loader::ResourceLoader,
     ) -> anyhow::Result<(crate::fork_server::protocol::PageSummary, Vec<ReceivedTile>)> {
+        use crate::fork_server::protocol::ResourceReply;
+
         self.link.send(&ToForkServer::RenderPage {
             html: html.to_string(),
             viewport_width: viewport.0,
             viewport_height: viewport.1,
         })?;
-        match self.link.recv::<FromForkServer>()? {
-            FromForkServer::PageRendered { summary, tiles } => {
-                let mut received = Vec::with_capacity(tiles.len());
-                for header in tiles {
-                    let fd = self.link.rx.recv_fd()?;
-                    let mapping = gosub_ipc::shm::map_sealed_tile(fd, header.width, header.height)?;
-                    received.push(ReceivedTile { header, mapping });
+        loop {
+            match self.link.recv::<FromForkServer>()? {
+                FromForkServer::NeedResource { url } => {
+                    let reply = match url::Url::parse(&url) {
+                        Ok(parsed) => match loader.load(&parsed) {
+                            Ok(resource) => ResourceReply::Ok {
+                                status: resource.status,
+                                content_type: resource.content_type,
+                                body: resource.body.to_vec(),
+                            },
+                            Err(e) => ResourceReply::Failed(e.to_string()),
+                        },
+                        Err(e) => ResourceReply::Failed(format!("renderer asked for an unparseable url: {e}")),
+                    };
+                    self.link.send(&ToForkServer::Resource(reply))?;
                 }
-                Ok((summary, received))
+                FromForkServer::PageRendered { summary, tiles } => {
+                    let mut received = Vec::with_capacity(tiles.len());
+                    for header in tiles {
+                        let fd = self.link.rx.recv_fd()?;
+                        let mapping = gosub_ipc::shm::map_sealed_tile(fd, header.width, header.height)?;
+                        received.push(ReceivedTile { header, mapping });
+                    }
+                    return Ok((summary, received));
+                }
+                FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
+                other => anyhow::bail!("unexpected reply to RenderPage: {other:?}"),
             }
-            FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
-            other => anyhow::bail!("unexpected reply to RenderPage: {other:?}"),
         }
     }
 
