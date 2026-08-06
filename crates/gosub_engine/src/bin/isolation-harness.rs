@@ -358,10 +358,12 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
             std::sync::Arc::new(parking_lot::Mutex::new(fonts));
         let (summary, baked) = renderer::render_page::<TileConfig<F>>(
             "<html><body><h1>Under lockdown</h1><p>Rendered without a fork.</p></body></html>",
+            "about:blank",
             1280.0,
             720.0,
             shared,
             media_store,
+            std::sync::Arc::new(gosub_interface::resource_loader::NoResourceLoader),
         );
         if summary.page_height <= 0.0 || summary.paint_commands == 0 {
             eprintln!("implausible page under lockdown: {summary:?}");
@@ -454,6 +456,7 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                     };
                     let outcome = server.lock().render_page(
                         "<html><body><p>Rendered through the engine's fork server.</p></body></html>",
+                        "http://harness.invalid/",
                         (1280.0, 720.0),
                         &gosub_interface::resource_loader::NoResourceLoader,
                     );
@@ -606,29 +609,52 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
 }
 
 /// Answers a forked renderer's brokered subresource requests from memory,
-/// counting them — the harness's stand-in for the engine's cookie-attaching
-/// brokered loader.
+/// recording them — the harness's stand-in for the engine's cookie-attaching
+/// brokered loader. Serves an image, an external stylesheet (which declares a
+/// layout-visible rule and an `@font-face`), and the font that face names.
 #[derive(Debug, Default)]
 struct HarnessResourceLoader {
     served: std::sync::atomic::AtomicU64,
+    /// Raw SFNT bytes served as `/face.ttf` (a real installed font, read
+    /// broker-side where files are still reachable).
+    font: Vec<u8>,
+    /// Every path requested, in order — what the assertions read.
+    paths: parking_lot::Mutex<Vec<String>>,
 }
+
+/// The stylesheet the renderer must fetch through the broker: one rule that
+/// visibly moves layout (asserted via page height) and one `@font-face` whose
+/// font must come back through the same channel.
+const HARNESS_CSS: &str = r#"
+    @font-face { font-family: "HarnessFace"; src: url("/face.ttf"); }
+    .card { margin-top: 300px; font-family: "HarnessFace"; }
+"#;
 
 impl gosub_interface::resource_loader::ResourceLoader for HarnessResourceLoader {
     fn load(
         &self,
         url: &url::Url,
     ) -> Result<gosub_interface::resource_loader::LoadedResource, gosub_interface::resource_loader::LoadError> {
+        use gosub_interface::resource_loader::{LoadError, LoadedResource};
         self.served.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if url.path().ends_with("/tile.png") {
-            Ok(gosub_interface::resource_loader::LoadedResource {
+        self.paths.lock().push(url.path().to_string());
+        match url.path() {
+            path if path.ends_with("/tile.png") => Ok(LoadedResource {
                 status: 200,
                 content_type: Some("image/png".into()),
                 body: bytes::Bytes::from_static(SAMPLE_PNG),
-            })
-        } else {
-            Err(gosub_interface::resource_loader::LoadError::Failed(format!(
-                "harness serves only tile.png, not {url}"
-            )))
+            }),
+            path if path.ends_with("/page.css") => Ok(LoadedResource {
+                status: 200,
+                content_type: Some("text/css".into()),
+                body: bytes::Bytes::from_static(HARNESS_CSS.as_bytes()),
+            }),
+            path if path.ends_with("/face.ttf") && !self.font.is_empty() => Ok(LoadedResource {
+                status: 200,
+                content_type: Some("font/ttf".into()),
+                body: bytes::Bytes::from(self.font.clone()),
+            }),
+            _ => Err(LoadError::Failed(format!("harness does not serve {url}"))),
         }
     }
 }
@@ -702,7 +728,9 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
         // the renderer cannot fetch: its request must come back out through
         // the fork server and be answered by the loader below.
         let html = r#"
-            <html><head><style>
+            <html><head>
+            <link rel="stylesheet" href="/page.css">
+            <style>
                 body { margin: 0; }
                 h1 { font-size: 32px; }
                 .card { padding: 16px; background: #eee; }
@@ -712,11 +740,26 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                 <div class="card"><p>Laid out, layered, tiled and painted under the
                 renderer sandbox, shaping through fonts inherited copy-on-write from
                 the fork server. No file was opened past this point.</p></div>
-                <img src="http://harness.invalid/tile.png" width="64" height="64">
+                <img src="/tile.png" width="64" height="64">
             </body></html>
         "#;
-        let loader = HarnessResourceLoader::default();
-        match server.render_page(html, (1280.0, 720.0), &loader) {
+        // Real font bytes for `/face.ttf`, read broker-side (files are still
+        // reachable here) — the renderer must receive them over the channel,
+        // never from disk.
+        let font_bytes = {
+            use gosub_interface::font_system::FontQuery;
+            let mut fonts = gosub_fontmanager::ParleyFontSystem::default();
+            let _ = fonts.families();
+            fonts
+                .resolve(&FontQuery::new(&["sans-serif"]))
+                .map(|resolved| resolved.blob.data.as_ref().as_ref().to_vec())
+                .unwrap_or_default()
+        };
+        let loader = HarnessResourceLoader {
+            font: font_bytes,
+            ..Default::default()
+        };
+        match server.render_page(html, "http://harness.invalid/index.html", (1280.0, 720.0), &loader) {
             Ok((summary, tiles)) => {
                 if summary.page_height <= 0.0 || summary.painted_tiles == 0 || summary.paint_commands == 0 {
                     eprintln!("the forked renderer produced an implausible page: {summary:?}");
@@ -784,14 +827,31 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                     return 1;
                 }
                 // The subresource inversion: the confined renderer cannot
-                // fetch, so its <img> must have arrived here as a brokered
-                // request and been served by our loader.
-                let served = loader.served.load(std::sync::atomic::Ordering::Relaxed);
-                if served == 0 {
-                    eprintln!("the renderer never asked for its image; brokered loads are not flowing");
+                // fetch, so its <img>, its <link> stylesheet, and the
+                // @font-face that stylesheet declares must all have arrived
+                // here as brokered requests.
+                let paths = loader.paths.lock().clone();
+                for expected in ["/tile.png", "/page.css", "/face.ttf"] {
+                    if !paths.iter().any(|p| p.ends_with(expected)) {
+                        eprintln!("the renderer never requested {expected} (saw: {paths:?})");
+                        return 1;
+                    }
+                }
+                // The external stylesheet must have *applied*, not merely
+                // loaded: its 300px margin puts the page height beyond what
+                // the inline styles alone produce.
+                if summary.page_height < 300.0 {
+                    eprintln!(
+                        "page height {:.0} does not reflect the brokered stylesheet's 300px margin",
+                        summary.page_height
+                    );
                     return 1;
                 }
-                println!("served {served} brokered subresource request(s) to the renderer");
+                println!(
+                    "served {} brokered requests ({} paths: img, stylesheet, web font); stylesheet applied",
+                    loader.served.load(std::sync::atomic::Ordering::Relaxed),
+                    paths.len()
+                );
             }
             Err(e) => {
                 eprintln!("rendering in a forked renderer failed: {e}");

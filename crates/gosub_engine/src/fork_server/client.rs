@@ -139,6 +139,7 @@ impl ForkServer {
     pub fn render_page(
         &mut self,
         html: &str,
+        url: &str,
         viewport: (f64, f64),
         loader: &dyn gosub_interface::resource_loader::ResourceLoader,
     ) -> anyhow::Result<(crate::fork_server::protocol::PageSummary, Vec<ReceivedTile>)> {
@@ -146,6 +147,7 @@ impl ForkServer {
 
         self.link.send(&ToForkServer::RenderPage {
             html: html.to_string(),
+            url: url.to_string(),
             viewport_width: viewport.0,
             viewport_height: viewport.1,
         })?;

@@ -41,6 +41,9 @@ pub enum ToForkServer {
     /// inherited font system. Replies with [`FromForkServer::PageRendered`].
     RenderPage {
         html: String,
+        /// The page's URL — the base against which the renderer resolves
+        /// relative subresource URLs (stylesheets, images, fonts).
+        url: String,
         viewport_width: f64,
         viewport_height: f64,
     },
