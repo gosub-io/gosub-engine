@@ -540,8 +540,20 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             return false;
         };
 
+        // The document's own URL is the renderer's base for relative
+        // subresource URLs; about:blank when it has none.
+        let page_url = {
+            use gosub_interface::document::Document as _;
+            self.document
+                .as_ref()
+                .and_then(|doc| doc.url())
+                .map(|url| url.to_string())
+                .unwrap_or_else(|| "about:blank".to_string())
+        };
         let viewport = (self.viewport.width as f64, self.viewport.height as f64);
-        let result = server.lock().render_page(source, viewport, self.loader.as_ref());
+        let result = server
+            .lock()
+            .render_page(source, &page_url, viewport, self.loader.as_ref());
         match result {
             Ok((summary, tiles)) => {
                 let baked: Vec<BakedTile> = tiles

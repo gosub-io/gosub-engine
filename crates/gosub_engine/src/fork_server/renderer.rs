@@ -3,11 +3,16 @@
 
 use crate::fork_server::protocol::PageSummary;
 use crate::html::RenderConfiguration;
+use gosub_html5::document::builder::DocumentBuilderImpl;
+use gosub_html5::parser::{Html5Parser, Html5ParserOptions};
 use gosub_interface::css3::CssSystem as _;
 use gosub_interface::document::Document as _;
 use gosub_interface::font_system::FontSystem;
+use gosub_interface::resource_loader::ResourceLoader;
+use gosub_shared::byte_stream::{ByteStream, Encoding};
 use parking_lot::Mutex;
 use std::sync::Arc;
+use url::Url;
 
 /// Tile edge in CSS pixels, matching the engine's default.
 const TILE_SIZE: f64 = 256.0;
@@ -20,10 +25,12 @@ const TILE_SIZE: f64 = 256.0;
 /// is transport, not rendering.
 pub fn render_page<C: RenderConfiguration>(
     html: &str,
+    page_url: &str,
     viewport_width: f64,
     viewport_height: f64,
     fonts: Arc<Mutex<dyn FontSystem>>,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
+    loader: Arc<dyn ResourceLoader>,
 ) -> (PageSummary, Vec<gosub_render_pipeline::rasterizer::BakedTile>) {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
@@ -39,8 +46,28 @@ pub fn render_page<C: RenderConfiguration>(
     // precede parse(), which computes styles for display:none filtering.
     gosub_css3::stylesheet::set_layout_viewport(viewport_width as f32, viewport_height as f32);
 
-    let mut doc = gosub_html5::html_compile::<C>(html);
+    // Parse with the page's base URL (relative subresource URLs resolve
+    // against it) and with the loader, so `<link rel=\"stylesheet\">` is
+    // fetched through the broker mid-parse — the same arrangement as the
+    // engine's own parse, with the renderer's brokered loader in the seat.
+    let base_url = Url::parse(page_url).ok();
+    let mut stream = ByteStream::from_str(html, Encoding::UTF8);
+    let mut doc = DocumentBuilderImpl::new_document::<C>(base_url.clone());
+    let parser_options = Html5ParserOptions {
+        resource_loader: Some(Arc::clone(&loader)),
+        ..Default::default()
+    };
+    let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(parser_options));
     doc.add_stylesheet(C::CssSystem::load_default_useragent_stylesheet());
+
+    // `@font-face` web fonts: the same walk the tab worker runs, fetching
+    // through this renderer's loader and registering into the inherited font
+    // system — so text set in a web font lays out here exactly as in-process.
+    if let Some(base) = &base_url {
+        crate::html::web_fonts::load_web_fonts::<C>(&doc, base, loader.as_ref(), &mut |bytes, family| {
+            fonts.lock().register_font(bytes, Some(family))
+        });
+    }
 
     // Stage 1: render tree.
     let adapter = GosubDocumentAdapter::<C>::new(Arc::new(doc));

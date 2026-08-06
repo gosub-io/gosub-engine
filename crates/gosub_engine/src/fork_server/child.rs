@@ -102,6 +102,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
             },
             ToForkServer::RenderPage {
                 html,
+                url,
                 viewport_width,
                 viewport_height,
             } => match &tier {
@@ -120,6 +121,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                         &forked_loader,
                         font_access,
                         &html,
+                        &url,
                         viewport_width,
                         viewport_height,
                     );
@@ -298,6 +300,7 @@ fn fork_and_render<C: RenderConfiguration>(
     forked_loader: &Arc<ForkedResourceLoader>,
     font_access: bool,
     html: &str,
+    page_url: &str,
     viewport_width: f64,
     viewport_height: f64,
 ) -> Result<(crate::fork_server::protocol::PageSummary, Vec<(TileHeader, OwnedFd)>), String> {
@@ -325,8 +328,15 @@ fn fork_and_render<C: RenderConfiguration>(
                 gosub_sandbox::exit_now(1);
             };
             let shared: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(owned));
-            let (summary, baked) =
-                renderer::render_page::<C>(html, viewport_width, viewport_height, shared, Arc::clone(media_store));
+            let (summary, baked) = renderer::render_page::<C>(
+                html,
+                page_url,
+                viewport_width,
+                viewport_height,
+                shared,
+                Arc::clone(media_store),
+                Arc::clone(forked_loader) as Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
+            );
 
             // Seal every CPU tile into an immutable memfd. All of this —
             // memfd_create, ftruncate, mmap, the seals — is in the renderer

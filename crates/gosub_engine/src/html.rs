@@ -1,5 +1,6 @@
 //! HTML parsing entry points and the render-side configuration traits.
 mod parser;
+pub(crate) mod web_fonts;
 
 pub use parser::parse_main_document_stream;
 pub use parser::{DocumentError, HtmlParseConfig, ResourceHint};
