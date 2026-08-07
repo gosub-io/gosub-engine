@@ -7,4 +7,5 @@ pub mod render;
 pub mod rendertree_builder;
 #[cfg(test)]
 mod tests;
+pub mod tile_budget;
 pub mod tiler;

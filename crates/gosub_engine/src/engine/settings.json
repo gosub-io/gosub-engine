@@ -247,6 +247,12 @@
       "description": "Square tile dimension (pixels) used by the rasterization grid."
     },
     {
+      "key": "tile.cache_budget_mb",
+      "type": "u",
+      "default": "u:128",
+      "description": "Memory budget (MiB) per tab for cached rasterized tiles. Least-recently used tiles outside the viewport are evicted when the budget is exceeded. 0 disables the budget."
+    },
+    {
       "key": "clear_color",
       "type": "s",
       "default": "s:#ffffffff",
