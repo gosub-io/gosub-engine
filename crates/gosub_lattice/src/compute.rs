@@ -3,9 +3,9 @@ use anyhow::Result;
 
 use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
 use crate::model::{build_model, RowGroup};
-use crate::sizing::columns::compute_column_widths;
+use crate::sizing::columns::{column_specs, compute_column_widths};
 use crate::sizing::rows::{compute_row_heights, read_border, read_padding};
-use crate::types::{CellLayout, CssLength, CssProp};
+use crate::types::{CellLayout, CssLength, CssProp, TableSizing};
 use crate::TableTree;
 
 /// Entry point for the CSS table layout algorithm.
@@ -55,6 +55,15 @@ pub fn compute_table_layout<T: TableTree>(
         return Ok((0.0, 0.0));
     }
 
+    // Explicit widths from <colgroup>/<col> elements. Under fixed layout the
+    // col elements can define columns beyond those implied by any cell.
+    let col_specs = column_specs(tree, &model);
+    let n_cols = if model.sizing == TableSizing::Fixed {
+        n_cols.max(col_specs.len())
+    } else {
+        n_cols
+    };
+
     // Resolve table width
     let table_width = match tree.css_length(model.node, CssProp::Width) {
         CssLength::Px(w) => w,
@@ -69,7 +78,7 @@ pub fn compute_table_layout<T: TableTree>(
         .chain(footer_grids.iter())
         .collect();
 
-    let col_widths = compute_column_widths(tree, n_cols, table_width, spacing_x, &all_grids);
+    let col_widths = compute_column_widths(tree, n_cols, table_width, spacing_x, &all_grids, model.sizing, &col_specs);
 
     // Precompute cumulative column x-offsets (relative to the row's left edge).
     // col_x[i] = x of the left edge of column i (within a row).

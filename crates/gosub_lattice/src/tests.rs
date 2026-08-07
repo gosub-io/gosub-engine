@@ -646,4 +646,102 @@ mod layout_tests {
         let host_layout = tree.outer.layout(host_cell).expect("host cell");
         assert_approx!(host_layout.size.height, 40.0, "host cell height");
     }
+
+    // Fixed layout: widths come from the first row only; later rows are ignored.
+    #[test]
+    fn fixed_layout_widths_from_first_row() {
+        let (mut tree, root) = MockTable::new(600.0)
+            .spacing(0.0, 0.0)
+            .fixed()
+            .body_row(vec![
+                cell("a").width(150.0).padding(0.0),
+                cell("b").padding(0.0),
+                cell("c").padding(0.0),
+            ])
+            .body_row(vec![
+                cell("d").padding(0.0),
+                cell("e").width(900.0).padding(0.0), // row 2: must be ignored
+                cell("f").padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 600.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[0]).unwrap().size.width, 150.0, "explicit col");
+        assert_approx!(tree.layout(cells[1]).unwrap().size.width, 225.0, "auto col = (600-150)/2");
+        assert_approx!(tree.layout(cells[2]).unwrap().size.width, 225.0, "auto col = (600-150)/2");
+        assert_approx!(tree.layout(cells[4]).unwrap().size.width, 225.0, "row-2 width ignored");
+    }
+
+    // Fixed layout: <col> widths claim columns before the first row's cells,
+    // and content widths play no part.
+    #[test]
+    fn fixed_layout_col_widths_and_equal_split() {
+        let (mut tree, root) = MockTable::new(600.0)
+            .spacing(0.0, 0.0)
+            .fixed()
+            .col(Some(100.0))
+            .col(None)
+            .col(None)
+            .body_row(vec![
+                cell("a").padding(0.0),
+                cell("b").content_width(500.0).padding(0.0), // content must be ignored
+                cell("c").padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 600.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[0]).unwrap().size.width, 100.0, "col-element width");
+        assert_approx!(tree.layout(cells[1]).unwrap().size.width, 250.0, "auto col = (600-100)/2");
+        assert_approx!(tree.layout(cells[2]).unwrap().size.width, 250.0, "auto col = (600-100)/2");
+    }
+
+    // Fixed layout: a colspan cell's width divides evenly over its columns.
+    #[test]
+    fn fixed_layout_colspan_divides_width() {
+        let (mut tree, root) = MockTable::new(400.0)
+            .spacing(0.0, 0.0)
+            .fixed()
+            .body_row(vec![cell("ab").width(200.0).colspan(2).padding(0.0), cell("c").padding(0.0)])
+            .body_row(vec![
+                cell("d").padding(0.0),
+                cell("e").padding(0.0),
+                cell("f").padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 400.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[0]).unwrap().size.width, 200.0, "colspan cell keeps its width");
+        assert_approx!(tree.layout(cells[1]).unwrap().size.width, 200.0, "third col gets remainder");
+        assert_approx!(tree.layout(cells[2]).unwrap().size.width, 100.0, "spanned col = 200/2");
+        assert_approx!(tree.layout(cells[3]).unwrap().size.width, 100.0, "spanned col = 200/2");
+    }
+
+    // Auto layout: <col> widths seed columns; the rest distribute as usual.
+    #[test]
+    fn col_widths_in_auto_layout() {
+        let (mut tree, root) = MockTable::new(300.0)
+            .spacing(0.0, 0.0)
+            .col(Some(80.0))
+            .col(None)
+            .col(None)
+            .body_row(vec![
+                cell("a").padding(0.0),
+                cell("b").padding(0.0),
+                cell("c").padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 300.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[0]).unwrap().size.width, 80.0, "col-element width");
+        assert_approx!(tree.layout(cells[1]).unwrap().size.width, 110.0, "auto col = (300-80)/2");
+        assert_approx!(tree.layout(cells[2]).unwrap().size.width, 110.0, "auto col = (300-80)/2");
+    }
 }

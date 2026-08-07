@@ -25,8 +25,8 @@ cargo run -p gosub-screenshot -- file://$PWD/tests/data/tables/01-basic-grid.htm
 | `08-span-mix.html` | interlocking colspan+rowspan block puzzle | slot filling |
 | `09-widths-explicit.html` | px/% cell widths; explicit width on a row-2 cell | column algorithm beyond first row (**gap**) |
 | `10-table-width.html` | table width auto/px/%/100% | shrink-to-fit for auto (**gap**) |
-| `11-fixed-layout.html` | `table-layout: fixed` semantics | fixed layout (**gap**) |
-| `12-colgroup.html` | widths from `<col>`/`<colgroup>` | col widths (**gap**) |
+| `11-fixed-layout.html` | `table-layout: fixed` semantics | fixed layout (done 2026-08-07) |
+| `12-colgroup.html` | widths from `<col>`/`<colgroup>` | col widths (done 2026-08-07) |
 | `13-content-extremes.html` | unbreakable word, over-wide block | min-content column floors (**gap**) |
 | `14-border-spacing.html` | spacing 0 / 10px / asymmetric; padding | separate border model |
 | `15-border-collapse.html` | separate vs collapse, border conflict | border-collapse (**gap**) |
@@ -70,5 +70,10 @@ Broken or missing, beyond the known compute gaps:
 - **`text-align` on cells ignored** (20, numeric columns).
 - Confirmed compute gaps as expected: captions absent (05), rowspan height
   not distributed (07), later-row explicit widths ignored (09 table 2),
-  no shrink-to-fit auto width (10), `<col>` widths ignored (12),
-  border-collapse (15), vertical-align (18).
+  no shrink-to-fit auto width (10), border-collapse (15), vertical-align (18).
+- **Fixed 2026-08-07**: `table-layout: fixed` (11) and `<col>`/`<colgroup>`
+  widths (12) - new `TableSizing::Fixed` path in `sizing/columns.rs`
+  (col elements -> first-row cells with colspan division -> equal split of the
+  remainder; content never measured), col widths also seed auto layout;
+  pipeline grew `Display::TableColumn(Group)` (no box generated) and the
+  `table-layout` style property (Px(1.0) sentinel to lattice).

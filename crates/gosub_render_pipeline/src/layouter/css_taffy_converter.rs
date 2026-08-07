@@ -136,6 +136,11 @@ impl<'a> CssTaffyConverter<'a> {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Column;
             }
+            // <col>/<colgroup> generate no boxes; lattice reads their widths
+            // straight from the DOM.
+            Some(Value::Display(CssDisplay::TableColumn | CssDisplay::TableColumnGroup)) => {
+                ts.display = Display::None;
+            }
             Some(Value::Display(CssDisplay::InlineBlock)) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Row;
