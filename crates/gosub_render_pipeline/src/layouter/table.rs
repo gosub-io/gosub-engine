@@ -5,6 +5,7 @@ use crate::common::document::pipeline_doc::PipelineDocument;
 use crate::common::document::style::{Display, StyleProperty, Unit, Value};
 use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
+use crate::layouter::taffy::TaffyLayouter;
 use crate::layouter::{ElementContext, LayoutElementId, LayoutElementNode, LayoutTree};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,6 +16,7 @@ use std::sync::Arc;
 /// `compute_table_layout` returns.
 pub struct PipelineTableTree<'a> {
     doc: &'a dyn PipelineDocument,
+    layouter: &'a mut TaffyLayouter,
     layout_tree: &'a mut LayoutTree,
     dom_to_layout: &'a HashMap<DomNodeId, LayoutElementId>,
     /// Relative CellLayouts written by `compute_table_layout`.
@@ -24,15 +26,29 @@ pub struct PipelineTableTree<'a> {
 impl<'a> PipelineTableTree<'a> {
     pub fn new(
         doc: &'a dyn PipelineDocument,
+        layouter: &'a mut TaffyLayouter,
         layout_tree: &'a mut LayoutTree,
         dom_to_layout: &'a HashMap<DomNodeId, LayoutElementId>,
     ) -> Self {
         Self {
             doc,
+            layouter,
             layout_tree,
             dom_to_layout,
             pending: HashMap::new(),
         }
+    }
+
+    /// True when the DOM subtree under `id` contains a `display: table` node.
+    /// Such cells keep the first-pass height approximation: re-running taffy on
+    /// them would clobber the box models lattice computed for the inner table.
+    fn subtree_contains_table(&self, id: DomNodeId) -> bool {
+        self.doc.children(id).iter().any(|&child| {
+            matches!(
+                self.doc.get_own_style(child, &StyleProperty::Display),
+                Some(Value::Display(Display::Table))
+            ) || self.subtree_contains_table(child)
+        })
     }
 
     /// Sum of the border-box heights of the nested tables directly contained in a cell (not
@@ -261,21 +277,50 @@ impl TableTree for PipelineTableTree<'_> {
         self.pending.insert(id, layout);
     }
 
-    fn layout_cell(&mut self, id: DomNodeId, _available_width: f32) -> f32 {
-        // Re-use the content height from the Taffy first pass, which correctly
-        // measured text via Parley. This is an approximation - cell content
-        // was measured in a flex context rather than block - but it is far better
-        // than 0 and covers the most common case (single column of text).
-        if let Some(&layout_id) = self.dom_to_layout.get(&id) {
+    fn layout_cell(&mut self, id: DomNodeId, available_width: f32) -> f32 {
+        let Some(&layout_id) = self.dom_to_layout.get(&id) else {
+            return 0.0;
+        };
+
+        // Cells hosting a nested table re-use the first-pass height instead of
+        // re-laying-out: the nested table's real height is only known after
+        // lattice lays it out, and the second (bottom-up) pass in
+        // `post_process_tables` propagates it up here.
+        if self.subtree_contains_table(id) {
             if let Some(element) = self.layout_tree.arena.get(&layout_id) {
                 let taffy_h = element.box_model.content_box.height as f32;
-                // A cell containing a nested table must be at least as tall as that table.
-                // The nested table's real height is only known after lattice lays it out, so
-                // the second (bottom-up) pass in `post_process_tables` propagates it up here.
                 return taffy_h.max(self.nested_table_height(layout_id));
             }
+            return 0.0;
         }
-        0.0
+
+        // Re-run taffy on the cell subtree at the lattice column width so the
+        // content (wrapping, alignment, stacked blocks) is laid out against the
+        // real cell geometry instead of the first pass's equal-share width.
+        // `available_width` is the inner (content) width; taffy sizes the cell's
+        // border box, so add the cell's own border and padding back.
+        let extras = self
+            .layout_tree
+            .arena
+            .get(&layout_id)
+            .map(|el| {
+                (el.box_model.border.left + el.box_model.border.right + el.box_model.padding.left
+                    + el.box_model.padding.right) as f32
+            })
+            .unwrap_or(0.0);
+        if let Some(content_h) = self
+            .layouter
+            .relayout_cell(self.layout_tree, layout_id, available_width + extras)
+        {
+            return content_h;
+        }
+
+        // Fallback: the content height from the taffy first pass.
+        self.layout_tree
+            .arena
+            .get(&layout_id)
+            .map(|el| el.box_model.content_box.height as f32)
+            .unwrap_or(0.0)
     }
 
     fn cell_content_width(&self, id: DomNodeId) -> f32 {
@@ -293,7 +338,11 @@ impl TableTree for PipelineTableTree<'_> {
 
 /// Post-process all `display: table` nodes in the layout tree after the
 /// Taffy first pass. Correct positions are written back via `gosub_lattice`.
-pub fn post_process_tables(layout_tree: &mut LayoutTree, dom_to_layout: &HashMap<DomNodeId, LayoutElementId>) {
+/// Needs the layouter itself (not just the mapping) so cells can be re-laid-out
+/// at their final lattice widths via `relayout_cell`.
+pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut LayoutTree) {
+    // Clone the mapping so `layouter` can be borrowed mutably per table below.
+    let dom_to_layout = layouter.dom_to_layout_mapping().clone();
     // Clone the doc Arc up front so we don't hold a borrow on layout_tree
     // when we later pass it mutably to PipelineTableTree.
     let doc: Arc<dyn PipelineDocument> = Arc::clone(&layout_tree.render_tree.doc);
@@ -304,7 +353,7 @@ pub fn post_process_tables(layout_tree: &mut LayoutTree, dom_to_layout: &HashMap
     // been updated by the outer table's apply_positions call.
     let mut table_nodes: Vec<(DomNodeId, LayoutElementId)> = Vec::new();
     if let Some(root_dom_id) = doc.root() {
-        collect_tables_preorder(&*doc, root_dom_id, dom_to_layout, &mut table_nodes);
+        collect_tables_preorder(&*doc, root_dom_id, &dom_to_layout, &mut table_nodes);
     }
 
     log::info!("lattice: post_process_tables found {} table node(s)", table_nodes.len());
@@ -321,7 +370,7 @@ pub fn post_process_tables(layout_tree: &mut LayoutTree, dom_to_layout: &HashMap
             table_nodes.iter().rev().copied().collect()
         };
         for (table_dom_id, table_layout_id) in order {
-            lay_out_one_table(&*doc, layout_tree, dom_to_layout, table_dom_id, table_layout_id);
+            lay_out_one_table(&*doc, layouter, layout_tree, &dom_to_layout, table_dom_id, table_layout_id);
         }
     }
 }
@@ -330,6 +379,7 @@ pub fn post_process_tables(layout_tree: &mut LayoutTree, dom_to_layout: &HashMap
 /// own size back into the layout tree.
 fn lay_out_one_table(
     doc: &dyn PipelineDocument,
+    layouter: &mut TaffyLayouter,
     layout_tree: &mut LayoutTree,
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
     table_dom_id: DomNodeId,
@@ -352,7 +402,7 @@ fn lay_out_one_table(
                 .unwrap_or(0.0)
         });
 
-    let mut tree = PipelineTableTree::new(doc, layout_tree, dom_to_layout);
+    let mut tree = PipelineTableTree::new(doc, layouter, layout_tree, dom_to_layout);
 
     match gosub_lattice::compute_table_layout(&mut tree, table_dom_id, available_width, None) {
         Ok((table_width, table_height)) => {

@@ -264,86 +264,7 @@ impl CanLayout for TaffyLayouter {
         if let Err(e) = self
             .tree
             .compute_layout_with_measure(self.root_id, size, |v_kd, v_as, _v_ni, v_nc, _v_s| {
-                // If taffy already knows both dimensions, no measurement needed.
-                if let (Some(w), Some(h)) = (v_kd.width, v_kd.height) {
-                    return Size { width: w, height: h };
-                }
-
-                match v_nc {
-                    Some(TaffyContext::Text(text_ctx)) => {
-                        let max_width = if text_ctx.no_wrap {
-                            // white-space: nowrap - measure at unlimited width so text never wraps
-                            1_000_000_000.0_f64
-                        } else {
-                            match v_as.width {
-                                AvailableSpace::Definite(width) => width as f64,
-                                AvailableSpace::MaxContent => 1_000_000_000.0, // f64::MAX doesn't work. Seems some kind of overflow. Same goes for f32::MAX
-                                AvailableSpace::MinContent => 0.0,
-                            }
-                        };
-
-                        let cache_key: MeasureKey = (
-                            text_ctx.text.clone(),
-                            text_ctx.font_info.family.clone(),
-                            (text_ctx.font_info.size as f32).to_bits(),
-                            (text_ctx.font_info.line_height as f32).to_bits(),
-                            text_ctx.font_info.weight,
-                            (max_width as f32).to_bits(),
-                            (text_ctx.font_info.letter_spacing as f32).to_bits(),
-                        );
-                        if let Some(&cached) = measure_cache.get(&cache_key) {
-                            return cached;
-                        }
-
-                        // Measure through the shared font system. The lock is released
-                        // immediately after the call so other callers (e.g. the
-                        // rasterizer) can interleave without contention.
-                        let text_layout = {
-                            let mut fs = font_system.lock();
-                            get_text_layout(text_ctx.text.as_str(), &text_ctx.font_info, max_width, &mut *fs)
-                        };
-                        match text_layout {
-                            Ok(text_layout) => {
-                                // Ceil width to the nearest CSS pixel. Parley returns a fractional
-                                // f64 width; when taffy truncates to f32 and feeds that back as
-                                // available_width, parley re-measures with slightly less space than
-                                // the text requires and wraps. Ceiling ensures allocated width ≥
-                                // natural text width, preventing spurious wrapping at the boundary.
-                                let mut width = text_layout.width.ceil() as f32;
-
-                                // Parley strips trailing whitespace (including NBSP) from the line-box
-                                // advance width. When we appended U+00A0 as a trailing-space marker
-                                // for a text node that ended with whitespace, that NBSP is never
-                                // counted by parley, so taffy under-allocates and pango clips it.
-                                // Detect the marker and add the missing space width manually.
-                                // Whitespace-only nodes ("\u{00A0}") have their width fixed explicitly
-                                // in the taffy style, so the measure callback is not invoked for them.
-                                if text_ctx.text.ends_with('\u{00A0}') && text_ctx.text != "\u{00A0}" {
-                                    width += (text_ctx.font_info.size * 0.3) as f32;
-                                }
-
-                                let result = Size {
-                                    width,
-                                    // Ceil height so the layout height matches the integer-pixel surface
-                                    // that pango creates (prevents descenders from overflowing the box).
-                                    height: text_layout.height.ceil() as f32,
-                                };
-                                measure_cache.insert(cache_key, result);
-                                result
-                            }
-                            Err(_) => Size::ZERO,
-                        }
-                    }
-                    // Replaced elements: honour whichever dimension CSS has constrained and
-                    // derive the other from the intrinsic aspect ratio, so e.g. an
-                    // `height: 30px` logo keeps its shape instead of stretching to its full
-                    // intrinsic width.
-                    Some(TaffyContext::Image(image_ctx)) => measure_replaced(v_kd, image_ctx.dimension),
-                    // SVG-backed <img> elements carry their intrinsic size the same way.
-                    // Without this arm they measured as 0×0 and collapsed (e.g. the HN logo).
-                    Some(TaffyContext::Svg(svg_ctx)) => measure_replaced(v_kd, svg_ctx.dimension),
-                    _ => Size::ZERO,
-                }
+                measure_node(&font_system, &mut measure_cache, v_kd, v_as, v_nc)
             })
         {
             log::error!("Failed to compute taffy layout: {:?}", e);
@@ -358,7 +279,7 @@ impl CanLayout for TaffyLayouter {
         let root_id = layout_tree.root_id;
         let root_width = layout_tree.root_dimension.width;
         self.populate_boxmodel(&mut layout_tree, root_id, Coordinate::ZERO, root_width);
-        post_process_tables(&mut layout_tree, &self.dom_to_layout_mapping);
+        post_process_tables(self, &mut layout_tree);
 
         if let Some(root) = layout_tree.get_node_by_id(root_id) {
             let w = root.box_model.margin_box.width as f32;
@@ -371,6 +292,62 @@ impl CanLayout for TaffyLayouter {
 }
 
 impl TaffyLayouter {
+    pub(super) fn dom_to_layout_mapping(&self) -> &HashMap<DomNodeId, LayoutElementId> {
+        &self.dom_to_layout_mapping
+    }
+
+    /// Re-run taffy layout for a single table-cell subtree at the border-box
+    /// width lattice assigned to it, then rewrite the subtree's box models
+    /// anchored at the cell's current absolute position (lattice repositions the
+    /// cell itself afterwards via `apply_positions`). Returns the cell's
+    /// content-box height at that width, or `None` when the cell is unknown or
+    /// the compute fails.
+    pub(super) fn relayout_cell(
+        &mut self,
+        layout_tree: &mut LayoutTree,
+        cell_layout_id: LayoutElementId,
+        border_box_width: f32,
+    ) -> Option<f32> {
+        let &taffy_id = self.layout_taffy_mapping.get(&cell_layout_id)?;
+        let old_origin = layout_tree
+            .get_node_by_id(cell_layout_id)
+            .map(|el| Coordinate::new(el.box_model.border_box.x, el.box_model.border_box.y))?;
+
+        // Same borrow dance as `layout()`: the closure must not capture `self`
+        // while `self.tree` is mutably borrowed by the compute call.
+        let font_system = Arc::clone(&self.font_system);
+        let mut measure_cache: HashMap<MeasureKey, Size<f32>> = std::mem::take(&mut self.measure_cache);
+        let size = Size {
+            width: AvailableSpace::Definite(border_box_width),
+            height: AvailableSpace::MaxContent,
+        };
+        let result = self
+            .tree
+            .compute_layout_with_measure(taffy_id, size, |v_kd, v_as, _v_ni, v_nc, _v_s| {
+                measure_node(&font_system, &mut measure_cache, v_kd, v_as, v_nc)
+            });
+        self.measure_cache = measure_cache;
+        if let Err(e) = result {
+            log::warn!("lattice: cell re-layout failed for {:?}: {:?}", cell_layout_id, e);
+            return None;
+        }
+
+        // The cell is the computation root, so its taffy location is meaningless
+        // here; cancel it out so the subtree stays anchored at the cell's
+        // current absolute position.
+        let root_location = self
+            .tree
+            .layout(taffy_id)
+            .map(|l| Coordinate::new(l.location.x as f64, l.location.y as f64))
+            .unwrap_or(Coordinate::ZERO);
+        let offset = Coordinate::new(old_origin.x - root_location.x, old_origin.y - root_location.y);
+        self.populate_boxmodel(layout_tree, cell_layout_id, offset, border_box_width as f64);
+
+        layout_tree
+            .get_node_by_id(cell_layout_id)
+            .map(|el| el.box_model.content_box.height as f32)
+    }
+
     fn populate_boxmodel(
         &self,
         layout_tree: &mut LayoutTree,
@@ -1321,6 +1298,98 @@ fn to_element_context(taffy_context: Option<&TaffyContext>) -> ElementContext {
 }
 
 /// Converts a taffy layout to our own BoxModel structure
+/// Measure callback shared by the full first pass and per-cell table re-layout
+/// (`relayout_cell`). Text is shaped through the font system with memoization;
+/// replaced elements resolve against their intrinsic dimensions.
+fn measure_node(
+    font_system: &Arc<Mutex<dyn FontSystem>>,
+    measure_cache: &mut HashMap<MeasureKey, Size<f32>>,
+    known_dimensions: Size<Option<f32>>,
+    available_space: Size<AvailableSpace>,
+    node_context: Option<&mut TaffyContext>,
+) -> Size<f32> {
+    // If taffy already knows both dimensions, no measurement needed.
+    if let (Some(w), Some(h)) = (known_dimensions.width, known_dimensions.height) {
+        return Size { width: w, height: h };
+    }
+
+    match node_context {
+        Some(TaffyContext::Text(text_ctx)) => {
+            let max_width = if text_ctx.no_wrap {
+                // white-space: nowrap - measure at unlimited width so text never wraps
+                1_000_000_000.0_f64
+            } else {
+                match available_space.width {
+                    AvailableSpace::Definite(width) => width as f64,
+                    AvailableSpace::MaxContent => 1_000_000_000.0, // f64::MAX doesn't work. Seems some kind of overflow. Same goes for f32::MAX
+                    AvailableSpace::MinContent => 0.0,
+                }
+            };
+
+            let cache_key: MeasureKey = (
+                text_ctx.text.clone(),
+                text_ctx.font_info.family.clone(),
+                (text_ctx.font_info.size as f32).to_bits(),
+                (text_ctx.font_info.line_height as f32).to_bits(),
+                text_ctx.font_info.weight,
+                (max_width as f32).to_bits(),
+                (text_ctx.font_info.letter_spacing as f32).to_bits(),
+            );
+            if let Some(&cached) = measure_cache.get(&cache_key) {
+                return cached;
+            }
+
+            // Measure through the shared font system. The lock is released
+            // immediately after the call so other callers (e.g. the
+            // rasterizer) can interleave without contention.
+            let text_layout = {
+                let mut fs = font_system.lock();
+                get_text_layout(text_ctx.text.as_str(), &text_ctx.font_info, max_width, &mut *fs)
+            };
+            match text_layout {
+                Ok(text_layout) => {
+                    // Ceil width to the nearest CSS pixel. Parley returns a fractional
+                    // f64 width; when taffy truncates to f32 and feeds that back as
+                    // available_width, parley re-measures with slightly less space than
+                    // the text requires and wraps. Ceiling ensures allocated width >=
+                    // natural text width, preventing spurious wrapping at the boundary.
+                    let mut width = text_layout.width.ceil() as f32;
+
+                    // Parley strips trailing whitespace (including NBSP) from the line-box
+                    // advance width. When we appended U+00A0 as a trailing-space marker
+                    // for a text node that ended with whitespace, that NBSP is never
+                    // counted by parley, so taffy under-allocates and pango clips it.
+                    // Detect the marker and add the missing space width manually.
+                    // Whitespace-only nodes ("\u{00A0}") have their width fixed explicitly
+                    // in the taffy style, so the measure callback is not invoked for them.
+                    if text_ctx.text.ends_with('\u{00A0}') && text_ctx.text != "\u{00A0}" {
+                        width += (text_ctx.font_info.size * 0.3) as f32;
+                    }
+
+                    let result = Size {
+                        width,
+                        // Ceil height so the layout height matches the integer-pixel surface
+                        // that pango creates (prevents descenders from overflowing the box).
+                        height: text_layout.height.ceil() as f32,
+                    };
+                    measure_cache.insert(cache_key, result);
+                    result
+                }
+                Err(_) => Size::ZERO,
+            }
+        }
+        // Replaced elements: honour whichever dimension CSS has constrained and
+        // derive the other from the intrinsic aspect ratio, so e.g. an
+        // `height: 30px` logo keeps its shape instead of stretching to its full
+        // intrinsic width.
+        Some(TaffyContext::Image(image_ctx)) => measure_replaced(known_dimensions, image_ctx.dimension),
+        // SVG-backed <img> elements carry their intrinsic size the same way.
+        // Without this arm they measured as 0x0 and collapsed (e.g. the HN logo).
+        Some(TaffyContext::Svg(svg_ctx)) => measure_replaced(known_dimensions, svg_ctx.dimension),
+        _ => Size::ZERO,
+    }
+}
+
 pub fn taffy_layout_to_boxmodel(layout: &Layout, offset: Coordinate) -> box_model::BoxModel {
     box_model::BoxModel::new(
         // Border box
