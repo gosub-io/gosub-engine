@@ -200,6 +200,33 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             Some(Value::Keyword(intern(&s)))
         }
 
+        // ── border-spacing: one length (both axes) or two (horizontal vertical) ──
+        StyleProperty::BorderSpacingX | StyleProperty::BorderSpacingY => {
+            if let Some(list) = p.as_list() {
+                let lengths: Vec<f32> = list
+                    .iter()
+                    .filter_map(|v| {
+                        if v.as_unit().is_some() {
+                            Some(v.unit_to_px())
+                        } else {
+                            // Bare `0` is a valid length.
+                            v.as_number()
+                        }
+                    })
+                    .collect();
+                let px = match (prop, lengths.as_slice()) {
+                    (StyleProperty::BorderSpacingY, [_, y, ..]) => *y,
+                    (_, [x, ..]) => *x,
+                    _ => return None,
+                };
+                return Some(Value::Unit(px, Unit::Px));
+            }
+            if p.as_unit().is_some() {
+                return Some(Value::Unit(p.unit_to_px(), Unit::Px));
+            }
+            p.as_number().map(|n| Value::Unit(n, Unit::Px))
+        }
+
         // ── Default: unit-based or keyword ────────────────────────────────
         _ => {
             if let Some((v, unit)) = p.as_unit() {

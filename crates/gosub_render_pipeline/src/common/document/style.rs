@@ -299,6 +299,11 @@ pub enum StyleProperty {
     ZIndex,
     LetterSpacing,
     MixBlendMode,
+    /// Horizontal component of `border-spacing` (both variants read the same
+    /// declaration; X takes the first length, Y the second, per CSS 2 §17.6.1).
+    BorderSpacingX,
+    /// Vertical component of `border-spacing`.
+    BorderSpacingY,
 }
 
 impl StyleProperty {
@@ -383,6 +388,8 @@ impl StyleProperty {
             StyleProperty::ZIndex => 75,
             StyleProperty::LetterSpacing => 76,
             StyleProperty::MixBlendMode => 77,
+            StyleProperty::BorderSpacingX => 78,
+            StyleProperty::BorderSpacingY => 79,
         }
     }
 
@@ -917,6 +924,18 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("normal"),
     },
+    // 78/79 border-spacing - inherited; initial = 0. Two internal longhands share the
+    // one CSS declaration: the value bridge picks the first length for X, second for Y.
+    PropertyMeta {
+        name: "border-spacing",
+        inherited: true,
+        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+    },
+    PropertyMeta {
+        name: "border-spacing",
+        inherited: true,
+        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+    },
 ];
 
 // ── NodeStyle - replaces StylePropertyList ────────────────────────────────────
@@ -1056,6 +1075,8 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         75 => Some(StyleProperty::ZIndex),
         76 => Some(StyleProperty::LetterSpacing),
         77 => Some(StyleProperty::MixBlendMode),
+        78 => Some(StyleProperty::BorderSpacingX),
+        79 => Some(StyleProperty::BorderSpacingY),
         _ => None,
     }
 }

@@ -258,6 +258,23 @@ fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
 
         "border" => apply_border_shorthand(style, value),
 
+        // One length applies to both axes; two are horizontal then vertical.
+        "border-spacing" => {
+            let parts: Vec<&str> = value.split_whitespace().collect();
+            match parts.as_slice() {
+                [both] => {
+                    let v = parse_style_value(both);
+                    style.set(StyleProperty::BorderSpacingX, v.clone());
+                    style.set(StyleProperty::BorderSpacingY, v);
+                }
+                [x, y, ..] => {
+                    style.set(StyleProperty::BorderSpacingX, parse_style_value(x));
+                    style.set(StyleProperty::BorderSpacingY, parse_style_value(y));
+                }
+                [] => {}
+            }
+        }
+
         "color" => style.set(StyleProperty::Color, parse_named_color(value)),
         "background-color" => style.set(StyleProperty::BackgroundColor, parse_named_color(value)),
         "background" => {

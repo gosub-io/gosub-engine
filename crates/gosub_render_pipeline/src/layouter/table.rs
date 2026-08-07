@@ -248,13 +248,14 @@ impl TableTree for PipelineTableTree<'_> {
             CssProp::PaddingRight => StyleProperty::PaddingRight,
             CssProp::PaddingBottom => StyleProperty::PaddingBottom,
             CssProp::PaddingLeft => StyleProperty::PaddingLeft,
-            // Keyword-only properties: map via get_style to get inherited value
-            CssProp::BorderCollapse
-            | CssProp::BorderSpacingX
-            | CssProp::BorderSpacingY
-            | CssProp::TableLayout
-            | CssProp::VerticalAlign
-            | CssProp::CaptionSide => return CssLength::Auto,
+            // border-spacing is inherited, so get_style (below) resolves it through
+            // the cascade down to the UA default (`table { border-spacing: 2px }`).
+            CssProp::BorderSpacingX => StyleProperty::BorderSpacingX,
+            CssProp::BorderSpacingY => StyleProperty::BorderSpacingY,
+            // Keyword-only properties not wired up yet.
+            CssProp::BorderCollapse | CssProp::TableLayout | CssProp::VerticalAlign | CssProp::CaptionSide => {
+                return CssLength::Auto
+            }
         };
 
         match self.doc.get_style(id, &style_prop) {
