@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>08 - colspan + rowspan combined</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; }
+  td { border: 1px solid #999; padding: 6px; background-color: #e8f0fe; }
+  .big { background-color: #ffd9b3; }
+  .wide { background-color: #d9ffb3; }
+  .tall { background-color: #f0d9ff; }
+</style>
+</head>
+<body>
+<h3>Combined spans - a 2x2 block, plus interlocking spans</h3>
+<p>Expected: the orange cell occupies a 2-column-by-2-row block in the top
+left; the purple cell spans rows 1-3 in the last column; the green cell
+spans columns 1-3 in row 4. Slot-filling must route the smaller cells
+around all three without overlap.</p>
+<table>
+  <tr><td class="big" colspan="2" rowspan="2">2x2 block</td><td>r1c3</td><td class="tall" rowspan="3">rows 1-3</td></tr>
+  <tr><td>r2c3</td></tr>
+  <tr><td>r3c1</td><td>r3c2</td><td>r3c3</td></tr>
+  <tr><td class="wide" colspan="3">columns 1-3</td><td>r4c4</td></tr>
+</table>
+</body>
+</html>

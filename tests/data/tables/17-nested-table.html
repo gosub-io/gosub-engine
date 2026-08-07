@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>17 - table inside a table cell</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; }
+  td { border: 1px solid #999; padding: 6px; background-color: #e8f0fe; }
+  .outer { width: 600px; }
+  .inner td { background-color: #ffd9b3; }
+</style>
+</head>
+<body>
+<h3>Nested tables - a 2x2 table inside a cell of a 2x2 table</h3>
+<p>Expected: the inner orange table lays out independently inside its cell,
+sized by the cell's available width. Its host row grows to contain it. The
+inner table's cells must not be captured by the outer table's grid.</p>
+<table class="outer">
+  <tr>
+    <td>plain cell</td>
+    <td>
+      <table class="inner">
+        <tr><td>i-a</td><td>i-b</td></tr>
+        <tr><td>i-c</td><td>i-d</td></tr>
+      </table>
+    </td>
+  </tr>
+  <tr><td>bottom left</td><td>bottom right</td></tr>
+</table>
+</body>
+</html>
