@@ -119,7 +119,9 @@ impl<'a> CssTaffyConverter<'a> {
                 ts.flex_direction = FlexDirection::Row;
             }
             Some(Value::Display(CssDisplay::TableCell)) => {
-                ts.display = Display::Flex;
+                // Block inner layout so child blocks stack vertically; flex_grow
+                // still applies to the cell as an item of its flex-row row.
+                ts.display = Display::Block;
                 ts.flex_grow = 1.0;
             }
             Some(Value::Display(CssDisplay::TableFooterGroup)) => {

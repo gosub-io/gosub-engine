@@ -51,11 +51,13 @@ Broken or missing, beyond the known compute gaps:
 
 - **Auto columns sized from row 1 only** - in 01, "seven"/"eight" clip
   because rows 2+ never influence the natural width; 08 degenerates badly.
-- **Block children in cells lay out horizontally** - stacked `<div>`s
-  render side by side on one line (07, 16, 18); `<br>` adds no height
-  either. This is in the cell-content callback path
-  (`layout_cell`/`gosub_render_pipeline`), not the table algorithm, and it
-  masks the row-height logic.
+- ~~**Block children in cells lay out horizontally**~~ - **fixed
+  2026-08-07**: cells now use block inner layout in the first pass
+  (`css_taffy_converter.rs`), and `layout_cell` re-runs taffy on the cell
+  subtree at the final lattice width (`TaffyLayouter::relayout_cell`), so
+  stacked blocks, wrapping, and `text-align` all resolve against real cell
+  geometry. Cells hosting nested tables keep the first-pass approximation
+  (re-layout would clobber the inner table's lattice output).
 - **No min-content floor** - 13: an unbreakable word squeezes neighbors
   into clipping; a 350px block overflows its column instead of widening it.
 - **`border-spacing` CSS never reaches the algorithm** - 14 renders
