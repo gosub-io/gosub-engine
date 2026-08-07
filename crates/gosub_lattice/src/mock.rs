@@ -94,6 +94,9 @@ pub struct MockTable {
     available_width: f32,
     border_spacing_x: f32,
     border_spacing_y: f32,
+    fixed_layout: bool,
+    /// One entry per `<col>` element: its explicit width, or `None` for auto.
+    cols: Vec<Option<f32>>,
     header_rows: Vec<Vec<MockCell>>,
     body_rows: Vec<Vec<MockCell>>,
     footer_rows: Vec<Vec<MockCell>>,
@@ -112,6 +115,18 @@ impl MockTable {
     pub fn spacing(mut self, x: f32, y: f32) -> Self {
         self.border_spacing_x = x;
         self.border_spacing_y = y;
+        self
+    }
+
+    /// `table-layout: fixed`.
+    pub fn fixed(mut self) -> Self {
+        self.fixed_layout = true;
+        self
+    }
+
+    /// Append a `<col>` element with an optional explicit width.
+    pub fn col(mut self, width: Option<f32>) -> Self {
+        self.cols.push(width);
         self
     }
 
@@ -141,7 +156,17 @@ impl MockTable {
     /// Convert into a raw [`MockTree`] (root NodeId is returned alongside).
     pub fn into_tree(self) -> (MockTree, u32) {
         let mut tree = MockTree::new(self.border_spacing_x, self.border_spacing_y);
+        tree.fixed_layout = self.fixed_layout;
         let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
+
+        if !self.cols.is_empty() {
+            let cg = tree.alloc(TableRole::ColumnGroup, None, 1, 1, None, None, 0.0, 0.0);
+            tree.add_child(root, cg);
+            for width in self.cols {
+                let col = tree.alloc(TableRole::Column, None, 1, 1, width, None, 0.0, 0.0);
+                tree.add_child(cg, col);
+            }
+        }
 
         if !self.header_rows.is_empty() {
             let hg = tree.alloc(TableRole::HeaderGroup, None, 1, 1, None, None, 0.0, 0.0);
@@ -208,6 +233,8 @@ pub struct MockTree {
     next_id: u32,
     border_spacing_x: f32,
     border_spacing_y: f32,
+    /// `table-layout: fixed`, reported for the table node via the Px(1.0) sentinel.
+    pub fixed_layout: bool,
 }
 
 impl MockTree {
@@ -217,6 +244,7 @@ impl MockTree {
             next_id: 0,
             border_spacing_x,
             border_spacing_y,
+            fixed_layout: false,
         }
     }
 
@@ -327,6 +355,7 @@ impl TableTree for MockTree {
             }
             CssProp::BorderSpacingX => CssLength::Px(self.border_spacing_x),
             CssProp::BorderSpacingY => CssLength::Px(self.border_spacing_y),
+            CssProp::TableLayout if node.role == TableRole::Table && self.fixed_layout => CssLength::Px(1.0),
             _ => CssLength::Auto,
         }
     }

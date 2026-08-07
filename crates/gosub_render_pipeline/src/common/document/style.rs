@@ -65,6 +65,10 @@ pub enum Display {
     TableHeaderGroup,
     TableRow,
     TableRowGroup,
+    /// `<col>` - defines column properties, generates no box of its own.
+    TableColumn,
+    /// `<colgroup>` - groups `<col>` elements, generates no box of its own.
+    TableColumnGroup,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -163,6 +167,8 @@ impl Value {
                 Display::TableHeaderGroup => "table-header-group",
                 Display::TableRow => "table-row",
                 Display::TableRowGroup => "table-row-group",
+                Display::TableColumn => "table-column",
+                Display::TableColumnGroup => "table-column-group",
             }
             .to_string(),
             Value::FontWeight(fw) => match fw {
@@ -304,6 +310,8 @@ pub enum StyleProperty {
     BorderSpacingX,
     /// Vertical component of `border-spacing`.
     BorderSpacingY,
+    /// `table-layout`: `auto` | `fixed`.
+    TableLayout,
 }
 
 impl StyleProperty {
@@ -390,6 +398,7 @@ impl StyleProperty {
             StyleProperty::MixBlendMode => 77,
             StyleProperty::BorderSpacingX => 78,
             StyleProperty::BorderSpacingY => 79,
+            StyleProperty::TableLayout => 80,
         }
     }
 
@@ -936,6 +945,12 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: true,
         initial_kind: InitialKind::Unit(0.0, Unit::Px),
     },
+    // 80 table-layout
+    PropertyMeta {
+        name: "table-layout",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("auto"),
+    },
 ];
 
 // ── NodeStyle - replaces StylePropertyList ────────────────────────────────────
@@ -1077,6 +1092,7 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         77 => Some(StyleProperty::MixBlendMode),
         78 => Some(StyleProperty::BorderSpacingX),
         79 => Some(StyleProperty::BorderSpacingY),
+        80 => Some(StyleProperty::TableLayout),
         _ => None,
     }
 }

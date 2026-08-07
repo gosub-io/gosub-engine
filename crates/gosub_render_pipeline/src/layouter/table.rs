@@ -2,7 +2,7 @@ use gosub_lattice::{CellLayout, CssLength, CssProp, TableRole, TableTree};
 
 use crate::common::document::node::{NodeId as DomNodeId, NodeType};
 use crate::common::document::pipeline_doc::PipelineDocument;
-use crate::common::document::style::{Display, StyleProperty, Unit, Value};
+use crate::common::document::style::{lookup, Display, StyleProperty, Unit, Value};
 use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
 use crate::layouter::taffy::TaffyLayouter;
@@ -221,6 +221,8 @@ impl TableTree for PipelineTableTree<'_> {
             Some(Value::Display(d)) => match d {
                 Display::Table => TableRole::Table,
                 Display::TableCaption => TableRole::Caption,
+                Display::TableColumnGroup => TableRole::ColumnGroup,
+                Display::TableColumn => TableRole::Column,
                 Display::TableRowGroup => TableRole::RowGroup,
                 Display::TableHeaderGroup => TableRole::HeaderGroup,
                 Display::TableFooterGroup => TableRole::FooterGroup,
@@ -252,10 +254,15 @@ impl TableTree for PipelineTableTree<'_> {
             // the cascade down to the UA default (`table { border-spacing: 2px }`).
             CssProp::BorderSpacingX => StyleProperty::BorderSpacingX,
             CssProp::BorderSpacingY => StyleProperty::BorderSpacingY,
-            // Keyword-only properties not wired up yet.
-            CssProp::BorderCollapse | CssProp::TableLayout | CssProp::VerticalAlign | CssProp::CaptionSide => {
-                return CssLength::Auto
+            // Px(1.0) is the lattice sentinel for `table-layout: fixed`.
+            CssProp::TableLayout => {
+                return match self.doc.get_style(id, &StyleProperty::TableLayout) {
+                    Value::Keyword(k) if lookup(k) == "fixed" => CssLength::Px(1.0),
+                    _ => CssLength::Auto,
+                };
             }
+            // Keyword-only properties not wired up yet.
+            CssProp::BorderCollapse | CssProp::VerticalAlign | CssProp::CaptionSide => return CssLength::Auto,
         };
 
         match self.doc.get_style(id, &style_prop) {

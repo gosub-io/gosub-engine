@@ -55,6 +55,8 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
                 "table-header-group" => Display::TableHeaderGroup,
                 "table-row" => Display::TableRow,
                 "table-row-group" => Display::TableRowGroup,
+                "table-column" => Display::TableColumn,
+                "table-column-group" => Display::TableColumnGroup,
                 _ => Display::Block,
             };
             Some(Value::Display(d))
