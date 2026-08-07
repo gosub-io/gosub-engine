@@ -60,9 +60,12 @@ Broken or missing, beyond the known compute gaps:
   (re-layout would clobber the inner table's lattice output).
 - **No min-content floor** - 13: an unbreakable word squeezes neighbors
   into clipping; a 350px block overflows its column instead of widening it.
-- **`border-spacing` CSS never reaches the algorithm** - 14 renders
-  identical gutters for 0 / 10px / 20px 4px (the mock-tree tests pass
-  because they inject spacing directly).
+- ~~**`border-spacing` CSS never reaches the algorithm**~~ - **fixed
+  2026-08-07**: `StyleProperty::BorderSpacingX/Y` added (two internal
+  longhands over the one `border-spacing` declaration; X = first length,
+  Y = second), wired through the cascade (inherited, UA default
+  `table { border-spacing: 2px }`), inline styles, and the
+  `PipelineTableTree` adapter. 14 renders 0 / 10px / 20px 4px correctly.
 - **Nested tables collapse to a sliver** (17).
 - **`text-align` on cells ignored** (20, numeric columns).
 - Confirmed compute gaps as expected: captions absent (05), rowspan height
