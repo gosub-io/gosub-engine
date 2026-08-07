@@ -127,6 +127,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     scroll_y: f64,
     /// True when only the scroll offset changed (no full re-layout needed).
     scroll_dirty: bool,
+    /// True when the scroll moved far enough that the raster window must be extended.
+    /// Cheaper than `render_dirty`: extending re-uses the cached layout.
+    raster_dirty: bool,
 
     /// Cached rasterized tiles for the full page. Valid until render_dirty is set.
     pipeline_cache: Option<PipelineCache>,
@@ -189,6 +192,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             scroll_x: 0.0,
             scroll_y: 0.0,
             scroll_dirty: false,
+            raster_dirty: false,
             pipeline_cache: None,
             scene_cache: None,
             hover_dirty: false,
@@ -241,6 +245,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.pipeline_cache = None;
         self.scene_cache = None;
         self.tile_budget.reset();
+        self.raster_dirty = false;
         self.hover_dirty = false;
         self.hover_leaf = None;
         self.hover_layout_element = None;
@@ -263,6 +268,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.pipeline_cache = None;
         self.scene_cache = None;
         self.tile_budget.reset();
+        self.raster_dirty = false;
     }
 
     /// Update the scroll offset without triggering a full re-layout.
@@ -280,10 +286,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.scroll_x = x;
         self.scroll_y = y;
         self.scroll_dirty = true;
-        // Scrolling toward a region whose tiles were evicted by the cache budget: compositing
-        // alone cannot restore pixels, so schedule a full re-render to re-rasterize them.
-        if self.tile_budget.needs_rerender(y, self.viewport.height as f64) {
-            self.render_dirty = true;
+        // Compositing cannot conjure up tiles that were never rastered or were evicted, so ask
+        // for a window extension rather than a full (re-laying-out) render.
+        let page_height = self.active_page_height().unwrap_or(0.0);
+        if self
+            .tile_budget
+            .needs_rerender(y, self.viewport.height as f64, page_height)
+        {
+            self.raster_dirty = true;
         }
     }
 
@@ -334,6 +344,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.pipeline_cache = Some(pipeline_build_cache(
                 doc.clone(),
                 &self.viewport,
+                self.scroll_y,
                 self.rasterizer.as_deref(),
                 self.raster_strategy,
                 prev_tile_cache,
@@ -341,7 +352,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 self.config_store.get_uint("renderer.tile.size") as f64,
             ));
         }
+        self.note_rastered_window();
         self.enforce_tile_budget(true);
+        self.raster_dirty = false;
         self.render_dirty = false;
         self.hover_dirty = false;
         self.dom_dirty = false;
@@ -349,9 +362,53 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.layout_dirty = false;
     }
 
+    /// Extend the raster window around the current scroll position, re-using the cached layout.
+    /// Falls back to a full rebuild when there is no cache to extend.
+    fn extend_raster_window(&mut self) {
+        let Some(old_cache) = self.pipeline_cache.take() else {
+            self.rebuild_full_pipeline();
+            return;
+        };
+        let PipelineCache {
+            layer_list,
+            page_height,
+            tile_pixel_cache,
+            tiles,
+            ..
+        } = old_cache;
+
+        self.pipeline_cache = Some(pipeline_extend_raster(
+            layer_list,
+            page_height,
+            tiles,
+            &self.viewport,
+            self.scroll_y,
+            self.rasterizer.as_deref(),
+            self.raster_strategy,
+            tile_pixel_cache,
+            self.media_store.clone(),
+            self.config_store.get_uint("renderer.tile.size") as f64,
+        ));
+
+        self.note_rastered_window();
+        // Anything evicted that fell back inside the window has just been rastered again.
+        self.tile_budget.note_full_raster();
+        self.enforce_tile_budget(false);
+        self.raster_dirty = false;
+    }
+
+    /// Record the window now rastered, so scrolling can tell when it reaches unbaked content.
+    fn note_rastered_window(&self) {
+        let Some(cache) = self.pipeline_cache.as_ref() else {
+            return;
+        };
+        self.tile_budget
+            .note_rastered_window(self.scroll_y, self.viewport.height as f64, cache.page_height);
+    }
+
     /// Apply the `renderer.tile.cache_budget_mb` budget to the current pipeline cache, evicting
-    /// LRU tiles outside the near-viewport band. `full_raster` marks that every tile was just
-    /// re-rasterized, so previously evicted regions are live again.
+    /// LRU tiles outside the raster window. `full_raster` marks that every tile in the window was
+    /// just re-rasterized, so previously evicted regions are live again.
     fn enforce_tile_budget(&mut self, full_raster: bool) {
         if full_raster {
             self.tile_budget.note_full_raster();
@@ -383,11 +440,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// - **Paint-only repaint** (`hover_dirty`): reuses the cached layout tree and repaints
     ///   only the affected tiles, skipping stages 1–2.
     pub fn rebuild_pipeline_cache_if_needed(&mut self) {
-        if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty {
+        if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty && !self.raster_dirty {
             return;
         }
         if self.render_dirty {
             self.rebuild_full_pipeline();
+        } else if self.raster_dirty {
+            self.extend_raster_window();
         } else if self.hover_dirty {
             // Paint-only repaint: reuse the cached layout tree, skip stages 1–2.
             if let Some(old_cache) = self.pipeline_cache.take() {
@@ -419,12 +478,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     self.pipeline_cache = Some(pipeline_build_cache(
                         doc.clone(),
                         &self.viewport,
+                        self.scroll_y,
                         self.rasterizer.as_deref(),
                         self.raster_strategy,
                         std::collections::HashMap::new(),
                         self.media_store.clone(),
                         self.config_store.get_uint("renderer.tile.size") as f64,
                     ));
+                    self.note_rastered_window();
                     self.enforce_tile_budget(true);
                 }
             }
@@ -442,12 +503,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// - **Scroll composite** (`scroll_dirty`): re-composites visible tiles from the cache with
     ///   the new scroll offset. No layout or rasterization work.
     pub fn rebuild_render_list_if_needed(&mut self) {
-        if !self.render_dirty && !self.scroll_dirty {
+        if !self.render_dirty && !self.scroll_dirty && !self.raster_dirty {
             return;
         }
 
         if self.render_dirty {
             self.rebuild_full_pipeline();
+        } else if self.raster_dirty {
+            self.extend_raster_window();
         }
 
         let mut rl = RenderList::default();
@@ -555,7 +618,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     ///
     /// Calling this consumes the scroll-dirty flag and advances the scene epoch.
     pub fn take_scroll_handle(&mut self, dpr: u32) -> Option<ExternalHandle> {
-        if !self.scroll_dirty || self.render_dirty || self.hover_dirty {
+        // With `raster_dirty` the cached tile list is missing tiles this frame needs.
+        if !self.scroll_dirty || self.render_dirty || self.hover_dirty || self.raster_dirty {
             return None;
         }
         let cache = self.pipeline_cache.as_ref()?;
@@ -917,29 +981,30 @@ fn pipeline_build_scene<C: RenderConfiguration>(
     }
 }
 
-/// Runs pipeline stages 1–6 for the **entire page** (all tiles, not just the viewport slice)
-/// and returns a `PipelineCache` of rasterized tiles ready for repeated compositing.
+/// Runs pipeline stages 1–6 and returns a `PipelineCache` of rasterized tiles ready for repeated
+/// compositing. Layout and tiling cover the whole page, but painting and rasterization cover only
+/// the raster window around `scroll_y`, so first paint never pays for content nobody scrolls to.
 ///
 /// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
 /// re-running layout or rasterization.
+#[allow(clippy::too_many_arguments)]
 fn pipeline_build_cache<C: RenderConfiguration>(
     doc: Arc<EngineDocument<C>>,
     viewport: &Viewport,
+    scroll_y: f64,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
     prev_tile_cache: TilePixelCache,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
     tile_size: f64,
 ) -> PipelineCache {
-    use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
     use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
     use gosub_render_pipeline::layering::layer::LayerList;
     use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
     use gosub_render_pipeline::layouter::CanLayout;
-    use gosub_render_pipeline::painter::Painter;
     use gosub_render_pipeline::rendertree_builder::RenderTree;
-    use gosub_render_pipeline::tiler::{TileList, TileState};
+    use gosub_render_pipeline::tiler::TileList;
     use gosub_shared::{timing_start, timing_stop};
 
     let ts_total = timing_start!("pipeline.total");
@@ -992,41 +1057,15 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     tile_list.generate();
     timing_stop!(ts4);
 
-    // Stage 5: paint all tiles for the full page so that scrolling reveals pre-rendered
-    // content. We use the full page_height rather than capping to viewport.height; the
-    // compositor only ships the visible subset to the screen anyway, so no extra pixels
-    // are transferred. Memory is bounded by tile count: at 256×256×4B per tile, a 6 000 px
-    // page × 1 280 px wide = ~120 tiles × 256 KB each ≈ 30 MB, which is acceptable.
+    // Park the rest of the page: stages 5 and 6 below only touch dirty tiles.
+    // Scrolling past the window's slack re-rasters around the new position.
+    gosub_render_pipeline::tile_budget::defer_tiles_outside_window(&mut tile_list, scroll_y, viewport.height as f64);
+
     let render_height = page_height;
     let ts5 = timing_start!("pipeline.painting");
     let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, render_height.max(1.0));
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
-    let paint_state = BrowserState {
-        visible_layer_list: vec![true; layer_ids.len()],
-        wireframed: WireframeState::None,
-        debug_hover: false,
-        current_hovered_element: None,
-        show_tilegrid: false,
-        debug_table_cells: std::env::var("GOSUB_DEBUG_TABLE_CELLS").is_ok(),
-        viewport: full_page_rect,
-        tile_list: None,
-        dpi_scale_factor: 1.0,
-    };
-    let painter = Painter::new(tile_list.layer_list.clone(), rasterizer.and_then(|r| r.font_system()));
-    for &layer_id in &layer_ids {
-        let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
-        for tile_id in tile_ids {
-            let Some(tile) = tile_list.get_tile_mut(tile_id) else {
-                continue;
-            };
-            if tile.state != TileState::Dirty {
-                continue;
-            }
-            for tiled_element in &mut tile.elements {
-                tiled_element.paint_commands = painter.paint(tiled_element, &paint_state);
-            }
-        }
-    }
+    paint_dirty_tiles(&mut tile_list, &layer_ids, full_page_rect, rasterizer);
     timing_stop!(ts5);
 
     // Stage 6: rasterize tiles using the active backend's rasterizer + strategy (chosen at
@@ -1063,6 +1102,96 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     }
 }
 
+/// Extend the raster window after a scroll: reuse the cached `LayerList` (so stages 1–2 are
+/// skipped) and raster only the tiles that are newly inside the window. This is what keeps
+/// scrolling a long page off the layout path.
+#[allow(clippy::too_many_arguments)]
+fn pipeline_extend_raster(
+    layer_list: Arc<LayerList>,
+    page_height: f64,
+    prev_baked_tiles: Vec<BakedTile>,
+    viewport: &Viewport,
+    scroll_y: f64,
+    rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
+    strategy: RasterStrategy,
+    prev_tile_cache: TilePixelCache,
+    media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
+    tile_size: f64,
+) -> PipelineCache {
+    use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
+    use gosub_render_pipeline::tile_budget::defer_tiles_outside_window;
+    use gosub_render_pipeline::tiler::{TileList, TileState};
+    use gosub_shared::{timing_start, timing_stop};
+
+    // Stage 4: re-tile against the cached layout. No CSS, no layout.
+    let ts4 = timing_start!("pipeline.extend.tiling");
+    let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(tile_size, tile_size));
+    tile_list.generate();
+    timing_stop!(ts4);
+
+    // Already-baked tiles are carried over; the rest of the window is painted below.
+    let mut prev_by_pos: std::collections::HashMap<(u64, u64, u64), BakedTile> = prev_baked_tiles
+        .into_iter()
+        .map(|t| ((t.page_x.to_bits(), t.page_y.to_bits(), t.layer_id), t))
+        .collect();
+
+    let mut clean_baked: Vec<BakedTile> = Vec::with_capacity(prev_by_pos.len());
+    for tile in tile_list.arena.values_mut() {
+        let key = (tile.rect.x.to_bits(), tile.rect.y.to_bits(), tile.layer_id.as_u64());
+        let Some(baked) = prev_by_pos.remove(&key) else {
+            continue;
+        };
+        tile.state = TileState::Ready;
+        clean_baked.push(baked);
+    }
+    defer_tiles_outside_window(&mut tile_list, scroll_y, viewport.height as f64);
+
+    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, page_height.max(1.0));
+    let layer_ids = tile_list.layer_list.layer_ids.read().clone();
+
+    // Stage 5: only the newly in-window tiles are still dirty.
+    let ts5 = timing_start!("pipeline.extend.painting");
+    paint_dirty_tiles(&mut tile_list, &layer_ids, full_page_rect, rasterizer);
+    timing_stop!(ts5);
+
+    // Stage 6: the pixel cache makes tiles that were merely evicted cheap to bring back.
+    let (baked_tiles, new_tile_cache) = match (strategy, rasterizer) {
+        (RasterStrategy::ParallelCached, Some(rasterizer)) => rasterize_parallel(
+            rasterizer,
+            &layer_ids,
+            &mut tile_list,
+            full_page_rect,
+            &media_store,
+            &prev_tile_cache,
+            "pipeline.extend.rasterize",
+        ),
+        (RasterStrategy::Sequential, Some(rasterizer)) => {
+            rasterize_sequential(rasterizer, &layer_ids, &mut tile_list, full_page_rect, &media_store)
+        }
+        _ => (Vec::new(), std::collections::HashMap::new()),
+    };
+
+    // Keep carried-over entries: dropping them re-rasters those tiles on the next pass over.
+    let mut merged_tile_cache = prev_tile_cache;
+    merged_tile_cache.extend(new_tile_cache);
+
+    let by_key: std::collections::HashMap<(u64, u64, u64), BakedTile> = baked_tiles
+        .into_iter()
+        .chain(clean_baked)
+        .map(|t| ((t.page_x.to_bits(), t.page_y.to_bits(), t.layer_id), t))
+        .collect();
+    let all_baked_tiles = order_baked_tiles_by_layer(&tile_list, &layer_ids, full_page_rect, by_key);
+    let cached_tiles = Arc::new(cpu_cached_tiles(&all_baked_tiles));
+
+    PipelineCache {
+        tiles: all_baked_tiles,
+        page_height,
+        cached_tiles,
+        layer_list,
+        tile_pixel_cache: merged_tile_cache,
+    }
+}
+
 /// Hover-only repaint: skip stages 1–2 (render-tree + layout), reuse the cached
 /// `LayerList`, and only repaint tiles that intersect the old or new hovered element.
 /// All other tiles are carried over from `prev_baked_tiles` unchanged - no CSS
@@ -1082,9 +1211,7 @@ fn pipeline_hover_repaint(
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
     tile_size: f64,
 ) -> PipelineCache {
-    use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
-    use gosub_render_pipeline::painter::Painter;
     use gosub_render_pipeline::tiler::{TileList, TileState};
     use gosub_shared::{timing_start, timing_stop};
 
@@ -1178,32 +1305,7 @@ fn pipeline_hover_repaint(
     // Stage 5: paint ONLY dirty (hover-affected) tiles. `full_page_rect` and `layer_ids` were
     // computed above (shared with the carry-over ordering).
     let ts5 = timing_start!("pipeline.hover.painting");
-    let paint_state = BrowserState {
-        visible_layer_list: vec![true; layer_ids.len()],
-        wireframed: WireframeState::None,
-        debug_hover: false,
-        current_hovered_element: None,
-        show_tilegrid: false,
-        debug_table_cells: std::env::var("GOSUB_DEBUG_TABLE_CELLS").is_ok(),
-        viewport: full_page_rect,
-        tile_list: None,
-        dpi_scale_factor: 1.0,
-    };
-    let painter = Painter::new(tile_list.layer_list.clone(), rasterizer.and_then(|r| r.font_system()));
-    for &layer_id in &layer_ids {
-        let tile_ids = tile_list.get_intersecting_tiles(layer_id, full_page_rect);
-        for tile_id in tile_ids {
-            let Some(tile) = tile_list.get_tile_mut(tile_id) else {
-                continue;
-            };
-            if tile.state != TileState::Dirty {
-                continue;
-            }
-            for tiled_element in &mut tile.elements {
-                tiled_element.paint_commands = painter.paint(tiled_element, &paint_state);
-            }
-        }
-    }
+    paint_dirty_tiles(&mut tile_list, &layer_ids, full_page_rect, rasterizer);
     timing_stop!(ts5);
 
     // Stage 6 (hover): rasterize the dirty tiles with the active backend's rasterizer + strategy.
@@ -1242,6 +1344,45 @@ fn pipeline_hover_repaint(
         cached_tiles,
         layer_list,
         tile_pixel_cache: new_tile_cache,
+    }
+}
+
+/// Stage 5: paint every dirty tile. Callers steer the work through tile state - carried-over
+/// (`Ready`) and out-of-window (`Deferred`) tiles are skipped.
+fn paint_dirty_tiles(
+    tile_list: &mut gosub_render_pipeline::tiler::TileList,
+    layer_ids: &[gosub_render_pipeline::layering::layer::LayerId],
+    full_page_rect: gosub_render_pipeline::common::geo::Rect,
+    rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
+) {
+    use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
+    use gosub_render_pipeline::tiler::TileState;
+
+    let paint_state = BrowserState {
+        visible_layer_list: vec![true; layer_ids.len()],
+        wireframed: WireframeState::None,
+        debug_hover: false,
+        current_hovered_element: None,
+        show_tilegrid: false,
+        debug_table_cells: std::env::var("GOSUB_DEBUG_TABLE_CELLS").is_ok(),
+        viewport: full_page_rect,
+        tile_list: None,
+        dpi_scale_factor: 1.0,
+    };
+    let painter = Painter::new(tile_list.layer_list.clone(), rasterizer.and_then(|r| r.font_system()));
+
+    for &layer_id in layer_ids {
+        for tile_id in tile_list.get_intersecting_tiles(layer_id, full_page_rect) {
+            let Some(tile) = tile_list.get_tile_mut(tile_id) else {
+                continue;
+            };
+            if tile.state != TileState::Dirty {
+                continue;
+            }
+            for tiled_element in &mut tile.elements {
+                tiled_element.paint_commands = painter.paint(tiled_element, &paint_state);
+            }
+        }
     }
 }
 
@@ -1455,13 +1596,17 @@ mod tests {
         use gosub_render_pipeline::common::texture_store::TextureStore;
         use gosub_render_pipeline::render::backend::PixelFormat;
         use gosub_render_pipeline::tiler::Tile;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
-        /// Stub backend rasterizer: fills every tile with opaque pixels, so each baked tile
-        /// costs exactly width * height * 4 bytes.
-        struct SolidRasterizer;
+        /// Fills every tile with opaque pixels, so a baked tile costs exactly w * h * 4 bytes.
+        /// The shared counter lets tests assert how many tiles a pass actually rasterized.
+        struct SolidRasterizer {
+            calls: Arc<AtomicUsize>,
+        }
 
         impl Rasterable for SolidRasterizer {
             fn rasterize(&self, tile: &Tile, store: &mut TextureStore, _media: &MediaStore) -> Option<TextureId> {
+                self.calls.fetch_add(1, Ordering::Relaxed);
                 let (w, h) = (tile.rect.width as usize, tile.rect.height as usize);
                 Some(store.add(w, h, vec![0xFFu8; w * h * 4], PixelFormat::PreMulArgb32))
             }
@@ -1491,70 +1636,125 @@ mod tests {
             cache.tiles.iter().any(|t| (t.page_y - y).abs() <= within)
         }
 
-        #[test]
-        fn tall_page_cache_stays_under_budget_and_scroll_restores_evicted_tiles() {
-            const BUDGET_MB: usize = 4;
-            const BUDGET_BYTES: usize = BUDGET_MB * 1024 * 1024;
+        const VP_H: u32 = 256;
 
+        /// A context on a 10 000 px page: ~40 tile rows if fully rastered (~20 MiB), against a
+        /// raster window three viewports tall.
+        fn tall_page_context(budget_mb: usize) -> (BrowsingContext<DefaultRenderConfig>, Arc<AtomicUsize>) {
             let config = settings_store::default_config();
             assert!(config
-                .set("renderer.tile.cache_budget_mb", Setting::UInt(BUDGET_MB))
+                .set("renderer.tile.cache_budget_mb", Setting::UInt(budget_mb))
                 .is_ok());
 
             let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(config);
-            ctx.set_rasterizer(Box::new(SolidRasterizer), RasterStrategy::ParallelCached);
+            let calls = Arc::new(AtomicUsize::new(0));
+            ctx.set_rasterizer(
+                Box::new(SolidRasterizer {
+                    calls: Arc::clone(&calls),
+                }),
+                RasterStrategy::ParallelCached,
+            );
             ctx.set_viewport(Viewport {
                 x: 0,
                 y: 0,
                 width: 512,
-                height: 256,
+                height: VP_H,
             });
 
-            // ~10 000 px tall page: ~40 tile rows x 2 columns ~= 20 MiB unbudgeted.
             let html =
                 r#"<html><body style="margin:0"><div style="height:10000px;background:#ddd"></div></body></html>"#;
             let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
             doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
             ctx.set_document(Arc::new(doc));
 
-            ctx.rebuild_pipeline_cache_if_needed();
-            {
-                let Some(cache) = ctx.pipeline_cache.as_ref() else {
-                    unreachable!("pipeline cache must exist after rebuild");
-                };
-                assert!(cache.page_height >= 10_000.0, "page must lay out tall");
-                assert!(
-                    resident_bytes(cache) <= BUDGET_BYTES,
-                    "cache must fit the budget: {} > {}",
-                    resident_bytes(cache),
-                    BUDGET_BYTES
-                );
-                assert!(has_tile_near(cache, 0.0, 0.5), "viewport tiles must survive");
-                assert!(
-                    !has_tile_near(cache, 9984.0, 256.0),
-                    "bottom of the page must be evicted"
-                );
-                assert_eq!(
-                    cache.cached_tiles.len(),
-                    cache.tiles.len(),
-                    "compositor list must not keep evicted pixels alive"
-                );
-            }
+            (ctx, calls)
+        }
 
-            // Scrolling toward an evicted region must schedule a full re-render...
-            ctx.set_scroll(0.0, 5000.0);
-            assert!(ctx.render_dirty, "scroll into an evicted region must set render_dirty");
+        #[test]
+        fn first_render_rasterizes_only_the_window_of_a_tall_page() {
+            let (mut ctx, raster_calls) = tall_page_context(128);
 
-            // ...which restores tiles around the new viewport while staying under budget.
             ctx.rebuild_pipeline_cache_if_needed();
+
+            let calls = raster_calls.swap(0, Ordering::Relaxed);
             let Some(cache) = ctx.pipeline_cache.as_ref() else {
                 unreachable!("pipeline cache must exist after rebuild");
             };
+            assert!(cache.page_height >= 10_000.0, "page must lay out tall");
+
+            // The window at scroll 0 spans 2 tile rows; the whole page would be ~40.
             assert!(
-                has_tile_near(cache, 5000.0, 256.0),
-                "tiles near the new viewport must be back"
+                (1..=12).contains(&calls),
+                "first paint rastered {calls} tiles, expected only the window"
             );
-            assert!(resident_bytes(cache) <= BUDGET_BYTES);
+            assert!(has_tile_near(cache, 0.0, 0.5), "the viewport itself must be baked");
+            assert!(
+                !has_tile_near(cache, 5000.0, 256.0),
+                "content far below the viewport must stay deferred"
+            );
+            assert_eq!(cache.cached_tiles.len(), cache.tiles.len());
+        }
+
+        #[test]
+        fn scrolling_extends_the_window_without_relaying_out() {
+            let (mut ctx, raster_calls) = tall_page_context(128);
+            ctx.rebuild_pipeline_cache_if_needed();
+            let first_pass = raster_calls.swap(0, Ordering::Relaxed);
+            let page_height = ctx.page_height();
+
+            // Inside the slack: composite-only.
+            ctx.set_scroll(0.0, 50.0);
+            assert!(!ctx.raster_dirty, "small scroll must not schedule rasterization");
+
+            // Past it: an extension, not a full re-render.
+            ctx.set_scroll(0.0, 5000.0);
+            assert!(ctx.raster_dirty, "scrolling to unbaked content must raster");
+            assert!(!ctx.render_dirty, "extending must not force a re-layout");
+            assert!(
+                ctx.take_scroll_handle(1).is_none(),
+                "the composite-only path must not serve a frame with unbaked tiles"
+            );
+
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            let extend_pass = raster_calls.swap(0, Ordering::Relaxed);
+            let Some(cache) = ctx.pipeline_cache.as_ref() else {
+                unreachable!("pipeline cache must exist after extend");
+            };
+            assert!(has_tile_near(cache, 5000.0, 256.0), "the new viewport must be baked");
+            assert!(
+                extend_pass <= first_pass * 3,
+                "extending rastered {extend_pass} tiles, expected a window"
+            );
+            assert_eq!(ctx.page_height(), page_height, "extending must reuse the cached layout");
+            assert!(!ctx.raster_dirty, "the extension must satisfy the scroll");
+        }
+
+        #[test]
+        fn cache_stays_under_budget_while_scrolling_the_whole_page() {
+            const BUDGET_MB: usize = 4;
+            const BUDGET_BYTES: usize = BUDGET_MB * 1024 * 1024;
+
+            let (mut ctx, _calls) = tall_page_context(BUDGET_MB);
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            // Doom-scroll the whole page in viewport-sized steps.
+            let mut y = 0.0;
+            while y < 10_000.0 {
+                ctx.set_scroll(0.0, y);
+                ctx.rebuild_pipeline_cache_if_needed();
+
+                let Some(cache) = ctx.pipeline_cache.as_ref() else {
+                    unreachable!("pipeline cache must exist while scrolling");
+                };
+                assert!(
+                    resident_bytes(cache) <= BUDGET_BYTES,
+                    "cache must stay within budget at scroll {y}: {} > {BUDGET_BYTES}",
+                    resident_bytes(cache)
+                );
+                assert!(has_tile_near(cache, y, VP_H as f64), "viewport not baked at scroll {y}");
+                y += VP_H as f64;
+            }
         }
     }
 

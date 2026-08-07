@@ -84,6 +84,9 @@ pub enum TileState {
     Unrenderable,
     /// Tile is clean, but it does not contain anything (ie: no texture needed)
     Empty,
+    /// Outside the raster window: intentionally not painted or rasterized yet. Becomes `Dirty`
+    /// when the window moves over it (see `tile_budget::defer_tiles_outside_window`).
+    Deferred,
 }
 
 /// Single tile: the elements it covers plus the rendered texture that gets composited to screen.
