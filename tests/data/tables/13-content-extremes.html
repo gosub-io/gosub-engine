@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>13 - content extremes</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; width: 500px; }
+  td { border: 1px solid #999; padding: 6px; background-color: #e8f0fe; }
+  .block { width: 350px; height: 40px; background-color: #b46ad4; }
+</style>
+</head>
+<body>
+<h3>Content extremes - unbreakable word and an over-wide block, 500px table</h3>
+<p>Expected: the long unbreakable word forces its column to at least the
+word's width (min-content), squeezing the neighbors. In the second table a
+350px fixed block sits in one of three columns of a 500px table - its
+column must be at least 350px wide.</p>
+<table>
+  <tr>
+    <td>normal words that wrap fine</td>
+    <td>Donaudampfschifffahrtsgesellschaftskapitaenswitwenrente</td>
+    <td>more normal text</td>
+  </tr>
+</table>
+
+<br>
+
+<table>
+  <tr>
+    <td>text</td>
+    <td><div class="block"></div></td>
+    <td>text</td>
+  </tr>
+</table>
+</body>
+</html>
