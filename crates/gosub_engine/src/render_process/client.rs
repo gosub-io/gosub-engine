@@ -1,7 +1,7 @@
 //! The broker's side of an exec'd renderer: spawn, render one page, reap.
 
-use crate::fork_server::client::{drive_render_exchange, ReceivedTile};
-use crate::fork_server::protocol::{PageSummary, ToForkServer};
+use crate::fork_server::client::{drive_render_exchange, RenderedPage};
+use crate::fork_server::protocol::ToForkServer;
 use gosub_ipc::Endpoint;
 use std::time::Duration;
 
@@ -23,7 +23,7 @@ pub fn render_page(
     url: &str,
     viewport: (f64, f64),
     loader: &dyn gosub_interface::resource_loader::ResourceLoader,
-) -> anyhow::Result<(PageSummary, Vec<ReceivedTile>)> {
+) -> anyhow::Result<RenderedPage> {
     // Same guard as every spawner: an undispatched child must not recurse.
     if crate::child_process::is_child_process() {
         anyhow::bail!(

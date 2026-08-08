@@ -57,7 +57,7 @@ impl ReceivedTile {
 pub(crate) fn drive_render_exchange(
     link: &mut Endpoint,
     loader: &dyn gosub_interface::resource_loader::ResourceLoader,
-) -> anyhow::Result<(crate::fork_server::protocol::PageSummary, Vec<ReceivedTile>)> {
+) -> anyhow::Result<RenderedPage> {
     use crate::fork_server::protocol::ResourceReply;
 
     let mut received = Vec::new();
@@ -82,11 +82,27 @@ pub(crate) fn drive_render_exchange(
                 let mapping = gosub_ipc::shm::map_sealed_tile(fd, header.width, header.height)?;
                 received.push(ReceivedTile { header, mapping });
             }
-            FromForkServer::PageRendered { summary } => return Ok((summary, received)),
+            FromForkServer::PageRendered { summary, hit_regions } => {
+                return Ok(RenderedPage {
+                    summary,
+                    tiles: received,
+                    hit_regions,
+                })
+            }
             FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
             other => anyhow::bail!("unexpected render-exchange message: {other:?}"),
         }
     }
+}
+
+/// One page as the broker receives it: what the renderer measured, the mapped
+/// tiles, and the geometry hit testing needs (the broker resolves the rest
+/// against its own document).
+#[derive(Debug)]
+pub struct RenderedPage {
+    pub summary: crate::fork_server::protocol::PageSummary,
+    pub tiles: Vec<ReceivedTile>,
+    pub hit_regions: Vec<crate::fork_server::protocol::HitRegion>,
 }
 
 /// A running fork server, its announced confinement tier, and the link to it.
@@ -184,7 +200,7 @@ impl ForkServer {
         url: &str,
         viewport: (f64, f64),
         loader: &dyn gosub_interface::resource_loader::ResourceLoader,
-    ) -> anyhow::Result<(crate::fork_server::protocol::PageSummary, Vec<ReceivedTile>)> {
+    ) -> anyhow::Result<RenderedPage> {
         self.link.send(&ToForkServer::RenderPage {
             html: html.to_string(),
             url: url.to_string(),

@@ -308,7 +308,7 @@ fn fork_and_render<C: RenderConfiguration>(
                 gosub_sandbox::exit_now(1);
             };
             let shared: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(owned));
-            let (summary, baked) = renderer::render_page::<C>(
+            let (summary, baked, hit_regions) = renderer::render_page::<C>(
                 html,
                 page_url,
                 viewport_width,
@@ -353,7 +353,7 @@ fn fork_and_render<C: RenderConfiguration>(
                 // `fd` drops here: SCM_RIGHTS duplicated it onward.
             }
 
-            let ok = link.send(&FromRenderer::Rendered(summary)).is_ok();
+            let ok = link.send(&FromRenderer::Rendered { summary, hit_regions }).is_ok();
             gosub_sandbox::exit_now(if ok { 0 } else { 1 });
         }
         Ok(gosub_sandbox::Forked::Parent { pid }) => {
@@ -394,9 +394,9 @@ fn fork_and_render<C: RenderConfiguration>(
                                 .map_err(|e| std::io::Error::other(format!("could not relay a tile fd: {e}")))?;
                             // `fd` drops here; the broker holds the only copy.
                         }
-                        FromRenderer::Rendered(summary) => {
+                        FromRenderer::Rendered { summary, hit_regions } => {
                             broker
-                                .send(&FromForkServer::PageRendered { summary })
+                                .send(&FromForkServer::PageRendered { summary, hit_regions })
                                 .map_err(|e| std::io::Error::other(format!("broker unreachable: {e}")))?;
                             return Ok(());
                         }

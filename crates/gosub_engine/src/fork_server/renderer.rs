@@ -1,7 +1,7 @@
 //! The renderer role: the render pipeline, run inside a forked, confined
 //! child.
 
-use crate::fork_server::protocol::PageSummary;
+use crate::fork_server::protocol::{HitRegion, PageSummary, MAX_HIT_REGIONS};
 use crate::html::RenderConfiguration;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::parser::{Html5Parser, Html5ParserOptions};
@@ -31,7 +31,11 @@ pub fn render_page<C: RenderConfiguration>(
     fonts: Arc<Mutex<dyn FontSystem>>,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
     loader: Arc<dyn ResourceLoader>,
-) -> (PageSummary, Vec<gosub_render_pipeline::rasterizer::BakedTile>) {
+) -> (
+    PageSummary,
+    Vec<gosub_render_pipeline::rasterizer::BakedTile>,
+    Vec<crate::fork_server::protocol::HitRegion>,
+) {
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
     use gosub_render_pipeline::common::geo::{Dimension, Rect};
@@ -146,6 +150,8 @@ pub fn render_page<C: RenderConfiguration>(
         None => Vec::new(),
     };
 
+    let hit_regions = collect_hit_regions(&tile_list.layer_list);
+
     (
         PageSummary {
             page_width,
@@ -155,5 +161,40 @@ pub fn render_page<C: RenderConfiguration>(
             paint_commands,
         },
         baked,
+        hit_regions,
     )
+}
+
+/// Flatten the layer list into hit-test geometry for the broker.
+fn collect_hit_regions(layer_list: &gosub_render_pipeline::layering::layer::LayerList) -> Vec<HitRegion> {
+    let mut regions = Vec::new();
+    let layer_ids = layer_list.layer_ids.read();
+    let layers = layer_list.layers.read();
+
+    'outer: for layer_id in layer_ids.iter().rev() {
+        let Some(layer) = layers.get(layer_id) else {
+            continue;
+        };
+        for element_id in layer.elements.iter().rev() {
+            let Some(element) = layer_list.layout_tree.get_node_by_id(*element_id) else {
+                continue;
+            };
+            if regions.len() >= MAX_HIT_REGIONS {
+                log::warn!(
+                    "page has more than {MAX_HIT_REGIONS} hit-testable boxes;                      hit testing covers the topmost {MAX_HIT_REGIONS}"
+                );
+                break 'outer;
+            }
+            let margin = &element.box_model.margin_box;
+            regions.push(HitRegion {
+                x: margin.x,
+                y: margin.y,
+                width: margin.width,
+                height: margin.height,
+                node_id: element.dom_node_id.into(),
+                anchor: layer.anchor.into(),
+            });
+        }
+    }
+    regions
 }
