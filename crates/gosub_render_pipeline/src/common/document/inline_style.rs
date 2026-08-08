@@ -258,6 +258,8 @@ fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
 
         "border" => apply_border_shorthand(style, value),
 
+        "vertical-align" => style.set(StyleProperty::VerticalAlign, parse_style_str(value)),
+
         // One length applies to both axes; two are horizontal then vertical.
         "border-spacing" => {
             let parts: Vec<&str> = value.split_whitespace().collect();

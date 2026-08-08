@@ -1,4 +1,4 @@
-use gosub_lattice::{CellLayout, CssLength, CssProp, TableRole, TableTree};
+use gosub_lattice::{CellLayout, CssLength, CssProp, TableRole, TableTree, VerticalAlign};
 
 use crate::common::document::node::{NodeId as DomNodeId, NodeType};
 use crate::common::document::pipeline_doc::PipelineDocument;
@@ -7,7 +7,7 @@ use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
 use crate::layouter::taffy::TaffyLayouter;
 use crate::layouter::{ElementContext, LayoutElementId, LayoutElementNode, LayoutTree};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Adapter that bridges `gosub_lattice`'s `TableTree` with the render pipeline's
@@ -21,6 +21,10 @@ pub struct PipelineTableTree<'a> {
     dom_to_layout: &'a HashMap<DomNodeId, LayoutElementId>,
     /// Relative CellLayouts written by `compute_table_layout`.
     pending: HashMap<DomNodeId, CellLayout>,
+    /// Cells whose subtree was re-laid-out via `relayout_cell` this pass. Only
+    /// these get the `content_offset_y` vertical-align shift: their children
+    /// are freshly anchored at the cell top, so the shift applies exactly once.
+    relaid: HashSet<DomNodeId>,
 }
 
 impl<'a> PipelineTableTree<'a> {
@@ -36,6 +40,7 @@ impl<'a> PipelineTableTree<'a> {
             layout_tree,
             dom_to_layout,
             pending: HashMap::new(),
+            relaid: HashSet::new(),
         }
     }
 
@@ -95,20 +100,24 @@ impl<'a> PipelineTableTree<'a> {
             table_abs,
             Coordinate::ZERO,
             &pending,
+            &self.relaid,
             self.dom_to_layout,
             &mut self.layout_tree.arena,
         );
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_recursive(
     doc: &dyn PipelineDocument,
     id: DomNodeId,
     parent_abs: Coordinate,
     // Translation to apply to non-pending children. For nodes inside a
-    // lattice-repositioned cell this is (new_cell_abs - old_cell_abs).
+    // lattice-repositioned cell this is (new_cell_abs - old_cell_abs), plus
+    // the cell's vertical-align shift when its subtree was re-anchored.
     offset: Coordinate,
     pending: &HashMap<DomNodeId, CellLayout>,
+    relaid: &HashSet<DomNodeId>,
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
     arena: &mut HashMap<LayoutElementId, LayoutElementNode>,
 ) {
@@ -122,7 +131,7 @@ fn apply_recursive(
                         translate_box_model(&mut element.box_model, offset);
                     }
                 }
-                apply_recursive(doc, child_id, parent_abs, offset, pending, dom_to_layout, arena);
+                apply_recursive(doc, child_id, parent_abs, offset, pending, relaid, dom_to_layout, arena);
             }
             Some(cell_layout) => {
                 let abs = Coordinate::new(
@@ -141,8 +150,15 @@ fn apply_recursive(
                         element.box_model = cell_layout_to_box_model(cell_layout, abs);
                     }
                 }
-                let child_offset = Coordinate::new(abs.x - old_abs.x, abs.y - old_abs.y);
-                apply_recursive(doc, child_id, abs, child_offset, pending, dom_to_layout, arena);
+                // vertical-align: only cells whose subtree was re-anchored at the
+                // cell top this pass get the shift, so it applies exactly once.
+                let valign_shift = if relaid.contains(&child_id) {
+                    cell_layout.content_offset_y as f64
+                } else {
+                    0.0
+                };
+                let child_offset = Coordinate::new(abs.x - old_abs.x, abs.y - old_abs.y + valign_shift);
+                apply_recursive(doc, child_id, abs, child_offset, pending, relaid, dom_to_layout, arena);
             }
         }
     }
@@ -320,6 +336,7 @@ impl TableTree for PipelineTableTree<'_> {
             .layouter
             .relayout_cell(self.layout_tree, layout_id, available_width + extras)
         {
+            self.relaid.insert(id);
             return content_h;
         }
 
@@ -329,6 +346,31 @@ impl TableTree for PipelineTableTree<'_> {
             .get(&layout_id)
             .map(|el| el.box_model.content_box.height as f32)
             .unwrap_or(0.0)
+    }
+
+    /// Resolves `vertical-align` for a cell by walking up to the table: the
+    /// HTML rendering spec puts `vertical-align: inherit` on cells and
+    /// `middle` on rows/sections, so the browser default falls out of the walk.
+    /// `baseline` (and the inline-only keywords) approximate as Top.
+    fn vertical_align(&self, id: DomNodeId) -> VerticalAlign {
+        let mut cur = Some(id);
+        while let Some(node) = cur {
+            if let Some(Value::Keyword(k)) = self.doc.get_own_style(node, &StyleProperty::VerticalAlign) {
+                match lookup(k).as_str() {
+                    "top" => return VerticalAlign::Top,
+                    "middle" => return VerticalAlign::Middle,
+                    "bottom" => return VerticalAlign::Bottom,
+                    "baseline" | "text-top" | "text-bottom" | "sub" | "super" => return VerticalAlign::Top,
+                    // "inherit" (or anything unrecognised): keep walking.
+                    _ => {}
+                }
+            }
+            if self.table_role(node) == TableRole::Table {
+                break;
+            }
+            cur = self.doc.parent(node);
+        }
+        VerticalAlign::Top
     }
 
     fn cell_content_width(&self, id: DomNodeId) -> f32 {

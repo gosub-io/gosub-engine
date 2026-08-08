@@ -1,5 +1,6 @@
 use crate::geo::{Point, Size};
 use anyhow::Result;
+use std::collections::HashMap;
 
 use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
 use crate::model::{build_model, RowGroup};
@@ -90,19 +91,42 @@ pub fn compute_table_layout<T: TableTree>(
     // run the normal layout engine inside each cell.  We use for-loops rather
     // than iterator combinators because a closure can't hold `&mut tree` while
     // the model is also borrowed.
+    let mut content_heights: HashMap<T::NodeId, f32> = HashMap::new();
+
     let mut header_heights: Vec<Vec<f32>> = Vec::with_capacity(header_grids.len());
     for grid in &header_grids {
-        header_heights.push(compute_row_heights(tree, grid, &col_widths));
+        header_heights.push(compute_row_heights(
+            tree,
+            grid,
+            &col_widths,
+            spacing_x,
+            spacing_y,
+            &mut content_heights,
+        ));
     }
 
     let mut body_heights: Vec<Vec<f32>> = Vec::with_capacity(body_grids.len());
     for grid in &body_grids {
-        body_heights.push(compute_row_heights(tree, grid, &col_widths));
+        body_heights.push(compute_row_heights(
+            tree,
+            grid,
+            &col_widths,
+            spacing_x,
+            spacing_y,
+            &mut content_heights,
+        ));
     }
 
     let mut footer_heights: Vec<Vec<f32>> = Vec::with_capacity(footer_grids.len());
     for grid in &footer_grids {
-        footer_heights.push(compute_row_heights(tree, grid, &col_widths));
+        footer_heights.push(compute_row_heights(
+            tree,
+            grid,
+            &col_widths,
+            spacing_x,
+            spacing_y,
+            &mut content_heights,
+        ));
     }
 
     // Apply positions
@@ -138,6 +162,7 @@ pub fn compute_table_layout<T: TableTree>(
                         size: Size::new(inner_width, group_height),
                         border: BOX_EDGES_ZERO,
                         padding: BOX_EDGES_ZERO,
+                        content_offset_y: 0.0,
                     },
                 );
             }
@@ -151,6 +176,7 @@ pub fn compute_table_layout<T: TableTree>(
                 &col_widths,
                 spacing_x,
                 spacing_y,
+                &content_heights,
             );
 
             group_y += group_height + spacing_y;
@@ -173,6 +199,7 @@ fn place_rows<T: TableTree>(
     col_widths: &[f32],
     spacing_x: f32,
     spacing_y: f32,
+    content_heights: &HashMap<T::NodeId, f32>,
 ) {
     // Precompute y offset of each row within the group.
     let row_y = row_y_offsets(row_heights, spacing_y);
@@ -190,13 +217,24 @@ fn place_rows<T: TableTree>(
                     size: Size::new(inner_width, rh),
                     border: BOX_EDGES_ZERO,
                     padding: BOX_EDGES_ZERO,
+                    content_offset_y: 0.0,
                 },
             );
         }
 
         // Cells for this row.
         for cell in grid.cells_in_row(row_idx) {
-            place_cell(tree, cell, row_heights, col_x, col_widths, &row_y, spacing_x, spacing_y);
+            place_cell(
+                tree,
+                cell,
+                row_heights,
+                col_x,
+                col_widths,
+                &row_y,
+                spacing_x,
+                spacing_y,
+                content_heights,
+            );
         }
     }
 }
@@ -212,6 +250,7 @@ fn place_cell<T: TableTree>(
     row_y: &[f32],
     spacing_x: f32,
     spacing_y: f32,
+    content_heights: &HashMap<T::NodeId, f32>,
 ) {
     // Width = sum of spanned column widths, plus the border-spacing gutters the
     // spanning cell covers (a colspan=2 cell runs across the gutter between its
@@ -233,6 +272,17 @@ fn place_cell<T: TableTree>(
     let border = read_border(tree, cell.node);
     let padding = read_padding(tree, cell.node);
 
+    // vertical-align: shift the cell's children down within the free space
+    // between its content and its (row-driven) height.
+    let inner_h = (cell_height - border.vertical() - padding.vertical()).max(0.0);
+    let content_h = content_heights.get(&cell.node).copied().unwrap_or(0.0);
+    let free = (inner_h - content_h).max(0.0);
+    let content_offset_y = match tree.vertical_align(cell.node) {
+        crate::types::VerticalAlign::Top => 0.0,
+        crate::types::VerticalAlign::Middle => free / 2.0,
+        crate::types::VerticalAlign::Bottom => free,
+    };
+
     tree.set_layout(
         cell.node,
         CellLayout {
@@ -240,6 +290,7 @@ fn place_cell<T: TableTree>(
             size: Size::new(cell_width, cell_height),
             border,
             padding,
+            content_offset_y,
         },
     );
 }

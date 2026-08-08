@@ -8,7 +8,7 @@ mod tests;
 pub mod types;
 
 pub use compute::compute_table_layout;
-pub use types::{BorderCollapse, BoxEdges, CellLayout, CssLength, CssProp, TableRole, TableSizing};
+pub use types::{BorderCollapse, BoxEdges, CellLayout, CssLength, CssProp, TableRole, TableSizing, VerticalAlign};
 
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -53,5 +53,12 @@ pub trait TableTree {
     /// than equally.  Return `0.0` for mock/test trees.
     fn cell_content_width(&self, _id: Self::NodeId) -> f32 {
         0.0
+    }
+
+    /// `vertical-align` for cell `id`, resolved through the cascade (including
+    /// the HTML rendering-spec pattern of `inherit` on cells picking up
+    /// `middle` from the row/section) by the implementor.
+    fn vertical_align(&self, _id: Self::NodeId) -> types::VerticalAlign {
+        types::VerticalAlign::Top
     }
 }

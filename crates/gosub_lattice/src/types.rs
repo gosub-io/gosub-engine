@@ -109,6 +109,17 @@ impl BoxEdges {
     }
 }
 
+/// `vertical-align` on a table cell - the subset that applies to cell boxes.
+/// `baseline` (the CSS initial) is approximated as `Top` until real first-line
+/// baseline metrics are available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VerticalAlign {
+    #[default]
+    Top,
+    Middle,
+    Bottom,
+}
+
 /// The computed layout written back to the tree for each table-internal node.
 #[derive(Debug, Clone)]
 pub struct CellLayout {
@@ -118,6 +129,10 @@ pub struct CellLayout {
     pub size: Size,
     pub border: BoxEdges,
     pub padding: BoxEdges,
+    /// Vertical offset the host should add to the cell's *children* (relative
+    /// to the content-box top) to realize `vertical-align` when the cell is
+    /// taller than its content. Always 0 for non-cell nodes.
+    pub content_offset_y: f32,
 }
 
 impl Default for CellLayout {
@@ -127,6 +142,7 @@ impl Default for CellLayout {
             size: Size::new(0.0, 0.0),
             border: BoxEdges::default(),
             padding: BoxEdges::default(),
+            content_offset_y: 0.0,
         }
     }
 }

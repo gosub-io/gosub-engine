@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use crate::compute::compute_table_layout;
 use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
 use crate::model::{build_model, RowGroup};
-use crate::types::{CellLayout, CssLength, CssProp, TableRole};
+use crate::types::{CellLayout, CssLength, CssProp, TableRole, VerticalAlign};
 use crate::TableTree;
 
 // MockCell - a single cell specification used by the builder
@@ -31,6 +31,8 @@ pub struct MockCell {
     pub content_width: f32,
     /// Content height reported by `layout_cell` (as if children were laid out).
     pub content_height: f32,
+    /// `vertical-align` for the cell.
+    pub valign: VerticalAlign,
 }
 
 impl MockCell {
@@ -45,6 +47,7 @@ impl MockCell {
             padding: 1.0,
             content_width: 0.0,
             content_height: 0.0,
+            valign: VerticalAlign::Top,
         }
     }
 
@@ -78,6 +81,10 @@ impl MockCell {
     }
     pub fn content_height(mut self, h: f32) -> Self {
         self.content_height = h;
+        self
+    }
+    pub fn valign(mut self, v: VerticalAlign) -> Self {
+        self.valign = v;
         self
     }
 }
@@ -226,6 +233,7 @@ struct MockNode {
     padding: f32,
     content_width: f32,
     content_height: f32,
+    valign: VerticalAlign,
 }
 
 pub struct MockTree {
@@ -277,6 +285,7 @@ impl MockTree {
                 padding,
                 content_width: 0.0,
                 content_height: 0.0,
+                valign: VerticalAlign::Top,
             },
         );
         id
@@ -297,6 +306,7 @@ impl MockTree {
         if let Some(node) = self.nodes.get_mut(&id) {
             node.content_width = mc.content_width;
             node.content_height = mc.content_height;
+            node.valign = mc.valign;
         }
         id
     }
@@ -385,6 +395,10 @@ impl TableTree for MockTree {
 
     fn cell_content_width(&self, id: u32) -> f32 {
         self.nodes.get(&id).map(|n| n.content_width).unwrap_or(0.0)
+    }
+
+    fn vertical_align(&self, id: u32) -> VerticalAlign {
+        self.nodes.get(&id).map(|n| n.valign).unwrap_or_default()
     }
 }
 
