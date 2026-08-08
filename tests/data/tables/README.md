@@ -19,7 +19,7 @@ cargo run -p gosub-screenshot -- file://$PWD/tests/data/tables/01-basic-grid.htm
 | `02-ragged-rows.html` | rows of unequal length, empty cells | slot filling |
 | `03-sections.html` | tfoot before thead in source, multiple tbodies | header->body->footer ordering |
 | `04-anonymous-boxes.html` | `display: table` divs, cells without a row | anonymous box generation |
-| `05-caption.html` | `<caption>`, `caption-side: bottom` | caption layout (**gap**) |
+| `05-caption.html` | `<caption>`, `caption-side: bottom` | caption layout (done 2026-08-08) |
 | `06-colspan.html` | colspan 2/3/full/overflowing | slot filling, span clamping |
 | `07-rowspan.html` | rowspan, tall spanning content, span past last row | rowspan height distribution (done 2026-08-08) |
 | `08-span-mix.html` | interlocking colspan+rowspan block puzzle | slot filling |
@@ -29,7 +29,7 @@ cargo run -p gosub-screenshot -- file://$PWD/tests/data/tables/01-basic-grid.htm
 | `12-colgroup.html` | widths from `<col>`/`<colgroup>` | col widths (done 2026-08-07) |
 | `13-content-extremes.html` | unbreakable word, over-wide block | min-content column floors (**gap**) |
 | `14-border-spacing.html` | spacing 0 / 10px / asymmetric; padding | separate border model |
-| `15-border-collapse.html` | separate vs collapse, border conflict | border-collapse (**gap**) |
+| `15-border-collapse.html` | separate vs collapse, border conflict | border-collapse (done 2026-08-08; conflicts by paint order) |
 | `16-nested-layout.html` | flex + block stacks + wrapping text in cells | `layout_cell` callback |
 | `17-nested-table.html` | table inside a table cell | nested `compute_table_layout` |
 | `18-vertical-align.html` | top/middle/bottom/baseline | vertical-align (done 2026-08-08; baseline ~ top) |
@@ -70,8 +70,14 @@ Broken or missing, beyond the known compute gaps:
   side effect of intrinsic column sizing.
 - ~~**`text-align` on cells ignored**~~ (20) - fixed 2026-08-07 by the
   cell-content block layout + per-cell re-layout change.
-- Confirmed compute gaps as expected: captions absent (05), border-collapse
-  (15) - the only remaining compute gaps.
+- **Fixed 2026-08-08 (captions + border-collapse)** - the last two compute
+  gaps. Captions (05): measured like a full-width cell, placed above or below
+  the grid per `caption-side`. Border-collapse (15, 20): spacing forced to 0
+  and adjacent cells overlap by their shared border width so equal borders
+  coincide as a single line; border *conflicts* resolve by paint order (the
+  later-painted cell wins), not by the CSS wider-border-wins rules - the 6px
+  conflict in 15 only wins its top/left edges. Every fixture gap is now
+  closed.
 - **Fixed 2026-08-08 (min/max-content auto columns)**: the heuristic column
   algorithm was replaced with the CSS 2 §17.5.2.2 algorithm. Every cell
   contributes real min/max-content widths (`TableTree::cell_intrinsic_widths`,

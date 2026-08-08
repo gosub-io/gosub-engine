@@ -314,6 +314,10 @@ pub enum StyleProperty {
     TableLayout,
     /// `vertical-align` (keyword form; only cell alignment is consumed so far).
     VerticalAlign,
+    /// `border-collapse`: `separate` | `collapse`.
+    BorderCollapse,
+    /// `caption-side`: `top` | `bottom`.
+    CaptionSide,
 }
 
 impl StyleProperty {
@@ -402,6 +406,8 @@ impl StyleProperty {
             StyleProperty::BorderSpacingY => 79,
             StyleProperty::TableLayout => 80,
             StyleProperty::VerticalAlign => 81,
+            StyleProperty::BorderCollapse => 82,
+            StyleProperty::CaptionSide => 83,
         }
     }
 
@@ -961,6 +967,18 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("baseline"),
     },
+    // 82 border-collapse
+    PropertyMeta {
+        name: "border-collapse",
+        inherited: true,
+        initial_kind: InitialKind::Keyword("separate"),
+    },
+    // 83 caption-side
+    PropertyMeta {
+        name: "caption-side",
+        inherited: true,
+        initial_kind: InitialKind::Keyword("top"),
+    },
 ];
 
 // ── NodeStyle - replaces StylePropertyList ────────────────────────────────────
@@ -1104,6 +1122,8 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         79 => Some(StyleProperty::BorderSpacingY),
         80 => Some(StyleProperty::TableLayout),
         81 => Some(StyleProperty::VerticalAlign),
+        82 => Some(StyleProperty::BorderCollapse),
+        83 => Some(StyleProperty::CaptionSide),
         _ => None,
     }
 }

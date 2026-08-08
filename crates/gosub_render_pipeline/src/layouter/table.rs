@@ -255,8 +255,22 @@ impl TableTree for PipelineTableTree<'_> {
                     _ => CssLength::Auto,
                 };
             }
-            // Keyword-only properties not wired up yet.
-            CssProp::BorderCollapse | CssProp::VerticalAlign | CssProp::CaptionSide => return CssLength::Auto,
+            // Px(1.0) = `border-collapse: collapse` (inherited, so get_style walks up).
+            CssProp::BorderCollapse => {
+                return match self.doc.get_style(id, &StyleProperty::BorderCollapse) {
+                    Value::Keyword(k) if lookup(k) == "collapse" => CssLength::Px(1.0),
+                    _ => CssLength::Auto,
+                };
+            }
+            // Px(1.0) = `caption-side: bottom`.
+            CssProp::CaptionSide => {
+                return match self.doc.get_style(id, &StyleProperty::CaptionSide) {
+                    Value::Keyword(k) if lookup(k) == "bottom" => CssLength::Px(1.0),
+                    _ => CssLength::Auto,
+                };
+            }
+            // Resolved by the dedicated trait method, not css_length.
+            CssProp::VerticalAlign => return CssLength::Auto,
         };
 
         match self.doc.get_style(id, &style_prop) {

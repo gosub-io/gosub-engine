@@ -111,6 +111,9 @@ pub struct MockTable {
     border_spacing_x: f32,
     border_spacing_y: f32,
     fixed_layout: bool,
+    collapse: bool,
+    /// Caption content height and whether it sits at the bottom.
+    caption: Option<(f32, bool)>,
     /// One entry per `<col>` element: its explicit width, or `None` for auto.
     cols: Vec<Option<f32>>,
     header_rows: Vec<Vec<MockCell>>,
@@ -143,6 +146,18 @@ impl MockTable {
     /// `table-layout: fixed`.
     pub fn fixed(mut self) -> Self {
         self.fixed_layout = true;
+        self
+    }
+
+    /// `border-collapse: collapse`.
+    pub fn collapse(mut self) -> Self {
+        self.collapse = true;
+        self
+    }
+
+    /// Add a caption with the given content height; `bottom` = `caption-side: bottom`.
+    pub fn caption(mut self, content_height: f32, bottom: bool) -> Self {
+        self.caption = Some((content_height, bottom));
         self
     }
 
@@ -179,7 +194,17 @@ impl MockTable {
     pub fn into_tree(self) -> (MockTree, u32) {
         let mut tree = MockTree::new(self.border_spacing_x, self.border_spacing_y);
         tree.fixed_layout = self.fixed_layout;
+        tree.collapse = self.collapse;
         let root = tree.alloc(TableRole::Table, None, 1, 1, self.table_width, None, 0.0, 0.0);
+
+        if let Some((content_height, bottom)) = self.caption {
+            let cap = tree.alloc(TableRole::Caption, Some("caption".into()), 1, 1, None, None, 0.0, 0.0);
+            if let Some(node) = tree.nodes.get_mut(&cap) {
+                node.content_height = content_height;
+            }
+            tree.caption_bottom = bottom;
+            tree.add_child(root, cap);
+        }
 
         if !self.cols.is_empty() {
             let cg = tree.alloc(TableRole::ColumnGroup, None, 1, 1, None, None, 0.0, 0.0);
@@ -259,6 +284,10 @@ pub struct MockTree {
     border_spacing_y: f32,
     /// `table-layout: fixed`, reported for the table node via the Px(1.0) sentinel.
     pub fixed_layout: bool,
+    /// `border-collapse: collapse`, reported via the Px(1.0) sentinel.
+    pub collapse: bool,
+    /// `caption-side: bottom` on the caption node, via the Px(1.0) sentinel.
+    pub caption_bottom: bool,
 }
 
 impl MockTree {
@@ -269,6 +298,8 @@ impl MockTree {
             border_spacing_x,
             border_spacing_y,
             fixed_layout: false,
+            collapse: false,
+            caption_bottom: false,
         }
     }
 
@@ -384,6 +415,8 @@ impl TableTree for MockTree {
             CssProp::BorderSpacingX => CssLength::Px(self.border_spacing_x),
             CssProp::BorderSpacingY => CssLength::Px(self.border_spacing_y),
             CssProp::TableLayout if node.role == TableRole::Table && self.fixed_layout => CssLength::Px(1.0),
+            CssProp::BorderCollapse if node.role == TableRole::Table && self.collapse => CssLength::Px(1.0),
+            CssProp::CaptionSide if node.role == TableRole::Caption && self.caption_bottom => CssLength::Px(1.0),
             _ => CssLength::Auto,
         }
     }
