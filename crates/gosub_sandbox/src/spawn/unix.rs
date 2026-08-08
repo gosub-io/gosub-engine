@@ -11,6 +11,23 @@ impl Child {
         self.0.wait().map(|_| ())
     }
 
+    /// Wait, and describe how the child ended — an exit code, or the signal
+    /// that killed it. For diagnosing a child that died before answering:
+    /// "exited 1" and "killed by signal 31 (SIGSYS)" point at very different
+    /// bugs, and a caller that only knows "it did not answer" cannot tell
+    /// them apart.
+    pub fn wait_describe(&mut self) -> String {
+        use std::os::unix::process::ExitStatusExt;
+        match self.0.wait() {
+            Ok(status) => match (status.code(), status.signal()) {
+                (Some(code), _) => format!("exited {code}"),
+                (None, Some(sig)) => format!("killed by signal {sig}"),
+                (None, None) => "ended for an unknown reason".to_string(),
+            },
+            Err(e) => format!("could not be reaped: {e}"),
+        }
+    }
+
     /// The child's process id — needed so the parent can place it in its own
     /// cgroup (the Linux half of `confine_spawned_child`).
     pub fn id(&self) -> u32 {

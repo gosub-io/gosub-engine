@@ -63,6 +63,14 @@ const BASELINE: &[libc::c_long] = &[
     libc::SYS_fcntl,
     // runtime / synchronization
     libc::SYS_futex,
+    // Restartable sequences: glibc registers an rseq area **per thread**, as
+    // part of thread startup. A role that spawns a thread after its lockdown
+    // (tokio grows its blocking pool lazily — DNS resolution lands on one)
+    // otherwise dies the moment that thread starts, and dies *silently*:
+    // glibc blocks signals during thread setup, so the forced SIGSYS kills
+    // the process without the reporter ever running. Registering a per-thread
+    // scheduler hint grants no reach; Chromium's baseline policy allows it too.
+    libc::SYS_rseq,
     libc::SYS_getrandom,
     libc::SYS_sched_yield,
     libc::SYS_sched_getaffinity,
@@ -1369,6 +1377,19 @@ fn install_with(
     fcntl_allowed.push(SeccompRule::new(vec![is_setfd, sets_cloexec])?);
 
     rules.insert(libc::SYS_fcntl as i64, fcntl_allowed);
+
+    // …and `prctl`, argument-filtered to naming a thread. Spawning a thread
+    // sets its name (tokio names its runtime and blocking-pool threads), so a
+    // role that spawns one after lockdown dies without this. `PR_SET_NAME`
+    // writes a 16-byte label on the calling thread and grants nothing; every
+    // other prctl command still hits the default action. Skipped when the
+    // caller already allows `prctl` outright (the fork server, which needs
+    // `PR_SET_NO_NEW_PRIVS` for its children).
+    if !allowed.contains(&libc::SYS_prctl) {
+        let is_set_name =
+            SeccompCondition::new(0, SeccompCmpArgLen::Qword, SeccompCmpOp::Eq, libc::PR_SET_NAME as u64)?;
+        rules.insert(libc::SYS_prctl as i64, vec![SeccompRule::new(vec![is_set_name])?]);
+    }
 
     // tgkill is permitted ONLY to deliver SIGSYS to a thread of this process —
     // the one thing `sigsys_handler` does to re-raise after logging. `sig` is

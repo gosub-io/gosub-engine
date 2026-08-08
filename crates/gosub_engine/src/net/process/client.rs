@@ -113,9 +113,25 @@ impl NetProcess {
         // one. Without this, a child that answers nothing (see `ToNet::Ping`)
         // would only be noticed when the first request timed out.
         net.tx.lock().send(&ToNet::Ping)?;
-        if ready_rx.recv_timeout(READY_TIMEOUT).is_err() {
-            net.shutdown();
-            anyhow::bail!("the spawned process did not answer as a network process within {READY_TIMEOUT:?}");
+        match ready_rx.recv_timeout(READY_TIMEOUT) {
+            Ok(()) => {}
+            // The reader thread ended, so the link is gone: the child died
+            // rather than went quiet. Report how it died — the two failures
+            // have nothing in common, and a bare "did not answer in time"
+            // sent every reader of this message hunting a timeout that never
+            // happened.
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                let fate = net
+                    .child
+                    .lock()
+                    .take()
+                    .map_or_else(|| "already reaped".to_string(), |mut c| c.wait_describe());
+                anyhow::bail!("the network process died before answering ({fate})");
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                net.shutdown();
+                anyhow::bail!("the spawned process did not answer as a network process within {READY_TIMEOUT:?}");
+            }
         }
 
         Ok(net)
