@@ -65,11 +65,12 @@ pub fn compute_table_layout<T: TableTree>(
         n_cols
     };
 
-    // Resolve table width
-    let table_width = match tree.css_length(model.node, CssProp::Width) {
-        CssLength::Px(w) => w,
-        CssLength::Percent(p) => p / 100.0 * available_width,
-        _ => available_width,
+    // Resolve the explicit table width, if any; auto tables shrink-to-fit
+    // inside `compute_column_widths`.
+    let explicit_table_width = match tree.css_length(model.node, CssProp::Width) {
+        CssLength::Px(w) => Some(w),
+        CssLength::Percent(p) => Some(p / 100.0 * available_width),
+        _ => None,
     };
 
     // Column widths
@@ -79,7 +80,16 @@ pub fn compute_table_layout<T: TableTree>(
         .chain(footer_grids.iter())
         .collect();
 
-    let col_widths = compute_column_widths(tree, n_cols, table_width, spacing_x, &all_grids, model.sizing, &col_specs);
+    let (col_widths, table_width) = compute_column_widths(
+        tree,
+        n_cols,
+        explicit_table_width,
+        available_width,
+        spacing_x,
+        &all_grids,
+        model.sizing,
+        &col_specs,
+    );
 
     // Precompute cumulative column x-offsets (relative to the row's left edge).
     // col_x[i] = x of the left edge of column i (within a row).

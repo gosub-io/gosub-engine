@@ -25,140 +25,183 @@ pub fn column_specs<T: TableTree>(tree: &T, model: &TableModel<T::NodeId>) -> Ve
     specs
 }
 
-/// Compute column widths for a table with `n_cols` columns.
+/// Compute column widths and the used table width.
 ///
 /// `table-layout: fixed` (CSS 2 §17.5.2.1): widths come from `<col>` elements
 /// first, then from the cells of the first row (a colspan cell's width divides
 /// evenly over its columns); content is never measured. Remaining space is
 /// split equally over the width-less columns.
 ///
-/// `table-layout: auto` (heuristic, not the full CSS algorithm):
-/// 1. The available space is `table_width` minus the horizontal border-spacing
-///    gutters (one between each pair of columns plus the outer two).
-/// 2. Seed explicit widths from `<col>` elements, then scan the first
-///    non-empty row across all provided grids (header first, then body, then
-///    footer).  For each single-column cell in that row:
-///    - If it has an explicit CSS `width` in px or %, assign that to its column.
-///    - Record its pre-pass natural width (from `cell_content_width`) for use
-///      in step 3.
-/// 3. Remaining space is distributed to auto columns proportionally to their
-///    natural content width. Falls back to equal distribution if no content
-///    width information is available.
+/// `table-layout: auto` (CSS 2 §17.5.2.2): every cell contributes its
+/// min-content and max-content width (via [`TableTree::cell_intrinsic_widths`])
+/// and any specified width to its column(s); colspan cells distribute their
+/// requirement over the spanned columns. The used table width is the explicit
+/// width (floored at the min-content total) or, when auto, shrink-to-fit
+/// between the min- and max-content totals capped by `available_width`.
+/// Columns then grow from their min toward their max, with any extra space
+/// distributed over the auto columns.
+///
+/// Returns `(column_widths, used_table_width)`.
 pub fn compute_column_widths<T: TableTree>(
-    tree: &T,
+    tree: &mut T,
     n_cols: usize,
-    table_width: f32,
+    explicit_table_width: Option<f32>,
+    available_width: f32,
     border_spacing_x: f32,
     grids: &[&SectionGrid<T::NodeId>],
     sizing: TableSizing,
     col_specs: &[CssLength],
-) -> Vec<f32> {
+) -> (Vec<f32>, f32) {
     if n_cols == 0 {
-        return Vec::new();
+        return (Vec::new(), 0.0);
     }
 
     // Total space consumed by border-spacing gutters.
     let spacing_total = (n_cols as f32 + 1.0) * border_spacing_x;
-    let available = (table_width - spacing_total).max(0.0);
 
     if sizing == TableSizing::Fixed {
-        return fixed_column_widths(tree, n_cols, table_width, available, grids, col_specs);
+        let table_width = explicit_table_width.unwrap_or(available_width);
+        let available = (table_width - spacing_total).max(0.0);
+        let widths = fixed_column_widths(tree, n_cols, table_width, available, grids, col_specs);
+        return (widths, table_width);
     }
 
-    let mut explicit: Vec<Option<f32>> = vec![None; n_cols];
-    let mut natural: Vec<f32> = vec![0.0; n_cols];
+    // Percentages resolve against the explicit table width when there is one,
+    // otherwise against the containing block.
+    let percent_basis = explicit_table_width.unwrap_or(available_width);
 
-    // Widths from <col>/<colgroup> elements claim their columns first.
-    for (i, spec) in col_specs.iter().take(n_cols).enumerate() {
-        if let Some(px) = spec.resolve(table_width) {
-            explicit[i] = Some(px);
+    let mut min = vec![0.0_f32; n_cols];
+    let mut max = vec![0.0_f32; n_cols];
+    let mut spec: Vec<Option<f32>> = vec![None; n_cols];
+
+    for (i, s) in col_specs.iter().take(n_cols).enumerate() {
+        if let Some(px) = s.resolve(percent_basis) {
+            spec[i] = Some(px);
         }
     }
 
-    // Scan the first non-empty row for explicit widths and natural content widths.
-    'outer: for grid in grids {
-        for row_idx in 0..grid.n_rows {
-            let mut found_any = false;
-            for cell in grid.cells_in_row(row_idx) {
-                found_any = true;
-                if cell.colspan == 1 {
-                    let cw = tree.cell_content_width(cell.node);
-                    if explicit[cell.col].is_none() {
-                        // A specified width cannot shrink a cell below its content's min-width
-                        // (CSS: used width = max(specified, min-content)). Without this, e.g. a
-                        // `width:18px` cell holding a 20px image clips it and eats the padding.
-                        match tree.css_length(cell.node, CssProp::Width) {
-                            CssLength::Px(px) => explicit[cell.col] = Some(px.max(cw)),
-                            CssLength::Percent(p) => explicit[cell.col] = Some((p / 100.0 * table_width).max(cw)),
-                            _ => {}
-                        }
-                    }
-                    if cw > natural[cell.col] {
-                        natural[cell.col] = cw;
-                    }
-                }
-            }
-            if found_any {
-                break 'outer;
-            }
-        }
-    }
-
-    let fixed_total: f32 = explicit.iter().filter_map(|&w| w).sum();
-    let remaining = (available - fixed_total).max(0.0);
-
-    let auto_cols: Vec<usize> = (0..n_cols).filter(|&c| explicit[c].is_none()).collect();
-    if !auto_cols.is_empty() {
-        let total_natural: f32 = auto_cols.iter().map(|&c| natural[c]).sum();
-        if total_natural > 0.0 {
-            // Threshold-based distribution:
-            //   - Narrow auto columns (intrinsic < 50 px) are structural (rank
-            //     numbers, vote buttons) - give them their natural width with a
-            //     14 px floor so they stay visible.
-            //   - Wide auto columns are content columns - they share whatever
-            //     space remains after the narrow columns have taken their share.
-            //     Multiple content columns share proportionally to their natural
-            //     widths; if there are none, fall through to equal distribution.
-            const NARROW_THRESHOLD: f32 = 50.0;
-            const NARROW_FLOOR: f32 = 14.0;
-
-            let narrow_total: f32 = auto_cols
-                .iter()
-                .filter(|&&c| natural[c] < NARROW_THRESHOLD)
-                .map(|&c| natural[c].max(NARROW_FLOOR))
-                .sum();
-
-            let content_natural_total: f32 = auto_cols
-                .iter()
-                .filter(|&&c| natural[c] >= NARROW_THRESHOLD)
-                .map(|&c| natural[c])
-                .sum();
-
-            if content_natural_total > 0.0 {
-                let content_remaining = (remaining - narrow_total).max(0.0);
-                for &col in &auto_cols {
-                    if natural[col] < NARROW_THRESHOLD {
-                        explicit[col] = Some(natural[col].max(NARROW_FLOOR));
-                    } else {
-                        explicit[col] = Some(content_remaining * natural[col] / content_natural_total);
-                    }
+    // Single-column cells contribute directly; colspan cells are collected and
+    // distributed afterwards, shortest spans first.
+    let mut spanners: Vec<(usize, usize, f32, f32, Option<f32>)> = Vec::new();
+    for grid in grids {
+        for cell in grid.cells() {
+            let (min_c, max_c) = tree.cell_intrinsic_widths(cell.node);
+            let max_c = max_c.max(min_c);
+            let w = tree.css_length(cell.node, CssProp::Width).resolve(percent_basis);
+            if cell.colspan == 1 {
+                let c = cell.col;
+                min[c] = min[c].max(min_c);
+                max[c] = max[c].max(max_c);
+                if let Some(w) = w {
+                    spec[c] = Some(spec[c].map_or(w, |prev| prev.max(w)));
                 }
             } else {
-                // All auto columns are narrow - distribute remaining proportionally.
-                for &col in &auto_cols {
-                    explicit[col] = Some(remaining * natural[col] / total_natural);
-                }
-            }
-        } else {
-            // No content width data (mock trees) - fall back to equal distribution.
-            let equal = remaining / auto_cols.len() as f32;
-            for &col in &auto_cols {
-                explicit[col] = Some(equal);
+                spanners.push((cell.col, cell.colspan, min_c, max_c, w));
             }
         }
     }
 
-    explicit.iter().map(|w| w.unwrap_or(0.0)).collect()
+    spanners.sort_by_key(|s| s.1);
+    for (col, colspan, min_c, max_c, w) in spanners {
+        let range = col..(col + colspan).min(n_cols);
+        if range.is_empty() {
+            continue;
+        }
+        // The spanning cell runs across the gutters between its columns.
+        let gutters = border_spacing_x * range.len().saturating_sub(1) as f32;
+        distribute_deficit(&mut min, range.clone(), min_c - gutters, &max);
+        distribute_deficit(&mut max, range.clone(), max_c - gutters, &min);
+        // A specified width on a spanning cell divides evenly over columns
+        // that have no specified width of their own.
+        if let Some(w) = w {
+            let open: Vec<usize> = range.clone().filter(|&c| spec[c].is_none()).collect();
+            if open.len() == range.len() {
+                let share = (w - gutters) / open.len() as f32;
+                for c in open {
+                    spec[c] = Some(share.max(0.0));
+                }
+            }
+        }
+    }
+
+    // A specified width cannot shrink a column below its min-content width; a
+    // specified column contributes that fixed width as both its min and max.
+    let contrib_min: Vec<f32> = (0..n_cols).map(|c| spec[c].map_or(min[c], |s| s.max(min[c]))).collect();
+    let contrib_max: Vec<f32> = (0..n_cols)
+        .map(|c| spec[c].map_or(max[c].max(min[c]), |s| s.max(min[c])))
+        .collect();
+    let cmin: f32 = contrib_min.iter().sum();
+    let cmax: f32 = contrib_max.iter().sum();
+
+    // With no intrinsic information at all (mock trees, fully empty cells)
+    // shrink-to-fit would collapse the table - fill the available width instead.
+    let has_intrinsic = max.iter().any(|&m| m > 0.0) || min.iter().any(|&m| m > 0.0);
+
+    let used_width = match explicit_table_width {
+        Some(w) => w.max(cmin + spacing_total),
+        None if !has_intrinsic => available_width,
+        // Shrink-to-fit: as wide as the content wants, capped by the containing
+        // block, but never below the min-content total.
+        None => (cmax + spacing_total).min(available_width).max(cmin + spacing_total),
+    };
+
+    // Distribute the inner width: start every column at its min contribution,
+    // grow toward the max contributions, then hand any extra to auto columns.
+    let inner = (used_width - spacing_total).max(0.0);
+    let mut widths = contrib_min.clone();
+    let mut extra = inner - cmin;
+    if extra > 0.0 {
+        let growth: Vec<f32> = (0..n_cols).map(|c| contrib_max[c] - contrib_min[c]).collect();
+        let growth_total: f32 = growth.iter().sum();
+        if growth_total > 0.0 {
+            let g = extra.min(growth_total);
+            for c in 0..n_cols {
+                widths[c] += g * growth[c] / growth_total;
+            }
+            extra -= g;
+        }
+        if extra > 0.0 {
+            // Space beyond every column's max: prefer auto columns, weighted by
+            // their max-content width so content-heavy columns absorb more.
+            let autos: Vec<usize> = (0..n_cols).filter(|&c| spec[c].is_none()).collect();
+            let targets = if autos.is_empty() { (0..n_cols).collect() } else { autos };
+            let weight_total: f32 = targets.iter().map(|&c| contrib_max[c]).sum();
+            if weight_total > 0.0 {
+                for &c in &targets {
+                    widths[c] += extra * contrib_max[c] / weight_total;
+                }
+            } else {
+                let equal = extra / targets.len() as f32;
+                for &c in &targets {
+                    widths[c] += equal;
+                }
+            }
+        }
+    }
+
+    (widths, used_width)
+}
+
+/// Raise the values in `range` so they sum to at least `required`. The deficit
+/// is split proportionally to `weights` (content-heavy columns absorb more),
+/// equally when the weights are all zero.
+fn distribute_deficit(vals: &mut [f32], range: std::ops::Range<usize>, required: f32, weights: &[f32]) {
+    let current: f32 = vals[range.clone()].iter().sum();
+    if required <= current {
+        return;
+    }
+    let deficit = required - current;
+    let weight_total: f32 = weights[range.clone()].iter().sum();
+    if weight_total > 0.0 {
+        for c in range {
+            vals[c] += deficit * weights[c] / weight_total;
+        }
+    } else {
+        let equal = deficit / range.len() as f32;
+        for c in range {
+            vals[c] += equal;
+        }
+    }
 }
 
 /// The fixed table layout algorithm: column widths are fully determined by

@@ -296,6 +296,37 @@ impl TaffyLayouter {
         &self.dom_to_layout_mapping
     }
 
+    /// Measure a cell subtree's intrinsic border-box widths: `(min_content,
+    /// max_content)`. Runs two taffy computes with MinContent/MaxContent
+    /// available space; box models in the LayoutTree are untouched (the
+    /// subsequent `relayout_cell` at the final width rewrites taffy's internal
+    /// layout anyway).
+    pub(super) fn measure_intrinsic_widths(&mut self, cell_layout_id: LayoutElementId) -> Option<(f32, f32)> {
+        let &taffy_id = self.layout_taffy_mapping.get(&cell_layout_id)?;
+
+        let font_system = Arc::clone(&self.font_system);
+        let mut measure_cache: HashMap<MeasureKey, Size<f32>> = std::mem::take(&mut self.measure_cache);
+        let mut results = [0.0_f32; 2];
+        for (i, avail) in [AvailableSpace::MinContent, AvailableSpace::MaxContent].into_iter().enumerate() {
+            let size = Size {
+                width: avail,
+                height: AvailableSpace::MaxContent,
+            };
+            let computed = self
+                .tree
+                .compute_layout_with_measure(taffy_id, size, |v_kd, v_as, _v_ni, v_nc, _v_s| {
+                    measure_node(&font_system, &mut measure_cache, v_kd, v_as, v_nc)
+                });
+            if computed.is_err() {
+                self.measure_cache = measure_cache;
+                return None;
+            }
+            results[i] = self.tree.layout(taffy_id).map(|l| l.size.width).unwrap_or(0.0);
+        }
+        self.measure_cache = measure_cache;
+        Some((results[0], results[1].max(results[0])))
+    }
+
     /// Re-run taffy layout for a single table-cell subtree at the border-box
     /// width lattice assigned to it, then rewrite the subtree's box models
     /// anchored at the cell's current absolute position (lattice repositions the
