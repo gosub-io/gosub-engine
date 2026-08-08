@@ -38,7 +38,7 @@ log = { workspace = true }
 tracing = { workspace = true }
 
 r2d2 = { version = "0.8", optional = true }
-r2d2_sqlite = { version = "0.33", optional = true, features = ["bundled"] }
+r2d2_sqlite = { version = "0.34", optional = true, features = ["bundled"] }
 
 time = "0.3.41"
 tokio-util = { workspace = true, features = ["io"] }
