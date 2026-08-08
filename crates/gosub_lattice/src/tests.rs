@@ -885,6 +885,87 @@ mod layout_tests {
         assert_approx!(tree.layout(cells[1]).unwrap().content_offset_y, 30.0, "bottom offset inside padding");
     }
 
+    // Caption on top: full table width, grid shifted down below it.
+    #[test]
+    fn caption_on_top() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
+            .spacing(0.0, 0.0)
+            .caption(20.0, false)
+            .body_row(vec![
+                cell("a").height(10.0).padding(0.0),
+                cell("b").height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        let (_, total_h) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let caption = tree.nodes_with_role(TableRole::Caption)[0];
+        let cap_layout = tree.layout(caption).expect("caption");
+        assert_approx!(cap_layout.position.y, 0.0, "caption at the top");
+        assert_approx!(cap_layout.size.width, 100.0, "caption spans the table");
+        assert_approx!(cap_layout.size.height, 20.0, "caption height from content");
+
+        let group = tree.nodes_with_role(TableRole::RowGroup)[0];
+        assert_approx!(tree.layout(group).expect("group").position.y, 20.0, "grid below caption");
+        assert_approx!(total_h, 30.0, "caption + one 10px row");
+    }
+
+    // Caption on the bottom: grid at the top, caption below it.
+    #[test]
+    fn caption_on_bottom() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
+            .spacing(0.0, 0.0)
+            .caption(20.0, true)
+            .body_row(vec![
+                cell("a").height(10.0).padding(0.0),
+                cell("b").height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        let (_, total_h) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let group = tree.nodes_with_role(TableRole::RowGroup)[0];
+        assert_approx!(tree.layout(group).expect("group").position.y, 0.0, "grid at the top");
+
+        let caption = tree.nodes_with_role(TableRole::Caption)[0];
+        assert_approx!(tree.layout(caption).expect("caption").position.y, 10.0, "caption below grid");
+        assert_approx!(total_h, 30.0, "row + caption");
+    }
+
+    // border-collapse: gutters vanish and adjacent 1px borders overlap so
+    // neighbouring cells share a single border line.
+    #[test]
+    fn border_collapse_overlaps_cells() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
+            .spacing(5.0, 5.0) // must be ignored under collapse
+            .collapse()
+            .body_row(vec![
+                cell("a").border(1.0).height(10.0).padding(0.0),
+                cell("b").border(1.0).height(10.0).padding(0.0),
+            ])
+            .body_row(vec![
+                cell("c").border(1.0).height(10.0).padding(0.0),
+                cell("d").border(1.0).height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        let (_, total_h) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        // Columns are 50px; the second column starts 1px early so the 1px
+        // borders coincide.
+        assert_approx!(tree.layout(cells[0]).expect("a").position.x, 0.0, "col 0 at x=0 (no gutter)");
+        assert_approx!(tree.layout(cells[1]).expect("b").position.x, 49.0, "col 1 overlaps by 1px");
+
+        // Rows are 12px tall (10 content + 2 border); row 2 overlaps by 1px.
+        let rows = tree.nodes_with_role(TableRole::Row);
+        assert_approx!(tree.layout(rows[1]).expect("row 1").position.y, 11.0, "row 1 overlaps by 1px");
+        assert_approx!(total_h, 23.0, "12 + 12 - 1 overlap, no gutters");
+    }
+
     // Auto layout: <col> widths seed columns; the rest distribute as usual.
     #[test]
     fn col_widths_in_auto_layout() {
