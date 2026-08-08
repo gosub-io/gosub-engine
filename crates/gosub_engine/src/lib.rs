@@ -155,6 +155,11 @@ pub mod decoder_process;
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub mod fork_server;
 
+/// Exec-fresh, throwaway renderer processes — how `FontPathsReadable`
+/// configurations render out-of-process. Linux only.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub mod render_process;
+
 pub mod net;
 
 pub mod util;

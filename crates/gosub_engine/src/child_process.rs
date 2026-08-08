@@ -73,6 +73,13 @@ fn run_role_with<C: crate::html::RenderConfiguration>(role: &str, args: &[String
             Err(code) => code,
         };
     }
+    if role == crate::render_process::client::RENDERER_ROLE {
+        gosub_sandbox::deny_debugger_attach();
+        return match adopt_link(role, args) {
+            Ok(endpoint) => crate::render_process::child::serve::<C>(endpoint),
+            Err(code) => code,
+        };
+    }
     run_role(role, args)
 }
 

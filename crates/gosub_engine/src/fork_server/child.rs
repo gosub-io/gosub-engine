@@ -19,7 +19,7 @@ use crate::html::RenderConfiguration;
 use gosub_interface::font_system::{Confinement, FontSystem, TextStyle};
 use gosub_ipc::Endpoint;
 use parking_lot::Mutex;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::AsRawFd;
 use std::sync::Arc;
 
 /// Run the fork server for the embedder's configuration `C`.
@@ -109,10 +109,9 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                 ConfinementTier::Unsupported(reason) => {
                     FromForkServer::Refused(format!("this font system cannot run isolated: {reason}"))
                 }
-                // Multi-part reply (a message, then one fd per tile), so this
-                // arm sends for itself rather than producing a `reply` — and
-                // it borrows the broker link for the duration, to relay the
-                // renderer's resource requests.
+                // Streamed reply (tiles relayed as they arrive, then the
+                // summary), so this arm sends for itself — a `Refused` after
+                // partial tiles tells the broker to discard them.
                 _ => {
                     let outcome = fork_and_render::<C>(
                         &mut link,
@@ -126,26 +125,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                         viewport_height,
                     );
                     match outcome {
-                        Ok((summary, tiles)) => {
-                            let headers: Vec<TileHeader> = tiles.iter().map(|(header, _)| header.clone()).collect();
-                            if link
-                                .send(&FromForkServer::PageRendered {
-                                    summary,
-                                    tiles: headers,
-                                })
-                                .is_err()
-                            {
-                                return 1;
-                            }
-                            for (_, fd) in tiles {
-                                if link.tx.send_fd(fd.as_raw_fd()).is_err() {
-                                    return 1;
-                                }
-                                // `fd` drops here: SCM_RIGHTS duplicated it
-                                // into the broker, our copy is done.
-                            }
-                            continue;
-                        }
+                        Ok(()) => continue, // PageRendered already sent
                         Err(e) => FromForkServer::Refused(e),
                     }
                 }
@@ -303,7 +283,7 @@ fn fork_and_render<C: RenderConfiguration>(
     page_url: &str,
     viewport_width: f64,
     viewport_height: f64,
-) -> Result<(crate::fork_server::protocol::PageSummary, Vec<(TileHeader, OwnedFd)>), String> {
+) -> Result<(), String> {
     let (ours, theirs) = match gosub_ipc::channel::Channel::pair() {
         Ok(pair) => pair,
         Err(e) => return Err(format!("could not create the renderer link: {e}")),
@@ -338,57 +318,54 @@ fn fork_and_render<C: RenderConfiguration>(
                 Arc::clone(forked_loader) as Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
             );
 
-            // Seal every CPU tile into an immutable memfd. All of this —
+            // Stream every CPU tile out: seal into an immutable memfd, send
+            // header + fd, drop — one at a time, so this process never holds
+            // more than one tile fd regardless of page height. All of it —
             // memfd_create, ftruncate, mmap, the seals — is in the renderer
             // baseline precisely so a confined renderer can hand off pixels.
-            let mut headers: Vec<TileHeader> = Vec::new();
-            let mut fds: Vec<OwnedFd> = Vec::new();
+            let mut link = link.lock();
             for tile in &baked {
                 let gosub_render_pipeline::common::texture::TilePixels::Cpu(bytes) = &tile.pixels else {
                     // GPU handles are process-local and cannot cross; a
                     // forked rasterizer should never produce one.
                     continue;
                 };
-                match gosub_ipc::shm::create_sealed_tile(tile.width, tile.height, |buf| {
+                let Ok(fd) = gosub_ipc::shm::create_sealed_tile(tile.width, tile.height, |buf| {
                     let n = buf.len().min(bytes.len());
                     buf[..n].copy_from_slice(&bytes[..n]);
-                }) {
-                    Ok(fd) => {
-                        headers.push(TileHeader {
-                            page_x: tile.page_x,
-                            page_y: tile.page_y,
-                            layer_id: tile.layer_id,
-                            width: tile.width,
-                            height: tile.height,
-                            format: tile.format.into(),
-                            opacity: tile.opacity,
-                            anchor: tile.anchor.into(),
-                        });
-                        fds.push(fd);
-                    }
-                    Err(_) => gosub_sandbox::exit_now(1),
+                }) else {
+                    gosub_sandbox::exit_now(1);
+                };
+                let header = TileHeader {
+                    page_x: tile.page_x,
+                    page_y: tile.page_y,
+                    layer_id: tile.layer_id,
+                    width: tile.width,
+                    height: tile.height,
+                    format: tile.format.into(),
+                    opacity: tile.opacity,
+                    anchor: tile.anchor.into(),
+                };
+                let sent = link.send(&FromRenderer::Tile(header)).is_ok() && link.tx.send_fd(fd.as_raw_fd()).is_ok();
+                if !sent {
+                    gosub_sandbox::exit_now(1);
                 }
+                // `fd` drops here: SCM_RIGHTS duplicated it onward.
             }
 
-            let mut link = link.lock();
-            let ok = link
-                .send(&FromRenderer::Rendered(crate::fork_server::protocol::RenderedPage {
-                    summary,
-                    tiles: headers,
-                }))
-                .is_ok()
-                && fds.iter().all(|fd| link.tx.send_fd(fd.as_raw_fd()).is_ok());
+            let ok = link.send(&FromRenderer::Rendered(summary)).is_ok();
             gosub_sandbox::exit_now(if ok { 0 } else { 1 });
         }
         Ok(gosub_sandbox::Forked::Parent { pid }) => {
             drop(theirs);
             // Same EOF-or-broker-clock error model as `fork_confined_task`,
-            // with one addition: until the child sends its result it may ask
-            // for resources, each relayed to the broker and answered before
-            // the next child message is read. Strict alternation, both links.
-            let received = (|| -> std::io::Result<_> {
+            // now a pure relay: resource requests go broker-ward and back,
+            // tiles go broker-ward one fd at a time (received, forwarded,
+            // dropped), and the final summary closes the exchange. Strict
+            // alternation on both links; O(1) fds held here.
+            let relayed = (|| -> std::io::Result<()> {
                 let mut link = Endpoint::from_channel(ours)?;
-                let page = loop {
+                loop {
                     match link.recv::<FromRenderer>()? {
                         FromRenderer::NeedResource { url } => {
                             broker
@@ -406,20 +383,30 @@ fn fork_and_render<C: RenderConfiguration>(
                                 }
                             }
                         }
-                        FromRenderer::Rendered(page) => break page,
+                        FromRenderer::Tile(header) => {
+                            let fd = link.rx.recv_fd()?;
+                            broker
+                                .send(&FromForkServer::Tile(header))
+                                .map_err(|e| std::io::Error::other(format!("broker unreachable: {e}")))?;
+                            broker
+                                .tx
+                                .send_fd(fd.as_raw_fd())
+                                .map_err(|e| std::io::Error::other(format!("could not relay a tile fd: {e}")))?;
+                            // `fd` drops here; the broker holds the only copy.
+                        }
+                        FromRenderer::Rendered(summary) => {
+                            broker
+                                .send(&FromForkServer::PageRendered { summary })
+                                .map_err(|e| std::io::Error::other(format!("broker unreachable: {e}")))?;
+                            return Ok(());
+                        }
                     }
-                };
-                let mut tiles = Vec::with_capacity(page.tiles.len());
-                for header in page.tiles {
-                    let fd = link.rx.recv_fd()?;
-                    tiles.push((header, fd));
                 }
-                Ok((page.summary, tiles))
             })();
             let status = gosub_sandbox::reap_child(pid);
-            match (received, status) {
-                (Ok(result), Ok(_)) => Ok(result),
-                (Err(e), _) => Err(format!("forked renderer sent no rendered page: {e}")),
+            match (relayed, status) {
+                (Ok(()), Ok(_)) => Ok(()),
+                (Err(e), _) => Err(format!("forked renderer died mid-render: {e}")),
                 (_, Err(e)) => Err(format!("forked renderer could not be reaped: {e}")),
             }
         }

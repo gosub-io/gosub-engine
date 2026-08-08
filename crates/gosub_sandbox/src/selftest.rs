@@ -896,7 +896,7 @@ fn run_platform_probe(probe: &str) {
             "host netns looks empty already — probe proves nothing"
         );
 
-        crate::isolate_network(true).expect("unshare namespaces");
+        crate::isolate_namespaces(crate::NamespaceIsolation::Full).expect("unshare namespaces");
 
         // The network namespace must actually have changed, and the new one must
         // hold nothing but loopback: no route off this machine exists at all.
@@ -916,7 +916,7 @@ fn run_platform_probe(probe: &str) {
         // Best-effort like the real path — where the kernel refused CLONE_NEWPID
         // and it fell back, the child is not PID 1, and we skip (exit 0) rather
         // than fail a host that cannot make PID namespaces.
-        crate::isolate_network(true).expect("unshare namespaces");
+        crate::isolate_namespaces(crate::NamespaceIsolation::Full).expect("unshare namespaces");
         // SAFETY: single-threaded probe; child runs only getpid + _exit.
         match unsafe { libc::fork() } {
             -1 => {

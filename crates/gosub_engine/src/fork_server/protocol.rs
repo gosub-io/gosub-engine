@@ -65,16 +65,18 @@ pub enum FromForkServer {
     Pong,
     /// A forked renderer shaped text under its tier sandbox and measured this.
     Proof { width: f32, height: f32 },
-    /// A forked renderer ran the pipeline over a page and measured this.
-    ///
-    /// After this message, one sealed-memfd file descriptor follows on the
-    /// link **per entry in `tiles`, in order** — the pixels themselves never
-    /// travel in-band (see `gosub_ipc::shm`). An empty `tiles` means the
-    /// configuration has no forked rasterizer and stage 6 was skipped.
-    PageRendered {
-        summary: PageSummary,
-        tiles: Vec<TileHeader>,
-    },
+    /// One rasterized tile of the page being rendered; its sealed-memfd file
+    /// descriptor follows immediately on the link. **Streamed**: tiles arrive
+    /// one at a time, each fd relayed and released before the next — no side
+    /// of the transport ever holds more than one tile fd, so page size is
+    /// bounded by memory, not by file-descriptor limits.
+    Tile(TileHeader),
+    /// The render finished; every [`Tile`](FromForkServer::Tile) of the page
+    /// has already streamed past. A render that dies mid-stream ends in
+    /// [`Refused`](FromForkServer::Refused) instead, and the broker discards
+    /// the partial tile set — atomicity lives at the consumer now, not in
+    /// transport buffering.
+    PageRendered { summary: PageSummary },
     /// The request could not be served; the string says why (e.g. forking is
     /// refused under `Unsupported`, or the forked child died).
     Refused(String),
@@ -227,23 +229,18 @@ impl From<TileWireAnchor> for gosub_interface::render::backend::TileAnchor {
     }
 }
 
-/// What a forked renderer sends its parent over their private pair when asked
-/// to render: the summary plus tile headers, followed by one sealed memfd per
-/// header, in order.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RenderedPage {
-    pub summary: PageSummary,
-    pub tiles: Vec<TileHeader>,
-}
-
 /// Everything a renderer can say to its parent over their private pair.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum FromRenderer {
     /// Mid-render: fetch this for me. The parent relays it to the broker and
     /// sends the [`ResourceReply`] back; the renderer is blocked until then.
     NeedResource { url: String },
-    /// The final message: the page, with fds to follow.
-    Rendered(RenderedPage),
+    /// One rasterized tile; its sealed memfd follows immediately. The
+    /// renderer seals, sends, and drops each before baking the next into a
+    /// memfd, so it never holds more than one tile fd itself.
+    Tile(TileHeader),
+    /// The final message: the render is complete.
+    Rendered(PageSummary),
 }
 
 /// A fetched subresource (or its failure), as it travels broker → fork server

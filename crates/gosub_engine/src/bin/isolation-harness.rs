@@ -120,6 +120,7 @@ fn main() {
         "fork-server" => with_font_backend!(fork_server_roundtrip),
         "render-under-lockdown" => with_font_backend!(render_under_lockdown),
         "engine-renderer-process" => with_font_backend!(engine_renderer_process),
+        "exec-renderer" => with_font_backend!(exec_renderer_roundtrip),
         other => {
             eprintln!("unknown scenario {other:?}; expected 'direct' or 'engine'");
             2
@@ -403,6 +404,83 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
     }
 }
 
+/// The exec-fresh renderer, driven directly: spawn one throwaway
+/// font-readable-confined renderer process, have it render the same
+/// css+font+img page the fork-server scenario uses, and verify the brokered
+/// loads and the streamed tiles — the `FontPathsReadable` tier's whole
+/// render path, without an engine around it.
+fn exec_renderer_roundtrip<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        let html = r#"
+            <html><head>
+            <link rel="stylesheet" href="/page.css">
+            <style> body { margin: 0; } h1 { font-size: 32px; } </style></head>
+            <body>
+                <h1>Rendered in an exec'd renderer</h1>
+                <div class="card"><p>One page, one process, gone.</p></div>
+                <img src="/tile.png" width="64" height="64">
+            </body></html>
+        "#;
+        let font_bytes = {
+            use gosub_interface::font_system::FontQuery;
+            let mut fonts = gosub_fontmanager::ParleyFontSystem::default();
+            let _ = fonts.families();
+            fonts
+                .resolve(&FontQuery::new(&["sans-serif"]))
+                .map(|resolved| resolved.blob.data.as_ref().as_ref().to_vec())
+                .unwrap_or_default()
+        };
+        let loader = HarnessResourceLoader {
+            font: font_bytes,
+            ..Default::default()
+        };
+
+        match gosub_engine::render_process::client::render_page(
+            html,
+            "http://harness.invalid/index.html",
+            (1280.0, 720.0),
+            &loader,
+        ) {
+            Ok((summary, tiles)) => {
+                if summary.page_height < 300.0 || summary.paint_commands == 0 {
+                    eprintln!("implausible page from the exec'd renderer: {summary:?}");
+                    return 1;
+                }
+                let paths = loader.paths.lock().clone();
+                for expected in ["/tile.png", "/page.css", "/face.ttf"] {
+                    if !paths.iter().any(|p| p.ends_with(expected)) {
+                        eprintln!("the exec'd renderer never requested {expected} (saw: {paths:?})");
+                        return 1;
+                    }
+                }
+                if cfg!(feature = "cairo-tiles") && tiles.is_empty() {
+                    eprintln!("no tiles arrived from the exec'd renderer");
+                    return 1;
+                }
+                println!(
+                    "exec'd renderer rendered a {:.0}x{:.0} page: {} tiles, {} brokered requests",
+                    summary.page_width,
+                    summary.page_height,
+                    tiles.len(),
+                    paths.len()
+                );
+                0
+            }
+            Err(e) => {
+                eprintln!("exec'd render failed: {e}");
+                1
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the exec'd renderer exists only on Linux");
+        2
+    }
+}
+
 /// The engine-side wiring: `GosubEngine` itself spawns the fork server when
 /// `security.renderer_process` is on, announces the tier, hands out the
 /// handle, and tears it down at shutdown.
@@ -426,7 +504,10 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
 
         runtime.block_on(async move {
             let compositor = Arc::new(DefaultCompositor::default());
-            let mut engine: GosubEngine = GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            // The engine runs the same configuration the child dispatch uses,
+            // so its (static) font-system tier decides the renderer mechanism.
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
 
             if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
                 eprintln!("could not enable the renderer process: {e}");
@@ -439,17 +520,20 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
             };
             tokio::spawn(run);
 
-            let Some(tier) = engine.renderer_process_tier() else {
-                eprintln!("the engine did not start a renderer fork server");
-                return 1;
-            };
-            println!("engine renderer process tier: {tier:?}");
-
-            // For a Full-tier font system the engine must be able to render
-            // through its own handle; for FontPathsReadable the handle exists
-            // but declines forks (renderers are exec'd fresh, later work).
-            match tier {
-                ConfinementTier::Full => {
+            // What the engine starts depends on the configured font system's
+            // static tier: `Full` gets a warmed fork server, `FontPathsReadable`
+            // gets exec-per-render mode (no long-lived process at all).
+            match F::confinement() {
+                Confinement::Full => {
+                    let Some(tier) = engine.renderer_process_tier() else {
+                        eprintln!("the engine did not start a renderer fork server");
+                        return 1;
+                    };
+                    println!("engine renderer process tier: {tier:?}");
+                    if !matches!(tier, ConfinementTier::Full) {
+                        eprintln!("expected the Full tier, got {tier:?}");
+                        return 1;
+                    }
                     let Some(server) = engine.renderer_process() else {
                         eprintln!("tier announced but no handle exposed");
                         return 1;
@@ -479,20 +563,26 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                         }
                     }
                 }
-                ConfinementTier::FontPathsReadable => {
-                    println!("tier declines forks by design; lifecycle wiring is what this run covered");
+                Confinement::FontPathsReadable => {
+                    if engine.renderer_process_tier().is_some() {
+                        eprintln!("a FontPathsReadable config must not spawn a fork server");
+                        return 1;
+                    }
+                    println!("exec-per-render mode: no fork server spawned, renderers spawn per render");
                 }
-                ConfinementTier::Unsupported(reason) => {
+                Confinement::Unsupported(reason) => {
                     eprintln!("unexpected Unsupported tier: {reason}");
                     return 1;
                 }
             }
 
-            // The tab route: a real navigation whose frame is rendered by the
-            // fork server. The tab worker captures the document source, sends
-            // it out through `RenderPage`, and submits the returned tiles to
-            // the compositor — the same code path an embedder's window drives.
-            if matches!(engine.renderer_process_tier(), Some(ConfinementTier::Full)) {
+            // The tab route: a real navigation whose frame is rendered
+            // out-of-process — forked from the fork server (Full) or in a
+            // throwaway exec'd renderer (FontPathsReadable). The tab worker
+            // captures the document source, sends it out, and submits the
+            // returned tiles to the compositor — the same code path an
+            // embedder's window drives.
+            {
                 use gosub_engine::events::{NavigationEvent, TabCommand};
                 use gosub_engine::storage::{
                     InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService,
@@ -856,6 +946,36 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
             Err(e) => {
                 eprintln!("rendering in a forked renderer failed: {e}");
                 return 1;
+            }
+        }
+
+        // The streaming property: a page whose tile count exceeds any
+        // process's file-descriptor limit (RLIMIT_NOFILE is 128 in the fork
+        // server and its children) must still ship every tile — possible
+        // only because each hop seals/relays/maps one fd at a time.
+        if cfg!(feature = "cairo-tiles") {
+            let tall = r#"<html><body style="margin:0">
+                <div style="height: 12000px; background: #ddd">tall</div>
+            </body></html>"#;
+            match server.render_page(tall, "http://harness.invalid/tall.html", (1280.0, 720.0), &loader) {
+                Ok((summary, tiles)) => {
+                    if tiles.len() <= 128 {
+                        eprintln!(
+                            "expected a tall page to stream more tiles than an fd limit could buffer, got {}",
+                            tiles.len()
+                        );
+                        return 1;
+                    }
+                    println!(
+                        "streamed {} tiles for a {:.0}px-tall page (past any fd limit)",
+                        tiles.len(),
+                        summary.page_height
+                    );
+                }
+                Err(e) => {
+                    eprintln!("tall-page streaming render failed: {e}");
+                    return 1;
+                }
             }
         }
         server.shutdown();

@@ -289,6 +289,27 @@ fn the_engine_spawns_the_renderer_fork_server_behind_its_setting() {
     );
 }
 
+/// The exec-fresh renderer: one throwaway, font-readable-confined process
+/// renders one page — the `FontPathsReadable` tier's whole render path,
+/// driven directly. Runs with the default (Full-tier) font system here,
+/// which the weaker profile also serves; the tier-2 backends exercise the
+/// same path behind their features.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_exec_fresh_renderer_renders_one_page_confined() {
+    let out = run("exec-renderer");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the exec'd renderer roundtrip failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// An embedder that enables isolation without dispatching must be stopped, not
 /// merely warned.
 #[test]

@@ -56,18 +56,32 @@ pub fn apply_child_rlimits() -> std::io::Result<()> {
     imp::apply_child_rlimits()
 }
 
-/// Isolate a child's namespaces when `enable` is set (content processes and
-/// services), leaving them in place otherwise (the net component). On Linux this
-/// unshares the network namespace (the load-bearing one) plus IPC and UTS as
-/// defense in depth, and (best-effort) a PID namespace — which, because the
-/// unshare is lazy, isolates the *fork server's forked renderers* rather than the
-/// caller (see the backend docs). The mount namespace is deliberately left out
-/// for concrete reasons (see the backend docs). Called from `pre_exec`, so it
-/// must stay async-signal-safe. On platforms without namespaces this is deferred
-/// into the lockdown profile — see the backend docs.
+/// Which namespaces a child is dropped into at spawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NamespaceIsolation {
+    /// No unsharing — the net component, which must reach the network.
+    None,
+    /// Empty network namespace (the load-bearing one) plus IPC and UTS as
+    /// defense in depth, and (best-effort) a PID namespace — which, because
+    /// the unshare is lazy, isolates the *fork server's forked renderers*
+    /// rather than the caller.
+    Full,
+    /// [`Full`](NamespaceIsolation::Full) minus the PID namespace, for roles
+    /// whose libraries must create **threads**: a process that has unshared
+    /// its PID namespace cannot (measured — GLib/Pango aborts on it). Such
+    /// roles never fork, so what the PID namespace would have isolated does
+    /// not exist.
+    NoPidNamespace,
+}
+
+/// Isolate a child's namespaces per `mode` (see [`NamespaceIsolation`]). The
+/// mount namespace is deliberately left out for concrete reasons (see the
+/// backend docs). Called from `pre_exec`, so it must stay async-signal-safe.
+/// On platforms without namespaces this is deferred into the lockdown profile
+/// — see the backend docs.
 #[cfg(feature = "multi-process")]
-pub fn isolate_network(enable: bool) -> std::io::Result<()> {
-    imp::isolate_network(enable)
+pub fn isolate_namespaces(mode: NamespaceIsolation) -> std::io::Result<()> {
+    imp::isolate_namespaces(mode)
 }
 
 /// Confine a renderer to pixels only: no network, no files, no new programs.

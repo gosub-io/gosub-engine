@@ -217,10 +217,24 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// The source text of the current document, kept when a renderer process
     /// will re-parse it there. `None` when rendering in-process.
     document_source: Option<std::sync::Arc<str>>,
-    /// The engine's renderer fork server, installed by the tab worker when
-    /// `security.renderer_process` produced a forking (`Full`-tier) server.
+    /// How this tab renders out-of-process, installed by the tab worker when
+    /// `security.renderer_process` is on: through the engine's fork server
+    /// (`Full`-tier font systems) or via a fresh exec'd renderer per render
+    /// (`FontPathsReadable`).
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    renderer_process: Option<std::sync::Arc<parking_lot::Mutex<crate::fork_server::client::ForkServer>>>,
+    remote_renderer: Option<RemoteRenderer>,
+}
+
+/// The two ways a tab's renders leave this process — which one applies is the
+/// configured font system's confinement tier, decided statically.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub enum RemoteRenderer {
+    /// Fork from the engine's warmed fork server (tier `Full`).
+    ForkServer(std::sync::Arc<parking_lot::Mutex<crate::fork_server::client::ForkServer>>),
+    /// Spawn a throwaway exec'd renderer per render (tier `FontPathsReadable`
+    /// — warming buys nothing when font files stay reachable, and the stack
+    /// may not even be constructible in a fork server).
+    ExecPerRender,
 }
 
 impl<C: RenderConfiguration> BrowsingContext<C> {
@@ -270,28 +284,24 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             loader,
             document_source: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-            renderer_process: None,
+            remote_renderer: None,
         }
     }
 
-    /// Route this tab's full renders through the engine's renderer fork
-    /// server. Installed once by the tab worker; see
-    /// [`Self::remote_render_active`] for when it actually engages.
+    /// Route this tab's full renders out-of-process. Installed once by the
+    /// tab worker; see [`Self::remote_render_active`] for when it engages.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    pub fn set_renderer_process(
-        &mut self,
-        server: std::sync::Arc<parking_lot::Mutex<crate::fork_server::client::ForkServer>>,
-    ) {
-        self.renderer_process = Some(server);
+    pub fn set_remote_renderer(&mut self, renderer: RemoteRenderer) {
+        self.remote_renderer = Some(renderer);
     }
 
-    /// Whether full renders go out-of-process: a forking renderer is installed
+    /// Whether full renders go out-of-process: a remote renderer is installed
     /// *and* the current document's source is available to send it.
     #[allow(clippy::needless_return)] // the cfg arms need explicit returns
     pub fn remote_render_active(&self) -> bool {
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         {
-            return self.renderer_process.is_some() && self.document_source.is_some();
+            return self.remote_renderer.is_some() && self.document_source.is_some();
         }
         #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
         {
@@ -536,7 +546,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         use gosub_render_pipeline::common::texture::TilePixels;
         use gosub_render_pipeline::rasterizer::BakedTile;
 
-        let (Some(server), Some(source)) = (&self.renderer_process, &self.document_source) else {
+        let (Some(remote), Some(source)) = (&self.remote_renderer, &self.document_source) else {
             return false;
         };
 
@@ -551,9 +561,16 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 .unwrap_or_else(|| "about:blank".to_string())
         };
         let viewport = (self.viewport.width as f64, self.viewport.height as f64);
-        let result = server
-            .lock()
-            .render_page(source, &page_url, viewport, self.loader.as_ref());
+        let result = match remote {
+            RemoteRenderer::ForkServer(server) => {
+                server
+                    .lock()
+                    .render_page(source, &page_url, viewport, self.loader.as_ref())
+            }
+            RemoteRenderer::ExecPerRender => {
+                crate::render_process::client::render_page(source, &page_url, viewport, self.loader.as_ref())
+            }
+        };
         match result {
             Ok((summary, tiles)) => {
                 let baked: Vec<BakedTile> = tiles

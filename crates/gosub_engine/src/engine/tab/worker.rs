@@ -287,14 +287,26 @@ impl<C: RenderConfiguration> TabWorker<C> {
             BrokeredLoader::new(zone_id, Some(tab_id), zone_context.io_tx.clone()).shared(),
         );
 
-        // Hand the tab the engine's renderer fork server, when one is running
-        // and able to fork (a `FontPathsReadable` server declines forks, so
-        // installing it would only produce a refusal per render).
+        // Install this tab's remote-render mode per the configured font
+        // system's (static) confinement tier: `Full` renders through the
+        // engine's warmed fork server, `FontPathsReadable` spawns a throwaway
+        // exec'd renderer per render, `Unsupported` stays in-process.
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        if let Some(server) = zone_context.engine_context.renderer_process.get() {
-            use crate::fork_server::protocol::ConfinementTier;
-            if matches!(server.lock().confinement(), ConfinementTier::Full) {
-                context.set_renderer_process(Arc::clone(server));
+        {
+            use crate::engine::context::RemoteRenderer;
+            use gosub_interface::font_system::{Confinement, FontSystem as _};
+            match C::FontSystem::confinement() {
+                Confinement::Full => {
+                    if let Some(server) = zone_context.engine_context.renderer_process.get() {
+                        context.set_remote_renderer(RemoteRenderer::ForkServer(Arc::clone(server)));
+                    }
+                }
+                Confinement::FontPathsReadable => {
+                    if config_store.get_bool("security.renderer_process") {
+                        context.set_remote_renderer(RemoteRenderer::ExecPerRender);
+                    }
+                }
+                Confinement::Unsupported(_) => {}
             }
         }
         let runtime = TabRuntime::with_fps(config_store.get_uint("renderer.tab.default_fps") as u32);
@@ -577,20 +589,26 @@ impl<C: RenderConfiguration> TabWorker<C> {
         });
     }
 
-    /// Whether this tab's full renders go to the engine's renderer fork
-    /// server. Decides both the routing and whether navigation captures the
-    /// document source (the renderer re-parses it there).
+    /// Whether this tab's full renders go out-of-process (fork server or
+    /// exec-per-render). Decides both the routing and whether navigation
+    /// captures the document source (the renderer re-parses it there).
     #[allow(clippy::needless_return)] // the cfg arms need explicit returns
     fn remote_render_available(&self) -> bool {
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         {
-            use crate::fork_server::protocol::ConfinementTier;
-            return self
-                .zone_context
-                .engine_context
-                .renderer_process
-                .get()
-                .is_some_and(|server| matches!(server.lock().confinement(), ConfinementTier::Full));
+            return self.context.remote_render_active() || {
+                // Before a document exists `remote_render_active` is false;
+                // what navigation needs to know is whether a mode is
+                // *installed*, which set_remote_renderer decided in `new`.
+                use gosub_interface::font_system::{Confinement, FontSystem as _};
+                match C::FontSystem::confinement() {
+                    Confinement::Full => self.zone_context.engine_context.renderer_process.get().is_some(),
+                    Confinement::FontPathsReadable => {
+                        self.zone_context.config_store.get_bool("security.renderer_process")
+                    }
+                    Confinement::Unsupported(_) => false,
+                }
+            };
         }
         #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
         {

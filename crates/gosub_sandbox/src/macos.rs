@@ -190,7 +190,7 @@ pub fn apply_child_rlimits() -> std::io::Result<()> {
 /// stays truthful to its Linux counterpart's contract and returns `Ok` only
 /// for the roles that are meant to be isolated.
 #[cfg(feature = "multi-process")]
-pub fn isolate_network(_enable: bool) -> std::io::Result<()> {
+pub fn isolate_namespaces(_mode: crate::NamespaceIsolation) -> std::io::Result<()> {
     Ok(())
 }
 

@@ -191,6 +191,29 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             return;
         }
 
+        // The configured font system's (static) tier decides the mechanism:
+        // only `Full` systems benefit from a warmed fork server.
+        // `FontPathsReadable` renders in throwaway exec'd processes spawned
+        // per render (see `render_process`) — nothing to start here.
+        {
+            use gosub_interface::font_system::{Confinement, FontSystem as _};
+            match C::FontSystem::confinement() {
+                Confinement::Full => {}
+                Confinement::FontPathsReadable => {
+                    log::info!(
+                        "renderer isolation active in exec-per-render mode                          (the configured font system reads font files while operating)"
+                    );
+                    return;
+                }
+                Confinement::Unsupported(reason) => {
+                    log::warn!(
+                        "security.renderer_process is on, but the configured font system cannot run                          isolated ({reason}); rendering stays in-process"
+                    );
+                    return;
+                }
+            }
+        }
+
         match ForkServer::spawn() {
             Ok(mut server) => {
                 let tier = server.confinement().clone();
