@@ -37,6 +37,15 @@ impl Child {
         Ok(())
     }
 
+    /// Wait, and describe how the child ended — the unix backend distinguishes
+    /// exit codes from fatal signals; here there are only exit codes.
+    pub fn wait_describe(&mut self) -> String {
+        match self.wait() {
+            Ok(()) => "exited".to_string(),
+            Err(e) => format!("could not be reaped: {e}"),
+        }
+    }
+
     /// The raw process handle, for the parent-side confinement hook.
     pub fn raw_handle(&self) -> HANDLE {
         self.process
