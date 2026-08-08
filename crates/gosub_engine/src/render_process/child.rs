@@ -112,7 +112,7 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
     };
 
     let shared: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(fonts));
-    let (summary, baked) = renderer::render_page::<C>(
+    let (summary, baked, hit_regions) = renderer::render_page::<C>(
         &html,
         &url,
         viewport_width,
@@ -150,7 +150,10 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
             return 1;
         }
     }
-    if link.send(&FromForkServer::PageRendered { summary }).is_err() {
+    if link
+        .send(&FromForkServer::PageRendered { summary, hit_regions })
+        .is_err()
+    {
         return 1;
     }
     0

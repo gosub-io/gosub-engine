@@ -76,7 +76,10 @@ pub enum FromForkServer {
     /// [`Refused`](FromForkServer::Refused) instead, and the broker discards
     /// the partial tile set — atomicity lives at the consumer now, not in
     /// transport buffering.
-    PageRendered { summary: PageSummary },
+    PageRendered {
+        summary: PageSummary,
+        hit_regions: Vec<HitRegion>,
+    },
     /// The request could not be served; the string says why (e.g. forking is
     /// refused under `Unsupported`, or the forked child died).
     Refused(String),
@@ -110,6 +113,31 @@ pub struct PageSummary {
     pub painted_tiles: u64,
     pub paint_commands: u64,
 }
+
+/// One hit-testable box of the page, in page space, in **hit-test order**:
+/// the first region containing a point is the one under the pointer (the
+/// renderer emits them exactly as its layer list would have walked them,
+/// topmost first).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HitRegion {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    /// The DOM node this box belongs to, as the broker's document numbers it —
+    /// both processes parsed the same bytes with the same parser, so the ids
+    /// agree.
+    pub node_id: u64,
+    /// How the region's layer responds to scroll; the broker inverts the same
+    /// composite mapping the tiles use.
+    pub anchor: TileWireAnchor,
+}
+
+/// Upper bound on regions shipped for one page. A pathological page (tens of
+/// thousands of boxes) would otherwise spend more on hit geometry than on
+/// pixels; past this the tail is dropped and the renderer says so, rather
+/// than silently pretending the page ends there.
+pub const MAX_HIT_REGIONS: usize = 20_000;
 
 /// Everything about one rasterized tile except its pixels, which follow as a
 /// sealed memfd (see `gosub_ipc::shm` — the consumer derives the byte count
@@ -239,8 +267,12 @@ pub enum FromRenderer {
     /// renderer seals, sends, and drops each before baking the next into a
     /// memfd, so it never holds more than one tile fd itself.
     Tile(TileHeader),
-    /// The final message: the render is complete.
-    Rendered(PageSummary),
+    /// The final message: the render is complete, with the page's hit-test
+    /// geometry.
+    Rendered {
+        summary: PageSummary,
+        hit_regions: Vec<HitRegion>,
+    },
 }
 
 /// A fetched subresource (or its failure), as it travels broker → fork server

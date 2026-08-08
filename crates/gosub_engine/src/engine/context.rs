@@ -69,9 +69,13 @@ struct PipelineCache {
     cached_tiles: Arc<Vec<CachedTile>>,
     /// Layer list retained for hit-testing (hover).
     /// `None` for a page rendered out-of-process: the layer list is a
-    /// process-local structure, so hover repaint and hit testing are
-    /// unavailable there until hit-test data crosses the wire.
+    /// process-local structure. Such a page carries `hit_regions` instead,
+    /// which answers hit testing; only hover *repaint* still needs the layer
+    /// list (it re-paints tiles), so that stays local-only.
     layer_list: Option<Arc<LayerList>>,
+    /// Hit-test geometry for a remotely rendered page, in hit-test order.
+    /// Empty for local renders, which hit-test through `layer_list`.
+    hit_regions: Vec<crate::fork_server::protocol::HitRegion>,
     /// Rasterized tile data keyed by (page_x, page_y, layer_id, content_hash).
     /// Passed to the next render so unchanged tiles skip rasterization.
     /// Value is (physical_width, physical_height, pixel_data).
@@ -451,8 +455,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             }
         };
         match result {
-            Ok((summary, tiles)) => {
-                let baked: Vec<BakedTile> = tiles
+            Ok(page) => {
+                let baked: Vec<BakedTile> = page
+                    .tiles
                     .into_iter()
                     .map(|tile| BakedTile {
                         page_x: tile.header.page_x,
@@ -471,9 +476,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 let cached_tiles = Arc::new(gosub_render_pipeline::rasterizer::cpu_cached_tiles(&baked));
                 self.pipeline_cache = Some(PipelineCache {
                     tiles: baked,
-                    page_height: summary.page_height,
+                    page_height: page.summary.page_height,
                     cached_tiles,
                     layer_list: None,
+                    hit_regions: page.hit_regions,
                     tile_pixel_cache: Default::default(),
                 });
                 true
@@ -714,6 +720,15 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
         let (scroll_x, scroll_y) = (self.scroll_x, self.scroll_y);
 
+        // A remotely rendered page has no layer list; it carries hit-test
+        // geometry instead. Same question, same answer — only the layout
+        // element id is unavailable, which costs hover *repaint*, not hit
+        // testing (see `PipelineCache::hit_regions`).
+        if let Some(regions) = self.remote_hit_regions() {
+            let node = hit_test_regions(regions, vp_x, vp_y, scroll_x, scroll_y);
+            return self.apply_hover(node, None);
+        }
+
         let (new_leaf, new_lei) = self.active_layer_list().map_or((None, None), |layer_list| {
             let _t = gosub_shared::timing_guard!("hover.hit_test");
             // find_element_at handles scroll per-layer (fixed layers ignore it).
@@ -724,6 +739,24 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             (dom_node_id, Some(lei))
         });
 
+        self.apply_hover(new_leaf, new_lei)
+    }
+
+    /// Hit-test geometry for a remotely rendered page, when that is how the
+    /// current page was produced.
+    fn remote_hit_regions(&self) -> Option<&[crate::fork_server::protocol::HitRegion]> {
+        let cache = self.pipeline_cache.as_ref()?;
+        (cache.layer_list.is_none() && !cache.hit_regions.is_empty()).then_some(cache.hit_regions.as_slice())
+    }
+
+    /// Fold a hit-test result into hover state: ancestor walk for the link and
+    /// `:hover` sensitivity, CSS invalidation for the nodes whose hover state
+    /// changed, and the repaint decision.
+    fn apply_hover(
+        &mut self,
+        new_leaf: Option<NodeId>,
+        new_lei: Option<LayoutElementId>,
+    ) -> (bool, bool, Option<String>) {
         // Common case: same element - skip the ancestor walk entirely.
         if new_leaf == self.hover_leaf {
             return (false, false, self.hover_link_url.clone());
@@ -1066,8 +1099,48 @@ fn pipeline_build_cache<C: RenderConfiguration>(
         page_height,
         cached_tiles,
         layer_list: Some(saved_layer_list),
+        hit_regions: Vec::new(),
         tile_pixel_cache: new_tile_cache,
     }
+}
+
+/// Which node a point lands on, per a remotely rendered page's geometry.
+fn hit_test_regions(
+    regions: &[crate::fork_server::protocol::HitRegion],
+    vp_x: f64,
+    vp_y: f64,
+    scroll_x: f64,
+    scroll_y: f64,
+) -> Option<NodeId> {
+    use crate::fork_server::protocol::TileWireAnchor;
+    use gosub_render_pipeline::render::backend::StickyConstraint;
+
+    for region in regions {
+        let (x, y) = match region.anchor {
+            TileWireAnchor::Fixed => (vp_x, vp_y),
+            TileWireAnchor::Scroll => (vp_x + scroll_x, vp_y + scroll_y),
+            TileWireAnchor::Sticky(s) => {
+                let (dx, dy) = StickyConstraint {
+                    inset_top: s.inset_top,
+                    inset_left: s.inset_left,
+                    natural_x: s.natural_x,
+                    natural_y: s.natural_y,
+                    natural_w: s.natural_w,
+                    natural_h: s.natural_h,
+                    cage_x: s.cage_x,
+                    cage_y: s.cage_y,
+                    cage_w: s.cage_w,
+                    cage_h: s.cage_h,
+                }
+                .offset(scroll_x, scroll_y);
+                (vp_x + scroll_x - dx, vp_y + scroll_y - dy)
+            }
+        };
+        if x >= region.x && x < region.x + region.width && y >= region.y && y < region.y + region.height {
+            return Some(NodeId::from(region.node_id));
+        }
+    }
+    None
 }
 
 /// Hover-only repaint: skip stages 1–2 (render-tree + layout), reuse the cached
@@ -1178,6 +1251,7 @@ fn pipeline_hover_repaint(
             page_height,
             cached_tiles,
             layer_list: Some(layer_list),
+            hit_regions: Vec::new(),
             tile_pixel_cache: prev_tile_cache,
         };
     }
@@ -1248,6 +1322,7 @@ fn pipeline_hover_repaint(
         page_height,
         cached_tiles,
         layer_list: Some(layer_list),
+        hit_regions: Vec::new(),
         tile_pixel_cache: new_tile_cache,
     }
 }

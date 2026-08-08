@@ -6,7 +6,9 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::Arc;
 
-const BODY: &str = "<html><head><title>through the net process</title></head><body>ok</body></html>";
+const BODY: &str = "<html><head><title>through the net process</title></head>\
+<body style=\"margin:0\"><a href=\"https://example.test/target\" \
+style=\"display:block;width:400px;height:200px\">a link to hover</a></body></html>";
 
 /// The harness's render configuration: null backend and compositor (nothing
 /// composites here), the scenario-selected font system — and, behind the
@@ -357,7 +359,7 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
 
         let shared: std::sync::Arc<parking_lot::Mutex<dyn FontSystem>> =
             std::sync::Arc::new(parking_lot::Mutex::new(fonts));
-        let (summary, baked) = renderer::render_page::<TileConfig<F>>(
+        let (summary, baked, _hit_regions) = renderer::render_page::<TileConfig<F>>(
             "<html><body><h1>Under lockdown</h1><p>Rendered without a fork.</p></body></html>",
             "about:blank",
             1280.0,
@@ -443,9 +445,14 @@ fn exec_renderer_roundtrip<F: FontSystem + Default>() -> i32 {
             (1280.0, 720.0),
             &loader,
         ) {
-            Ok((summary, tiles)) => {
+            Ok(page) => {
+                let (summary, tiles) = (page.summary, page.tiles);
                 if summary.page_height < 300.0 || summary.paint_commands == 0 {
                     eprintln!("implausible page from the exec'd renderer: {summary:?}");
+                    return 1;
+                }
+                if page.hit_regions.is_empty() {
+                    eprintln!("the exec'd renderer shipped no hit-test geometry");
                     return 1;
                 }
                 let paths = loader.paths.lock().clone();
@@ -545,7 +552,8 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                         &gosub_interface::resource_loader::NoResourceLoader,
                     );
                     match outcome {
-                        Ok((summary, tiles)) => {
+                        Ok(page) => {
+                            let (summary, tiles) = (page.summary, page.tiles);
                             if summary.page_height <= 0.0 || summary.paint_commands == 0 {
                                 eprintln!("implausible page through the engine handle: {summary:?}");
                                 return 1;
@@ -681,6 +689,39 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                     "tab frame rendered out-of-process: {} tiles, page height {page_height:.0}",
                     tiles.len()
                 );
+
+                // Hit testing on a remotely rendered page: the layer list is
+                // process-local, so this can only work off the geometry the
+                // renderer shipped. The served page is one big link, so a
+                // move into it must raise HoverUrl with that href.
+                let _ = tab.send(TabCommand::MouseMove { x: 50.0, y: 50.0 }).await;
+                let hover_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+                let mut hovered: Option<String> = None;
+                while tokio::time::Instant::now() < hover_deadline {
+                    let remaining = hover_deadline.saturating_duration_since(tokio::time::Instant::now());
+                    match tokio::time::timeout(remaining, events.recv()).await {
+                        Ok(Ok(gosub_engine::events::EngineEvent::HoverUrl { url: Some(url), .. })) => {
+                            hovered = Some(url);
+                            break;
+                        }
+                        Ok(Ok(_)) => continue,
+                        _ => break,
+                    }
+                }
+                match hovered {
+                    Some(url) if url.contains("example.test/target") => {
+                        println!("hit test on the remotely rendered page found the link: {url}");
+                    }
+                    Some(url) => {
+                        eprintln!("hovered an unexpected url: {url}");
+                        return 1;
+                    }
+                    None => {
+                        eprintln!("no HoverUrl for a remotely rendered page: hit testing is not working");
+                        return 1;
+                    }
+                }
+
                 engine.close_zone(zone).await;
             }
 
@@ -850,11 +891,20 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
             ..Default::default()
         };
         match server.render_page(html, "http://harness.invalid/index.html", (1280.0, 720.0), &loader) {
-            Ok((summary, tiles)) => {
+            Ok(page) => {
+                let (summary, tiles, hit_regions) = (page.summary, page.tiles, page.hit_regions);
                 if summary.page_height <= 0.0 || summary.painted_tiles == 0 || summary.paint_commands == 0 {
                     eprintln!("the forked renderer produced an implausible page: {summary:?}");
                     return 1;
                 }
+                // Hit-test geometry must cross with the pixels: without it a
+                // remotely rendered page cannot answer what is under the
+                // pointer. The page has an <a>, so a link region must exist.
+                if hit_regions.is_empty() {
+                    eprintln!("the forked renderer shipped no hit-test geometry");
+                    return 1;
+                }
+                println!("received {} hit regions for the page", hit_regions.len());
                 println!(
                     "forked renderer rendered a {:.0}x{:.0} page: {} layers, {} tiles painted, {} paint commands",
                     summary.page_width,
@@ -958,7 +1008,8 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                 <div style="height: 12000px; background: #ddd">tall</div>
             </body></html>"#;
             match server.render_page(tall, "http://harness.invalid/tall.html", (1280.0, 720.0), &loader) {
-                Ok((summary, tiles)) => {
+                Ok(page) => {
+                    let (summary, tiles) = (page.summary, page.tiles);
                     if tiles.len() <= 128 {
                         eprintln!(
                             "expected a tall page to stream more tiles than an fd limit could buffer, got {}",
