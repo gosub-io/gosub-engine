@@ -6,7 +6,7 @@ use crate::common::document::style::{lookup, Display, StyleProperty, Unit, Value
 use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
 use crate::layouter::taffy::TaffyLayouter;
-use crate::layouter::{ElementContext, LayoutElementId, LayoutElementNode, LayoutTree};
+use crate::layouter::{LayoutElementId, LayoutElementNode, LayoutTree};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -203,28 +203,6 @@ fn cell_layout_to_box_model(layout: &CellLayout, abs: Coordinate) -> BoxModel {
     )
 }
 
-/// Returns the intrinsic content width of a layout subtree - the actual measured
-/// width of text/image leaf nodes, not the container's allocated width.
-///
-/// Text leaf nodes carry the Parley-measured line width (e.g. "1." → ~20 px),
-/// which is much narrower than the equal-distributed Taffy cell width.
-/// This lets `compute_column_widths` keep narrow structural columns narrow.
-fn intrinsic_content_width(el: &LayoutElementNode, arena: &HashMap<LayoutElementId, LayoutElementNode>) -> f32 {
-    match &el.context {
-        ElementContext::Text(_) => el.box_model.content_box.width as f32,
-        // Replaced elements: use the laid-out border-box width so the column is wide enough for
-        // the image *including its own CSS border* (the bare `dimension` omits it). Images are
-        // never stretched to the cell width, so the border box is the true intrinsic width.
-        ElementContext::Image(_) | ElementContext::Svg(_) => el.box_model.border_box.width as f32,
-        ElementContext::None => el
-            .children
-            .iter()
-            .filter_map(|&cid| arena.get(&cid))
-            .map(|child| intrinsic_content_width(child, arena))
-            .fold(0.0f32, f32::max),
-    }
-}
-
 impl TableTree for PipelineTableTree<'_> {
     type NodeId = DomNodeId;
 
@@ -373,16 +351,11 @@ impl TableTree for PipelineTableTree<'_> {
         VerticalAlign::Top
     }
 
-    fn cell_content_width(&self, id: DomNodeId) -> f32 {
-        if let Some(&layout_id) = self.dom_to_layout.get(&id) {
-            if let Some(element) = self.layout_tree.arena.get(&layout_id) {
-                // Include the cell's own horizontal padding so the column is wide enough to hold
-                // the content *and* its padding (e.g. HN's logo cell: 20px image + 4px padding-right).
-                let pad = (element.box_model.padding.left + element.box_model.padding.right) as f32;
-                return intrinsic_content_width(element, &self.layout_tree.arena) + pad;
-            }
-        }
-        0.0
+    fn cell_intrinsic_widths(&mut self, id: DomNodeId) -> (f32, f32) {
+        let Some(&layout_id) = self.dom_to_layout.get(&id) else {
+            return (0.0, 0.0);
+        };
+        self.layouter.measure_intrinsic_widths(layout_id).unwrap_or((0.0, 0.0))
     }
 }
 

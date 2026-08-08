@@ -51,8 +51,14 @@ pub trait TableTree {
     /// measured by the layout engine in a prior pass (e.g. Taffy).  Used to
     /// distribute auto column widths proportionally to content width rather
     /// than equally.  Return `0.0` for mock/test trees.
-    fn cell_content_width(&self, _id: Self::NodeId) -> f32 {
-        0.0
+    /// Intrinsic (content-driven) border-box widths of cell `id` as measured
+    /// by the layout engine: `(min_content, max_content)`. Min-content is the
+    /// narrowest the cell can get without overflowing (longest word, widest
+    /// replaced box); max-content is its width with no wrapping at all. Takes
+    /// `&mut self` because implementors typically have to run layout passes to
+    /// measure. Return `(0.0, 0.0)` for mock/test trees with no real content.
+    fn cell_intrinsic_widths(&mut self, _id: Self::NodeId) -> (f32, f32) {
+        (0.0, 0.0)
     }
 
     /// `vertical-align` for cell `id`, resolved through the cascade (including

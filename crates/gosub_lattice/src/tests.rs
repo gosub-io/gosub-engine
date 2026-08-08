@@ -450,10 +450,10 @@ mod layout_tests {
         assert_approx!(tree.layout(cells[1]).expect("B").size.width, 140.0, "200 * 140/200");
     }
 
-    // 18. Narrow columns (natural < 50px) keep their natural width; wide
-    //     content columns absorb the remaining space.
+    // 18. Auto table width shrinks to fit its content: columns get their
+    //     max-content width and the table is only as wide as their sum.
     #[test]
-    fn narrow_column_keeps_natural_width() {
+    fn shrink_to_fit_auto_table() {
         let (mut tree, root) = MockTable::new(200.0)
             .spacing(0.0, 0.0)
             .body_row(vec![
@@ -462,25 +462,20 @@ mod layout_tests {
             ])
             .into_tree();
 
-        compute_table_layout(&mut tree, root, 200.0, None).expect("layout");
+        let (table_w, _) = compute_table_layout(&mut tree, root, 200.0, None).expect("layout");
 
         let cells = tree.nodes_with_role(TableRole::Cell);
-        assert_approx!(
-            tree.layout(cells[0]).expect("rank").size.width,
-            20.0,
-            "narrow keeps natural"
-        );
-        assert_approx!(
-            tree.layout(cells[1]).expect("story").size.width,
-            180.0,
-            "content col absorbs rest"
-        );
+        assert_approx!(tree.layout(cells[0]).expect("rank").size.width, 20.0, "max-content col");
+        assert_approx!(tree.layout(cells[1]).expect("story").size.width, 100.0, "max-content col");
+        assert_approx!(table_w, 120.0, "table shrinks to content");
     }
 
-    // 19. Very narrow columns are floored at 14px so they stay visible.
+    // 19. Space beyond every column's max-content width goes to auto columns
+    //     proportionally to their max-content width.
     #[test]
-    fn narrow_column_floor() {
-        let (mut tree, root) = MockTable::new(200.0)
+    fn extra_space_distributed_by_content() {
+        let (mut tree, root) = MockTable::new(300.0)
+            .width(210.0)
             .spacing(0.0, 0.0)
             .body_row(vec![
                 cell("dot").content_width(5.0).height(10.0).padding(0.0),
@@ -488,21 +483,28 @@ mod layout_tests {
             ])
             .into_tree();
 
-        compute_table_layout(&mut tree, root, 200.0, None).expect("layout");
+        compute_table_layout(&mut tree, root, 300.0, None).expect("layout");
 
+        // Extra = 210 - 105, split 5:100 over the two columns.
         let cells = tree.nodes_with_role(TableRole::Cell);
-        assert_approx!(tree.layout(cells[0]).expect("dot").size.width, 14.0, "floored at 14px");
-        assert_approx!(tree.layout(cells[1]).expect("text").size.width, 186.0, "200 - 14");
+        assert_approx!(tree.layout(cells[0]).expect("dot").size.width, 10.0, "5 + 105 * 5/105");
+        assert_approx!(tree.layout(cells[1]).expect("text").size.width, 200.0, "100 + 105 * 100/105");
     }
 
     // 20. An explicit CSS width cannot shrink a column below its content's
-    //     natural width (used width = max(specified, min-content)).
+    //     min-content width (used width = max(specified, min-content)).
     #[test]
     fn explicit_width_clamped_to_content() {
         let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
             .spacing(0.0, 0.0)
             .body_row(vec![
-                cell("img").width(18.0).content_width(20.0).height(10.0).padding(0.0),
+                cell("img")
+                    .width(18.0)
+                    .min_content_width(20.0)
+                    .content_width(20.0)
+                    .height(10.0)
+                    .padding(0.0),
                 cell("rest").height(10.0).padding(0.0),
             ])
             .into_tree();
@@ -585,8 +587,8 @@ mod layout_tests {
             fn set_layout(&mut self, id: u32, layout: CellLayout) {
                 self.outer.set_layout(id, layout);
             }
-            fn cell_content_width(&self, id: u32) -> f32 {
-                self.outer.cell_content_width(id)
+            fn cell_intrinsic_widths(&mut self, id: u32) -> (f32, f32) {
+                self.outer.cell_intrinsic_widths(id)
             }
 
             fn layout_cell(&mut self, id: u32, available_width: f32) -> f32 {
@@ -645,6 +647,74 @@ mod layout_tests {
         assert_approx!(outer_h, 40.0, "outer row height = inner table height");
         let host_layout = tree.outer.layout(host_cell).expect("host cell");
         assert_approx!(host_layout.size.height, 40.0, "host cell height");
+    }
+
+    // A column's min-content width overrides even the table's explicit width:
+    // the table overflows rather than clipping unbreakable content.
+    #[test]
+    fn min_content_overrides_table_width() {
+        let (mut tree, root) = MockTable::new(200.0)
+            .width(50.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![cell("longword")
+                .min_content_width(80.0)
+                .content_width(80.0)
+                .height(10.0)
+                .padding(0.0)])
+            .into_tree();
+
+        let (table_w, _) = compute_table_layout(&mut tree, root, 200.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[0]).expect("cell").size.width, 80.0, "min-content floor");
+        assert_approx!(table_w, 80.0, "table overflows its specified 50px");
+    }
+
+    // Explicit widths on cells in ANY row claim the column, not just row 1.
+    #[test]
+    fn explicit_width_on_later_row() {
+        let (mut tree, root) = MockTable::new(300.0)
+            .width(300.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![cell("a").height(10.0).padding(0.0), cell("b").height(10.0).padding(0.0)])
+            .body_row(vec![
+                cell("c").width(120.0).height(10.0).padding(0.0),
+                cell("d").height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 300.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[0]).expect("a").size.width, 120.0, "row-2 width wins the column");
+        assert_approx!(tree.layout(cells[1]).expect("b").size.width, 180.0, "auto col gets the rest");
+    }
+
+    // A colspan cell's min-content requirement distributes over its columns,
+    // weighted by their max-content widths.
+    #[test]
+    fn colspan_min_content_distributes() {
+        let (mut tree, root) = MockTable::new(200.0)
+            .width(200.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![cell("span")
+                .colspan(2)
+                .min_content_width(100.0)
+                .content_width(100.0)
+                .height(10.0)
+                .padding(0.0)])
+            .body_row(vec![
+                cell("a").content_width(10.0).height(10.0).padding(0.0),
+                cell("b").content_width(30.0).height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 200.0, None).expect("layout");
+
+        // Deficit 100 splits 10:30 -> col mins 25/75; extra follows the same weights.
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[1]).expect("a").size.width, 50.0, "col 0 = 25 + extra share");
+        assert_approx!(tree.layout(cells[2]).expect("b").size.width, 150.0, "col 1 = 75 + extra share");
     }
 
     // Fixed layout: widths come from the first row only; later rows are ignored.

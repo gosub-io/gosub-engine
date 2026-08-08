@@ -49,8 +49,8 @@ per-cell overrides (15), and both real-world pages (19, 20) are close.
 
 Broken or missing, beyond the known compute gaps:
 
-- **Auto columns sized from row 1 only** - in 01, "seven"/"eight" clip
-  because rows 2+ never influence the natural width; 08 degenerates badly.
+- ~~**Auto columns sized from row 1 only**~~ - fixed 2026-08-08 by the real
+  min/max-content algorithm (see below).
 - ~~**Block children in cells lay out horizontally**~~ - **fixed
   2026-08-07**: cells now use block inner layout in the first pass
   (`css_taffy_converter.rs`), and `layout_cell` re-runs taffy on the cell
@@ -58,19 +58,29 @@ Broken or missing, beyond the known compute gaps:
   stacked blocks, wrapping, and `text-align` all resolve against real cell
   geometry. Cells hosting nested tables keep the first-pass approximation
   (re-layout would clobber the inner table's lattice output).
-- **No min-content floor** - 13: an unbreakable word squeezes neighbors
-  into clipping; a 350px block overflows its column instead of widening it.
+- ~~**No min-content floor**~~ - fixed 2026-08-08 (min/max-content
+  algorithm, see below).
 - ~~**`border-spacing` CSS never reaches the algorithm**~~ - **fixed
   2026-08-07**: `StyleProperty::BorderSpacingX/Y` added (two internal
   longhands over the one `border-spacing` declaration; X = first length,
   Y = second), wired through the cascade (inherited, UA default
   `table { border-spacing: 2px }`), inline styles, and the
   `PipelineTableTree` adapter. 14 renders 0 / 10px / 20px 4px correctly.
-- **Nested tables collapse to a sliver** (17).
-- **`text-align` on cells ignored** (20, numeric columns).
-- Confirmed compute gaps as expected: captions absent (05), later-row
-  explicit widths ignored (09 table 2), no shrink-to-fit auto width (10),
-  border-collapse (15).
+- ~~**Nested tables collapse to a sliver**~~ (17) - fixed 2026-08-08 as a
+  side effect of intrinsic column sizing.
+- ~~**`text-align` on cells ignored**~~ (20) - fixed 2026-08-07 by the
+  cell-content block layout + per-cell re-layout change.
+- Confirmed compute gaps as expected: captions absent (05), border-collapse
+  (15) - the only remaining compute gaps.
+- **Fixed 2026-08-08 (min/max-content auto columns)**: the heuristic column
+  algorithm was replaced with the CSS 2 §17.5.2.2 algorithm. Every cell
+  contributes real min/max-content widths (`TableTree::cell_intrinsic_widths`,
+  measured by taffy at MinContent/MaxContent), specified widths are read from
+  **all** rows (09), colspan cells distribute their requirement over spanned
+  columns weighted by content, auto tables shrink-to-fit (01, 08, 10),
+  min-content floors prevent clipping (13), and nested tables (17) now render
+  correctly because the host column sizes to the inner table's needs. 19/20
+  are essentially browser-accurate.
 - **Fixed 2026-08-08**: rowspan height distribution (07) - spanning cells are
   measured and their deficit spreads equally over the spanned rows - and
   vertical-align (18) - lattice emits a `content_offset_y` per cell, the
