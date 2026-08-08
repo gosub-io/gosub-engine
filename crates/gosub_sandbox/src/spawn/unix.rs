@@ -29,7 +29,7 @@ pub fn spawn(
     exe: &std::path::Path,
     args: &[&str],
     child_end: gosub_ipc::channel::Channel,
-    isolate_network: bool,
+    isolation: crate::NamespaceIsolation,
     container: super::ContainerProfile<'_>,
 ) -> io::Result<Child> {
     use std::os::unix::process::CommandExt;
@@ -61,7 +61,7 @@ pub fn spawn(
             // Fail-closed, matching the seccomp precedent: a child that was
             // meant to be network-isolated and silently isn't is worse than an
             // honest refusal to start.
-            crate::isolate_network(isolate_network)?;
+            crate::isolate_namespaces(isolation)?;
             gosub_ipc::channel::Channel::make_inheritable(raw)?;
             Ok(())
         });

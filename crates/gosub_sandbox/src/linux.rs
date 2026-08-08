@@ -243,7 +243,7 @@ pub fn canary_must_detect_a_missing_syscall() -> ! {
     let full: Vec<libc::c_long> = BASELINE.iter().chain(FORK_SERVER_EXTRA).copied().collect();
     // `fork_server: false` here: the gap under test is the missing
     // `F_DUPFD_CLOEXEC`, and the `clone` argument-filter is orthogonal to it.
-    if install_with(full, false, false).is_err() {
+    if install_with(full, false, false, false).is_err() {
         eprintln!("could not install the crippled filter");
         std::process::exit(2);
     }
@@ -590,7 +590,8 @@ pub fn lock_down_net(fs_allow: &[(&std::path::Path, bool)]) {
         .chain(FS_EXTRA)
         .copied()
         .collect();
-    enforce("net", install(allowed));
+    // Socket-mode fcntls permitted: the runtime toggles O_NONBLOCK per socket.
+    enforce("net", install_with(allowed, false, false, true));
 }
 
 /// The read-only paths a network stack needs on a typical Linux system:
@@ -1176,7 +1177,7 @@ pub fn lock_down_broker() {
 /// syscall *denies* it and everything unlisted passes.
 #[cfg(feature = "multi-process")]
 fn install_broker_seccomp() -> Result<(), Box<dyn std::error::Error>> {
-    use seccompiler::{apply_filter, BpfProgram, SeccompAction, SeccompFilter, SeccompRule};
+    use seccompiler::{apply_filter_all_threads, BpfProgram, SeccompAction, SeccompFilter, SeccompRule};
     use std::collections::BTreeMap;
 
     #[cfg(target_arch = "x86_64")]
@@ -1203,7 +1204,10 @@ fn install_broker_seccomp() -> Result<(), Box<dyn std::error::Error>> {
         arch,
     )?;
     let program: BpfProgram = filter.try_into()?;
-    apply_filter(&program)?;
+    // `apply_filter_all` (TSYNC) rather than per-thread: a role's library may
+    // have created a thread before its lockdown (measured: Pango's GLib
+    // worker), and a filter that missed it would leave one unconfined thread.
+    apply_filter_all_threads(&program)?;
     Ok(())
 }
 
@@ -1274,7 +1278,7 @@ fn enforce(role: &str, result: Result<(), Box<dyn std::error::Error>>) {
 /// arguments fail its filter — is a fatal `SIGSYS`.
 #[cfg(feature = "multi-process")]
 fn install(allowed: Vec<libc::c_long>) -> Result<(), Box<dyn std::error::Error>> {
-    install_with(allowed, false, false)
+    install_with(allowed, false, false, false)
 }
 
 /// The fork server's main filter: as [`install`], but `F_DUPFD_CLOEXEC` is
@@ -1283,7 +1287,7 @@ fn install(allowed: Vec<libc::c_long>) -> Result<(), Box<dyn std::error::Error>>
 /// Pair with [`install_clone3_enosys`], installed first.
 #[cfg(feature = "multi-process")]
 fn install_fork_server(allowed: Vec<libc::c_long>) -> Result<(), Box<dyn std::error::Error>> {
-    install_with(allowed, true, true)
+    install_with(allowed, true, true, false)
 }
 
 /// As [`install`], but `allow_dup_fd` additionally permits
@@ -1294,10 +1298,11 @@ fn install_with(
     allowed: Vec<libc::c_long>,
     allow_dup_fd: bool,
     fork_server: bool,
+    allow_socket_fcntl: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use seccompiler::{
-        apply_filter, BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter,
-        SeccompRule,
+        apply_filter_all_threads, BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition,
+        SeccompFilter, SeccompRule,
     };
     use std::collections::BTreeMap;
 
@@ -1333,9 +1338,18 @@ fn install_with(
     // is a special case handled below: permitted only to *set* close-on-exec,
     // never to clear it.
     let mut fcntl_allowed = Vec::new();
-    let mut cmds = vec![libc::F_ADD_SEALS, libc::F_GET_SEALS, libc::F_GETFD];
+    // `F_GETFL` joins the query-only set: it reads a descriptor's flags and
+    // grants nothing. Surfaced by TSYNC — tokio's socket threads probe it —
+    // having been silently unfiltered before the filter covered all threads.
+    let mut cmds = vec![libc::F_ADD_SEALS, libc::F_GET_SEALS, libc::F_GETFD, libc::F_GETFL];
     if allow_dup_fd {
         cmds.push(libc::F_DUPFD_CLOEXEC);
+    }
+    if allow_socket_fcntl {
+        // The net stack toggles O_NONBLOCK (and friends) on its sockets from
+        // its runtime threads; `F_SETFL` cannot fabricate descriptors or
+        // escalate, it only changes I/O modes on fds the process already has.
+        cmds.push(libc::F_SETFL);
     }
     for cmd in cmds {
         let is_cmd = SeccompCondition::new(1, SeccompCmpArgLen::Qword, SeccompCmpOp::Eq, cmd as u64)?;
@@ -1426,7 +1440,10 @@ fn install_with(
         arch,
     )?;
     let program: BpfProgram = filter.try_into()?;
-    apply_filter(&program)?;
+    // `apply_filter_all` (TSYNC) rather than per-thread: a role's library may
+    // have created a thread before its lockdown (measured: Pango's GLib
+    // worker), and a filter that missed it would leave one unconfined thread.
+    apply_filter_all_threads(&program)?;
     Ok(())
 }
 
@@ -1439,7 +1456,7 @@ fn install_with(
 /// since it started issuing `clone3`.
 #[cfg(feature = "multi-process")]
 fn install_clone3_enosys() -> Result<(), Box<dyn std::error::Error>> {
-    use seccompiler::{apply_filter, BpfProgram, SeccompAction, SeccompFilter, SeccompRule};
+    use seccompiler::{apply_filter_all_threads, BpfProgram, SeccompAction, SeccompFilter, SeccompRule};
     use std::collections::BTreeMap;
 
     #[cfg(target_arch = "x86_64")]
@@ -1458,7 +1475,10 @@ fn install_clone3_enosys() -> Result<(), Box<dyn std::error::Error>> {
         arch,
     )?;
     let program: BpfProgram = filter.try_into()?;
-    apply_filter(&program)?;
+    // `apply_filter_all` (TSYNC) rather than per-thread: a role's library may
+    // have created a thread before its lockdown (measured: Pango's GLib
+    // worker), and a filter that missed it would leave one unconfined thread.
+    apply_filter_all_threads(&program)?;
     Ok(())
 }
 
@@ -1753,26 +1773,33 @@ pub fn apply_child_rlimits() -> std::io::Result<()> {
 /// (content processes and the engine-spawned services); a no-op otherwise (the
 /// net component, the one role that must keep the host network).
 #[cfg(feature = "multi-process")]
-pub fn isolate_network(enable: bool) -> std::io::Result<()> {
-    if !enable {
+pub fn isolate_namespaces(mode: crate::NamespaceIsolation) -> std::io::Result<()> {
+    use crate::NamespaceIsolation;
+
+    if matches!(mode, NamespaceIsolation::None) {
         return Ok(());
     }
     let flags = libc::CLONE_NEWUSER | libc::CLONE_NEWNET | libc::CLONE_NEWIPC | libc::CLONE_NEWUTS;
-    // Also request a **PID** namespace. `unshare(CLONE_NEWPID)` does not move the
-    // caller — it places the caller's *future children* in a new PID namespace —
-    // so this only bites for the **fork server**: every renderer it forks lands
-    // in that namespace (the first becomes PID 1, which the fork server pins open
-    // with a placeholder — see `fork_server`). For the exec-only services it is
-    // inert (they never fork). Best-effort and tried *first* as one combined
-    // `unshare` (creating the PID namespace unprivileged requires pairing it with
-    // the user namespace in the same call); a kernel that refuses `CLONE_NEWPID`
-    // falls back to the network isolation alone rather than failing the spawn.
+    // `Full` also requests a **PID** namespace. `unshare(CLONE_NEWPID)` does not
+    // move the caller — it places the caller's *future children* in a new PID
+    // namespace — but it is NOT inert for a non-forking service: a process that
+    // has unshared its PID namespace can no longer create *threads* (a thread
+    // must share its creator's PID namespace, and new tasks now go to the new
+    // one, so `pthread_create` fails `EINVAL` — GLib escalates that to a fatal
+    // abort, measured with Pango). Roles whose libraries must thread use
+    // `NoPidNamespace` and give up the PID isolation of anything they fork —
+    // which such roles don't do. Best-effort and tried *first* as one combined
+    // `unshare` (creating the PID namespace unprivileged requires pairing it
+    // with the user namespace in the same call); a kernel that refuses
+    // `CLONE_NEWPID` falls back to the network isolation alone rather than
+    // failing the spawn.
     // SAFETY: unshare with valid flags; affects only the calling process.
-    if unsafe { libc::unshare(flags | libc::CLONE_NEWPID) } == 0 {
+    if matches!(mode, NamespaceIsolation::Full) && unsafe { libc::unshare(flags | libc::CLONE_NEWPID) } == 0 {
         return Ok(());
     }
-    // Fallback: the load-bearing network isolation without the PID namespace.
-    // `unshare` is all-or-nothing, so the failed attempt above changed nothing.
+    // NoPidNamespace, or the PID attempt was refused: the load-bearing network
+    // isolation alone. `unshare` is all-or-nothing, so a failed attempt above
+    // changed nothing.
     if unsafe { libc::unshare(flags) } < 0 {
         return Err(std::io::Error::last_os_error());
     }

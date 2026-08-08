@@ -49,7 +49,7 @@ fn decode_in_child(mime: Option<&str>, bytes: &[u8]) -> Result<BrokeredDecode, D
         theirs,
         // Nothing to reach: a decoder has no business on the network, so it goes
         // in an empty namespace as well as being denied the syscalls.
-        true,
+        gosub_sandbox::NamespaceIsolation::Full,
         gosub_sandbox::spawn::ContainerProfile {
             name: "gosub-decoder",
             internet: false,

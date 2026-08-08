@@ -59,7 +59,7 @@ impl NetProcess {
             theirs,
             // The one component that keeps its network namespace: isolating it
             // would leave the engine unable to reach anything at all.
-            false,
+            gosub_sandbox::NamespaceIsolation::None,
             gosub_sandbox::spawn::ContainerProfile {
                 name: "gosub-net",
                 internet: true,

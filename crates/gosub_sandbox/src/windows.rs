@@ -275,7 +275,7 @@ fn set_low_integrity() -> std::io::Result<()> {
 /// by the parent at `CreateProcess`, so it cannot be expressed here. Until then
 /// a Windows renderer *can* reach the network.
 #[cfg(feature = "multi-process")]
-pub fn isolate_network(_enable: bool) -> std::io::Result<()> {
+pub fn isolate_namespaces(_mode: crate::NamespaceIsolation) -> std::io::Result<()> {
     Ok(())
 }
 

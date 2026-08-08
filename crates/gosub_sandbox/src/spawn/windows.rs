@@ -106,7 +106,7 @@ pub fn spawn(
     exe: &std::path::Path,
     args: &[&str],
     child_end: gosub_ipc::channel::Channel,
-    isolate_network: bool,
+    isolation: crate::NamespaceIsolation,
     container: super::ContainerProfile<'_>,
 ) -> io::Result<Child> {
     // argv[0] is the program itself, by convention.
@@ -137,7 +137,7 @@ pub fn spawn(
         internet,
         fs_grant,
     } = container;
-    let _ = isolate_network; // the container profile, not this flag, drives the split here
+    let _ = isolation; // the container profile, not this mode, drives the split here
     let identity = if std::env::var_os("GOSUB_WIN_APPCONTAINER").is_some() {
         crate::app_container_identity(container, internet)
     } else {
@@ -245,7 +245,10 @@ pub fn spawn(
             unsafe { DeleteProcThreadAttributeList(attr_list) };
             return Err(e);
         }
-        eprintln!("[spawn] AppContainer active (network={})", !isolate_network);
+        eprintln!(
+            "[spawn] AppContainer active (network={})",
+            isolation == crate::NamespaceIsolation::None
+        );
     }
 
     // SAFETY: zeroed is the documented "no overrides" state for STARTUPINFO.

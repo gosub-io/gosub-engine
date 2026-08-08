@@ -47,6 +47,48 @@ impl ReceivedTile {
     }
 }
 
+/// Drive the broker's half of a render exchange, whoever the renderer is —
+/// the fork server's forked child or a fresh exec'd renderer speak the same
+/// dialect. Tiles stream in one at a time (each fd mapped and released before
+/// the next message), the summary closes the exchange, and a `Refused`
+/// mid-stream discards everything collected — atomicity lives here, not in
+/// transport buffering. `loader` answers the renderer's subresource requests
+/// inline, where identity and cookies live.
+pub(crate) fn drive_render_exchange(
+    link: &mut Endpoint,
+    loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+) -> anyhow::Result<(crate::fork_server::protocol::PageSummary, Vec<ReceivedTile>)> {
+    use crate::fork_server::protocol::ResourceReply;
+
+    let mut received = Vec::new();
+    loop {
+        match link.recv::<FromForkServer>()? {
+            FromForkServer::NeedResource { url } => {
+                let reply = match url::Url::parse(&url) {
+                    Ok(parsed) => match loader.load(&parsed) {
+                        Ok(resource) => ResourceReply::Ok {
+                            status: resource.status,
+                            content_type: resource.content_type,
+                            body: resource.body.to_vec(),
+                        },
+                        Err(e) => ResourceReply::Failed(e.to_string()),
+                    },
+                    Err(e) => ResourceReply::Failed(format!("renderer asked for an unparseable url: {e}")),
+                };
+                link.send(&ToForkServer::Resource(reply))?;
+            }
+            FromForkServer::Tile(header) => {
+                let fd = link.rx.recv_fd()?;
+                let mapping = gosub_ipc::shm::map_sealed_tile(fd, header.width, header.height)?;
+                received.push(ReceivedTile { header, mapping });
+            }
+            FromForkServer::PageRendered { summary } => return Ok((summary, received)),
+            FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
+            other => anyhow::bail!("unexpected render-exchange message: {other:?}"),
+        }
+    }
+}
+
 /// A running fork server, its announced confinement tier, and the link to it.
 pub struct ForkServer {
     link: Endpoint,
@@ -84,7 +126,7 @@ impl ForkServer {
             theirs,
             // Renderers must not reach the network, and namespace isolation is
             // inherited by everything this process forks.
-            true,
+            gosub_sandbox::NamespaceIsolation::Full,
             gosub_sandbox::spawn::ContainerProfile {
                 name: "gosub-fork-server",
                 internet: false,
@@ -143,43 +185,13 @@ impl ForkServer {
         viewport: (f64, f64),
         loader: &dyn gosub_interface::resource_loader::ResourceLoader,
     ) -> anyhow::Result<(crate::fork_server::protocol::PageSummary, Vec<ReceivedTile>)> {
-        use crate::fork_server::protocol::ResourceReply;
-
         self.link.send(&ToForkServer::RenderPage {
             html: html.to_string(),
             url: url.to_string(),
             viewport_width: viewport.0,
             viewport_height: viewport.1,
         })?;
-        loop {
-            match self.link.recv::<FromForkServer>()? {
-                FromForkServer::NeedResource { url } => {
-                    let reply = match url::Url::parse(&url) {
-                        Ok(parsed) => match loader.load(&parsed) {
-                            Ok(resource) => ResourceReply::Ok {
-                                status: resource.status,
-                                content_type: resource.content_type,
-                                body: resource.body.to_vec(),
-                            },
-                            Err(e) => ResourceReply::Failed(e.to_string()),
-                        },
-                        Err(e) => ResourceReply::Failed(format!("renderer asked for an unparseable url: {e}")),
-                    };
-                    self.link.send(&ToForkServer::Resource(reply))?;
-                }
-                FromForkServer::PageRendered { summary, tiles } => {
-                    let mut received = Vec::with_capacity(tiles.len());
-                    for header in tiles {
-                        let fd = self.link.rx.recv_fd()?;
-                        let mapping = gosub_ipc::shm::map_sealed_tile(fd, header.width, header.height)?;
-                        received.push(ReceivedTile { header, mapping });
-                    }
-                    return Ok((summary, received));
-                }
-                FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
-                other => anyhow::bail!("unexpected reply to RenderPage: {other:?}"),
-            }
-        }
+        drive_render_exchange(&mut self.link, loader)
     }
 
     /// Ask for a clean exit, then make sure of it. `&mut self` rather than

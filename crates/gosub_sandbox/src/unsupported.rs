@@ -29,7 +29,7 @@ pub fn apply_child_rlimits() -> std::io::Result<()> {
 
 /// No network namespaces; nothing to do (see the Linux/macOS backends).
 #[cfg(feature = "multi-process")]
-pub fn isolate_network(_enable: bool) -> std::io::Result<()> {
+pub fn isolate_namespaces(_mode: crate::NamespaceIsolation) -> std::io::Result<()> {
     Ok(())
 }
 
