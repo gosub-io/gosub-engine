@@ -312,6 +312,8 @@ pub enum StyleProperty {
     BorderSpacingY,
     /// `table-layout`: `auto` | `fixed`.
     TableLayout,
+    /// `vertical-align` (keyword form; only cell alignment is consumed so far).
+    VerticalAlign,
 }
 
 impl StyleProperty {
@@ -399,6 +401,7 @@ impl StyleProperty {
             StyleProperty::BorderSpacingX => 78,
             StyleProperty::BorderSpacingY => 79,
             StyleProperty::TableLayout => 80,
+            StyleProperty::VerticalAlign => 81,
         }
     }
 
@@ -951,6 +954,13 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("auto"),
     },
+    // 81 vertical-align - not inherited per CSS; the HTML rendering spec puts
+    // `vertical-align: inherit` on cells, which consumers resolve by walking up.
+    PropertyMeta {
+        name: "vertical-align",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("baseline"),
+    },
 ];
 
 // ── NodeStyle - replaces StylePropertyList ────────────────────────────────────
@@ -1093,6 +1103,7 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         78 => Some(StyleProperty::BorderSpacingX),
         79 => Some(StyleProperty::BorderSpacingY),
         80 => Some(StyleProperty::TableLayout),
+        81 => Some(StyleProperty::VerticalAlign),
         _ => None,
     }
 }

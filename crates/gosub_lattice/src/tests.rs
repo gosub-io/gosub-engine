@@ -722,6 +722,99 @@ mod layout_tests {
         assert_approx!(tree.layout(cells[3]).unwrap().size.width, 100.0, "spanned col = 200/2");
     }
 
+    // Rowspan: a tall spanning cell distributes its height deficit equally
+    // over the rows it spans.
+    #[test]
+    fn rowspan_distributes_height_to_rows() {
+        // Rows 0/1 have 10px cells; the spanner needs 50px over both rows.
+        // Deficit = 50 - 20 = 30 -> each row grows by 15 -> rows 25/25.
+        let (mut tree, root) = MockTable::new(100.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("Span").rowspan(2).content_height(50.0).padding(0.0),
+                cell("R0C1").height(10.0).padding(0.0),
+            ])
+            .body_row(vec![cell("R1C1").height(10.0).padding(0.0)])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[0]).unwrap().size.height, 50.0, "spanner height");
+        assert_approx!(tree.layout(cells[1]).unwrap().size.height, 25.0, "row 0 grew by half the deficit");
+        assert_approx!(tree.layout(cells[2]).unwrap().size.height, 25.0, "row 1 grew by half the deficit");
+    }
+
+    // Rowspan distribution counts the border-spacing gutter the spanner covers.
+    #[test]
+    fn rowspan_distribution_counts_spacing() {
+        // Rows are 10px each with a 10px gutter between: the spanner already
+        // has 30px available, so a 30px spanner adds nothing.
+        let (mut tree, root) = MockTable::new(100.0)
+            .spacing(0.0, 10.0)
+            .body_row(vec![
+                cell("Span").rowspan(2).content_height(30.0).padding(0.0),
+                cell("R0C1").height(10.0).padding(0.0),
+            ])
+            .body_row(vec![cell("R1C1").height(10.0).padding(0.0)])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[1]).unwrap().size.height, 10.0, "row 0 unchanged");
+        assert_approx!(tree.layout(cells[2]).unwrap().size.height, 10.0, "row 1 unchanged");
+        assert_approx!(tree.layout(cells[0]).unwrap().size.height, 30.0, "spanner = 10 + 10 + 10 gutter");
+    }
+
+    // vertical-align: middle and bottom shift the cell's children within the
+    // free space; top leaves them at the content-box top.
+    #[test]
+    fn vertical_align_offsets() {
+        use crate::types::VerticalAlign;
+
+        // The 40px cell drives the row; the 10px-content cells align within it.
+        let (mut tree, root) = MockTable::new(300.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("tall").content_height(40.0).padding(0.0),
+                cell("top").content_height(10.0).padding(0.0),
+                cell("mid").content_height(10.0).valign(VerticalAlign::Middle).padding(0.0),
+                cell("bot").content_height(10.0).valign(VerticalAlign::Bottom).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 300.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[1]).unwrap().content_offset_y, 0.0, "top offset");
+        assert_approx!(tree.layout(cells[2]).unwrap().content_offset_y, 15.0, "middle = (40-10)/2");
+        assert_approx!(tree.layout(cells[3]).unwrap().content_offset_y, 30.0, "bottom = 40-10");
+        assert_approx!(tree.layout(cells[0]).unwrap().content_offset_y, 0.0, "row driver has no free space");
+    }
+
+    // vertical-align accounts for the cell's own padding: free space is
+    // measured inside the content box.
+    #[test]
+    fn vertical_align_respects_padding() {
+        use crate::types::VerticalAlign;
+
+        // Row is driven to 40px content + 2*5px padding = 50px border-box.
+        // The bottom cell: inner = 50 - 10 = 40, content 10 -> offset 30.
+        let (mut tree, root) = MockTable::new(300.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("tall").content_height(40.0).padding(5.0),
+                cell("bot").content_height(10.0).valign(VerticalAlign::Bottom).padding(5.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 300.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[1]).unwrap().content_offset_y, 30.0, "bottom offset inside padding");
+    }
+
     // Auto layout: <col> widths seed columns; the rest distribute as usual.
     #[test]
     fn col_widths_in_auto_layout() {
