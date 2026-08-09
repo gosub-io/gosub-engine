@@ -106,6 +106,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                 viewport_width,
                 viewport_height,
                 known_tiles,
+                hovered_node,
             } => match &tier {
                 ConfinementTier::Unsupported(reason) => {
                     FromForkServer::Refused(format!("this font system cannot run isolated: {reason}"))
@@ -125,6 +126,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                         viewport_width,
                         viewport_height,
                         &known_tiles.iter().copied().collect(),
+                        hovered_node,
                     );
                     match outcome {
                         Ok(()) => continue, // PageRendered already sent
@@ -303,6 +305,7 @@ fn fork_and_render<C: RenderConfiguration>(
     viewport_width: f64,
     viewport_height: f64,
     known_tiles: &std::collections::HashSet<u64>,
+    hovered_node: Option<u64>,
 ) -> Result<(), String> {
     let (ours, theirs) = match gosub_ipc::channel::Channel::pair() {
         Ok(pair) => pair,
@@ -335,6 +338,7 @@ fn fork_and_render<C: RenderConfiguration>(
                     viewport_width,
                     viewport_height,
                     known_tiles,
+                    hovered_node,
                 },
                 shared,
                 Arc::clone(media_store),

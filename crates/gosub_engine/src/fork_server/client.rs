@@ -289,6 +289,7 @@ impl ForkServer {
         viewport: (f64, f64),
         loader: &dyn gosub_interface::resource_loader::ResourceLoader,
         known_tiles: &TileMemory,
+        hovered_node: Option<u64>,
     ) -> anyhow::Result<RenderedPage> {
         self.link.send(&ToForkServer::RenderPage {
             html: html.to_string(),
@@ -296,6 +297,7 @@ impl ForkServer {
             viewport_width: viewport.0,
             viewport_height: viewport.1,
             known_tiles: known_tiles.hashes(),
+            hovered_node,
         })?;
         drive_render_exchange(&mut self.link, loader, known_tiles)
     }

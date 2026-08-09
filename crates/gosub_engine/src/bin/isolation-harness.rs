@@ -366,6 +366,7 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
                 viewport_width: 1280.0,
                 viewport_height: 720.0,
                 known_tiles: &Default::default(),
+                hovered_node: None,
             },
             shared,
             media_store,
@@ -453,6 +454,7 @@ fn exec_renderer_roundtrip<F: FontSystem + Default>() -> i32 {
             (1280.0, 720.0),
             &loader,
             &Default::default(),
+            None,
         ) {
             Ok(page) => {
                 let (summary, tiles) = (page.summary, page.tiles);
@@ -560,6 +562,7 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                         (1280.0, 720.0),
                         &gosub_interface::resource_loader::NoResourceLoader,
                         &Default::default(),
+                        None,
                     );
                     match outcome {
                         Ok(page) => {
@@ -769,6 +772,7 @@ struct HarnessResourceLoader {
 const HARNESS_CSS: &str = r#"
     @font-face { font-family: "HarnessFace"; src: url("/face.ttf"); }
     .card { margin-top: 300px; font-family: "HarnessFace"; }
+    h1:hover { background: #ff0000; }
 "#;
 
 impl gosub_interface::resource_loader::ResourceLoader for HarnessResourceLoader {
@@ -901,12 +905,16 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
             ..Default::default()
         };
         let mut memory = gosub_engine::fork_server::client::TileMemory::default();
+        // Filled from the first render's hit regions; the hover pass below
+        // needs node ids, and only the renderer knows them.
+        let mut hit_region_nodes: Vec<u64>;
         match server.render_page(
             html,
             "http://harness.invalid/index.html",
             (1280.0, 720.0),
             &loader,
             &memory,
+            None,
         ) {
             Ok(page) => {
                 let (summary, tiles, hit_regions) = (page.summary, page.tiles, page.hit_regions);
@@ -926,6 +934,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                     let (hash, kept) = t.keep();
                     (hash, kept)
                 }));
+                hit_region_nodes = hit_regions.iter().map(|r| r.node_id).collect();
                 println!(
                     "forked renderer rendered a {:.0}x{:.0} page: {} layers, {} tiles painted, {} paint commands",
                     summary.page_width,
@@ -1033,6 +1042,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                 (1280.0, 720.0),
                 &loader,
                 &memory,
+                None,
             ) {
                 Ok(page) => {
                     let fresh = page
@@ -1054,6 +1064,49 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
             }
         }
 
+        // Hover repaint, out of process: the renderer re-parses per render and
+        // has no hover state of its own, so the broker tells it which node is
+        // under the pointer. With the tile memory in play, only the tiles
+        // whose painted content actually changed come back — hovering the
+        // <h1> (which the brokered stylesheet gives a :hover background)
+        // must repaint some tiles while reusing the rest.
+        if cfg!(feature = "cairo-tiles") {
+            use gosub_engine::fork_server::client::PageTile;
+            let mut hovered_changed = 0usize;
+            let mut nodes: Vec<u64> = std::mem::take(&mut hit_region_nodes);
+            nodes.sort_unstable();
+            nodes.dedup();
+            for node in nodes {
+                let Ok(page) = server.render_page(
+                    html,
+                    "http://harness.invalid/index.html",
+                    (1280.0, 720.0),
+                    &loader,
+                    &memory,
+                    Some(node),
+                ) else {
+                    eprintln!("hover render failed for node {node}");
+                    return 1;
+                };
+                let fresh = page
+                    .tiles
+                    .iter()
+                    .filter(|t| matches!(t, PageTile::Fresh { .. }))
+                    .count();
+                if fresh > 0 {
+                    hovered_changed += 1;
+                    println!(
+                        "hovering node {node} repainted {fresh} of {} tiles out of process",
+                        page.tiles.len()
+                    );
+                }
+            }
+            if hovered_changed == 0 {
+                eprintln!("no node produced a hover repaint; :hover is not reaching the renderer");
+                return 1;
+            }
+        }
+
         // The streaming property: a page whose tile count exceeds any
         // process's file-descriptor limit (RLIMIT_NOFILE is 128 in the fork
         // server and its children) must still ship every tile — possible
@@ -1068,6 +1121,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                 (1280.0, 720.0),
                 &loader,
                 &Default::default(),
+                None,
             ) {
                 Ok(page) => {
                     let (summary, tiles) = (page.summary, page.tiles);
