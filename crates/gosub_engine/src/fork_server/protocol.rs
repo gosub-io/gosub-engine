@@ -52,6 +52,13 @@ pub enum ToForkServer {
         /// [`TileUnchanged`](FromForkServer::TileUnchanged) and the broker
         /// reuses the pixels it already has. Empty on a first render.
         known_tiles: Vec<u64>,
+        /// The DOM node under the pointer, so the renderer can apply
+        /// `:hover` styles. The broker hit-tests (it holds the geometry and
+        /// its own document) and tells the renderer the answer; the renderer
+        /// re-parses per render and would otherwise have no hover state at
+        /// all. With `known_tiles`, a hover re-render costs only the tiles
+        /// whose painted content actually changed.
+        hovered_node: Option<u64>,
     },
     /// Exit cleanly.
     Shutdown,

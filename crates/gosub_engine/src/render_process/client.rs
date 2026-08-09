@@ -24,6 +24,7 @@ pub fn render_page(
     viewport: (f64, f64),
     loader: &dyn gosub_interface::resource_loader::ResourceLoader,
     known_tiles: &TileMemory,
+    hovered_node: Option<u64>,
 ) -> anyhow::Result<RenderedPage> {
     // Same guard as every spawner: an undispatched child must not recurse.
     if crate::child_process::is_child_process() {
@@ -65,6 +66,7 @@ pub fn render_page(
             viewport_width: viewport.0,
             viewport_height: viewport.1,
             known_tiles: known_tiles.hashes(),
+            hovered_node,
         })?;
         drive_render_exchange(&mut link, loader, known_tiles)
     })();

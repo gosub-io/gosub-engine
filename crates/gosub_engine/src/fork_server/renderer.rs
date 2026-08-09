@@ -36,6 +36,7 @@ pub fn render_page<C: RenderConfiguration>(
         viewport_width,
         viewport_height,
         known_tiles,
+        hovered_node,
     } = page;
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
@@ -64,6 +65,12 @@ pub fn render_page<C: RenderConfiguration>(
     };
     let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(parser_options));
     doc.add_stylesheet(C::CssSystem::load_default_useragent_stylesheet());
+
+    // Hover state, as the broker hit-tested it. Applied before the render
+    // tree is built, which is when styles (including `:hover`) are computed.
+    if let Some(node) = hovered_node {
+        doc.set_hovered_nodes(Some(gosub_shared::node::NodeId::from(node)));
+    }
 
     // `@font-face` web fonts: the same walk the tab worker runs, fetching
     // through this renderer's loader and registering into the inherited font
@@ -230,6 +237,8 @@ pub struct PageRequest<'a> {
     /// Content hashes the broker kept from a previous render; a tile whose
     /// hash is here is neither rasterized nor shipped.
     pub known_tiles: &'a HashSet<u64>,
+    /// The DOM node under the pointer, for `:hover` styling.
+    pub hovered_node: Option<u64>,
 }
 
 /// One tile as the renderer decided to handle it, in composite order.

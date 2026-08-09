@@ -104,6 +104,7 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
         viewport_width,
         viewport_height,
         known_tiles,
+        hovered_node,
     } = request
     else {
         let _ = link.lock().send(&FromForkServer::Refused(
@@ -120,6 +121,7 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
             viewport_width,
             viewport_height,
             known_tiles: &known_tiles.into_iter().collect(),
+            hovered_node,
         },
         shared,
         media_store,

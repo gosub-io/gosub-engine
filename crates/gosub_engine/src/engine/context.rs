@@ -459,6 +459,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 viewport,
                 self.loader.as_ref(),
                 &self.remote_tile_memory,
+                self.hover_leaf.map(|id| id.into()),
             ),
             RemoteRenderer::ExecPerRender => crate::render_process::client::render_page(
                 source,
@@ -466,6 +467,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 viewport,
                 self.loader.as_ref(),
                 &self.remote_tile_memory,
+                self.hover_leaf.map(|id| id.into()),
             ),
         };
         match result {
@@ -871,9 +873,22 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 let _t = gosub_shared::timing_guard!("hover.set_hovered");
                 doc.set_hovered_nodes(new_leaf);
             }
-            // Hover-only changes are paint-only (color, background, box-shadow).
-            // Use the cheap hover-dirty path which skips render-tree + layout.
-            self.hover_dirty = true;
+            // A remotely rendered page has no local layout tree to repaint
+            // from, so its hover repaint is a re-render — cheap in practice
+            // because the renderer skips every tile whose painted content is
+            // unchanged, which on a hover is all but the hovered element's.
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            let remote = self.remote_render_active();
+            #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+            let remote = false;
+
+            if remote {
+                self.render_dirty = true;
+            } else {
+                // Hover-only changes are paint-only (color, background, box-shadow).
+                // Use the cheap hover-dirty path which skips render-tree + layout.
+                self.hover_dirty = true;
+            }
         }
 
         (visual_dirty, url_changed, link_url)
