@@ -7,6 +7,12 @@ use gosub_lattice::mock::{cell, render_tree, MockTable, MockTree};
 use gosub_lattice::{compute_table_layout, TableRole};
 
 fn main() {
+    eprintln!(
+        "{} v{} — console demos of the lattice table layout engine (colspan/rowspan/sections)",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     // 1. Simple 3-column table, no spanning
     println!("=== Simple 3-column table ===");
     let out = MockTable::new(60.0)

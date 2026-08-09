@@ -521,6 +521,8 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
 }
 
 fn main() {
+    eprintln!("{} v{} — winit browser window, Cairo (CPU) rendering", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Warn)
         .env()

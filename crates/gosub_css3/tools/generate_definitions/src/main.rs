@@ -78,6 +78,12 @@ fn add_bare_fit_content(syntax: &str) -> String {
 }
 
 fn main() -> Result<()> {
+    eprintln!(
+        "{} v{} — regenerate the CSS definition JSON embedded in gosub_css3 from webref + MDN",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     // A value-definition-syntax comma multiplier at the very end of a grammar.
     let trailing_comma_multiplier = Regex::new(r"#(\{[0-9]+(,[0-9]*)?\})?\s*$")?;
 

@@ -100,7 +100,7 @@ fn main() {
     let output = args.output;
     let viewport_w = args.width;
 
-    eprintln!("gosub-screenshot {BUILD_VERSION}");
+    eprintln!("gosub-screenshot {BUILD_VERSION} — headless full-page screenshot via the gosub render pipeline (CPU rasterization)");
 
     let url = Url::parse(&url_str).expect("invalid URL");
 

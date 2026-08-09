@@ -21,6 +21,12 @@ impl ModuleConfiguration for Config {
 }
 
 fn main() -> Result<()> {
+    eprintln!(
+        "{} v{} — fetch a URL and print only the text nodes of the parsed HTML document",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     let Some(url) = std::env::args().nth(1) else {
         println!("Usage: display-text-tree <url>");
         exit(1);

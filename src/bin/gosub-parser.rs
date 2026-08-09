@@ -26,6 +26,12 @@ impl ModuleConfiguration for Config {
 }
 
 fn main() -> Result<()> {
+    eprintln!(
+        "{} v{} — fetch and parse an HTML page, then report stylesheets, parse errors and timings",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     let matches = clap::Command::new("Gosub parser")
         .version("0.1.0")
         .arg(

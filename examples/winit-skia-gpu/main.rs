@@ -465,6 +465,8 @@ fn draw_address_bar(canvas: &skia_safe::Canvas, win_w: u32, h: i32, url: &str, f
 // ── main ──────────────────────────────────────────────────────────────────────
 
 fn main() {
+    eprintln!("{} v{} — winit browser window, Skia GPU (OpenGL) rendering", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Warn)
         .env()

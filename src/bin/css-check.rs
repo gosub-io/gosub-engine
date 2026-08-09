@@ -12,6 +12,12 @@ use std::path::Path;
 /// problem; instead every rule it cannot parse is emitted as a `WARN` via the logger
 /// (the same `gosub_css3::parser::rule` warnings you already see in the renderer examples).
 fn main() -> Result<()> {
+    eprintln!(
+        "{} v{} — parse a CSS file or URL and report every rule the parser cannot handle",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     // Default to WARN so the only output is the parser's warnings/errors. Override with
     // RUST_LOG (e.g. RUST_LOG=trace) for deeper inspection.
     SimpleLogger::new().with_level(LevelFilter::Warn).env().init()?;

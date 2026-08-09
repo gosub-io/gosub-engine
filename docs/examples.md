@@ -96,15 +96,22 @@ See [headless.md](headless.md) for how the tool drives the engine and how to bui
 
   `cargo run --bin css3-parser`         CSS3 parser --- prints a CSS tree from a URL
 
+  `cargo run --bin css-check`           Parse a CSS file/URL, warn on every unparsable rule
+
   `cargo run --bin display-text-tree`   Text-only render of a page
 
-  `cargo run --bin config-store`        Config store smoke test
+  `cargo run --example config-store`    Config store smoke test (example target, not a bin)
 
   `cargo run --bin run-js`              Run a JS file (event loop not yet implemented)
 
   `cargo run --bin html5-parser-test`   html5lib tree-builder test suite
 
   `cargo run --bin parser-test`         Parser development test runner
+
+  `cargo run -p gosub_lattice --bin     Table layout engine console demos
+  table_console`
+
+  `cargo run -p generate_definitions`   Regenerate the gosub_css3 CSS definition JSON
   -------------------------------------------------------------------------------------------
 
 For more detail on the component tools see [`binaries.md`](binaries.md).

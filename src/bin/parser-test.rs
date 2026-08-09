@@ -34,6 +34,12 @@ impl ModuleConfiguration for Config {
 }
 
 fn main() -> Result<()> {
+    eprintln!(
+        "{} v{} — html5lib tree-construction dev harness with per-test failure detail",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     let mut results = TotalTestResults::default();
 
     let args: Vec<String> = std::env::args().skip(1).collect();

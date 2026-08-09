@@ -10,6 +10,12 @@ use simple_logger::SimpleLogger;
 use std::time::Instant;
 
 fn main() -> Result<()> {
+    eprintln!(
+        "{} v{} — parse a CSS resource and print the stylesheet tree (or tokenizer output)",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     let matches = clap::Command::new("Gosub CSS3 parser")
         .version("0.1.0")
         .arg(

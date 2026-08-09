@@ -18,6 +18,12 @@ impl ModuleConfiguration for Config {
     type HtmlParser = Html5Parser<'static, Self>;
 }
 fn main() -> Result<()> {
+    eprintln!(
+        "{} v{} — run the html5lib tree-construction fixture suite and print a pass/fail summary",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     let mut files = get_files_from_path(fixture_root_path());
     files.sort();
 
