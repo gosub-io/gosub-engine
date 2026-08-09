@@ -1,6 +1,6 @@
 //! The broker's side of an exec'd renderer: spawn, render one page, reap.
 
-use crate::fork_server::client::{drive_render_exchange, RenderedPage};
+use crate::fork_server::client::{drive_render_exchange, RenderedPage, TileMemory};
 use crate::fork_server::protocol::ToForkServer;
 use gosub_ipc::Endpoint;
 use std::time::Duration;
@@ -23,6 +23,7 @@ pub fn render_page(
     url: &str,
     viewport: (f64, f64),
     loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+    known_tiles: &TileMemory,
 ) -> anyhow::Result<RenderedPage> {
     // Same guard as every spawner: an undispatched child must not recurse.
     if crate::child_process::is_child_process() {
@@ -63,8 +64,9 @@ pub fn render_page(
             url: url.to_string(),
             viewport_width: viewport.0,
             viewport_height: viewport.1,
+            known_tiles: known_tiles.hashes(),
         })?;
-        drive_render_exchange(&mut link, loader)
+        drive_render_exchange(&mut link, loader, known_tiles)
     })();
 
     // Kill before reaping, on every path: a renderer that will not exit —

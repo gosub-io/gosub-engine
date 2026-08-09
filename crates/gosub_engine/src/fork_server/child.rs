@@ -105,6 +105,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                 url,
                 viewport_width,
                 viewport_height,
+                known_tiles,
             } => match &tier {
                 ConfinementTier::Unsupported(reason) => {
                     FromForkServer::Refused(format!("this font system cannot run isolated: {reason}"))
@@ -123,6 +124,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                         &url,
                         viewport_width,
                         viewport_height,
+                        &known_tiles.iter().copied().collect(),
                     );
                     match outcome {
                         Ok(()) => continue, // PageRendered already sent
@@ -134,6 +136,23 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
         if link.send(&reply).is_err() {
             return 1;
         }
+    }
+}
+
+/// The header for a tile the broker already holds. Its physical dimensions
+/// are left at zero deliberately: nothing rasterized them here, and the
+/// broker fills them from the pixels it kept.
+fn unchanged_header(page_x: f64, page_y: f64, layer_id: u64, hash: u64) -> TileHeader {
+    TileHeader {
+        page_x,
+        page_y,
+        layer_id,
+        width: 0,
+        height: 0,
+        format: crate::fork_server::protocol::TileWireFormat::PreMulArgb32,
+        content_hash: hash,
+        opacity: 1.0,
+        anchor: crate::fork_server::protocol::TileWireAnchor::Scroll,
     }
 }
 
@@ -283,6 +302,7 @@ fn fork_and_render<C: RenderConfiguration>(
     page_url: &str,
     viewport_width: f64,
     viewport_height: f64,
+    known_tiles: &std::collections::HashSet<u64>,
 ) -> Result<(), String> {
     let (ours, theirs) = match gosub_ipc::channel::Channel::pair() {
         Ok(pair) => pair,
@@ -308,11 +328,14 @@ fn fork_and_render<C: RenderConfiguration>(
                 gosub_sandbox::exit_now(1);
             };
             let shared: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(owned));
-            let (summary, baked, hit_regions) = renderer::render_page::<C>(
-                html,
-                page_url,
-                viewport_width,
-                viewport_height,
+            let (summary, tiles, hit_regions) = renderer::render_page::<C>(
+                renderer::PageRequest {
+                    html,
+                    page_url,
+                    viewport_width,
+                    viewport_height,
+                    known_tiles,
+                },
                 shared,
                 Arc::clone(media_store),
                 Arc::clone(forked_loader) as Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
@@ -324,33 +347,48 @@ fn fork_and_render<C: RenderConfiguration>(
             // memfd_create, ftruncate, mmap, the seals — is in the renderer
             // baseline precisely so a confined renderer can hand off pixels.
             let mut link = link.lock();
-            for tile in &baked {
-                let gosub_render_pipeline::common::texture::TilePixels::Cpu(bytes) = &tile.pixels else {
-                    // GPU handles are process-local and cannot cross; a
-                    // forked rasterizer should never produce one.
-                    continue;
+            for tile in &tiles {
+                let sent = match tile {
+                    renderer::RenderedTile::Unchanged {
+                        page_x,
+                        page_y,
+                        layer_id,
+                        hash,
+                    } => link
+                        .send(&FromRenderer::TileUnchanged(unchanged_header(
+                            *page_x, *page_y, *layer_id, *hash,
+                        )))
+                        .is_ok(),
+                    renderer::RenderedTile::Fresh { tile, hash } => {
+                        let gosub_render_pipeline::common::texture::TilePixels::Cpu(bytes) = &tile.pixels else {
+                            // GPU handles are process-local and cannot cross;
+                            // a forked rasterizer should never produce one.
+                            continue;
+                        };
+                        let Ok(fd) = gosub_ipc::shm::create_sealed_tile(tile.width, tile.height, |buf| {
+                            let n = buf.len().min(bytes.len());
+                            buf[..n].copy_from_slice(&bytes[..n]);
+                        }) else {
+                            gosub_sandbox::exit_now(1);
+                        };
+                        let header = TileHeader {
+                            page_x: tile.page_x,
+                            page_y: tile.page_y,
+                            layer_id: tile.layer_id,
+                            width: tile.width,
+                            height: tile.height,
+                            format: tile.format.into(),
+                            content_hash: *hash,
+                            opacity: tile.opacity,
+                            anchor: tile.anchor.into(),
+                        };
+                        link.send(&FromRenderer::Tile(header)).is_ok() && link.tx.send_fd(fd.as_raw_fd()).is_ok()
+                        // `fd` drops here: SCM_RIGHTS duplicated it onward.
+                    }
                 };
-                let Ok(fd) = gosub_ipc::shm::create_sealed_tile(tile.width, tile.height, |buf| {
-                    let n = buf.len().min(bytes.len());
-                    buf[..n].copy_from_slice(&bytes[..n]);
-                }) else {
-                    gosub_sandbox::exit_now(1);
-                };
-                let header = TileHeader {
-                    page_x: tile.page_x,
-                    page_y: tile.page_y,
-                    layer_id: tile.layer_id,
-                    width: tile.width,
-                    height: tile.height,
-                    format: tile.format.into(),
-                    opacity: tile.opacity,
-                    anchor: tile.anchor.into(),
-                };
-                let sent = link.send(&FromRenderer::Tile(header)).is_ok() && link.tx.send_fd(fd.as_raw_fd()).is_ok();
                 if !sent {
                     gosub_sandbox::exit_now(1);
                 }
-                // `fd` drops here: SCM_RIGHTS duplicated it onward.
             }
 
             let ok = link.send(&FromRenderer::Rendered { summary, hit_regions }).is_ok();
@@ -382,6 +420,11 @@ fn fork_and_render<C: RenderConfiguration>(
                                     )))
                                 }
                             }
+                        }
+                        FromRenderer::TileUnchanged(header) => {
+                            broker
+                                .send(&FromForkServer::TileUnchanged(header))
+                                .map_err(|e| std::io::Error::other(format!("broker unreachable: {e}")))?;
                         }
                         FromRenderer::Tile(header) => {
                             let fd = link.rx.recv_fd()?;
