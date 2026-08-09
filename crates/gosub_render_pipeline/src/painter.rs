@@ -379,7 +379,7 @@ impl Painter {
                 let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));
-                let r = self.decorate_with_border_and_radius(dom_node_id, r);
+                let r = self.decorate_with_border_and_radius(dom_node_id, layout_element.suppressed_borders, r);
                 vec![PaintCommand::rectangle(r)]
             }
             BackgroundMedia::Svg(media_id) => vec![PaintCommand::svg(media_id, Rectangle::new(border_box))],
@@ -421,7 +421,7 @@ impl Painter {
                 // separate border-only rectangle painted on top of the icon (e.g. the HN logo's
                 // `border:1px white solid`).
                 if self.has_border(dom_node_id) {
-                    let r = self.decorate_with_border_and_radius(dom_node_id, Rectangle::new(border_box));
+                    let r = self.decorate_with_border_and_radius(dom_node_id, layout_element.suppressed_borders, Rectangle::new(border_box));
                     commands.push(PaintCommand::rectangle(r));
                 }
             }
@@ -437,7 +437,7 @@ impl Painter {
                         .with_background(bg_brush)
                         .with_blend_mode(blend);
                     commands.push(PaintCommand::rectangle(
-                        self.decorate_with_border_and_radius(dom_node_id, bg_r),
+                        self.decorate_with_border_and_radius(dom_node_id, layout_element.suppressed_borders, bg_r),
                     ));
                 }
 
@@ -454,7 +454,7 @@ impl Painter {
                 let r = Rectangle::new(draw_box).with_background(brush).with_blend_mode(blend);
                 // The border/radius belongs to the element box, not the shrunk icon rect.
                 let border_target = if image_ctx.placeholder { border_box } else { draw_box };
-                let border_r = self.decorate_with_border_and_radius(dom_node_id, Rectangle::new(border_target));
+                let border_r = self.decorate_with_border_and_radius(dom_node_id, layout_element.suppressed_borders, Rectangle::new(border_target));
                 if image_ctx.placeholder {
                     commands.push(PaintCommand::rectangle(r));
                     // Emit the element border separately so it frames the full reserved box.
@@ -462,7 +462,7 @@ impl Painter {
                         commands.push(PaintCommand::rectangle(border_r));
                     }
                 } else {
-                    let r = self.decorate_with_border_and_radius(dom_node_id, r);
+                    let r = self.decorate_with_border_and_radius(dom_node_id, layout_element.suppressed_borders, r);
                     commands.push(PaintCommand::rectangle(r));
                 }
 
@@ -481,7 +481,7 @@ impl Painter {
                 let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));
-                let r = self.decorate_with_border_and_radius(dom_node_id, r);
+                let r = self.decorate_with_border_and_radius(dom_node_id, layout_element.suppressed_borders, r);
                 commands.push(PaintCommand::rectangle(r));
 
                 // background-image paints on top of the background-color.
@@ -515,13 +515,23 @@ impl Painter {
 
     /// Apply the element's computed CSS border and border-radius to `r`. Shared by block,
     /// image and SVG elements so replaced elements (`<img>`) get their borders too.
-    fn decorate_with_border_and_radius(&self, dom_node_id: NodeId, mut r: Rectangle) -> Rectangle {
+    /// `suppressed` edges (`[top, right, bottom, left]`, from `border-collapse`
+    /// conflict resolution) are painted at zero width - the neighbouring cell
+    /// paints the shared border instead.
+    fn decorate_with_border_and_radius(&self, dom_node_id: NodeId, suppressed: [bool; 4], mut r: Rectangle) -> Rectangle {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
 
-        let border_top_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopWidth);
-        let border_right_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderRightWidth);
-        let border_bottom_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderBottomWidth);
-        let border_left_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderLeftWidth);
+        let side_width = |suppress: bool, prop: &StyleProperty| {
+            if suppress {
+                0.0
+            } else {
+                doc.get_style_f32(dom_node_id, prop)
+            }
+        };
+        let border_top_width = side_width(suppressed[0], &StyleProperty::BorderTopWidth);
+        let border_right_width = side_width(suppressed[1], &StyleProperty::BorderRightWidth);
+        let border_bottom_width = side_width(suppressed[2], &StyleProperty::BorderBottomWidth);
+        let border_left_width = side_width(suppressed[3], &StyleProperty::BorderLeftWidth);
 
         if border_top_width != 0.0
             || border_right_width != 0.0

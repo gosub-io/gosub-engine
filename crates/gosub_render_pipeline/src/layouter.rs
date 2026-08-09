@@ -152,6 +152,10 @@ pub struct LayoutElementNode {
     pub context: ElementContext,
     /// Resolved CSS `background-image`, loaded into the media store during layout.
     pub background_media: Option<BackgroundMedia>,
+    /// Border edges the painter must skip, `[top, right, bottom, left]`. Set by
+    /// the table layouter for cells that lose a `border-collapse` conflict (the
+    /// adjacent cell paints the shared border instead).
+    pub suppressed_borders: [bool; 4],
 }
 
 /// A resolved CSS `background-image` and its media kind. The painter finalizes tile geometry once

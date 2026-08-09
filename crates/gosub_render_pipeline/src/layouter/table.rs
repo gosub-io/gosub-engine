@@ -148,6 +148,7 @@ fn apply_recursive(
                 if let Some(&layout_id) = dom_to_layout.get(&child_id) {
                     if let Some(element) = arena.get_mut(&layout_id) {
                         element.box_model = cell_layout_to_box_model(cell_layout, abs);
+                        element.suppressed_borders = cell_layout.suppressed_borders;
                     }
                 }
                 // vertical-align: only cells whose subtree was re-anchored at the

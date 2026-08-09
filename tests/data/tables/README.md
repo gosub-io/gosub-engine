@@ -29,7 +29,7 @@ cargo run -p gosub-screenshot -- file://$PWD/tests/data/tables/01-basic-grid.htm
 | `12-colgroup.html` | widths from `<col>`/`<colgroup>` | col widths (done 2026-08-07) |
 | `13-content-extremes.html` | unbreakable word, over-wide block | min-content column floors (**gap**) |
 | `14-border-spacing.html` | spacing 0 / 10px / asymmetric; padding | separate border model |
-| `15-border-collapse.html` | separate vs collapse, border conflict | border-collapse (done 2026-08-08; conflicts by paint order) |
+| `15-border-collapse.html` | separate vs collapse, border conflict | border-collapse + conflict resolution (done 2026-08-09) |
 | `16-nested-layout.html` | flex + block stacks + wrapping text in cells | `layout_cell` callback |
 | `17-nested-table.html` | table inside a table cell | nested `compute_table_layout` |
 | `18-vertical-align.html` | top/middle/bottom/baseline | vertical-align (done 2026-08-08; baseline ~ top) |
@@ -72,12 +72,16 @@ Broken or missing, beyond the known compute gaps:
   cell-content block layout + per-cell re-layout change.
 - **Fixed 2026-08-08 (captions + border-collapse)** - the last two compute
   gaps. Captions (05): measured like a full-width cell, placed above or below
-  the grid per `caption-side`. Border-collapse (15, 20): spacing forced to 0
-  and adjacent cells overlap by their shared border width so equal borders
-  coincide as a single line; border *conflicts* resolve by paint order (the
-  later-painted cell wins), not by the CSS wider-border-wins rules - the 6px
-  conflict in 15 only wins its top/left edges. Every fixture gap is now
-  closed.
+  the grid per `caption-side`. Border-collapse (15, 20): spacing forced to 0;
+  cells sit flush.
+- **Fixed 2026-08-09 (border-conflict resolution)**: every shared boundary is
+  painted by exactly one cell - lattice resolves the winner (wider border
+  wins; ties go to the left/top cell, per CSS 2 §17.6.2.1 for same-style
+  borders) and flags the loser's edge in `CellLayout.suppressed_borders`;
+  the painter skips suppressed edges. The 6px red conflict in 15 now wins all
+  four edges. Not implemented: the border-style rank tiebreak (double >
+  solid > ...) and row/rowgroup/table borders as conflict participants.
+  Every fixture gap is now closed.
 - **Fixed 2026-08-08 (min/max-content auto columns)**: the heuristic column
   algorithm was replaced with the CSS 2 §17.5.2.2 algorithm. Every cell
   contributes real min/max-content widths (`TableTree::cell_intrinsic_widths`,

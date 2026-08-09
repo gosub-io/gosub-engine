@@ -95,15 +95,10 @@ pub fn compute_table_layout<T: TableTree>(
     );
 
     // Precompute cumulative column x-offsets (relative to the row's left edge).
-    // col_x[i] = x of the left edge of column i (within a row). Under collapse,
-    // adjacent columns overlap by their shared border width so the borders of
-    // neighbouring cells coincide.
-    let col_overlaps = if collapse {
-        column_border_overlaps(tree, n_cols, &all_grids)
-    } else {
-        vec![0.0; n_cols]
-    };
-    let col_x = col_x_offsets(&col_widths, spacing_x, &col_overlaps);
+    // col_x[i] = x of the left edge of column i (within a row). Under collapse
+    // the cells sit flush (spacing 0) and conflict resolution below decides
+    // which cell paints each shared border.
+    let col_x = col_x_offsets(&col_widths, spacing_x);
 
     // Row heights per section
     //
@@ -149,13 +144,13 @@ pub fn compute_table_layout<T: TableTree>(
         ));
     }
 
-    // Per-section vertical border overlaps (collapse only): rows within a
-    // section overlap by their shared border; the section edge borders are
-    // kept so adjacent sections can overlap too.
-    let all_row_overlaps: Vec<Vec<RowOverlaps>> = [&header_grids, &body_grids, &footer_grids]
-        .into_iter()
-        .map(|grids| grids.iter().map(|g| row_border_overlaps(tree, g, collapse)).collect())
-        .collect();
+    // Border-conflict resolution (collapse only): decide per shared boundary
+    // which cell paints it; the loser's edge is flagged for the host to skip.
+    let suppressed_borders: HashMap<T::NodeId, [bool; 4]> = if collapse {
+        resolve_border_conflicts(tree, n_cols, &all_grids)
+    } else {
+        HashMap::new()
+    };
 
     // Caption: measured like a cell spanning the full table width; placed
     // above (default) or below the grid per `caption-side`.
@@ -196,27 +191,15 @@ pub fn compute_table_layout<T: TableTree>(
     let mut group_y = if caption_bottom { 0.0 } else { caption_height } + spacing_y;
 
     #[allow(clippy::type_complexity)]
-    let section_data: &[(&[RowGroup<T::NodeId>], &[SectionGrid<T::NodeId>], &[Vec<f32>], &[RowOverlaps])] = &[
-        (&model.header_groups, &header_grids, &header_heights, &all_row_overlaps[0]),
-        (&model.row_groups, &body_grids, &body_heights, &all_row_overlaps[1]),
-        (&model.footer_groups, &footer_grids, &footer_heights, &all_row_overlaps[2]),
+    let section_data: &[(&[RowGroup<T::NodeId>], &[SectionGrid<T::NodeId>], &[Vec<f32>])] = &[
+        (&model.header_groups, &header_grids, &header_heights),
+        (&model.row_groups, &body_grids, &body_heights),
+        (&model.footer_groups, &footer_grids, &footer_heights),
     ];
 
-    // Bottom border of the previous non-empty section's last row, for
-    // collapsing the boundary between adjacent sections.
-    let mut prev_bottom: Option<f32> = None;
-
-    for (groups, grids, heights, overlapses) in section_data {
-        for (((group, grid), row_heights), overlaps) in
-            groups.iter().zip(grids.iter()).zip(heights.iter()).zip(overlapses.iter())
-        {
-            if collapse && grid.n_rows > 0 {
-                if let Some(prev) = prev_bottom {
-                    group_y -= prev.min(overlaps.first_top);
-                }
-            }
-
-            let row_y = row_y_offsets(row_heights, spacing_y, &overlaps.between);
+    for (groups, grids, heights) in section_data {
+        for ((group, grid), row_heights) in groups.iter().zip(grids.iter()).zip(heights.iter()) {
+            let row_y = row_y_offsets(row_heights, spacing_y);
             let group_height = section_height(row_heights, &row_y);
 
             if let Some(node) = group.node {
@@ -228,15 +211,23 @@ pub fn compute_table_layout<T: TableTree>(
                         border: BOX_EDGES_ZERO,
                         padding: BOX_EDGES_ZERO,
                         content_offset_y: 0.0,
+                        suppressed_borders: [false; 4],
                     },
                 );
             }
 
-            place_rows(tree, group, grid, row_heights, &row_y, &col_x, &col_widths, &content_heights);
+            place_rows(
+                tree,
+                group,
+                grid,
+                row_heights,
+                &row_y,
+                &col_x,
+                &col_widths,
+                &content_heights,
+                &suppressed_borders,
+            );
 
-            if grid.n_rows > 0 {
-                prev_bottom = Some(overlaps.last_bottom);
-            }
             group_y += group_height + spacing_y;
         }
     }
@@ -256,6 +247,7 @@ pub fn compute_table_layout<T: TableTree>(
                 border,
                 padding,
                 content_offset_y: 0.0,
+                suppressed_borders: [false; 4],
             },
         );
         if caption_bottom {
@@ -277,6 +269,7 @@ fn place_rows<T: TableTree>(
     col_x: &[f32],
     col_widths: &[f32],
     content_heights: &HashMap<T::NodeId, f32>,
+    suppressed_borders: &HashMap<T::NodeId, [bool; 4]>,
 ) {
     let inner_width: f32 = match (col_x.last(), col_widths.last()) {
         (Some(&x), Some(&w)) => x + w - col_x.first().copied().unwrap_or(0.0),
@@ -296,18 +289,29 @@ fn place_rows<T: TableTree>(
                     border: BOX_EDGES_ZERO,
                     padding: BOX_EDGES_ZERO,
                     content_offset_y: 0.0,
+                    suppressed_borders: [false; 4],
                 },
             );
         }
 
         // Cells for this row.
         for cell in grid.cells_in_row(row_idx) {
-            place_cell(tree, cell, row_heights, col_x, col_widths, row_y, content_heights);
+            place_cell(
+                tree,
+                cell,
+                row_heights,
+                col_x,
+                col_widths,
+                row_y,
+                content_heights,
+                suppressed_borders,
+            );
         }
     }
 }
 
 /// Write the layout for one placed cell.
+#[allow(clippy::too_many_arguments)]
 fn place_cell<T: TableTree>(
     tree: &mut T,
     cell: &PlacedCell<T::NodeId>,
@@ -316,6 +320,7 @@ fn place_cell<T: TableTree>(
     col_widths: &[f32],
     row_y: &[f32],
     content_heights: &HashMap<T::NodeId, f32>,
+    suppressed_borders: &HashMap<T::NodeId, [bool; 4]>,
 ) {
     // Extents come from the offset tables so gutters (separate borders) and
     // overlaps (collapsed borders) are both handled: a spanning cell runs from
@@ -354,32 +359,20 @@ fn place_cell<T: TableTree>(
             border,
             padding,
             content_offset_y,
+            suppressed_borders: suppressed_borders.get(&cell.node).copied().unwrap_or([false; 4]),
         },
     );
 }
 
 // Offset helpers
 
-/// Vertical border-overlap data for one section under `border-collapse`.
-struct RowOverlaps {
-    /// `between[r]` = overlap between row `r-1` and row `r` (index 0 unused).
-    between: Vec<f32>,
-    /// Max top border of the section's first row (for cross-section collapse).
-    first_top: f32,
-    /// Max bottom border of the section's last row.
-    last_bottom: f32,
-}
-
 /// `col_x[i]` = x of the left edge of column `i` within a row, in px.
 /// Accounts for the border-spacing gutter to the left of each column
-/// (separate borders) or the shared-border overlap (collapsed borders).
-fn col_x_offsets(col_widths: &[f32], spacing_x: f32, overlaps: &[f32]) -> Vec<f32> {
+/// (zero under `border-collapse`, where cells sit flush).
+fn col_x_offsets(col_widths: &[f32], spacing_x: f32) -> Vec<f32> {
     let mut offsets = Vec::with_capacity(col_widths.len());
     let mut x = spacing_x;
-    for (c, &w) in col_widths.iter().enumerate() {
-        if c > 0 {
-            x -= overlaps.get(c).copied().unwrap_or(0.0);
-        }
+    for &w in col_widths {
         offsets.push(x);
         x += w + spacing_x;
     }
@@ -389,13 +382,10 @@ fn col_x_offsets(col_widths: &[f32], spacing_x: f32, overlaps: &[f32]) -> Vec<f3
 /// `row_y[i]` = y of the top edge of row `i` within its group, in px.
 /// The first row starts at 0 - the gutter above it belongs to the table
 /// (or to the previous group's bottom boundary), not to this group.
-fn row_y_offsets(row_heights: &[f32], spacing_y: f32, overlaps: &[f32]) -> Vec<f32> {
+fn row_y_offsets(row_heights: &[f32], spacing_y: f32) -> Vec<f32> {
     let mut offsets = Vec::with_capacity(row_heights.len());
     let mut y = 0.0;
-    for (r, &h) in row_heights.iter().enumerate() {
-        if r > 0 {
-            y -= overlaps.get(r).copied().unwrap_or(0.0);
-        }
+    for &h in row_heights {
         offsets.push(y);
         y += h + spacing_y;
     }
@@ -403,9 +393,9 @@ fn row_y_offsets(row_heights: &[f32], spacing_y: f32, overlaps: &[f32]) -> Vec<f
 }
 
 /// Total height of a section: from the top of the first row to the bottom of
-/// the last (gutters and collapse overlaps are baked into `row_y`). Boundary
-/// gutters (above the first row / below the last) are added by the caller
-/// when stacking groups, so they are not counted here.
+/// the last (gutters are baked into `row_y`). Boundary gutters (above the
+/// first row / below the last) are added by the caller when stacking groups,
+/// so they are not counted here.
 fn section_height(row_heights: &[f32], row_y: &[f32]) -> f32 {
     match (row_y.last(), row_heights.last()) {
         (Some(&y), Some(&h)) => y + h,
@@ -413,62 +403,111 @@ fn section_height(row_heights: &[f32], row_y: &[f32]) -> f32 {
     }
 }
 
-/// Per-boundary horizontal overlap between adjacent columns under
-/// `border-collapse`: the shared border width, i.e. the smaller of the widest
-/// right border ending at the boundary and the widest left border starting
-/// there. Overlapping the cell boxes by this amount makes equal borders
-/// coincide exactly; unequal ones stack with the later-painted cell on top.
-fn column_border_overlaps<T: TableTree>(tree: &T, n_cols: usize, grids: &[&SectionGrid<T::NodeId>]) -> Vec<f32> {
-    let mut left = vec![0.0_f32; n_cols];
-    let mut right = vec![0.0_f32; n_cols];
+/// CSS border-conflict resolution for `border-collapse` (simplified): every
+/// boundary shared by two cells is painted by exactly one of them - the wider
+/// border wins; ties go to the left/top cell (matching CSS 2 §17.6.2.1 for
+/// same-style borders; the style-rank tiebreak is not implemented). A cell
+/// edge is suppressed when it loses against EVERY neighbouring segment along
+/// that edge; mixed outcomes keep the edge painted (overlap behaviour).
+///
+/// Grids must be in render order (header -> body -> footer) so cross-section
+/// adjacency is resolved too. Edge index order: `[top, right, bottom, left]`.
+fn resolve_border_conflicts<T: TableTree>(
+    tree: &T,
+    n_cols: usize,
+    grids: &[&SectionGrid<T::NodeId>],
+) -> HashMap<T::NodeId, [bool; 4]> {
+    // Flat slot occupancy across all sections, in render order.
+    let total_rows: usize = grids.iter().map(|g| g.n_rows).sum();
+    let mut slots: Vec<Vec<Option<T::NodeId>>> = vec![vec![None; n_cols]; total_rows];
+    let mut borders: HashMap<T::NodeId, crate::types::BoxEdges> = HashMap::new();
+
+    let mut row_offset = 0;
     for grid in grids {
         for cell in grid.cells() {
-            let b = read_border(tree, cell.node);
-            let first = cell.col;
-            let last = cell.col + cell.colspan - 1;
-            if first < n_cols {
-                left[first] = left[first].max(b.left);
+            borders.entry(cell.node).or_insert_with(|| read_border(tree, cell.node));
+            for r in cell.row..(cell.row + cell.rowspan).min(grid.n_rows) {
+                for c in cell.col..(cell.col + cell.colspan).min(n_cols) {
+                    slots[row_offset + r][c] = Some(cell.node);
+                }
             }
-            if last < n_cols {
-                right[last] = right[last].max(b.right);
+        }
+        row_offset += grid.n_rows;
+    }
+
+    // Per (cell, edge): whether it faced any neighbour and whether it lost
+    // every segment. `wins[edge]` flips to true as soon as one segment wins.
+    #[derive(Default, Clone, Copy)]
+    struct EdgeState {
+        has_seg: [bool; 4],
+        won_any: [bool; 4],
+    }
+    let mut states: HashMap<T::NodeId, EdgeState> = HashMap::new();
+    let zero = crate::types::BoxEdges::default();
+
+    const TOP: usize = 0;
+    const RIGHT: usize = 1;
+    const BOTTOM: usize = 2;
+    const LEFT: usize = 3;
+
+    for r in 0..total_rows {
+        for c in 0..n_cols {
+            let Some(cur) = slots[r][c] else { continue };
+
+            // Vertical boundary with the cell to the right.
+            if c + 1 < n_cols {
+                if let Some(next) = slots[r][c + 1] {
+                    if next != cur {
+                        let left_w = borders.get(&cur).unwrap_or(&zero).right;
+                        let right_w = borders.get(&next).unwrap_or(&zero).left;
+                        let left_wins = left_w >= right_w;
+                        let s = states.entry(cur).or_default();
+                        s.has_seg[RIGHT] = true;
+                        if left_wins {
+                            s.won_any[RIGHT] = true;
+                        }
+                        let s = states.entry(next).or_default();
+                        s.has_seg[LEFT] = true;
+                        if !left_wins {
+                            s.won_any[LEFT] = true;
+                        }
+                    }
+                }
+            }
+
+            // Horizontal boundary with the cell below.
+            if r + 1 < total_rows {
+                if let Some(below) = slots[r + 1][c] {
+                    if below != cur {
+                        let top_w = borders.get(&cur).unwrap_or(&zero).bottom;
+                        let bottom_w = borders.get(&below).unwrap_or(&zero).top;
+                        let top_wins = top_w >= bottom_w;
+                        let s = states.entry(cur).or_default();
+                        s.has_seg[BOTTOM] = true;
+                        if top_wins {
+                            s.won_any[BOTTOM] = true;
+                        }
+                        let s = states.entry(below).or_default();
+                        s.has_seg[TOP] = true;
+                        if !top_wins {
+                            s.won_any[TOP] = true;
+                        }
+                    }
+                }
             }
         }
     }
-    let mut overlaps = vec![0.0_f32; n_cols];
-    for c in 1..n_cols {
-        overlaps[c] = right[c - 1].min(left[c]);
-    }
-    overlaps
-}
 
-/// Row-boundary equivalent of [`column_border_overlaps`], for one section.
-/// Returns zeroed data when `collapse` is off.
-fn row_border_overlaps<T: TableTree>(tree: &T, grid: &SectionGrid<T::NodeId>, collapse: bool) -> RowOverlaps {
-    let n_rows = grid.n_rows;
-    if !collapse || n_rows == 0 {
-        return RowOverlaps {
-            between: vec![0.0; n_rows],
-            first_top: 0.0,
-            last_bottom: 0.0,
-        };
-    }
-    let mut top = vec![0.0_f32; n_rows];
-    let mut bottom = vec![0.0_f32; n_rows];
-    for cell in grid.cells() {
-        let b = read_border(tree, cell.node);
-        top[cell.row] = top[cell.row].max(b.top);
-        let last = (cell.row + cell.rowspan - 1).min(n_rows - 1);
-        bottom[last] = bottom[last].max(b.bottom);
-    }
-    let mut between = vec![0.0_f32; n_rows];
-    for r in 1..n_rows {
-        between[r] = bottom[r - 1].min(top[r]);
-    }
-    RowOverlaps {
-        between,
-        first_top: top.first().copied().unwrap_or(0.0),
-        last_bottom: bottom.last().copied().unwrap_or(0.0),
-    }
+    states
+        .into_iter()
+        .map(|(node, s)| {
+            let mut suppressed = [false; 4];
+            for e in 0..4 {
+                suppressed[e] = s.has_seg[e] && !s.won_any[e];
+            }
+            (node, suppressed)
+        })
+        .collect()
 }
 
 // Zero-value BoxEdges constant (avoids Default derive noise in call sites).

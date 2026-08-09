@@ -133,6 +133,11 @@ pub struct CellLayout {
     /// to the content-box top) to realize `vertical-align` when the cell is
     /// taller than its content. Always 0 for non-cell nodes.
     pub content_offset_y: f32,
+    /// Border edges the host should NOT paint, as `[top, right, bottom, left]`.
+    /// Under `border-collapse` every shared boundary is painted by exactly one
+    /// of the two adjacent cells (the wider border wins; ties go to the
+    /// left/top cell) - the losing cell gets its edge flagged here.
+    pub suppressed_borders: [bool; 4],
 }
 
 impl Default for CellLayout {
@@ -143,6 +148,7 @@ impl Default for CellLayout {
             border: BoxEdges::default(),
             padding: BoxEdges::default(),
             content_offset_y: 0.0,
+            suppressed_borders: [false; 4],
         }
     }
 }

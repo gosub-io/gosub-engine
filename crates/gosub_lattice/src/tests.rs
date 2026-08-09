@@ -934,10 +934,10 @@ mod layout_tests {
         assert_approx!(total_h, 30.0, "row + caption");
     }
 
-    // border-collapse: gutters vanish and adjacent 1px borders overlap so
-    // neighbouring cells share a single border line.
+    // border-collapse: gutters vanish - cells sit flush and conflict
+    // resolution (tested separately) decides which cell paints each boundary.
     #[test]
-    fn border_collapse_overlaps_cells() {
+    fn border_collapse_removes_gutters() {
         let (mut tree, root) = MockTable::new(100.0)
             .width(100.0)
             .spacing(5.0, 5.0) // must be ignored under collapse
@@ -955,15 +955,65 @@ mod layout_tests {
         let (_, total_h) = compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
 
         let cells = tree.nodes_with_role(TableRole::Cell);
-        // Columns are 50px; the second column starts 1px early so the 1px
-        // borders coincide.
         assert_approx!(tree.layout(cells[0]).expect("a").position.x, 0.0, "col 0 at x=0 (no gutter)");
-        assert_approx!(tree.layout(cells[1]).expect("b").position.x, 49.0, "col 1 overlaps by 1px");
+        assert_approx!(tree.layout(cells[1]).expect("b").position.x, 50.0, "col 1 flush against col 0");
 
-        // Rows are 12px tall (10 content + 2 border); row 2 overlaps by 1px.
+        // Rows are 12px tall (10 content + 2 border), stacked without gutters.
         let rows = tree.nodes_with_role(TableRole::Row);
-        assert_approx!(tree.layout(rows[1]).expect("row 1").position.y, 11.0, "row 1 overlaps by 1px");
-        assert_approx!(total_h, 23.0, "12 + 12 - 1 overlap, no gutters");
+        assert_approx!(tree.layout(rows[1]).expect("row 1").position.y, 12.0, "row 1 flush below row 0");
+        assert_approx!(total_h, 24.0, "12 + 12, no gutters");
+    }
+
+    // Collapse conflict resolution, uniform borders: ties go to the left/top
+    // cell, so each cell paints its top+left shared edges' winners - i.e. the
+    // right/bottom cell of every boundary suppresses its facing edge.
+    #[test]
+    fn border_collapse_ties_go_left_top() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
+            .spacing(0.0, 0.0)
+            .collapse()
+            .body_row(vec![
+                cell("a").border(1.0).height(10.0).padding(0.0),
+                cell("b").border(1.0).height(10.0).padding(0.0),
+            ])
+            .body_row(vec![
+                cell("c").border(1.0).height(10.0).padding(0.0),
+                cell("d").border(1.0).height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        // [top, right, bottom, left]
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let sup = |i: usize| tree.layout(cells[i]).unwrap().suppressed_borders;
+        assert_eq!(sup(0), [false, false, false, false], "top-left wins both boundaries");
+        assert_eq!(sup(1), [false, false, false, true], "b loses its left edge to a");
+        assert_eq!(sup(2), [true, false, false, false], "c loses its top edge to a");
+        assert_eq!(sup(3), [true, false, false, true], "d loses top and left");
+    }
+
+    // Collapse conflict resolution: the wider border wins even against the
+    // left/top preference.
+    #[test]
+    fn border_collapse_wider_border_wins() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
+            .spacing(0.0, 0.0)
+            .collapse()
+            .body_row(vec![
+                cell("thin").border(1.0).height(10.0).padding(0.0),
+                cell("thick").border(3.0).height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let sup = |i: usize| tree.layout(cells[i]).unwrap().suppressed_borders;
+        assert_eq!(sup(0), [false, true, false, false], "thin loses its right edge");
+        assert_eq!(sup(1), [false, false, false, false], "thick paints the shared border");
     }
 
     // Auto layout: <col> widths seed columns; the rest distribute as usual.

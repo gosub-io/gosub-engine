@@ -661,6 +661,7 @@ impl TaffyLayouter {
             children: vec![],
             context: element_context,
             background_media: None,
+            suppressed_borders: [false; 4],
         };
         let layout_element_id = element_node.id;
         layout_tree.arena.insert(layout_element_id, element_node);
@@ -724,6 +725,7 @@ impl TaffyLayouter {
             children: vec![],
             context: element_context,
             background_media,
+            suppressed_borders: [false; 4],
         };
 
         // Children are tracked in both the taffy tree and the element_node's children vec.
