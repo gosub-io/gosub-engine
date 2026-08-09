@@ -16,37 +16,6 @@ const READY_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long any later request may take. A fork plus one shape is milliseconds.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// One rasterized tile as the broker holds it: the wire header plus the
-/// mapped, validated, immutable pixels — the renderer's pages, not a copy.
-#[derive(Debug)]
-pub struct ReceivedTile {
-    pub header: crate::fork_server::protocol::TileHeader,
-    pub mapping: gosub_ipc::shm::TileMapping,
-}
-
-impl ReceivedTile {
-    /// Hand this tile to the compositor: the exact [`CachedTile`] shape the
-    /// host-side tile compositing loop consumes — **still zero-copy**. The
-    /// mapping becomes the `Bytes`' owner (`Bytes::from_owner`), so the
-    /// compositor blends straight out of the renderer's sealed pages and the
-    /// mapping is unmapped when the last tile reference drops.
-    pub fn into_cached_tile(self) -> gosub_interface::render::backend::CachedTile {
-        // Alpha is the 4th byte in both supported formats ([B,G,R,A] / [R,G,B,A]).
-        let opaque = self.mapping.as_slice().chunks_exact(4).all(|px| px[3] == 0xFF);
-        gosub_interface::render::backend::CachedTile {
-            page_x: self.header.page_x as f32,
-            page_y: self.header.page_y as f32,
-            width: self.header.width,
-            height: self.header.height,
-            data: bytes::Bytes::from_owner(self.mapping),
-            format: self.header.format.into(),
-            opacity: self.header.opacity,
-            anchor: self.header.anchor.into(),
-            opaque,
-        }
-    }
-}
-
 /// Drive the broker's half of a render exchange, whoever the renderer is —
 /// the fork server's forked child or a fresh exec'd renderer speak the same
 /// dialect. Tiles stream in one at a time (each fd mapped and released before
@@ -57,6 +26,7 @@ impl ReceivedTile {
 pub(crate) fn drive_render_exchange(
     link: &mut Endpoint,
     loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+    known_tiles: &TileMemory,
 ) -> anyhow::Result<RenderedPage> {
     use crate::fork_server::protocol::ResourceReply;
 
@@ -80,7 +50,17 @@ pub(crate) fn drive_render_exchange(
             FromForkServer::Tile(header) => {
                 let fd = link.rx.recv_fd()?;
                 let mapping = gosub_ipc::shm::map_sealed_tile(fd, header.width, header.height)?;
-                received.push(ReceivedTile { header, mapping });
+                received.push(PageTile::Fresh { header, mapping });
+            }
+            // The renderer skipped this one because we said we had it. If we
+            // do not, our memory and its `known_tiles` disagree — a bug, not
+            // a page problem, so fail the render rather than paper over a
+            // hole in the page.
+            FromForkServer::TileUnchanged(header) => {
+                let Some(kept) = known_tiles.get(header.content_hash) else {
+                    anyhow::bail!("renderer skipped a tile we do not have (hash {})", header.content_hash);
+                };
+                received.push(PageTile::Reused { header, kept });
             }
             FromForkServer::PageRendered { summary, hit_regions } => {
                 return Ok(RenderedPage {
@@ -95,14 +75,122 @@ pub(crate) fn drive_render_exchange(
     }
 }
 
-/// One page as the broker receives it: what the renderer measured, the mapped
-/// tiles, and the geometry hit testing needs (the broker resolves the rest
-/// against its own document).
+/// One page as the broker receives it: what the renderer measured, its tiles
+/// (freshly mapped or reused from the previous render), and the geometry hit
+/// testing needs.
 #[derive(Debug)]
 pub struct RenderedPage {
     pub summary: crate::fork_server::protocol::PageSummary,
-    pub tiles: Vec<ReceivedTile>,
+    pub tiles: Vec<PageTile>,
     pub hit_regions: Vec<crate::fork_server::protocol::HitRegion>,
+}
+
+/// A tile of a rendered page: either pixels that just crossed, or pixels the
+/// broker already had and the renderer therefore never produced.
+#[derive(Debug)]
+pub enum PageTile {
+    Fresh {
+        header: crate::fork_server::protocol::TileHeader,
+        mapping: gosub_ipc::shm::TileMapping,
+    },
+    Reused {
+        header: crate::fork_server::protocol::TileHeader,
+        kept: KeptTile,
+    },
+}
+
+impl PageTile {
+    /// This tile's identity and pixels, for a broker keeping it until the
+    /// next render (see [`TileMemory::replace_with`]).
+    pub fn keep(&self) -> (u64, KeptTile) {
+        let (header, kept) = match self {
+            PageTile::Fresh { header, mapping } => (
+                header,
+                KeptTile {
+                    width: header.width,
+                    height: header.height,
+                    format: header.format,
+                    pixels: bytes::Bytes::copy_from_slice(mapping.as_slice()),
+                },
+            ),
+            PageTile::Reused { header, kept } => (header, kept.clone()),
+        };
+        (header.content_hash, kept)
+    }
+
+    /// This tile's pixels, whichever render produced them. Always the
+    /// renderer's own mapped pages — a reused tile is the *same* mapping an
+    /// earlier render handed over, not a copy of it.
+    pub fn pixels(&self) -> &[u8] {
+        match self {
+            PageTile::Fresh { mapping, .. } => mapping.as_slice(),
+            PageTile::Reused { kept, .. } => kept.pixels.as_ref(),
+        }
+    }
+
+    /// Hand this tile to the compositor: the exact [`CachedTile`] shape the
+    /// host-side compositing loop consumes — **still zero-copy**. A fresh
+    /// tile's mapping becomes the `Bytes`' owner (`Bytes::from_owner`), so
+    /// the compositor blends straight out of the renderer's sealed pages;
+    /// a reused tile already holds such `Bytes`.
+    pub fn into_cached_tile(self) -> gosub_interface::render::backend::CachedTile {
+        let (header, width, height, format, pixels) = match self {
+            PageTile::Fresh { header, mapping } => {
+                let (w, h, f) = (header.width, header.height, header.format);
+                (header, w, h, f, bytes::Bytes::from_owner(mapping))
+            }
+            PageTile::Reused { header, kept } => (header, kept.width, kept.height, kept.format, kept.pixels),
+        };
+        // Alpha is the 4th byte in both supported formats ([B,G,R,A] / [R,G,B,A]).
+        let opaque = pixels.chunks_exact(4).all(|px| px[3] == 0xFF);
+        gosub_interface::render::backend::CachedTile {
+            page_x: header.page_x as f32,
+            page_y: header.page_y as f32,
+            width,
+            height,
+            data: pixels,
+            format: format.into(),
+            opacity: header.opacity,
+            anchor: header.anchor.into(),
+            opaque,
+        }
+    }
+}
+
+/// Pixels the broker keeps between renders of a tab, so an unchanged tile
+/// need not be rasterized or shipped again. The bytes are the renderer's
+/// mapped pages from an earlier render — still zero-copy, still sealed.
+#[derive(Debug, Clone)]
+pub struct KeptTile {
+    pub width: u32,
+    pub height: u32,
+    pub format: crate::fork_server::protocol::TileWireFormat,
+    pub pixels: bytes::Bytes,
+}
+
+/// What the broker remembers of a tab's last remote render, keyed by content
+/// hash — the input to the next render's `known_tiles`.
+#[derive(Debug, Default)]
+pub struct TileMemory {
+    tiles: std::collections::HashMap<u64, KeptTile>,
+}
+
+impl TileMemory {
+    /// The hashes to offer a renderer.
+    pub fn hashes(&self) -> Vec<u64> {
+        self.tiles.keys().copied().collect()
+    }
+
+    pub fn get(&self, hash: u64) -> Option<KeptTile> {
+        self.tiles.get(&hash).cloned()
+    }
+
+    /// Replace the memory with exactly this page's tiles: what is not on the
+    /// page cannot help the next render of it, and keeping it would grow
+    /// without bound.
+    pub fn replace_with(&mut self, tiles: impl IntoIterator<Item = (u64, KeptTile)>) {
+        self.tiles = tiles.into_iter().collect();
+    }
 }
 
 /// A running fork server, its announced confinement tier, and the link to it.
@@ -200,14 +288,16 @@ impl ForkServer {
         url: &str,
         viewport: (f64, f64),
         loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+        known_tiles: &TileMemory,
     ) -> anyhow::Result<RenderedPage> {
         self.link.send(&ToForkServer::RenderPage {
             html: html.to_string(),
             url: url.to_string(),
             viewport_width: viewport.0,
             viewport_height: viewport.1,
+            known_tiles: known_tiles.hashes(),
         })?;
-        drive_render_exchange(&mut self.link, loader)
+        drive_render_exchange(&mut self.link, loader, known_tiles)
     }
 
     /// Ask for a clean exit, then make sure of it. `&mut self` rather than

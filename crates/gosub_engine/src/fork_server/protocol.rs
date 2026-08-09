@@ -46,6 +46,12 @@ pub enum ToForkServer {
         url: String,
         viewport_width: f64,
         viewport_height: f64,
+        /// Content hashes of tiles the broker still holds from a previous
+        /// render of this tab. A tile whose hash is in here is neither
+        /// rasterized nor shipped — the renderer answers
+        /// [`TileUnchanged`](FromForkServer::TileUnchanged) and the broker
+        /// reuses the pixels it already has. Empty on a first render.
+        known_tiles: Vec<u64>,
     },
     /// Exit cleanly.
     Shutdown,
@@ -71,6 +77,11 @@ pub enum FromForkServer {
     /// of the transport ever holds more than one tile fd, so page size is
     /// bounded by memory, not by file-descriptor limits.
     Tile(TileHeader),
+    /// A tile the broker already holds (its hash was in `known_tiles`): no
+    /// fd follows and nothing was rasterized for it. Arrives in composite
+    /// order alongside `Tile`, so the broker rebuilds the page's tile list
+    /// by walking the two in the order they came.
+    TileUnchanged(TileHeader),
     /// The render finished; every [`Tile`](FromForkServer::Tile) of the page
     /// has already streamed past. A render that dies mid-stream ends in
     /// [`Refused`](FromForkServer::Refused) instead, and the broker discards
@@ -154,6 +165,11 @@ pub struct TileHeader {
     pub width: u32,
     pub height: u32,
     pub format: TileWireFormat,
+    /// This tile's content hash (see
+    /// `gosub_render_pipeline::rasterizer::tile_content_hash`): what the
+    /// broker keys its kept pixels by, and what a later render compares
+    /// against to decide the tile is unchanged.
+    pub content_hash: u64,
     /// Group opacity of the tile's layer, applied by the compositor.
     pub opacity: f32,
     /// How the tile's layer responds to scroll.
@@ -267,6 +283,8 @@ pub enum FromRenderer {
     /// renderer seals, sends, and drops each before baking the next into a
     /// memfd, so it never holds more than one tile fd itself.
     Tile(TileHeader),
+    /// A tile the broker already holds — no fd, no rasterization.
+    TileUnchanged(TileHeader),
     /// The final message: the render is complete, with the page's hit-test
     /// geometry.
     Rendered {

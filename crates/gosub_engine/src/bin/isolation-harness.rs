@@ -360,10 +360,13 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
         let shared: std::sync::Arc<parking_lot::Mutex<dyn FontSystem>> =
             std::sync::Arc::new(parking_lot::Mutex::new(fonts));
         let (summary, baked, _hit_regions) = renderer::render_page::<TileConfig<F>>(
-            "<html><body><h1>Under lockdown</h1><p>Rendered without a fork.</p></body></html>",
-            "about:blank",
-            1280.0,
-            720.0,
+            renderer::PageRequest {
+                html: "<html><body><h1>Under lockdown</h1><p>Rendered without a fork.</p></body></html>",
+                page_url: "about:blank",
+                viewport_width: 1280.0,
+                viewport_height: 720.0,
+                known_tiles: &Default::default(),
+            },
             shared,
             media_store,
             std::sync::Arc::new(gosub_interface::resource_loader::NoResourceLoader),
@@ -377,11 +380,16 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
         if cfg!(feature = "cairo-tiles") {
             let inked: u64 = baked
                 .iter()
-                .map(|tile| match &tile.pixels {
-                    gosub_render_pipeline::common::texture::TilePixels::Cpu(bytes) => {
-                        bytes.iter().filter(|&&b| b != 0).count() as u64
-                    }
-                    gosub_render_pipeline::common::texture::TilePixels::Gpu(_) => 0,
+                .map(|tile| match tile {
+                    renderer::RenderedTile::Fresh { tile, .. } => match &tile.pixels {
+                        gosub_render_pipeline::common::texture::TilePixels::Cpu(bytes) => {
+                            bytes.iter().filter(|&&b| b != 0).count() as u64
+                        }
+                        gosub_render_pipeline::common::texture::TilePixels::Gpu(_) => 0,
+                    },
+                    // Nothing was rasterized here (no broker memory in this
+                    // scenario, so this cannot happen).
+                    renderer::RenderedTile::Unchanged { .. } => 0,
                 })
                 .sum();
             if baked.is_empty() || inked == 0 {
@@ -444,6 +452,7 @@ fn exec_renderer_roundtrip<F: FontSystem + Default>() -> i32 {
             "http://harness.invalid/index.html",
             (1280.0, 720.0),
             &loader,
+            &Default::default(),
         ) {
             Ok(page) => {
                 let (summary, tiles) = (page.summary, page.tiles);
@@ -550,6 +559,7 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                         "http://harness.invalid/",
                         (1280.0, 720.0),
                         &gosub_interface::resource_loader::NoResourceLoader,
+                        &Default::default(),
                     );
                     match outcome {
                         Ok(page) => {
@@ -890,7 +900,14 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
             font: font_bytes,
             ..Default::default()
         };
-        match server.render_page(html, "http://harness.invalid/index.html", (1280.0, 720.0), &loader) {
+        let mut memory = gosub_engine::fork_server::client::TileMemory::default();
+        match server.render_page(
+            html,
+            "http://harness.invalid/index.html",
+            (1280.0, 720.0),
+            &loader,
+            &memory,
+        ) {
             Ok(page) => {
                 let (summary, tiles, hit_regions) = (page.summary, page.tiles, page.hit_regions);
                 if summary.page_height <= 0.0 || summary.painted_tiles == 0 || summary.paint_commands == 0 {
@@ -905,6 +922,10 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                     return 1;
                 }
                 println!("received {} hit regions for the page", hit_regions.len());
+                memory.replace_with(tiles.iter().map(|t| {
+                    let (hash, kept) = t.keep();
+                    (hash, kept)
+                }));
                 println!(
                     "forked renderer rendered a {:.0}x{:.0} page: {} layers, {} tiles painted, {} paint commands",
                     summary.page_width,
@@ -919,7 +940,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                 if cfg!(feature = "cairo-tiles") {
                     let inked: u64 = tiles
                         .iter()
-                        .map(|tile| tile.mapping.as_slice().iter().filter(|&&b| b != 0).count() as u64)
+                        .map(|tile| tile.pixels().iter().filter(|&&b| b != 0).count() as u64)
                         .sum();
                     if tiles.is_empty() || inked == 0 {
                         eprintln!("no ink arrived over shared memory ({} tiles)", tiles.len());
@@ -935,7 +956,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                     // are still the mapped pages, not a copy) and present a
                     // frame through the production composite loop.
                     use gosub_render_pipeline::render::tile_composite::{composite_tiles, TileTarget};
-                    let mapped_ptrs: Vec<*const u8> = tiles.iter().map(|t| t.mapping.as_slice().as_ptr()).collect();
+                    let mapped_ptrs: Vec<*const u8> = tiles.iter().map(|t| t.pixels().as_ptr()).collect();
                     let cached: Vec<_> = tiles.into_iter().map(|t| t.into_cached_tile()).collect();
                     for (cached_tile, mapped_ptr) in cached.iter().zip(&mapped_ptrs) {
                         if cached_tile.data.as_ptr() != *mapped_ptr {
@@ -999,6 +1020,40 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
             }
         }
 
+        // Incrementality: render the same page again, this time telling the
+        // renderer which tiles we kept. Nothing about the page changed, so
+        // every tile must come back as unchanged — no rasterization, no
+        // pixels, no file descriptors. Needs a rasterizer to have produced
+        // tiles in the first place.
+        if cfg!(feature = "cairo-tiles") {
+            use gosub_engine::fork_server::client::PageTile;
+            match server.render_page(
+                html,
+                "http://harness.invalid/index.html",
+                (1280.0, 720.0),
+                &loader,
+                &memory,
+            ) {
+                Ok(page) => {
+                    let fresh = page
+                        .tiles
+                        .iter()
+                        .filter(|t| matches!(t, PageTile::Fresh { .. }))
+                        .count();
+                    let reused = page.tiles.len() - fresh;
+                    if reused == 0 || fresh != 0 {
+                        eprintln!("re-render shipped {fresh} fresh and {reused} reused tiles; expected all reused");
+                        return 1;
+                    }
+                    println!("re-render reused all {reused} tiles: nothing rasterized, nothing shipped");
+                }
+                Err(e) => {
+                    eprintln!("re-render failed: {e}");
+                    return 1;
+                }
+            }
+        }
+
         // The streaming property: a page whose tile count exceeds any
         // process's file-descriptor limit (RLIMIT_NOFILE is 128 in the fork
         // server and its children) must still ship every tile — possible
@@ -1007,7 +1062,13 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
             let tall = r#"<html><body style="margin:0">
                 <div style="height: 12000px; background: #ddd">tall</div>
             </body></html>"#;
-            match server.render_page(tall, "http://harness.invalid/tall.html", (1280.0, 720.0), &loader) {
+            match server.render_page(
+                tall,
+                "http://harness.invalid/tall.html",
+                (1280.0, 720.0),
+                &loader,
+                &Default::default(),
+            ) {
                 Ok(page) => {
                     let (summary, tiles) = (page.summary, page.tiles);
                     if tiles.len() <= 128 {

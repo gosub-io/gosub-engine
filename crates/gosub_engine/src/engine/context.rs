@@ -221,6 +221,12 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// The source text of the current document, kept when a renderer process
     /// will re-parse it there. `None` when rendering in-process.
     document_source: Option<std::sync::Arc<str>>,
+    /// What the last remote render of this tab produced, keyed by content
+    /// hash. Offered to the next render so unchanged tiles are neither
+    /// rasterized nor shipped again — the remote counterpart of
+    /// `tile_pixel_cache`, which serves the same purpose in-process.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_tile_memory: crate::fork_server::client::TileMemory,
     /// How this tab renders out-of-process, installed by the tab worker when
     /// `security.renderer_process` is on: through the engine's fork server
     /// (`Full`-tier font systems) or via a fresh exec'd renderer per render
@@ -287,6 +293,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             tile_budget: TileBudget::new(),
             loader,
             document_source: None,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_tile_memory: Default::default(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_renderer: None,
         }
@@ -566,34 +574,61 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         };
         let viewport = (self.viewport.width as f64, self.viewport.height as f64);
         let result = match remote {
-            RemoteRenderer::ForkServer(server) => {
-                server
-                    .lock()
-                    .render_page(source, &page_url, viewport, self.loader.as_ref())
-            }
-            RemoteRenderer::ExecPerRender => {
-                crate::render_process::client::render_page(source, &page_url, viewport, self.loader.as_ref())
-            }
+            RemoteRenderer::ForkServer(server) => server.lock().render_page(
+                source,
+                &page_url,
+                viewport,
+                self.loader.as_ref(),
+                &self.remote_tile_memory,
+            ),
+            RemoteRenderer::ExecPerRender => crate::render_process::client::render_page(
+                source,
+                &page_url,
+                viewport,
+                self.loader.as_ref(),
+                &self.remote_tile_memory,
+            ),
         };
         match result {
             Ok(page) => {
+                use crate::fork_server::client::{KeptTile, PageTile};
+
+                // Fresh tiles bring their pixels (mapped, zero-copy); reused
+                // ones were never re-rendered, so their pixels — and the
+                // physical dimensions the renderer did not produce — come
+                // from what this tab kept.
+                let mut memory: Vec<(u64, KeptTile)> = Vec::with_capacity(page.tiles.len());
                 let baked: Vec<BakedTile> = page
                     .tiles
                     .into_iter()
-                    .map(|tile| BakedTile {
-                        page_x: tile.header.page_x,
-                        page_y: tile.header.page_y,
-                        layer_id: tile.header.layer_id,
-                        width: tile.header.width,
-                        height: tile.header.height,
-                        format: tile.header.format.into(),
-                        opacity: tile.header.opacity,
-                        anchor: tile.header.anchor.into(),
-                        // The mapping becomes the pixel storage: zero-copy
-                        // from the renderer's sealed pages to the compositor.
-                        pixels: TilePixels::Cpu(bytes::Bytes::from_owner(tile.mapping)),
+                    .map(|tile| {
+                        let (header, kept) = match tile {
+                            PageTile::Fresh { header, mapping } => {
+                                let kept = KeptTile {
+                                    width: header.width,
+                                    height: header.height,
+                                    format: header.format,
+                                    pixels: bytes::Bytes::from_owner(mapping),
+                                };
+                                (header, kept)
+                            }
+                            PageTile::Reused { header, kept } => (header, kept),
+                        };
+                        memory.push((header.content_hash, kept.clone()));
+                        BakedTile {
+                            page_x: header.page_x,
+                            page_y: header.page_y,
+                            layer_id: header.layer_id,
+                            width: kept.width,
+                            height: kept.height,
+                            format: kept.format.into(),
+                            opacity: header.opacity,
+                            anchor: header.anchor.into(),
+                            pixels: TilePixels::Cpu(kept.pixels),
+                        }
                     })
                     .collect();
+                self.remote_tile_memory.replace_with(memory);
                 let cached_tiles = Arc::new(gosub_render_pipeline::rasterizer::cpu_cached_tiles(&baked));
                 self.pipeline_cache = Some(PipelineCache {
                     tiles: baked,

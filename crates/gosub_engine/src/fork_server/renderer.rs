@@ -11,6 +11,7 @@ use gosub_interface::font_system::FontSystem;
 use gosub_interface::resource_loader::ResourceLoader;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use parking_lot::Mutex;
+use std::collections::HashSet;
 use std::sync::Arc;
 use url::Url;
 
@@ -24,18 +25,18 @@ const TILE_SIZE: f64 = 256.0;
 /// rasterizer); sealing them into memfds is the caller's business, since that
 /// is transport, not rendering.
 pub fn render_page<C: RenderConfiguration>(
-    html: &str,
-    page_url: &str,
-    viewport_width: f64,
-    viewport_height: f64,
+    page: PageRequest<'_>,
     fonts: Arc<Mutex<dyn FontSystem>>,
     media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
     loader: Arc<dyn ResourceLoader>,
-) -> (
-    PageSummary,
-    Vec<gosub_render_pipeline::rasterizer::BakedTile>,
-    Vec<crate::fork_server::protocol::HitRegion>,
-) {
+) -> (PageSummary, Vec<RenderedTile>, Vec<HitRegion>) {
+    let PageRequest {
+        html,
+        page_url,
+        viewport_width,
+        viewport_height,
+        known_tiles,
+    } = page;
     use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
     use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
     use gosub_render_pipeline::common::geo::{Dimension, Rect};
@@ -133,6 +134,35 @@ pub fn render_page<C: RenderConfiguration>(
         }
     }
 
+    // Between painting and rasterizing: decide which tiles the broker already
+    // has. A tile's hash covers its position, layer and painted content, so a
+    // hit means the pixels would come out byte-identical — no reason to
+    // rasterize it, let alone ship it. Marking such a tile non-dirty is what
+    // makes stage 6 skip it.
+    let mut plan: Vec<TilePlan> = Vec::new();
+    for &layer_id in &layer_ids {
+        for tile_id in tile_list.get_intersecting_tiles(layer_id, full_page_rect) {
+            let Some(tile) = tile_list.get_tile_mut(tile_id) else {
+                continue;
+            };
+            if tile.state != TileState::Dirty {
+                continue;
+            }
+            let hash = gosub_render_pipeline::rasterizer::tile_content_hash(tile);
+            let unchanged = known_tiles.contains(&hash);
+            if unchanged {
+                tile.state = TileState::Ready;
+            }
+            plan.push(TilePlan {
+                page_x: tile.rect.x,
+                page_y: tile.rect.y,
+                layer_id: layer_id.as_u64(),
+                hash,
+                unchanged,
+            });
+        }
+    }
+
     // Stage 6, when this configuration can rasterize in a forked child.
     // Sequential on purpose: the renderer filter has no `clone`, so the
     // parallel strategy is not merely unwanted here, it is impossible.
@@ -150,6 +180,30 @@ pub fn render_page<C: RenderConfiguration>(
         None => Vec::new(),
     };
 
+    // Re-join the freshly baked tiles with the plan, so what leaves this
+    // process is in composite order regardless of which tiles were skipped.
+    let mut fresh: std::collections::HashMap<(u64, u64, u64), gosub_render_pipeline::rasterizer::BakedTile> = baked
+        .into_iter()
+        .map(|tile| ((tile.page_x.to_bits(), tile.page_y.to_bits(), tile.layer_id), tile))
+        .collect();
+    let tiles: Vec<RenderedTile> = plan
+        .into_iter()
+        .filter_map(|entry| {
+            let key = (entry.page_x.to_bits(), entry.page_y.to_bits(), entry.layer_id);
+            match entry.unchanged {
+                true => Some(RenderedTile::Unchanged {
+                    page_x: entry.page_x,
+                    page_y: entry.page_y,
+                    layer_id: entry.layer_id,
+                    hash: entry.hash,
+                }),
+                false => fresh
+                    .remove(&key)
+                    .map(|tile| RenderedTile::Fresh { tile, hash: entry.hash }),
+            }
+        })
+        .collect();
+
     let hit_regions = collect_hit_regions(&tile_list.layer_list);
 
     (
@@ -160,9 +214,50 @@ pub fn render_page<C: RenderConfiguration>(
             painted_tiles,
             paint_commands,
         },
-        baked,
+        tiles,
         hit_regions,
     )
+}
+
+/// What to render: the page, the viewport it is laid out against, and the
+/// tiles the broker already holds.
+pub struct PageRequest<'a> {
+    pub html: &'a str,
+    /// Base URL for the page's relative subresource URLs.
+    pub page_url: &'a str,
+    pub viewport_width: f64,
+    pub viewport_height: f64,
+    /// Content hashes the broker kept from a previous render; a tile whose
+    /// hash is here is neither rasterized nor shipped.
+    pub known_tiles: &'a HashSet<u64>,
+}
+
+/// One tile as the renderer decided to handle it, in composite order.
+pub enum RenderedTile {
+    /// Rasterized here; its pixels must be shipped.
+    Fresh {
+        tile: gosub_render_pipeline::rasterizer::BakedTile,
+        hash: u64,
+    },
+    /// The broker already holds this tile's pixels: nothing was rasterized
+    /// and nothing travels but the identity. The broker fills the physical
+    /// dimensions from what it kept — the renderer never produced them.
+    Unchanged {
+        page_x: f64,
+        page_y: f64,
+        layer_id: u64,
+        hash: u64,
+    },
+}
+
+/// Bookkeeping between the paint and rasterize stages: what each tile is and
+/// whether the broker already has it.
+struct TilePlan {
+    page_x: f64,
+    page_y: f64,
+    layer_id: u64,
+    hash: u64,
+    unchanged: bool,
 }
 
 /// Flatten the layer list into hit-test geometry for the broker.

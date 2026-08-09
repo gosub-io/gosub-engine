@@ -103,6 +103,7 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
         url,
         viewport_width,
         viewport_height,
+        known_tiles,
     } = request
     else {
         let _ = link.lock().send(&FromForkServer::Refused(
@@ -112,11 +113,14 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
     };
 
     let shared: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(fonts));
-    let (summary, baked, hit_regions) = renderer::render_page::<C>(
-        &html,
-        &url,
-        viewport_width,
-        viewport_height,
+    let (summary, tiles, hit_regions) = renderer::render_page::<C>(
+        renderer::PageRequest {
+            html: &html,
+            page_url: &url,
+            viewport_width,
+            viewport_height,
+            known_tiles: &known_tiles.into_iter().collect(),
+        },
         shared,
         media_store,
         loader,
@@ -125,27 +129,52 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
     // Stream the tiles out exactly as a forked renderer does: seal, send,
     // drop, one at a time.
     let mut link = link.lock();
-    for tile in &baked {
-        let gosub_render_pipeline::common::texture::TilePixels::Cpu(bytes) = &tile.pixels else {
-            continue;
+    for tile in &tiles {
+        let sent = match tile {
+            renderer::RenderedTile::Unchanged {
+                page_x,
+                page_y,
+                layer_id,
+                hash,
+            } => link
+                .send(&FromForkServer::TileUnchanged(TileHeader {
+                    page_x: *page_x,
+                    page_y: *page_y,
+                    layer_id: *layer_id,
+                    // Zero dimensions: nothing rasterized here, so the broker
+                    // fills them from the pixels it kept.
+                    width: 0,
+                    height: 0,
+                    format: crate::fork_server::protocol::TileWireFormat::PreMulArgb32,
+                    content_hash: *hash,
+                    opacity: 1.0,
+                    anchor: crate::fork_server::protocol::TileWireAnchor::Scroll,
+                }))
+                .is_ok(),
+            renderer::RenderedTile::Fresh { tile, hash } => {
+                let gosub_render_pipeline::common::texture::TilePixels::Cpu(bytes) = &tile.pixels else {
+                    continue;
+                };
+                let Ok(fd) = gosub_ipc::shm::create_sealed_tile(tile.width, tile.height, |buf| {
+                    let n = buf.len().min(bytes.len());
+                    buf[..n].copy_from_slice(&bytes[..n]);
+                }) else {
+                    return 1;
+                };
+                let header = TileHeader {
+                    page_x: tile.page_x,
+                    page_y: tile.page_y,
+                    layer_id: tile.layer_id,
+                    width: tile.width,
+                    height: tile.height,
+                    format: tile.format.into(),
+                    content_hash: *hash,
+                    opacity: tile.opacity,
+                    anchor: tile.anchor.into(),
+                };
+                link.send(&FromForkServer::Tile(header)).is_ok() && link.tx.send_fd(fd.as_raw_fd()).is_ok()
+            }
         };
-        let Ok(fd) = gosub_ipc::shm::create_sealed_tile(tile.width, tile.height, |buf| {
-            let n = buf.len().min(bytes.len());
-            buf[..n].copy_from_slice(&bytes[..n]);
-        }) else {
-            return 1;
-        };
-        let header = TileHeader {
-            page_x: tile.page_x,
-            page_y: tile.page_y,
-            layer_id: tile.layer_id,
-            width: tile.width,
-            height: tile.height,
-            format: tile.format.into(),
-            opacity: tile.opacity,
-            anchor: tile.anchor.into(),
-        };
-        let sent = link.send(&FromForkServer::Tile(header)).is_ok() && link.tx.send_fd(fd.as_raw_fd()).is_ok();
         if !sent {
             return 1;
         }
