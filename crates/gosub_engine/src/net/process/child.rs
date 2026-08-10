@@ -25,6 +25,18 @@ pub fn serve(mut link: Endpoint) -> i32 {
         }
     };
 
+    // Force glibc to load its NSS resolver modules *now*, while this process
+    // may still map executable pages. `getaddrinfo` `dlopen`s `libnss_dns.so`
+    // on first use, and the sandbox denies `mmap(PROT_EXEC)` — so a name
+    // resolved after the lockdown kills the process on a syscall that looks
+    // nothing like DNS. The name deliberately does not resolve: what matters
+    // is the module load, not the answer. Same shape as the font warm-up in
+    // the renderer: do the thing that needs the privilege before dropping it.
+    {
+        use std::net::ToSocketAddrs;
+        let _ = "gosub-resolver-warmup.invalid:80".to_socket_addrs();
+    }
+
     // Read-only, and only these: the resolver configuration and the trust store.
     // A network stack that cannot read them cannot resolve a name or verify a
     // certificate, so denying files outright (as a renderer is) is not an option

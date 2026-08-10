@@ -135,6 +135,12 @@ const NET_RUNTIME_EXTRA: &[libc::c_long] = &[
     libc::SYS_getdents64,
     libc::SYS_readlinkat,
     libc::SYS_readlink,
+    // Name resolution over UDP: glibc's resolver sends the A and AAAA queries
+    // in one `sendmmsg` and collects the answers with `recvmmsg`. Neither
+    // reaches anything the single-datagram calls above could not; they are the
+    // batched spellings of the sockets this role already has.
+    libc::SYS_sendmmsg,
+    libc::SYS_recvmmsg,
     // Socket options and non-blocking flags the client sets per connection.
     libc::SYS_ioctl,
     libc::SYS_shutdown,
