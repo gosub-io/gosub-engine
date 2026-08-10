@@ -90,7 +90,7 @@ enum NumberOrInfinity {
     NegativeInfinity,
 }
 
-/// Represents an optional min and/or max range for a type definition
+/// Optional min and/or max range for a type definition
 #[derive(Clone, Debug, PartialEq, Copy)]
 pub struct RangeType {
     /// Mininum value

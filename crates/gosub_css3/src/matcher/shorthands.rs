@@ -510,12 +510,10 @@ impl CssDefinitions {
                             });
                         }
 
-                        let multiplier = if computed.len() == 2 {
-                            Multiplier::DuoMulti
-                        } else if computed.len() == 4 {
-                            Multiplier::QuadMulti
-                        } else {
-                            Multiplier::NextProp
+                        let multiplier = match computed.len() {
+                            2 => Multiplier::DuoMulti,
+                            4 => Multiplier::QuadMulti,
+                            _ => Multiplier::NextProp,
                         };
 
                         return Some(Shorthands {
@@ -533,12 +531,10 @@ impl CssDefinitions {
                             });
                         }
 
-                        let multiplier = if computed.len() == 2 {
-                            Multiplier::DuoMulti
-                        } else if computed.len() == 4 {
-                            Multiplier::QuadMulti
-                        } else {
-                            Multiplier::NextProp
+                        let multiplier = match computed.len() {
+                            2 => Multiplier::DuoMulti,
+                            4 => Multiplier::QuadMulti,
+                            _ => Multiplier::NextProp,
                         };
 
                         return Some(Shorthands {

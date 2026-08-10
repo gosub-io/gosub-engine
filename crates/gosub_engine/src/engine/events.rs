@@ -1,16 +1,5 @@
-//! Engine event types and commands.
-//!
-//! This module defines the core event types, commands, and enums used for communication
-//! between the engine, zones, and tabs. It includes user input events, engine events,
-//! and tab commands for navigation, rendering, and control.
-//!
-//! # Main Types
-//!
-//! - [`MouseButton`]: Represents mouse buttons (left, middle, right).
-//! - [`Modifiers`]: Keyboard modifiers (Shift, Control, Alt, Meta).
-//! - [`TabCommand`]: Commands for tab navigation and control.
-//! - [`EngineCommand`]: Commands for engine control.
-//! - [`EngineEvent`]: Events emitted by the engine, such as lifecycle events, rendering events, and errors.
+//! The engine's message vocabulary: commands flowing in ([`TabCommand`], [`EngineCommand`])
+//! and events flowing out ([`EngineEvent`]), plus the input types they carry.
 
 use crate::cookies::Cookie;
 use crate::engine::types::{Action, NavigationId, RequestId};
@@ -30,14 +19,10 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use url::Url;
 
-/// Represents a mouse button that can be pressed or released
 #[derive(Debug, Clone, PartialEq)]
 pub enum MouseButton {
-    /// Left mouse button pressed (or depressed)
     Left,
-    /// Middle mouse button pressed (or depressed)
     Middle,
-    /// Right mouse button pressed (or depressed)
     Right,
 }
 
@@ -90,7 +75,6 @@ impl Display for Modifiers {
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum IoCommand {
-    /// Perform a fetch of the given request
     Fetch {
         zone_id: ZoneId,
         req: FetchRequest,
@@ -112,95 +96,131 @@ pub enum IoCommand {
 pub enum TabCommand {
     // ****************************************
     // ** Navigation / lifecycle
-    /// Navigate to specific URL
-    Navigate { url: String },
-    /// Reload current URL (with or without cache)
-    Reload { ignore_cache: bool },
-    /// Cancel the current navigation
+    Navigate {
+        url: String,
+    },
+    /// Load caller-supplied HTML directly into the tab, bypassing the network.
+    /// `base_url` becomes the document URL and is used to resolve relative subresources.
+    LoadHtml {
+        html: String,
+        base_url: String,
+    },
+    Reload {
+        ignore_cache: bool,
+    },
     CancelNavigation,
-    /// Make a decision what to do with the navigated resource
+    /// Answer a pending [`NavigationEvent::DecisionRequired`].
     SubmitDecision {
         nav_id: NavigationId,
         decision_token: DecisionToken,
         action: Action,
     },
-    /// Close tab
     CloseTab,
 
     // ****************************************
     // ** Rendering control
-    /// Resume sending draw events to the tab's event channel. Use fps as the refresh limit
-    ResumeDrawing { fps: u16 },
-    /// Suspend sending draw events
+    /// Resume sending draw events to the tab's event channel, capped at `fps`.
+    ResumeDrawing {
+        fps: u16,
+    },
     SuspendDrawing,
-    /// Set viewport
-    SetViewport { x: i32, y: i32, width: u32, height: u32 },
+    SetViewport {
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    },
 
     // ****************************************
     // ** Tab properties
-    /// Set the title
-    SetTitle { title: String },
+    SetTitle {
+        title: String,
+    },
 
     // ****************************************
     // ** User input
-    /// Mouse moved to new position
-    MouseMove { x: f32, y: f32 },
-    /// Mouse button is pressed
-    MouseDown { x: f32, y: f32, button: MouseButton },
-    /// Mouse button is depressed
-    MouseUp { x: f32, y: f32, button: MouseButton },
-    /// Mouse scrolled up by delta
-    MouseScroll { delta_x: f32, delta_y: f32 },
-    /// Key has been pressed
+    MouseMove {
+        x: f32,
+        y: f32,
+    },
+    MouseDown {
+        x: f32,
+        y: f32,
+        button: MouseButton,
+    },
+    MouseUp {
+        x: f32,
+        y: f32,
+        button: MouseButton,
+    },
+    MouseScroll {
+        delta_x: f32,
+        delta_y: f32,
+    },
     KeyDown {
         key: String,
         code: String,
         modifiers: Modifiers,
     },
-    /// Key has been depressed
     KeyUp {
         key: String,
         code: String,
         modifiers: Modifiers,
     },
-    /// Text input
-    TextInput { text: String },
-    /// Char input (@TODO: Needed since we have TextInput)?
-    CharInput { ch: char },
+    /// Not yet handled: the tab worker logs and drops it.
+    TextInput {
+        text: String,
+    },
+    /// @TODO: needed since we have TextInput?
+    CharInput {
+        ch: char,
+    },
 
     // ****************************************
     // ** Session / zone state
-    /// Set a specific cookie
-    SetCookie { cookie: Cookie },
-    /// Clear all cookies
+    /// Not yet handled: the tab worker logs and drops it.
+    SetCookie {
+        cookie: Cookie,
+    },
+    /// Not yet handled: the tab worker logs and drops it.
     ClearCookies,
-    /// Set storage item (@TODO: local / session??)
-    SetStorageItem { key: String, value: String },
-    /// Remove storage item
-    RemoveStorageItem { key: String },
-    /// Clear whole storage
+    /// @TODO: local / session??
+    /// Not yet handled: the tab worker logs and drops it.
+    SetStorageItem {
+        key: String,
+        value: String,
+    },
+    /// Not yet handled: the tab worker logs and drops it.
+    RemoveStorageItem {
+        key: String,
+    },
+    /// Not yet handled: the tab worker logs and drops it.
     ClearStorage,
 
     // ****************************************
     // ** Media / scripting
     /// Execute given javascript (how about lua?)
-    ExecuteScript { source: String },
-    /// Play media in element_id
-    PlayMedia { element_id: u64 },
-    /// Pause media in element_id
-    PauseMedia { element_id: u64 },
+    /// Not yet handled: the tab worker logs and drops it.
+    ExecuteScript {
+        source: String,
+    },
+    /// Not yet handled: the tab worker logs and drops it.
+    PlayMedia {
+        element_id: u64,
+    },
+    /// Not yet handled: the tab worker logs and drops it.
+    PauseMedia {
+        element_id: u64,
+    },
 
     // ****************************************
     // ** Debug / devtools
-    /// Dump dom tree
+    /// Not yet handled: the tab worker logs and drops it.
     DumpDomTree,
 }
 
 #[derive(Debug)]
 pub enum EngineCommand {
-    // ****************************************
-    // ** Engine control
-    /// Gracefully shutdown the engine
     Shutdown {
         reply: oneshot::Sender<anyhow::Result<(), EngineError>>,
     },
@@ -210,38 +230,43 @@ pub enum EngineCommand {
 /// events triggered in this navigation will have the same navigation id.
 #[derive(Debug, Clone)]
 pub enum NavigationEvent {
-    /// Navigation has been started
-    Started { nav_id: NavigationId, url: Url },
-    /// A new document will replace current one
-    Committed { nav_id: NavigationId, url: Url },
-    /// Finished loading the main document for this navigation
-    Finished { nav_id: NavigationId, url: Url },
-    /// Navigation has failed
+    Started {
+        nav_id: NavigationId,
+        url: Url,
+    },
+    /// A new document will replace the current one
+    Committed {
+        nav_id: NavigationId,
+        url: Url,
+    },
+    Finished {
+        nav_id: NavigationId,
+        url: Url,
+    },
     Failed {
         nav_id: Option<NavigationId>,
         url: Url,
         error: Arc<anyhow::Error>,
     },
-    /// Progress of loading the main document for this navigation
     Progress {
         nav_id: NavigationId,
         received_bytes: u64,
         expected_length: Option<u64>,
         elapsed: Duration,
     },
-    /// The URL given was invalid
+    /// The URL string could not be parsed (as opposed to [`Self::Failed`], where the fetch failed)
     FailedUrl {
         nav_id: Option<NavigationId>,
         url: String,
         error: Arc<anyhow::Error>,
     },
-    /// The navigation has been cancelled
     Cancelled {
         nav_id: NavigationId,
         url: Url,
         reason: CancelReason,
     },
-    /// The navigation requires a decision on how to proceed (e.g., auth, certificate, block, allow)
+    /// The navigation requires a decision on how to proceed (e.g., auth, certificate, block, allow);
+    /// answered via [`TabCommand::SubmitDecision`]
     DecisionRequired {
         nav_id: NavigationId,
         meta: FetchResultMeta,
@@ -251,109 +276,72 @@ pub enum NavigationEvent {
 
 /// Events triggered by load resources for a main document. Note that resources can trigger other
 /// resources. @TODO: how do we see this?
+///
+/// Every variant carries the `request_id` of the load (@TODO: what if it contains multiple
+/// redirects?) and its `reference` — what the resource belongs to (navigation id, document id,
+/// background task id etc.).
 #[derive(Debug, Clone)]
 pub enum ResourceEvent {
-    /// Response metadata for decision on navigation
     Queued {
-        /// Request ID of the resource load (what if it contains multiple redirects?)
         request_id: RequestId,
-        // Reference ID for this resource (navigation id, document id, background task id etc.)
         reference: RequestReference,
-        /// Actual URL of the resource
         url: String,
-        /// Type of resource
         kind: ResourceKind,
-        /// Source that initiated this resource load
         initiator: Initiator,
-        /// At which priority it is queued
         priority: Priority,
     },
-    /// Loading of the resource started
     Started {
-        /// Request ID of the resource load (what if it contains multiple redirects?)
         request_id: RequestId,
-        // Reference ID for this resource (navigation id, document id, background task id etc.)
         reference: RequestReference,
-        /// Actual URL of the resource
         url: String,
-        /// Type of resource
         kind: ResourceKind,
-        /// Source that initiated this resource load
         initiator: Initiator,
     },
     /// Resource responded by a redirection to another resource (will trigger a new "Started")
     Redirected {
-        /// Request ID of the resource load (what if it contains multiple redirects?)
         request_id: RequestId,
-        // Reference ID for this resource (navigation id, document id, background task id etc.)
         reference: RequestReference,
-        // Redirection from this url
         from: String,
-        // Redirection to this url
         to: String,
         /// Status code for redirection (3xx)
         status: u16,
     },
-    /// Shows the progress of the download of the resource
     Progress {
-        /// Request ID of the resource load (what if it contains multiple redirects?)
         request_id: RequestId,
-        // Reference ID for this resource (navigation id, document id, background task id etc.)
         reference: RequestReference,
-        /// Amount of bytes received
         received_bytes: u64,
         /// Expected length (based on content-length for instance)
         expected_length: Option<u64>,
         /// Time since start of the resource fetch
         elapsed: Duration,
     },
-    /// Emitted when we have finished the complete resource
     Finished {
-        /// Request ID of the resource load (what if it contains multiple redirects?)
         request_id: RequestId,
-        // Reference ID for this resource (navigation id, document id, background task id etc.)
         reference: RequestReference,
         url: Url,
-        /// Total bytes received
         received_bytes: u64,
         /// Time spend from connection open to complete fetch of the resource
         elapsed: Option<Duration>,
     },
-    /// Emitted when the resource has failed loading
     Failed {
-        /// Request ID of the resource load (what if it contains multiple redirects?)
         request_id: RequestId,
-        // Reference ID for this resource (navigation id, document id, background task id etc.)
         reference: RequestReference,
         url: String,
-        /// Reason the resource fetch failed
         error: Arc<anyhow::Error>,
     },
-    /// Emitted when the resource loading has been cancelled
     Cancelled {
-        /// Request ID of the resource load (what if it contains multiple redirects?)
         request_id: RequestId,
-        // Reference ID for this resource (navigation id, document id, background task id etc.)
         reference: RequestReference,
-        /// Actual URL of the resource
         url: String,
-        /// Reason for cancellation
         reason: CancelReason,
     },
     Headers {
-        /// Request ID of the resource load (what if it contains multiple redirects?)
         request_id: RequestId,
-        /// Reference ID for this resource (navigation id, document id, background task id etc.)
         reference: RequestReference,
-        /// Actual URL of the resource
         url: String,
-        /// HTTP status code of the response
         status: u16,
-        /// Content length if known
         content_length: Option<u64>,
-        /// Content type if known
         content_type: Option<String>,
-        /// All response headers
         headers: Vec<(String, String)>,
     },
 }
@@ -363,13 +351,10 @@ pub enum ResourceEvent {
 pub enum CancelReason {
     /// user navigated away
     NewNavigation,
-    /// Tab is closed
     TabClosed,
     /// user/UA cancelled
     ExplicitCancel,
-    /// Timeout occurred
     Timeout,
-    /// Custom reason
     Custom(String),
 }
 
@@ -390,41 +375,38 @@ impl Display for CancelReason {
 pub enum EngineEvent {
     // ****************************************
     // ** Engine lifecycle
-    /// Engine has started
     EngineStarted,
-    /// Render backend has changed for the engine
+    /// Not yet emitted by the engine.
     BackendChanged {
         old: String,
         new: String,
     },
-    /// Warning from the engine
+    /// Not yet emitted by the engine.
     Warning {
         message: String,
     },
-    /// Engine is shutting down
+    /// Not yet emitted by the engine.
     EngineShutdown {
         reason: String,
     },
 
     // ****************************************
     // ** Zone lifecycle
-    /// Zone created
     ZoneCreated {
         zone_id: ZoneId,
     },
-    /// Zone closed
     ZoneClosed {
         zone_id: ZoneId,
     },
 
     // ****************************************
     // ** Rendering
-    /// A redraw frame is available
     Redraw {
         tab_id: TabId,
         handle: ExternalHandle,
     },
     /// Frame has been completed (@TODO: do we need this?)
+    /// Not yet emitted by the engine.
     FrameComplete {
         tab_id: TabId,
         frame_id: u64,
@@ -437,22 +419,22 @@ pub enum EngineEvent {
         tab_id: TabId,
         url: Option<String>,
     },
-    /// Title of the tab has changed
+    /// Not yet emitted by the engine; emission arrives with the pending mac-app patches.
     TitleChanged {
         tab_id: TabId,
         title: String,
     },
-    /// Favicon of tab has changed
+    /// Not yet emitted by the engine.
     FavIconChanged {
         tab_id: TabId,
         favicon: Vec<u8>,
     },
-    /// Location of the tab has changed
+    /// Not yet emitted by the engine; emission arrives with the pending mac-app patches.
     LocationChanged {
         tab_id: TabId,
         url: String,
     },
-    /// Viewport of the tab has changed
+    /// Not yet emitted by the engine.
     TabResized {
         tab_id: TabId,
         viewport: Viewport,
@@ -477,7 +459,7 @@ pub enum EngineEvent {
 
     // ********************************************
     // ** Networking
-    /// Network connection has been established
+    /// Not yet emitted by the engine.
     ConnectionEstablished {
         tab_id: TabId,
         url: String,
@@ -485,12 +467,10 @@ pub enum EngineEvent {
 
     // ****************************************
     // ** Tab lifecycle
-    /// New tab created in zone
     TabCreated {
         tab_id: TabId,
         zone_id: ZoneId,
     },
-    /// Tab closed in zone
     TabClosed {
         tab_id: TabId,
         zone_id: ZoneId,
@@ -499,12 +479,11 @@ pub enum EngineEvent {
     // ** Tab
 
     // ** Session / zone state
-    /// A cookie has been added
+    /// Not yet emitted by the engine.
     CookieAdded {
         tab_id: TabId,
         cookie: Cookie,
     },
-    /// Storage has changed
     StorageChanged {
         tab_id: Option<TabId>,
         zone: Option<ZoneId>,
@@ -516,17 +495,18 @@ pub enum EngineEvent {
 
     // ****************************************
     // ** Media / scripting
-    /// Media has started
+    /// Not yet emitted by the engine.
     MediaStarted {
         tab_id: TabId,
         element_id: u64,
     },
-    /// Media has paused
+    /// Not yet emitted by the engine.
     MediaPaused {
         tab_id: TabId,
         element_id: u64,
     },
     /// Result of a script is returned (console stuff?)
+    /// Not yet emitted by the engine.
     ScriptResult {
         tab_id: TabId,
         result: serde_json::Value,
@@ -534,20 +514,20 @@ pub enum EngineEvent {
 
     // ****************************************
     // ** Errors / diagnostics
-    /// Network error occurred
+    /// Not yet emitted by the engine.
     NetworkError {
         tab_id: TabId,
         url: Url,
         message: String,
     },
-    /// Javascript (parse) error
+    /// Not yet emitted by the engine.
     JavaScriptError {
         tab_id: TabId,
         message: String,
         line: u32,
         column: u32,
     },
-    /// Engine crashed
+    /// Not yet emitted by the engine.
     TabCrashed {
         tab_id: TabId,
         reason: String,

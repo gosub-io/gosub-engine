@@ -6,10 +6,8 @@ use crate::engine::cookies::store::CookieStore;
 use crate::engine::cookies::CookieJarHandle;
 use crate::engine::zone::ZoneId;
 
-/// Represents a cookie store that keeps all the jars in memory. They jars are not persisted once
-/// the store is dropped.
+/// A cookie store that keeps all jars in memory; nothing survives the store being dropped.
 pub struct InMemoryCookieStore {
-    /// Cookie jars per zone
     jars: RwLock<HashMap<ZoneId, CookieJarHandle>>,
 }
 

@@ -309,7 +309,7 @@ impl Size<f64> {
     }
 }
 
-/// Represents a Rectangle or a Rectangle edge
+/// A rectangle, or a rectangle edge
 pub struct Rect<T: Copy> {
     /// top or top-left or origin x
     pub y1: T,

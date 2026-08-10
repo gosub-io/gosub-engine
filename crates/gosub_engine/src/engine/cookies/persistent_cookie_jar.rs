@@ -4,22 +4,15 @@ use crate::engine::zone::ZoneId;
 use http::HeaderMap;
 use url::Url;
 
-/// A `CookieJar` decorator that persists changes after each mutation.
-///
-/// This type is *transparent* for reads but *eagerly* persists after writes.
+/// A `CookieJar` decorator: *transparent* for reads, *eagerly* persists after writes.
 pub struct PersistentCookieJar {
-    /// Zone ID associated with this jar (used to address the store).
+    /// Used to address the store.
     zone_id: ZoneId,
-    /// Inner cookie jar that holds the actual cookie state.
     pub inner: CookieJarHandle,
-    /// Handle to the cookie store responsible for persistence.
     store_handle: CookieStoreHandle,
 }
 
 impl PersistentCookieJar {
-    /// Creates a new persistence-enabled wrapper around an existing jar.
-    ///
-    /// The `store` will be used to persist snapshots after each mutation.
     pub fn new(zone_id: ZoneId, jar: CookieJarHandle, store_handle: CookieStoreHandle) -> Self {
         Self {
             zone_id,
