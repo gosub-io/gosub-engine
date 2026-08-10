@@ -6,14 +6,18 @@
 //!
 //! Two things are required, and only two:
 //!
-//! 1. **Call [`child_process::dispatch`] as the first statement of `main`.** The
-//!    engine starts a component by re-exec'ing *this* binary with a role
-//!    argument, so a child must reach its role before the embedder's own startup
-//!    runs. In the parent this returns immediately.
+//! 1. **Call [`child_process::dispatch_with`] as the first statement of
+//!    `main`.** The engine starts a component by re-exec'ing *this* binary with
+//!    a role argument, so a child must reach its role before the embedder's own
+//!    startup runs. In the parent this returns immediately. It takes the
+//!    embedder's configuration type because a renderer runs the pipeline over
+//!    *your* document and font types — the plain `dispatch` still works for an
+//!    embedder that wants only the network and decoder processes.
 //! 2. **Turn on the isolation settings before [`GosubEngine::start`].**
 //!    `security.network_process` moves the network stack out;
 //!    `security.image_decoder_process` decodes each image in a throwaway
-//!    process. Both are read once, as the engine starts.
+//!    process; `security.renderer_process` renders pages out of process. All
+//!    are read once, as the engine starts.
 //!
 //! Get (1) wrong and the engine says so and falls back to in-process networking
 //! rather than misbehaving: the child would otherwise re-enter this `main` and
@@ -21,11 +25,13 @@
 //!
 //! # What is actually separate today
 //!
-//! Two components. A steady-state tree looks like
+//! Three long-lived components. A steady-state tree looks like
 //!
 //! ```text
-//! multi-process https://a https://b            <- broker: tabs, DOM, cookies, storage
-//!  \_ multi-process --gosub-child-role net 11  <- the network stack, one for the engine
+//! multi-process https://a https://b                    <- broker: tabs, DOM, cookies, storage
+//!  |_ multi-process --gosub-child-role net 11          <- the network stack, one for the engine
+//!  \_ multi-process --gosub-child-role fork-server 13  <- warmed fonts; renderers fork from here
+//!      \_ (a renderer, per render, gone when the page is done)
 //! ```
 //!
 //! plus **one short-lived decoder per image**, which you will only catch in
@@ -33,14 +39,21 @@
 //! exits. That is deliberate: a decoder that exits cannot carry anything from
 //! one image into the next.
 //!
-//! Three things the tree does not show:
+//! Four things the tree does not show:
 //!
 //! * **One network process serves the whole engine**, not one per tab or per
 //!   zone. It holds no per-zone state; the connection pooling that *is* per-zone
 //!   lives inside it. More tabs will not produce more network processes.
-//! * **Parsing, layout, painting and cookies still run in the broker.** Per-origin
-//!   renderers are the next phase. Until then this isolates the network
-//!   capability and image decoding, not a fully multi-process browser.
+//! * **The fork server renders nothing itself.** It exists to hold a warmed font
+//!   system so each forked renderer inherits it copy-on-write, and to be the
+//!   process renderers are forked from. Whether it exists at all depends on the
+//!   font system: one that reads font files while shaping (Pango, Skia) gets
+//!   throwaway renderers spawned per render instead, with read-only access to
+//!   the font paths.
+//! * **A renderer has no network.** Every image, stylesheet and web font it
+//!   needs is requested back through the broker, which performs the fetch where
+//!   cookies and identity live, and hands back only bytes. Its rasterized tiles
+//!   return as sealed shared memory, mapped rather than copied.
 //! * Children show as low-priority in `ps` (`N` in the state column) because the
 //!   sandbox lowers child scheduling priority along with its other limits.
 //!
@@ -50,13 +63,17 @@
 //! cargo run --example multi-process -- https://example.com https://example.org
 //! ```
 //!
-//! Nothing is drawn — a `NullBackend` keeps the example about the process model.
+//! Nothing is drawn — a `NullBackend` keeps the example about the process
+//! model. The renderer processes still run the whole pipeline (parse, style,
+//! layout, paint); with no rasterizer configured for them they simply produce
+//! no pixels, which is what a `NullBackend` embedder wants anyway. A GUI
+//! embedder supplies one through `RenderConfiguration::forked_tile_rasterizer`.
 
 // Example code: panicking on bad input is the desired behavior, as in any test code.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use gosub_config::settings::Setting;
-use gosub_engine::events::{EngineEvent, NavigationEvent};
+use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
 use gosub_engine::zone::ZoneServices;
 use gosub_engine::GosubEngine;
@@ -68,10 +85,15 @@ use std::time::Duration;
 
 const DEFAULT_URLS: &[&str] = &["https://example.com/", "https://example.org/"];
 
+/// How long to keep the engine alive after the pages settle, so the process
+/// tree can actually be inspected.
+const HOLD_SECS: u64 = 20;
+
 fn main() {
     // (1) Always first. In a child this runs the component role and exits, so
-    // nothing below is reached there.
-    gosub_engine::child_process::dispatch();
+    // nothing below is reached there. `dispatch_with` rather than `dispatch`:
+    // the renderer roles need this embedder's configuration type.
+    gosub_engine::child_process::dispatch_with::<gosub_engine::DefaultRenderConfig>();
 
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
@@ -107,7 +129,11 @@ async fn run(urls: Vec<String>) {
     );
 
     // (2) Before start(): the I/O runtime reads this as it comes up.
-    for key in ["security.network_process", "security.image_decoder_process"] {
+    for key in [
+        "security.network_process",
+        "security.image_decoder_process",
+        "security.renderer_process",
+    ] {
         engine
             .settings()
             .set(key, Setting::Bool(true))
@@ -126,8 +152,9 @@ async fn run(urls: Vec<String>) {
         std::process::id()
     );
     println!("  ├─ network: one child process for the whole engine (--gosub-child-role net)");
-    println!("  └─ decoder: one throwaway child per image, gone as soon as it has decoded");
-    println!("     parsing, layout and painting are not yet split out; that is a later phase");
+    println!("  ├─ decoder: one throwaway child per image, gone as soon as it has decoded");
+    println!("  └─ fork-server: warmed fonts; each page renders in a renderer forked from it");
+    println!("     a renderer has no network: its images, stylesheets and fonts are brokered back here");
 
     let services = ZoneServices {
         storage: Arc::new(StorageService::new(
@@ -141,11 +168,24 @@ async fn run(urls: Vec<String>) {
     let mut zone = engine.create_zone(None, services, None).expect("create zone");
 
     // Several tabs in one zone, all fetching through the single network process.
+    // A viewport and a draw loop are what make renderers happen: a tab that
+    // never draws never renders, and the fork server would sit idle.
     let mut tabs = Vec::new();
     for url in &urls {
         let tab = zone.create_tab(Default::default(), None).await.expect("create tab");
         println!("tab {} -> {url}", tab.tab_id);
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 800,
+        })
+        .await
+        .expect("set viewport");
         tab.navigate(url.clone()).await.expect("navigate");
+        tab.send(TabCommand::ResumeDrawing { fps: 10 })
+            .await
+            .expect("resume drawing");
         tabs.push(tab.tab_id);
     }
 
@@ -177,6 +217,15 @@ async fn run(urls: Vec<String>) {
             _ => {}
         }
     }
+
+    // Hold the tree open long enough to be looked at: renderers come and go
+    // per render, so a process list taken after shutdown shows nothing.
+    println!();
+    println!(
+        "holding for {HOLD_SECS}s — in another terminal:  pstree -ap {}",
+        std::process::id()
+    );
+    tokio::time::sleep(Duration::from_secs(HOLD_SECS)).await;
 
     engine.close_zone(zone).await;
     engine.shutdown().await.expect("shutdown");
