@@ -56,7 +56,7 @@ pub(crate) fn do_paint_svg(
     resvg::render(&media.svg.tree, Transform::from_scale(sx, sy), &mut pixmap.as_mut());
 
     let mut new_data = pixmap.data().to_vec();
-    for chunk in new_data.chunks_exact_mut(4) {
+    for chunk in new_data.as_chunks_mut::<4>().0 {
         chunk.swap(0, 2);
     }
 

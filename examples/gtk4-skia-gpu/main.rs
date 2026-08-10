@@ -70,7 +70,11 @@ fn get_bound_fbo() -> u32 {
 // ── Application ───────────────────────────────────────────────────────────────
 
 fn main() {
-    eprintln!("{} v{} — GTK4 browser window, Skia GPU (OpenGL) rendering", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+    eprintln!(
+        "{} v{} — GTK4 browser window, Skia GPU (OpenGL) rendering",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
 
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Warn)

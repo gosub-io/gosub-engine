@@ -433,7 +433,11 @@ impl eframe::App for BrowserApp {
 }
 
 fn main() -> Result<(), eframe::Error> {
-    eprintln!("{} v{} — egui browser window, Cairo (CPU) rendering", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+    eprintln!(
+        "{} v{} — egui browser window, Cairo (CPU) rendering",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
 
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Warn)

@@ -510,15 +510,13 @@ impl CssDefinitions {
                             });
                         }
 
-                        let multiplier;
-
-                        if computed.len() == 2 {
-                            multiplier = Multiplier::DuoMulti;
+                        let multiplier = if computed.len() == 2 {
+                            Multiplier::DuoMulti
                         } else if computed.len() == 4 {
-                            multiplier = Multiplier::QuadMulti;
+                            Multiplier::QuadMulti
                         } else {
-                            multiplier = Multiplier::NextProp;
-                        }
+                            Multiplier::NextProp
+                        };
 
                         return Some(Shorthands {
                             multiplier,
@@ -535,15 +533,13 @@ impl CssDefinitions {
                             });
                         }
 
-                        let multiplier;
-
-                        if computed.len() == 2 {
-                            multiplier = Multiplier::DuoMulti;
+                        let multiplier = if computed.len() == 2 {
+                            Multiplier::DuoMulti
                         } else if computed.len() == 4 {
-                            multiplier = Multiplier::QuadMulti;
+                            Multiplier::QuadMulti
                         } else {
-                            multiplier = Multiplier::NextProp;
-                        }
+                            Multiplier::NextProp
+                        };
 
                         return Some(Shorthands {
                             multiplier,

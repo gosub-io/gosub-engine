@@ -70,12 +70,12 @@ fn decode_png_lenient(bytes: &[u8]) -> anyhow::Result<image::RgbaImage> {
             }
         }
         png::ColorType::GrayscaleAlpha => {
-            for ga in src.chunks_exact(2) {
+            for ga in src.as_chunks::<2>().0 {
                 rgba.extend_from_slice(&[ga[0], ga[0], ga[0], ga[1]]);
             }
         }
         png::ColorType::Rgb => {
-            for c in src.chunks_exact(3) {
+            for c in src.as_chunks::<3>().0 {
                 rgba.extend_from_slice(&[c[0], c[1], c[2], 255]);
             }
         }
