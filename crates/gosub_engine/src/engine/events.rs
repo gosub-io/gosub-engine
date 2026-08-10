@@ -99,12 +99,6 @@ pub enum TabCommand {
     Navigate {
         url: String,
     },
-    /// Load caller-supplied HTML directly into the tab, bypassing the network.
-    /// `base_url` becomes the document URL and is used to resolve relative subresources.
-    LoadHtml {
-        html: String,
-        base_url: String,
-    },
     Reload {
         ignore_cache: bool,
     },
