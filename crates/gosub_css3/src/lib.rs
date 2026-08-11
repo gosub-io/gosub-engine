@@ -1,4 +1,7 @@
 //! CSS3 parser for Gosub.
+//!
+//! This parser is heavily based on the MIT-licensed `CssTree` parser written by Roman Dvornov
+//! (<https://github.com/lahmatiy>). The original can be found at <https://github.com/csstree/csstree>.
 
 use crate::ast::convert_ast_to_stylesheet;
 use crate::stylesheet::CssStylesheet;
@@ -64,6 +67,10 @@ impl<'stream> Css3<'stream> {
     }
 
     /// Runs `f` one level deeper, refusing to descend past [`MAX_RECURSION_DEPTH`].
+    ///
+    /// Every recursive cycle in the parser (blocks, functions, `calc()` parentheses, selector
+    /// lists inside `:is()` and friends) routes through here, so a document that mixes them cannot
+    /// sum their individual depths into an overflow.
     fn recurse<T>(&mut self, f: impl FnOnce(&mut Self) -> CssResult<T>) -> CssResult<T> {
         if self.recursion_depth >= MAX_RECURSION_DEPTH {
             return Err(CssError::with_location(

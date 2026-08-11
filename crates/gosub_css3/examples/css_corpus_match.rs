@@ -3,6 +3,19 @@
 #![allow(clippy::panic, clippy::disallowed_methods)]
 
 //! Real-world validation harness for the CSS value-syntax matcher.
+//!
+//! Runs a directory of `.css` files through the property-definition matcher and reports
+//! how much real-world CSS it accepts, plus a ranked breakdown of what it rejects - the
+//! rejections are the interesting output, since they point at the next matcher gaps.
+//!
+//! Note: normal parsing does NOT run the matcher (`ParserConfig::match_values` is inert),
+//! so this drives it explicitly, exactly like the unit tests: parse each stylesheet, then
+//! for every declaration look up the property definition and call `matches()`.
+//!
+//! Usage:
+//!   cargo run --release --example css_corpus_match -- [DIR] [--limit N] [--top N] [--samples N]
+//!
+//! DIR defaults to ~/code/gosub/domains/css.
 
 use std::collections::HashMap;
 use std::fs;

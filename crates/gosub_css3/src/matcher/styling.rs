@@ -16,6 +16,13 @@ use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, Matc
 use crate::system::Css3System;
 
 // Matches a complete selector (all parts) against the given node(id).
+//
+// `pseudo` selects what we are matching against:
+//   * `None`           - match the element itself. Any selector containing a `::pseudo-element`
+//                        part never matches (pseudo-elements are not the element).
+//   * `Some("before")` - match the `::before` pseudo-element of `node_id`. Only selectors that
+//                        explicitly carry the matching `::before` part match; the rest of the
+//                        compound is matched against the originating element as usual.
 pub(crate) fn match_selector<C: HasDocument>(
     document: &C::Document,
     node_id: NodeId,

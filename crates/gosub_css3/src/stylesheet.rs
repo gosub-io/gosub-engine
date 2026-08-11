@@ -647,6 +647,10 @@ impl CssValue {
 }
 
 /// Parse a CSS color function like `oklch()`, `oklab()`, or `color()` into an RgbColor.
+///
+/// Handles the CSS Color Level 4 space-separated syntax, including an optional alpha
+/// separated by `/` (represented as `CssValue::None` after the CSS parser processes it).
+/// True for CSS functional color notations that `parse_css_color_function` can resolve.
 fn is_color_function(name: &str) -> bool {
     matches!(
         name.cow_to_ascii_lowercase().as_ref(),
