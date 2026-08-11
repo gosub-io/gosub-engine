@@ -553,6 +553,13 @@ impl CssDefinitions {
             // Juxtaposition group whose FIRST child carries the `{1,4}` multiplier (the second
             // child is the optional `/ <vertical-radii>` part). Detect that shape and drive the
             // same {1,4}-value box expansion.
+            //
+            // The QuadMulti expansion is tuned for the TRBL box order (margin/padding scramble
+            // their `computed` list to `[bottom, left, right, top]` so `get_names` lands each
+            // value on the right side). Corner properties are listed naturally as
+            // `[top-left, top-right, bottom-right, bottom-left]`, so feed the corners to the
+            // resolver reordered to `[BR, BL, TR, TL]`; that makes `get_names` reproduce the CSS
+            // corner rules (1 value → all; 2 → TL·BR / TR·BL; 3 → TL / TR·BL / BR; 4 → TL TR BR BL).
             if computed.len() == 4 {
                 if let SyntaxComponent::Group { components: outer, .. } = component {
                     let nested_quad = outer.first().is_some_and(|first_child| {
