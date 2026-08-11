@@ -394,7 +394,7 @@ fn parse_text_align(val: &str) -> Value {
         "right" => Value::TextAlign(TextAlign::End),
         "start" => Value::TextAlign(TextAlign::Start),
         "end" => Value::TextAlign(TextAlign::End),
-        "center" => Value::TextAlign(TextAlign::Center),
+        "center" | "-webkit-center" => Value::TextAlign(TextAlign::Center),
         "justify" => Value::TextAlign(TextAlign::Justify),
         _ => Value::TextAlign(TextAlign::Start),
     }

@@ -327,6 +327,35 @@ impl TaffyLayouter {
         Some((results[0], results[1].max(results[0])))
     }
 
+    /// Zero the given border edges (`[top, right, bottom, left]`) in the cell's
+    /// taffy style. Under `border-collapse`, edges that lost their boundary
+    /// conflict take no layout space - every later measure/re-layout of the
+    /// cell then agrees with lattice's effective borders.
+    pub(super) fn zero_cell_borders(&mut self, cell_layout_id: LayoutElementId, edges: [bool; 4]) {
+        let Some(&taffy_id) = self.layout_taffy_mapping.get(&cell_layout_id) else {
+            return;
+        };
+        let Ok(style) = self.tree.style(taffy_id) else {
+            return;
+        };
+        let mut style = style.clone();
+        if edges[0] {
+            style.border.top = LengthPercentage::length(0.0);
+        }
+        if edges[1] {
+            style.border.right = LengthPercentage::length(0.0);
+        }
+        if edges[2] {
+            style.border.bottom = LengthPercentage::length(0.0);
+        }
+        if edges[3] {
+            style.border.left = LengthPercentage::length(0.0);
+        }
+        if let Err(e) = self.tree.set_style(taffy_id, style) {
+            log::warn!("lattice: failed to zero collapsed borders for {:?}: {:?}", cell_layout_id, e);
+        }
+    }
+
     /// Re-run taffy layout for a single table-cell subtree at the border-box
     /// width lattice assigned to it, then rewrite the subtree's box models
     /// anchored at the cell's current absolute position (lattice repositions the

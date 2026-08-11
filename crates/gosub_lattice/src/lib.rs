@@ -67,4 +67,11 @@ pub trait TableTree {
     fn vertical_align(&self, _id: Self::NodeId) -> types::VerticalAlign {
         types::VerticalAlign::Top
     }
+
+    /// Under `border-collapse`, tells the implementor which border edges of
+    /// cell `id` lost their boundary (`[top, right, bottom, left]`) BEFORE any
+    /// measurement happens. Losing edges take up no layout space and are not
+    /// painted - implementors backed by a layout engine should zero those
+    /// edges in the engine's style for the cell so content sits flush.
+    fn suppress_cell_borders(&mut self, _id: Self::NodeId, _edges: [bool; 4]) {}
 }

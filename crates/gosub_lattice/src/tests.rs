@@ -958,10 +958,12 @@ mod layout_tests {
         assert_approx!(tree.layout(cells[0]).expect("a").position.x, 0.0, "col 0 at x=0 (no gutter)");
         assert_approx!(tree.layout(cells[1]).expect("b").position.x, 50.0, "col 1 flush against col 0");
 
-        // Rows are 12px tall (10 content + 2 border), stacked without gutters.
+        // Row 0 keeps both its borders (12px); row 1's top border lost the
+        // boundary conflict and takes no space (11px) - every internal
+        // boundary is a single 1px line, total 1+10+1+10+1 like a browser.
         let rows = tree.nodes_with_role(TableRole::Row);
         assert_approx!(tree.layout(rows[1]).expect("row 1").position.y, 12.0, "row 1 flush below row 0");
-        assert_approx!(total_h, 24.0, "12 + 12, no gutters");
+        assert_approx!(total_h, 23.0, "single shared border per boundary");
     }
 
     // Collapse conflict resolution, uniform borders: ties go to the left/top
