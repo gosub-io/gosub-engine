@@ -36,37 +36,61 @@ resulting DOM tree. Useful for working on the parser in isolation.
 cargo run --example html5-parser
 ```
 
+### `tutorial`
+
+The companion to [`docs/tutorial.md`](../docs/tutorial.md): the minimal
+Engine → Zone → Tab → Navigate → Event loop → Shutdown lifecycle.
+
+```bash
+cargo run --example tutorial -- https://example.com
+```
+
+### `pipeline-test`
+
+End-to-end smoke test: serves a known page from a tiny local HTTP server, navigates the engine
+to it, and asserts that navigation completes and all sub-resources (CSS/JS/image) are fetched.
+
+```bash
+cargo run --example pipeline-test
+```
+
+### `config-store`
+
+View and modify the configuration store (`list`, `search`, `set`, ...).
+
+```bash
+cargo run --example config-store list
+```
+
+### `metrics-cli`
+
+Fetches and displays timing stats from a running engine's metrics endpoint; supports `--watch`,
+`--json` and `--reset`.
+
+```bash
+cargo run --example metrics-cli
+```
+
 
 ## GUI examples
 
-These open a real window. They require system graphics libraries — see the
-[installation instructions](../README.md#running-the-examples) in the root README.
-
-### `gtk-cairo`
-
-A GTK4 window backed by Cairo. The render backend is `CairoBackend` from `gosub_cairo`.
-
-```bash
-cargo run --example gtk-cairo
-```
-
-### `egui-vello`
-
-An egui window backed by Vello and wgpu. The render backend is from `gosub_vello`.
+These open a real window. Each is its own package with a single binary, so they run with
+`cargo run -p example-<name>`, and all accept a URL as the first argument. They require system
+graphics libraries — see the [installation instructions](../README.md#running-the-examples) in
+the root README. The full toolkit × backend matrix (winit / GTK4 / egui × Cairo / Skia /
+Skia-GPU / Vello) is documented in [`docs/examples.md`](../docs/examples.md):
 
 ```bash
-cargo run --example egui-vello
-```
-
-### `gtk-renderer` / `vello-renderer`
-
-Earlier renderer prototypes that predate `GosubEngine`. They drive the HTML/CSS/layout pipeline
-directly without going through the unified engine entry point. Kept for reference while the new
-rendering path matures.
-
-```bash
-cargo run --example gtk-renderer
-cargo run --example vello-renderer
+cargo run -p example-winit-vello    # winit window, Vello/wgpu GPU rendering
+cargo run -p example-winit-skia     # winit window, Skia CPU rendering
+cargo run -p example-winit-skia-gpu # winit window, Skia GPU (OpenGL) rendering
+cargo run -p example-winit-cairo    # winit window, Cairo CPU rendering
+cargo run -p example-gtk4-cairo     # GTK4 window, Cairo CPU rendering (Pango text)
+cargo run -p example-gtk4-skia      # GTK4 window, Skia CPU rendering
+cargo run -p example-gtk4-skia-gpu  # GTK4 window, Skia GPU (OpenGL/GLArea) rendering
+cargo run -p example-egui-vello     # egui window, Vello/wgpu GPU rendering
+cargo run -p example-egui-skia      # egui window, Skia CPU rendering
+cargo run -p example-egui-cairo     # egui window, Cairo CPU rendering
 ```
 
 

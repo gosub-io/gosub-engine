@@ -55,6 +55,12 @@ struct TileDrawState {
 }
 
 fn main() {
+    eprintln!(
+        "{} v{} — GTK4 browser window, Cairo (CPU) rendering with Pango text",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Warn)
         .env()

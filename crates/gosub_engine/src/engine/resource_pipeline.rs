@@ -11,10 +11,17 @@ use crate::engine::types::IoChannel;
 use crate::html::RenderConfiguration;
 use crate::zone::ZoneId;
 
+// async_trait expands each method with a bare #[must_use], which nightly clippy
+// rejects (double_must_use) on Result-returning fns.
+#[allow(clippy::double_must_use)]
 pub mod css;
+#[allow(clippy::double_must_use)]
 pub mod font;
+#[allow(clippy::double_must_use)]
 pub mod html;
+#[allow(clippy::double_must_use)]
 pub mod image;
+#[allow(clippy::double_must_use)]
 pub mod js;
 
 /// Resource pipeline entry points used by the router for each resource type.

@@ -490,6 +490,12 @@ impl ApplicationHandler<()> for BrowserApp {
 // ── main ──────────────────────────────────────────────────────────────────────
 
 fn main() {
+    eprintln!(
+        "{} v{} — winit browser window, Vello/wgpu (GPU) rendering",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Warn)
         .env()

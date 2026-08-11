@@ -4,6 +4,12 @@ use gosub_webexecutor::js::{WebContext, WebRuntime, WebValue};
 use std::env::args;
 
 fn main() -> Result<()> {
+    eprintln!(
+        "{} v{} — execute a JavaScript file in bare V8 (no DOM or Web APIs) and print the result",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     let Some(file) = args().nth(1) else {
         eprintln!("Usage: run-js <file>");
         return Ok(());
