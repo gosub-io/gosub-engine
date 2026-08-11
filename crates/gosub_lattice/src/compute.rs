@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
 use crate::model::{build_model, RowGroup};
 use crate::sizing::columns::{column_specs, compute_column_widths};
-use crate::sizing::rows::{compute_row_heights, read_border, read_padding};
+use crate::sizing::rows::{compute_row_heights, effective_border, read_border, read_padding};
 use crate::types::{BorderCollapse, CellLayout, CssLength, CssProp, TableSizing};
 use crate::TableTree;
 
@@ -68,6 +68,19 @@ pub fn compute_table_layout<T: TableTree>(
         n_cols
     };
 
+    // Colspans may reach into columns other sections define, but never past
+    // the table's last column (n_cols excludes phantom trailing columns).
+    let mut header_grids = header_grids;
+    let mut body_grids = body_grids;
+    let mut footer_grids = footer_grids;
+    for grid in header_grids
+        .iter_mut()
+        .chain(body_grids.iter_mut())
+        .chain(footer_grids.iter_mut())
+    {
+        grid.clamp_colspans(n_cols);
+    }
+
     // Resolve the explicit table width, if any; auto tables shrink-to-fit
     // inside `compute_column_widths`.
     let explicit_table_width = match tree.css_length(model.node, CssProp::Width) {
@@ -83,6 +96,20 @@ pub fn compute_table_layout<T: TableTree>(
         .chain(footer_grids.iter())
         .collect();
 
+    // Border-conflict resolution (collapse only) runs BEFORE any sizing:
+    // suppressed edges take no layout space, so intrinsic measurement, row
+    // heights and cell boxes must all use the effective (post-conflict)
+    // borders. The implementor is notified so its layout engine agrees.
+    let suppressed_borders: HashMap<T::NodeId, [bool; 4]> = if collapse {
+        let resolved = resolve_border_conflicts(tree, n_cols, &all_grids);
+        for (&node, &edges) in &resolved {
+            tree.suppress_cell_borders(node, edges);
+        }
+        resolved
+    } else {
+        HashMap::new()
+    };
+
     let (col_widths, table_width) = compute_column_widths(
         tree,
         n_cols,
@@ -93,6 +120,13 @@ pub fn compute_table_layout<T: TableTree>(
         model.sizing,
         &col_specs,
     );
+
+    if std::env::var_os("LATTICE_DEBUG").is_some() {
+        eprintln!(
+            "lattice: table {:?} n_cols={} table_width={} col_widths={:?}",
+            table_node, n_cols, table_width, col_widths
+        );
+    }
 
     // Precompute cumulative column x-offsets (relative to the row's left edge).
     // col_x[i] = x of the left edge of column i (within a row). Under collapse
@@ -117,6 +151,7 @@ pub fn compute_table_layout<T: TableTree>(
             spacing_x,
             spacing_y,
             &mut content_heights,
+            &suppressed_borders,
         ));
     }
 
@@ -129,6 +164,7 @@ pub fn compute_table_layout<T: TableTree>(
             spacing_x,
             spacing_y,
             &mut content_heights,
+            &suppressed_borders,
         ));
     }
 
@@ -141,16 +177,9 @@ pub fn compute_table_layout<T: TableTree>(
             spacing_x,
             spacing_y,
             &mut content_heights,
+            &suppressed_borders,
         ));
     }
-
-    // Border-conflict resolution (collapse only): decide per shared boundary
-    // which cell paints it; the loser's edge is flagged for the host to skip.
-    let suppressed_borders: HashMap<T::NodeId, [bool; 4]> = if collapse {
-        resolve_border_conflicts(tree, n_cols, &all_grids)
-    } else {
-        HashMap::new()
-    };
 
     // Caption: measured like a cell spanning the full table width; placed
     // above (default) or below the grid per `caption-side`.
@@ -337,7 +366,7 @@ fn place_cell<T: TableTree>(
     // Cell y is relative to its own row's top.
     let y_within_row = 0.0;
 
-    let border = read_border(tree, cell.node);
+    let border = effective_border(tree, cell.node, suppressed_borders);
     let padding = read_padding(tree, cell.node);
 
     // vertical-align: shift the cell's children down within the free space

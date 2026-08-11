@@ -26,6 +26,7 @@ pub fn compute_row_heights<T: TableTree>(
     spacing_x: f32,
     spacing_y: f32,
     content_heights: &mut HashMap<T::NodeId, f32>,
+    suppressed_borders: &HashMap<T::NodeId, [bool; 4]>,
 ) -> Vec<f32> {
     let mut heights = vec![0.0_f32; grid.n_rows];
 
@@ -34,7 +35,7 @@ pub fn compute_row_heights<T: TableTree>(
             continue;
         }
 
-        let (content_h, cell_h) = measure_cell(tree, cell, col_widths, spacing_x);
+        let (content_h, cell_h) = measure_cell(tree, cell, col_widths, spacing_x, suppressed_borders);
         content_heights.insert(cell.node, content_h);
         if cell_h > heights[cell.row] {
             heights[cell.row] = cell_h;
@@ -46,7 +47,7 @@ pub fn compute_row_heights<T: TableTree>(
     spanning.sort_by_key(|c| c.rowspan);
 
     for cell in spanning {
-        let (content_h, cell_h) = measure_cell(tree, cell, col_widths, spacing_x);
+        let (content_h, cell_h) = measure_cell(tree, cell, col_widths, spacing_x, suppressed_borders);
         content_heights.insert(cell.node, content_h);
 
         let span = cell.row..(cell.row + cell.rowspan).min(heights.len());
@@ -69,14 +70,16 @@ pub fn compute_row_heights<T: TableTree>(
 
 /// Lay out one cell's children at its final column width and return
 /// `(content_height, border_box_height)`, honouring an explicit CSS `height`
-/// as a minimum.
+/// as a minimum. Borders suppressed by border-collapse conflict resolution
+/// take no space.
 fn measure_cell<T: TableTree>(
     tree: &mut T,
     cell: &PlacedCell<T::NodeId>,
     col_widths: &[f32],
     spacing_x: f32,
+    suppressed_borders: &HashMap<T::NodeId, [bool; 4]>,
 ) -> (f32, f32) {
-    let border = read_border(tree, cell.node);
+    let border = effective_border(tree, cell.node, suppressed_borders);
     let padding = read_padding(tree, cell.node);
 
     // Inner width available to the cell's children: the spanned columns plus
@@ -99,6 +102,31 @@ fn measure_cell<T: TableTree>(
 }
 
 // Helpers shared with compute.rs
+
+/// The cell's border with conflict-suppressed edges zeroed - the widths that
+/// actually take up space and get painted under `border-collapse`.
+pub(crate) fn effective_border<T: TableTree>(
+    tree: &T,
+    node: T::NodeId,
+    suppressed_borders: &HashMap<T::NodeId, [bool; 4]>,
+) -> BoxEdges {
+    let mut border = read_border(tree, node);
+    if let Some(&[top, right, bottom, left]) = suppressed_borders.get(&node) {
+        if top {
+            border.top = 0.0;
+        }
+        if right {
+            border.right = 0.0;
+        }
+        if bottom {
+            border.bottom = 0.0;
+        }
+        if left {
+            border.left = 0.0;
+        }
+    }
+    border
+}
 
 pub(crate) fn read_border<T: TableTree>(tree: &T, node: T::NodeId) -> BoxEdges {
     BoxEdges {

@@ -294,6 +294,12 @@ impl TableTree for PipelineTableTree<'_> {
         self.pending.insert(id, layout);
     }
 
+    fn suppress_cell_borders(&mut self, id: DomNodeId, edges: [bool; 4]) {
+        if let Some(&layout_id) = self.dom_to_layout.get(&id) {
+            self.layouter.zero_cell_borders(layout_id, edges);
+        }
+    }
+
     fn layout_cell(&mut self, id: DomNodeId, available_width: f32) -> f32 {
         let Some(&layout_id) = self.dom_to_layout.get(&id) else {
             return 0.0;
@@ -401,6 +407,21 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
     // post-order (inner→outer): each table is re-laid-out *after* the tables nested inside its
     // cells, so an outer cell's height now reflects its nested table's true height - height
     // flows bottom-up. A single reverse pass propagates through any table-nesting depth.
+    // A nested table's surrounding geometry is owned by its outer table, so
+    // only top-level tables push the document flow around when they resize.
+    let table_dom_ids: HashSet<DomNodeId> = table_nodes.iter().map(|&(d, _)| d).collect();
+    let is_nested = |dom_id: DomNodeId| -> bool {
+        let mut cur = doc.parent(dom_id);
+        while let Some(p) = cur {
+            if table_dom_ids.contains(&p) {
+                return true;
+            }
+            cur = doc.parent(p);
+        }
+        false
+    };
+    let nested: HashSet<DomNodeId> = table_nodes.iter().map(|&(d, _)| d).filter(|&d| is_nested(d)).collect();
+
     for pass in 0..2 {
         let order: Vec<(DomNodeId, LayoutElementId)> = if pass == 0 {
             table_nodes.clone()
@@ -408,13 +429,22 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
             table_nodes.iter().rev().copied().collect()
         };
         for (table_dom_id, table_layout_id) in order {
-            lay_out_one_table(&*doc, layouter, layout_tree, &dom_to_layout, table_dom_id, table_layout_id);
+            lay_out_one_table(
+                &*doc,
+                layouter,
+                layout_tree,
+                &dom_to_layout,
+                table_dom_id,
+                table_layout_id,
+                nested.contains(&table_dom_id),
+            );
         }
     }
 }
 
 /// Run lattice for a single table node and write the computed cell positions and the table's
 /// own size back into the layout tree.
+#[allow(clippy::too_many_arguments)]
 fn lay_out_one_table(
     doc: &dyn PipelineDocument,
     layouter: &mut TaffyLayouter,
@@ -422,6 +452,7 @@ fn lay_out_one_table(
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
     table_dom_id: DomNodeId,
     table_layout_id: LayoutElementId,
+    is_nested: bool,
 ) {
     // Use the parent element's content width as available_width. For nested
     // tables the parent is a table cell whose box model was already updated
@@ -440,6 +471,8 @@ fn lay_out_one_table(
                 .unwrap_or(0.0)
         });
 
+    let old_box = layout_tree.arena.get(&table_layout_id).map(|e| e.box_model.border_box);
+
     let mut tree = PipelineTableTree::new(doc, layouter, layout_tree, dom_to_layout);
 
     match gosub_lattice::compute_table_layout(&mut tree, table_dom_id, available_width, None) {
@@ -456,10 +489,73 @@ fn lay_out_one_table(
                     el.box_model.margin,
                 );
             }
+            // The first taffy pass only approximated the table's height; when
+            // lattice's real height differs, the rest of the document flow
+            // still sits at the old positions. Shift everything below the
+            // table down (or up) by the delta and grow the ancestor chain, so
+            // following siblings and the page height stay correct. Nested
+            // tables skip this - the outer table's own lattice pass owns the
+            // geometry around them.
+            if !is_nested {
+                if let Some(old) = old_box {
+                    let delta = table_height as f64 - old.height;
+                    if delta.abs() > 0.5 {
+                        shift_flow_below(layout_tree, table_layout_id, old.y + old.height, delta);
+                    }
+                }
+            }
         }
         Err(e) => {
             log::warn!("lattice: table layout failed for node {:?}: {:?}", table_dom_id, e);
         }
+    }
+}
+
+/// Translate every layout element that sits below `old_bottom` by `delta` and
+/// grow the resized table's ancestors, approximating the block reflow that the
+/// table's new height would cause. The table's own subtree is exempt (lattice
+/// already positioned it), as are its ancestors (they grow instead of moving).
+fn shift_flow_below(layout_tree: &mut LayoutTree, table_layout_id: LayoutElementId, old_bottom: f64, delta: f64) {
+    let mut exempt: HashSet<LayoutElementId> = HashSet::new();
+    collect_subtree(layout_tree, table_layout_id, &mut exempt);
+
+    let mut ancestors: Vec<LayoutElementId> = Vec::new();
+    let mut cur = layout_tree.arena.get(&table_layout_id).and_then(|e| e.parent);
+    while let Some(id) = cur {
+        ancestors.push(id);
+        cur = layout_tree.arena.get(&id).and_then(|e| e.parent);
+    }
+    exempt.extend(ancestors.iter().copied());
+
+    let ids: Vec<LayoutElementId> = layout_tree.arena.keys().copied().collect();
+    for id in ids {
+        if exempt.contains(&id) {
+            continue;
+        }
+        if let Some(el) = layout_tree.arena.get_mut(&id) {
+            if el.box_model.border_box.y >= old_bottom - 0.5 {
+                translate_box_model(&mut el.box_model, Coordinate::new(0.0, delta));
+            }
+        }
+    }
+
+    for id in ancestors {
+        if let Some(el) = layout_tree.arena.get_mut(&id) {
+            el.box_model.border_box.height += delta;
+            el.box_model.padding_box.height += delta;
+            el.box_model.content_box.height += delta;
+            el.box_model.margin_box.height += delta;
+        }
+    }
+}
+
+fn collect_subtree(layout_tree: &LayoutTree, id: LayoutElementId, out: &mut HashSet<LayoutElementId>) {
+    if !out.insert(id) {
+        return;
+    }
+    let children = layout_tree.arena.get(&id).map(|e| e.children.clone()).unwrap_or_default();
+    for child in children {
+        collect_subtree(layout_tree, child, out);
     }
 }
 

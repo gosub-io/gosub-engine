@@ -82,7 +82,9 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             let ta = match p.as_string()? {
                 "left" => TextAlign::Left,
                 "right" => TextAlign::Right,
-                "center" => TextAlign::Center,
+                // `-webkit-center` is what the HTML rendering spec's UA sheet
+                // uses for `<caption>`; treat it as plain center.
+                "center" | "-webkit-center" => TextAlign::Center,
                 "justify" => TextAlign::Justify,
                 "start" => TextAlign::Start,
                 "end" => TextAlign::End,

@@ -27,6 +27,14 @@ impl<N: Copy> SectionGrid<N> {
         &self.cells
     }
 
+    /// Clamp every cell's colspan to the table-wide column count, so spans
+    /// can't reach past the last column any cell (in any section) originates in.
+    pub fn clamp_colspans(&mut self, table_n_cols: usize) {
+        for cell in &mut self.cells {
+            cell.colspan = cell.colspan.min(table_n_cols.saturating_sub(cell.col)).max(1);
+        }
+    }
+
     /// Iterate over cells whose `row` field equals `row_idx`.
     pub fn cells_in_row(&self, row_idx: usize) -> impl Iterator<Item = &PlacedCell<N>> {
         self.cells.iter().filter(move |c| c.row == row_idx)
@@ -108,7 +116,13 @@ pub fn build_section_grid<N: Copy>(rows: &[TableRow<N>]) -> SectionGrid<N> {
         }
     }
 
-    let n_cols = slot_remaining.len();
+    // Trailing columns no cell *originates* in don't count (css-tables-3;
+    // matches browsers): a lone `colspan=9` in a 4-column grid must not create
+    // five phantom columns that would each drag in a border-spacing gutter.
+    // Colspans stay unclamped here - the table clamps them against the
+    // TABLE-wide column count (spans may reach into columns other sections
+    // define) via [`SectionGrid::clamp_colspans`].
+    let n_cols = cells.iter().map(|c| c.col + 1).max().unwrap_or(0);
     SectionGrid { cells, n_cols, n_rows }
 }
 

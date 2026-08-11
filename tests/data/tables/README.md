@@ -74,6 +74,15 @@ Broken or missing, beyond the known compute gaps:
   gaps. Captions (05): measured like a full-width cell, placed above or below
   the grid per `caption-side`. Border-collapse (15, 20): spacing forced to 0;
   cells sit flush.
+- **Fixed 2026-08-11 (Chrome side-by-side review)**: (1) trailing columns no
+  cell originates in are truncated, so an overflowing colspan no longer
+  manufactures phantom gutter-bearing columns (06); (2) when lattice's table
+  height differs from the first-pass estimate, the document flow below shifts
+  and ancestors grow - restoring `<br>` gaps between tables (04, 14), fixing
+  sibling overlap and the clipped page bottom (05, 19); (3) collapse-suppressed
+  border edges take no layout space, so every collapsed boundary is exactly
+  one border wide like a browser (15, 20); (4) `text-align: -webkit-center`
+  (the UA caption rule) now centers captions (05).
 - **Fixed 2026-08-09 (border-conflict resolution)**: every shared boundary is
   painted by exactly one cell - lattice resolves the winner (wider border
   wins; ties go to the left/top cell, per CSS 2 §17.6.2.1 for same-style
