@@ -138,6 +138,12 @@ pub struct CellLayout {
     /// of the two adjacent cells (the wider border wins; ties go to the
     /// left/top cell) - the losing cell gets its edge flagged here.
     pub suppressed_borders: [bool; 4],
+    /// How far outside the border box each painted edge extends, as
+    /// `[top, right, bottom, left]` px. Collapsed borders are centered on the
+    /// grid line: the cell's layout only reserves half the border (in
+    /// `border`), and the winning cell paints its full border shifted outward
+    /// by the other half. Zero everywhere for separate-border tables.
+    pub border_outsets: [f32; 4],
 }
 
 impl Default for CellLayout {
@@ -149,6 +155,7 @@ impl Default for CellLayout {
             padding: BoxEdges::default(),
             content_offset_y: 0.0,
             suppressed_borders: [false; 4],
+            border_outsets: [0.0; 4],
         }
     }
 }
@@ -161,6 +168,21 @@ pub enum TableSizing {
     Auto,
     /// `table-layout: fixed` - column widths from first row / `<col>` elements.
     Fixed,
+}
+
+/// Per-cell result of border-collapse conflict resolution.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CollapsedBorders {
+    /// The layout border: HALF the resolved boundary width on every edge
+    /// (collapsed borders are centered on the grid lines, so each adjacent
+    /// cell's geometry carries half; outer table edges carry half too, the
+    /// other half sticking out of the table box like in browsers).
+    pub layout: BoxEdges,
+    /// Edges this cell lost - it paints nothing there.
+    pub suppressed: [bool; 4],
+    /// Paint outset per edge (`[top, right, bottom, left]`): the winning cell
+    /// paints its full CSS border shifted outward by half its width.
+    pub outsets: [f32; 4],
 }
 
 /// `border-collapse` property.

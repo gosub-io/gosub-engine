@@ -1,4 +1,4 @@
-use gosub_lattice::{CellLayout, CssLength, CssProp, TableRole, TableTree, VerticalAlign};
+use gosub_lattice::{BoxEdges, CellLayout, CssLength, CssProp, TableRole, TableTree, VerticalAlign};
 
 use crate::common::document::node::{NodeId as DomNodeId, NodeType};
 use crate::common::document::pipeline_doc::PipelineDocument;
@@ -6,7 +6,7 @@ use crate::common::document::style::{lookup, Display, StyleProperty, Unit, Value
 use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
 use crate::layouter::taffy::TaffyLayouter;
-use crate::layouter::{LayoutElementId, LayoutElementNode, LayoutTree};
+use crate::layouter::{CollapsedCellBorders, LayoutElementId, LayoutElementNode, LayoutTree};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -21,6 +21,10 @@ pub struct PipelineTableTree<'a> {
     dom_to_layout: &'a HashMap<DomNodeId, LayoutElementId>,
     /// Relative CellLayouts written by `compute_table_layout`.
     pending: HashMap<DomNodeId, CellLayout>,
+    /// Per collapsed cell, the node whose CSS border style paints each edge
+    /// (`[top, right, bottom, left]`; `None` = the cell's own border). Only
+    /// populated for cells of `border-collapse` tables.
+    edge_owners: HashMap<DomNodeId, [Option<DomNodeId>; 4]>,
     /// Cells whose subtree was re-laid-out via `relayout_cell` this pass. Only
     /// these get the `content_offset_y` vertical-align shift: their children
     /// are freshly anchored at the cell top, so the shift applies exactly once.
@@ -40,6 +44,7 @@ impl<'a> PipelineTableTree<'a> {
             layout_tree,
             dom_to_layout,
             pending: HashMap::new(),
+            edge_owners: HashMap::new(),
             relaid: HashSet::new(),
         }
     }
@@ -100,6 +105,7 @@ impl<'a> PipelineTableTree<'a> {
             table_abs,
             Coordinate::ZERO,
             &pending,
+            &self.edge_owners,
             &self.relaid,
             self.dom_to_layout,
             &mut self.layout_tree.arena,
@@ -117,6 +123,7 @@ fn apply_recursive(
     // the cell's vertical-align shift when its subtree was re-anchored.
     offset: Coordinate,
     pending: &HashMap<DomNodeId, CellLayout>,
+    edge_owners: &HashMap<DomNodeId, [Option<DomNodeId>; 4]>,
     relaid: &HashSet<DomNodeId>,
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
     arena: &mut HashMap<LayoutElementId, LayoutElementNode>,
@@ -131,7 +138,7 @@ fn apply_recursive(
                         translate_box_model(&mut element.box_model, offset);
                     }
                 }
-                apply_recursive(doc, child_id, parent_abs, offset, pending, relaid, dom_to_layout, arena);
+                apply_recursive(doc, child_id, parent_abs, offset, pending, edge_owners, relaid, dom_to_layout, arena);
             }
             Some(cell_layout) => {
                 let abs = Coordinate::new(
@@ -148,7 +155,16 @@ fn apply_recursive(
                 if let Some(&layout_id) = dom_to_layout.get(&child_id) {
                     if let Some(element) = arena.get_mut(&layout_id) {
                         element.box_model = cell_layout_to_box_model(cell_layout, abs);
-                        element.suppressed_borders = cell_layout.suppressed_borders;
+                        element.collapsed_borders = edge_owners.get(&child_id).map(|&owners| CollapsedCellBorders {
+                            widths: [
+                                cell_layout.border.top,
+                                cell_layout.border.right,
+                                cell_layout.border.bottom,
+                                cell_layout.border.left,
+                            ],
+                            outsets: cell_layout.border_outsets,
+                            owners,
+                        });
                     }
                 }
                 // vertical-align: only cells whose subtree was re-anchored at the
@@ -159,7 +175,7 @@ fn apply_recursive(
                     0.0
                 };
                 let child_offset = Coordinate::new(abs.x - old_abs.x, abs.y - old_abs.y + valign_shift);
-                apply_recursive(doc, child_id, abs, child_offset, pending, relaid, dom_to_layout, arena);
+                apply_recursive(doc, child_id, abs, child_offset, pending, edge_owners, relaid, dom_to_layout, arena);
             }
         }
     }
@@ -294,9 +310,10 @@ impl TableTree for PipelineTableTree<'_> {
         self.pending.insert(id, layout);
     }
 
-    fn suppress_cell_borders(&mut self, id: DomNodeId, edges: [bool; 4]) {
+    fn set_collapsed_cell_borders(&mut self, id: DomNodeId, layout: BoxEdges, edge_owners: [Option<DomNodeId>; 4]) {
+        self.edge_owners.insert(id, edge_owners);
         if let Some(&layout_id) = self.dom_to_layout.get(&id) {
-            self.layouter.zero_cell_borders(layout_id, edges);
+            self.layouter.set_cell_borders(layout_id, layout);
         }
     }
 

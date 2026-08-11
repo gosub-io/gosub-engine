@@ -68,10 +68,24 @@ pub trait TableTree {
         types::VerticalAlign::Top
     }
 
-    /// Under `border-collapse`, tells the implementor which border edges of
-    /// cell `id` lost their boundary (`[top, right, bottom, left]`) BEFORE any
-    /// measurement happens. Losing edges take up no layout space and are not
-    /// painted - implementors backed by a layout engine should zero those
-    /// edges in the engine's style for the cell so content sits flush.
-    fn suppress_cell_borders(&mut self, _id: Self::NodeId, _edges: [bool; 4]) {}
+    /// Under `border-collapse`, gives the implementor cell `id`'s LAYOUT
+    /// border - half the resolved boundary width per edge, since collapsed
+    /// borders are centered on the grid lines - BEFORE any measurement
+    /// happens. Implementors backed by a layout engine should override the
+    /// cell's border widths in the engine's style so content sits where the
+    /// collapse geometry says.
+    ///
+    /// `edge_owners` (`[top, right, bottom, left]`) names, per edge, the cell
+    /// whose CSS border style/color must be used when painting this cell's
+    /// half of the boundary: `None` means the cell's own border (it won or the
+    /// edge is on the table perimeter), `Some(other)` means it lost the
+    /// conflict and paints its half in the winner's style. Painting each half
+    /// from its own cell keeps the result independent of cell paint order.
+    fn set_collapsed_cell_borders(
+        &mut self,
+        _id: Self::NodeId,
+        _layout: types::BoxEdges,
+        _edge_owners: [Option<Self::NodeId>; 4],
+    ) {
+    }
 }

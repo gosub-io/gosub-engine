@@ -327,11 +327,11 @@ impl TaffyLayouter {
         Some((results[0], results[1].max(results[0])))
     }
 
-    /// Zero the given border edges (`[top, right, bottom, left]`) in the cell's
-    /// taffy style. Under `border-collapse`, edges that lost their boundary
-    /// conflict take no layout space - every later measure/re-layout of the
-    /// cell then agrees with lattice's effective borders.
-    pub(super) fn zero_cell_borders(&mut self, cell_layout_id: LayoutElementId, edges: [bool; 4]) {
+    /// Override the cell's border widths in its taffy style with the collapse
+    /// layout borders (half the resolved boundary width per edge) - every
+    /// later measure/re-layout of the cell then agrees with lattice's
+    /// collapse geometry.
+    pub(super) fn set_cell_borders(&mut self, cell_layout_id: LayoutElementId, borders: gosub_lattice::BoxEdges) {
         let Some(&taffy_id) = self.layout_taffy_mapping.get(&cell_layout_id) else {
             return;
         };
@@ -339,20 +339,12 @@ impl TaffyLayouter {
             return;
         };
         let mut style = style.clone();
-        if edges[0] {
-            style.border.top = LengthPercentage::length(0.0);
-        }
-        if edges[1] {
-            style.border.right = LengthPercentage::length(0.0);
-        }
-        if edges[2] {
-            style.border.bottom = LengthPercentage::length(0.0);
-        }
-        if edges[3] {
-            style.border.left = LengthPercentage::length(0.0);
-        }
+        style.border.top = LengthPercentage::length(borders.top);
+        style.border.right = LengthPercentage::length(borders.right);
+        style.border.bottom = LengthPercentage::length(borders.bottom);
+        style.border.left = LengthPercentage::length(borders.left);
         if let Err(e) = self.tree.set_style(taffy_id, style) {
-            log::warn!("lattice: failed to zero collapsed borders for {:?}: {:?}", cell_layout_id, e);
+            log::warn!("lattice: failed to set collapsed borders for {:?}: {:?}", cell_layout_id, e);
         }
     }
 
@@ -690,7 +682,7 @@ impl TaffyLayouter {
             children: vec![],
             context: element_context,
             background_media: None,
-            suppressed_borders: [false; 4],
+            collapsed_borders: None,
         };
         let layout_element_id = element_node.id;
         layout_tree.arena.insert(layout_element_id, element_node);
@@ -754,7 +746,7 @@ impl TaffyLayouter {
             children: vec![],
             context: element_context,
             background_media,
-            suppressed_borders: [false; 4],
+            collapsed_borders: None,
         };
 
         // Children are tracked in both the taffy tree and the element_node's children vec.
