@@ -958,12 +958,13 @@ mod layout_tests {
         assert_approx!(tree.layout(cells[0]).expect("a").position.x, 0.0, "col 0 at x=0 (no gutter)");
         assert_approx!(tree.layout(cells[1]).expect("b").position.x, 50.0, "col 1 flush against col 0");
 
-        // Row 0 keeps both its borders (12px); row 1's top border lost the
-        // boundary conflict and takes no space (11px) - every internal
-        // boundary is a single 1px line, total 1+10+1+10+1 like a browser.
+        // Collapsed borders are centered on the grid lines: each cell's layout
+        // reserves half the resolved 1px boundary, so both rows are
+        // 0.5+10+0.5 = 11px, and the table box is 22px with the outer
+        // half-borders sticking out (painted via border_outsets).
         let rows = tree.nodes_with_role(TableRole::Row);
-        assert_approx!(tree.layout(rows[1]).expect("row 1").position.y, 12.0, "row 1 flush below row 0");
-        assert_approx!(total_h, 23.0, "single shared border per boundary");
+        assert_approx!(tree.layout(rows[1]).expect("row 1").position.y, 11.0, "row 1 flush below row 0");
+        assert_approx!(total_h, 22.0, "half the boundary on each side of every grid line");
     }
 
     // Collapse conflict resolution, uniform borders: ties go to the left/top

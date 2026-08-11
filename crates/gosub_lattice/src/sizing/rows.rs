@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::grid::{PlacedCell, SectionGrid};
-use crate::types::{BoxEdges, CssLength, CssProp};
+use crate::types::{BoxEdges, CollapsedBorders, CssLength, CssProp};
 use crate::TableTree;
 
 /// Compute the height of each row in a section.
@@ -26,7 +26,7 @@ pub fn compute_row_heights<T: TableTree>(
     spacing_x: f32,
     spacing_y: f32,
     content_heights: &mut HashMap<T::NodeId, f32>,
-    suppressed_borders: &HashMap<T::NodeId, [bool; 4]>,
+    collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
 ) -> Vec<f32> {
     let mut heights = vec![0.0_f32; grid.n_rows];
 
@@ -35,7 +35,7 @@ pub fn compute_row_heights<T: TableTree>(
             continue;
         }
 
-        let (content_h, cell_h) = measure_cell(tree, cell, col_widths, spacing_x, suppressed_borders);
+        let (content_h, cell_h) = measure_cell(tree, cell, col_widths, spacing_x, collapsed_borders);
         content_heights.insert(cell.node, content_h);
         if cell_h > heights[cell.row] {
             heights[cell.row] = cell_h;
@@ -47,7 +47,7 @@ pub fn compute_row_heights<T: TableTree>(
     spanning.sort_by_key(|c| c.rowspan);
 
     for cell in spanning {
-        let (content_h, cell_h) = measure_cell(tree, cell, col_widths, spacing_x, suppressed_borders);
+        let (content_h, cell_h) = measure_cell(tree, cell, col_widths, spacing_x, collapsed_borders);
         content_heights.insert(cell.node, content_h);
 
         let span = cell.row..(cell.row + cell.rowspan).min(heights.len());
@@ -70,16 +70,15 @@ pub fn compute_row_heights<T: TableTree>(
 
 /// Lay out one cell's children at its final column width and return
 /// `(content_height, border_box_height)`, honouring an explicit CSS `height`
-/// as a minimum. Borders suppressed by border-collapse conflict resolution
-/// take no space.
+/// as a minimum. Collapsed cells measure with their half-width layout borders.
 fn measure_cell<T: TableTree>(
     tree: &mut T,
     cell: &PlacedCell<T::NodeId>,
     col_widths: &[f32],
     spacing_x: f32,
-    suppressed_borders: &HashMap<T::NodeId, [bool; 4]>,
+    collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
 ) -> (f32, f32) {
-    let border = effective_border(tree, cell.node, suppressed_borders);
+    let border = effective_border(tree, cell.node, collapsed_borders);
     let padding = read_padding(tree, cell.node);
 
     // Inner width available to the cell's children: the spanned columns plus
@@ -103,29 +102,18 @@ fn measure_cell<T: TableTree>(
 
 // Helpers shared with compute.rs
 
-/// The cell's border with conflict-suppressed edges zeroed - the widths that
-/// actually take up space and get painted under `border-collapse`.
+/// The border widths that actually occupy layout space: under
+/// `border-collapse` that is half the resolved boundary width per edge
+/// (borders center on the grid lines); otherwise the cell's CSS borders.
 pub(crate) fn effective_border<T: TableTree>(
     tree: &T,
     node: T::NodeId,
-    suppressed_borders: &HashMap<T::NodeId, [bool; 4]>,
+    collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
 ) -> BoxEdges {
-    let mut border = read_border(tree, node);
-    if let Some(&[top, right, bottom, left]) = suppressed_borders.get(&node) {
-        if top {
-            border.top = 0.0;
-        }
-        if right {
-            border.right = 0.0;
-        }
-        if bottom {
-            border.bottom = 0.0;
-        }
-        if left {
-            border.left = 0.0;
-        }
+    match collapsed_borders.get(&node) {
+        Some(cb) => cb.layout,
+        None => read_border(tree, node),
     }
-    border
 }
 
 pub(crate) fn read_border<T: TableTree>(tree: &T, node: T::NodeId) -> BoxEdges {
