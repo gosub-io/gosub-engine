@@ -121,6 +121,7 @@ pub fn compute_table_layout<T: TableTree>(
         &all_grids,
         model.sizing,
         &col_specs,
+        &collapsed_borders,
     );
 
     if std::env::var_os("LATTICE_DEBUG").is_some() {

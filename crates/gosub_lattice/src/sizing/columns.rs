@@ -1,7 +1,9 @@
 use crate::grid::SectionGrid;
 use crate::model::TableModel;
-use crate::types::{CssLength, CssProp, TableSizing};
+use crate::sizing::rows::{effective_border, read_padding};
+use crate::types::{CollapsedBorders, CssLength, CssProp, TableSizing};
 use crate::TableTree;
+use std::collections::HashMap;
 
 /// Per-column width specs from `<colgroup>`/`<col>` elements, in document
 /// order, expanded by their `span` attributes. A `<colgroup>` without `<col>`
@@ -42,6 +44,7 @@ pub fn column_specs<T: TableTree>(tree: &T, model: &TableModel<T::NodeId>) -> Ve
 /// distributed over the auto columns.
 ///
 /// Returns `(column_widths, used_table_width)`.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_column_widths<T: TableTree>(
     tree: &mut T,
     n_cols: usize,
@@ -51,6 +54,7 @@ pub fn compute_column_widths<T: TableTree>(
     grids: &[&SectionGrid<T::NodeId>],
     sizing: TableSizing,
     col_specs: &[CssLength],
+    collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
 ) -> (Vec<f32>, f32) {
     if n_cols == 0 {
         return (Vec::new(), 0.0);
@@ -62,7 +66,7 @@ pub fn compute_column_widths<T: TableTree>(
     if sizing == TableSizing::Fixed {
         let table_width = explicit_table_width.unwrap_or(available_width);
         let available = (table_width - spacing_total).max(0.0);
-        let widths = fixed_column_widths(tree, n_cols, table_width, available, grids, col_specs);
+        let widths = fixed_column_widths(tree, n_cols, available, grids, col_specs, collapsed_borders);
         return (widths, table_width);
     }
 
@@ -207,18 +211,22 @@ fn distribute_deficit(vals: &mut [f32], range: std::ops::Range<usize>, required:
 /// The fixed table layout algorithm: column widths are fully determined by
 /// `<col>` elements and the first row's cells - later rows and content play no
 /// part, which is what makes fixed layout single-pass and overflow-prone.
+#[allow(clippy::too_many_arguments)]
 fn fixed_column_widths<T: TableTree>(
     tree: &T,
     n_cols: usize,
-    table_width: f32,
     available: f32,
     grids: &[&SectionGrid<T::NodeId>],
     col_specs: &[CssLength],
+    collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
 ) -> Vec<f32> {
     let mut explicit: Vec<Option<f32>> = vec![None; n_cols];
 
+    // Percentages resolve against the space actually available to columns:
+    // the table width minus the border-spacing gutters (CSS 2 §17.5.2.1
+    // "minus borders or cell spacing").
     for (i, spec) in col_specs.iter().take(n_cols).enumerate() {
-        if let Some(px) = spec.resolve(table_width) {
+        if let Some(px) = spec.resolve(available) {
             explicit[i] = Some(px);
         }
     }
@@ -230,10 +238,16 @@ fn fixed_column_widths<T: TableTree>(
             let mut found_any = false;
             for cell in grid.cells_in_row(row_idx) {
                 found_any = true;
-                let Some(w) = tree.css_length(cell.node, CssProp::Width).resolve(table_width) else {
+                let Some(w) = tree.css_length(cell.node, CssProp::Width).resolve(available) else {
                     continue;
                 };
-                let share = w / cell.colspan as f32;
+                // The width property is the CONTENT width; the column gets the
+                // cell's border-box (CSS 2 §17.5.2.1 as clarified on www-style:
+                // padding and borders - halved under collapse - are added).
+                let border = effective_border(tree, cell.node, collapsed_borders);
+                let padding = read_padding(tree, cell.node);
+                let outer = w + padding.left + padding.right + border.left + border.right;
+                let share = outer / cell.colspan as f32;
                 for c in cell.col..(cell.col + cell.colspan).min(n_cols) {
                     if explicit[c].is_none() {
                         explicit[c] = Some(share);

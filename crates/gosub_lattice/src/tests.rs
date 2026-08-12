@@ -784,6 +784,52 @@ mod layout_tests {
         assert_approx!(tree.layout(cells[4]).unwrap().size.width, 225.0, "row-2 width ignored");
     }
 
+    // Fixed layout: a first-row cell's width property is its CONTENT width;
+    // the column gets the border-box (width + padding + border), per the
+    // www-style clarification of CSS 2 §17.5.2.1 (WPT fixed-table-layout-003*).
+    #[test]
+    fn fixed_layout_cell_width_includes_padding_and_border() {
+        let (mut tree, root) = MockTable::new(400.0)
+            .width(400.0)
+            .spacing(0.0, 0.0)
+            .fixed()
+            .body_row(vec![
+                cell("a").padding(0.0),
+                cell("b").width(80.0).padding(60.0),
+                cell("c").padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 400.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[1]).unwrap().size.width, 200.0, "80 + 2*60 padding");
+        assert_approx!(tree.layout(cells[0]).unwrap().size.width, 100.0, "(400-200)/2");
+        assert_approx!(tree.layout(cells[2]).unwrap().size.width, 100.0, "(400-200)/2");
+    }
+
+    // Fixed layout: percentage widths resolve against the table width MINUS
+    // the border-spacing gutters (WPT fixed-table-layout-017..020).
+    #[test]
+    fn fixed_layout_percentage_resolves_minus_spacing() {
+        let (mut tree, root) = MockTable::new(220.0)
+            .width(220.0)
+            .spacing(10.0, 0.0)
+            .fixed()
+            .body_row(vec![
+                cell("a").width_pct(40.0).padding(0.0),
+                cell("b").padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 220.0, None).expect("layout");
+
+        // available = 220 - 3 gutters * 10 = 190
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[0]).unwrap().size.width, 76.0, "40% of 190");
+        assert_approx!(tree.layout(cells[1]).unwrap().size.width, 114.0, "the rest");
+    }
+
     // Fixed layout: <col> widths claim columns before the first row's cells,
     // and content widths play no part.
     #[test]
