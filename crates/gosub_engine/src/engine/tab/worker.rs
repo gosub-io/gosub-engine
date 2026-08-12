@@ -7,7 +7,9 @@ use crate::engine::{BrowsingContext, UaPolicy};
 use crate::events::{IoCommand, TabCommand};
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
-use crate::net::types::{FetchRequest, FetchResult, Initiator, NetError, Priority, ResourceKind};
+use crate::net::types::{
+    FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, NetError, Priority, ResourceKind,
+};
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
 use crate::storage::types::compute_partition_key;
 use crate::storage::StorageHandles;
@@ -531,6 +533,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.navigate_to(&url, false);
                 ControlFlow::Continue
             }
+            TabCommand::LoadHtml { html, base_url } => {
+                self.load_html(html, base_url);
+                ControlFlow::Continue
+            }
             TabCommand::Reload { ignore_cache } => {
                 let url = self
                     .current_url
@@ -914,6 +920,146 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     let _ = tx_done.send(NavigationResult::Err {
                         nav_id,
                         error: NavigationError::NetworkError(err),
+                    });
+                }
+            }
+        });
+
+        self.load = Some(NavJoin {
+            cancel: parent_cancel.clone(),
+            rx: Some(rx_done),
+        });
+    }
+
+    /// Load caller-supplied HTML into the tab, bypassing the network. The document is
+    /// parsed through the regular HTML pipeline (so subresources like stylesheets and
+    /// images are still discovered and fetched, resolved against `base_url`) and
+    /// completes through the same navigation path as `navigate_to`.
+    fn load_html(&mut self, html: String, base_url: String) {
+        self.scroll_x = 0;
+        self.scroll_y = 0;
+        self.scroll.reset(0.0, 0.0);
+        self.scroll_anim_last = None;
+        self.context.reset_scroll();
+        // Cancel any previous running navigation in this tab
+        self.cancel_current_nav();
+
+        let url = match self.parse_url(base_url) {
+            Ok(u) => u,
+            Err(_) => return,
+        };
+
+        if let Err(e) = self.bind_storage_for(url.clone()) {
+            self.send_event(EngineEvent::Navigation {
+                tab_id: self.tab_id,
+                event: NavigationEvent::Failed {
+                    nav_id: None,
+                    url: url.clone(),
+                    error: Arc::new(e),
+                },
+            });
+            return;
+        }
+
+        let nav_id = NavigationId::new();
+        let parent_cancel = CancellationToken::new();
+        self.active_nav = Some(ActiveNav {
+            nav_id,
+            cancel: parent_cancel.clone(),
+            url: url.clone(),
+        });
+
+        {
+            let mut guard = self.zone_context.request_reference_map.write();
+            guard.insert(RequestReference::Navigation(nav_id), self.tab_id);
+        }
+
+        self.sink.set_nav(nav_id);
+        self.pending_url = Some(url.clone());
+        self.is_loading = true;
+        self.is_error = false;
+        self.state = TabState::Loading;
+        self.runtime.dirty = true;
+
+        self.send_event(EngineEvent::Navigation {
+            tab_id: self.tab_id,
+            event: NavigationEvent::Started {
+                nav_id,
+                url: url.clone(),
+            },
+        });
+
+        // Synthetic request/response pair so the HTML pipeline can attribute the parse
+        // and its discovered subresources to this navigation.
+        let req_id = RequestId::new();
+        REF_REGISTRY.register_request(req_id, ResourceKind::Document, Initiator::Navigation);
+        let req = FetchRequest::builder(Method::GET, url.clone())
+            .with_reference(REF_REGISTRY.to_net(RequestReference::Navigation(nav_id)))
+            .with_req_id(req_id)
+            .with_priority(Priority::High)
+            .with_kind(ResourceKind::Document.to_net())
+            .with_initiator(Initiator::Navigation.to_net())
+            .with_streaming(false)
+            .with_auto_decode(false)
+            .build();
+
+        let (tx_done, rx_done) = oneshot::channel::<NavigationResult<C>>();
+
+        let tab_id = self.tab_id;
+        let zone_id = self.zone_id;
+        let io_tx = self.zone_context.io_tx.clone();
+        let accept_language = self.services.accept_language.clone();
+        let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
+
+        let span = tracing::info_span!(
+            "tab_load_html",
+            tab_id=%tab_id,
+            nav_id=%nav_id.0,
+            base_url=%url,
+        );
+
+        // The pipeline cancels the handle token after parsing to reap subresource
+        // children, so give it a child of the navigation token: CancelNavigation still
+        // aborts the parse, but the pipeline's post-parse cancel doesn't kill the
+        // navigation token itself.
+        let handle = FetchHandle {
+            req_id,
+            key: req.key_data.clone(),
+            cancel: parent_cancel.child_token(),
+        };
+        let meta = FetchResultMeta {
+            final_url: url.clone(),
+            status: 200,
+            status_text: "OK".into(),
+            headers: HeaderMap::new(),
+            content_length: Some(html.len() as u64),
+            content_type: Some("text/html".into()),
+            has_body: true,
+        };
+
+        spawn_named("tab-load-html", async move {
+            let _enter = span.enter();
+
+            let mut hooks =
+                ResourcePipelines::<C>::new(zone_id, io_tx.clone(), accept_language.clone(), max_document_bytes);
+
+            match hooks.html.parse_bytes(req, handle, meta, html.as_bytes()).await {
+                Ok(doc) => {
+                    use gosub_interface::document::Document as _;
+                    let doc = Arc::new(doc);
+                    let final_url = doc.url().unwrap_or(url);
+                    let title = crate::html::document_title(&doc);
+                    let _ = tx_done.send(NavigationResult::Ok {
+                        nav_id,
+                        final_url,
+                        title,
+                        doc,
+                    });
+                }
+                Err(e) => {
+                    let _ = tx_done.send(NavigationResult::Err {
+                        nav_id,
+                        error: NavigationError::Other(anyhow!("Failed to parse HTML: {e}")),
                     });
                 }
             }

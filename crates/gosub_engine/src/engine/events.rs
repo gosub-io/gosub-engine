@@ -96,12 +96,21 @@ pub enum IoCommand {
 pub enum TabCommand {
     // ****************************************
     // ** Navigation / lifecycle
+    /// Navigate to specific URL
     Navigate {
         url: String,
     },
+    /// Load caller-supplied HTML directly into the tab, bypassing the network.
+    /// `base_url` becomes the document URL and is used to resolve relative subresources.
+    LoadHtml {
+        html: String,
+        base_url: String,
+    },
+    /// Reload current URL (with or without cache)
     Reload {
         ignore_cache: bool,
     },
+    /// Cancel the current navigation
     CancelNavigation,
     /// Answer a pending [`NavigationEvent::DecisionRequired`].
     SubmitDecision {
