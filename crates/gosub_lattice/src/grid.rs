@@ -92,9 +92,15 @@ pub fn build_section_grid<N: Copy>(rows: &[TableRow<N>]) -> SectionGrid<N> {
 
             let colspan = source_cell.colspan.max(1);
 
-            // Rowspan is clamped: a cell can only span within the current section.
+            // Rowspan is clamped: a cell can only span within the current
+            // section. HTML's rowspan=0 means "all remaining rows of the
+            // row group" (same clamp, taken literally).
             let rows_left = n_rows.saturating_sub(row_idx);
-            let rowspan = source_cell.rowspan.max(1).min(rows_left);
+            let rowspan = if source_cell.rowspan == 0 {
+                rows_left
+            } else {
+                source_cell.rowspan.min(rows_left)
+            };
 
             // Grow the slot tracker to cover all columns this cell occupies.
             grow_slots(&mut slot_remaining, col + colspan);
@@ -204,6 +210,21 @@ mod tests {
         let grid = build_section_grid(&rows);
         let spanning = grid.cells_in_row(0).next().expect("first cell");
         assert_eq!(spanning.rowspan, 2, "rowspan must be clamped to section size");
+    }
+
+    #[test]
+    fn rowspan_zero_spans_rest_of_section() {
+        // HTML rowspan=0: the cell spans all remaining rows of the row group.
+        let rows = vec![
+            make_row(&[(1, 0), (1, 1)]),
+            make_row(&[(1, 1)]),
+            make_row(&[(1, 1)]),
+        ];
+        let grid = build_section_grid(&rows);
+        let spanning = grid.cells_in_row(0).next().expect("first cell");
+        assert_eq!(spanning.rowspan, 3, "rowspan=0 covers every remaining section row");
+        // The spanned column stays occupied: later rows' cells land in col 1.
+        assert_eq!(grid.cells_in_row(2).next().expect("row 2 cell").col, 1);
     }
 
     #[test]

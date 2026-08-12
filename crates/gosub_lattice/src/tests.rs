@@ -431,6 +431,46 @@ mod layout_tests {
         assert_approx!(h_cell.size.height, 10.0, "clamped to the header's single row");
     }
 
+    // Spans never cross a section boundary: a tbody cell spanning past the
+    // last body row (here via HTML's rowspan=0, "rest of the row group") is
+    // clipped at the end of the body - the footer keeps its own row.
+    #[test]
+    fn body_span_never_reaches_footer() {
+        let (mut tree, root) = MockTable::new(100.0)
+            .spacing(0.0, 0.0)
+            .header_row(vec![
+                cell("H1").height(10.0).padding(0.0),
+                cell("H2").height(10.0).padding(0.0),
+            ])
+            .body_row(vec![
+                cell("B1").rowspan(0).height(10.0).padding(0.0),
+                cell("B2").height(10.0).padding(0.0),
+            ])
+            .body_row(vec![cell("B3").height(10.0).padding(0.0)])
+            .footer_row(vec![
+                cell("F1").height(10.0).padding(0.0),
+                cell("F2").height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        compute_table_layout(&mut tree, root, 100.0, None).expect("layout");
+
+        // Alloc order: H1 H2 B1 B2 B3 F1 F2.
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let spanner = tree.layout(cells[2]).expect("B1");
+        assert_approx!(spanner.size.height, 20.0, "spans both body rows, not the footer");
+        // B3 sits in column 1 because the spanner still occupies column 0.
+        let b3 = tree.layout(cells[4]).expect("B3");
+        assert!(b3.position.x > 0.0, "B3 pushed out of the spanned column");
+
+        let fg = tree.nodes_with_role(TableRole::FooterGroup);
+        assert_approx!(
+            tree.layout(fg[0]).expect("footer").position.y,
+            30.0,
+            "footer right below header(10) + body(20), unaffected by the span"
+        );
+    }
+
     // 17. Auto columns share space proportionally to their natural content width.
     #[test]
     fn proportional_content_width_distribution() {
