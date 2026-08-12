@@ -34,6 +34,10 @@ pub struct PaintScene {
 }
 
 /// The same [`TextStyle`] mapping the layouter measured with, so shaping reproduces its box.
+///
+/// Start-aligned text wraps at the layouter's container width to reproduce its line breaks (a
+/// fragment can carry a whole multi-line paragraph). Center/End/Justify wrap at the fragment's
+/// own box instead - glyphs shifted outside it would land in tiles that never repaint the command.
 fn paint_text_style(font_info: &FontInfo, rect_width: f64, available_width: f64) -> TextStyle {
     let align = match font_info.alignment {
         FontAlignment::Start => TextAlign::Start,
@@ -206,6 +210,9 @@ impl Painter {
     }
 
     /// Base fill plus overlay `background-image` gradient layers to paint on top, back-to-front.
+    ///
+    /// A lone non-tiled gradient becomes the base brush directly, so border/radius decorate the
+    /// same rect. Multiple or tiled layers instead stack as separate rects over `background-color`.
     fn background_fill(&self, node_id: NodeId) -> (Brush, Vec<Gradient>) {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let layers = doc.background_layers(node_id);

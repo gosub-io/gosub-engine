@@ -48,7 +48,7 @@ impl Channel {
     ///
     /// Must be called from `pre_exec` (post-`fork`, in the child): doing it in
     /// the parent would leak this fd into every other concurrent spawn too.
-    /// Async-signal-safe — two `fcntl` calls, nothing else.
+    /// Async-signal-safe - two `fcntl` calls, nothing else.
     pub fn make_inheritable(fd: RawFd) -> io::Result<()> {
         // SAFETY: F_GETFD/F_SETFD on a descriptor the caller owns.
         unsafe {

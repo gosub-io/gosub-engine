@@ -1,6 +1,4 @@
 //! How a subsystem asks for bytes it cannot fetch itself.
-//!
-//! ## Why blocking
 
 use std::fmt;
 use url::Url;

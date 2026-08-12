@@ -1,8 +1,12 @@
-// Re-export the net-layer Fetcher and supporting types from the external gosub-sonar crate
 pub use gosub_sonar::net::fetcher::{Fetcher, FetcherConfig};
 pub use gosub_sonar::net::fetcher_context::FetcherContext;
 
 /// Build a [`FetcherConfig`] from the engine's settings store.
+///
+/// Deliberately an engine-side free function rather than a `FetcherConfig::from_config` method on
+/// the gosub-sonar type: that would force sonar to know engine-specific setting keys. Any knob not
+/// present falls back to [`FetcherConfig::default`] (the gosub-sonar defaults, including the user
+/// agent).
 pub fn fetcher_config_from(cfg: &gosub_config::Config) -> FetcherConfig {
     use std::time::Duration;
 
@@ -76,6 +80,10 @@ use std::sync::Arc;
 
 /// Engine-side implementation of FetcherContext.
 /// Bridges the net-layer Fetcher to engine events and tab tracking.
+///
+/// The fetcher hands us the opaque sonar-side reference tags; we resolve them back to the
+/// engine's rich [`RequestReference`](crate::net::req_ref_tracker::RequestReference) via
+/// [`REF_REGISTRY`] before touching engine state.
 pub struct EngineNetContext {
     pub event_tx: EventChannel,
     pub request_reference_map: Arc<RwLock<RequestReferenceMap>>,

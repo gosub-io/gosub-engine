@@ -1,4 +1,7 @@
 //! Javascript engine functionality
+//!
+//! This crate adds the ability to run javascript code in the gosub engine.
+//!
 
 use thiserror::Error;
 

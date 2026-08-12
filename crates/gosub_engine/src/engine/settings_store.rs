@@ -1,4 +1,10 @@
 //! The engine's built-in settings schema.
+//!
+//! `gosub_config` provides the configuration *machinery* but is agnostic of which settings exist.
+//! The engine owns the schema: the set of known keys with their types, defaults, constraints and
+//! descriptions. It lives in two embedded files - `settings.json` (engine settings) and
+//! `useragent-settings.json` (user-agent settings, merged under the `useragent` namespace) - which
+//! are parsed here into the [`SettingInfo`] lists that seed a [`Config`].
 
 use gosub_config::settings::{Constraint, Setting, SettingInfo};
 use gosub_config::Config;
@@ -32,6 +38,10 @@ struct JsonEntry {
 }
 
 /// Builds a [`Config`] (in-memory) seeded with the engine's built-in settings schema.
+///
+/// The schema is embedded at build time and validated by tests, so parsing never fails in
+/// practice; should it ever fail, this logs the error and returns an empty schema rather than
+/// aborting engine construction.
 #[must_use]
 pub fn default_config() -> Config {
     let config = Config::new(schema_from(SETTINGS_JSON, "settings.json"));

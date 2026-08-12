@@ -4,7 +4,7 @@ use crate::engine::zone::ZoneId;
 use http::HeaderMap;
 use url::Url;
 
-/// A `CookieJar` decorator: *transparent* for reads, *eagerly* persists after writes.
+/// A `CookieJar` decorator: transparent for reads, eagerly persists after writes.
 pub struct PersistentCookieJar {
     /// Used to address the store.
     zone_id: ZoneId,
@@ -22,8 +22,11 @@ impl PersistentCookieJar {
     }
 
     /// Snapshots the inner jar and persists it to the backing store.
+    ///
+    /// Persistence is best-effort: if the inner jar is not a [`DefaultCookieJar`]
+    /// (the downcast is required to obtain a cloneable snapshot), the snapshot is
+    /// skipped and an error is logged.
     fn persist(&self) {
-        // Create a snapshot of the current state of the cookie jar. This is what we will store with "persist()"
         let snapshot = {
             let inner = self.inner.read();
             let Some(jar) = inner.as_any().downcast_ref::<DefaultCookieJar>() else {
@@ -38,7 +41,6 @@ impl PersistentCookieJar {
 }
 
 impl CookieJar for PersistentCookieJar {
-    /// Returns a type-erased reference to this jar (the wrapper itself).
     /// @TODO: check if we still need these.
     fn as_any(&self) -> &dyn std::any::Any {
         self

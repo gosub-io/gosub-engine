@@ -31,8 +31,8 @@ fn run_with_backend(scenario: &str, backend: &str) -> std::process::Output {
 /// the response comes back byte-for-byte.
 ///
 /// This is also the sandbox's own regression test. A real network stack needs
-/// syscalls the synthetic one in the proof of concept never made — reading the
-/// trust store, resolving names, driving an async reactor — so a filter that is
+/// syscalls the synthetic one in the proof of concept never made - reading the
+/// trust store, resolving names, driving an async reactor - so a filter that is
 /// too tight shows up here as a `SIGSYS` rather than as a mysteriously failing
 /// page much later.
 #[test]
@@ -83,9 +83,9 @@ fn a_malformed_image_is_refused_rather_than_decoded() {
 /// A renderer process must be able to lay out text, and this pins the one
 /// arrangement under which it can.
 ///
-/// A renderer denies `openat` — that is most of what makes it a renderer — but
+/// A renderer denies `openat` - that is most of what makes it a renderer - but
 /// font stacks read font files lazily, on first use of a family. Measurement
-/// showed the laziness is **per family, not per shape**: a family resolved and
+/// showed the laziness is per family, not per shape: a family resolved and
 /// shaped before the sandbox is applied goes on shaping new text at new sizes
 /// afterwards, while one first touched under the sandbox dies on `SIGSYS`.
 #[test]
@@ -122,7 +122,7 @@ fn a_web_font_can_be_registered_under_the_renderer_lockdown() {
     );
 }
 
-/// The same confinement property, for the *other* always-compiled font system —
+/// The same confinement property, for the *other* always-compiled font system -
 /// because the engine is generic over font systems, the property is per
 /// implementation, not per engine.
 ///
@@ -145,7 +145,7 @@ fn cosmic_text_can_shape_under_the_renderer_lockdown() {
     );
 }
 
-/// Web fonts after lockdown, for cosmic-text — the sequence a renderer actually
+/// Web fonts after lockdown, for cosmic-text - the sequence a renderer actually
 /// runs is prepare, confine, then let content register fonts, and for
 /// cosmic-text the preparation is load-bearing even for a font that arrives as
 /// bytes, because shaping it still consults fallback faces.
@@ -228,7 +228,7 @@ fn the_fork_server_forks_a_confined_renderer_for_a_full_tier_font_system() {
 }
 
 /// The same roundtrip for the other always-compiled font system, whose warmed
-/// state is the per-face override — a forked renderer shaping proves the
+/// state is the per-face override - a forked renderer shaping proves the
 /// override's work really crosses the fork.
 #[cfg(target_os = "linux")]
 #[test]
@@ -246,7 +246,7 @@ fn the_fork_server_forks_a_confined_renderer_with_cosmic_text() {
     );
 }
 
-/// The render pipeline — parse, style, layout, layering, tiling, paint —
+/// The render pipeline - parse, style, layout, layering, tiling, paint -
 /// under the strictest renderer sandbox, in-process (no fork machinery), so a
 /// pipeline-vs-sandbox regression is directly attributable.
 #[cfg(target_os = "linux")]
@@ -290,7 +290,7 @@ fn the_engine_spawns_the_renderer_fork_server_behind_its_setting() {
 }
 
 /// The exec-fresh renderer: one throwaway, font-readable-confined process
-/// renders one page — the `FontPathsReadable` tier's whole render path,
+/// renders one page - the `FontPathsReadable` tier's whole render path,
 /// driven directly. Runs with the default (Full-tier) font system here,
 /// which the weaker profile also serves; the tier-2 backends exercise the
 /// same path behind their features.

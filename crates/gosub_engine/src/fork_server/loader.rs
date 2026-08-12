@@ -1,7 +1,5 @@
 //! The renderer's [`ResourceLoader`]: every load is a blocking round trip to
 //! the broker.
-//!
-//! ## Two-phase construction
 
 use crate::fork_server::protocol::{FromRenderer, ResourceReply};
 use gosub_interface::resource_loader::{LoadError, LoadedResource, ResourceLoader};
@@ -10,10 +8,9 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use url::Url;
 
-/// See the module docs. Shared as `Arc<dyn ResourceLoader>` inside the
-/// `MediaStore` and as `Arc<ForkedResourceLoader>` by the fork server, which
-/// is what lets a forked child reach `connect` on the very object the store
-/// already holds.
+/// Shared as `Arc<dyn ResourceLoader>` inside the `MediaStore` and as
+/// `Arc<ForkedResourceLoader>` by the fork server, so a forked child can
+/// reach `connect` on the very object the store already holds.
 pub struct ForkedResourceLoader {
     link: Mutex<Option<Arc<Mutex<Endpoint>>>>,
 }
@@ -27,7 +24,7 @@ impl std::fmt::Debug for ForkedResourceLoader {
 }
 
 impl ForkedResourceLoader {
-    /// A loader with no link yet — safe to embed in shared state pre-fork.
+    /// A loader with no link yet - safe to embed in shared state pre-fork.
     pub fn disconnected() -> Arc<Self> {
         Arc::new(Self { link: Mutex::new(None) })
     }

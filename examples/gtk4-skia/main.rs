@@ -1,4 +1,9 @@
 //! Minimal browser window: Skia (CPU) rasterizer + GTK4 toolkit.
+//!
+//! Usage: cargo run --example gtk4-skia -- https://example.com
+//!
+//! GTK4 is used only for windowing; Skia handles all rasterization and fonts.
+//! No gtk4::init() needed for fonts - unlike the Cairo backend, Skia is self-contained.
 
 use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
@@ -133,6 +138,10 @@ fn main() {
         let tab = Rc::new(RefCell::new(tab));
 
         // --- Local tile/scroll state (GTK main thread only, no locking) ---
+        //
+        // When the engine completes a full render it sends a TileCache frame via the
+        // compositor.  We extract the tiles + metadata here so the draw callback and
+        // scroll handler can use them without any async roundtrip.
         let local_tiles: Rc<RefCell<Option<TileDrawState>>> = Rc::new(RefCell::new(None));
         // Current scroll offset in CSS px - updated synchronously in the GTK scroll
         // handler so every frame sees the very latest position without async latency.
@@ -188,6 +197,10 @@ fn main() {
         }
 
         // --- Draw callback ---
+        //
+        // Priority order:
+        //   1. Local TileCache (zero-copy, uses up-to-date local scroll offset)
+        //   2. Compositor frame (CpuPixelsOwned / CpuPixelsPtr - initial page render fallback)
         let compositor_draw = compositor.clone();
         let local_tiles_draw = local_tiles.clone();
         let local_scroll_draw = local_scroll.clone();
@@ -325,6 +338,10 @@ fn main() {
         });
 
         // --- Scroll controller ---
+        //
+        // The local scroll offset is updated synchronously here (on the GTK main thread),
+        // so queue_draw() immediately sees the new position - zero async latency.
+        // The engine is also notified via a Tokio task for its own state bookkeeping.
         let scroll_ctl = gtk4::EventControllerScroll::new(
             gtk4::EventControllerScrollFlags::BOTH_AXES | gtk4::EventControllerScrollFlags::KINETIC,
         );

@@ -12,7 +12,7 @@ const DECODE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Largest decoded image accepted, as raw RGBA.
 ///
-/// 256 MiB is about 8000×8000 — beyond any plausible page image, and far below
+/// 256 MiB is about 8000×8000 - beyond any plausible page image, and far below
 /// what a decompression bomb would ask for. The cap is enforced while
 /// accumulating, so an over-large claim costs nothing to reject.
 const MAX_DECODED_BYTES: u64 = 256 * 1024 * 1024;
@@ -64,8 +64,8 @@ fn decode_in_child(mime: Option<&str>, bytes: &[u8]) -> Result<BrokeredDecode, D
 
     let result = exchange(ours, mime, bytes);
 
-    // Kill before reaping, on every path: a decoder that will not exit — wedged
-    // or hostile — must not be able to hold this thread open.
+    // Kill before reaping, on every path: a decoder that will not exit - wedged
+    // or hostile - must not be able to hold this thread open.
     let _ = child.kill();
     let _ = child.wait();
 

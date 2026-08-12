@@ -1,6 +1,14 @@
 // Example code: panicking on bad input is the desired behavior, as in any test code.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 /// End-to-end pipeline smoke test.
+///
+/// Spins up a tiny local HTTP server that serves a known HTML page (with a
+/// title, a stylesheet, a script, and an image), navigates the engine to it,
+/// and then checks that:
+///   1. Navigation started and finished without error.
+///   2. All three sub-resources (CSS / JS / image) were discovered and fetched.
+///
+/// Exit code 0 = all checks passed, 1 = one or more checks failed.
 use std::sync::Arc;
 use std::time::Duration;
 

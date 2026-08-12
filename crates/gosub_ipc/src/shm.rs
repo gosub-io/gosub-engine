@@ -1,6 +1,6 @@
 //! Shared-memory tile transport (Linux): the renderer rasterizes into a
 //! `memfd`, seals it, and passes the *fd* to the engine over the existing
-//! `SCM_RIGHTS` channel — the engine then maps the same physical pages
+//! `SCM_RIGHTS` channel - the engine then maps the same physical pages
 //! instead of copying ~1 MiB of pixels through the socket. Only a ~10-byte
 //! header travels in-band. This is the channel OOPIFs and a future decode
 //! process will reuse.
@@ -12,7 +12,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 pub const BYTES_PER_PIXEL: usize = 4;
 
 /// Upper bound on either tile dimension the consumer will accept. 2048² × 4
-/// = 16 MiB — deliberately the same ceiling `MAX_FRAME_LEN` puts on an
+/// = 16 MiB - deliberately the same ceiling `MAX_FRAME_LEN` puts on an
 /// in-band tile, so the shared-memory path never lets a renderer pin *more*
 /// engine memory per message than the socket path already could; the
 /// per-source gate then bounds how many such messages are in flight, exactly
@@ -25,7 +25,7 @@ const REQUIRED_SEALS: libc::c_int = libc::F_SEAL_SHRINK | libc::F_SEAL_GROW | li
 
 /// Byte length of a `width`×`height` RGBA tile, refusing out-of-range
 /// dimensions. Both sides use this: the producer to size the memfd, the
-/// consumer to derive what the fd must hold *from the dimensions* — never
+/// consumer to derive what the fd must hold *from the dimensions* - never
 /// from a length claimed in a message.
 fn tile_len(width: u32, height: u32) -> io::Result<usize> {
     if width == 0 || height == 0 || width > MAX_TILE_DIM || height > MAX_TILE_DIM {
@@ -73,7 +73,7 @@ pub fn create_sealed_tile(width: u32, height: u32, fill: impl FnOnce(&mut [u8]))
     }
 
     // Freeze size and contents, and seal the seals themselves. After this no
-    // process — including this one — can modify the tile, so it is safe to
+    // process - including this one - can modify the tile, so it is safe to
     // hand out.
     let all = REQUIRED_SEALS | libc::F_SEAL_SEAL;
     if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_ADD_SEALS, all) } < 0 {
@@ -111,7 +111,7 @@ impl TileMapping {
     }
 }
 
-// So a mapping can *become* a `bytes::Bytes` via `Bytes::from_owner` — the
+// So a mapping can *become* a `bytes::Bytes` via `Bytes::from_owner` - the
 // tile then flows through pixel-consuming code (`CachedTile.data`) with the
 // mapping as its backing storage, unmapped when the last reference drops.
 // Zero copies from the renderer's rasterizer to the compositor's blend.
@@ -172,7 +172,7 @@ pub fn map_sealed_tile(fd: OwnedFd, width: u32, height: u32) -> io::Result<TileM
         return Err(io::Error::last_os_error());
     }
     // mmap signals failure with MAP_FAILED, handled above, so a null here is
-    // impossible — reported rather than asserted, since this crate must not panic.
+    // impossible - reported rather than asserted, since this crate must not panic.
     let ptr = std::ptr::NonNull::new(ptr.cast()).ok_or_else(|| io::Error::other("mmap returned null"))?;
     Ok(TileMapping { ptr, len })
     // `fd` drops (closes) here; the mapping keeps the pages alive.
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn unsealed_fd_refused() {
-        // Same memfd, correct size — but never sealed. A consumer must refuse
+        // Same memfd, correct size - but never sealed. A consumer must refuse
         // it: the sender could still write to or shrink it after validation.
         let len = tile_len(8, 4).unwrap();
         let raw = unsafe { libc::memfd_create(c"unsealed".as_ptr(), libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING) };

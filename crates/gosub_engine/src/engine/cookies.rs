@@ -1,29 +1,13 @@
-//! Cookie storage and persistence. Zones use a [`CookieJar`] (via a cheap, cloneable
-//! [`CookieJarHandle`]) and can optionally persist jar mutations to a backend
-//! [`CookieStore`].
+//! Cookie storage and persistence (RFC 6265). Zones use a [`CookieJar`] (via a cheap,
+//! cloneable [`CookieJarHandle`]) and can optionally persist jar mutations to a backend
+//! [`CookieStore`] ([`InMemoryCookieStore`], [`JsonCookieStore`], [`SqliteCookieStore`]).
 //!
-//! ## Overview
+//! `CookieJarHandle` (and `CookieStoreHandle`) are cloneable `Send + Sync` handles;
+//! reads are concurrent, mutations are synchronized inside the jar implementation.
 //!
-//! - [`Cookie`] - A single HTTP cookie (name, value, domain, path, expiry, SameSite, etc.).
-//! - [`CookieJar`] - Thread-safe, in-memory cookie jar implementing RFC 6265 semantics.
-//! - [`DefaultCookieJar`] - The engine’s default in-memory [`CookieJar`] (ephemeral).
-//! - [`PersistentCookieJar`] - A [`CookieJar`] wrapper that snapshots changes to a
-//!   persistent [`CookieStore`] backend.
-//! - [`CookieStore`] - Trait for durable storage backends.
-//!   - [`InMemoryCookieStore`] - Non-persistent store (useful for tests).
-//!   - [`JsonCookieStore`] - Human-readable JSON files (handy for debugging).
-//!   - [`SqliteCookieStore`] - SQLite-backed store (scales to many cookies).
-//!
-//! Internally, `CookieJarHandle` (and `CookieStoreHandle`) are cloneable, thread-safe
-//! handles you can pass between engine tasks/zones. The jar itself is safe to read
-//! concurrently; mutations are synchronized inside the jar implementation.
-//!
-//! ## How zones get a cookie jar
-//!
-//! Each [`Zone`](crate::zone::Zone) uses **exactly one** [`CookieJar`]. You wire this up
-//! through `ZoneServices` when creating the zone:
-//!
-//! 1. **Ephemeral (private) cookies** - supply a direct `cookie_jar`:
+//! Each [`Zone`](crate::zone::Zone) uses exactly one [`CookieJar`], wired up through
+//! `ZoneServices` when creating the zone. For ephemeral (private) cookies, supply a
+//! `cookie_jar` directly:
 //!
 //! ```no_run
 //! # use std::sync::Arc;
@@ -50,8 +34,10 @@
 //! # Ok(()) }
 //! ```
 //!
-//! 2. **Persistent cookies** - supply a `cookie_store` and omit `cookie_jar`. The engine
-//!    will attach a `PersistentCookieJar` for this zone that snapshots on every mutation:
+//! For persistent cookies, supply a `cookie_store` and omit `cookie_jar`; the engine
+//! attaches a `PersistentCookieJar` for the zone that snapshots on every mutation.
+//! A single store backend (e.g. one SQLite DB) can serve all zones; each zone still
+//! operates on its own jar.
 //!
 //! ```no_run
 //! # use std::sync::Arc;
@@ -78,29 +64,6 @@
 //! let _zone = engine.create_zone(Some(zone_cfg), services, None)?;
 //! # Ok(()) }
 //! ```
-//!
-//! > **Note:** A persistent store can serve **all zones** from a single backend
-//! > (e.g., one SQLite DB). Each zone still operates on its own jar; the store
-//! > takes care of mapping a zone’s jar to durable rows/records behind the scenes.
-//!
-//! ## Choosing a backend
-//!
-//! - [`InMemoryCookieStore`] - Zero I/O, great for tests and benches.
-//! - [`JsonCookieStore`] - Easy to inspect; slower for large volumes.
-//! - [`SqliteCookieStore`] - Durable and efficient for long-lived profiles.
-//!
-//! ## Concurrency & safety
-//!
-//! - `CookieJarHandle` is cloneable (`Send + Sync`). Reads are concurrent; writes are
-//!   serialized internally. If using a persistent jar, each mutation triggers a snapshot
-//!   to the store so state stays consistent across restarts.
-//!
-//! ## See also
-//!
-//! - [`Zone`](crate::zone::Zone) - where jars are attached/used.
-//! - [`CookieStore`] - implement this trait to add your own persistence backend.
-//! - RFC 6265 - for cookie parsing/matching semantics (domain/path, expiration,
-//!   HttpOnly, Secure, SameSite, etc.).
 mod cookie_jar;
 #[allow(clippy::module_inception)]
 mod cookies;

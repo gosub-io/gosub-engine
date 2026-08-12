@@ -13,7 +13,7 @@ use url::Url;
 
 /// The renderer's loader when it talks to the broker *directly* (no fork
 /// server in between): `NeedResource` out, `Resource` back, on the same link
-/// the render request arrived on. Blocking, one exchange in flight — the
+/// the render request arrived on. Blocking, one exchange in flight - the
 /// renderer is single-threaded where it loads.
 struct DirectBrokeredLoader {
     link: Arc<Mutex<Endpoint>>,
@@ -51,10 +51,10 @@ impl ResourceLoader for DirectBrokeredLoader {
 
 /// Render one page for the broker, then return the process exit code.
 ///
-/// Everything that touches the filesystem beyond font paths — building the
+/// Everything that touches the filesystem beyond font paths - building the
 /// font system (which may spawn a library worker thread; permitted, this
 /// process kept its PID namespace and the filter is applied with TSYNC), the
-/// media store's placeholder decode — happens before the lockdown; the parse
+/// media store's placeholder decode - happens before the lockdown; the parse
 /// and render happen confined, reading only font paths and the private
 /// scratch, fetching everything else through the broker.
 pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {

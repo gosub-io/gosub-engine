@@ -1,4 +1,12 @@
 //! Shared GPU tile compositor for wgpu-based backends.
+//!
+//! Blits GPU-resident tiles into the surface; the engine owns all tiling, rasterization and caching.
+//! Nothing here is Vello-specific (it needs only a wgpu device and tile texture views), so it can
+//! move to a shared gpu-support crate and serve any wgpu backend.
+//!
+//! `copy_texture_to_texture` would be simpler than this blit pass, but the host-created surface has
+//! only `RENDER_ATTACHMENT` (not `COPY_DST`) - and a render pass gives premultiplied-alpha blending
+//! for free.
 
 use gosub_render_pipeline::render::backend::{anchored_tile_pos, TileAnchor};
 use vello::wgpu;

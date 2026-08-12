@@ -1,4 +1,10 @@
 //! A minimal browser window that renders pages through the new gosub_render_pipeline render system.
+//!
+//! Usage:  cargo run --example pipeline-browser -- https://example.com
+//!
+//! The binary uses the full GosubEngine zone/tab/net API and routes rendering through the
+//! 7-stage pipeline (rendertree → layout → layering → tiling → painting → rasterize →
+//! composite) backed by Cairo.  The result is displayed in a GTK4 window.
 
 use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
@@ -164,6 +170,9 @@ fn main() {
         let _ = redraw_target.set(glib::SendWeakRef::from(drawing_area.downgrade()));
 
         // --- Draw callback ---
+        //
+        // Reads the latest compositor frame directly; the engine's frame carries its own
+        // authoritative (animated, clamped) scroll, so no local tile/scroll mirroring is needed.
         let compositor_draw = compositor.clone();
         drawing_area.set_draw_func(move |_area, cr, w, h| match compositor_draw.frame_for(tab_id) {
             None => {
@@ -267,6 +276,10 @@ fn main() {
         });
 
         // --- Scroll controller ---
+        //
+        // The local scroll offset is updated synchronously here (on the GTK main thread),
+        // so queue_draw() immediately sees the new position - zero async latency.
+        // The engine is also notified via a Tokio task for its own state bookkeeping.
         let scroll_ctl = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::BOTH_AXES);
 
         scroll_ctl.connect_scroll({
@@ -462,6 +475,14 @@ fn main() {
 }
 
 /// Resolve the device-pixel ratio to render at for `widget`.
+///
+/// `GtkWidget::scale_factor()` only ever reports an integer, so on a fractionally scaled
+/// display (e.g. 1.25× or 1.5×, common on Wayland) it returns 1 and the page is rasterized
+/// at logical resolution - the compositor then upscales the whole surface, blurring text.
+///
+/// `GdkSurface::scale()` exposes the true fractional scale. We round it *up* to the next
+/// integer and render at that resolution; downscaling a slightly-too-large buffer to the
+/// display's fractional size stays sharp, whereas upscaling a too-small one does not.
 fn render_dpr(widget: &impl IsA<gtk4::Widget>) -> u32 {
     let fractional = widget
         .native()

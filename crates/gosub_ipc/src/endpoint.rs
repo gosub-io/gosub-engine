@@ -7,7 +7,7 @@ use std::io;
 #[cfg(feature = "multi-process")]
 use std::io::{Read, Write};
 // fd passing is `SCM_RIGHTS`-specific and only the Linux shared-memory paths
-// (sealed tiles, the body ring) use it — macOS and Windows never send a
+// (sealed tiles, the body ring) use it - macOS and Windows never send a
 // descriptor, so this stays Linux-gated.
 #[cfg(feature = "multi-process")]
 use crate::channel;
@@ -34,7 +34,7 @@ pub enum EndpointRx {
 }
 
 impl EndpointTx {
-    /// Whether this endpoint can carry file descriptors (`SCM_RIGHTS`) — true
+    /// Whether this endpoint can carry file descriptors (`SCM_RIGHTS`) - true
     /// for the socket transport, false for in-process channels, where shared
     /// memory would be pointless anyway (same address space). Only the
     /// shared-memory tile path asks (hence the cfg).
@@ -48,7 +48,7 @@ impl EndpointTx {
     #[cfg(all(feature = "multi-process", target_os = "linux"))]
     pub fn send_fd(&mut self, fd: RawFd) -> io::Result<()> {
         match self {
-            // SAFETY: both descriptors are valid — the stream is live and the
+            // SAFETY: both descriptors are valid - the stream is live and the
             // caller owns `fd`.
             EndpointTx::Socket(stream) => unsafe { send_fd(stream.as_raw_fd(), fd) },
             EndpointTx::Local(_) => Err(io::Error::new(
@@ -143,8 +143,8 @@ impl EndpointRx {
 /// One end of a duplex IPC link. Components are written against this type
 /// only, so the exact same renderer/net code runs either as a child *process*
 /// (Socket) or as an in-process *thread* (Local). Both variants carry
-/// identical bincode frames, so the protocol — and every policy check built
-/// on it — behaves the same in both modes.
+/// identical bincode frames, so the protocol - and every policy check built
+/// on it - behaves the same in both modes.
 pub struct Endpoint {
     pub tx: EndpointTx,
     pub rx: EndpointRx,
@@ -168,9 +168,8 @@ impl Endpoint {
     /// # Correct use
     #[cfg(feature = "multi-process")]
     pub fn adopt_inherited(spec: &str) -> io::Result<Endpoint> {
-        // SAFETY: the contract above is the caller's; `from_argv` only requires
-        // that the token names a descriptor this process owns and has not
-        // otherwise adopted.
+        // SAFETY: `from_argv` only requires that the token names a descriptor
+        // this process owns and has not otherwise adopted.
         let channel = unsafe { channel::Channel::from_argv(spec)? };
         Endpoint::from_channel(channel)
     }
@@ -340,7 +339,7 @@ pub unsafe fn recv_fd(sock_fd: RawFd) -> io::Result<OwnedFd> {
 mod tests {
     use super::*;
     // The `SCM_RIGHTS` tests below drive a socketpair directly rather than
-    // through `channel`, since what they pin down is fd-passing behaviour —
+    // through `channel`, since what they pin down is fd-passing behaviour -
     // Linux-only, like the paths that use it.
     use serde::Deserialize;
     #[cfg(all(feature = "multi-process", target_os = "linux"))]
@@ -381,7 +380,7 @@ mod tests {
         assert_eq!(back, msg);
     }
 
-    /// Hand-rolled sendmsg attaching `fds` to ONE SCM_RIGHTS cmsg — what a
+    /// Hand-rolled sendmsg attaching `fds` to ONE SCM_RIGHTS cmsg - what a
     /// compromised peer (sendmsg is on its allowlist) can do to smuggle
     /// descriptors into the fd hand-off.
     #[cfg(all(feature = "multi-process", target_os = "linux"))]
@@ -424,7 +423,7 @@ mod tests {
     #[cfg(all(feature = "multi-process", target_os = "linux"))]
     #[test]
     fn recv_fd_rejects_smuggled_extra_fds() {
-        // Several fds stuffed into the one-fd hand-off must be refused — and
+        // Several fds stuffed into the one-fd hand-off must be refused - and
         // the extras closed, not leaked into the receiver's fd table (the
         // OwnedFd-before-verdict adoption in recv_fd is what guarantees the
         // close; this pins the refusal).
@@ -447,10 +446,10 @@ mod tests {
     fn recv_returns_a_timeout_error_when_the_peer_is_silent() {
         // The primitive behind the decode stall timeout: with a read timeout
         // armed, recv on a socket whose peer sends nothing must return a
-        // WouldBlock/TimedOut error near the deadline — never block forever.
+        // WouldBlock/TimedOut error near the deadline - never block forever.
         use std::time::{Duration, Instant};
         // Keep `_peer` bound so the socket is not closed (a closed peer gives EOF,
-        // not a timeout — a different, already-handled case).
+        // not a timeout - a different, already-handled case).
         let (mine, _peer) = UnixStream::pair().unwrap();
         let ep = Endpoint::from_channel(channel::Channel::from_stream(mine)).unwrap();
         let (_tx, mut rx) = ep.split();
@@ -477,11 +476,11 @@ mod tests {
         // The primitive behind the reply-write timeout: with a write timeout
         // armed, sending to a peer that never drains eventually fills the socket
         // buffers, and the send must then return a WouldBlock/TimedOut error near
-        // the deadline — never block forever, which on the single-threaded engine
+        // the deadline - never block forever, which on the single-threaded engine
         // loop with blocking writes would wedge the whole browser.
         use std::time::{Duration, Instant};
         // Keep `_peer` bound and never read from it: the buffers fill (a closed
-        // peer would instead give a broken pipe — a different, already-handled
+        // peer would instead give a broken pipe - a different, already-handled
         // case).
         let (mine, _peer) = UnixStream::pair().unwrap();
         let mut ep = Endpoint::from_channel(channel::Channel::from_stream(mine)).unwrap();
@@ -543,7 +542,7 @@ mod tests {
         }
     }
 
-    /// Tiny deterministic xorshift PRNG — reproducible, no `rand`, no clock seed.
+    /// Tiny deterministic xorshift PRNG - reproducible, no `rand`, no clock seed.
     #[cfg(feature = "multi-process")]
     fn xorshift(s: &mut u64) -> u64 {
         let mut x = *s;

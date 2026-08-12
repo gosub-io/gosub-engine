@@ -1,4 +1,10 @@
 //! Render backend contract types.
+//!
+//! These traits and value types define the boundary between the render pipeline
+//! (which produces a [`RenderList`]) and the concrete render backends (Cairo, Skia,
+//! Vello) that consume it. They live here, in the interface crate, so that
+//! `ModuleConfiguration` can name a `RenderBackend`/`CompositorSink` without inverting
+//! the dependency direction. `gosub_render_pipeline` re-exports them for downstream code.
 
 pub mod backend;
 pub mod render_context;

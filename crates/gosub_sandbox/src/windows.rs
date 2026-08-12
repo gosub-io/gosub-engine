@@ -1,17 +1,10 @@
-//! Windows backend: process mitigation policies.
-//!
-//! Satisfies the same public surface as the other backends
-//! (this crate); the mechanisms differ because Windows has neither
-//! seccomp nor Seatbelt. The parent module only compiles this file on
-//! `target_os = "windows"`, so nothing here is guarded.
-//!
-//! ## What this is, and what it is not
-//!
-//! ## What is applied, and how the AppContainer is gated
+//! Windows backend: process mitigation policies. Windows has neither seccomp
+//! nor Seatbelt. Only compiled on `target_os = "windows"`, so nothing here is
+//! guarded.
 
 use std::ffi::c_void;
 
-/// Address-space ceiling for a confined child — the `RLIMIT_AS` analogue,
+/// Address-space ceiling for a confined child - the `RLIMIT_AS` analogue,
 /// matching the Linux backend's 512 MiB.
 #[cfg(feature = "multi-process")]
 const CHILD_MEMORY_LIMIT: usize = 512 * 1024 * 1024;
@@ -27,7 +20,7 @@ use windows_sys::Win32::System::Threading::{
 // to gain from them here: passing the flag word directly is exactly what the
 // API reads. Bit positions are from the Win32 headers.
 
-/// `PROCESS_MITIGATION_DYNAMIC_CODE_POLICY::ProhibitDynamicCode` — no new
+/// `PROCESS_MITIGATION_DYNAMIC_CODE_POLICY::ProhibitDynamicCode` - no new
 /// executable memory, and no making existing memory executable.
 const PROHIBIT_DYNAMIC_CODE: u32 = 1 << 0;
 
@@ -35,7 +28,7 @@ const PROHIBIT_DYNAMIC_CODE: u32 = 1 << 0;
 const NO_CHILD_PROCESS_CREATION: u32 = 1 << 0;
 
 /// `PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY::DisableExtensionPoints`
-/// — refuses the legacy injection vectors (AppInit_DLLs, global window hooks,
+/// - refuses the legacy injection vectors (AppInit_DLLs, global window hooks,
 /// IME plugins) that would otherwise load third-party code into this process.
 const DISABLE_EXTENSION_POINTS: u32 = 1 << 0;
 
@@ -206,11 +199,11 @@ pub fn apply_job_limits(process: windows_sys::Win32::Foundation::HANDLE, memory_
         return Err(std::io::Error::last_os_error());
     }
 
-    // Intentionally not closed — see the doc comment.
+    // Intentionally not closed - see the doc comment.
     Ok(())
 }
 
-/// Drop this process to **low integrity**, self-applied and irreversible.
+/// Drop this process to low integrity, self-applied and irreversible.
 fn set_low_integrity() -> std::io::Result<()> {
     use windows_sys::Win32::Foundation::{CloseHandle, LocalFree};
     use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
@@ -270,8 +263,8 @@ fn set_low_integrity() -> std::io::Result<()> {
 
 /// No network isolation. On Linux this is an empty netns; on macOS the
 /// Seatbelt profile omits `network-outbound`. The Windows equivalent is an
-/// AppContainer without the `internetClient` capability — genuinely
-/// capability-based, and the closest analogue of the three — but it is attached
+/// AppContainer without the `internetClient` capability - genuinely
+/// capability-based, and the closest analogue of the three - but it is attached
 /// by the parent at `CreateProcess`, so it cannot be expressed here. Until then
 /// a Windows renderer *can* reach the network.
 #[cfg(feature = "multi-process")]
@@ -283,9 +276,9 @@ pub fn isolate_namespaces(_mode: crate::NamespaceIsolation) -> std::io::Result<(
 pub fn deny_debugger_attach() {}
 
 /// Build a restricted primary token for a child, or `None` if the host
-/// refuses (the spawner then falls back to the inherited token).
-///
-/// ## The ceiling this deliberately stops short of
+/// refuses (the spawner then falls back to the inherited token). No
+/// restricting SIDs are applied - this deliberately stops short of the strong
+/// form.
 #[cfg(feature = "multi-process")]
 pub fn restricted_token() -> Option<windows_sys::Win32::Foundation::HANDLE> {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
@@ -297,13 +290,10 @@ pub fn restricted_token() -> Option<windows_sys::Win32::Foundation::HANDLE> {
     use windows_sys::Win32::System::SystemServices::SE_GROUP_USE_FOR_DENY_ONLY;
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
-    // A SID must be DWORD-aligned: its sub-authority array is `DWORD`s starting
-    // at offset 8, and the kernel reads them as such. A bare `[u8; 68]` has
-    // 1-byte alignment, so on an unlucky stack address `CreateRestrictedToken`
-    // faults with ERROR_NOACCESS (998) — intermittently, since stack alignment
-    // varies per call and per process. That flakiness is what made a broken
-    // token *sometimes* build and mimicked a working sandbox. The alignment
-    // here is the fix; `align(8)` covers the DWORDs with margin.
+    // A SID must be DWORD-aligned (its sub-authority array is DWORDs at offset
+    // 8). A bare `[u8; 68]` has 1-byte alignment, so on an unlucky stack
+    // address `CreateRestrictedToken` faults intermittently with
+    // ERROR_NOACCESS (998); `align(8)` fixes it.
     #[repr(align(8))]
     struct Sid([u8; 68]);
 
@@ -348,7 +338,7 @@ pub fn restricted_token() -> Option<windows_sys::Win32::Foundation::HANDLE> {
 
     let mut out: HANDLE = std::ptr::null_mut();
     // SAFETY: `token` is valid; the deny array lives across the call. No
-    // restricting SIDs — see the doc comment for why the strong form is out.
+    // restricting SIDs (see the doc comment).
     let ok = unsafe {
         CreateRestrictedToken(
             token,
@@ -423,7 +413,7 @@ impl Drop for AppContainerIdentity {
 }
 
 /// Build the AppContainer identity for a child. `name` is the container name (its
-/// SID is *derived* from it — no registered profile is needed for the process's
+/// SID is *derived* from it - no registered profile is needed for the process's
 /// lifetime); `internet` adds the `internetClient` capability (the net
 /// component's one privilege). Returns `None` if the SIDs cannot be built, so the
 /// spawner can fall back to the restricted-token path.
@@ -437,12 +427,12 @@ pub fn app_container_identity(name: &str, internet: bool) -> Option<AppContainer
     use windows_sys::Win32::Security::SID_AND_ATTRIBUTES;
     use windows_sys::Win32::System::SystemServices::SE_GROUP_ENABLED;
 
-    // HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) — the profile is already registered.
+    // HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) - the profile is already registered.
     const ALREADY_EXISTS: i32 = 0x8007_00B7u32 as i32;
 
     let w = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };
 
-    // Build the capability SIDs first — they are needed both to register the
+    // Build the capability SIDs first - they are needed both to register the
     // profile and for the launch-time SECURITY_CAPABILITIES.
     let mut capability_sids: Vec<*mut c_void> = Vec::new();
     if internet {
@@ -469,7 +459,7 @@ pub fn app_container_identity(name: &str, internet: bool) -> Option<AppContainer
     };
 
     // Register the AppContainer profile. This is what creates the container's
-    // on-disk profile (its LocalState folders) that a launched process needs —
+    // on-disk profile (its LocalState folders) that a launched process needs -
     // deriving the SID alone does not, and `CreateProcess` into an unregistered
     // container fails with ERROR_FILE_NOT_FOUND. Idempotent: a container that is
     // already registered is fetched with `DeriveAppContainerSidFromAppContainerName`.
@@ -523,7 +513,7 @@ const OBJECT_INHERIT_ACE: u32 = 0x1;
 #[cfg(feature = "multi-process")]
 const CONTAINER_INHERIT_ACE: u32 = 0x2;
 
-/// Merge one ALLOW ACE — `sid`, `rights`, `inheritance` — into `path`'s existing
+/// Merge one ALLOW ACE - `sid`, `rights`, `inheritance` - into `path`'s existing
 /// DACL. The building block for the app-package and per-container grants below.
 /// Idempotent: `SetEntriesInAclW` with `GRANT_ACCESS` folds into any existing ACE
 /// for the same trustee rather than stacking duplicates.
@@ -614,7 +604,7 @@ fn sid_from_string(sddl: &str) -> Option<*mut c_void> {
     Some(sid)
 }
 
-/// Grant **ALL APPLICATION PACKAGES** read+execute on `path` so an AppContainer
+/// Grant ALL APPLICATION PACKAGES read+execute on `path` so an AppContainer
 /// (lowbox) child can load this image.
 #[cfg(feature = "multi-process")]
 pub fn grant_app_package_execute(path: &std::path::Path) -> std::io::Result<()> {
@@ -628,7 +618,7 @@ pub fn grant_app_package_execute(path: &std::path::Path) -> std::io::Result<()> 
 }
 
 /// Give one service's AppContainer access to *its* file/directory, the way the
-/// Linux services get `openat` + Landlock to their own path — so a lowbox
+/// Linux services get `openat` + Landlock to their own path - so a lowbox
 /// storage or font service can still reach its data even though it has no broad
 /// file access. `container_sid` is the service's own container (each service has
 /// its own, so this never widens another role's reach). `writable` adds write
@@ -657,8 +647,8 @@ pub fn grant_container_path_access(
     Ok(())
 }
 
-/// Relabel `path` to **Low** integrity (inherited, no-write-up), so a
-/// Low-integrity lowbox process may write to it — the engine creates the path at
+/// Relabel `path` to Low integrity (inherited, no-write-up), so a
+/// Low-integrity lowbox process may write to it - the engine creates the path at
 /// its own Medium integrity, which a Low process otherwise cannot write.
 #[cfg(all(feature = "multi-process", target_os = "windows"))]
 fn set_low_integrity_label(path: &std::path::Path) -> std::io::Result<()> {

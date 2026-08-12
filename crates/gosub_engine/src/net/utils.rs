@@ -1,4 +1,7 @@
 //! Small helpers on top of the gosub-sonar streaming types.
+//!
+//! `gosub-sonar` keeps its internal `utils` module private, so the engine carries its own
+//! copy of the pieces it needs.
 
 use crate::engine::types::PeekBuf;
 use crate::net::shared_body::SharedBody;

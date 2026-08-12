@@ -15,6 +15,13 @@ pub struct FetchHandle {
 }
 
 /// What kind of resource is being fetched.
+///
+/// gosub-sonar only distinguishes coarse categories (`Primary`/`Asset`/`Other`), so the
+/// engine keeps this richer classification for its own events and pipelines and maps it
+/// down via [`ResourceKind::to_net`] when building a `FetchRequest`. The original rich
+/// value is kept per request in the
+/// [`REF_REGISTRY`](crate::net::req_ref_tracker::REF_REGISTRY) so fetcher callbacks can
+/// recover it.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum ResourceKind {
     Document,
@@ -64,6 +71,9 @@ impl ResourceKind {
 }
 
 /// Who or what triggered the fetch.
+///
+/// Same story as [`ResourceKind`]: richer than gosub-sonar's `User`/`Application`/`Other`,
+/// mapped down at the fetch boundary.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Initiator {
     /// Initiated by the user, UI, or link click

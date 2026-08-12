@@ -7,6 +7,10 @@ use resvg::usvg::Transform;
 use skia_safe::{images, AlphaType, Canvas, ColorType, Data, ImageInfo, Paint, Rect as SkRect, SamplingOptions};
 
 /// Rasterize an SVG at physical resolution (CSS size × dpr) and blit it onto the tile canvas.
+///
+/// The tile canvas is already dpr-scaled and translated into page space, so placing the image at
+/// its CSS-unit rect maps it 1:1 onto device pixels - crisp on HiDPI. The rendered pixels are
+/// cached on the `Svg` and shared with the Cairo backend (same premultiplied-BGRA byte order).
 pub fn do_paint_svg(
     canvas: &Canvas,
     _tile: &Tile,

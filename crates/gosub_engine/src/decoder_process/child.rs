@@ -1,6 +1,4 @@
 //! The image decoder process: one image, then gone.
-//!
-//! ## Why it exits after one image
 
 use crate::decoder_process::protocol::{FromDecoder, ToDecoder, CHUNK_BYTES};
 use gosub_ipc::Endpoint;

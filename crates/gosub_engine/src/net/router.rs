@@ -135,14 +135,13 @@ fn json_document_html(value: &serde_json::Value) -> String {
     )
 }
 
-/// BodyContent represents either a streaming body or a fully buffered body.
 enum BodyContent {
     Stream { shared: Arc<SharedBody> },
     Buffered { body: Bytes },
 }
 
 impl BodyContent {
-    // Convert to bytes, collecting the stream if necessary. Will take the peek buffer into account (if needed)
+    // Collect into bytes; a streamed body is re-joined with its peek buffer.
     #[allow(clippy::wrong_self_convention)]
     async fn to_bytes(self, peek_buf: PeekBuf) -> anyhow::Result<Bytes> {
         match self {
@@ -164,7 +163,6 @@ pub async fn route_response_for<C: RenderConfiguration>(
     policy: &UaPolicy,
     hooks: &mut ResourcePipelines<C>,
 ) -> anyhow::Result<RoutedOutcome<C>> {
-    // Fetch the metadata, peek buffer and content (type)
     let (meta, body_content, peek_buf) = match fetch_result {
         FetchResult::Stream { meta, peek_buf, shared } => (meta, BodyContent::Stream { shared }, peek_buf),
         FetchResult::Buffered { meta, body } => {
@@ -177,7 +175,6 @@ pub async fn route_response_for<C: RenderConfiguration>(
         }
     };
 
-    // Decide what we need to do with the response
     let outcome = decide_handling(&meta, dest, peek_buf.clone(), policy);
 
     match (dest, outcome.decision, body_content) {

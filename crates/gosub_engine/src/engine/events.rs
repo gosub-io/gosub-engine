@@ -362,7 +362,7 @@ pub enum NavigationEvent {
 /// resources. @TODO: how do we see this?
 ///
 /// Every variant carries the `request_id` of the load (@TODO: what if it contains multiple
-/// redirects?) and its `reference` — what the resource belongs to (navigation id, document id,
+/// redirects?) and its `reference` - what the resource belongs to (navigation id, document id,
 /// background task id etc.).
 #[derive(Debug, Clone)]
 pub enum ResourceEvent {

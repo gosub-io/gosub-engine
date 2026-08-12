@@ -1,19 +1,19 @@
-//! A browser-shaped embedder that runs the engine with **process isolation**.
+//! A browser-shaped embedder that runs the engine with process isolation.
 //!
 //! The other examples are single-webview and single-process: they never spawn a
-//! component, so they need none of the setup below and deliberately do not carry
-//! it. This one exists to show the whole arrangement in one place.
+//! component, so they need none of the setup below. This one shows the whole
+//! arrangement in one place.
 //!
-//! Two things are required, and only two:
+//! Two things are required:
 //!
-//! 1. **Call [`child_process::dispatch_with`] as the first statement of
-//!    `main`.** The engine starts a component by re-exec'ing *this* binary with
-//!    a role argument, so a child must reach its role before the embedder's own
+//! 1. Call [`child_process::dispatch_with`] as the first statement of `main`.
+//!    The engine starts a component by re-exec'ing this binary with a role
+//!    argument, so a child must reach its role before the embedder's own
 //!    startup runs. In the parent this returns immediately. It takes the
 //!    embedder's configuration type because a renderer runs the pipeline over
-//!    *your* document and font types — the plain `dispatch` still works for an
+//!    your document and font types; the plain `dispatch` still works for an
 //!    embedder that wants only the network and decoder processes.
-//! 2. **Turn on the isolation settings before [`GosubEngine::start`].**
+//! 2. Turn on the isolation settings before [`GosubEngine::start`].
 //!    `security.network_process` moves the network stack out;
 //!    `security.image_decoder_process` decodes each image in a throwaway
 //!    process; `security.renderer_process` renders pages out of process. All
@@ -34,26 +34,24 @@
 //!      \_ (a renderer, per render, gone when the page is done)
 //! ```
 //!
-//! plus **one short-lived decoder per image**, which you will only catch in
-//! `ps` if you look while a page is loading — each decodes a single image and
-//! exits. That is deliberate: a decoder that exits cannot carry anything from
-//! one image into the next.
+//! plus one short-lived decoder per image, visible in `ps` only while a page
+//! is loading - each decodes a single image and exits, so a decoder cannot
+//! carry anything from one image into the next.
 //!
 //! Four things the tree does not show:
 //!
-//! * **One network process serves the whole engine**, not one per tab or per
-//!   zone. It holds no per-zone state; the connection pooling that *is* per-zone
-//!   lives inside it. More tabs will not produce more network processes.
-//! * **The fork server renders nothing itself.** It exists to hold a warmed font
-//!   system so each forked renderer inherits it copy-on-write, and to be the
-//!   process renderers are forked from. Whether it exists at all depends on the
-//!   font system: one that reads font files while shaping (Pango, Skia) gets
-//!   throwaway renderers spawned per render instead, with read-only access to
-//!   the font paths.
-//! * **A renderer has no network.** Every image, stylesheet and web font it
-//!   needs is requested back through the broker, which performs the fetch where
-//!   cookies and identity live, and hands back only bytes. Its rasterized tiles
-//!   return as sealed shared memory, mapped rather than copied.
+//! * One network process serves the whole engine, not one per tab or zone. It
+//!   holds no per-zone state; the connection pooling that is per-zone lives
+//!   inside it.
+//! * The fork server renders nothing itself: it holds a warmed font system so
+//!   each forked renderer inherits it copy-on-write. Whether it exists depends
+//!   on the font system: one that reads font files while shaping (Pango, Skia)
+//!   gets throwaway renderers spawned per render instead, with read-only
+//!   access to the font paths.
+//! * A renderer has no network. Every image, stylesheet and web font is
+//!   requested back through the broker, which performs the fetch where cookies
+//!   and identity live, and hands back only bytes. Its rasterized tiles return
+//!   as sealed shared memory, mapped rather than copied.
 //! * Children show as low-priority in `ps` (`N` in the state column) because the
 //!   sandbox lowers child scheduling priority along with its other limits.
 //!
@@ -63,7 +61,7 @@
 //! cargo run --example multi-process -- https://example.com https://example.org
 //! ```
 //!
-//! Nothing is drawn — a `NullBackend` keeps the example about the process
+//! Nothing is drawn - a `NullBackend` keeps the example about the process
 //! model. The renderer processes still run the whole pipeline (parse, style,
 //! layout, paint); with no rasterizer configured for them they simply produce
 //! no pixels, which is what a `NullBackend` embedder wants anyway. A GUI

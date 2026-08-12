@@ -266,6 +266,10 @@ impl LayerList {
     /// Walk the layout tree assigning each element to a layer. An element is *promoted* to its own
     /// layer (with its subtree) for a compositing reason (`opacity < 1`, `position: fixed`/`sticky`)
     /// even when nested, or once for a positioned `z-index`, which only re-levels its subtree.
+    ///
+    /// `in_promoted_group`: inside such a subtree, where images deliberately do NOT get their own
+    /// layer so they move/fade with the group. `group_faded`: the enclosing layer has `opacity < 1`,
+    /// which gates the per-element opacity skip. `inherited_order`: the enclosing stacking level.
     fn traverse(
         &self,
         layer_id: LayerId,

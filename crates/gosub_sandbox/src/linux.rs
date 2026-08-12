@@ -1,19 +1,11 @@
 //! Linux backend: seccomp-BPF confinement, network namespaces, rlimits, and
-//! `prctl(PR_SET_DUMPABLE)`. This is the reference implementation of the
-//! privilege model; the public surface it satisfies lives in
-//! this crate. Every item here is unconditionally Linux — the parent
-//! module only compiles this file on `target_os = "linux"`, so nothing inside
-//! carries a `target_os` guard.
-//!
-//! Process isolation is only worth as much as the privileges you drop inside
-//! each process. After a child has connected its IPC link we install a
-//! seccomp-BPF filter — the same mechanism Chromium uses to sandbox its
-//! renderers.
+//! `prctl(PR_SET_DUMPABLE)`. Only compiled on `target_os = "linux"`, so items
+//! carry no `target_os` guards. Each child installs a seccomp-BPF filter after
+//! connecting its IPC link (the same mechanism Chromium uses for renderers).
 
-// Syscall numbers are `c_long`, which is i64 on the 64-bit targets we build and
-// i32 on 32-bit ones. The casts to i64 (seccompiler's rule key) are redundant
-// only on the former, so clippy's advice is architecture-specific — dropping
-// them would break the build on any 32-bit target.
+// Syscall numbers are `c_long` (i64 on 64-bit, i32 on 32-bit). The casts to
+// i64 (seccompiler's rule key) are redundant only on 64-bit; dropping them
+// breaks 32-bit builds.
 #![allow(clippy::unnecessary_cast)]
 
 /// Syscalls any confined child needs after startup: I/O on already-open fds
@@ -23,7 +15,7 @@
 /// `io_uring_*` (no async-submission network bypass), `ptrace`.
 #[cfg(feature = "multi-process")]
 const BASELINE: &[libc::c_long] = &[
-    // I/O on existing fds only — a new socket/file fd cannot be obtained
+    // I/O on existing fds only - a new socket/file fd cannot be obtained
     // because socket()/openat() are not on this list.
     libc::SYS_read,
     libc::SYS_write,
@@ -34,17 +26,14 @@ const BASELINE: &[libc::c_long] = &[
     libc::SYS_recvmsg,
     libc::SYS_sendmsg,
     libc::SYS_close,
-    // Both spellings of fstat: which one `fstat()` becomes is a glibc
-    // decision, not ours. Debian bookworm's 2.36 issues `newfstatat` with
-    // AT_EMPTY_PATH; Ubuntu 24.04's 2.39 issues `fstat`. Allowing only the
-    // one the build host happens to use kills the ring and tile consumers on
-    // the other — found by running these probes under a different libc, not
-    // by reading the code.
+    // Both spellings of fstat: glibc 2.36 (Debian bookworm) issues
+    // `newfstatat` with AT_EMPTY_PATH, 2.39 (Ubuntu 24.04) issues `fstat`.
+    // Allowing only one kills the ring and tile consumers on the other libc.
     libc::SYS_fstat,
     libc::SYS_newfstatat,
     libc::SYS_statx,
     libc::SYS_lseek,
-    // memory — mmap/mprotect are argument-filtered in `install` to forbid
+    // memory - mmap/mprotect are argument-filtered in `install` to forbid
     // PROT_EXEC (mremap preserves an existing mapping's protection, so it can't
     // introduce exec).
     libc::SYS_mmap,
@@ -55,7 +44,7 @@ const BASELINE: &[libc::c_long] = &[
     libc::SYS_brk,
     // shared-memory tile transport: create an anonymous sealable buffer, size
     // it, seal it. fcntl is argument-filtered in `install` to the two seal
-    // commands only — its other commands (F_DUPFD, F_SETFD/F_SETFL, locks)
+    // commands only - its other commands (F_DUPFD, F_SETFD/F_SETFL, locks)
     // stay fatal. memfd_create yields a plain memory fd: it opens no path on
     // the filesystem, so this adds no reach `openat`'s absence was denying.
     libc::SYS_memfd_create,
@@ -63,13 +52,11 @@ const BASELINE: &[libc::c_long] = &[
     libc::SYS_fcntl,
     // runtime / synchronization
     libc::SYS_futex,
-    // Restartable sequences: glibc registers an rseq area **per thread**, as
-    // part of thread startup. A role that spawns a thread after its lockdown
-    // (tokio grows its blocking pool lazily — DNS resolution lands on one)
-    // otherwise dies the moment that thread starts, and dies *silently*:
-    // glibc blocks signals during thread setup, so the forced SIGSYS kills
-    // the process without the reporter ever running. Registering a per-thread
-    // scheduler hint grants no reach; Chromium's baseline policy allows it too.
+    // glibc registers an rseq area per thread at thread startup. A thread
+    // spawned after lockdown (tokio grows its blocking pool lazily; DNS lands
+    // on one) otherwise dies silently: glibc blocks signals during thread
+    // setup, so the SIGSYS kills the process before the reporter runs.
+    // Grants no reach; Chromium's baseline allows it too.
     libc::SYS_rseq,
     libc::SYS_getrandom,
     libc::SYS_sched_yield,
@@ -107,14 +94,9 @@ const NET_EXTRA: &[libc::c_long] = &[
     libc::SYS_getpeername,
 ];
 
-/// What a *real* network stack needs on top of [`NET_EXTRA`], as opposed to the
-/// synthetic one this model was first written against.
-///
-/// Every entry here was added because a request died on it, not because it
-/// looked plausible — the `SIGSYS` handler names the offending call, which is
-/// what makes deriving this list tractable at all. Expect it to grow as more
-/// libc and TLS backend combinations are exercised; that is an argument for the
-/// libc/arch CI matrix, not for loosening the filter.
+/// What a real network stack needs on top of [`NET_EXTRA`]. Every entry was
+/// added because a request died on it (the SIGSYS handler names the call);
+/// expected to grow as more libc/TLS-backend combinations are exercised.
 #[cfg(feature = "multi-process")]
 const NET_RUNTIME_EXTRA: &[libc::c_long] = &[
     // Async I/O readiness: tokio's reactor.
@@ -135,10 +117,9 @@ const NET_RUNTIME_EXTRA: &[libc::c_long] = &[
     libc::SYS_getdents64,
     libc::SYS_readlinkat,
     libc::SYS_readlink,
-    // Name resolution over UDP: glibc's resolver sends the A and AAAA queries
-    // in one `sendmmsg` and collects the answers with `recvmmsg`. Neither
-    // reaches anything the single-datagram calls above could not; they are the
-    // batched spellings of the sockets this role already has.
+    // glibc's resolver sends the A and AAAA queries in one `sendmmsg` and
+    // collects them with `recvmmsg` - batched spellings of the single-datagram
+    // calls above, no extra reach.
     libc::SYS_sendmmsg,
     libc::SYS_recvmmsg,
     // Socket options and non-blocking flags the client sets per connection.
@@ -159,11 +140,9 @@ const NET_RUNTIME_EXTRA: &[libc::c_long] = &[
 /// renderers, and reaping them.
 #[cfg(feature = "multi-process")]
 const FORK_SERVER_EXTRA: &[libc::c_long] = &[
-    // All three spellings of "make a process", because which one `fork()`
-    // becomes is the C library's choice: glibc issues `clone3` (new) or
-    // `clone` (older), musl issues the legacy `SYS_fork`. Allowing only the
-    // pair glibc uses kills the fork server outright on musl — at its own
-    // canary, which is the one failure the canary cannot report politely.
+    // All three spellings of "make a process": glibc issues `clone3` (new) or
+    // `clone` (older), musl issues legacy `SYS_fork`. Allowing only the glibc
+    // pair kills the fork server on musl.
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     libc::SYS_fork,
     libc::SYS_clone,
@@ -171,22 +150,18 @@ const FORK_SERVER_EXTRA: &[libc::c_long] = &[
     libc::SYS_wait4,
     libc::SYS_prctl,
     libc::SYS_seccomp,
-    // The C library's own post-fork housekeeping in the child, before a single
-    // line of our code runs — and each libc does it differently: glibc resets
-    // the robust-futex list, musl registers a TID address. Invisible in the
-    // source, fatal without them. Both merely register a pointer for the
-    // kernel to clear on exit; neither can escalate.
+    // Libc post-fork housekeeping in the child, before our code runs: glibc
+    // resets the robust-futex list, musl registers a TID address. Both only
+    // register a pointer for the kernel to clear on exit; neither escalates.
     libc::SYS_set_robust_list,
     libc::SYS_set_tid_address,
-    // The private link each forked renderer talks over is created by the fork
-    // server *after* its own lockdown, one pair per fork. AF_UNIX only in
-    // practice; a socketpair reaches no network, so nothing here widens the
-    // no-sockets stance of the baseline.
+    // The fork server creates each renderer's private link after its own
+    // lockdown, one pair per fork. A socketpair reaches no network.
     libc::SYS_socketpair,
 ];
 
 /// Prove, on *this* machine, that the fork-server filter actually permits what
-/// a forked renderer needs — before any renderer depends on it.
+/// a forked renderer needs - before any renderer depends on it.
 #[cfg(feature = "multi-process")]
 pub fn verify_fork_server_filter() {
     // SAFETY: the fork server is single-threaded, so the child may run normal
@@ -246,14 +221,11 @@ pub fn verify_fork_server_filter() {
 /// against it, so the *detection* is tested and not merely the happy path.
 #[cfg(feature = "multi-process")]
 pub fn canary_must_detect_a_missing_syscall() -> ! {
-    // The gap is the missing `F_DUPFD_CLOEXEC` permission, deliberately, and
-    // not a missing syscall from the list: the syscall a forked child needs is
-    // itself libc-dependent, so removing any *one* of them tests nothing on the
-    // libc that does not use it. An earlier version dropped `set_robust_list`,
-    // which glibc issues and musl does not — so on musl the crippled filter was
-    // not crippled, the canary correctly reported no problem, and this test
-    // failed for being wrong rather than the code being wrong. Every libc needs
-    // to clone a descriptor here, so denying that is a gap everywhere.
+    // The deliberate gap is the `F_DUPFD_CLOEXEC` permission, not a missing
+    // syscall: which syscalls a forked child issues is libc-dependent, so
+    // removing one tests nothing on a libc that does not use it (dropping
+    // `set_robust_list` was a no-op on musl). Every libc needs to clone a
+    // descriptor here, so denying that is a gap everywhere.
     let full: Vec<libc::c_long> = BASELINE.iter().chain(FORK_SERVER_EXTRA).copied().collect();
     // `fork_server: false` here: the gap under test is the missing
     // `F_DUPFD_CLOEXEC`, and the `clone` argument-filter is orthogonal to it.
@@ -291,17 +263,13 @@ fn fail_canary(detail: &str) -> ! {
 #[cfg(feature = "multi-process")]
 pub fn lock_down_fork_server() {
     deny_debugger_attach();
-    // Stack the `clone3` → `ENOSYS` pre-filter *first*, so glibc's `fork()` uses
-    // the register-based `clone` the main filter can constrain. This is
-    // **fail-closed**, like the rest of the sandbox: `clone3` cannot be
-    // argument-filtered (its flags live in a struct seccomp can't read), so if
-    // this pre-filter is absent `clone3` stays *allowed and unconstrained* —
-    // reopening the `CLONE_NEWUSER`/`CLONE_VM`/namespace vectors the
-    // register-based `clone` rule blocks. So a failure to install it refuses the
-    // fork server rather than running it with that hole. (It uses `seccomp(2)`
-    // exactly as the main filter does, so in practice if one installs so does the
-    // other; a host without seccomp uses `--single-process`.) If it installs but
-    // a libc does not honour the fallback, `verify_fork_server_filter` catches it.
+    // clone3 -> ENOSYS pre-filter must stack first, so glibc's `fork()` falls
+    // back to register-based `clone`, which the main filter can constrain.
+    // `clone3` cannot be argument-filtered (its flags live in a struct seccomp
+    // can't read), so without this pre-filter it stays allowed and
+    // unconstrained, reopening the CLONE_NEWUSER/CLONE_VM/namespace vectors
+    // the `clone` rule blocks - hence fail-closed on install failure. A libc
+    // that doesn't honour the fallback is caught by `verify_fork_server_filter`.
     if let Err(e) = install_clone3_enosys() {
         eprintln!(
             "[fork-server] FATAL: could not install clone3->ENOSYS pre-filter ({e}); \
@@ -332,7 +300,7 @@ pub fn lock_down_fork_server_with_font_access(fs_allow: &[(&std::path::Path, boo
         }
     }
 
-    // Same fail-closed clone3 story as `lock_down_fork_server` — see there.
+    // Same fail-closed clone3 story as `lock_down_fork_server` - see there.
     if let Err(e) = install_clone3_enosys() {
         eprintln!(
             "[fork-server+fonts] FATAL: could not install clone3->ENOSYS pre-filter ({e}); \
@@ -350,9 +318,9 @@ pub fn lock_down_fork_server_with_font_access(fs_allow: &[(&std::path::Path, boo
     enforce("fork-server+fonts", install_fork_server(allowed));
 }
 
-/// Cap a renderer that was **forked from the fork server**, to the tier its
-/// font system answered: the plain renderer baseline, or — with `font_access`
-/// — the baseline plus the file-reading syscalls.
+/// Cap a renderer that was forked from the fork server, to the tier its
+/// font system answered: the plain renderer baseline, or - with `font_access`
+/// - the baseline plus the file-reading syscalls.
 #[cfg(feature = "multi-process")]
 pub fn lock_down_forked_renderer(font_access: bool) {
     let mut allowed = BASELINE.to_vec();
@@ -373,7 +341,7 @@ pub fn lock_down_forked_renderer(font_access: bool) {
 pub enum Forked {
     /// The original process; `pid` is the child to eventually [`reap_child`].
     Parent { pid: i32 },
-    /// The new process. It must do its work and leave via [`exit_now`] — never
+    /// The new process. It must do its work and leave via [`exit_now`] - never
     /// return into the caller's stack, which belongs to the parent's logic.
     Child,
 }
@@ -441,7 +409,7 @@ pub fn hold_pid_namespace_anchor() -> std::io::Result<PidNamespaceAnchor> {
         Forked::Child => {
             // SAFETY: closing the inherited copy of the parent's end.
             unsafe { libc::close(write_fd) };
-            // Confine quietly (no lockdown banner — this is plumbing, not a
+            // Confine quietly (no lockdown banner - this is plumbing, not a
             // component); an install failure leaves an idle read loop, which
             // is not worth killing the namespace over.
             let _ = install(BASELINE.to_vec());
@@ -466,7 +434,7 @@ pub fn hold_pid_namespace_anchor() -> std::io::Result<PidNamespaceAnchor> {
     }
 }
 
-/// Cap a renderer: pixels only — the baseline, no network, files, or exec.
+/// Cap a renderer: pixels only - the baseline, no network, files, or exec.
 #[cfg(feature = "multi-process")]
 pub fn lock_down_renderer() {
     deny_debugger_attach();
@@ -474,12 +442,11 @@ pub fn lock_down_renderer() {
 }
 
 /// What a fontconfig-backed font stack does at match time, beyond opening the
-/// font file itself: probes cache freshness (`access`, or `faccessat` on
-/// architectures without it), lists font directories, and follows the symlinks
-/// distributions put under them. Empirically derived against Pango and Skia
-/// under the font-readable renderer profile — a missing entry shows up as a
-/// `SIGSYS` naming the syscall — and expected to grow per libc, exactly like
-/// [`NET_RUNTIME_EXTRA`] did.
+/// font file: probes cache freshness (`access`, or `faccessat` on
+/// architectures without it), lists font directories, follows their symlinks.
+/// Empirically derived against Pango and Skia (a missing entry surfaces as
+/// SIGSYS naming the syscall); expected to grow per libc like
+/// [`NET_RUNTIME_EXTRA`].
 #[cfg(feature = "multi-process")]
 const FONT_READ_EXTRA: &[libc::c_long] = &[
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
@@ -502,15 +469,14 @@ const FONT_READ_EXTRA: &[libc::c_long] = &[
 ];
 
 /// Cap a renderer whose font system must read font files: the renderer
-/// baseline plus the file-reading syscalls, with **Landlock deciding which
-/// paths they may reach** (pass [`font_filesystem_paths`], read-only).
+/// baseline plus the file-reading syscalls, with Landlock deciding which
+/// paths they may reach (pass [`font_filesystem_paths`], read-only).
 #[cfg(feature = "multi-process")]
 pub fn lock_down_renderer_with_font_access(fs_allow: &[(&std::path::Path, bool)]) {
     deny_debugger_attach();
 
     // Landlock before seccomp, as everywhere: its own syscalls and the O_PATH
-    // anchor opens must run unfiltered, and it is what turns "may open files"
-    // into "may read the font paths and nothing else".
+    // anchor opens must run unfiltered.
     if !fs_allow.is_empty() {
         match landlock::restrict(fs_allow) {
             Ok(true) => eprintln!("[renderer+fonts] landlock active (filesystem scoped to font paths)"),
@@ -565,11 +531,9 @@ pub fn font_filesystem_paths() -> Vec<std::path::PathBuf> {
     candidates
 }
 
-/// Cap the **vault** (cookie store): the same bare baseline as a renderer — no
-/// network, no `openat`, no `ioctl`, no exec — because it needs the least
-/// authority of any process. It only moves bytes on its inherited IPC fd and
-/// touches its own memory. The tightest filter in the model, for the process
-/// that holds the secrets.
+/// Cap the vault (cookie store): the same bare baseline as a renderer - no
+/// network, `openat`, `ioctl`, or exec. It only moves bytes on its inherited
+/// IPC fd and touches its own memory.
 #[cfg(feature = "multi-process")]
 pub fn lock_down_vault() {
     deny_debugger_attach();
@@ -581,14 +545,11 @@ pub fn lock_down_vault() {
 pub fn lock_down_net(fs_allow: &[(&std::path::Path, bool)]) {
     deny_debugger_attach();
 
-    // A real network stack reads files, unlike the synthetic one this policy was
-    // first written against: TLS needs the system root certificates and DNS needs
-    // the resolver configuration. Denying `openat` outright made the process die
-    // on its first HTTPS request. So the syscall is allowed and **Landlock decides
-    // which paths it may reach** — seccomp bounds the operation, Landlock bounds
-    // the target. Without Landlock the filesystem is capped only by the caller's
-    // path list being short, which is why its absence is reported rather than
-    // passed over.
+    // TLS needs the system root certificates and DNS the resolver config;
+    // denying `openat` outright killed the process on its first HTTPS request.
+    // So `openat` is allowed and Landlock decides which paths it may reach:
+    // seccomp bounds the operation, Landlock bounds the target. Landlock's
+    // absence is reported, since without it the filesystem is unscoped.
     if !fs_allow.is_empty() {
         match landlock::restrict(fs_allow) {
             Ok(true) => eprintln!("[net] landlock active (filesystem scoped to resolver and CA paths)"),
@@ -609,13 +570,10 @@ pub fn lock_down_net(fs_allow: &[(&std::path::Path, bool)]) {
 }
 
 /// The read-only paths a network stack needs on a typical Linux system:
-/// resolver configuration and the system trust store.
-///
-/// Only paths that exist are returned — Landlock rules name real objects, and
-/// distributions disagree about which of these are present. Empirically derived
-/// (a missing entry shows up as a `SIGSYS` naming `openat`, or a TLS handshake
-/// that cannot verify anything), so it is expected to grow as more platforms are
-/// exercised; the PoC's libc/arch CI matrix exists for exactly this reason.
+/// resolver configuration and the system trust store. Only existing paths are
+/// returned (Landlock rules name real objects; distributions differ). A
+/// missing entry surfaces as SIGSYS on `openat` or a failing TLS handshake;
+/// expected to grow per distribution.
 pub fn net_filesystem_paths() -> Vec<std::path::PathBuf> {
     const CANDIDATES: &[&str] = &[
         // Resolver configuration.
@@ -642,9 +600,7 @@ pub fn net_filesystem_paths() -> Vec<std::path::PathBuf> {
 }
 
 /// The syscalls a filesystem-capable service needs beyond the baseline to open
-/// a file. Renderers deny these outright (their filesystem is capped without
-/// Landlock); a font or storage service is *defined* by needing them, which is
-/// exactly why it is a separate process rather than something a renderer does.
+/// a file. Renderers deny these outright; font/storage services need them.
 #[cfg(feature = "multi-process")]
 const FS_EXTRA: &[libc::c_long] = &[
     libc::SYS_openat,
@@ -652,7 +608,7 @@ const FS_EXTRA: &[libc::c_long] = &[
     libc::SYS_open,
 ];
 
-/// Landlock: filesystem access control by *path*, the thing seccomp cannot do.
+/// Landlock: path-based filesystem access control (which seccomp cannot do).
 #[cfg(feature = "multi-process")]
 mod landlock {
     use std::os::fd::RawFd;
@@ -709,7 +665,7 @@ mod landlock {
         abi() >= 1
     }
 
-    /// Every fs right this ABI knows — the set the ruleset *handles* (anything
+    /// Every fs right this ABI knows - the set the ruleset *handles* (anything
     /// handled but not granted by a rule is denied). Masked to the ABI so an
     /// unsupported bit does not make `create_ruleset` fail.
     fn handled(abi: i32) -> u64 {
@@ -737,7 +693,7 @@ mod landlock {
 
     /// Rights to grant one *service* path. Directory-only rights (`READ_DIR`,
     /// `MAKE_REG`, `REMOVE_FILE`) must not be set on a *file* path or `add_rule`
-    /// rejects the ruleset with `EINVAL` — so the grant depends on `is_dir`.
+    /// rejects the ruleset with `EINVAL` - so the grant depends on `is_dir`.
     /// `TRUNCATE` (ABI v3) is included unconditionally; [`apply`] masks it off on
     /// older kernels.
     fn grant(is_dir: bool, writable: bool) -> u64 {
@@ -755,7 +711,7 @@ mod landlock {
         a
     }
 
-    /// Directory-only rights — invalid on a *file* path, so [`apply`] strips them
+    /// Directory-only rights - invalid on a *file* path, so [`apply`] strips them
     /// there rather than let one file rule `EINVAL` the whole ruleset.
     const DIR_ONLY: u64 = READ_DIR
         | MAKE_REG
@@ -769,7 +725,7 @@ mod landlock {
         | MAKE_SYM;
 
     /// Create a ruleset handling all fs access, add each `(path, rights)` rule
-    /// (rights masked to this ABI, and to what the path — file vs directory —
+    /// (rights masked to this ABI, and to what the path - file vs directory -
     /// can carry), then enforce it on the calling thread and everything it later
     /// spawns. `Ok(true)` = applied, `Ok(false)` = Landlock unavailable (caller
     /// degrades), `Err` = a real failure.
@@ -840,7 +796,7 @@ mod landlock {
         }
 
         // restrict_self requires NO_NEW_PRIVS (the seccomp install would set it
-        // too, but that runs later — and the broker never installs seccomp).
+        // too, but that runs later - and the broker never installs seccomp).
         // SAFETY: a one-way prctl switch.
         if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } < 0 {
             let e = std::io::Error::last_os_error();
@@ -858,14 +814,14 @@ mod landlock {
     }
 
     /// Restrict this thread's filesystem access to exactly `rules`
-    /// `(path, writable)` — the *service* confinement (read, plus write on a
+    /// `(path, writable)` - the *service* confinement (read, plus write on a
     /// `writable` path).
     pub fn restrict(rules: &[(&Path, bool)]) -> std::io::Result<bool> {
         let mapped: Vec<(&Path, u64)> = rules.iter().map(|(p, w)| (*p, grant(p.is_dir(), *w))).collect();
         apply(&mapped)
     }
 
-    /// The *broker* confinement — a loose sandbox for the engine process.
+    /// The *broker* confinement - a loose sandbox for the engine process.
     pub fn restrict_broker(temp: &Path, cgroup: Option<&Path>) -> std::io::Result<bool> {
         // Read + traverse + execute everything, so the loader can `execve` the
         // child binary and mmap its shared libraries PROT_EXEC wherever they are.
@@ -877,7 +833,7 @@ mod landlock {
         // When cgroup memory bounding is active, the broker must keep writing
         // under its `workers` subtree to place each child: make per-child cgroup
         // dirs and write their `memory.*` / `cgroup.procs` interface files. No
-        // `MAKE_REG` — the kernel materialises those files when the dir is made.
+        // `MAKE_REG` - the kernel materialises those files when the dir is made.
         if let Some(cg) = cgroup {
             let cg_rw = READ_FILE | READ_DIR | WRITE_FILE | MAKE_DIR | REMOVE_DIR;
             rules.push((cg, cg_rw));
@@ -892,7 +848,7 @@ pub fn landlock_available() -> bool {
     landlock::available()
 }
 
-/// cgroup v2 per-child **memory** bounding — the physical-memory limit
+/// cgroup v2 per-child memory bounding - the physical-memory limit
 /// `RLIMIT_AS`/`RLIMIT_DATA` cannot give.
 #[cfg(feature = "multi-process")]
 mod cgroup {
@@ -906,9 +862,8 @@ mod cgroup {
     static WORKERS: OnceLock<Option<PathBuf>> = OnceLock::new();
 
     /// Graceful-reclaim threshold (`memory.high`) and the hard ceiling
-    /// (`memory.max`, 25% headroom above it, where the scoped OOM kill fires).
-    /// Illustrative for the PoC's tiny processes — the mechanism, not the number,
-    /// is the point.
+    /// (`memory.max`, 25% headroom, where the scoped OOM kill fires). Values
+    /// are illustrative for the PoC.
     const HIGH_BYTES: u64 = 1024 * 1024 * 1024;
     const MAX_BYTES: u64 = HIGH_BYTES + HIGH_BYTES / 4;
 
@@ -958,7 +913,7 @@ mod cgroup {
             return None;
         }
         // Delegate memory down to `workers`. The first write fails `EBUSY` if our
-        // leaf still has other processes (a shared scope) — the fallback trigger.
+        // leaf still has other processes (a shared scope) - the fallback trigger.
         if write_file(&base.join("cgroup.subtree_control"), "+memory").is_err()
             || write_file(&workers.join("cgroup.subtree_control"), "+memory").is_err()
         {
@@ -981,7 +936,7 @@ mod cgroup {
     /// and removable.
     pub fn cleanup() {
         let Some(Some(workers)) = WORKERS.get() else { return };
-        // Per-child leaves (and any self-test `probe` leaf) — Landlock-permitted.
+        // Per-child leaves (and any self-test `probe` leaf) - Landlock-permitted.
         let mut removed = 0usize;
         if let Ok(entries) = std::fs::read_dir(workers) {
             for entry in entries.flatten() {
@@ -1005,7 +960,7 @@ mod cgroup {
 
     /// Place a freshly-spawned child into its own memory-limited cgroup. A no-op
     /// where the subtree was never set up, and only logged (never fatal) on error
-    /// — the child still runs, just rlimit-bounded, exactly as before cgroups.
+    /// - the child still runs, just rlimit-bounded, exactly as before cgroups.
     pub fn place_child(pid: u32) {
         let Some(Some(workers)) = WORKERS.get() else { return };
         let dir = workers.join(format!("c-{pid}"));
@@ -1029,7 +984,7 @@ mod cgroup {
 
     /// Test hook: set up the subtree (best-effort) and place *this* process in a
     /// child cgroup limited to `limit`, returning the value read back from
-    /// `memory.max` — or `None` if cgroup v2 memory delegation is unavailable, so
+    /// `memory.max` - or `None` if cgroup v2 memory delegation is unavailable, so
     /// the probe skips cleanly like the Landlock one.
     pub fn confine_self(limit: u64) -> Option<std::io::Result<u64>> {
         let workers = prepare()?;
@@ -1048,7 +1003,7 @@ mod cgroup {
 
 /// Place a just-spawned child into its own cgroup memory limit (best-effort; see
 /// [`cgroup`]). The Linux half of the parent-side [`crate::confine_spawned_child`]
-/// seam — the analogue of the Windows job-object memory cap.
+/// seam - the analogue of the Windows job-object memory cap.
 #[cfg(feature = "multi-process")]
 pub fn confine_spawned_child(pid: u32) -> std::io::Result<()> {
     cgroup::place_child(pid);
@@ -1071,31 +1026,18 @@ pub fn cgroup_confine_self(limit: u64) -> Option<std::io::Result<u64>> {
     cgroup::confine_self(limit)
 }
 
-/// The dangerous syscalls the broker (engine) is denied, even though it keeps
-/// the broad set it legitimately needs. Unlike a renderer — capped to an
-/// allowlist — the broker execs helpers, spawns threads, and opens files and
-/// sockets, so a tight allowlist does not fit (Chromium's *browser* process is
-/// likewise not seccomp-allowlisted). What it never needs are the
-/// post-compromise **escalation primitives**: attaching to or reading another
-/// process's memory (`ptrace`, `process_vm_*`), loading kernel code
-/// (`init_module`/`finit_module`, `kexec_*`, `bpf`), the classic local-privilege
-/// escalation surfaces (`perf_event_open`, `userfaultfd`, the kernel keyring,
-/// `kcmp`), and namespace/mount escapes — both the classic calls (`setns`,
-/// `mount`, `umount2`, `pivot_root`) *and* the newer fd-based mount API
-/// (`fsopen`/`fsconfig`/`fsmount`/`move_mount`/`open_tree`/`fspick`/
-/// `mount_setattr`), which reach the same capability a different way, plus
-/// `open_by_handle_at` (opening by handle bypasses path-based checks and
-/// Landlock) and `swapon`/`swapoff`/`reboot`. Denying exactly those turns the
-/// trusted process from seccomp-unconfined into "can still do its job, cannot
-/// reach for a kernel exploit" — a deny-list, the inverse of the allowlist the
-/// children carry.
+/// Syscalls denied to the broker (engine). The broker execs helpers, spawns
+/// threads, and opens files and sockets, so an allowlist does not fit
+/// (Chromium's browser process is likewise not seccomp-allowlisted); instead
+/// it is denied the post-compromise escalation primitives it never needs -
+/// see the per-group comments below.
 #[cfg(feature = "multi-process")]
 const BROKER_DENY: &[libc::c_long] = &[
-    // Attach to / read / write another process — injection and secret theft.
+    // Attach to / read / write another process - injection and secret theft.
     libc::SYS_ptrace,
     libc::SYS_process_vm_readv,
     libc::SYS_process_vm_writev,
-    // Load kernel code — the shortest path from a broker compromise to ring 0.
+    // Load kernel code - the shortest path from a broker compromise to ring 0.
     libc::SYS_kexec_load,
     libc::SYS_kexec_file_load,
     libc::SYS_init_module,
@@ -1117,7 +1059,7 @@ const BROKER_DENY: &[libc::c_long] = &[
     libc::SYS_swapon,
     libc::SYS_swapoff,
     libc::SYS_reboot,
-    // The newer *fd-based* mount API (Linux 5.1+) — the same capability as
+    // The newer *fd-based* mount API (Linux 5.1+) - the same capability as
     // `mount`/`pivot_root` reached a different way, so denying only the classic
     // calls would leave the escape open via `fsopen`+`fsconfig`+`fsmount`+
     // `move_mount` (or `open_tree` for a detached mount, `mount_setattr` to
@@ -1135,14 +1077,11 @@ const BROKER_DENY: &[libc::c_long] = &[
     libc::SYS_open_by_handle_at,
 ];
 
-/// Confine the **broker** (engine) process. Two best-effort layers, applied on
-/// the process's main thread before it spawns anything, so every engine thread
-/// and every fork+exec'd child inherits both:
-///
-/// 1. **Landlock** on the filesystem — read and execute anywhere, but write only
-///    beneath the temp dir (see [`landlock::restrict_broker`]).
-/// 2. A **deny-list seccomp filter** — allow by default (the broker's job needs a
-///    broad surface), `Trap` the [`BROKER_DENY`] escalation syscalls it never uses.
+/// Confine the broker (engine) process. Two best-effort layers, applied on
+/// the main thread before it spawns anything so every thread and child
+/// inherits both: Landlock (read/execute anywhere, write only beneath the
+/// temp dir - see [`landlock::restrict_broker`]) and a deny-list seccomp
+/// filter (allow by default, `Trap` the [`BROKER_DENY`] escalation syscalls).
 #[cfg(feature = "multi-process")]
 pub fn lock_down_broker() {
     // cgroup memory bounding first (best-effort): it moves the broker into a
@@ -1175,9 +1114,8 @@ pub fn lock_down_broker() {
         }
     }
 
-    // Seccomp after Landlock: the deny-list is default-allow, so it never blocks
-    // Landlock's own setup syscalls, and keeping the same order as the services
-    // (Landlock first, then seccomp) is one less thing to reason about.
+    // Seccomp after Landlock: the deny-list is default-allow, so it never
+    // blocks Landlock's own setup syscalls; same order as the services.
     match install_broker_seccomp() {
         Ok(()) => eprintln!("[broker] seccomp deny-list active (escalation syscalls denied, SIGSYS + report)"),
         Err(e) => eprintln!("[broker] seccomp deny-list could not be applied ({e}); broker syscall surface unconfined"),
@@ -1187,7 +1125,7 @@ pub fn lock_down_broker() {
 /// Install the broker's deny-list seccomp filter: allow by default, `Trap`
 /// (→ SIGSYS, named by [`install_sigsys_reporter`], then re-raised) on any
 /// [`BROKER_DENY`] syscall. The inverse polarity of [`install_with`]'s
-/// allowlist — default action `Allow`, matched action `Trap` — so listing a
+/// allowlist - default action `Allow`, matched action `Trap` - so listing a
 /// syscall *denies* it and everything unlisted passes.
 #[cfg(feature = "multi-process")]
 fn install_broker_seccomp() -> Result<(), Box<dyn std::error::Error>> {
@@ -1204,7 +1142,7 @@ fn install_broker_seccomp() -> Result<(), Box<dyn std::error::Error>> {
     let rules: BTreeMap<i64, Vec<SeccompRule>> = BROKER_DENY.iter().map(|&nr| (nr as i64, Vec::new())).collect();
 
     // Name a denied syscall on stderr before it kills us, exactly as the
-    // allowlist path does — "broker tried ptrace (#101), killed" rather than a
+    // allowlist path does - "broker tried ptrace (#101), killed" rather than a
     // bare SIGSYS. Its own syscalls are all on the default-allow side here.
     install_sigsys_reporter();
     // …and the crash reporter: on SIGSEGV/ABRT/BUS/ILL/FPE, self-capture a
@@ -1225,12 +1163,11 @@ fn install_broker_seccomp() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// What a *device*-backed service (audio, GPU) needs: open a device node and
-/// talk to it via `ioctl`. `ioctl` is a large, driver-defined surface that
-/// seccomp constrains poorly (its request codes and pointer arguments are
-/// opaque to the filter), which is precisely why these processes are isolated —
-/// the confinement they get is the process boundary and everything *else* in
-/// the baseline, not a tight filter on the device path itself.
+/// What a device-backed service (audio, GPU) needs: open a device node and
+/// talk to it via `ioctl`. `ioctl` is a large, driver-defined surface seccomp
+/// constrains poorly (request codes and pointer args are opaque to the
+/// filter); the confinement is the process boundary plus the rest of the
+/// baseline.
 #[cfg(feature = "multi-process")]
 const DEVICE_EXTRA: &[libc::c_long] = &[
     libc::SYS_openat,
@@ -1239,7 +1176,7 @@ const DEVICE_EXTRA: &[libc::c_long] = &[
     libc::SYS_ioctl,
 ];
 
-/// Cap an engine-spawned service — a role that needs a privilege renderers do
+/// Cap an engine-spawned service - a role that needs a privilege renderers do
 /// not, so it lives outside the zygote and carries its own, wider filter. The
 /// caps select the superset: `filesystem` adds `openat`, `device` adds
 /// `openat` + `ioctl`. Everything else is the same default-deny baseline, so a
@@ -1251,7 +1188,7 @@ pub fn lock_down_service(name: &str, filesystem: bool, device: bool, fs_allow: &
 
     // Landlock first (see the module doc): it runs before the seccomp filter so
     // its own syscalls and the O_PATH opens are unfiltered, and it confines
-    // *which* paths the coming `openat` may reach. Best-effort — a kernel
+    // *which* paths the coming `openat` may reach. Best-effort - a kernel
     // without Landlock leaves seccomp + application-level path scoping as the
     // guard rather than refusing to start.
     if !fs_allow.is_empty() {
@@ -1288,8 +1225,8 @@ fn enforce(role: &str, result: Result<(), Box<dyn std::error::Error>>) {
 }
 
 /// Build and apply a default-deny allowlist: syscalls in `allowed` pass (subject
-/// to any argument filter), every other syscall — and any allowed syscall whose
-/// arguments fail its filter — is a fatal `SIGSYS`.
+/// to any argument filter), every other syscall - and any allowed syscall whose
+/// arguments fail its filter - is a fatal `SIGSYS`.
 #[cfg(feature = "multi-process")]
 fn install(allowed: Vec<libc::c_long>) -> Result<(), Box<dyn std::error::Error>> {
     install_with(allowed, false, false, false)
@@ -1305,7 +1242,7 @@ fn install_fork_server(allowed: Vec<libc::c_long>) -> Result<(), Box<dyn std::er
 }
 
 /// As [`install`], but `allow_dup_fd` additionally permits
-/// `fcntl(F_DUPFD_CLOEXEC)` and `fork_server` argument-filters `clone` — both
+/// `fcntl(F_DUPFD_CLOEXEC)` and `fork_server` argument-filters `clone` - both
 /// needed only by the fork server.
 #[cfg(feature = "multi-process")]
 fn install_with(
@@ -1330,7 +1267,7 @@ fn install_with(
 
     // …except mmap/mprotect, which are allowed only when PROT_EXEC is clear.
     // `prot` is argument index 2 of both. `MaskedEq(PROT_EXEC)` against value 0
-    // means "(prot & PROT_EXEC) == 0" — so a mapping can be made writable or
+    // means "(prot & PROT_EXEC) == 0" - so a mapping can be made writable or
     // readable, but never executable (W^X). A request that sets PROT_EXEC
     // matches no rule and hits the KillProcess default.
     for nr in [libc::SYS_mmap, libc::SYS_mprotect] {
@@ -1347,13 +1284,13 @@ fn install_with(
     // (`cmd` is argument index 1; multiple rules OR together). A renderer must
     // be able to seal its tile buffers, and Rust's std *debug* builds probe
     // fds with fcntl(F_GETFD) when an OwnedFd drops (debug_assert_fd_is_open)
-    // — a pure query with nothing to escalate. Every *mutating* fcntl command
-    // — F_DUPFD (fd fabrication), F_SETFL, locks — hits KillProcess. F_SETFD
+    // - a pure query with nothing to escalate. Every *mutating* fcntl command
+    // - F_DUPFD (fd fabrication), F_SETFL, locks - hits KillProcess. F_SETFD
     // is a special case handled below: permitted only to *set* close-on-exec,
     // never to clear it.
     let mut fcntl_allowed = Vec::new();
     // `F_GETFL` joins the query-only set: it reads a descriptor's flags and
-    // grants nothing. Surfaced by TSYNC — tokio's socket threads probe it —
+    // grants nothing. Surfaced by TSYNC - tokio's socket threads probe it -
     // having been silently unfiltered before the filter covered all threads.
     let mut cmds = vec![libc::F_ADD_SEALS, libc::F_GET_SEALS, libc::F_GETFD, libc::F_GETFL];
     if allow_dup_fd {
@@ -1369,15 +1306,12 @@ fn install_with(
         let is_cmd = SeccompCondition::new(1, SeccompCmpArgLen::Qword, SeccompCmpOp::Eq, cmd as u64)?;
         fcntl_allowed.push(SeccompRule::new(vec![is_cmd])?);
     }
-    // `fcntl(F_SETFD, FD_CLOEXEC)` — permitted for *every* filter, not just the
-    // fork server. musl issues it after *any* file open (its `std::fs` opens
-    // with `O_CLOEXEC` and then redundantly re-sets `FD_CLOEXEC` via `fcntl`),
-    // as well as after `F_DUPFD_CLOEXEC`; glibc does neither. Gating it behind
-    // the fork server's `allow_dup_fd` therefore killed every file open in a
-    // filesystem/device service under musl with `SIGSYS` on syscall #72 — the
-    // failure surfacing as a service dying and the renderer's storage/font
-    // request never being answered. Found on the musl CI row, the same libc
-    // class of bug as `open`-vs-`openat` above.
+    // `fcntl(F_SETFD, FD_CLOEXEC)` - permitted for every filter, not just the
+    // fork server. musl issues it after any file open (its `std::fs` opens
+    // with `O_CLOEXEC`, then redundantly re-sets `FD_CLOEXEC`) and after
+    // `F_DUPFD_CLOEXEC`; glibc does neither. Gating it behind `allow_dup_fd`
+    // killed every file open in a filesystem/device service under musl
+    // (SIGSYS on syscall #72). Found on the musl CI row.
     let is_setfd = SeccompCondition::new(1, SeccompCmpArgLen::Qword, SeccompCmpOp::Eq, libc::F_SETFD as u64)?;
     let sets_cloexec = SeccompCondition::new(2, SeccompCmpArgLen::Qword, SeccompCmpOp::Eq, libc::FD_CLOEXEC as u64)?;
     fcntl_allowed.push(SeccompRule::new(vec![is_setfd, sets_cloexec])?);
@@ -1397,26 +1331,20 @@ fn install_with(
         rules.insert(libc::SYS_prctl as i64, vec![SeccompRule::new(vec![is_set_name])?]);
     }
 
-    // tgkill is permitted ONLY to deliver SIGSYS to a thread of this process —
-    // the one thing `sigsys_handler` does to re-raise after logging. `sig` is
-    // argument index 2; every other tgkill (any other signal, or poking another
-    // process) fails the condition and hits the Trap default. This is the whole
-    // cost of the diagnostic: one syscall, argument-pinned to the exact use.
+    // tgkill is permitted only to deliver SIGSYS (what `sigsys_handler` uses
+    // to re-raise after logging). `sig` is argument index 2; any other signal
+    // or target hits the Trap default.
     let sig_is_sigsys = SeccompCondition::new(2, SeccompCmpArgLen::Qword, SeccompCmpOp::Eq, libc::SIGSYS as u64)?;
     rules.insert(libc::SYS_tgkill as i64, vec![SeccompRule::new(vec![sig_is_sigsys])?]);
 
-    // …and, for the fork server only, `clone` — argument-filtered to a plain
-    // fork. Once `clone3` is `ENOSYS`'d ([`install_clone3_enosys`]), glibc's
-    // `fork()` reaches the kernel as `clone` with `flags` in a *register* we can
-    // finally inspect (`flags` is argument index 0). `MaskedEq(DANGEROUS, 0)`
-    // means "(flags & DANGEROUS) == 0": a plain `fork()` — glibc or musl — sets
-    // only `SIGCHLD | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID`, none of them in
-    // the mask, so it passes on every libc; a `clone` that tries to unshare a
-    // namespace (`CLONE_NEW*`) or spawn a thread / share the address space
-    // (`CLONE_THREAD` / `CLONE_VM`) hits the default action. So even a fork
-    // server subverted through its one input (the engine's `ForkRequest`) cannot
-    // escalate via `clone` flags. The empty `clone` allow that `allowed` would
-    // otherwise produce is replaced here.
+    // …and, for the fork server only, `clone` - argument-filtered to a plain
+    // fork. With `clone3` ENOSYS'd ([`install_clone3_enosys`]), glibc's
+    // `fork()` reaches the kernel as `clone` with flags in a register
+    // (argument index 0). `MaskedEq(DANGEROUS, 0)` = "(flags & DANGEROUS) == 0":
+    // a plain fork sets only SIGCHLD | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID
+    // (glibc and musl alike) and passes; CLONE_NEW*/CLONE_THREAD/CLONE_VM hit
+    // the default action. Replaces the empty `clone` allow `allowed` would
+    // otherwise produce.
     if fork_server {
         // Kernel CLONE_* bits (stable UAPI). Declared locally rather than via
         // `libc` so the mask does not depend on which constants a given `libc`
@@ -1445,16 +1373,12 @@ fn install_with(
         rules.insert(libc::SYS_clone as i64, vec![SeccompRule::new(vec![plain_fork])?]);
     }
 
-    // A blocked syscall used to be an immediate `KillProcess` — correct, but it
-    // told you nothing about *which* syscall. Switch the default to `Trap`
-    // (SECCOMP_RET_TRAP → SIGSYS) and install a handler that names the offending
-    // syscall on stderr, then re-raises SIGSYS so the process still terminates
-    // with the same signal it always did (the selftest probes assert exactly
-    // that). The handler is installed *before* the filter applies, so its own
-    // `sigaction`/`getpid`/`gettid`/`tgkill`/`write` are unfiltered here and are
-    // on the allowlist for when it actually runs. Matters most once V8 lands and
-    // the renderer starts issuing syscalls we did not anticipate: "renderer
-    // died" becomes "renderer tried openat (#257), killed".
+    // Default is `Trap` (SECCOMP_RET_TRAP -> SIGSYS) rather than `KillProcess`
+    // so a handler can name the blocked syscall on stderr, then re-raise
+    // SIGSYS - the process still dies with the same signal (the selftest
+    // probes assert that). The handler is installed before the filter applies,
+    // so its own sigaction/getpid/gettid/tgkill/write run unfiltered here and
+    // are on the allowlist for when it runs.
     install_sigsys_reporter();
     // …and the crash reporter: on SIGSEGV/ABRT/BUS/ILL/FPE, self-capture a
     // scrubbed, core-less crash report (see `install_crash_reporter`).
@@ -1476,8 +1400,8 @@ fn install_with(
 
 /// Install a stacked pre-filter that turns `clone3` into `ENOSYS`, so glibc's
 /// `fork()` retries with the register-based `clone` the main fork-server filter
-/// argument-filters. `clone3` cannot be argument-filtered directly — it passes
-/// its flags in a memory struct seccomp cannot dereference — so `ENOSYS`-ing it
+/// argument-filters. `clone3` cannot be argument-filtered directly - it passes
+/// its flags in a memory struct seccomp cannot dereference - so `ENOSYS`-ing it
 /// is the only way to route fork onto a constrainable path. This is the standard
 /// technique (Chromium, systemd) and relies on a fallback glibc has carried
 /// since it started issuing `clone3`.
@@ -1512,7 +1436,7 @@ fn install_clone3_enosys() -> Result<(), Box<dyn std::error::Error>> {
 /// Install the SIGSYS reporter (SA_SIGINFO so the handler sees which syscall
 /// trapped; SA_NODEFER so the re-raised SIGSYS is delivered synchronously
 /// against the restored default disposition). Best-effort: if it cannot be
-/// installed the `Trap` default still terminates the process on a violation —
+/// installed the `Trap` default still terminates the process on a violation -
 /// it just does so without the diagnostic line.
 #[cfg(feature = "multi-process")]
 fn install_sigsys_reporter() {
@@ -1531,7 +1455,7 @@ fn install_sigsys_reporter() {
 /// terminate with SIGSYS exactly as `KillProcess` would have.
 #[cfg(feature = "multi-process")]
 extern "C" fn sigsys_handler(_sig: libc::c_int, info: *mut libc::siginfo_t, _ctx: *mut libc::c_void) {
-    // `si_syscall` sits at byte offset 24 of `siginfo_t` on LP64 Linux — after
+    // `si_syscall` sits at byte offset 24 of `siginfo_t` on LP64 Linux - after
     // {si_signo, si_errno, si_code, pad} (16 bytes) and the `_call_addr`
     // pointer (8). Same layout on x86_64 and aarch64, the two arches this
     // crate builds seccomp for. A wrong read only mislabels the log line; it
@@ -1574,18 +1498,15 @@ extern "C" fn sigsys_handler(_sig: libc::c_int, info: *mut libc::siginfo_t, _ctx
     }
 }
 
-/// Crash reporting **without a core dump and without `ptrace`** — the resolution
-/// of the tension that makes crash reporting hard under this sandbox.
+/// Crash reporting without a core dump and without `ptrace`.
 #[cfg(feature = "multi-process")]
 fn install_crash_reporter() {
     // Alternate signal stack, so a stack-overflow SIGSEGV can still run the
-    // handler (the faulting stack is unusable). `sigaltstack` is **per-thread**,
-    // while `sigaction` below sets the handler process-wide. Content processes are
-    // single-threaded, so registering it on the locking-down thread suffices for
-    // them. The broker is multithreaded, so each engine thread additionally calls
-    // [`install_thread_crash_altstack`] to arm its own — otherwise a stack
-    // overflow on a broker worker thread would run the handler on the already
-    // overflowed stack (the process still dies, but with no scrubbed report).
+    // handler. `sigaltstack` is per-thread while `sigaction` is process-wide:
+    // content processes are single-threaded so this thread suffices; broker
+    // threads each call [`install_thread_crash_altstack`], else an overflow on
+    // a worker thread runs the handler on the overflowed stack (process still
+    // dies, but with no scrubbed report).
     static mut ALTSTACK: [u8; 16384] = [0; 16384];
     // SAFETY: a zeroed sigaction with the handler set; registered for the
     // synchronous crash signals only. `addr_of_mut!` avoids a reference to the
@@ -1608,7 +1529,7 @@ fn install_crash_reporter() {
     }
 }
 
-/// Register an alternate signal stack for the **current** thread, so the
+/// Register an alternate signal stack for the current thread, so the
 /// process-wide crash reporter can still run when *this* thread's own stack
 /// overflows. [`install_crash_reporter`] arms the altstack only on the thread it
 /// runs on; the broker is multithreaded, so each engine thread calls this at
@@ -1674,7 +1595,7 @@ extern "C" fn crash_handler(sig: libc::c_int, info: *mut libc::siginfo_t, _ctx: 
     }
 
     // SAFETY: fd 2 is open; buf/len describe an initialized slice. Then restore
-    // SIG_DFL and return — the fault re-executes and the default action kills us.
+    // SIG_DFL and return - the fault re-executes and the default action kills us.
     unsafe {
         libc::write(2, buf.as_ptr().cast(), len);
         let mut dfl: libc::sigaction = std::mem::zeroed();
@@ -1766,30 +1687,25 @@ fn write_i32(out: &mut [u8], v: i32) -> usize {
 /// ever be lowered, never raised, so the child cannot undo them.
 #[cfg(feature = "multi-process")]
 pub fn apply_child_rlimits() -> std::io::Result<()> {
-    // Memory: bound the *heap*, not the address space. `RLIMIT_DATA` caps
-    // committed writable anonymous memory (brk + writable `mmap`), and since
-    // Linux 4.7 it deliberately does *not* count `PROT_NONE` reservations — so a
-    // real JIT's multi-GiB virtual cage (V8 reserves ~4 GiB up front) still fits,
-    // while a renderer trying to allocate the host to death hits a failed
-    // `mmap`/`brk` → Rust's alloc-error path aborts *that process*, not the
-    // machine. `RLIMIT_AS` — the *virtual* cap this used to be — is the wrong
-    // axis: it would kill V8 at init for reserving address space it never
-    // commits. (A production browser bounds true RSS with a cgroup `memory.max`,
-    // whose OOM kill is scoped to the offending renderer; this self-applied
-    // rlimit is the cheap approximation of that — see the architecture doc.)
+    // Bound the heap, not the address space: `RLIMIT_DATA` caps committed
+    // writable anonymous memory (brk + writable mmap) and since Linux 4.7 does
+    // not count PROT_NONE reservations, so V8's ~4 GiB virtual cage still
+    // fits while a runaway allocation aborts only that process. `RLIMIT_AS`
+    // would kill V8 at init for reserving space it never commits. A cgroup
+    // `memory.max` bounds true RSS; this rlimit is the cheap approximation
+    // (see the architecture doc).
     set_rlimit(libc::RLIMIT_DATA, 512 * 1024 * 1024)?;
-    // A generous *virtual* ceiling on top: high enough to clear a JIT's cage, low
-    // enough to catch a runaway that reserves absurd address space. Belt to the
-    // `RLIMIT_DATA` braces — a JIT-less renderer never approaches it.
+    // A generous virtual ceiling on top: high enough to clear a JIT's cage,
+    // low enough to catch a runaway reserving absurd address space.
     set_rlimit(libc::RLIMIT_AS, 16 * 1024 * 1024 * 1024)?;
     // A child needs only a handful of fds (its IPC socket + std streams).
     set_rlimit(libc::RLIMIT_NOFILE, 128)?;
-    // No core dumps — a crash must not spill page contents (cookies, tokens).
+    // No core dumps - a crash must not spill page contents (cookies, tokens).
     set_rlimit(libc::RLIMIT_CORE, 0)?;
     // Deprioritize: content processes should yield to the trusted engine/UI, so
     // a compromised child spinning in a busy loop can't starve them of CPU. A
-    // hard RLIMIT_CPU is unusable here — it counts *cumulative* CPU time and
-    // would eventually kill a legitimately long-lived renderer — so we lower
+    // hard RLIMIT_CPU is unusable here - it counts *cumulative* CPU time and
+    // would eventually kill a legitimately long-lived renderer - so we lower
     // scheduling priority instead. Raising the nice value is always permitted
     // and needs no privilege, so a child can't undo it either.
     set_priority(10)?;
@@ -1807,14 +1723,14 @@ pub fn isolate_namespaces(mode: crate::NamespaceIsolation) -> std::io::Result<()
         return Ok(());
     }
     let flags = libc::CLONE_NEWUSER | libc::CLONE_NEWNET | libc::CLONE_NEWIPC | libc::CLONE_NEWUTS;
-    // `Full` also requests a **PID** namespace. `unshare(CLONE_NEWPID)` does not
-    // move the caller — it places the caller's *future children* in a new PID
-    // namespace — but it is NOT inert for a non-forking service: a process that
+    // `Full` also requests a PID namespace. `unshare(CLONE_NEWPID)` does not
+    // move the caller - it places the caller's *future children* in a new PID
+    // namespace - but it is NOT inert for a non-forking service: a process that
     // has unshared its PID namespace can no longer create *threads* (a thread
     // must share its creator's PID namespace, and new tasks now go to the new
-    // one, so `pthread_create` fails `EINVAL` — GLib escalates that to a fatal
+    // one, so `pthread_create` fails `EINVAL` - GLib escalates that to a fatal
     // abort, measured with Pango). Roles whose libraries must thread use
-    // `NoPidNamespace` and give up the PID isolation of anything they fork —
+    // `NoPidNamespace` and give up the PID isolation of anything they fork -
     // which such roles don't do. Best-effort and tried *first* as one combined
     // `unshare` (creating the PID namespace unprivileged requires pairing it
     // with the user namespace in the same call); a kernel that refuses
@@ -1839,10 +1755,8 @@ pub fn deny_debugger_attach() {
     // SAFETY: PR_SET_DUMPABLE takes one value argument and affects only the
     // calling process.
     if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0) } < 0 {
-        // Not fatal, unlike seccomp: this is a hardening measure against other
-        // software on the host, not the boundary that contains a compromised
-        // renderer. Losing it degrades defense in depth rather than opening the
-        // sandbox, so we report it and continue.
+        // Not fatal, unlike seccomp: hardening against other host software,
+        // not the boundary containing a compromised renderer.
         eprintln!(
             "[sandbox] warning: could not clear dumpable flag: {}",
             std::io::Error::last_os_error()
@@ -1861,13 +1775,9 @@ fn set_priority(nice: libc::c_int) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The first argument of `setrlimit(2)`, whose Rust type is libc-dependent:
-/// glibc exposes a dedicated `__rlimit_resource_t` enum, musl uses a plain
-/// `c_int`. Naming either one directly makes the crate uncompilable on the
-/// other — a portability break the type checker only reports when something
-/// actually builds against that libc.
-/// Only `set_rlimit` names it, and that exists only where there are children to
-/// bound — so the alias follows the same gate rather than sitting dead.
+/// The first argument of `setrlimit(2)` is libc-dependent: glibc exposes
+/// `__rlimit_resource_t`, musl a plain `c_int`; naming either directly breaks
+/// the build on the other libc.
 #[cfg(all(feature = "multi-process", target_env = "gnu"))]
 type RlimitResource = libc::__rlimit_resource_t;
 #[cfg(all(feature = "multi-process", not(target_env = "gnu")))]

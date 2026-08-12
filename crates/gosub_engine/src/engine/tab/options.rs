@@ -6,13 +6,13 @@ use crate::storage::{PartitionKey, StorageService};
 use gosub_render_pipeline::render::Viewport;
 use std::sync::Arc;
 
-/// Default parameters for a newly created tab.
+/// Initial conditions for a newly created tab.
 #[derive(Clone, Debug, Default)]
 pub struct TabDefaults {
     /// Initial URL to navigate to.
     pub url: Option<String>,
 
-    /// Optional initial title for the tab.
+    /// Initial title, used if no document title is available.
     pub title: Option<String>,
 
     /// Initial viewport configuration (width, height, scroll offset).
@@ -55,6 +55,9 @@ pub struct TabOverrides {
 }
 
 /// Policy for selecting a tab's cookie jar.
+///
+/// Tabs can either inherit their zone’s cookie jar, create a temporary one,
+/// or use a fully custom [`CookieJarHandle`].
 #[derive(Clone, Debug, Default)]
 pub enum TabCookieJar {
     /// Use the zone’s cookie jar (default).
@@ -69,6 +72,9 @@ pub enum TabCookieJar {
 }
 
 /// Policy for selecting a tab's storage scope.
+///
+/// Tabs can either inherit their zone’s [`StorageService`], create an
+/// ephemeral in-memory service, or use a custom one.
 #[derive(Clone, Debug, Default)]
 pub enum TabStorageScope {
     /// Use the zone’s storage service (default).

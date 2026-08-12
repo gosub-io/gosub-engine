@@ -1,19 +1,20 @@
-//! A **cookie jar** holds all cookies belonging to a single zone; the engine passes
-//! request/response metadata to the jar so it can update and query cookies.
+//! A cookie jar holds all cookies belonging to a single zone.
 //!
 //! [`CookieJar`] is the trait; [`DefaultCookieJar`] is the reference implementation,
-//! which stores cookies **in memory only** (no persistence) and parses a subset of
-//! RFC 6265 `Set-Cookie` semantics.
+//! which stores cookies in memory only and parses a subset of RFC 6265 `Set-Cookie`
+//! semantics.
 //!
-//! ## Notes & limitations
-//! - The attributes `Expires`, `Max-Age`, `Path`, `Domain`, `Secure`,
-//!   `HttpOnly`, and `SameSite` are parsed and enforced; expired cookies are
-//!   filtered on read and can be removed via [`CookieJar::purge_expired`].
-//!   Priorities, size limits, and eviction policies are not (yet) implemented.
-//! - Cookies are bucketed by **origin** (`url.origin().ascii_serialization()`).
-//!   Within a bucket, simple host/subdomain and path prefix checks are applied.
-//! - This module is **not** internally synchronized. Use it via a
+//! ## Limitations
+//! - `Expires`, `Max-Age`, `Path`, `Domain`, `Secure`, `HttpOnly`, and `SameSite`
+//!   are parsed and enforced; expired cookies are filtered on read and removed via
+//!   [`CookieJar::purge_expired`]. Priorities, size limits, and eviction policies
+//!   are not (yet) implemented.
+//! - Cookies are bucketed by origin (`url.origin().ascii_serialization()`).
+//! - This module is not internally synchronized. Use it via a
 //!   `CookieJarHandle = Arc<RwLock<dyn CookieJar + Send + Sync>>`.
+//!
+//! See also: RFC 6265bis (HTTP State Management Mechanism).
+//!
 use crate::engine::cookies::Cookie;
 use chrono::Utc;
 use cow_utils::CowUtils;
@@ -25,6 +26,12 @@ use std::collections::HashMap;
 use url::Url;
 
 /// Returns `true` if `request_host` may set a cookie scoped to `domain`.
+///
+/// Enforces two RFC 6265 rules:
+/// 1. `domain` must be a registrable-domain suffix of `request_host` (§5.3 step 6).
+/// 2. `domain` must not itself be a known public suffix / eTLD such as `"com"` or
+///    `"co.uk"` (RFC 6265bis §5.4).  Unknown TLDs (e.g. `localhost`, intranet names)
+///    are allowed because the PSL may not list them.
 fn is_valid_cookie_domain(request_host: &str, domain: &str) -> bool {
     // RFC 4343: domain comparisons are case-insensitive.
     let req = request_host.cow_to_ascii_lowercase();
@@ -36,6 +43,12 @@ fn is_valid_cookie_domain(request_host: &str, domain: &str) -> bool {
     }
 
     // Rule 2: reject bare public suffixes (eTLDs) using the compiled Mozilla PSL.
+    //
+    // `psl::List.domain()` returns None when the input has no registrable portion,
+    // i.e. the input itself is a bare eTLD ("com", "co.uk", "github.io").
+    // We combine this with `suffix().is_known()` to distinguish known eTLDs from
+    // labels that are simply absent from the PSL ("localhost", intranet names) -
+    // the latter should be allowed even though domain() also returns None for them.
     if psl::List.domain(domain.as_bytes()).is_none()
         && psl::List.suffix(domain.as_bytes()).is_some_and(|s| s.is_known())
     {
@@ -46,6 +59,15 @@ fn is_valid_cookie_domain(request_host: &str, domain: &str) -> bool {
 }
 
 /// Parse an HTTP date string into a Unix timestamp.
+///
+/// Handles three formats in order of preference:
+/// 1. RFC 2822 with numeric offset (`+0000`) - e.g. from well-behaved clients.
+/// 2. RFC 1123 / HTTP-date (`GMT` timezone) - the dominant real-world format
+///    per RFC 7231 §7.1.1.1: `"Fri, 07 Aug 2007 08:04:19 GMT"`.
+/// 3. RFC 850 / obsolete format (`"Friday, 07-Aug-07 08:04:19 GMT"`).
+///
+/// Returns `None` if none of the formats match, which causes the cookie to be
+/// treated as a session cookie rather than silently accepting a bad expiry.
 fn parse_http_date(s: &str) -> Option<i64> {
     use chrono::NaiveDateTime;
 
@@ -75,6 +97,10 @@ fn parse_http_date(s: &str) -> Option<i64> {
 }
 
 /// Returns `true` when two hostnames share the same registrable domain (eTLD+1).
+///
+/// Uses the compile-time embedded Mozilla Public Suffix List (`psl` crate) for
+/// accurate comparison. Falls back to exact hostname equality for IP addresses,
+/// `localhost`, and other labels not present in the PSL.
 fn same_site(host_a: &str, host_b: &str) -> bool {
     let registrable = |host: &str| -> Option<String> {
         let d = psl::List.domain(host.as_bytes())?;
@@ -87,6 +113,10 @@ fn same_site(host_a: &str, host_b: &str) -> bool {
 }
 
 /// Controls how the jar handles cookies in cross-site (third-party) request contexts.
+///
+/// Applied by [`DefaultCookieJar::get_request_cookies`] and
+/// [`DefaultCookieJar::store_response_cookies`] when a `top_level` URL is supplied
+/// and its registrable domain differs from the request URL's registrable domain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ThirdPartyCookiePolicy {
     /// All cookies are sent/stored regardless of cross-site context. (Default; matches
@@ -101,6 +131,18 @@ pub enum ThirdPartyCookiePolicy {
 }
 
 /// Per-request context for `SameSite` cookie attribute enforcement.
+///
+/// The HTTP layer computes the correct variant from the navigation type and HTTP
+/// method, then passes it to [`CookieJar::get_request_cookies`].
+///
+/// RFC 6265bis rules applied by [`DefaultCookieJar`]:
+///
+/// | Cookie attribute | `SameSite` | `CrossSiteNavigation` | `CrossSite` |
+/// |---|:---:|:---:|:---:|
+/// | `SameSite=Strict`   | ✓ | ✗ | ✗ |
+/// | `SameSite=Lax`      | ✓ | ✓ | ✗ |
+/// | *(no attribute)*    | ✓ | ✓ | ✗ |
+/// | `SameSite=None; Secure` | ✓ | ✓ | ✓ |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SameSiteContext {
     /// Same-site request. All `SameSite` attribute values are eligible.
@@ -117,15 +159,10 @@ pub enum SameSiteContext {
 
 /// A cookie jar keeps the cookies for one single zone.
 ///
-/// ### Third-party context
-/// Both `store_response_cookies` and `get_request_cookies` accept an optional
-/// `top_level` URL representing the page that initiated the request. When present,
-/// implementations can use it to distinguish first-party from third-party requests
-/// and apply the appropriate cookie policy.
-///
-/// ### Type erasure
-/// `as_any` / `as_any_mut` enable downcasting when callers need access to
-/// concrete implementations (e.g., for snapshotting/persistence).
+/// The optional `top_level` URL on `store_response_cookies` / `get_request_cookies`
+/// is the page that initiated the request; implementations use it to apply
+/// third-party cookie policy. `as_any` / `as_any_mut` enable downcasting to
+/// concrete implementations (e.g. for snapshotting/persistence).
 pub trait CookieJar: Send + Sync {
     /// Returns a type-erased reference to the jar.
     fn as_any(&self) -> &dyn Any;
@@ -133,16 +170,19 @@ pub trait CookieJar: Send + Sync {
     /// Returns a mutable type-erased reference to the jar.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
-    /// Stores cookies found in response `headers` for the given `url`.
+    /// Stores cookies found in response `headers` for the given `url`; name
+    /// collisions are last-write-wins.
     fn store_response_cookies(&mut self, url: &Url, headers: &HeaderMap, top_level: Option<&Url>);
 
-    /// Returns the `Cookie` request header value to send for `url`, if any.
+    /// Returns the `Cookie` request header value to send for `url`, or `None` when
+    /// no cookies match. `samesite` encodes the request's cross-site context for
+    /// `SameSite` attribute enforcement per RFC 6265bis.
     fn get_request_cookies(&self, url: &Url, top_level: Option<&Url>, samesite: SameSiteContext) -> Option<String>;
 
     /// Removes all cookies from the jar.
     fn clear(&mut self);
 
-    /// Retrieves all cookies grouped by origin, formatted as `"name=value"` pairs.
+    /// All cookies grouped by origin as `"name=value"` pairs; for diagnostics/inspection.
     fn get_all_cookies(&self) -> Vec<(Url, String)>;
 
     /// Removes a single cookie with `cookie_name` associated with `url`.
@@ -151,31 +191,18 @@ pub trait CookieJar: Send + Sync {
     /// Removes all cookies associated with `url` (bucketed by its origin).
     fn remove_cookies_for_url(&mut self, url: &Url);
 
-    /// Removes all cookies whose expiry timestamp is in the past.
+    /// Removes all cookies whose expiry timestamp is in the past. Session cookies
+    /// (`expires == None`) are never removed.
     fn purge_expired(&mut self);
 }
 
-/// Default cookie jar which holds cookies for a single zone.
-///
-/// ### Third-party policy
-/// When `top_level` is provided to `get_request_cookies` or `store_response_cookies`,
-/// the `third_party_policy` field controls cross-site behavior:
-/// - `Allow` - legacy behavior, all cookies pass through.
-/// - `Block` - no cookies are sent or stored for third-party requests.
-/// - `SameSiteNoneOnly` - only `SameSite=None; Secure` cookies are allowed in
-///   third-party context.
-///
-/// ### Parsing behavior
-/// - Accepts multiple `Set-Cookie` headers.
-/// - Attributes handled: `Path`, `Domain` (leading dot stripped), `Expires`
-///   (parsed into a unix timestamp), `SameSite` (`Strict`/`Lax`/`None`, case-insensitive),
-///   `Secure`, `HttpOnly`.
-/// - If `Path` is absent, a default path is derived from the request URL.
-/// - Expired cookies are filtered out on read; [`Self::purge_expired`] removes them
-///   from the jar.
+/// Default cookie jar: in-memory only, no persistence. Cookies are stored per
+/// origin (`scheme://host:port`) and matched to requests via basic domain/path
+/// rules; `third_party_policy` governs cross-site behavior when `top_level` is
+/// supplied. If `Path` is absent, a default path is derived from the request URL.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefaultCookieJar {
-    /// Simple hashmap of cookies, bucketed by **origin**.
+    /// Cookie records keyed by origin (`Url::origin().ascii_serialization()`).
     pub entries: HashMap<String, Vec<Cookie>>,
 
     /// Policy applied when a cross-site `top_level` URL is detected.
@@ -343,6 +370,8 @@ impl CookieJar for DefaultCookieJar {
             }
 
             // Enforce cookie name prefixes (RFC 6265bis §4.1.3).
+            //
+            // __Secure-: cookie must have the Secure attribute.
             if cookie.name.starts_with("__Secure-") && !cookie.secure {
                 continue;
             }

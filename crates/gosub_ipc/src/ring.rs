@@ -1,9 +1,9 @@
-//! Shared-memory **ring buffer** for streaming large fetch bodies (Linux):
+//! Shared-memory ring buffer for streaming large fetch bodies (Linux):
 //! the net component (producer) keeps writing while the renderer (consumer)
-//! keeps reading, wrapping at the end of a fixed window — pipe semantics
-//! without the kernel copy. This is the other end of the dial from `shm`'s
-//! sealed tiles: contents are *not* immutable (the producer must keep
-//! writing), so the consumer buys safety with discipline instead of seals:
+//! keeps reading, wrapping at the end of a fixed window - pipe semantics
+//! without the kernel copy. Unlike `shm`'s sealed tiles the contents are not
+//! immutable (the producer keeps writing), so the consumer relies on cursor
+//! validation instead of seals.
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -19,21 +19,21 @@ const OFF_READ_POS: usize = 64;
 const OFF_DONE: usize = 128;
 
 /// `done` states: streaming (producer still writing), finished (all bytes
-/// delivered), aborted (producer gave up — consumer must error, not wait).
+/// delivered), aborted (producer gave up - consumer must error, not wait).
 const DONE_STREAMING: u32 = 0;
 const DONE_FINISHED: u32 = 1;
 const DONE_ABORTED: u32 = 2;
 
 /// How long either side tolerates zero progress from its peer before giving
-/// up. Bounds what a dead — or deliberately stalling — peer can cost.
+/// up. Bounds what a dead - or deliberately stalling - peer can cost.
 const STALL_TIMEOUT: Duration = Duration::from_secs(5);
-/// Individual futex waits are short slices of the stall budget (see the
-/// lost-wakeup note in the module docs).
+/// Individual futex waits are short slices of the stall budget, so a lost
+/// wakeup costs at most one slice.
 const WAIT_SLICE: Duration = Duration::from_millis(100);
 
 /// Ring window bounds for the consumer's validation.
 const MAX_CAPACITY: u32 = 64 * 1024 * 1024;
-/// Cap on a *claimed* body length — bounds the consumer's output allocation,
+/// Cap on a *claimed* body length - bounds the consumer's output allocation,
 /// same idea as `shm::MAX_TILE_DIM` (a renderer's rlimit would stop it anyway,
 /// but refuse absurd claims before allocating).
 pub const MAX_BODY_LEN: u64 = 128 * 1024 * 1024;
@@ -96,7 +96,7 @@ impl RingMap {
         if ptr == libc::MAP_FAILED {
             return Err(io::Error::last_os_error());
         }
-        // MAP_FAILED is handled above, so null is impossible — reported rather
+        // MAP_FAILED is handled above, so null is impossible - reported rather
         // than asserted, since this crate must not panic.
         let base = NonNull::new(ptr.cast()).ok_or_else(|| io::Error::other("mmap returned null"))?;
         Ok(RingMap { base, len })
@@ -139,7 +139,7 @@ impl Drop for RingMap {
 }
 
 /// Producer side (the net component). Create once per stream, `write_all`
-/// as bytes arrive, `finish()` on success — dropping without `finish` marks
+/// as bytes arrive, `finish()` on success - dropping without `finish` marks
 /// the stream aborted so the consumer errors out instead of waiting.
 pub struct RingProducer {
     map: RingMap,
@@ -148,8 +148,8 @@ pub struct RingProducer {
 
 impl RingProducer {
     /// Create the ring memfd and return the producer plus the fd to pass to
-    /// the consumer (the caller sends it and drops its copy; the mapping —
-    /// not the fd — keeps the producer's side alive).
+    /// the consumer (the caller sends it and drops its copy; the mapping -
+    /// not the fd - keeps the producer's side alive).
     pub fn create(capacity: u32) -> io::Result<(RingProducer, OwnedFd)> {
         if capacity == 0 || capacity > MAX_CAPACITY {
             return Err(io::Error::new(
@@ -180,7 +180,7 @@ impl RingProducer {
         Ok((RingProducer { map, finished: false }, fd))
     }
 
-    /// Append the whole buffer, blocking (bounded) while the ring is full —
+    /// Append the whole buffer, blocking (bounded) while the ring is full -
     /// the backpressure that stalls the producer instead of growing anyone's
     /// memory. Errors on a corrupt read cursor or a consumer that makes no
     /// progress within [`STALL_TIMEOUT`].

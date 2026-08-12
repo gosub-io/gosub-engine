@@ -1,6 +1,4 @@
 //! The broker↔network-process wire vocabulary.
-//!
-//! ## Buffered only
 
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +28,7 @@ pub struct NetFetch {
     /// [`crate::net::tab_identity`]). The network process is trusted with cookie
     /// *values* because it must put them on the wire; the renderer is not, and
     /// that is the boundary this whole exercise is about. A cookie vault that
-    /// keeps values out of the broker→net hop too is a later refinement — see
+    /// keeps values out of the broker→net hop too is a later refinement - see
     /// the PoC's `vault` component.
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
@@ -53,7 +51,7 @@ pub enum FetchOutcome {
     Ok {
         status: u16,
         status_text: String,
-        /// After redirects — the broker needs this to attribute `Set-Cookie`
+        /// After redirects - the broker needs this to attribute `Set-Cookie`
         /// correctly, so it must come from the process that followed them.
         final_url: String,
         headers: Vec<(String, String)>,

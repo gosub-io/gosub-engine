@@ -1,5 +1,8 @@
 //! Pluggable media decoding: [`MediaStore`](crate::common::media::MediaStore) stays
 //! format-agnostic by handing raw bytes plus an optional MIME hint to a [`MediaDecoderRegistry`].
+//!
+//! Raster formats normalize to [`PixelBuffer::Rgba8`]; SVG stays a retained `usvg::Tree`
+//! ([`DecodedMedia::Vector`]) so it can be re-rasterized crisply at any size.
 
 mod raster;
 mod svg;

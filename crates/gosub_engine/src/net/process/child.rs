@@ -1,6 +1,4 @@
 //! The network process: the only part of the engine that may open a socket.
-//!
-//! ## Order of operations at startup
 
 use crate::net::fetcher::{Fetcher, FetcherConfig};
 use crate::net::process::protocol::{FetchOutcome, FromNet, NetFetch, ToNet};
@@ -27,7 +25,7 @@ pub fn serve(mut link: Endpoint) -> i32 {
 
     // Force glibc to load its NSS resolver modules *now*, while this process
     // may still map executable pages. `getaddrinfo` `dlopen`s `libnss_dns.so`
-    // on first use, and the sandbox denies `mmap(PROT_EXEC)` — so a name
+    // on first use, and the sandbox denies `mmap(PROT_EXEC)` - so a name
     // resolved after the lockdown kills the process on a syscall that looks
     // nothing like DNS. The name deliberately does not resolve: what matters
     // is the module load, not the answer. Same shape as the font warm-up in
@@ -40,14 +38,14 @@ pub fn serve(mut link: Endpoint) -> i32 {
     // Read-only, and only these: the resolver configuration and the trust store.
     // A network stack that cannot read them cannot resolve a name or verify a
     // certificate, so denying files outright (as a renderer is) is not an option
-    // here — the paths are scoped instead.
+    // here - the paths are scoped instead.
     let paths = gosub_sandbox::net_filesystem_paths();
     let fs_allow: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
     gosub_sandbox::lock_down_net(&fs_allow);
 
     // No hooks: in-process, `EngineNetContext` turns these into engine events and
     // resolves request references against engine state. Here there is no engine to
-    // resolve against — this process holds no tab map, no jar, no event bus — so
+    // resolve against - this process holds no tab map, no jar, no event bus - so
     // progress reporting stays the broker's job. `cookies_for` in particular must
     // stay silent: answering it would mean this process kept a jar.
     let fetcher = match Fetcher::new(FetcherConfig::default(), Arc::new(NullContext)) {
@@ -64,7 +62,7 @@ pub fn serve(mut link: Endpoint) -> i32 {
     runtime.spawn(async move { fetcher_run.run(cancel).await });
 
     // A read error ends the loop: it means the broker went away, which is a
-    // normal end — the network process exists only to serve it.
+    // normal end - the network process exists only to serve it.
     while let Ok(msg) = link.recv::<ToNet>() {
         match msg {
             ToNet::Ping => {

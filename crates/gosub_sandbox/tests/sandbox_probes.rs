@@ -5,7 +5,7 @@
 //! itself and then attempts one operation. The verdict is read from outside:
 //! on Linux a forbidden syscall is a fatal `SIGSYS`, while platforms whose
 //! denials are not fatal (macOS Seatbelt returns `EPERM`) have the probe report
-//! an exit code instead. This cannot live in a `#[cfg(test)]` unit test — the
+//! an exit code instead. This cannot live in a `#[cfg(test)]` unit test - the
 //! filters are irreversible and would kill the test runner.
 
 // Test harness: a probe that cannot even be spawned must fail the test loudly,
@@ -20,8 +20,8 @@ fn probe_bin() -> &'static str {
 
 /// Seatbelt must *enforce*, not just install.
 ///
-/// Unlike seccomp, a Seatbelt denial is not fatal — the call returns `EPERM`
-/// and the process continues — so these probes cannot be judged from a signal.
+/// Unlike seccomp, a Seatbelt denial is not fatal - the call returns `EPERM`
+/// and the process continues - so these probes cannot be judged from a signal.
 /// Each performs its operation before and after `sandbox_init` and reports the
 /// transition through an exit code; the codes below are what those mean.
 #[cfg(all(feature = "multi-process", target_os = "macos"))]
@@ -44,7 +44,7 @@ mod seatbelt_enforcement {
             .unwrap_or_else(|| panic!("{name}: killed by a signal, expected an exit code"))
     }
 
-    /// Turn a probe's exit code into a message that says which half failed —
+    /// Turn a probe's exit code into a message that says which half failed -
     /// "the sandbox let it through" and "it never worked anyway" are very
     /// different bugs and a bare assertion cannot tell them apart.
     fn check(name: &str) {
@@ -61,7 +61,7 @@ mod seatbelt_enforcement {
         }
     }
 
-    /// A renderer has no filesystem — `(deny default)` withholding `file-read*`
+    /// A renderer has no filesystem - `(deny default)` withholding `file-read*`
     /// is the SBPL counterpart of `openat` being off the seccomp list.
     #[test]
     fn renderer_cannot_open_files() {
@@ -98,7 +98,7 @@ mod seatbelt_enforcement {
         check("seatbelt-baseline");
     }
 
-    /// `file-read*` and `file-write*` are separate SBPL operations — denying
+    /// `file-read*` and `file-write*` are separate SBPL operations - denying
     /// reads does not imply denying writes.
     #[test]
     fn renderer_cannot_write_files() {
@@ -128,7 +128,7 @@ mod seatbelt_enforcement {
         check("seatbelt-sysctl");
     }
 
-    /// The backend docs claim the profile grants no `mach-lookup` — reach into
+    /// The backend docs claim the profile grants no `mach-lookup` - reach into
     /// the Mach bootstrap namespace (WindowServer, launchd services), the classic
     /// macOS sandbox-escape surface. The probe confirms a service that resolves
     /// before lockdown is refused after; if none of its candidate services resolve
@@ -139,8 +139,8 @@ mod seatbelt_enforcement {
         check("seatbelt-mach-lookup");
     }
 
-    /// A filesystem service is path-scoped to its own directory — read/write
-    /// inside, denied outside — the SBPL counterpart of the Linux services'
+    /// A filesystem service is path-scoped to its own directory - read/write
+    /// inside, denied outside - the SBPL counterpart of the Linux services'
     /// Landlock ruleset, so a compromised storage/font service cannot roam the
     /// disk despite being a filesystem-service profile.
     #[test]
@@ -155,7 +155,7 @@ mod seatbelt_enforcement {
         check("rlimits");
     }
 
-    /// Verifies the kernel *accepts* `PT_DENY_ATTACH` — deliberately weaker
+    /// Verifies the kernel *accepts* `PT_DENY_ATTACH` - deliberately weaker
     /// than the Linux `children_refuse_debugger_attach`, which proves an attach
     /// is actually refused.
     #[test]
@@ -214,7 +214,7 @@ mod mitigation_enforcement {
     }
 
     /// Behaviour is the real test, but the kernel's own readback catches a
-    /// policy word assembled wrongly — including extension-point disabling,
+    /// policy word assembled wrongly - including extension-point disabling,
     /// which has no convenient behavioural probe (it would need a third party
     /// to attempt an injection).
     #[test]
@@ -231,7 +231,7 @@ mod mitigation_enforcement {
         check("low-integrity");
     }
 
-    /// The job object's memory ceiling — the `RLIMIT_AS` analogue Windows
+    /// The job object's memory ceiling - the `RLIMIT_AS` analogue Windows
     /// otherwise lacks, and the one parent-side control that can be attached
     /// to a process that already exists.
     #[test]
@@ -267,7 +267,7 @@ mod probe_inventory {
     use std::process::Command;
 
     /// What this platform is expected to verify. Keep in sync with
-    /// `selftest::PROBES` — that is the point of the test.
+    /// `selftest::PROBES` - that is the point of the test.
     #[cfg(target_os = "linux")]
     const EXPECTED: &[&str] = &[
         "baseline",
@@ -296,7 +296,7 @@ mod probe_inventory {
     ];
 
     /// The Seatbelt profile's enforcement. `PT_DENY_ATTACH` and the rlimits
-    /// are still unprobed — the list says so rather than implying coverage.
+    /// are still unprobed - the list says so rather than implying coverage.
     #[cfg(target_os = "macos")]
     const EXPECTED: &[&str] = &[
         "seatbelt-file",
@@ -317,7 +317,7 @@ mod probe_inventory {
     /// Windows: the process mitigation policies. The access-confining half
     /// (restricted token, AppContainer, job object) is parent-side and not
     /// implemented, so there is nothing yet to probe for file or network
-    /// confinement — see `sandbox/windows.rs`.
+    /// confinement - see `sandbox/windows.rs`.
     #[cfg(target_os = "windows")]
     const EXPECTED: &[&str] = &[
         "mitigation-baseline",
@@ -330,7 +330,7 @@ mod probe_inventory {
     ];
 
     /// Everything else has no sandbox backend: components run unconfined under
-    /// `sandbox::unsupported`. Nothing to probe until a measure lands — and
+    /// `sandbox::unsupported`. Nothing to probe until a measure lands - and
     /// when one does, this list is what forces a probe to land with it.
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     const EXPECTED: &[&str] = &[];
@@ -364,9 +364,9 @@ mod sandbox_enforcement {
     use std::os::unix::process::ExitStatusExt;
     use std::process::Command;
 
-    /// `SIGSYS` — the signal seccomp `KillProcess` terminates with.
+    /// `SIGSYS` - the signal seccomp `KillProcess` terminates with.
     const SIGSYS: i32 = 31;
-    /// `SIGSEGV` — a segmentation fault (the crash-report probe's wild read).
+    /// `SIGSEGV` - a segmentation fault (the crash-report probe's wild read).
     const SIGSEGV: i32 = 11;
 
     fn probe(name: &str) -> std::process::ExitStatus {
@@ -399,7 +399,7 @@ mod sandbox_enforcement {
 
     /// The inbound direction: other software running as the same user must not
     /// be able to `ptrace`-attach or read `/proc/<pid>/mem`. Guards the
-    /// placement as much as the call — the dumpable flag does not survive
+    /// placement as much as the call - the dumpable flag does not survive
     /// `execve`, so setting it pre-exec would leave this silently at 1.
     #[test]
     fn children_refuse_debugger_attach() {
@@ -433,7 +433,7 @@ mod sandbox_enforcement {
     }
 
     /// The fork server's filter is inherited by every renderer it forks, so a
-    /// gap in it kills *renderers*, not the fork server — and surfaces as
+    /// gap in it kills *renderers*, not the fork server - and surfaces as
     /// `TabCrashed`, looking nothing like a sandbox problem. This is the
     /// positive case guarding that: forking, reaping, and the
     /// `fcntl(F_DUPFD_CLOEXEC)` a forked child needs to split its endpoint
@@ -445,8 +445,8 @@ mod sandbox_enforcement {
     }
 
     /// The canary has to *detect*, not just pass. This runs it against a filter
-    /// missing `set_robust_list` — one of the three syscalls that really were
-    /// absent when this filter was written — and requires it to abort. A canary
+    /// missing `set_robust_list` - one of the three syscalls that really were
+    /// absent when this filter was written - and requires it to abort. A canary
     /// that only ever succeeds is indistinguishable from no canary.
     #[test]
     fn startup_canary_detects_a_missing_syscall() {
@@ -480,7 +480,7 @@ mod sandbox_enforcement {
         );
     }
 
-    /// A filesystem service's filter is the baseline *plus* `openat` — the one
+    /// A filesystem service's filter is the baseline *plus* `openat` - the one
     /// capability a font/storage service exists to have and a renderer denies.
     #[test]
     fn filesystem_service_may_open_files() {
@@ -489,7 +489,7 @@ mod sandbox_enforcement {
     }
 
     /// ...but only that. The wider filter is still a superset of the baseline,
-    /// so network is denied exactly as for a renderer — a storage service
+    /// so network is denied exactly as for a renderer - a storage service
     /// cannot phone home.
     #[test]
     fn filesystem_service_still_has_no_network() {
@@ -501,7 +501,7 @@ mod sandbox_enforcement {
         );
     }
 
-    /// A device service's filter permits `ioctl` — how a real audio/GPU service
+    /// A device service's filter permits `ioctl` - how a real audio/GPU service
     /// drives its device. (The stubs do no real work, but the filter is real.)
     #[test]
     fn device_service_may_ioctl() {
@@ -511,7 +511,7 @@ mod sandbox_enforcement {
 
     /// Landlock does what seccomp cannot: confine `openat` to specific paths. A
     /// service scoped to a directory may open files inside it but is denied
-    /// (EACCES) outside — even though seccomp still permits the `openat` syscall.
+    /// (EACCES) outside - even though seccomp still permits the `openat` syscall.
     /// Skips cleanly where the kernel lacks Landlock, so it never fails an
     /// untestable host (the probe exits 0 in that case).
     #[test]
@@ -539,7 +539,7 @@ mod sandbox_enforcement {
     /// The broker's deny-list seccomp filter is not a no-op: it keeps the broad
     /// surface the engine needs but `Trap`s the escalation syscalls. `ptrace` is
     /// one, so a broker that tries it is killed by `SIGSYS` exactly as a renderer
-    /// reaching for a socket is — proving the trusted process lost its reach for a
+    /// reaching for a socket is - proving the trusted process lost its reach for a
     /// kernel exploit while (per the demo) still doing its job.
     #[test]
     fn broker_denies_escalation_syscalls() {
@@ -563,7 +563,7 @@ mod sandbox_enforcement {
     /// process self-captures a scrubbed report from its own signal handler, then
     /// still dies with the original signal (so the engine's crash detection is
     /// unaffected). The report carries a faulting *address*, never memory
-    /// contents — leak-free even for the secret-holding broker. Checks both: the
+    /// contents - leak-free even for the secret-holding broker. Checks both: the
     /// `[crash]` record on stderr, and death by `SIGSEGV`.
     #[test]
     fn a_crashing_process_self_reports_then_dies() {
@@ -585,7 +585,7 @@ mod sandbox_enforcement {
         );
     }
 
-    /// The cgroup v2 memory bound — the physical-RSS limit rlimits can't give,
+    /// The cgroup v2 memory bound - the physical-RSS limit rlimits can't give,
     /// with a scoped OOM kill. The probe places itself in a `memory.max`-limited
     /// child cgroup and reads the ceiling back. Best-effort: where cgroup v2
     /// memory delegation isn't available (a shared scope, no `Delegate=yes`) it

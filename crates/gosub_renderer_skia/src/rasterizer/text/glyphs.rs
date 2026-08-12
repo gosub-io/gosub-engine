@@ -1,4 +1,7 @@
 //! Generic glyph-run text painter (`text_glyphs` feature).
+//!
+//! Font-system agnostic: the contract is font bytes + glyph IDs, not engine internals, so shaped
+//! runs from any [`FontSystem`] paint as Skia text blobs built from the runs' raw font bytes.
 
 use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::gradient::Gradient;

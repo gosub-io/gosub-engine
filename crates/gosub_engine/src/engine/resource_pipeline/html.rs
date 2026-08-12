@@ -50,7 +50,7 @@ pub struct HtmlPipelineImpl {
     /// Max document size in bytes (`net.document.max_bytes`); larger documents are truncated.
     max_document_bytes: usize,
     /// Also return the parsed document's source text (see
-    /// `HtmlParseConfig::capture_source`) — on when the engine renders
+    /// `HtmlParseConfig::capture_source`) - on when the engine renders
     /// out-of-process and its renderer will need to re-parse.
     capture_source: bool,
 }
@@ -95,7 +95,7 @@ impl HtmlPipelineImpl {
             max_bytes: self.max_document_bytes,
             capture_source: self.capture_source,
             // The parse happens on this tab's behalf, so its stylesheet loads carry
-            // the tab's identity and cookies like any other request — and are
+            // the tab's identity and cookies like any other request - and are
             // cancelled with the parse that wanted them.
             resource_loader: Some(
                 BrokeredLoader::new(zone_id, Some(tab_id), io_tx.clone())
@@ -330,7 +330,7 @@ mod tests {
 
     // Multi-threaded on purpose: parsing blocks on the brokered stylesheet load,
     // so the task answering IoCommands needs a thread of its own. On a
-    // current-thread runtime that load can only time out — the same constraint
+    // current-thread runtime that load can only time out - the same constraint
     // `net::brokered_loader` warns embedders about.
     #[tokio::test(flavor = "multi_thread")]
     async fn parse_bytes_discovers_and_submits_subresources() {
@@ -355,7 +355,7 @@ mod tests {
         assert_eq!(crate::html::document_title(&doc).as_deref(), Some("Hello World"));
 
         // Three warm-up fetches from regex discovery (stylesheet, script, image),
-        // plus the parser's own brokered load of the `<link rel="stylesheet">` —
+        // plus the parser's own brokered load of the `<link rel="stylesheet">` -
         // which used to bypass this channel entirely by going straight to the network.
         let count = seen_children.lock().len();
         assert_eq!(count, 4, "expected 4 fetches, saw {}", count);

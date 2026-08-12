@@ -1,4 +1,12 @@
 //! Easing (timing) functions for animations.
+//!
+//! An [`Easing`] maps normalized progress `t ∈ [0, 1]` to an eased output. The output is
+//! conventionally in `[0, 1]` too, but curves are explicitly allowed to leave that range:
+//! [`Easing::Elastic`] overshoots before settling. This is the same concept as a CSS
+//! `*-timing-function`, so the named curves mirror CSS and the [`Easing::CubicBezier`] variant
+//! can express any of them.
+//!
+//! [`Easing`] is `Send + Sync` so curves can be evaluated on a worker thread.
 
 use std::sync::Arc;
 
@@ -16,6 +24,9 @@ pub enum StepPosition {
 }
 
 /// A timing function mapping animation progress to an eased value.
+///
+/// Evaluate with [`Easing::eval`]. Input is clamped to `[0, 1]`; output may exceed it for
+/// overshooting curves.
 #[derive(Clone)]
 pub enum Easing {
     /// Constant rate (`f(t) = t`).

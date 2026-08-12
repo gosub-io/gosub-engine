@@ -6,7 +6,7 @@
 //! through the I/O runtime, where identity and cookies apply and where the
 //! network will eventually live in its own process.
 //!
-//! The standalone CLI tools here have no engine, no tab and no cookie jar — they
+//! The standalone CLI tools here have no engine, no tab and no cookie jar - they
 //! parse one document and exit. They still need external stylesheets to resolve,
 //! so they supply this: a blocking fetch straight to the network, named plainly
 //! so its use is a visible choice rather than a default that quietly reintroduces

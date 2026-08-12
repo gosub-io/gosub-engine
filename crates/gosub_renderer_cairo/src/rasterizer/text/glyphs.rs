@@ -1,4 +1,10 @@
 //! Generic glyph-run text painter (`text_glyphs` feature).
+//!
+//! Font-system agnostic: the contract is font bytes + glyph IDs, not engine internals, so shaped
+//! runs from any [`FontSystem`] paint via `cairo_show_glyphs` against FreeType faces.
+//!
+//! Colour emoji render via cairo's FreeType colour-bitmap support (CBDT strikes); COLR-only
+//! fonts may still fall back to monochrome outlines depending on the cairo version.
 
 use crate::rasterizer::brush::set_brush;
 use cairo::{Antialias, Context, Error, FontOptions, Glyph, HintMetrics, HintStyle};
@@ -13,6 +19,13 @@ use std::rc::Rc;
 const PANGO_GLYPH_UNKNOWN_FLAG: u32 = 0x1000_0000;
 
 /// Process-global, immortal FreeType library + cairo font faces, one per distinct font file.
+///
+/// Global and immortal is load-bearing, not convenience: cairo internally caches
+/// `cairo_font_face_t`s keyed by `FT_Face` pointer. Per-thread caches (tiles rasterize on
+/// short-lived pool threads) freed their faces on thread death, and a later thread's new
+/// `FT_Face` allocated at a recycled address made cairo resurrect the stale entry - painting
+/// entire runs as solid boxes. Faces created once and never freed can't collide; it also means
+/// the multi-MB CJK/emoji fonts are copied once per process instead of once per thread.
 struct FaceCache {
     faces: HashMap<(u64, u32), Option<(freetype::face::Face, cairo::FontFace)>>,
     library: Option<freetype::Library>,

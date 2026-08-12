@@ -252,6 +252,8 @@ pub fn dump(details: bool) {
 
 /// RAII timer guard - stops the timer when dropped, regardless of how the
 /// enclosing scope exits (normal return, early return, `?`, panic).
+///
+/// Obtain one via [`timing_guard!`](crate::timing_guard) or [`TimerGuard::start`].
 pub struct TimerGuard {
     id: TimerId,
 }

@@ -18,8 +18,8 @@ use url::Url;
 /// Tile edge in CSS pixels, matching the engine's default.
 const TILE_SIZE: f64 = 256.0;
 
-/// Parse, style, lay out, layer, tile, paint — and, when the configuration
-/// provides a forked rasterizer, rasterize — `html`, measuring and shaping
+/// Parse, style, lay out, layer, tile, paint - and, when the configuration
+/// provides a forked rasterizer, rasterize - `html`, measuring and shaping
 /// through `fonts`. Pure compute plus allocation: safe under the strictest
 /// renderer filter. Returns the summary and the baked tiles (empty without a
 /// rasterizer); sealing them into memfds is the caller's business, since that
@@ -54,7 +54,7 @@ pub fn render_page<C: RenderConfiguration>(
 
     // Parse with the page's base URL (relative subresource URLs resolve
     // against it) and with the loader, so `<link rel=\"stylesheet\">` is
-    // fetched through the broker mid-parse — the same arrangement as the
+    // fetched through the broker mid-parse - the same arrangement as the
     // engine's own parse, with the renderer's brokered loader in the seat.
     let base_url = Url::parse(page_url).ok();
     let mut stream = ByteStream::from_str(html, Encoding::UTF8);
@@ -74,7 +74,7 @@ pub fn render_page<C: RenderConfiguration>(
 
     // `@font-face` web fonts: the same walk the tab worker runs, fetching
     // through this renderer's loader and registering into the inherited font
-    // system — so text set in a web font lays out here exactly as in-process.
+    // system - so text set in a web font lays out here exactly as in-process.
     if let Some(base) = &base_url {
         crate::html::web_fonts::load_web_fonts::<C>(&doc, base, loader.as_ref(), &mut |bytes, family| {
             fonts.lock().register_font(bytes, Some(family))
@@ -143,7 +143,7 @@ pub fn render_page<C: RenderConfiguration>(
 
     // Between painting and rasterizing: decide which tiles the broker already
     // has. A tile's hash covers its position, layer and painted content, so a
-    // hit means the pixels would come out byte-identical — no reason to
+    // hit means the pixels would come out byte-identical - no reason to
     // rasterize it, let alone ship it. Marking such a tile non-dirty is what
     // makes stage 6 skip it.
     let mut plan: Vec<TilePlan> = Vec::new();
@@ -250,7 +250,7 @@ pub enum RenderedTile {
     },
     /// The broker already holds this tile's pixels: nothing was rasterized
     /// and nothing travels but the identity. The broker fills the physical
-    /// dimensions from what it kept — the renderer never produced them.
+    /// dimensions from what it kept - the renderer never produced them.
     Unchanged {
         page_x: f64,
         page_y: f64,

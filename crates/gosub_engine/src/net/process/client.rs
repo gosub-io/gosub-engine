@@ -116,10 +116,7 @@ impl NetProcess {
         match ready_rx.recv_timeout(READY_TIMEOUT) {
             Ok(()) => {}
             // The reader thread ended, so the link is gone: the child died
-            // rather than went quiet. Report how it died — the two failures
-            // have nothing in common, and a bare "did not answer in time"
-            // sent every reader of this message hunting a timeout that never
-            // happened.
+            // rather than went quiet. Report how it died, not a bogus timeout.
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 let fate = net
                     .child

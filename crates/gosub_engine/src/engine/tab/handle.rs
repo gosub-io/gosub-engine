@@ -6,7 +6,9 @@ use crate::EngineError;
 use gosub_render_pipeline::render::Viewport;
 use std::sync::Arc;
 
-/// A handle to a running [`Tab`](crate::tab).
+/// A handle to a running [`Tab`](crate::tab): sends commands to the tab task and
+/// holds the [`TabSink`] for subscribing to tab outputs. Commands to a closed tab
+/// fail with [`EngineError::ChannelClosed`].
 #[derive(Clone)]
 pub struct TabHandle {
     /// The unique identifier of the tab.
@@ -24,39 +26,19 @@ impl std::fmt::Debug for TabHandle {
 }
 
 impl TabHandle {
-    /// Send a raw [`TabCommand`] to the tab.
-    ///
-    /// # Errors
-    /// Returns [`EngineError::ChannelClosed`] if the tab task is no longer running.
+    /// Send a raw [`TabCommand`] to the tab. Returns [`EngineError::ChannelClosed`]
+    /// if the tab task is no longer running.
     pub async fn send(&self, cmd: TabCommand) -> Result<(), EngineError> {
         self.cmd_tx.send(cmd).await.map_err(|_| EngineError::ChannelClosed)?;
         Ok(())
     }
 
     /// Update the tab's title.
-    ///
-    /// This is typically reflected in the UI (e.g. the browser tab bar).
-    ///
-    /// # Example
-    /// ```no_run,ignore
-    /// tab_handle.set_title("New Title").await?;
-    /// ```
     pub async fn set_title(&self, title: impl Into<String>) -> Result<(), EngineError> {
         self.send(TabCommand::SetTitle { title: title.into() }).await
     }
 
-    /// Update the viewport of the tab.
-    ///
-    /// The viewport defines the visible region of the document in CSS pixels.
-    /// This is usually called when the window or tab is resized.
-    ///
-    /// # Example
-    /// ```no_run,ignore
-    /// use gosub_render_pipeline::render::Viewport;
-    ///
-    /// let viewport = Viewport { x: 0, y: 0, width: 1280, height: 720 };
-    /// tab_handle.set_viewport(viewport).await?;
-    /// ```
+    /// Update the tab's viewport: the visible region of the document in CSS pixels.
     pub async fn set_viewport(&self, viewport: Viewport) -> Result<(), EngineError> {
         self.send(TabCommand::SetViewport {
             x: viewport.x,
@@ -67,15 +49,8 @@ impl TabHandle {
         .await
     }
 
-    /// Navigate the tab to a new URL.
-    ///
-    /// This triggers a load in the tab’s context. The URL can be any supported scheme
-    /// (e.g. `http://`, `https://`, `about:`, `source:`).
-    ///
-    /// # Example
-    /// ```no_run,ignore
-    /// tab_handle.navigate("https://example.com").await?;
-    /// ```
+    /// Navigate the tab to a new URL. Any supported scheme works
+    /// (`http://`, `https://`, `about:`, `source:`).
     pub async fn navigate(&self, url: impl Into<String>) -> Result<(), EngineError> {
         self.send(TabCommand::Navigate { url: url.into() }).await
     }

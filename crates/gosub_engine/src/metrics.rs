@@ -1,11 +1,21 @@
 //! Lightweight HTTP metrics server.
 //!
+//! Call [`start`] once at engine startup to expose timing data over HTTP.
+//!
 //! # Endpoints
+//!
+//! | Method | Path              | Description                            |
+//! |--------|-------------------|----------------------------------------|
+//! | GET    | `/metrics`        | JSON snapshot of all timing namespaces |
+//! | GET    | `/metrics/reset`  | Clear all timing counters              |
+//! | GET    | `/health`         | Liveness probe (`{"status":"ok"}`)     |
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 /// Spawn the metrics HTTP server on `127.0.0.1:{port}` in a background Tokio task.
+///
+/// The function returns immediately; the server runs until the process exits.
 pub fn start(port: u16) {
     tokio::spawn(async move {
         if let Err(e) = serve(port).await {

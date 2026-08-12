@@ -6,8 +6,8 @@
 //! 48 MiB of RGBA, well past the 16 MiB cap that keeps a corrupt length prefix
 //! from forcing a huge allocation. Rather than raise that cap for every link in
 //! the engine, the pixels are sent as bounded chunks and the receiver accumulates
-//! them against its own total limit. The zero-copy alternative — a sealed
-//! shared-memory buffer, `gosub_ipc::shm` — is already imported and is the
+//! them against its own total limit. The zero-copy alternative - a sealed
+//! shared-memory buffer, `gosub_ipc::shm` - is already imported and is the
 //! natural upgrade; chunking keeps this portable in the meantime.
 
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ pub const CHUNK_BYTES: usize = 4 * 1024 * 1024;
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ToDecoder {
     Decode {
-        /// The `Content-Type` the response claimed, if any. A hint only — the
+        /// The `Content-Type` the response claimed, if any. A hint only - the
         /// decoder sniffs the bytes, since this comes from the network.
         mime: Option<String>,
         bytes: Vec<u8>,

@@ -36,19 +36,19 @@ pub enum ToForkServer {
     /// inherited (copy-on-write) font system, and report the measured box.
     ForkProof,
     /// Fork a renderer and run the render pipeline in it: parse `html`, style,
-    /// lay out against the viewport, layer, tile, and paint — single-threaded,
+    /// lay out against the viewport, layer, tile, and paint - single-threaded,
     /// under the announced tier's sandbox, measuring and shaping through the
     /// inherited font system. Replies with [`FromForkServer::PageRendered`].
     RenderPage {
         html: String,
-        /// The page's URL — the base against which the renderer resolves
+        /// The page's URL - the base against which the renderer resolves
         /// relative subresource URLs (stylesheets, images, fonts).
         url: String,
         viewport_width: f64,
         viewport_height: f64,
         /// Content hashes of tiles the broker still holds from a previous
         /// render of this tab. A tile whose hash is in here is neither
-        /// rasterized nor shipped — the renderer answers
+        /// rasterized nor shipped - the renderer answers
         /// [`TileUnchanged`](FromForkServer::TileUnchanged) and the broker
         /// reuses the pixels it already has. Empty on a first render.
         known_tiles: Vec<u64>,
@@ -79,8 +79,8 @@ pub enum FromForkServer {
     /// A forked renderer shaped text under its tier sandbox and measured this.
     Proof { width: f32, height: f32 },
     /// One rasterized tile of the page being rendered; its sealed-memfd file
-    /// descriptor follows immediately on the link. **Streamed**: tiles arrive
-    /// one at a time, each fd relayed and released before the next — no side
+    /// descriptor follows immediately on the link. Streamed: tiles arrive
+    /// one at a time, each fd relayed and released before the next - no side
     /// of the transport ever holds more than one tile fd, so page size is
     /// bounded by memory, not by file-descriptor limits.
     Tile(TileHeader),
@@ -92,7 +92,7 @@ pub enum FromForkServer {
     /// The render finished; every [`Tile`](FromForkServer::Tile) of the page
     /// has already streamed past. A render that dies mid-stream ends in
     /// [`Refused`](FromForkServer::Refused) instead, and the broker discards
-    /// the partial tile set — atomicity lives at the consumer now, not in
+    /// the partial tile set - atomicity lives at the consumer now, not in
     /// transport buffering.
     PageRendered {
         summary: PageSummary,
@@ -101,7 +101,7 @@ pub enum FromForkServer {
     /// The request could not be served; the string says why (e.g. forking is
     /// refused under `Unsupported`, or the forked child died).
     Refused(String),
-    /// A renderer needs a subresource it has no capability to fetch — the
+    /// A renderer needs a subresource it has no capability to fetch - the
     /// brokered-load inversion, mirroring cookies: the renderer names what it
     /// wants, the broker performs the fetch where identity and cookies live,
     /// and only bytes come back. Sent mid-[`RenderPage`](ToForkServer::RenderPage);
@@ -119,8 +119,8 @@ pub struct ProofReply {
 }
 
 /// What a page came to, measured by the forked renderer that laid it out and
-/// painted it. Numbers rather than pixels — the pixels travel separately, as
-/// sealed memfds — but enough on their own for the broker to assert the
+/// painted it. Numbers rather than pixels - the pixels travel separately, as
+/// sealed memfds - but enough on their own for the broker to assert the
 /// pipeline really ran (a dead font system collapses heights to zero; a dead
 /// painter produces no commands).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,7 +132,7 @@ pub struct PageSummary {
     pub paint_commands: u64,
 }
 
-/// One hit-testable box of the page, in page space, in **hit-test order**:
+/// One hit-testable box of the page, in page space, in hit-test order:
 /// the first region containing a point is the one under the pointer (the
 /// renderer emits them exactly as its layer list would have walked them,
 /// topmost first).
@@ -142,7 +142,7 @@ pub struct HitRegion {
     pub y: f64,
     pub width: f64,
     pub height: f64,
-    /// The DOM node this box belongs to, as the broker's document numbers it —
+    /// The DOM node this box belongs to, as the broker's document numbers it -
     /// both processes parsed the same bytes with the same parser, so the ids
     /// agree.
     pub node_id: u64,
@@ -158,7 +158,7 @@ pub struct HitRegion {
 pub const MAX_HIT_REGIONS: usize = 20_000;
 
 /// Everything about one rasterized tile except its pixels, which follow as a
-/// sealed memfd (see `gosub_ipc::shm` — the consumer derives the byte count
+/// sealed memfd (see `gosub_ipc::shm` - the consumer derives the byte count
 /// from these dimensions and validates the fd against them, never trusting a
 /// length from the wire). Carries what the compositor's `CachedTile` needs,
 /// so a mapped tile converts without consulting the renderer again.
@@ -183,7 +183,7 @@ pub struct TileHeader {
     pub anchor: TileWireAnchor,
 }
 
-/// The in-memory byte order of a shipped tile — the wire mirror of the
+/// The in-memory byte order of a shipped tile - the wire mirror of the
 /// interface crate's `PixelFormat` (which carries no serde).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TileWireFormat {
@@ -290,7 +290,7 @@ pub enum FromRenderer {
     /// renderer seals, sends, and drops each before baking the next into a
     /// memfd, so it never holds more than one tile fd itself.
     Tile(TileHeader),
-    /// A tile the broker already holds — no fd, no rasterization.
+    /// A tile the broker already holds - no fd, no rasterization.
     TileUnchanged(TileHeader),
     /// The final message: the render is complete, with the page's hit-test
     /// geometry.

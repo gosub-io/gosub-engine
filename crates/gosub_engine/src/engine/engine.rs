@@ -73,7 +73,7 @@ pub struct EngineContext {
     pub internal_pages: InternalPages,
     /// Which cookie jar and top-level document each tab has. The I/O side reads
     /// this to attach cookies itself, so no cookie value is ever handled by tab
-    /// code — see [`TabIdentityRegistry`].
+    /// code - see [`TabIdentityRegistry`].
     pub tab_identities: Arc<TabIdentityRegistry>,
     /// The fork server renderers are forked from, if `security.renderer_process`
     /// is on and it started (set once at [`GosubEngine::start`], like `io_tx`).
@@ -153,6 +153,12 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     }
 
     /// Starts the engine's I/O runtime and returns the main run-loop future.
+    ///
+    /// The returned future is intentionally not spawned: the caller decides how to drive it -
+    /// `tokio::spawn` it onto a background task, `.await` it inline, or poll it inside a `select!`.
+    /// This keeps the engine from imposing a runtime/threading model on the embedder (it can be
+    /// driven on the caller's current task/thread). The engine is considered running as soon as
+    /// this returns `Ok`; driving the future processes engine commands such as shutdown.
     pub fn start(&mut self) -> Result<impl std::future::Future<Output = ()> + 'static, EngineError> {
         if self.running {
             return Err(EngineError::AlreadyRunning);
@@ -170,7 +176,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         crate::metrics::start(9090);
 
         // Spawn the renderer fork server if asked to. Blocks briefly (spawn
-        // plus font warm-up, ~200 ms typical) — acceptable at startup, and
+        // plus font warm-up, ~200 ms typical) - acceptable at startup, and
         // the answer decides engine-wide behaviour, so it belongs here.
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         self.start_renderer_process();
@@ -194,7 +200,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // The configured font system's (static) tier decides the mechanism:
         // only `Full` systems benefit from a warmed fork server.
         // `FontPathsReadable` renders in throwaway exec'd processes spawned
-        // per render (see `render_process`) — nothing to start here.
+        // per render (see `render_process`) - nothing to start here.
         {
             use gosub_interface::font_system::{Confinement, FontSystem as _};
             match C::FontSystem::confinement() {
@@ -243,7 +249,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     }
 
     /// The running renderer fork server, when `security.renderer_process` is on
-    /// and it started — the handle render routing goes through. `None` means
+    /// and it started - the handle render routing goes through. `None` means
     /// this engine renders in-process.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn renderer_process(&self) -> Option<&Arc<Mutex<crate::fork_server::client::ForkServer>>> {
@@ -301,6 +307,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     }
 
     /// Build the engine’s inbound command-loop future (owns everything it needs, hence `'static`).
+    ///
+    /// Returns `None` if the loop was already taken (engine already started). The caller drives the
+    /// future; this method does not spawn it.
     pub fn run(&mut self) -> Option<impl std::future::Future<Output = ()> + 'static> {
         self.running = true;
 
@@ -370,18 +379,12 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
     /// Create and register a new zone, returning a [`Zone`] for userland code.
     ///
-    /// - `config`: zone configuration (features, limits, identity); if `None`, the
-    ///   engine's [`EngineConfig::default_zone_config`] is used
-    /// - `services`: storage, cookie store/jar, partition policy, etc.
-    /// - `zone_id`: optional id; if `None`, a fresh one is generated
-    /// - `event_tx`: channel where the zone (and its tabs) will emit [`EngineEvent`]s
-    ///
-    /// Fails with [`EngineError::ZoneLimitExceeded`] once the engine holds
-    /// [`EngineConfig::max_zones`] zones.
-    ///
-    /// The returned handle contains the [`ZoneId`] and a clone of the engine’s
-    /// command sender, allowing the caller to send zone commands without holding
-    /// a reference to the engine.
+    /// `None` for `config` uses the engine's [`EngineConfig::default_zone_config`];
+    /// `None` for `zone_id` generates a fresh id. Fails with
+    /// [`EngineError::ZoneLimitExceeded`] once the engine holds
+    /// [`EngineConfig::max_zones`] zones. The returned handle carries the [`ZoneId`]
+    /// and a clone of the engine's command sender, so the caller can send zone
+    /// commands without holding a reference to the engine.
     pub fn create_zone(
         &mut self,
         config: Option<ZoneConfig>,
@@ -430,6 +433,10 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
     /// Close a zone: stop its tabs and fetcher, release its cookie jar, and free
     /// its [`EngineConfig::max_zones`] slot.
+    ///
+    /// Persisted cookie data stays on disk (the zone can be reopened later with the
+    /// same [`ZoneId`]); only the in-memory state is released. Emits
+    /// [`EngineEvent::ZoneClosed`] when done.
     #[instrument(name = "engine.close_zone", level = "debug", skip(self, zone))]
     pub async fn close_zone(&mut self, zone: Zone<C>) {
         let zone_id = zone.id;
@@ -489,7 +496,7 @@ mod tests {
 
     /// The inversion, end to end: the I/O side stores a `Set-Cookie` from one
     /// navigation and attaches it to the next, with no cookie code on the tab
-    /// path at all. Both halves are covered — a failure to store and a failure to
+    /// path at all. Both halves are covered - a failure to store and a failure to
     /// attach look identical here, which is why the second request is inspected
     /// rather than the jar.
     #[tokio::test]
