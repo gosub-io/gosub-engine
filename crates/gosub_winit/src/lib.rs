@@ -1,4 +1,15 @@
 //! winit + wgpu window presentation glue for the Gosub Vello backend.
+//!
+//! An embedder that wants a winit window backed by the GPU (`VelloBackend`) needs two pieces of
+//! boilerplate that are the same for every such app:
+//!
+//! - [`WinitWgpuContextProvider`] - the [`WgpuContextProvider`] the Vello backend renders through,
+//!   owning the shared `wgpu` device/queue and a registry of engine-created textures.
+//! - [`GpuPresenter`] - a wgpu surface + full-screen blit pipeline that puts a texture (Vello's
+//!   GPU frame) or a CPU RGBA buffer (the tile fallback) onto the window's swap chain.
+//!
+//! [`GpuPresenter::new`] selects an adapter compatible with the window's surface (see its docs
+//! for the Wayland trap) and a non-sRGB swap-chain format.
 
 use gosub_renderer_vello::WgpuContextProvider;
 use parking_lot::RwLock;
@@ -7,8 +18,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use vello::wgpu;
 use winit::window::Window;
-
-// ── WgpuContextProvider ───────────────────────────────────────────────────────
 
 /// A [`WgpuContextProvider`] backed by a shared `wgpu` device/queue and an in-memory registry of
 /// engine-created textures (keyed by an opaque id the engine hands back inside a `WgpuTextureId`
@@ -81,10 +90,12 @@ impl WgpuContextProvider for WinitWgpuContextProvider {
     }
 }
 
-// ── GpuPresenter ──────────────────────────────────────────────────────────────
-
 /// A wgpu surface plus a full-screen blit pipeline that presents a texture (or a CPU RGBA buffer)
 /// to a winit window.
+///
+/// Holds its own `Arc` device/queue so [`present`](Self::present) / [`present_rgba`](Self::present_rgba)
+/// / [`resize`](Self::resize) take no extra plumbing; clone them out with [`device`](Self::device) /
+/// [`queue`](Self::queue) to build a [`WinitWgpuContextProvider`] for the same GPU.
 pub struct GpuPresenter {
     window: Arc<Window>,
     device: Arc<wgpu::Device>,
@@ -99,6 +110,18 @@ pub struct GpuPresenter {
 impl GpuPresenter {
     /// Create a surface for `window`, pick a surface-compatible adapter + device, configure a
     /// non-sRGB swap chain, and build the blit pipeline.
+    ///
+    /// Adapter selection passes `compatible_surface`: without that hint wgpu may return an
+    /// adapter that cannot render to the Wayland/X11 surface, making `get_current_texture` silently
+    /// fail every frame so the window never becomes visible.
+    ///
+    /// The swap-chain format is chosen non-sRGB where possible: both the Vello GPU texture and
+    /// the CPU tile blits already hold sRGB-encoded bytes, so an sRGB surface format would encode
+    /// them a second time - washing colors out (orange → yellow) and thinning anti-aliased glyph
+    /// edges. A plain `Unorm` surface passes the bytes straight through to the (sRGB) display.
+    ///
+    /// This is `async` because `wgpu`'s adapter/device requests are; drive it on whatever runtime
+    /// the embedder already has (e.g. `rt.block_on(GpuPresenter::new(..))`).
     pub async fn new(instance: &wgpu::Instance, window: Arc<Window>) -> anyhow::Result<Self> {
         let surface = instance.create_surface(window.clone())?;
 
@@ -242,6 +265,10 @@ impl GpuPresenter {
     }
 
     /// Upload a CPU RGBA buffer to a texture and blit it to the swap chain.
+    ///
+    /// Used for the `ExternalHandle::TileCache` fallback (tile-rasterizing backends composited on
+    /// the CPU). Vello renders GPU-direct and takes the [`present`](Self::present) path, avoiding
+    /// this round-trip.
     pub fn present_rgba(&self, rgba: &[u8], w: u32, h: u32) {
         if w == 0 || h == 0 {
             return;

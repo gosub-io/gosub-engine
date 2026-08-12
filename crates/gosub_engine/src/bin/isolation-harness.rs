@@ -11,7 +11,7 @@ const BODY: &str = "<html><head><title>through the net process</title></head>\
 style=\"display:block;width:400px;height:200px\">a link to hover</a></body></html>";
 
 /// The harness's render configuration: null backend and compositor (nothing
-/// composites here), the scenario-selected font system — and, behind the
+/// composites here), the scenario-selected font system - and, behind the
 /// `cairo-tiles` feature, the Cairo CPU rasterizer for forked renderers.
 struct TileConfig<F>(std::marker::PhantomData<F>);
 
@@ -64,7 +64,7 @@ macro_rules! with_font_backend {
     ($scenario:ident) => {{
         let backend = std::env::args().nth(2).unwrap_or_else(|| "parley".into());
         // Spawned children (the fork server) inherit this, which is how a
-        // re-exec — where type parameters cannot travel — ends up dispatching
+        // re-exec - where type parameters cannot travel - ends up dispatching
         // with the same font system the scenario is testing. A production
         // embedder has no such indirection: it names its one font system in
         // `dispatch_with` directly.
@@ -189,7 +189,7 @@ fn fonts_under_lockdown<F: FontSystem + Default>() -> i32 {
     // renderer will call, and it is the configured font system's own answer to
     // "get ready to be confined". Timed and measured, because the cost of that
     // answer is part of whether the strategy is usable. This scenario tests the
-    // *full* lockdown, so any answer below `Full` ends it here — the tiered
+    // *full* lockdown, so any answer below `Full` ends it here - the tiered
     // scenarios cover the rest.
     let rss_before_mib = rss_mib();
     let start = std::time::Instant::now();
@@ -211,7 +211,7 @@ fn fonts_under_lockdown<F: FontSystem + Default>() -> i32 {
     gosub_sandbox::lock_down_renderer();
 
     // Text and a size never used above, so any per-face lazy load still pending
-    // has to happen now — after the sandbox is in place.
+    // has to happen now - after the sandbox is in place.
     let cold_style = TextStyle::new("serif", 31.0);
     let (cold_w, cold_h) = fonts.measure("Text shaped only after the sandbox applied", &cold_style);
     if cold_w <= 0.0 || cold_h <= 0.0 {
@@ -224,7 +224,7 @@ fn fonts_under_lockdown<F: FontSystem + Default>() -> i32 {
 
 /// The middle tier: can a font system that *cannot* be confined outright
 /// (fontconfig consults the filesystem while shaping) run in a renderer that is
-/// allowed to **read font paths and nothing else**?
+/// allowed to read font paths and nothing else?
 fn fonts_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
     use gosub_interface::font_system::TextStyle;
 
@@ -273,7 +273,7 @@ fn fonts_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
     0
 }
 
-/// Web fonts under the middle tier — the follow-up that decides whether the
+/// Web fonts under the middle tier - the follow-up that decides whether the
 /// tier is actually usable, because `@font-face` is everywhere.
 fn webfont_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
     use gosub_interface::font_system::{FontQuery, TextStyle};
@@ -331,7 +331,7 @@ fn webfont_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
     0
 }
 
-/// The render pipeline under the renderer lockdown, in *this* process — the
+/// The render pipeline under the renderer lockdown, in *this* process - the
 /// same stages the forked renderer runs, minus the fork machinery, so a
 /// pipeline-vs-sandbox failure can be debugged (and bisected) directly.
 fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
@@ -351,7 +351,7 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
         }
 
         // Constructing the media store decodes the placeholder SVG, whose
-        // decoder loads a system fontdb from disk — so it must precede the
+        // decoder loads a system fontdb from disk - so it must precede the
         // lockdown, exactly as it does in the fork server.
         let media_store = std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
 
@@ -418,7 +418,7 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
 /// The exec-fresh renderer, driven directly: spawn one throwaway
 /// font-readable-confined renderer process, have it render the same
 /// css+font+img page the fork-server scenario uses, and verify the brokered
-/// loads and the streamed tiles — the `FontPathsReadable` tier's whole
+/// loads and the streamed tiles - the `FontPathsReadable` tier's whole
 /// render path, without an engine around it.
 fn exec_renderer_roundtrip<F: FontSystem + Default>() -> i32 {
     println!("font backend: {}", std::any::type_name::<F>());
@@ -598,10 +598,10 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
             }
 
             // The tab route: a real navigation whose frame is rendered
-            // out-of-process — forked from the fork server (Full) or in a
+            // out-of-process - forked from the fork server (Full) or in a
             // throwaway exec'd renderer (FontPathsReadable). The tab worker
             // captures the document source, sends it out, and submits the
-            // returned tiles to the compositor — the same code path an
+            // returned tiles to the compositor - the same code path an
             // embedder's window drives.
             {
                 use gosub_engine::events::{NavigationEvent, TabCommand};
@@ -648,7 +648,7 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                 let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
 
                 // Wait for the navigation, then for a frame to reach the
-                // compositor — both on a clock.
+                // compositor - both on a clock.
                 let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
                 loop {
                     let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -753,7 +753,7 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
 }
 
 /// Answers a forked renderer's brokered subresource requests from memory,
-/// recording them — the harness's stand-in for the engine's cookie-attaching
+/// recording them - the harness's stand-in for the engine's cookie-attaching
 /// brokered loader. Serves an image, an external stylesheet (which declares a
 /// layout-visible rule and an `@font-face`), and the font that face names.
 #[derive(Debug, Default)]
@@ -762,7 +762,7 @@ struct HarnessResourceLoader {
     /// Raw SFNT bytes served as `/face.ttf` (a real installed font, read
     /// broker-side where files are still reachable).
     font: Vec<u8>,
-    /// Every path requested, in order — what the assertions read.
+    /// Every path requested, in order - what the assertions read.
     paths: parking_lot::Mutex<Vec<String>>,
 }
 
@@ -869,7 +869,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
         // layout → layering → tiling → paint) over a real page, in a fresh
         // forked renderer, single-threaded, under the tier sandbox. The page
         // exercises CSS (inline <style>), block flow, enough text that a
-        // dead font system could not fake the numbers — and an image, which
+        // dead font system could not fake the numbers - and an image, which
         // the renderer cannot fetch: its request must come back out through
         // the fork server and be answered by the loader below.
         let html = r#"
@@ -889,7 +889,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
             </body></html>
         "#;
         // Real font bytes for `/face.ttf`, read broker-side (files are still
-        // reachable here) — the renderer must receive them over the channel,
+        // reachable here) - the renderer must receive them over the channel,
         // never from disk.
         let font_bytes = {
             use gosub_interface::font_system::FontQuery;
@@ -944,7 +944,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                     summary.paint_commands
                 );
                 // With a rasterizer compiled in, the pixels must arrive as
-                // mapped shared memory — and be ink, not zeroes: these are
+                // mapped shared memory - and be ink, not zeroes: these are
                 // the renderer's own pages, validated and sealed.
                 if cfg!(feature = "cairo-tiles") {
                     let inked: u64 = tiles
@@ -1031,7 +1031,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
 
         // Incrementality: render the same page again, this time telling the
         // renderer which tiles we kept. Nothing about the page changed, so
-        // every tile must come back as unchanged — no rasterization, no
+        // every tile must come back as unchanged - no rasterization, no
         // pixels, no file descriptors. Needs a rasterizer to have produced
         // tiles in the first place.
         if cfg!(feature = "cairo-tiles") {
@@ -1067,7 +1067,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
         // Hover repaint, out of process: the renderer re-parses per render and
         // has no hover state of its own, so the broker tells it which node is
         // under the pointer. With the tile memory in play, only the tiles
-        // whose painted content actually changed come back — hovering the
+        // whose painted content actually changed come back - hovering the
         // <h1> (which the brokered stylesheet gives a :hover background)
         // must repaint some tiles while reusing the rest.
         if cfg!(feature = "cairo-tiles") {
@@ -1109,7 +1109,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
 
         // The streaming property: a page whose tile count exceeds any
         // process's file-descriptor limit (RLIMIT_NOFILE is 128 in the fork
-        // server and its children) must still ship every tile — possible
+        // server and its children) must still ship every tile - possible
         // only because each hop seals/relays/maps one fd at a time.
         if cfg!(feature = "cairo-tiles") {
             let tall = r#"<html><body style="margin:0">
@@ -1178,7 +1178,7 @@ fn webfont_under_lockdown<F: FontSystem + Default>() -> i32 {
 
     // The renderer's documented sequence: prepare, confine, and only then let
     // content introduce fonts. Skipping the preparation here would test a
-    // sequence no renderer runs — and shaping a web font still consults
+    // sequence no renderer runs - and shaping a web font still consults
     // fallback faces, which some backends (cosmic-text) load lazily per face.
     // Full lockdown only: backends answering a weaker tier are covered by the
     // font-readable scenarios.
@@ -1250,7 +1250,7 @@ fn decode_many() -> i32 {
 }
 
 /// Malformed input must come back as a refusal. This is the common case in the
-/// wild — a truncated or hostile image — and it must not hang or crash the
+/// wild - a truncated or hostile image - and it must not hang or crash the
 /// broker.
 fn decode_garbage() -> i32 {
     use gosub_engine::decoder_process::client::ProcessImageDecoder;
@@ -1370,7 +1370,7 @@ fn direct() -> i32 {
     }
 }
 
-/// The wiring: with isolation on, does an ordinary navigation still resolve —
+/// The wiring: with isolation on, does an ordinary navigation still resolve -
 /// through the child process rather than an in-process fetcher?
 fn engine() -> i32 {
     use gosub_config::settings::Setting;

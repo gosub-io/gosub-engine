@@ -1,4 +1,12 @@
 //! Browser window: Skia CPU rasterizer + GTK4 GLArea (GPU compositing).
+//!
+//! Usage: cargo run --example gtk4-skia-gpu -- https://example.com
+//!
+//! Architecture:
+//!   1. `SkiaBackend` rasterizes pages into CPU tile buffers (BGRA premul).
+//!   2. The compositor delivers frames as `ExternalHandle::TileCache`.
+//!   3. `GLArea::connect_render` fires on the GTK main thread with GL current.
+//!   4. Each tile is uploaded as a Skia GPU image and drawn into GTK4's framebuffer.
 
 // Link libGL so glGetIntegerv resolves (used to query GTK4's bound FBO).
 #[link(name = "GL")]

@@ -14,6 +14,9 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 /// Adapter trait that `gosub_lattice` uses to read from and write to an external layout tree.
+///
+/// The implementor (e.g. `gosub_render_pipeline`'s `PipelineTableTree`) translates between the
+/// engine's internal representations and the flat types expected here.
 pub trait TableTree {
     type NodeId: Copy + Clone + Eq + Hash + Debug;
 
@@ -34,6 +37,14 @@ pub trait TableTree {
 
     /// Lay out the children of the cell `id` given its available inner content
     /// width (border-box width minus the cell's own border and padding).
+    ///
+    /// The implementor should run the normal layout engine on the cell's
+    /// subtree (e.g. block/flex layout via Taffy) and return the actual
+    /// content height the children occupy.
+    ///
+    /// For mock/test trees that carry no real child content, returning `0.0`
+    /// is correct - explicit CSS `height` on the cell will still be respected
+    /// by the row-height algorithm.
     fn layout_cell(&mut self, id: Self::NodeId, available_width: f32) -> f32;
 
     /// Returns the natural (pre-pass) border-box width of cell `id` as

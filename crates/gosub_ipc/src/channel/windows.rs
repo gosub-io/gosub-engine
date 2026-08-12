@@ -1,8 +1,4 @@
 //! Windows transport backend: a pair of anonymous pipes.
-//!
-//! ## Read/write timeouts on a synchronous pipe
-//!
-//! ## Validation
 
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -35,8 +31,8 @@ pub struct Rx {
 }
 
 impl Tx {
-    /// Bound how long a subsequent `write` may block; `None` clears it. See the
-    /// module docs for the `CancelIoEx` watchdog this arms.
+    /// Bound how long a subsequent `write` may block; `None` clears it. See
+    /// [`with_deadline`] for the `CancelIoEx` watchdog this arms.
     pub fn set_timeout(&mut self, dur: Option<Duration>) {
         self.timeout = dur;
     }
@@ -84,7 +80,7 @@ impl SendHandle {
 
 /// Run a blocking pipe operation with an optional deadline.
 ///
-/// With `None`, calls `op` directly — no thread, no overhead. With `Some(dur)`,
+/// With `None`, calls `op` directly - no thread, no overhead. With `Some(dur)`,
 /// a watchdog thread waits out the deadline and, if `op` is still blocked in
 /// `ReadFile`/`WriteFile`, calls [`CancelIoEx`] on the handle to abort it (then
 /// keeps cancelling every 20 ms until `op` returns, in case `op` was between two
@@ -102,12 +98,12 @@ fn with_deadline<T>(file: &File, timeout: Option<Duration>, op: impl FnOnce(&Fil
     let watchdog = thread::spawn(move || {
         match done_rx.recv_timeout(dur) {
             // Op finished within the deadline (Disconnected), or an unexpected
-            // send — either way, nothing to cancel.
+            // send - either way, nothing to cancel.
             Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
         loop {
-            // `handle` outlives this thread — the caller joins before returning,
+            // `handle` outlives this thread - the caller joins before returning,
             // keeping its `File` (and thus the handle) alive throughout.
             handle.cancel();
             match done_rx.recv_timeout(Duration::from_millis(20)) {
@@ -166,7 +162,7 @@ impl Channel {
         ))
     }
 
-    /// Split into independent halves — already separate objects here, so
+    /// Split into independent halves - already separate objects here, so
     /// unlike the Unix backend this cannot fail for want of a `dup`. Both halves
     /// start with no deadline armed (see [`Tx::set_timeout`]/[`Rx::set_timeout`]).
     pub fn split(self) -> io::Result<(Tx, Rx)> {
@@ -261,7 +257,7 @@ mod tests {
         let buf = vec![0u8; OVERFLOW];
         let start = Instant::now();
         // `write_all` fills the pipe buffer, then blocks on the next chunk until
-        // the watchdog cancels it — surfacing as TimedOut.
+        // the watchdog cancels it - surfacing as TimedOut.
         let err = tx.write_all(&buf).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::TimedOut);
         // Cancelled promptly, not left to block indefinitely.

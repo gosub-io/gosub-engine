@@ -1,4 +1,14 @@
 //! Minimal browser window: Vello (GPU) rasterizer + winit toolkit.
+//!
+//! Usage: cargo run --example winit-vello -- https://example.com
+//!
+//! Press Ctrl+L to focus the address bar (URL shown in window title while typing).
+//! No GTK/Cairo dependency - pure winit + wgpu.
+//!
+//! Architecture note: the wgpu adapter and device are created inside `resumed()`
+//! after the window exists, so the adapter can be selected for surface compatibility.
+//! On Wayland an incompatible adapter causes `get_current_texture()` to silently fail
+//! every frame, keeping the surface un-committed and the window invisible.
 
 use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};

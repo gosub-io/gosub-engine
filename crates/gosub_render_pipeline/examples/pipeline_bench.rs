@@ -1,6 +1,17 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 /// Pipeline benchmark - runs stages 1-5 against several HTML fixtures and prints
 /// per-stage timing with mean ± stddev across N iterations.
+///
+/// Usage:
+///   cargo run --example pipeline_bench -p gosub_render_pipeline
+///   cargo run --example pipeline_bench -p gosub_render_pipeline -- --iterations 20
+///
+/// Stages timed:
+///   1. render-tree   - DOM → filtered RenderTree
+///   2. layout        - RenderTree → LayoutTree (Taffy)
+///   3. layering      - LayoutTree → LayerList
+///   4. tiling        - LayerList → TileList (256×256 grid)
+///   5. painting      - TileList → PaintCommands (all dirty tiles)
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

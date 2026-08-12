@@ -36,10 +36,8 @@ pub trait StorageAdapter: Send + Sync {
     /// setting.
     fn all(&self) -> Result<HashMap<String, Setting>>;
 
-    /// Flushes any buffered writes to the backing store. Adapters that persist eagerly on every `set`
-    /// (or that do not persist at all, like the in-memory adapter) treat this as a no-op. It exists so
-    /// callers can request an explicit durability point and so adapters can later batch writes without
-    /// changing the trait.
+    /// Flushes any buffered writes to the backing store. Adapters that persist eagerly on every
+    /// `set` (or not at all, like the in-memory adapter) treat this as a no-op.
     fn flush(&self) -> Result<()> {
         Ok(())
     }
@@ -50,6 +48,10 @@ pub trait StorageAdapter: Send + Sync {
 pub struct SubscriptionId(u64);
 
 /// Callback invoked when a watched setting changes. It receives the setting key and the new value.
+///
+/// The callback is invoked after the store's internal lock has been released, so it MAY read or
+/// write the same [`Config`] without deadlocking. Beware infinite recursion if a callback sets a
+/// key it also subscribes to.
 pub type SubscriptionCallback = Arc<dyn Fn(&str, &Setting) + Send + Sync>;
 
 struct Subscription {
@@ -60,13 +62,16 @@ struct Subscription {
 
 /// A shareable handle to a configuration store. Cloning is cheap (an `Arc` bump); all clones refer
 /// to the same underlying store, so subscriptions and writes made through one clone are visible to
-/// the others. This is the per-engine entry point to configuration - construct one and hand clones
-/// to whichever components need it.
+/// the others.
 #[derive(Clone)]
 pub struct Config(Arc<RwLock<ConfigStore>>);
 
 impl Config {
     /// Creates a config from the given settings schema, backed by a volatile in-memory store.
+    ///
+    /// `gosub_config` is agnostic of which settings exist: the caller (e.g. the engine) supplies
+    /// the schema - the set of known keys with their defaults and constraints. Only keys present
+    /// in the schema can be read or written.
     #[must_use]
     pub fn new(schema: impl IntoIterator<Item = SettingInfo>) -> Self {
         Config(Arc::new(RwLock::new(ConfigStore::new(schema))))
@@ -86,6 +91,12 @@ impl Config {
     }
 
     /// Merges every setting from `other` into this config under an optional namespace.
+    ///
+    /// Each of `other`'s settings is registered here as `"{namespace}.{key}"` (or bare `key` when
+    /// `namespace` is empty), carrying over its description, default, constraint and current value.
+    /// One-time snapshot, not a live link: later changes in `other` are not reflected here. Keys
+    /// that already exist are left untouched (and logged). Merged settings are not written to this
+    /// config's storage adapter unless later `set`. Returns the number of settings merged.
     pub fn merge(&self, other: &Config, namespace: &str) -> usize {
         // Snapshot `other` first (its read guard is released at the end of this statement) so that
         // acquiring our own write lock can never overlap with it - safe even if `other` is a clone

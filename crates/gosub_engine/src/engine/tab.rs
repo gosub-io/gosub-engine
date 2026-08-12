@@ -17,5 +17,3 @@ pub use options::TabOverrides;
 pub use options::TabStorageScope;
 
 pub use sink::TabSink;
-
-// Tab management and tab-related types.

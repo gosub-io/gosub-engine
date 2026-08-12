@@ -1,4 +1,11 @@
 //! Minimal browser window: Skia GPU (OpenGL/Ganesh) compositor + winit.
+//!
+//! Usage: cargo run -p example-winit-skia-gpu -- https://example.com
+//!
+//! The engine rasterizes tiles on worker threads using SkiaRasterizer (CPU).
+//! The main (event-loop) thread receives a TileCache and composites the tiles
+//! directly onto the GL window surface via Skia's Ganesh GPU backend - no CPU
+//! readback required.
 
 #[link(name = "GL")]
 extern "C" {}

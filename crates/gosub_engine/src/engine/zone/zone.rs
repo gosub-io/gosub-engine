@@ -330,18 +330,15 @@ impl<C: RenderConfiguration> Zone<C> {
             },
         );
 
-        // Increase metrics
         self.sink
             .tabs_created
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        // Set tab defaults
         tab_handle
             .set_title(initial.title.as_deref().unwrap_or("New Tab"))
             .await?;
         tab_handle.set_viewport(initial.viewport.unwrap_or_default()).await?;
 
-        // Load URL in tab if provided
         if let Some(url) = initial.url.as_ref() {
             tab_handle.navigate(url).await?;
         }
@@ -372,6 +369,9 @@ impl<C: RenderConfiguration> Zone<C> {
     }
 
     /// Closes a tab: asks the worker to stop and waits for it to exit.
+    ///
+    /// The worker performs its own teardown on exit (emits `TabClosed`, drops the
+    /// tab's session storage). Returns `false` when the tab is unknown.
     pub async fn close_tab(&mut self, tab_id: TabId) -> bool {
         let Some(info) = self.tabs.remove(&tab_id) else {
             return false;
@@ -393,6 +393,9 @@ impl<C: RenderConfiguration> Zone<C> {
     }
 
     /// Closes every tab in this zone. Used by `GosubEngine::close_zone`.
+    ///
+    /// Signals every tab's worker to stop first, then awaits their joins concurrently, so total
+    /// shutdown time is bounded by the slowest tab rather than the sum of every tab's timeout.
     pub(crate) async fn close(mut self) {
         let secs = self.context.config_store.get_uint("engine.io_shutdown_secs") as u64;
         let tabs: Vec<_> = self.tabs.drain().collect();

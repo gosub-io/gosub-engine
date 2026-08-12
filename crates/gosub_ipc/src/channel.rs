@@ -1,8 +1,4 @@
 //! The duplex byte channel an engine↔component IPC link runs over.
-//!
-//! ## Why this shape
-//!
-//! ## Inheritance is inverted between the platforms
 
 #[cfg(unix)]
 mod unix;

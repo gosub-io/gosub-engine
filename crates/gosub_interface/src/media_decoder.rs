@@ -1,6 +1,4 @@
 //! Decoding an image somewhere other than here.
-//!
-//! ## Why vectors are not covered
 
 use std::fmt;
 
@@ -11,7 +9,7 @@ pub struct RasterImage {
     pub width: u32,
     pub height: u32,
     /// Exactly `width * height * 4` bytes. Callers must verify this rather than
-    /// trust it — the producer may be a compromised decoder.
+    /// trust it - the producer may be a compromised decoder.
     pub rgba: bytes::Bytes,
 }
 
@@ -29,7 +27,7 @@ impl fmt::Debug for RasterImage {
 #[derive(Debug, Clone)]
 pub enum BrokeredDecode {
     Raster(RasterImage),
-    /// Vector data, which the caller must parse itself — see the module docs.
+    /// Vector data, which the caller must parse itself - see the module docs.
     Vector,
 }
 

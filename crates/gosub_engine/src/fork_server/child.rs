@@ -1,14 +1,8 @@
 //! The fork server: the process that already has the fonts.
 //!
-//! Spawn cost was measured at ~3.7 ms, so cheap forking is not why this
-//! process exists. It exists because font warm-up is worth doing **once**:
-//! the fork server builds the configured font system, lets it prepare, and
-//! every renderer forked from it inherits the warmed state copy-on-write —
-//! paying nothing, whichever confinement tier applies.
-//!
-//! ## Consuming the confinement answer
-//!
-//! ## Single-threaded, deliberately
+//! Exists for font warm-up, not fork speed (spawn measured ~3.7 ms): the
+//! warmed font system is built once and every forked renderer inherits it
+//! copy-on-write, whichever confinement tier applies.
 
 use crate::fork_server::loader::ForkedResourceLoader;
 use crate::fork_server::protocol::{
@@ -46,7 +40,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
     // The media store is the pipeline's other piece of lazily-file-loading
     // state: constructing one decodes the placeholder SVG, whose decoder
     // loads a system fontdb from disk. Built once here, pre-lockdown, and
-    // inherited copy-on-write by every forked renderer — the same move as
+    // inherited copy-on-write by every forked renderer - the same move as
     // the font warm-up, for the same reason.
     let forked_loader = ForkedResourceLoader::disconnected();
     let media_store = Arc::new(gosub_render_pipeline::common::media::MediaStore::with_loader(
@@ -55,7 +49,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
     media_store.set_synchronous_fetch(true);
 
     // First fork, deliberately: this process sits in a lazily-unshared PID
-    // namespace, whose PID 1 is whatever forks first — and must then outlive
+    // namespace, whose PID 1 is whatever forks first - and must then outlive
     // every renderer, or `fork` starts failing with `ENOMEM`. Held for the
     // whole serve loop.
     let _anchor = match gosub_sandbox::hold_pid_namespace_anchor() {
@@ -69,7 +63,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
     let font_access = confine_self(&answer);
 
     // Announced only now, so `Ready` also means "still alive under the filter
-    // the answer selected" — a wrong tier mapping dies here, at startup,
+    // the answer selected" - a wrong tier mapping dies here, at startup,
     // rather than in the first forked renderer.
     gosub_sandbox::verify_fork_server_filter();
     if link.send(&FromForkServer::Ready { tier: tier.clone() }).is_err() {
@@ -112,7 +106,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                     FromForkServer::Refused(format!("this font system cannot run isolated: {reason}"))
                 }
                 // Streamed reply (tiles relayed as they arrive, then the
-                // summary), so this arm sends for itself — a `Refused` after
+                // summary), so this arm sends for itself - a `Refused` after
                 // partial tiles tells the broker to discard them.
                 _ => {
                     let outcome = fork_and_render::<C>(
@@ -291,7 +285,7 @@ fn fork_and_prove<F: FontSystem>(fonts: &mut Option<F>, font_access: bool) -> Fr
 }
 
 /// The renderer role: run the pipeline over a page in a forked, confined
-/// child, seal each rasterized tile into a memfd there, and collect the lot —
+/// child, seal each rasterized tile into a memfd there, and collect the lot -
 /// relaying the renderer's subresource requests to the broker along the way.
 #[allow(clippy::too_many_arguments)] // the serve loop's context, spelled out
 fn fork_and_render<C: RenderConfiguration>(
@@ -322,7 +316,7 @@ fn fork_and_render<C: RenderConfiguration>(
             gosub_sandbox::lock_down_forked_renderer(font_access);
 
             // The link is shared between the loader (mid-render round trips)
-            // and the final result send — safe because this process is
+            // and the final result send - safe because this process is
             // single-threaded and strictly alternates.
             let link = Arc::new(Mutex::new(link));
             forked_loader.connect(Arc::clone(&link));
@@ -346,9 +340,9 @@ fn fork_and_render<C: RenderConfiguration>(
             );
 
             // Stream every CPU tile out: seal into an immutable memfd, send
-            // header + fd, drop — one at a time, so this process never holds
-            // more than one tile fd regardless of page height. All of it —
-            // memfd_create, ftruncate, mmap, the seals — is in the renderer
+            // header + fd, drop - one at a time, so this process never holds
+            // more than one tile fd regardless of page height. All of it -
+            // memfd_create, ftruncate, mmap, the seals - is in the renderer
             // baseline precisely so a confined renderer can hand off pixels.
             let mut link = link.lock();
             for tile in &tiles {

@@ -66,7 +66,7 @@ pub struct HtmlParseConfig {
     pub resource_loader: Option<std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>>,
     /// Also return the document's source text, for an engine that will hand it
     /// to a renderer process (which re-parses; a DOM cannot cross a fork by
-    /// value). Off by default — retaining a copy of every document would tax
+    /// value). Off by default - retaining a copy of every document would tax
     /// engines that render in-process.
     pub capture_source: bool,
 }
@@ -83,7 +83,7 @@ impl Default for HtmlParseConfig {
 }
 
 /// Main entry point: buffer the HTML stream, parse it into a real DOM document,
-/// and report discovered sub-resources.
+/// and report discovered sub-resources via `on_discover`.
 pub async fn parse_main_document_stream<C, R, F>(
     base_url: Url,
     mut reader: R,
@@ -96,7 +96,6 @@ where
     R: AsyncRead + Unpin + Send + 'static,
     F: FnMut(ResourceHint) + Send,
 {
-    // Buffer the full stream (up to cfg.max_bytes); bail on cancellation.
     let mut buf = Vec::with_capacity(32 * 1024);
     let mut tmp = [0u8; 16 * 1024];
 
@@ -121,8 +120,6 @@ where
                 "Document {base_url} exceeds the {} byte limit (net.document.max_bytes); parsing truncated content",
                 cfg.max_bytes
             );
-            // Drain (non-blocking-ish) without growing memory
-            // We don't strictly need to, but it's polite to the transport.
             let mut drain = [0u8; 16 * 1024];
             while reader.read(&mut drain).await? != 0 {
                 if cancel.is_cancelled() {
@@ -329,7 +326,6 @@ mod tests {
         .await
         .unwrap();
 
-        // Ensure we discovered 3 resources with resolved URLs
         assert_eq!(hints.len(), 3);
         assert!(hints
             .iter()

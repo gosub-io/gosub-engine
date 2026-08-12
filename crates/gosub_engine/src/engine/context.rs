@@ -83,6 +83,10 @@ struct PipelineCache {
 }
 
 /// BrowsingContext dedicated to a specific tab
+///
+/// A BrowsingContext is a single instance of the engine that deals with a specific tab. Each tab
+/// has one BrowsingContext. These contexts though can use shared processes or threads, but not
+/// from other contexts, only from the main engine.
 pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
     /// Parsed DOM document
     document: Option<Arc<EngineDocument<C>>>,
@@ -152,17 +156,16 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// LRU bookkeeping + eviction for the tile caches, bounded by the
     /// `renderer.tile.cache_budget_mb` setting.
     tile_budget: TileBudget,
-    /// The loader subresources go through — kept beside the media store (which
+    /// The loader subresources go through - kept beside the media store (which
     /// also holds it) because an out-of-process render needs it directly: the
     /// broker answers the remote renderer's resource requests with it.
     loader: std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
     /// The source text of the current document, kept when a renderer process
     /// will re-parse it there. `None` when rendering in-process.
     document_source: Option<std::sync::Arc<str>>,
-    /// What the last remote render of this tab produced, keyed by content
-    /// hash. Offered to the next render so unchanged tiles are neither
-    /// rasterized nor shipped again — the remote counterpart of
-    /// `tile_pixel_cache`, which serves the same purpose in-process.
+    /// Tiles from the last remote render, keyed by content hash; offered to the
+    /// next render so unchanged tiles are neither rasterized nor shipped again.
+    /// Remote counterpart of `tile_pixel_cache`.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_tile_memory: crate::fork_server::client::TileMemory,
     /// How this tab renders out-of-process, installed by the tab worker when
@@ -173,14 +176,14 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     remote_renderer: Option<RemoteRenderer>,
 }
 
-/// The two ways a tab's renders leave this process — which one applies is the
+/// The two ways a tab's renders leave this process - which one applies is the
 /// configured font system's confinement tier, decided statically.
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub enum RemoteRenderer {
     /// Fork from the engine's warmed fork server (tier `Full`).
     ForkServer(std::sync::Arc<parking_lot::Mutex<crate::fork_server::client::ForkServer>>),
     /// Spawn a throwaway exec'd renderer per render (tier `FontPathsReadable`
-    /// — warming buys nothing when font files stay reachable, and the stack
+    /// - warming buys nothing when font files stay reachable, and the stack
     /// may not even be constructible in a fork server).
     ExecPerRender,
 }
@@ -279,8 +282,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.storage.as_ref().map(|s| s.session.clone())
     }
 
-    /// Sets the parsed DOM document for the given tab, with the source text it
-    /// was parsed from when an out-of-process renderer will need to re-parse it.
+    /// `source` is the text the document was parsed from, kept when an
+    /// out-of-process renderer will need to re-parse it.
     pub fn set_document(&mut self, doc: Arc<EngineDocument<C>>, source: Option<std::sync::Arc<str>>) {
         self.document = Some(doc);
         self.document_source = source;
@@ -475,8 +478,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 use crate::fork_server::client::{KeptTile, PageTile};
 
                 // Fresh tiles bring their pixels (mapped, zero-copy); reused
-                // ones were never re-rendered, so their pixels — and the
-                // physical dimensions the renderer did not produce — come
+                // ones were never re-rendered, so their pixels - and the
+                // physical dimensions the renderer did not produce - come
                 // from what this tab kept.
                 let mut memory: Vec<(u64, KeptTile)> = Vec::with_capacity(page.tiles.len());
                 let baked: Vec<BakedTile> = page
@@ -599,7 +602,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.scene_epoch = self.scene_epoch.wrapping_add(1);
     }
 
-    /// Build/refresh the device-agnostic render list if needed.
+    /// Build/refresh the device-agnostic render list if needed. Content changes rerun
+    /// stages 1–6; scroll-only changes re-composite cached tiles without layout or
+    /// rasterization work.
     pub fn rebuild_render_list_if_needed(&mut self) {
         if !self.render_dirty && !self.scroll_dirty {
             return;
@@ -637,6 +642,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     /// GPU-scene path: rebuild the page's paint-command list when content changed.
+    ///
+    /// Runs stages 1–3 (render tree → layout → layering) and paints every element into one
+    /// ordered command list - no tiling, rasterization, or tile compositing. Scroll-only changes
+    /// don't rebuild anything (the backend re-renders with a new translate); they just advance the
+    /// scene epoch so the worker emits a frame.
     pub fn rebuild_scene_cache_if_needed(&mut self) {
         if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty {
             return;
@@ -683,6 +693,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// If only the scroll offset changed (no content/layout change), returns a zero-copy
     /// `ExternalHandle::TileCache` that the host can composite directly, bypassing the Cairo
     /// render pipeline entirely. Returns `None` when a full render is needed.
+    ///
+    /// Calling this consumes the scroll-dirty flag and advances the scene epoch.
     pub fn take_scroll_handle(&mut self, dpr: u32) -> Option<ExternalHandle> {
         if !self.scroll_dirty || self.render_dirty || self.hover_dirty {
             return None;
@@ -757,10 +769,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
         let (scroll_x, scroll_y) = (self.scroll_x, self.scroll_y);
 
-        // A remotely rendered page has no layer list; it carries hit-test
-        // geometry instead. Same question, same answer — only the layout
-        // element id is unavailable, which costs hover *repaint*, not hit
-        // testing (see `PipelineCache::hit_regions`).
+        // A remotely rendered page carries hit-test geometry instead of a layer
+        // list; the layout element id is unavailable there, which costs hover
+        // repaint, not hit testing (see `PipelineCache::hit_regions`).
         if let Some(regions) = self.remote_hit_regions() {
             let node = hit_test_regions(regions, vp_x, vp_y, scroll_x, scroll_y);
             return self.apply_hover(node, None);
@@ -873,10 +884,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 let _t = gosub_shared::timing_guard!("hover.set_hovered");
                 doc.set_hovered_nodes(new_leaf);
             }
-            // A remotely rendered page has no local layout tree to repaint
-            // from, so its hover repaint is a re-render — cheap in practice
-            // because the renderer skips every tile whose painted content is
-            // unchanged, which on a hover is all but the hovered element's.
+            // A remotely rendered page has no local layout tree to repaint from,
+            // so hover falls back to a re-render; the renderer skips tiles with
+            // unchanged content, so this stays cheap.
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             let remote = self.remote_render_active();
             #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
@@ -1010,8 +1020,11 @@ fn pipeline_build_scene<C: RenderConfiguration>(
     }
 }
 
-/// Runs pipeline stages 1–6 for the **entire page** (all tiles, not just the viewport slice)
+/// Runs pipeline stages 1–6 for the entire page (all tiles, not just the viewport slice)
 /// and returns a `PipelineCache` of rasterized tiles ready for repeated compositing.
+///
+/// Splitting the full pipeline from compositing lets scroll re-use the cached tiles without
+/// re-running layout or rasterization.
 fn pipeline_build_cache<C: RenderConfiguration>(
     doc: Arc<EngineDocument<C>>,
     viewport: &Viewport,
@@ -1218,7 +1231,7 @@ fn pipeline_hover_repaint(
     use gosub_render_pipeline::tiler::{TileList, TileState};
     use gosub_shared::{timing_start, timing_stop};
 
-    // Stage 4: tiling — reuse existing LayerList, no layout work.
+    // Stage 4: tiling - reuse existing LayerList, no layout work.
     let ts4 = timing_start!("pipeline.hover.tiling");
     let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(tile_size, tile_size));
     tile_list.generate();
@@ -1405,6 +1418,9 @@ fn order_baked_tiles_by_layer(
 }
 
 /// Stage 7: composite visible tiles from the cache into `rl`.
+///
+/// Selects tiles that intersect `(scroll_x, scroll_y, vp_w, vp_h)` and blits them at
+/// screen-relative positions. This is the only work done on every scroll tick.
 fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w: f64, vp_h: f64, rl: &mut RenderList) {
     use gosub_shared::{timing_start, timing_stop};
     let ts7 = timing_start!("pipeline.composite");

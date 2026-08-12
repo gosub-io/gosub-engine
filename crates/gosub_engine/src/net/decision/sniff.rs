@@ -62,7 +62,7 @@ impl ResponseClass {
     }
 }
 
-/// Sniff the content type from the given peek buffer and return the corresponding ResponseClass.
+/// Sniff a response class from the peek buffer's leading bytes.
 pub fn sniff_class(peek_buf: PeekBuf) -> ResponseClass {
     let bytes = peek_buf.as_slice();
 

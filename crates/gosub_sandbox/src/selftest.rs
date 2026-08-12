@@ -4,7 +4,7 @@
 //! letting the test harness observe the outcome from the *outside*: a forbidden
 //! syscall is a fatal `SIGSYS` (seccomp `KillProcess`), while an allowed program
 //! exits cleanly. We can't assert this from inside a `#[cfg(test)]` unit test
-//! because the filter is irreversible and would kill the test runner itself —
+//! because the filter is irreversible and would kill the test runner itself -
 //! so enforcement is checked here, in a throwaway child process.
 
 // Probe code, compiled into the throwaway `sandbox-probe` binary and never into
@@ -200,7 +200,7 @@ fn privilege_count(token: windows_sys::Win32::Foundation::HANDLE) -> Option<u32>
     Some(u32::from_ne_bytes([buf[0], buf[1], buf[2], buf[3]]))
 }
 
-/// Try to allocate memory that is writable *and* executable — the allocation a
+/// Try to allocate memory that is writable *and* executable - the allocation a
 /// memory-corruption exploit needs in order to run injected code, and exactly
 /// what `ProhibitDynamicCode` exists to refuse.
 #[cfg(target_os = "windows")]
@@ -252,7 +252,7 @@ fn run_windows_probe(probe: &str) {
             std::process::exit(0);
         }
 
-        // No new programs — the analogue of `execve`/`clone` being absent from
+        // No new programs - the analogue of `execve`/`clone` being absent from
         // the seccomp allowlist.
         "mitigation-child-process" => {
             if std::process::Command::new("cmd.exe")
@@ -270,7 +270,7 @@ fn run_windows_probe(probe: &str) {
         }
 
         // Behaviour is the real test, but the kernel also reports what it
-        // recorded — and the two can disagree if a policy word is assembled
+        // recorded - and the two can disagree if a policy word is assembled
         // wrongly. This checks the flags actually took, including the one
         // mitigation with no convenient behavioural probe (extension points,
         // which needs a third party to attempt an injection).
@@ -300,7 +300,7 @@ fn run_windows_probe(probe: &str) {
         // Integrity is mandatory access control: a low-integrity process
         // cannot write to objects labelled medium or above, which is most of
         // the user's profile. Tested behaviourally rather than by reading the
-        // token back — what matters is that a write is actually refused, and
+        // token back - what matters is that a write is actually refused, and
         // the checkout directory the test runs from is medium integrity.
         "low-integrity" => {
             let path = std::env::current_dir()
@@ -322,7 +322,7 @@ fn run_windows_probe(probe: &str) {
             }
         }
 
-        // The job object's memory ceiling — the `RLIMIT_AS` analogue Windows
+        // The job object's memory ceiling - the `RLIMIT_AS` analogue Windows
         // otherwise lacks. Uses its own small limit rather than the engine's
         // 512 MiB so the probe stays quick; what is under test is that a job
         // memory cap binds at all, not the specific number.
@@ -369,7 +369,7 @@ fn run_windows_probe(probe: &str) {
             std::process::exit(0);
         }
 
-        // Privileges are the ambient "may override an ACL" rights — debug
+        // Privileges are the ambient "may override an ACL" rights - debug
         // other processes, load drivers, take ownership. A renderer needs
         // none, and `DISABLE_MAX_PRIVILEGE` leaves exactly one
         // (SeChangeNotifyPrivilege).
@@ -440,7 +440,7 @@ pub fn run(probe: &str) {
 /// Outcome codes shared by the macOS probes. They exist because a Seatbelt
 /// denial is *not* fatal: unlike seccomp's `KillProcess`, the call simply
 /// returns `EPERM` and the process runs on. So the harness cannot read a signal
-/// from outside — the probe has to report what it observed, and distinguishing
+/// from outside - the probe has to report what it observed, and distinguishing
 /// "correctly denied" from "the operation never worked anyway" is the whole
 /// point.
 #[cfg(target_os = "macos")]
@@ -448,10 +448,10 @@ mod code {
     /// The operation failed *before* lockdown, so the probe proves nothing:
     /// a denial afterwards would have happened regardless of the profile.
     pub const CONTROL_FAILED: i32 = 90;
-    /// The operation still succeeded after lockdown — the profile is not
+    /// The operation still succeeded after lockdown - the profile is not
     /// enforcing what it claims to.
     pub const NOT_DENIED: i32 = 91;
-    /// Denied, but not by the sandbox (some other errno) — reported separately
+    /// Denied, but not by the sandbox (some other errno) - reported separately
     /// so a misleading pass cannot come from an unrelated failure.
     pub const WRONG_ERROR: i32 = 92;
     /// A cap was applied but did not take the value it claims to.
@@ -536,7 +536,7 @@ fn try_open_file() -> std::io::Result<()> {
 /// Attempt an outbound TCP connect, returning the raw errno (0 = connected).
 ///
 /// The target is a closed port on loopback, so *unconfined* this fails fast
-/// with `ECONNREFUSED` — a definite "the network stack let me try". Confined,
+/// with `ECONNREFUSED` - a definite "the network stack let me try". Confined,
 /// the socket or connect is refused with `EPERM` before any packet moves. The
 /// two errnos are what separates "the sandbox blocked it" from "there was
 /// nothing to connect to", which a bare success/failure check cannot do.
@@ -573,7 +573,7 @@ fn try_connect() -> i32 {
 }
 
 /// Candidate Mach services the `seatbelt-mach-lookup` probe tries as its control
-/// — at least one resolves in any user session's bootstrap namespace. A renderer
+/// - at least one resolves in any user session's bootstrap namespace. A renderer
 /// needs *none* of them; the point is to prove a lookup that works before
 /// lockdown is refused after.
 #[cfg(target_os = "macos")]
@@ -666,7 +666,7 @@ fn run_macos_probe(probe: &str) {
 
         // The control for every "denied" probe above: normal work must still
         // run under the profile. Without this, all the denials are equally
-        // consistent with a profile so tight the component cannot function —
+        // consistent with a profile so tight the component cannot function -
         // which would pass every negative test and ship a broken renderer.
         "seatbelt-baseline" => {
             crate::lock_down_renderer();
@@ -712,7 +712,7 @@ fn run_macos_probe(probe: &str) {
         }
 
         // Tests the *precision* of the profile, not just its existence. The
-        // grant is `(allow signal (target self))` — scoped deliberately — so
+        // grant is `(allow signal (target self))` - scoped deliberately - so
         // signalling any other process must still be refused. If `(target
         // self)` were dropped or widened, every other probe here would still
         // pass and only this one would notice.
@@ -743,18 +743,13 @@ fn run_macos_probe(probe: &str) {
             }
         }
 
-        // The module docs claim the profile grants no `mach-lookup` — reach into
-        // the Mach bootstrap namespace (WindowServer, launchd services,
-        // privileged daemons), the classic macOS sandbox-escape surface. `(deny
-        // default)` covers it — tighter than Chromium's allow-specific-names
-        // approach — but nothing verified it. Control: a well-known service
-        // resolves before lockdown (proving the lookup machinery works and the
-        // service exists); after lockdown, the *same* lookup must be refused, and
-        // since only the profile changed between the two, a non-zero result is
-        // the profile's doing. (A Seatbelt mach-lookup denial surfaces as a
-        // bootstrap error — observed `BOOTSTRAP_NOT_PRIVILEGED` (1100) on an M1,
-        // not `EPERM` — so this checks for any failure and reports the code rather
-        // than pinning one errno.)
+        // `mach-lookup` (the bootstrap namespace: WindowServer, launchd
+        // services) is the classic macOS sandbox-escape surface; `(deny
+        // default)` covers it. Control: a well-known service resolves before
+        // lockdown, then the same lookup must be refused after. A Seatbelt
+        // mach-lookup denial surfaces as a bootstrap error - observed
+        // BOOTSTRAP_NOT_PRIVILEGED (1100) on an M1, not EPERM - so this checks
+        // for any failure rather than pinning one errno.
         "seatbelt-mach-lookup" => {
             let control = MACH_CONTROL_SERVICES.iter().copied().find(|n| try_mach_lookup(n) == 0);
             let Some(name) = control else {
@@ -774,7 +769,7 @@ fn run_macos_probe(probe: &str) {
 
         // The rlimits are a mechanism entirely separate from Seatbelt and were
         // wholly unverified on macOS. Checks the two caps that actually change
-        // a value here — note `RLIMIT_CORE` is deliberately not asserted,
+        // a value here - note `RLIMIT_CORE` is deliberately not asserted,
         // because macOS already defaults it to 0 and proving a no-op proves
         // nothing. `RLIMIT_AS` is absent by design (see the backend docs).
         "rlimits" => {
@@ -798,7 +793,7 @@ fn run_macos_probe(probe: &str) {
 
         // The inbound direction, and the one mechanism here that is not
         // Seatbelt. This verifies only that the kernel *accepts*
-        // `PT_DENY_ATTACH` — deliberately a weaker claim than the Linux
+        // `PT_DENY_ATTACH` - deliberately a weaker claim than the Linux
         // `no-ptrace` probe makes, and named so it cannot be misread as more.
         "ptrace-deny-accepted" => {
             // SAFETY: PT_DENY_ATTACH takes no addr/data and affects only us.
@@ -809,7 +804,7 @@ fn run_macos_probe(probe: &str) {
             std::process::exit(0);
         }
 
-        // A filesystem service is path-scoped to *its own* directory — the SBPL
+        // A filesystem service is path-scoped to *its own* directory - the SBPL
         // counterpart of the Linux services' Landlock ruleset. It may read+write
         // inside its declared path but is denied outside, even though the profile
         // is a filesystem-service profile. Mirrors the Linux `service-landlock`
@@ -888,7 +883,7 @@ fn run_platform_probe(probe: &str) {
 
         let ns_link = |kind: &str| std::fs::read_link(format!("/proc/self/ns/{kind}")).expect("read ns link");
         // `isolate_network` unshares net + ipc + uts together, so all three
-        // namespace ids must change — checking only net would miss a regression
+        // namespace ids must change - checking only net would miss a regression
         // that dropped ipc/uts from the flag set.
         let (net0, ipc0, uts0) = (ns_link("net"), ns_link("ipc"), ns_link("uts"));
         assert!(
@@ -910,10 +905,10 @@ fn run_platform_probe(probe: &str) {
 
     if probe == "pidns" {
         // `isolate_network` also requests a PID namespace, which (because
-        // `unshare(CLONE_NEWPID)` is lazy) places the caller's *children* — not
-        // the caller — in it. So prove it the way the fork server relies on:
+        // `unshare(CLONE_NEWPID)` is lazy) places the caller's *children* - not
+        // the caller - in it. So prove it the way the fork server relies on:
         // after the unshare, a forked child must be PID 1 of a fresh namespace.
-        // Best-effort like the real path — where the kernel refused CLONE_NEWPID
+        // Best-effort like the real path - where the kernel refused CLONE_NEWPID
         // and it fell back, the child is not PID 1, and we skip (exit 0) rather
         // than fail a host that cannot make PID namespaces.
         crate::isolate_namespaces(crate::NamespaceIsolation::Full).expect("unshare namespaces");
@@ -956,7 +951,7 @@ fn run_platform_probe(probe: &str) {
     // Also pre-lockdown, for the same reason: `prctl` is not on the allowlist,
     // so `PR_GET_DUMPABLE` after lockdown would itself be a fatal SIGSYS.
     if probe == "no-ptrace" {
-        // Prove the property itself — that a `PTRACE_ATTACH` is refused —
+        // Prove the property itself - that a `PTRACE_ATTACH` is refused -
         // rather than just reading back the flag we set. The attach has to run
         // parent→child: Yama's default `ptrace_scope=1` permits tracing only
         // descendants, so a child attaching to its parent would fail for
@@ -973,8 +968,8 @@ fn run_platform_probe(probe: &str) {
 
     // The broker's *loose* Landlock: read/exec anywhere, write only beneath the
     // temp dir. Runs before any seccomp lockdown (it needs `openat` to test file
-    // writes). Prove both halves — a write inside temp succeeds, a write outside
-    // is denied (`EACCES`) — with a control that shows the outside write worked
+    // writes). Prove both halves - a write inside temp succeeds, a write outside
+    // is denied (`EACCES`) - with a control that shows the outside write worked
     // *before* lockdown, so the denial is Landlock's and not a plain permission
     // error. Skips cleanly where Landlock is unavailable, like the service probe.
     if probe == "broker-landlock" {
@@ -984,7 +979,7 @@ fn run_platform_probe(probe: &str) {
         }
         let inside = std::env::temp_dir().join("gosub-broker-inside.tmp");
         // Outside temp: the cwd the probe was spawned from (the crate root),
-        // which the user can normally write — a real control, not `/`.
+        // which the user can normally write - a real control, not `/`.
         let outside = std::env::current_dir()
             .unwrap_or_else(|_| "/".into())
             .join("gosub-broker-outside.tmp");
@@ -1015,14 +1010,10 @@ fn run_platform_probe(probe: &str) {
         });
     }
 
-    // The broker's deny-list seccomp filter must actually *bite*. `lock_down_broker`
-    // installs it (default-allow, `Trap` the escalation syscalls); `ptrace` is on
-    // that list, so any call to it is a fatal `SIGSYS` — the same terminate-on-
-    // violation the allowlist probes assert. `PTRACE_TRACEME` needs no target and
-    // would ordinarily *succeed* (return 0), so if this process is still alive on
-    // the next line the deny-list did not bind, and we exit non-zero to say so.
-    // The paired positive case — the broker doing its real work under this filter
-    // — is the whole multi-process demo, which spawns, execs, and opens files.
+    // The broker's deny-list must bind: `ptrace` is on it, so any call is a
+    // fatal SIGSYS. `PTRACE_TRACEME` needs no target and would ordinarily
+    // succeed, so surviving the call means the deny-list did not bind. The
+    // positive case is the multi-process demo itself (spawns, execs, opens).
     if probe == "broker-seccomp" {
         crate::lock_down_broker();
         // SAFETY: a plain ptrace request; the point is that the syscall is trapped
@@ -1033,7 +1024,7 @@ fn run_platform_probe(probe: &str) {
     }
 
     // The deny-list must close the *fd-based* mount API too, not only the classic
-    // `mount`/`pivot_root` — otherwise a compromised broker could `fsopen`+
+    // `mount`/`pivot_root` - otherwise a compromised broker could `fsopen`+
     // `fsmount`+`move_mount` its way to the same escape. `fsopen` is on the list,
     // so a raw call to it is a fatal `SIGSYS`; reaching the line past it means the
     // new mount API was left open, and we exit non-zero to say so.
@@ -1051,19 +1042,19 @@ fn run_platform_probe(probe: &str) {
 
     // cgroup v2 per-child memory bound: place this process in a child cgroup with
     // a known `memory.max` and read it back, proving the limit actually binds.
-    // Best-effort like the Landlock probes — where cgroup v2 memory delegation is
+    // Best-effort like the Landlock probes - where cgroup v2 memory delegation is
     // unavailable (a shared login/tmux scope, no `Delegate=yes`), it skips (exit
     // 0) rather than failing an untestable host. Run under a delegated scope
     // (`systemd-run --user -p Delegate=yes --scope …`) to exercise the real path.
     // The self-capturing crash reporter must fire *and* still let the process
     // die with the original signal. Under the renderer lockdown (so this also
-    // proves the handler works within the seccomp filter — it uses only `write`
+    // proves the handler works within the seccomp filter - it uses only `write`
     // + `sigaction`, and re-dies by restoring `SIG_DFL` and returning rather than
     // a filter-blocked `tgkill`), dereference a null pointer to raise SIGSEGV.
     // The handler writes a `[crash]` line, restores the default, and returns; the
     // faulting instruction re-executes and the process dies with SIGSEGV, which
     // the parent observes. Reaching the line below would mean the fault was
-    // swallowed — a bug.
+    // swallowed - a bug.
     if probe == "crash-report" {
         crate::lock_down_renderer();
         // SAFETY: an intentional wild read of address 0 to trigger SIGSEGV;
@@ -1096,7 +1087,7 @@ fn run_platform_probe(probe: &str) {
     }
 
     // Fork-server probes: this role's filter is not the renderer's, and it is
-    // inherited by every renderer forked under it — so it gets its own
+    // inherited by every renderer forked under it - so it gets its own
     // lockdown here rather than falling through to `lock_down_renderer`.
     // Service-filter probes: each confines itself with a service filter, then
     // tests one syscall. They run before the renderer lockdown below because
@@ -1104,7 +1095,7 @@ fn run_platform_probe(probe: &str) {
     if let Some(op) = probe.strip_prefix("service-") {
         use crate::ServiceCaps;
         match op {
-            // The filesystem filter must permit `openat` — the whole reason a
+            // The filesystem filter must permit `openat` - the whole reason a
             // storage/font service is a separate process. Allowed = the syscall
             // returns (fd or errno) rather than a fatal SIGSYS; clean exit.
             "fs-openat" => {
@@ -1153,14 +1144,14 @@ fn run_platform_probe(probe: &str) {
                 );
                 let mut winsz: libc::winsize = unsafe { std::mem::zeroed() };
                 // SAFETY: TIOCGWINSZ with a valid out-struct; fd 2 may not be a
-                // tty, in which case it errors — which is fine, we only need the
+                // tty, in which case it errors - which is fine, we only need the
                 // syscall to be permitted rather than killed.
                 let _ = unsafe { libc::ioctl(2, libc::TIOCGWINSZ, &mut winsz) };
                 std::process::exit(0);
             }
             // Landlock: the path-level confinement seccomp cannot do. Scoped to
             // a temp dir, the service may open files *inside* it but is denied
-            // (EACCES) *outside* — even though seccomp still permits `openat`.
+            // (EACCES) *outside* - even though seccomp still permits `openat`.
             // Skips cleanly where Landlock is unavailable (kernel/config), like
             // the macOS ptrace probe, so it never fails for an untestable host.
             "landlock" => {
@@ -1249,15 +1240,12 @@ fn run_platform_probe(probe: &str) {
                 std::process::exit(0);
             },
 
-            // A *plain* fork is allowed (see `can-fork`), but a `clone` that
-            // unshares a namespace is not: once `clone3` is `ENOSYS`'d, the
-            // register-visible `clone` flags are argument-filtered to mask off
-            // CLONE_NEW*/CLONE_THREAD/CLONE_VM. Attempt a clone into a new *user*
-            // namespace directly; the mask must trap it with SIGSYS *before* the
-            // kernel even checks userns permissions. Reached (clean exit) only if
-            // the mask let a dangerous flag through — i.e. the hardening is a
-            // no-op. This is what keeps `install_clone3_enosys` + the `clone`
-            // rule from being an untested pair of moving parts.
+            // A plain fork is allowed (see `can-fork`), but a `clone` that
+            // unshares a namespace is not: with `clone3` ENOSYS'd, the
+            // register-visible `clone` flags are masked against
+            // CLONE_NEW*/CLONE_THREAD/CLONE_VM. A CLONE_NEWUSER clone must trap
+            // with SIGSYS before the kernel checks userns permissions; a clean
+            // exit means the mask let a dangerous flag through.
             "no-newuser-clone" => unsafe {
                 // Raw `clone` with SIGCHLD (fork semantics) so a NULL stack is a
                 // copy-on-write fork; `flags` is arg 0 on both x86_64 and
@@ -1308,15 +1296,15 @@ fn run_platform_probe(probe: &str) {
         },
 
         // The full shared-memory tile producer dance (memfd_create, ftruncate,
-        // mmap write, munmap, fcntl F_ADD_SEALS) must survive the sandbox —
+        // mmap write, munmap, fcntl F_ADD_SEALS) must survive the sandbox -
         // it's how a confined renderer ships every frame. Clean exit = pass.
         "memfd-seal" => {
             gosub_ipc::shm::create_sealed_tile(64, 64, |buf| buf.fill(0xCD)).expect("sealed tile under sandbox");
             std::process::exit(0);
         }
 
-        // fcntl is allowed *only* for the seal commands; any other command —
-        // here F_DUPFD, an fd-fabrication primitive — must be fatal. Reached
+        // fcntl is allowed *only* for the seal commands; any other command -
+        // here F_DUPFD, an fd-fabrication primitive - must be fatal. Reached
         // only if the argument filter failed.
         "fcntl-dupfd" => unsafe {
             let _ = libc::fcntl(2, libc::F_DUPFD, 0);
@@ -1324,7 +1312,7 @@ fn run_platform_probe(probe: &str) {
         },
 
         // The full ring-buffer dance (memfd + size seals, RW mapping, cursor
-        // atomics, drain) must survive the sandbox — it's how a confined
+        // atomics, drain) must survive the sandbox - it's how a confined
         // renderer receives every large fetch body. Single-threaded (the
         // sandbox has no clone), so the body must fit the window: write it
         // all, finish, then consume. Clean exit = pass.

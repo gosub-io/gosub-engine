@@ -8,7 +8,10 @@ use parley::fontique::{Attributes, FontWidth, GenericFamily, QueryFamily, QueryS
 use parley::style::{FontStyle as ParleyStyle, FontWeight as ParleyWeight};
 use parley::{Alignment, AlignmentOptions, FontContext, LayoutContext, PositionedLayoutItem};
 
-/// A [`FontSystem`] implementation backed by Parley + Fontique.
+/// A [`FontSystem`] backed by Parley + Fontique.
+///
+/// One shared `FontContext`/`LayoutContext` so layout and rendering produce consistent
+/// glyph metrics. Wrap in `Arc<Mutex<..>>` and hand the same `Arc` to layouter and backend.
 pub struct ParleyFontSystem {
     font_cx: FontContext,
     layout_cx: LayoutContext<()>,
@@ -33,8 +36,7 @@ impl ParleyFontSystem {
     pub fn new() -> Self {
         let mut font_cx = FontContext::new();
 
-        // Register Roboto as a bundled fallback so there is always something to
-        // render with even on systems that have no fonts installed.
+        // Bundled Roboto fallback so rendering works with no system fonts installed.
         font_cx
             .collection
             .register_fonts(gosub_shared::ROBOTO_FONT.to_vec().into(), None);
@@ -48,7 +50,7 @@ impl ParleyFontSystem {
 }
 
 impl ParleyFontSystem {
-    /// Grants direct access to the underlying Parley font collection.
+    /// Used by `TaffyLayouter` so layout and rendering share one font collection.
     pub fn font_cx_mut(&mut self) -> &mut FontContext {
         &mut self.font_cx
     }
@@ -110,7 +112,7 @@ impl FontSystem for ParleyFontSystem {
         out
     }
 
-    /// Load every *face* of every family into both source caches.
+    /// Load every face of every family into both source caches.
     fn prepare_for_confinement(&mut self) -> Confinement {
         let names: Vec<String> = self.font_cx.collection.family_names().map(str::to_string).collect();
         for name in names {
@@ -198,9 +200,8 @@ impl FontSystem for ParleyFontSystem {
 }
 
 impl ParleyFontSystem {
-    /// Shape `text` with an already-resolved font. Layout parameters (size, line height, wrap
-    /// width, letter spacing, display scale) come from `style`; the font identity comes from
-    /// `font` - which is why measurement and drawing agree when both go through this path.
+    /// Shape `text` with an already-resolved font, so measurement and drawing agree on the
+    /// concrete font.
     fn shape_resolved(&mut self, text: &str, font: &ResolvedFont, style: &TextStyle) -> ShapedText {
         if text.is_empty() {
             return ShapedText::empty();
@@ -220,8 +221,7 @@ impl ParleyFontSystem {
         if let Some(lh) = style.line_height {
             builder.push_default(parley::StyleProperty::LineHeight(parley::LineHeight::Absolute(lh)));
         }
-        // Applied during measurement too - shaping without it would draw narrower than the
-        // layout box that measurement reserved.
+        // Must match measurement, or drawing comes out narrower than the reserved layout box.
         if style.letter_spacing != 0.0 {
             builder.push_default(parley::StyleProperty::LetterSpacing(style.letter_spacing));
         }
@@ -265,10 +265,8 @@ impl ParleyFontSystem {
                         .collect();
 
                     if !glyphs.is_empty() {
-                        // Use the run's *actual* font: parley may substitute a fallback for
-                        // glyphs the requested family lacks (emoji, CJK, …), and the glyph ids
-                        // index into that fallback font - so drawing must use it, not the
-                        // originally requested `font`.
+                        // Parley may substitute a fallback font (emoji, CJK); the glyph ids
+                        // index into that font, so draw with the run's actual font.
                         let prun = run.run();
                         let run_font = prun.font();
                         let (data_arc, _) = run_font.data.clone().into_raw_parts();
@@ -313,10 +311,8 @@ impl ParleyFontSystem {
     }
 }
 
-/// Split a CSS `font-family` value (e.g. `Verdana, Geneva, sans-serif`) into individual family
-/// names, trimming whitespace and matching quotes. A trailing `sans-serif` generic is appended as
-/// an ultimate fallback if the list doesn't already end in a generic, so resolution always has a
-/// last resort.
+/// Split a CSS `font-family` value into trimmed, unquoted family names, appending a
+/// `sans-serif` generic as last resort if none is present.
 pub fn split_css_families(families: &str) -> Vec<&str> {
     let mut out: Vec<&str> = families
         .split(',')

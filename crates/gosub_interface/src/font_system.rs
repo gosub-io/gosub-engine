@@ -46,6 +46,9 @@ impl Default for FontStretch {
 }
 
 /// A CSS font-family query with full property set.
+///
+/// `families` is a priority-ordered slice of family names, exactly as they appear
+/// in the CSS `font-family` property (e.g. `["Helvetica Neue", "Arial", "sans-serif"]`).
 #[derive(Debug, Clone)]
 pub struct FontQuery<'a> {
     pub families: &'a [&'a str],
@@ -66,6 +69,9 @@ impl<'a> FontQuery<'a> {
 }
 
 /// A concrete font that has been resolved from a `FontQuery`.
+///
+/// Carries the raw font bytes so both the layout engine and the renderer can
+/// use the same data without going back to the font system.
 #[derive(Debug, Clone)]
 pub struct ResolvedFont {
     /// The family name that was actually selected (may differ from what was requested
@@ -81,6 +87,9 @@ pub struct ResolvedFont {
 // Shaping output
 
 /// A single positioned glyph.
+///
+/// `x` and `y` are in pixels, with `y` already including the baseline and any
+/// line offsets - (0, 0) is the top-left of the shaped block, not the baseline.
 #[derive(Debug, Clone, Copy)]
 pub struct ShapedGlyph {
     pub id: u32,
@@ -90,10 +99,9 @@ pub struct ShapedGlyph {
 
 /// Decoration metrics for a shaped run, in pixels.
 ///
-/// Offsets are measured from the run's baseline to the **top** of the stroke, positive
-/// **downward** (so `underline_offset` is typically positive, `strikethrough_offset` typically
-/// negative). A painter draws a decoration as a filled rect at
-/// `(run.x, run.baseline + offset, run.width, size)`.
+/// Offsets are from the run's baseline to the top of the stroke, positive downward
+/// (underline typically positive, strikethrough typically negative). Draw as a filled
+/// rect at `(run.x, run.baseline + offset, run.width, size)`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RunMetrics {
     pub underline_offset: f32,
@@ -103,6 +111,9 @@ pub struct RunMetrics {
 }
 
 /// A contiguous run of glyphs rendered with the same font and size.
+///
+/// A single call to `FontSystem::shape` may return multiple runs when font
+/// fallback kicks in mid-string (e.g. an emoji in a Latin text run).
 #[derive(Debug, Clone)]
 pub struct ShapedRun {
     pub font: ResolvedFont,
@@ -203,48 +214,54 @@ impl TextStyle {
 
 // Core trait
 
-/// How confined a renderer process using this font system may be — the answer
-/// [`FontSystem::prepare_for_confinement`] gives, and the sandbox tier it
-/// obligates the engine to apply.
+/// Sandbox tier a renderer process may run under with this font system,
+/// as reported by [`FontSystem::prepare_for_confinement`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use = "the answer decides which sandbox tier the renderer gets; ignoring it defeats the preparation"]
 pub enum Confinement {
-    /// Everything this font system will ever need from the filesystem is now in
-    /// memory: the strictest renderer sandbox (no file access at all) works.
+    /// All filesystem data is in memory; a no-file-access sandbox works.
     /// Fonts arriving later as bytes (`@font-face`) keep working.
     Full,
-    /// This font system reads font files *while operating* — typically a
-    /// fontconfig-backed stack revalidating its caches at match time — so no
-    /// preparation can front-load it. The renderer works under a sandbox that
-    /// grants **read-only access to the platform font paths** plus one private
-    /// writable scratch directory (some stacks can only ingest a web font as a
-    /// file), and nothing else.
+    /// Reads font files at match time (e.g. fontconfig cache revalidation), so the
+    /// sandbox must grant read-only platform font paths plus one private writable
+    /// scratch dir (some stacks can only ingest a web font as a file).
     FontPathsReadable,
-    /// This font system cannot operate in an isolated renderer at all; the
-    /// string says why, so the refusal can be surfaced at configuration time.
-    /// The engine must fall back to single-process rendering rather than die on
-    /// the first page that uses an unusual typeface.
+    /// Cannot operate in an isolated renderer; the string says why. The engine
+    /// must fall back to single-process rendering.
     Unsupported(String),
 }
 
-/// A swappable font system - the entire surface the engine and layouter need.
+/// A swappable font system: registers fonts, resolves CSS font queries, shapes and measures text.
 ///
-/// # Threading
+/// Layout and rendering must share one implementation so measurement, shaping, and drawing agree.
+/// Drawing is not on this trait: glyph IDs plus a [`crate::font::FontBlob`] are all a rasterizer
+/// needs, so any font system serves any backend.
+///
 /// `Send + Sync` so it can live behind `Arc<Mutex<dyn FontSystem>>`, shared between the layouter
 /// and the renderer.
 pub trait FontSystem: Send + Sync + 'static {
     /// Register a font from raw bytes (`@font-face` web fonts, bundled fallbacks).
+    ///
+    /// `family_override` assigns a logical name CSS can reference; `None` uses the font's own name.
     fn register_font(&mut self, data: Vec<u8>, family_override: Option<&str>) -> Result<(), FontError>;
 
     /// Resolve a CSS font query to a concrete font, including its raw bytes.
+    ///
+    /// Walks `query.families` in priority order (generic keywords like `sans-serif` map to the
+    /// engine's platform fallback) and returns the first matching face. The returned
+    /// [`ResolvedFont::family`] is the family that was actually selected, which may differ from
+    /// every requested name when the engine fell back.
     fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError>;
 
     /// Every font family this system can resolve by name: installed system fonts plus fonts
     /// added via [`FontSystem::register_font`], sorted and de-duplicated.
+    ///
+    /// Generic CSS keywords (`sans-serif`, `monospace`, `system-ui`, …) are aliases handled by
+    /// [`FontSystem::resolve`], not families, so they don't appear here. Takes `&mut self`
+    /// because some engines populate their font database lazily on first enumeration.
     fn families(&mut self) -> Vec<String>;
 
-    /// The confinement tier this font system supports, knowable **without an
-    /// instance**.
+    /// The confinement tier this font system supports; static, no instance needed.
     fn confinement() -> Confinement
     where
         Self: Sized,
@@ -252,16 +269,13 @@ pub trait FontSystem: Send + Sync + 'static {
         Confinement::Full
     }
 
-    /// Do everything that needs the filesystem *now*, then say how confined the
-    /// process may be: after this returns, the renderer applies the sandbox
-    /// tier the answer names, and a wrong answer dies on `SIGSYS` the first
-    /// time a page uses an unusual typeface — intermittent, content-dependent,
-    /// and invisible in testing.
+    /// Front-load all filesystem work, then report the sandbox tier the renderer
+    /// may apply. Overstating the tier means content-dependent `SIGSYS` deaths
+    /// when a page later uses an unloaded typeface.
     fn prepare_for_confinement(&mut self) -> Confinement {
         for family in self.families() {
-            // Resolving locates the face; measuring forces whatever the resolve
-            // still left until first use. Failures are skipped rather than fatal:
-            // one unusable family should not stop the rest from being loaded.
+            // Measuring forces lazy work resolve leaves until first use.
+            // Failures are skipped: one bad family shouldn't block the rest.
             let _ = self.resolve(&FontQuery::new(&[family.as_str()]));
             let _ = self.measure("Ag", &TextStyle::new(family, 16.0));
         }
@@ -269,9 +283,18 @@ pub trait FontSystem: Send + Sync + 'static {
     }
 
     /// Shape `text` laid out in `style` into positioned glyph runs.
+    ///
+    /// Handles family resolution, line breaking (at `style.max_width`), and mid-string font
+    /// fallback internally; each returned [`ShapedRun`] names the font that was *actually* used
+    /// for its glyphs, so a rasterizer can draw the runs without consulting the font system
+    /// again. Returns [`ShapedText::empty`] for empty input or when no font resolves.
     fn shape(&mut self, text: &str, style: &TextStyle) -> ShapedText;
 
     /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
+    ///
+    /// The default implementation shapes and reads the bounding box, guaranteeing measurement
+    /// agrees with what [`FontSystem::shape`] produces; implementations may override with a
+    /// cheaper path as long as they preserve that agreement.
     fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32) {
         if text.is_empty() {
             return (0.0, 0.0);

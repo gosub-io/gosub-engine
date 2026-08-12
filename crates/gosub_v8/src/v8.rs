@@ -131,6 +131,12 @@ impl V8Context {
 
     pub fn scope(&self) -> HandleScope<'_> {
         // let iso = unsafe { self.isolate_static() };
+        //
+        // let this = self.borrow();
+        //
+        // let c = this.ctx.clone();
+        //
+        // let x = HandleScope::with_context(iso, c);
 
         let mut this = self.ctx.borrow_mut();
 

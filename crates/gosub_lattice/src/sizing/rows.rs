@@ -3,6 +3,16 @@ use crate::types::{BoxEdges, CssLength, CssProp};
 use crate::TableTree;
 
 /// Compute the height of each row in a section.
+///
+/// For each non-spanning cell we:
+/// 1. Call [`TableTree::layout_cell`] to let the implementor run normal layout
+///    (block/flex/inline) inside the cell and get the actual content height.
+/// 2. Also read any explicit CSS `height` on the cell.
+/// 3. Take the maximum of the two, add the cell's own border + padding, and
+///    use that as the candidate height for the row.
+///
+/// Cells with `rowspan > 1` are skipped here; their height distribution across
+/// multiple rows is a Phase 2 concern.
 pub fn compute_row_heights<T: TableTree>(tree: &mut T, grid: &SectionGrid<T::NodeId>, col_widths: &[f32]) -> Vec<f32> {
     let mut heights = vec![0.0_f32; grid.n_rows];
 

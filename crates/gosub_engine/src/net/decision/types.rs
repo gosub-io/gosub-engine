@@ -39,6 +39,10 @@ pub struct DecisionOutcome {
 }
 
 // Final decision for the response.
+//
+// Deliberately minimal: variants for open-externally, block-on-type-mismatch,
+// nosniff enforcement and silent cancellation were removed until the features
+// that produce them exist.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandlingDecision {
     /// Resource needs to be rendered based on its target (html parser, css parser, js engine, image decoder, etc).

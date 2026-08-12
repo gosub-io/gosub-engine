@@ -16,11 +16,11 @@ const READY_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long any later request may take. A fork plus one shape is milliseconds.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Drive the broker's half of a render exchange, whoever the renderer is —
+/// Drive the broker's half of a render exchange, whoever the renderer is -
 /// the fork server's forked child or a fresh exec'd renderer speak the same
 /// dialect. Tiles stream in one at a time (each fd mapped and released before
 /// the next message), the summary closes the exchange, and a `Refused`
-/// mid-stream discards everything collected — atomicity lives here, not in
+/// mid-stream discards everything collected - atomicity lives here, not in
 /// transport buffering. `loader` answers the renderer's subresource requests
 /// inline, where identity and cookies live.
 pub(crate) fn drive_render_exchange(
@@ -53,7 +53,7 @@ pub(crate) fn drive_render_exchange(
                 received.push(PageTile::Fresh { header, mapping });
             }
             // The renderer skipped this one because we said we had it. If we
-            // do not, our memory and its `known_tiles` disagree — a bug, not
+            // do not, our memory and its `known_tiles` disagree - a bug, not
             // a page problem, so fail the render rather than paper over a
             // hole in the page.
             FromForkServer::TileUnchanged(header) => {
@@ -119,7 +119,7 @@ impl PageTile {
     }
 
     /// This tile's pixels, whichever render produced them. Always the
-    /// renderer's own mapped pages — a reused tile is the *same* mapping an
+    /// renderer's own mapped pages - a reused tile is the *same* mapping an
     /// earlier render handed over, not a copy of it.
     pub fn pixels(&self) -> &[u8] {
         match self {
@@ -128,11 +128,10 @@ impl PageTile {
         }
     }
 
-    /// Hand this tile to the compositor: the exact [`CachedTile`] shape the
-    /// host-side compositing loop consumes — **still zero-copy**. A fresh
-    /// tile's mapping becomes the `Bytes`' owner (`Bytes::from_owner`), so
-    /// the compositor blends straight out of the renderer's sealed pages;
-    /// a reused tile already holds such `Bytes`.
+    /// Hand this tile to the compositor as the [`CachedTile`] the host-side
+    /// compositing loop consumes. Zero-copy: a fresh tile's mapping becomes
+    /// the `Bytes` owner (`Bytes::from_owner`), so the compositor blends
+    /// straight out of the renderer's sealed pages.
     pub fn into_cached_tile(self) -> gosub_interface::render::backend::CachedTile {
         let (header, width, height, format, pixels) = match self {
             PageTile::Fresh { header, mapping } => {
@@ -159,7 +158,7 @@ impl PageTile {
 
 /// Pixels the broker keeps between renders of a tab, so an unchanged tile
 /// need not be rasterized or shipped again. The bytes are the renderer's
-/// mapped pages from an earlier render — still zero-copy, still sealed.
+/// mapped pages from an earlier render - still zero-copy, still sealed.
 #[derive(Debug, Clone)]
 pub struct KeptTile {
     pub width: u32,
@@ -169,7 +168,7 @@ pub struct KeptTile {
 }
 
 /// What the broker remembers of a tab's last remote render, keyed by content
-/// hash — the input to the next render's `known_tiles`.
+/// hash - the input to the next render's `known_tiles`.
 #[derive(Debug, Default)]
 pub struct TileMemory {
     tiles: std::collections::HashMap<u64, KeptTile>,
@@ -259,7 +258,7 @@ impl ForkServer {
         })
     }
 
-    /// The confinement tier the configured font system answered — what decides
+    /// The confinement tier the configured font system answered - what decides
     /// whether renderer isolation is offered at all, and under which sandbox.
     pub fn confinement(&self) -> &ConfinementTier {
         &self.tier
@@ -276,12 +275,12 @@ impl ForkServer {
         }
     }
 
-    /// Fork a renderer and run the pipeline over `html` in it — parse, style,
+    /// Fork a renderer and run the pipeline over `html` in it - parse, style,
     /// layout, layering, tiling, paint, and (when the configuration has a
-    /// forked rasterizer) rasterize — under its tier sandbox, with the
+    /// forked rasterizer) rasterize - under its tier sandbox, with the
     /// inherited fonts. Returns the measured summary plus the rasterized
-    /// tiles, whose pixels arrive as sealed memfds and are mapped — never
-    /// copied — into this process.
+    /// tiles, whose pixels arrive as sealed memfds and are mapped - never
+    /// copied - into this process.
     pub fn render_page(
         &mut self,
         html: &str,

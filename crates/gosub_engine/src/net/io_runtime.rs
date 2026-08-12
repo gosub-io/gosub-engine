@@ -50,7 +50,7 @@ impl IoHandle {
         log::trace!("signal: global shutdown -> I/O thread");
         shutdown_token.cancel();
 
-        // Note: subscribers hold clones of this sender, so the channel only fully
+        // Subscribers hold clones of this sender, so the channel only fully
         // closes once they drop theirs; the cancellation token is the real signal.
         log::trace!("signal: dropping our submit channel handle");
         drop(tx_submit);
@@ -368,9 +368,7 @@ pub async fn submit_to_io(
     Ok((handle, reply_rx))
 }
 
-/// Spawns the IO thread and runs a single fetcher on top. If needed, we can expand this system to
-/// run multiple fetchers on different OS threads for instance, but most likely the fetching itself
-/// isn't the biggest bottleneck.
+/// Spawns the IO thread and runs a single fetcher on top.
 pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> IoHandle {
     let (tx_submit, mut rx_submit) = mpsc::unbounded_channel::<IoCommand>();
     let shutdown_token = CancellationToken::new();
@@ -402,10 +400,8 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                                 None => reply_tx,
                             };
 
-                            // Out of process where isolation is on, in-process otherwise.
-                            // Everything above this point — identity, cookies — is the
-                            // same either way, which is what makes the two modes
-                            // behave alike.
+                            // Out of process where isolation is on, in-process otherwise;
+                            // identity and cookies were attached above either way.
                             match router.net_process() {
                                 Some(net) => dispatch_to_net_process(net, req, reply_tx),
                                 // The I/O thread must keep running; drop the request on fetcher failure.
@@ -581,7 +577,6 @@ mod tests {
         // Let the driver spin up
         sleep(Duration::from_millis(10)).await;
 
-        // Global shutdown should complete promptly
         timeout(Duration::from_secs(2), handle.shutdown())
             .await
             .expect("global shutdown timed out");
@@ -594,13 +589,11 @@ mod tests {
         let handle = spawn_io_thread(test_cfg(), ctx);
 
         let z = ZoneId::new();
-        // Should ACK even if the zone was never created
         timeout(Duration::from_secs(2), handle.shutdown_zone(z))
             .await
             .expect("zone shutdown ack timed out")
             .expect("zone shutdown returned error");
 
-        // Cleanly stop IO
         timeout(Duration::from_secs(2), handle.shutdown())
             .await
             .expect("global shutdown timed out");
@@ -617,11 +610,9 @@ mod tests {
         let router = IoRouter::new(cfg, ctx);
         let z = ZoneId::new();
 
-        // Lazily create fetcher for zone z
         let f = router.get_or_spawn_zone_fetcher(z).unwrap();
         assert!(Arc::strong_count(&f) >= 1, "fetcher Arc should be alive");
 
-        // Shut down zone z; should return true (existed)
         let stopped = router.shutdown_zone(z).await;
         assert!(stopped, "zone should have existed and been stopped");
     }
@@ -636,15 +627,12 @@ mod tests {
         let z1 = ZoneId::new();
         let z2 = ZoneId::new();
 
-        // Spawn both zones
         let _f1 = router.get_or_spawn_zone_fetcher(z1).unwrap();
         let f2 = router.get_or_spawn_zone_fetcher(z2).unwrap();
 
-        // Shut down z1 only
         let stopped = router.shutdown_zone(z1).await;
         assert!(stopped, "z1 should have been stopped");
 
-        // z2 should still have a running fetcher; get_or_spawn must return the same Arc ptr
         let f2_again = router.get_or_spawn_zone_fetcher(z2).unwrap();
         assert!(Arc::ptr_eq(&f2, &f2_again), "z2 fetcher must remain the same instance");
 
@@ -664,7 +652,6 @@ mod tests {
         let stopped = router.shutdown_zone(z_never_spawned).await;
         assert!(!stopped, "unknown zone should return false on shutdown");
 
-        // Clean (no zones to stop)
         router.shutdown_all().await;
     }
 }

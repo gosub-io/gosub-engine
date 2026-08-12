@@ -9,6 +9,14 @@ use crate::types::{CellLayout, CssLength, CssProp};
 use crate::TableTree;
 
 /// Entry point for the CSS table layout algorithm.
+///
+/// Reads the table structure from `tree` starting at `table_node`, computes
+/// positions for every table-internal node (groups, rows, cells), and writes
+/// them back via [`TableTree::set_layout`].
+///
+/// Returns `(content_width, content_height)` - the border-box size that the
+/// table occupies.  The caller is responsible for writing the table node's own
+/// layout (its position in the surrounding flow).
 pub fn compute_table_layout<T: TableTree>(
     tree: &mut T,
     table_node: T::NodeId,
@@ -68,6 +76,11 @@ pub fn compute_table_layout<T: TableTree>(
     let col_x = col_x_offsets(&col_widths, spacing_x);
 
     // Row heights per section
+    //
+    // `compute_row_heights` takes `&mut tree` so it can call `layout_cell` to
+    // run the normal layout engine inside each cell.  We use for-loops rather
+    // than iterator combinators because a closure can't hold `&mut tree` while
+    // the model is also borrowed.
     let mut header_heights: Vec<Vec<f32>> = Vec::with_capacity(header_grids.len());
     for grid in &header_grids {
         header_heights.push(compute_row_heights(tree, grid, &col_widths));
@@ -84,6 +97,11 @@ pub fn compute_table_layout<T: TableTree>(
     }
 
     // Apply positions
+    //
+    //    Per CSS: sections are rendered in the order header → body → footer,
+    //    regardless of their source position.  Each group is positioned
+    //    relative to the table.  Each row is positioned relative to its group.
+    //    Each cell is positioned relative to its row.
     let inner_width = col_widths.iter().sum::<f32>() + (n_cols as f32 + 1.0) * spacing_x;
 
     // Y offset of the next group, relative to the table. Vertically the table is one
@@ -244,7 +262,7 @@ fn row_y_offsets(row_heights: &[f32], spacing_y: f32) -> Vec<f32> {
     offsets
 }
 
-/// Total height of a section: its rows plus the gutters *between* them.
+/// Total height of a section: its rows plus the gutters between them.
 /// Boundary gutters (above the first row / below the last) are added by the
 /// caller when stacking groups, so they are not counted here.
 fn section_height(row_heights: &[f32], spacing_y: f32) -> f32 {

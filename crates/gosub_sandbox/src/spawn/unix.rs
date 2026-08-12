@@ -11,11 +11,8 @@ impl Child {
         self.0.wait().map(|_| ())
     }
 
-    /// Wait, and describe how the child ended — an exit code, or the signal
-    /// that killed it. For diagnosing a child that died before answering:
-    /// "exited 1" and "killed by signal 31 (SIGSYS)" point at very different
-    /// bugs, and a caller that only knows "it did not answer" cannot tell
-    /// them apart.
+    /// Wait, and describe how the child ended - an exit code, or the signal
+    /// that killed it ("exited 1" vs "killed by signal 31 (SIGSYS)").
     pub fn wait_describe(&mut self) -> String {
         use std::os::unix::process::ExitStatusExt;
         match self.0.wait() {
@@ -28,13 +25,13 @@ impl Child {
         }
     }
 
-    /// The child's process id — needed so the parent can place it in its own
+    /// The child's process id - needed so the parent can place it in its own
     /// cgroup (the Linux half of `confine_spawned_child`).
     pub fn id(&self) -> u32 {
         self.0.id()
     }
 
-    /// Best-effort SIGKILL — used to abandon a child that has wedged (e.g. a
+    /// Best-effort SIGKILL - used to abandon a child that has wedged (e.g. a
     /// decoder that stopped answering), so `wait` does not block forever.
     pub fn kill(&mut self) -> io::Result<()> {
         self.0.kill()

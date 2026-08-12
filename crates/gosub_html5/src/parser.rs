@@ -3112,6 +3112,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 // or adjusted current node is not topmost element in stack open elements
                 // then insert html element for token
                 // else:
+                //
 
                 {
                     let cn_id = current_node_id!(self);
@@ -3979,6 +3980,28 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// null-characters, (ascii) whitespaces, and regular (rest) characters.
     /// These tokens are then inserted into the token buffer queue, so they can get parsed
     /// correctly.
+    ///
+    /// example:
+    ///
+    ///   `Token::Text`("  foo bar\0  ")
+    ///
+    /// is split into 6 tokens:
+    ///
+    ///   `Token::Text`("  ")  // whitespace
+    ///   `Token::Text("foo`") // regular
+    ///   `Token::Text`(" ")   // whitespace
+    ///   `Token::Text("bar`") // regular
+    ///   `Token::Text("\0`")  // null
+    ///   `Token::Text`("  ")  // whitespace
+    ///
+    /// This is needed because the tokenizer does not know about the context of the text it is,
+    /// so it will always try to tokenize as greedy as possible. But sometimes we need this split
+    /// to happen where a differentation between whitespaces, null and regular characters are needed.
+    /// Only in those cases, this function is called, and the token will be split into multiple
+    /// tokens.
+    /// The idea is that large blobs of javascript for instance will not be split into separate
+    /// tokens, but still be seen and parsed as a single `TextToken`.
+    ///
     fn split_mixed_token(&self, text: &str) -> Vec<Token> {
         self.split_token_by_group(text, |ch| {
             if ch == '\0' {

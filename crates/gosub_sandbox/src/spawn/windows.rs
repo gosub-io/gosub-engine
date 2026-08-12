@@ -1,6 +1,4 @@
 //! Windows spawn backend: `CreateProcessAsUserW` with an extended startup info.
-//!
-//! ## The handle list
 
 use std::ffi::c_void;
 use std::io;
@@ -37,7 +35,7 @@ impl Child {
         Ok(())
     }
 
-    /// Wait, and describe how the child ended — the unix backend distinguishes
+    /// Wait, and describe how the child ended - the unix backend distinguishes
     /// exit codes from fatal signals; here there are only exit codes.
     pub fn wait_describe(&mut self) -> String {
         match self.wait() {
@@ -51,7 +49,7 @@ impl Child {
         self.process
     }
 
-    /// Best-effort terminate — used to abandon a child that has wedged (e.g. a
+    /// Best-effort terminate - used to abandon a child that has wedged (e.g. a
     /// decoder that stopped answering), so `wait` does not block forever.
     pub fn kill(&mut self) -> io::Result<()> {
         // SAFETY: `process` is a valid handle owned by this struct.
@@ -65,7 +63,7 @@ impl Child {
 impl Drop for Child {
     fn drop(&mut self) {
         // SAFETY: both handles are valid and owned here; the child keeps
-        // running if it has not exited — closing a handle does not kill it.
+        // running if it has not exited - closing a handle does not kill it.
         unsafe {
             CloseHandle(self.thread);
             CloseHandle(self.process);
@@ -137,9 +135,9 @@ pub fn spawn(
     let mut handles: [HANDLE; 2] = [rx as HANDLE, tx as HANDLE];
 
     // AppContainer (env-gated with GOSUB_WIN_APPCONTAINER while it is validated
-    // on a real Windows host): put the child in a *lowbox* token instead of a
-    // restricted primary token. The container is **per role** — the caller names
-    // it — so a grant to one service never widens another's reach.
+    // on a real Windows host): put the child in a lowbox token instead of a
+    // restricted primary token. The container is per role (the caller names
+    // it), so a grant to one service never widens another's reach.
     let role = args.first().copied().unwrap_or("");
     let super::ContainerProfile {
         name: container,
@@ -218,7 +216,7 @@ pub fn spawn(
     }
 
     // Attribute 2 (AppContainer): the SECURITY_CAPABILITIES. Built here so its
-    // pointers — into `identity`'s SIDs and `cap_attrs` — stay valid across the
+    // pointers - into `identity`'s SIDs and `cap_attrs` - stay valid across the
     // CreateProcess call below.
     let mut cap_attrs: Vec<SID_AND_ATTRIBUTES> = Vec::new();
     let mut sec_caps: SECURITY_CAPABILITIES = unsafe { std::mem::zeroed() };
@@ -319,7 +317,7 @@ pub fn spawn(
         // its own reference now, and on failure we simply free ours.
         unsafe { CloseHandle(t) };
     }
-    // `identity` (and its SIDs) drops at the end of scope — after CreateProcess
+    // `identity` (and its SIDs) drops at the end of scope - after CreateProcess
     // has consumed the SECURITY_CAPABILITIES that pointed into it.
 
     if ok == 0 {

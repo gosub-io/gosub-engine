@@ -3,7 +3,7 @@
 //! compiles this file when neither `target_os = "linux"` nor
 //! `target_os = "macos"` matches.
 
-/// No sandbox mechanism here — run unconfined and be honest about it.
+/// No sandbox mechanism here - run unconfined and be honest about it.
 #[cfg(feature = "multi-process")]
 pub fn lock_down_renderer() {
     eprintln!("[renderer] no sandbox on this platform — running unconfined");

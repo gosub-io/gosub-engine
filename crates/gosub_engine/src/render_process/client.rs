@@ -16,7 +16,7 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 /// Render `html` in a fresh, throwaway, font-readable-confined renderer
 /// process: spawn, send the one `RenderPage` it serves, drive the exchange
 /// (subresources answered by `loader`, tiles streamed in as sealed memfds),
-/// reap. The process is gone when this returns — the strongest isolation a
+/// reap. The process is gone when this returns - the strongest isolation a
 /// `FontPathsReadable` configuration can get, at ~4 ms of spawn cost.
 pub fn render_page(
     html: &str,
@@ -42,7 +42,7 @@ pub fn render_page(
         &exe,
         &[crate::child_process::ROLE_FLAG, RENDERER_ROLE],
         theirs,
-        // No network, no IPC/UTS — but the PID namespace is kept: this role's
+        // No network, no IPC/UTS - but the PID namespace is kept: this role's
         // font stack must be able to create threads (a PID-unshared process
         // cannot), and it never forks, so nothing is lost.
         gosub_sandbox::NamespaceIsolation::NoPidNamespace,
@@ -71,8 +71,8 @@ pub fn render_page(
         drive_render_exchange(&mut link, loader, known_tiles)
     })();
 
-    // Kill before reaping, on every path: a renderer that will not exit —
-    // wedged or hostile — must not be able to hold this thread open.
+    // Kill before reaping, on every path: a renderer that will not exit -
+    // wedged or hostile - must not be able to hold this thread open.
     let _ = child.kill();
     let _ = child.wait();
 

@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 /// Fetch a URL, parse it through gosub's HTML5+CSS3 pipeline, build a
 /// RenderTree, and print it to stdout.
+///
+/// Usage: cargo run --example rendertree -p gosub_render_pipeline -- <url>
 use std::sync::Arc;
 
 use gosub_css3::system::Css3System;

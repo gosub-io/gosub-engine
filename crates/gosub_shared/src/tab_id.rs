@@ -2,6 +2,8 @@ use std::fmt::Display;
 use uuid::Uuid;
 
 /// A unique identifier for a browser tab.
+///
+/// Internally a [`Uuid`] wrapper. Treat it as an opaque handle.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TabId(Uuid);
 

@@ -36,12 +36,9 @@ pub struct MediaStore {
     pending: RwLock<HashSet<Sha256Hash>>,
     /// Set whenever a background fetch lands, so the engine knows a reflow is needed
     completed: AtomicBool,
-    /// Fetch inline on the calling thread instead of spawning `media-fetch`
-    /// threads. For single-threaded contexts — a sandboxed renderer process
-    /// cannot create threads at all (its seccomp filter has no `clone`, so a
-    /// spawn is a `SIGSYS`, not an `Err`) — where blocking layout on the
-    /// broker is the intended shape, and media landing synchronously means
-    /// one layout pass instead of fetch-then-reflow.
+    /// Fetch inline on the calling thread instead of spawning `media-fetch` threads.
+    /// A sandboxed renderer cannot spawn (its seccomp filter has no `clone`; a spawn is
+    /// SIGSYS, not `Err`), and an inline fetch means one layout pass instead of fetch-then-reflow.
     synchronous_fetch: AtomicBool,
     /// Next media ID (atomic to prevent allocation races)
     next_id: AtomicU64,
@@ -127,10 +124,9 @@ impl MediaStore {
         }
     }
 
-    /// Fetch inline on the calling thread instead of spawning `media-fetch`
-    /// threads — see the field. Set once, before the store is shared with a
-    /// context that cannot thread (the fork server sets it before renderers
-    /// are forked from it).
+    /// Fetch inline instead of spawning `media-fetch` threads (see the field). Set once,
+    /// before the store is shared with a context that cannot thread (the fork server sets
+    /// it before renderers are forked from it).
     pub fn set_synchronous_fetch(&self, on: bool) {
         self.synchronous_fetch.store(on, Ordering::Relaxed);
     }
@@ -151,9 +147,8 @@ impl MediaStore {
             return MediaRequest::Pending;
         }
 
-        // Synchronous mode: fetch right here, on the calling thread, and hand
-        // back a `Ready` — `load_media` caches even failures (as the
-        // placeholder), so the lookup after it normally succeeds.
+        // Synchronous mode: fetch on the calling thread. `load_media` caches even
+        // failures (as the placeholder), so the lookup below normally succeeds.
         if self.synchronous_fetch.load(Ordering::Relaxed) {
             let _ = self.load_media(src);
             self.pending.write().remove(&h);

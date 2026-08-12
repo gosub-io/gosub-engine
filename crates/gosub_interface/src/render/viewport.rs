@@ -8,7 +8,7 @@ pub static DEVICE_PIXEL_RATIO: std::sync::atomic::AtomicU32 = std::sync::atomic:
 #[derive(Debug, Copy, Clone)]
 pub struct DevicePixelRatio(pub f64);
 
-/// Viewport definition for rendering.
+/// Rectangular region of a page to render, in pixels.
 #[derive(Clone, Eq, PartialEq, Copy, Default)]
 pub struct Viewport {
     pub x: i32,

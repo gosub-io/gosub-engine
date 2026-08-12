@@ -1,12 +1,8 @@
 //! OS-level privilege capping for the engine and its child components.
-//!
-//! ## The seam
-//!
-//! ### The contract assumes self-application
 
 // How a child process is created. Owned rather than delegated to
 // `std::process::Command` because Windows access controls must be supplied at
-// `CreateProcess` time — see the module docs.
+// `CreateProcess` time - see the module docs.
 #[cfg(feature = "multi-process")]
 pub mod spawn;
 // Compiled on every platform (not just those with a backend) so a test suite can
@@ -41,7 +37,7 @@ use unsupported as imp;
 /// Mark the calling process non-dumpable, closing the *inbound* debugging
 /// surface so another same-user process cannot attach a debugger and read our
 /// address space (for the engine: the cookie jar in cleartext). Best-effort
-/// hardening — warns rather than aborts on failure. Must be called *after*
+/// hardening - warns rather than aborts on failure. Must be called *after*
 /// `exec` (the flag does not survive it) but is inherited across `fork`.
 pub fn deny_debugger_attach() {
     imp::deny_debugger_attach();
@@ -59,16 +55,16 @@ pub fn apply_child_rlimits() -> std::io::Result<()> {
 /// Which namespaces a child is dropped into at spawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NamespaceIsolation {
-    /// No unsharing — the net component, which must reach the network.
+    /// No unsharing - the net component, which must reach the network.
     None,
     /// Empty network namespace (the load-bearing one) plus IPC and UTS as
-    /// defense in depth, and (best-effort) a PID namespace — which, because
+    /// defense in depth, and (best-effort) a PID namespace - which, because
     /// the unshare is lazy, isolates the *fork server's forked renderers*
     /// rather than the caller.
     Full,
     /// [`Full`](NamespaceIsolation::Full) minus the PID namespace, for roles
-    /// whose libraries must create **threads**: a process that has unshared
-    /// its PID namespace cannot (measured — GLib/Pango aborts on it). Such
+    /// whose libraries must create threads: a process that has unshared
+    /// its PID namespace cannot (measured - GLib/Pango aborts on it). Such
     /// roles never fork, so what the PID namespace would have isolated does
     /// not exist.
     NoPidNamespace,
@@ -78,14 +74,14 @@ pub enum NamespaceIsolation {
 /// mount namespace is deliberately left out for concrete reasons (see the
 /// backend docs). Called from `pre_exec`, so it must stay async-signal-safe.
 /// On platforms without namespaces this is deferred into the lockdown profile
-/// — see the backend docs.
+/// - see the backend docs.
 #[cfg(feature = "multi-process")]
 pub fn isolate_namespaces(mode: NamespaceIsolation) -> std::io::Result<()> {
     imp::isolate_namespaces(mode)
 }
 
 /// Confine a renderer to pixels only: no network, no files, no new programs.
-/// Called once the IPC link is connected. Fail-closed — the backend aborts the
+/// Called once the IPC link is connected. Fail-closed - the backend aborts the
 /// process rather than let a renderer meant to be confined run unconfined.
 #[cfg(feature = "multi-process")]
 pub fn lock_down_renderer() {
@@ -115,21 +111,19 @@ pub fn net_filesystem_paths() -> Vec<std::path::PathBuf> {
     }
 }
 
-/// Confine the **vault** (cookie store): the tightest filter of any role — the
-/// bare content baseline (no network, files, devices, or exec) plus
-/// non-dumpable. It holds secrets, so it gets the least authority of any
-/// process. Linux only (the vault is Linux-only). Fail-closed.
+/// Confine the vault (cookie store): the bare content baseline (no network,
+/// files, devices, or exec) plus non-dumpable. Linux only (the vault is
+/// Linux-only). Fail-closed.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn lock_down_vault() {
     imp::lock_down_vault();
 }
 
-/// Confine a renderer whose font system must read font files (fontconfig-backed
-/// stacks consult the filesystem *while shaping*; no warm-up reaches it): the
-/// renderer profile plus read-only, Landlock-scoped access to `fs_allow` — pass
-/// [`font_filesystem_paths`]. The WebKitGTK arrangement, and a measured tier
-/// between "fully confined" and "no isolation". Linux only. Fail-closed on the
-/// seccomp install; the Landlock portion is best-effort like the other roles.
+/// Confine a renderer whose font system must read font files (fontconfig
+/// stacks consult the filesystem while shaping; no warm-up covers it): the
+/// renderer profile plus read-only, Landlock-scoped access to `fs_allow` -
+/// pass [`font_filesystem_paths`]. Linux only. Fail-closed on the seccomp
+/// install; the Landlock portion is best-effort like the other roles.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn lock_down_renderer_with_font_access(fs_allow: &[(&std::path::Path, bool)]) {
     imp::lock_down_renderer_with_font_access(fs_allow);
@@ -195,7 +189,7 @@ pub fn cleanup_spawned_cgroups() {
     imp::cleanup_spawned_cgroups();
 }
 
-/// Arm an alternate signal stack for the **current** thread, so the self-capturing
+/// Arm an alternate signal stack for the current thread, so the self-capturing
 /// crash reporter can still run when this thread's own stack overflows. The
 /// broker is multithreaded and the reporter's altstack is per-thread, so each
 /// engine thread calls this at startup. A no-op off Linux (only the Linux backend
@@ -220,7 +214,7 @@ pub fn restricted_token() -> Option<::windows_sys::Win32::Foundation::HANDLE> {
     imp::restricted_token()
 }
 
-/// The AppContainer (lowbox) identity for a Windows child — the capability
+/// The AppContainer (lowbox) identity for a Windows child - the capability
 /// sandbox that gives content roles no network and the net component
 /// `internetClient`. Windows only. See the backend for the image-loading caveat.
 #[cfg(all(feature = "multi-process", target_os = "windows"))]
@@ -242,7 +236,7 @@ pub fn grant_app_package_execute(path: &std::path::Path) -> std::io::Result<()> 
 }
 
 /// Give a service's own AppContainer access to its file/directory (`writable`
-/// also relabels it Low integrity) — the Windows analogue of the Linux services'
+/// also relabels it Low integrity) - the Windows analogue of the Linux services'
 /// `openat` + Landlock to their own path. Windows only.
 #[cfg(all(feature = "multi-process", target_os = "windows"))]
 pub fn grant_container_path_access(
@@ -276,18 +270,14 @@ pub fn landlock_available() -> bool {
     imp::landlock_available()
 }
 
-/// Confine the **broker** (engine) process: a *loose* sandbox — like a browser's
-/// main process — for the one process that holds every secret and deserializes
-/// untrusted frames. It cannot be tightened to a renderer's degree (it must spawn
-/// children, exec their libraries, thread, and open files and sockets), but two
-/// blast radii can be reduced: a **Landlock** ruleset limits *writes* to the temp
-/// dir (read/exec stay open), and a **deny-list seccomp filter** removes the
-/// escalation syscalls it never uses (`ptrace`, kernel-module/`kexec`/`bpf`, the
-/// keyring, `mount`/`setns`, …) while allowing everything else. Called by the
-/// binary on its main thread before the engine starts, so every engine thread and
-/// child inherits both. Linux only; a no-op elsewhere (a macOS Seatbelt broker
-/// profile would be the equivalent, and is not built yet). Best-effort: a kernel
-/// missing either mechanism leaves that layer off rather than aborting.
+/// Confine the broker (engine) process with a loose sandbox: it must spawn
+/// children, exec their libraries, thread, and open files and sockets, so it
+/// gets a Landlock ruleset limiting writes to the temp dir (read/exec stay
+/// open) plus a deny-list seccomp filter removing escalation syscalls
+/// (`ptrace`, kernel-module/`kexec`/`bpf`, keyring, `mount`/`setns`, …).
+/// Call on the main thread before the engine starts so every thread and child
+/// inherits both. Linux only (a macOS Seatbelt broker profile is not built
+/// yet). Best-effort: a kernel missing either mechanism leaves that layer off.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn lock_down_broker() {
     imp::lock_down_broker();
@@ -296,7 +286,7 @@ pub fn lock_down_broker() {
 #[cfg(all(feature = "multi-process", not(target_os = "linux")))]
 pub fn lock_down_broker() {}
 
-/// Cap the fork server (Linux only — it is the one platform with a zygote).
+/// Cap the fork server (Linux only - it is the one platform with a zygote).
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn lock_down_fork_server() {
     imp::lock_down_fork_server();
@@ -304,7 +294,7 @@ pub fn lock_down_fork_server() {
 
 /// Cap the fork server for a font system that needs the font-readable tier:
 /// [`lock_down_fork_server`] plus the file-reading syscalls, with Landlock
-/// scoping them to `fs_allow` — applied here, once, and inherited by every
+/// scoping them to `fs_allow` - applied here, once, and inherited by every
 /// forked renderer. Linux only. Fail-closed on the seccomp install.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn lock_down_fork_server_with_font_access(fs_allow: &[(&std::path::Path, bool)]) {
@@ -324,7 +314,7 @@ pub fn lock_down_forked_renderer(font_access: bool) {
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub use imp::Forked;
 
-/// Fork the calling process. The caller must be single-threaded — see the
+/// Fork the calling process. The caller must be single-threaded - see the
 /// backend for why the type system cannot enforce this. Linux only.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn fork_process() -> std::io::Result<Forked> {
@@ -337,7 +327,7 @@ pub fn reap_child(pid: i32) -> std::io::Result<i32> {
     imp::reap_child(pid)
 }
 
-/// Exit immediately without running destructors or `atexit` handlers — the only
+/// Exit immediately without running destructors or `atexit` handlers - the only
 /// correct way out of a forked child. Linux only.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn exit_now(code: i32) -> ! {
@@ -349,7 +339,7 @@ pub fn exit_now(code: i32) -> ! {
 pub use imp::PidNamespaceAnchor;
 
 /// Park a child as PID 1 of the fork server's (lazily-unshared) PID namespace,
-/// for as long as the returned anchor lives — without it, the first exiting
+/// for as long as the returned anchor lives - without it, the first exiting
 /// child kills the namespace and every later `fork` fails with `ENOMEM`. Call
 /// before the fork-server lockdown. Linux only.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
@@ -361,7 +351,7 @@ pub fn hold_pid_namespace_anchor() -> std::io::Result<PidNamespaceAnchor> {
 /// renderer needs on *this* host's C library, aborting if it does not. Called
 /// straight after [`lock_down_fork_server`]. The allowlist is libc-sensitive in
 /// ways a compile-time check cannot see, so this verifies rather than predicts
-/// — see the backend for what varies and why.
+/// - see the backend for what varies and why.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn verify_fork_server_filter() {
     imp::verify_fork_server_filter();

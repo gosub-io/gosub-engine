@@ -10,7 +10,7 @@
 //! }
 //! ```
 //!
-//! **First statement in `main`, before any other work.** A child process must
+//! First statement in `main`, before any other work. A child process must
 //! reach its role without having built windows, spawned threads or opened files
 //! as a side effect of the embedder starting up. In an ordinary run the call
 //! looks at `argv`, sees no role, and returns immediately.
@@ -20,7 +20,7 @@
 //! A child is created by re-exec'ing *this* binary with a role argument, so the
 //! child is always the same build as the broker: nothing to locate at runtime,
 //! no version skew, and no separate helper someone could replace. The cost is
-//! that the engine cannot get control of the new process on its own — `main`
+//! that the engine cannot get control of the new process on its own - `main`
 //! belongs to the embedder, and execution passes through it before any engine
 //! code runs. This function is where the engine takes over.
 //!
@@ -49,7 +49,7 @@ pub fn dispatch() {
     std::process::exit(code);
 }
 
-/// Run a child role — including the fork server — if this process was started
+/// Run a child role - including the fork server - if this process was started
 /// as one; otherwise return.
 pub fn dispatch_with<C: crate::html::RenderConfiguration>() {
     let args: Vec<String> = std::env::args().collect();

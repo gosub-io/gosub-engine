@@ -1,10 +1,7 @@
 //! macOS backend: Seatbelt confinement (`sandbox_init`), `PT_DENY_ATTACH`
-//! anti-debugging, and POSIX rlimits. This satisfies the same public surface
-//! as the Linux backend (this crate); the mechanisms differ because
-//! macOS has no seccomp and no network namespaces. The parent module only
-//! compiles this file on `target_os = "macos"`, so nothing here is guarded.
-//!
-//! ### Why SBPL, not the "modern" App Sandbox
+//! anti-debugging, and POSIX rlimits. macOS has no seccomp and no network
+//! namespaces. Only compiled on `target_os = "macos"`, so nothing here is
+//! guarded.
 
 use std::ffi::{c_char, c_int};
 
@@ -19,18 +16,13 @@ extern "C" {
     fn sandbox_free_error(errorbuf: *mut c_char);
 }
 
-// The profiles are deliberately *tight*, the SBPL counterpart of the seccomp
-// allowlist's "enumerate exactly what's needed": we start from `(deny default)`
-// and re-grant only what a component that is *already initialized* still
-// touches. A renderer reaches lockdown with dyld done, its IPC socket and
-// stderr already open, and thereafter only computes and reads/writes those
-// existing fds — none of which is a sandbox-checked operation. Empirically it
-// needs nothing beyond signalling and querying *itself*: no `mach-lookup`, no
-// `sysctl-read`, no file or network access. Each grant here is a privilege a
-// compromised renderer could turn against the host, so the shorter the list
-// the smaller the surface. If a future renderer (a real rasterizer, fonts,
-// GPU) needs more, add the *narrowest* grant that unblocks it — a specific
-// `(allow mach-lookup (global-name "..."))`, not the blanket form.
+// Profiles start from `(deny default)` and re-grant only what an
+// already-initialized component touches. A renderer reaches lockdown with
+// dyld done and its IPC socket/stderr open; empirically it needs nothing
+// beyond signalling and querying itself - no mach-lookup, sysctl-read, file,
+// or network access. If a future renderer needs more, add the narrowest grant
+// (e.g. a specific `(allow mach-lookup (global-name "..."))`), not the
+// blanket form.
 
 /// A renderer may only push pixels: no network, no files, no new programs, and
 /// no Mach/sysctl reach beyond itself.
@@ -54,7 +46,7 @@ const NET_PROFILE: &str = "\
 (allow system-socket)
 \0";
 
-/// Cap a renderer: pixels only — no network, files, or exec.
+/// Cap a renderer: pixels only - no network, files, or exec.
 #[cfg(feature = "multi-process")]
 pub fn lock_down_renderer() {
     deny_debugger_attach();
@@ -81,15 +73,15 @@ pub fn lock_down_service(name: &str, filesystem: bool, device: bool, fs_allow: &
     if !fs_allow.is_empty() {
         // Path resolution first: opening a file deep in the tree requires
         // metadata (lookup/stat) access to its *ancestor* directories, which a
-        // `(subpath …)` grant does not cover — it grants the subtree, not the
+        // `(subpath …)` grant does not cover - it grants the subtree, not the
         // path *to* it. Without this a scoped service's own open fails `EPERM`
         // during namei. `file-read-metadata` reveals only names/attributes,
-        // never contents — the actual read/write below stays scoped — so this is
+        // never contents - the actual read/write below stays scoped - so this is
         // the standard Seatbelt pattern, not a widening of what can be *read*.
         profile.push_str("(allow file-read-metadata)\n");
         // Path-scoped data access: read (and optionally write) only the declared
         // paths. macOS `/var` and `/tmp` are symlinks (to `/private/…`), and it
-        // is not obvious which spelling Seatbelt matches against — so grant
+        // is not obvious which spelling Seatbelt matches against - so grant
         // *both* the path as given and its canonical (symlink-resolved) form.
         for (path, writable) in fs_allow {
             let mut variants: Vec<std::path::PathBuf> = vec![path.to_path_buf()];
@@ -158,22 +150,21 @@ fn enforce(role: &str, profile: &str) {
     std::process::exit(1);
 }
 
-/// Resource ceilings the engine imposes on a child at spawn time — the macOS
+/// Resource ceilings the engine imposes on a child at spawn time - the macOS
 /// analogue of the Linux rlimits. `setrlimit`/`setpriority` are POSIX and
 /// behave as on Linux, with one gap: macOS has no working `RLIMIT_AS`. Unlike
 /// Linux it rejects the call outright (`EINVAL`, "current limit exceeds
 /// maximum") rather than accepting-but-not-enforcing, so we cannot even set it
-/// advisorily — the address-space cap is simply unavailable here. The fd,
+/// advisorily - the address-space cap is simply unavailable here. The fd,
 /// core-dump, and priority caps are real. Called pre-exec, so async-signal-
 /// safe: only `setrlimit`/`setpriority` syscalls.
 #[cfg(feature = "multi-process")]
 pub fn apply_child_rlimits() -> std::io::Result<()> {
-    // No RLIMIT_AS on macOS (see above), and no other per-process memory cap a
-    // third-party app can self-impose either — a genuine platform gap, documented
-    // in full below (a content process is bounded by the OS's Jetsam instead).
+    // No RLIMIT_AS on macOS (see above), and no other self-imposable
+    // per-process memory cap; a content process is bounded by Jetsam instead.
     // A child needs only a handful of fds (its IPC socket + std streams).
     set_rlimit(libc::RLIMIT_NOFILE, 128)?;
-    // No core dumps — a crash must not spill page contents (cookies, tokens).
+    // No core dumps - a crash must not spill page contents (cookies, tokens).
     set_rlimit(libc::RLIMIT_CORE, 0)?;
     // Deprioritize content processes so a compromised child cannot starve the
     // trusted engine/UI of CPU. Raising the nice value needs no privilege and
@@ -182,20 +173,16 @@ pub fn apply_child_rlimits() -> std::io::Result<()> {
     Ok(())
 }
 
-// ── No per-process memory cap on macOS (a platform gap, not a shortcut) ──
-
 /// No network namespaces on macOS: a renderer's network is denied inside its
-/// Seatbelt profile instead (see [`lock_down_renderer`]), applied once the
-/// child is running. This pre-exec hook therefore has nothing to do — but it
-/// stays truthful to its Linux counterpart's contract and returns `Ok` only
-/// for the roles that are meant to be isolated.
+/// Seatbelt profile instead (see [`lock_down_renderer`]), so this pre-exec
+/// hook has nothing to do.
 #[cfg(feature = "multi-process")]
 pub fn isolate_namespaces(_mode: crate::NamespaceIsolation) -> std::io::Result<()> {
     Ok(())
 }
 
 /// Mark the calling process non-dumpable, closing the *inbound* debugging
-/// surface — the macOS analogue of Linux's `PR_SET_DUMPABLE`.
+/// surface - the macOS analogue of Linux's `PR_SET_DUMPABLE`.
 pub fn deny_debugger_attach() {
     // SAFETY: PT_DENY_ATTACH takes no addr/data and affects only the caller.
     if unsafe { libc::ptrace(libc::PT_DENY_ATTACH, 0, std::ptr::null_mut(), 0) } < 0 {

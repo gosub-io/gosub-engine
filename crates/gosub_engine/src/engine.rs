@@ -1,4 +1,6 @@
 //! Engine API surface.
+//!
+//! Most users should start with [`GosubEngine`].
 
 mod context;
 #[allow(clippy::module_inception)]

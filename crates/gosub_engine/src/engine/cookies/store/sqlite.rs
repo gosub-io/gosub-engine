@@ -1,23 +1,14 @@
 //! SQLite-backed cookie store.
 //!
-//! `SqliteCookieStore` persists **all zones'** cookie jars in a single SQLite
-//! database. It implements the [`CookieStore`] trait and returns per-zone jars
-//! wrapped in a [`PersistentCookieJar`](crate::cookies::PersistentCookieJar), so that **every mutation** to a jar
-//! triggers a snapshot write back to this store.
+//! `SqliteCookieStore` persists all zones' cookie jars in a single SQLite database
+//! (one `cookies` table, one row per cookie); jars are cached in memory and returned
+//! wrapped in a [`PersistentCookieJar`](crate::cookies::PersistentCookieJar), so every
+//! jar mutation snapshots back to this store.
 //!
-//! ## Design
-//! - One **table** (`cookies`) for all zones; each row is a single cookie. Jars are
-//!   cached in memory for quick reuse.
-//! - The store keeps a self handle (`store_self`) so persistent jars can call
-//!   back into `persist_zone_from_snapshot`.
-//! - Database access is via an `r2d2` pool for safe multi-threaded use.
-//! - Internally synchronized; safe to share behind a [`CookieStoreHandle`].
+//! Database access goes through an `r2d2` pool for multi-threaded use. `save_zone`
+//! rewrites the zone's cookie set (DELETE + INSERT). Persistence is best-effort:
+//! database errors are logged, never panicked on.
 //!
-//! ## I/O characteristics & caveats
-//! - `save_zone` **rewrites** the set of cookies for a zone (DELETE + INSERT).
-//! - Persistence is best-effort: database errors are logged, never panicked on.
-//!
-//! ## Example
 //! ```ignore,no_run
 //! let store = SqliteCookieStore::new("cookies.sqlite".into())?; // -> Arc<SqliteCookieStore>
 //!
@@ -41,9 +32,6 @@ use crate::engine::zone::ZoneId;
 use crate::EngineError;
 
 /// A SQLite-based cookie store that persists cookies across sessions.
-///
-/// Creates per-zone jars on demand, caches them in memory, and snapshots them
-/// back to SQLite after each mutation (via [`PersistentCookieJar`](crate::cookies::PersistentCookieJar)).
 pub struct SqliteCookieStore {
     /// Connection pool for SQLite database (so it can run multithreaded)
     pool: Pool<SqliteConnectionManager>,
@@ -55,6 +43,8 @@ pub struct SqliteCookieStore {
 
 impl SqliteCookieStore {
     /// Opens (or creates) a SQLite database at `path` and ensures the schema exists.
+    ///
+    /// Returns an `Arc<Self>` ready to be used as a `CookieStoreHandle`.
     ///
     /// # Errors
     /// Returns [`EngineError::CookieStore`] if the pool cannot be created or the
@@ -129,6 +119,8 @@ impl SqliteCookieStore {
     }
 
     /// Loads all cookies for `zone_id` from the database into a new [`DefaultCookieJar`].
+    ///
+    /// Best-effort: on database errors an empty jar is returned and the error is logged.
     fn load_zone(&self, zone_id: ZoneId) -> DefaultCookieJar {
         let mut jar = DefaultCookieJar::new();
         let Some(conn) = self.conn() else {
@@ -178,6 +170,9 @@ impl SqliteCookieStore {
     }
 
     /// Replaces all cookies for `zone_id` with the contents of `jar` in a transaction.
+    ///
+    /// DELETEs the existing rows for the zone and INSERTs the new set.
+    /// Best-effort: on database errors the snapshot is skipped and the error is logged.
     fn save_zone(&self, zone_id: ZoneId, jar: &DefaultCookieJar) {
         let Some(mut conn) = self.conn() else {
             return;
@@ -246,23 +241,12 @@ impl SqliteCookieStore {
 }
 
 impl CookieStore for SqliteCookieStore {
-    /// Returns the cookie jar handle for `zone_id`, creating it if needed.
-    ///
-    /// Behavior:
-    /// - If a jar for `zone_id` exists in the in-memory cache, it is returned.
-    /// - Otherwise, a serialized jar is loaded from SQLite (if present) or an empty
-    ///   [`DefaultCookieJar`] is created.
-    /// - That jar is wrapped in a [`PersistentCookieJar`](crate::cookies::PersistentCookieJar) bound to this store
-    ///   (via `store_self`) so that subsequent mutations persist automatically.
     fn jar_for(&self, zone_id: ZoneId) -> Option<CookieJarHandle> {
         crate::cookies::store::provision_persistent_jar(&self.jars, &self.store_self, zone_id, || {
             self.load_zone(zone_id)
         })
     }
 
-    /// Persists a snapshot of `zone_id`'s jar to SQLite.
-    ///
-    /// Called by [`PersistentCookieJar`](crate::cookies::PersistentCookieJar) after each mutation.
     fn persist_zone_from_snapshot(&self, zone_id: ZoneId, snapshot: &DefaultCookieJar) {
         self.save_zone(zone_id, snapshot);
     }
@@ -280,10 +264,8 @@ impl CookieStore for SqliteCookieStore {
         self.remove_zone_from_db(zone_id);
     }
 
-    /// Persists **all** in-memory jars to SQLite by snapshotting them.
-    ///
-    /// Only jars of type [`PersistentCookieJar`](crate::cookies::PersistentCookieJar) that wrap a [`DefaultCookieJar`]
-    /// are snapshotted here to keep the on-disk format stable.
+    /// Only jars of type [`PersistentCookieJar`](crate::cookies::PersistentCookieJar)
+    /// wrapping a [`DefaultCookieJar`] are snapshotted, keeping the format stable.
     fn persist_all(&self) {
         let jars = self.jars.read();
         crate::cookies::store::snapshot_cached_jars(&jars, |zone_id, snapshot| self.save_zone(zone_id, snapshot));

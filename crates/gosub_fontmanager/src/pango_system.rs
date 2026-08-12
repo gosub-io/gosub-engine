@@ -16,13 +16,16 @@ use std::sync::{Arc, OnceLock};
 
 const DEFAULT_FONT_FAMILY: &str = "sans";
 
-/// Serialises every direct fontconfig call in this module. Mutating the process-global config
-/// (`FcConfigAppFontAddFile`/`FcConfigBuildFonts`) while another thread matches against it
-/// (`FcFontMatch`) segfaults - fontconfig's documented thread safety does not cover concurrent
-/// mutation of the current config.
+/// Serialises direct fontconfig calls: mutating the process-global config while another
+/// thread runs `FcFontMatch` against it segfaults (fontconfig's documented thread safety
+/// excludes concurrent mutation of the current config).
 static FONTCONFIG_LOCK: Mutex<()> = Mutex::new(());
 
 /// Register an in-memory `@font-face` font so Pango (via fontconfig) can discover it.
+///
+/// The temp file is intentionally left on disk for the process lifetime: fontconfig
+/// references it by path. The family name comes from the font's own `name` table;
+/// `family_override` is informational. Must run before Pango's font map is first built.
 fn register_font_via_fontconfig(data: &[u8], family_override: Option<&str>) -> Result<(), FontError> {
     use fontconfig_sys::{FcConfigAppFontAddFile, FcConfigBuildFonts, FcConfigGetCurrent};
     use std::io::Write as _;
@@ -123,10 +126,9 @@ fn to_fc_width(ratio: f32) -> c_int {
     (ratio * 100.0).round() as c_int
 }
 
-/// Match `families` (already mapped to fontconfig names, in priority order) against the
-/// process-global fontconfig config - the same database Pango itself resolves from - and return
-/// the winning face. fontconfig always matches *something* after `FcDefaultSubstitute`, so this
-/// only errors when fontconfig is unavailable or the matched pattern lacks a file path.
+/// Match `families` against the process-global fontconfig config (the database Pango itself
+/// resolves from). `FcDefaultSubstitute` always matches something, so this only errors when
+/// fontconfig is unavailable or the matched pattern lacks a file path.
 fn fontconfig_match(
     families: &[&str],
     weight: c_int,
@@ -218,16 +220,13 @@ fn pango_generic_family(name: &str) -> Option<&'static str> {
     }
 }
 
-// PangoFontSystem
-
-/// Font-system state for the Cairo/Pango backend.
+/// Font file bytes keyed by `(path, ttc index)`.
 type BlobCache = HashMap<(String, u32), Arc<Vec<u8>>>;
 
 pub struct PangoFontSystem {
     system_ui_font: Option<String>,
-    /// Cached font file bytes. Shaping resolves a font per glyph run, and re-reading e.g.
-    /// DejaVu Sans from disk for every text run would hurt; interior mutability keeps the
-    /// read-only-after-init sharing contract of the struct intact.
+    /// Shaping resolves a font per glyph run; cache the file bytes so each run doesn't
+    /// re-read from disk. Interior mutability keeps the struct shareable after init.
     blob_cache: Mutex<BlobCache>,
 }
 
@@ -248,6 +247,9 @@ impl PangoFontSystem {
     }
 
     /// Resolve and cache the system-ui font via GSettings.
+    ///
+    /// Must be called from the GTK main thread before any background rendering begins.
+    /// Calling it a second time is a no-op.
     pub fn init_from_gtk_thread(&mut self) {
         if self.system_ui_font.is_none() {
             self.system_ui_font = get_system_ui_font_from_gsettings();
@@ -273,11 +275,8 @@ impl PangoFontSystem {
                 continue;
             }
 
-            // Generic CSS families resolve through Pango/fontconfig aliases ("serif",
-            // "sans", "monospace") and never appear in `list_families()`, so map them
-            // explicitly. Without this the generic at the end of a list (e.g. the `serif`
-            // in `"Source Serif 4", Georgia, serif`) is skipped and the heading wrongly
-            // falls back to the default sans family.
+            // CSS generics resolve through fontconfig aliases and never appear in
+            // `list_families()`; without this a trailing `serif` would fall back to sans.
             if let Some(generic) = pango_generic_family(&font_name) {
                 return generic.to_string();
             }
@@ -334,9 +333,8 @@ impl PangoFontSystem {
         Ok(FontBlob::new(data, index))
     }
 
-    /// Build a laid-out Pango layout for `text` in `style` on a throwaway 1×1 surface (no pixels
-    /// are drawn). The shared front half of `measure` and `shape`, and the same font-description
-    /// path as the rasterizer - so measuring, shaping, and painting all see identical fonts and
+    /// Lay out `text` on a throwaway 1×1 surface. Shared by `measure` and `shape`, and the
+    /// same font-description path as the rasterizer, so all three see identical fonts and
     /// line breaking.
     fn build_layout(&self, text: &str, style: &TextStyle) -> Option<pango::Layout> {
         use pangocairo::functions::{context_set_resolution, create_layout};
@@ -368,11 +366,8 @@ impl PangoFontSystem {
         }
         match style.max_width {
             Some(w) => {
-                // Pango width is in Pango units (CSS px × display_scale × SCALE). Compute in
-                // f64 and guard against i32 overflow: a very large / unbounded max_width is
-                // treated as "no wrap limit" (-1), which is what an effectively-infinite
-                // width means anyway. Without this, large widths panic in debug (overflow)
-                // and silently wrap in release.
+                // Pango units = CSS px × display_scale × SCALE. An effectively-infinite
+                // max_width overflows i32 (panics in debug), so treat it as no wrap limit (-1).
                 let units = w as f64 * style.display_scale as f64 * pango::SCALE as f64;
                 layout.set_width(if units >= i32::MAX as f64 { -1 } else { units as i32 });
             }
@@ -389,7 +384,9 @@ impl PangoFontSystem {
         Some((w as f32, h as f32))
     }
 
-    /// Walk a laid-out Pango layout and export its glyph runs in the neutral [`ShapedText`] form.
+    /// Export a laid-out Pango layout's glyph runs as [`ShapedText`]. Glyph ids are FreeType
+    /// indices into the run's font file; each run's font is the one Pango actually chose
+    /// (fallback included), resolved back through fontconfig to obtain its bytes.
     fn runs_from_layout(&mut self, layout: &pango::Layout, style: &TextStyle) -> ShapedText {
         let scale = pango::SCALE as f32;
         let (px_w, px_h) = layout.pixel_size();
@@ -470,12 +467,13 @@ impl PangoFontSystem {
 }
 
 /// Pango as a swappable [`FontSystem`].
+///
+/// Pango uses its own natural line height (matching how the Cairo rasterizer draws), so
+/// `TextStyle::line_height` is intentionally not applied during measurement or shaping.
 impl FontSystem for PangoFontSystem {
-    /// Statically [`Confinement::FontPathsReadable`] — and the static form
-    /// matters here: this stack cannot even be *constructed* in the fork
-    /// server (GLib spawns a worker thread; a PID-namespace-unshared process
-    /// cannot create threads; GLib aborts), so the tier must be answerable
-    /// without an instance.
+    /// Statically [`Confinement::FontPathsReadable`]. The static form matters: this stack
+    /// cannot be constructed in the fork server (GLib spawns a worker thread; a
+    /// PID-namespace-unshared process cannot create threads, so GLib aborts).
     fn confinement() -> Confinement {
         Confinement::FontPathsReadable
     }
@@ -508,9 +506,8 @@ impl FontSystem for PangoFontSystem {
     }
 
     fn families(&mut self) -> Vec<String> {
-        // A throwaway pangocairo context (same construction as `build_layout`) reads the
-        // default font map - the fontconfig database, including web fonts registered before
-        // the font map was first built.
+        // A throwaway pangocairo context reads the default font map, including web fonts
+        // registered before the font map was first built.
         use pangocairo::functions::create_layout;
         let Ok(surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1) else {
             return Vec::new();
@@ -551,10 +548,11 @@ impl FontSystem for PangoFontSystem {
 
 // Process-wide singleton (required because GTK init must happen on main thread)
 
-/// Process-wide `PangoFontSystem` singleton.
+/// Process-wide singleton: GTK font resolution is tied to the main thread and immutable
+/// once resolved.
 static PANGO_FONT_SYSTEM: OnceLock<Arc<PangoFontSystem>> = OnceLock::new();
 
-/// Initialise the singleton from the GTK main thread.
+/// Initialise the singleton from the GTK main thread. Subsequent calls are ignored.
 pub fn init() {
     PANGO_FONT_SYSTEM.get_or_init(|| {
         let mut fs = PangoFontSystem::new();
@@ -568,8 +566,6 @@ pub fn init() {
 pub fn get() -> Arc<PangoFontSystem> {
     Arc::clone(PANGO_FONT_SYSTEM.get_or_init(|| Arc::new(PangoFontSystem::new())))
 }
-
-// Weight mapping
 
 pub fn to_pango_weight(weight: usize) -> Weight {
     match weight {
@@ -594,8 +590,6 @@ pub fn to_pango_weight(weight: usize) -> Weight {
 pub fn init_system_ui_font() {
     init();
 }
-
-// Internal helpers
 
 fn get_system_ui_font_from_gsettings() -> Option<String> {
     use gtk4::gio::{Settings, SettingsSchemaSource};
@@ -623,10 +617,7 @@ fn get_system_ui_font_from_gsettings() -> Option<String> {
 mod tests {
     use super::*;
 
-    /// Exercises the full registration path end-to-end: temp-file write plus the fontconfig
-    /// FFI (`FcConfigGetCurrent` / `FcConfigAppFontAddFile` / `FcConfigBuildFonts`). Uses the
-    /// always-available bundled Roboto bytes. A misdeclared FFI signature would crash here;
-    /// a clean `Ok(())` confirms the unsafe boundary is sound at runtime.
+    /// Exercises the fontconfig FFI end-to-end; a misdeclared signature would crash here.
     #[test]
     fn registers_font_via_fontconfig() {
         let res = register_font_via_fontconfig(gosub_shared::ROBOTO_FONT, Some("Gosub Roboto Test"));
@@ -643,9 +634,6 @@ mod tests {
         assert!(families.windows(2).all(|w| w[0] < w[1]), "must be sorted and deduped");
     }
 
-    /// End-to-end resolve + shape through fontconfig and Pango: the resolved font must carry its
-    /// file bytes, shaping must produce glyph runs, and the shape bounding box must agree with
-    /// `measure` (both read the same `PangoLayout`).
     #[test]
     fn resolves_and_shapes_via_fontconfig() {
         let mut fs = PangoFontSystem::new();

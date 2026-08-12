@@ -1,4 +1,6 @@
 /// RGBA color used for drawing commands.
+///
+/// Channels are represented as `f32` in the range `0.0 ..= 1.0`.
 #[derive(Debug, Clone, Copy)]
 pub struct Color {
     /// Red channel
@@ -116,7 +118,7 @@ impl Color {
     }
 }
 
-/// A single display item representing a drawing command.
+/// A single drawing command in a [`RenderList`], consumed by the render backend.
 #[derive(Clone, Debug)]
 pub enum DisplayItem {
     /// Clear the entire surface with the given color.
@@ -125,7 +127,7 @@ pub enum DisplayItem {
         color: Color,
     },
 
-    /// Draw a filled rectangle at `(x, y)` with width `w` and height `h`.
+    /// Draw a filled rectangle.
     Rect {
         /// The x-coordinate of the rectangle's top-left corner.
         x: f32,
@@ -139,7 +141,7 @@ pub enum DisplayItem {
         color: Color,
     },
 
-    /// Draw a text run at `(x, y)` with font size `size`.
+    /// Draw a text run.
     TextRun {
         /// The x-coordinate where the text starts.
         x: f32,
@@ -151,7 +153,7 @@ pub enum DisplayItem {
         size: f32,
         /// The color to render the text with.
         color: Color,
-        /// Optional maximum width for text wrapping (in pixels).
+        /// Wrap width in pixels; `None` = no wrapping.
         max_width: Option<f32>,
     },
 
@@ -177,16 +179,8 @@ pub enum DisplayItem {
     },
 }
 
-/// Render list and display items.
-///
-/// This module defines a lightweight, immediate-style render list
-/// consisting of [`DisplayItem`] commands. It acts as a temporary
-/// system for testing and prototyping before the full render pipeline
-/// is integrated.
-///
-/// The core type is [`RenderList`], which collects a sequence of
-/// display items such as rectangles, text runs, or clears, and can
-/// later be consumed by a compositor or renderer.
+/// Immediate-style list of [`DisplayItem`] commands; a stopgap until the full
+/// render pipeline is integrated.
 ///
 /// # Example
 ///

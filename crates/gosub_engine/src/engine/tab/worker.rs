@@ -213,7 +213,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.sink.set_worker_started_now();
 
         // Publish this tab's jar to the I/O side, which attaches cookies on its
-        // behalf from now on — the tab itself never handles a cookie value.
+        // behalf from now on - the tab itself never handles a cookie value.
         self.zone_context
             .tab_identities
             .register(self.tab_id, self.services.cookie_jar.clone());
@@ -627,7 +627,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
         // This tab is now loading `url`, so requests it makes are attributed to
         // that document. Set before submitting, so the navigation request itself
-        // is already attributed. Cookies are attached I/O-side from here on — see
+        // is already attributed. Cookies are attached I/O-side from here on - see
         // `net::tab_identity`.
         self.zone_context.tab_identities.set_top_level(self.tab_id, url.clone());
 
@@ -1008,6 +1008,17 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
 
         // TileCache path - used by CPU-compositing rasterizing backends (Cairo, Skia).
+        //
+        // These backends don't need the display-list render pipeline: tiles are rasterized
+        // during stages 1-6 and the host composites them directly. A scroll-only fast path
+        // skips stages 1-6 when only the offset changed.
+        //
+        // Backends that composite to a GPU texture (Vello) still rasterize tiles, but fall
+        // through to the display-list path below so the backend draws those tiles into a GPU
+        // texture and the host presents a `WgpuTextureId` instead of compositing CPU tiles.
+        //
+        // DPR comes from the backend: Cairo rasterizes at physical pixels (DPR > 1 on HiDPI);
+        // Skia and Vello rasterize at CSS pixels (DPR = 1).
         let remote_render = self.context.remote_render_active();
         if remote_render
             || (render_backend.raster_strategy() != RasterStrategy::None && !render_backend.renders_to_gpu_texture())
@@ -1034,6 +1045,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
 
         // GPU scene path - backends that composite to a GPU texture (Vello).
+        //
+        // Skips tiling/rasterization/compositing: the engine builds one viewport-level paint
+        // command list (stages 1–3 + paint), and the backend renders it into a GPU texture.
+        // The host then presents the resulting `WgpuTextureId`. Scroll re-renders with a new
+        // translate (no rebuild); only content/hover/size changes rebuild the command list.
         if render_backend.renders_to_gpu_texture() {
             let surface_recreated =
                 self.ensure_surface_tracked(render_backend.clone(), self.desired_viewport.as_size())?;

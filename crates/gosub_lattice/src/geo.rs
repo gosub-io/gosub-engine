@@ -1,4 +1,8 @@
 //! Minimal geometry types used by the table layout algorithm.
+//!
+//! Lattice only needs a 2D point and a 2D size in `f32`, so it carries its own tiny
+//! definitions rather than depending on a larger shared geometry crate. This keeps the
+//! crate freestanding (its only dependency is `anyhow`).
 
 /// A 2D point in `f32` space.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
