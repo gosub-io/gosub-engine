@@ -21,6 +21,8 @@ pub struct MockCell {
     pub rowspan: usize,
     /// Explicit pixel width, if any.
     pub width: Option<f32>,
+    /// Explicit percentage width, if any (wins over `width`).
+    pub width_pct: Option<f32>,
     /// Explicit pixel height, if any.
     pub height: Option<f32>,
     /// Uniform border width on all sides.
@@ -44,6 +46,7 @@ impl MockCell {
             colspan: 1,
             rowspan: 1,
             width: None,
+            width_pct: None,
             height: None,
             border: 0.0,
             padding: 1.0,
@@ -64,6 +67,10 @@ impl MockCell {
     }
     pub fn width(mut self, w: f32) -> Self {
         self.width = Some(w);
+        self
+    }
+    pub fn width_pct(mut self, p: f32) -> Self {
+        self.width_pct = Some(p);
         self
     }
     pub fn height(mut self, h: f32) -> Self {
@@ -268,6 +275,7 @@ struct MockNode {
     children: Vec<u32>,
     layout: Option<CellLayout>,
     width: Option<f32>,
+    width_pct: Option<f32>,
     height: Option<f32>,
     border: f32,
     padding: f32,
@@ -327,6 +335,7 @@ impl MockTree {
                 children: Vec::new(),
                 layout: None,
                 width,
+                width_pct: None,
                 height,
                 border,
                 padding,
@@ -352,6 +361,7 @@ impl MockTree {
             mc.padding,
         );
         if let Some(node) = self.nodes.get_mut(&id) {
+            node.width_pct = mc.width_pct;
             node.content_width = mc.content_width;
             node.min_content_width = mc.min_content_width;
             node.content_height = mc.content_height;
@@ -403,7 +413,11 @@ impl TableTree for MockTree {
             return CssLength::Auto;
         };
         match prop {
-            CssProp::Width => node.width.map(CssLength::Px).unwrap_or(CssLength::Auto),
+            CssProp::Width => node
+                .width_pct
+                .map(CssLength::Percent)
+                .or(node.width.map(CssLength::Px))
+                .unwrap_or(CssLength::Auto),
             CssProp::Height => node.height.map(CssLength::Px).unwrap_or(CssLength::Auto),
             CssProp::BorderTopWidth
             | CssProp::BorderRightWidth
