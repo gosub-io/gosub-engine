@@ -35,6 +35,7 @@ cargo run -p gosub-screenshot -- file://$PWD/tests/data/tables/01-basic-grid.htm
 | `18-vertical-align.html` | top/middle/bottom/baseline | vertical-align (done 2026-08-08; baseline ~ top) |
 | `19-infobox.html` | wikipedia-style infobox (fixed width, spans, label col) | several combined |
 | `20-data-table.html` | full-width data table, zebra, collapse, tfoot | several combined |
+| `21-section-spans.html` | rowspan overrun + rowspan=0 vs thead/tbody/tfoot | section clamping, HTML rowspan=0 (done 2026-08-12) |
 
 Pages marked **gap** exercise features `compute.rs` does not implement yet
 (they parse into the model but are ignored); they document target behavior

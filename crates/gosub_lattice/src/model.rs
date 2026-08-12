@@ -40,7 +40,9 @@ pub struct SourceCell<N> {
     pub node: N,
     /// Effective colspan (always >= 1).
     pub colspan: usize,
-    /// Effective rowspan (always >= 1, clamped per section by the grid builder).
+    /// Rowspan as authored: `0` is the HTML sentinel for "span all remaining
+    /// rows of the row group". The grid builder resolves it and clamps every
+    /// span to the section boundary (spans never cross into another section).
     pub rowspan: usize,
 }
 
@@ -147,7 +149,8 @@ fn build_row<T: TableTree>(tree: &T, node: T::NodeId) -> TableRow<T::NodeId> {
 
 fn build_source_cell<T: TableTree>(tree: &T, node: T::NodeId) -> SourceCell<T::NodeId> {
     let colspan = tree.attr_usize(node, "colspan").unwrap_or(1).max(1);
-    let rowspan = tree.attr_usize(node, "rowspan").unwrap_or(1).max(1);
+    // rowspan=0 is kept as-is: HTML's "span all remaining rows of the group".
+    let rowspan = tree.attr_usize(node, "rowspan").unwrap_or(1);
     SourceCell { node, colspan, rowspan }
 }
 
