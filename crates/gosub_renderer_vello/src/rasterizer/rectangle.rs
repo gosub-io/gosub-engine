@@ -118,9 +118,10 @@ fn draw_single_border(
     let Some(brush) = binding.first() else {
         return;
     };
-    let vello_shape = setup_rectangle_path(rect);
+    let width = rect.border().width() as f64;
+    let vello_shape = setup_inset_path(rect, width / 2.0);
     let (vello_brush, brush_transform) = set_brush(brush, rect.rect(), media_store);
-    let vello_stroke = kurbo::Stroke::new(rect.border().width() as f64).with_dashes(0.0, dashes);
+    let vello_stroke = kurbo::Stroke::new(width).with_dashes(0.0, dashes);
     scene.stroke(&vello_stroke, affine, &vello_brush, brush_transform, &vello_shape);
 }
 
@@ -129,60 +130,38 @@ fn draw_double_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine
     let Some(brush) = binding.first() else {
         return;
     };
-    let vello_shape = setup_rectangle_path(rect);
     let (vello_brush, brush_transform) = set_brush(brush, rect.rect(), media_store);
 
     if rect.border().width() < 3.0 {
+        let width = rect.border().width() as f64;
         scene.stroke(
-            &kurbo::Stroke::new(rect.border().width() as f64),
+            &kurbo::Stroke::new(width),
             affine,
             &vello_brush,
             brush_transform,
-            &vello_shape,
+            &setup_inset_path(rect, width / 2.0),
         );
         return;
     }
 
-    let width = (rect.border().width() / 2.0).floor();
+    // Two strands inside the border box: [0, w] outer and [w+gap, 2w+gap]
+    // inner, both stroked centered on paths inset to the strand middles.
+    let width = (rect.border().width() as f64 / 2.0).floor();
     scene.stroke(
-        &kurbo::Stroke::new(width as f64),
+        &kurbo::Stroke::new(width),
         affine,
         &vello_brush,
         brush_transform,
-        &vello_shape,
+        &setup_inset_path(rect, width / 2.0),
     );
 
     let gap_size = 1.0;
-    let inset = width as f64 + gap_size;
-
-    let inner_border_shape = if rect.is_rounded() {
-        let (r_tl, r_tr, r_br, r_bl) = rect.radius_x();
-        ShapeEnum::RoundedRect(RoundedRect::new(
-            rect.rect().x + inset,
-            rect.rect().y + inset,
-            rect.rect().x + rect.rect().width - inset,
-            rect.rect().y + rect.rect().height - inset,
-            (
-                (r_tl - inset).max(0.0),
-                (r_tr - inset).max(0.0),
-                (r_br - inset).max(0.0),
-                (r_bl - inset).max(0.0),
-            ),
-        ))
-    } else {
-        ShapeEnum::Rect(Rect::new(
-            rect.rect().x + inset,
-            rect.rect().y + inset,
-            rect.rect().x + rect.rect().width - inset,
-            rect.rect().y + rect.rect().height - inset,
-        ))
-    };
     scene.stroke(
-        &kurbo::Stroke::new(width as f64),
+        &kurbo::Stroke::new(width),
         affine,
         &vello_brush,
         brush_transform,
-        &inner_border_shape,
+        &setup_inset_path(rect, width + gap_size + width / 2.0),
     );
 }
 
@@ -231,21 +210,35 @@ impl Shape for ShapeEnum {
 }
 
 fn setup_rectangle_path(rect: &Rectangle) -> ShapeEnum {
+    setup_inset_path(rect, 0.0)
+}
+
+/// Builds the rectangle path inset by `inset` on every side. Strokes are
+/// centered on the path, so a border of width `w` must stroke a path inset by
+/// `w / 2` to stay entirely inside the border box (CSS borders never paint
+/// outside it - a centered stroke bleeds into the neighbouring element and
+/// gets painted over, which visibly halves adjacent borders).
+fn setup_inset_path(rect: &Rectangle, inset: f64) -> ShapeEnum {
+    let x0 = rect.rect().x + inset;
+    let y0 = rect.rect().y + inset;
+    let x1 = (rect.rect().x + rect.rect().width - inset).max(x0);
+    let y1 = (rect.rect().y + rect.rect().height - inset).max(y0);
+
     if rect.is_rounded() {
         let (r_tl, r_tr, r_br, r_bl) = rect.radius_x();
         return ShapeEnum::RoundedRect(RoundedRect::new(
-            rect.rect().x,
-            rect.rect().y,
-            rect.rect().x + rect.rect().width,
-            rect.rect().y + rect.rect().height,
-            (r_tl, r_tr, r_br, r_bl),
+            x0,
+            y0,
+            x1,
+            y1,
+            (
+                (r_tl - inset).max(0.0),
+                (r_tr - inset).max(0.0),
+                (r_br - inset).max(0.0),
+                (r_bl - inset).max(0.0),
+            ),
         ));
     }
 
-    ShapeEnum::Rect(Rect::new(
-        rect.rect().x,
-        rect.rect().y,
-        rect.rect().x + rect.rect().width,
-        rect.rect().y + rect.rect().height,
-    ))
+    ShapeEnum::Rect(Rect::new(x0, y0, x1, y1))
 }
