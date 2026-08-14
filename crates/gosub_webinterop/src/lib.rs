@@ -15,7 +15,7 @@ use proc_macro2::{Ident, TokenTree};
 use quote::ToTokens;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::{parse_macro_input, FnArg, ItemImpl, ItemStruct, MetaNameValue, Token};
+use syn::{parse_macro_input, FnArg, ItemImpl, ItemStruct, MetaNameValue, ReceiverKind, Token};
 
 mod function;
 mod impl_function;
@@ -120,15 +120,16 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
             };
 
             if let Some(FnArg::Receiver(self_arg)) = args.first() {
-                if self_arg.reference.is_none() {
-                    return syn::Error::new_spanned(self_arg, "self must be a reference")
-                        .to_compile_error()
-                        .into();
-                }
-
-                match self_arg.mutability {
-                    Some(_) => func.self_type = SelfType::SelfMutRef,
-                    None => func.self_type = SelfType::SelfRef,
+                match &self_arg.kind {
+                    ReceiverKind::Reference(_, _, mutability) => match mutability {
+                        Some(_) => func.self_type = SelfType::SelfMutRef,
+                        None => func.self_type = SelfType::SelfRef,
+                    },
+                    _ => {
+                        return syn::Error::new_spanned(self_arg, "self must be a reference")
+                            .to_compile_error()
+                            .into();
+                    }
                 }
             }
 
