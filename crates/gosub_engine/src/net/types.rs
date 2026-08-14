@@ -37,6 +37,16 @@ pub enum ResourceKind {
 }
 
 impl ResourceKind {
+    /// The `Accept` request-header value a browser sends for this resource kind.
+    pub fn accept_header(self) -> &'static str {
+        match self {
+            ResourceKind::Document => "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            ResourceKind::Stylesheet => "text/css,*/*;q=0.1",
+            ResourceKind::Image => "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            _ => "*/*",
+        }
+    }
+
     /// Map to the coarse classification the gosub-sonar fetcher understands.
     pub fn to_net(self) -> gosub_sonar::net::types::ResourceKind {
         match self {

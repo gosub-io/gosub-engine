@@ -767,6 +767,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 fetch_headers.insert(http::header::ACCEPT_LANGUAGE, val);
             }
         }
+        if let Ok(val) = ResourceKind::Document.accept_header().parse() {
+            fetch_headers.insert(http::header::ACCEPT, val);
+        }
 
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Document, Initiator::Navigation);
