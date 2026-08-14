@@ -196,9 +196,7 @@ pub async fn route_response_for<C: RenderConfiguration>(
             // endpoint, text/plain, …) renders as plain text, like mainstream
             // browsers. Explicit attachments and binary content stay unloadable
             // until downloads are implemented.
-            if !outcome.disposition_attachment
-                && matches!(outcome.class, ResponseClass::Json | ResponseClass::Text)
-            {
+            if !outcome.disposition_attachment && matches!(outcome.class, ResponseClass::Json | ResponseClass::Text) {
                 let body = body_content.to_bytes(peek_buf).await?;
                 // JSON gets the highlighted viewer; anything unparseable (and
                 // text/plain) falls back to escaped plain text.
