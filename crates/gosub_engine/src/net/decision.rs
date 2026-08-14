@@ -4,12 +4,13 @@
 
 use crate::engine::types::PeekBuf;
 use crate::engine::UaPolicy;
-use crate::net::decision::sniff::{sniff_class, ResponseClass};
+use crate::net::decision::sniff::sniff_class;
 use crate::net::decision::types::{DecisionOutcome, HandlingDecision, RenderTarget, RequestDestination};
 use crate::net::types::FetchResultMeta;
 use cow_utils::CowUtils;
 
 mod sniff;
+pub(crate) use sniff::ResponseClass;
 pub mod types;
 
 /// Decide how the user agent should handle a fetched response.
