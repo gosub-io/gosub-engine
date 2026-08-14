@@ -1,7 +1,18 @@
 pub use gosub_sonar::net::types::{
-    BodyStream, FetchHandle, FetchKeyData, FetchRequest, FetchRequestBuilder, FetchResult, FetchResultMeta, NetError,
-    Priority, RequestBody,
+    BodyStream, FetchRequest, FetchRequestBuilder, FetchResult, FetchResultMeta, NetError, Priority, RequestBody,
 };
+
+/// Engine-side handle for an in-flight fetch.
+///
+/// gosub-sonar 0.2.0 removed its public `FetchHandle` (the request-coalescing key is
+/// internal to the fetcher now; `Fetcher::submit` takes a bare `CancellationToken`).
+/// The engine keeps its own handle carrying what its pipelines actually use: the
+/// request id for bookkeeping and the token that cancels the fetch and its children.
+#[derive(Debug, Clone)]
+pub struct FetchHandle {
+    pub req_id: gosub_sonar::types::RequestId,
+    pub cancel: tokio_util::sync::CancellationToken,
+}
 
 /// What kind of resource is being fetched.
 ///
@@ -26,6 +37,18 @@ pub enum ResourceKind {
 }
 
 impl ResourceKind {
+    /// The `Accept` request-header value a browser sends for this resource kind.
+    pub fn accept_header(self) -> &'static str {
+        match self {
+            ResourceKind::Document => {
+                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+            }
+            ResourceKind::Stylesheet => "text/css,*/*;q=0.1",
+            ResourceKind::Image => "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            _ => "*/*",
+        }
+    }
+
     /// Map to the coarse classification the gosub-sonar fetcher understands.
     pub fn to_net(self) -> gosub_sonar::net::types::ResourceKind {
         match self {

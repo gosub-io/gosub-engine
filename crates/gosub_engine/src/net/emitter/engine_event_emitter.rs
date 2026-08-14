@@ -6,6 +6,7 @@ use crate::net::events::NetEvent;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{Initiator, ResourceKind};
 use crate::tab::TabId;
+use std::sync::Arc;
 
 /// Converts NetEvents into EngineEvents and send them over to the event_tx channel back to the UA
 pub struct EngineEventEmitter {
@@ -120,6 +121,15 @@ impl NetObserver for EngineEventEmitter {
                     url,
                     received_bytes,
                     elapsed: Some(elapsed),
+                });
+            }
+            NetEvent::Blocked { url, reason } => {
+                REF_REGISTRY.forget_request(self.req_id);
+                self.emit(ResourceEvent::Failed {
+                    request_id: self.req_id,
+                    reference: self.reference,
+                    url: url.to_string(),
+                    error: Arc::new(anyhow::anyhow!("blocked: {reason:?}")),
                 });
             }
             NetEvent::Failed { url, error } => {

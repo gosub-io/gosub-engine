@@ -6,6 +6,7 @@ use crate::engine::types::PeekBuf;
 use crate::engine::UaPolicy;
 use crate::html::{EngineDocument, RenderConfiguration};
 use crate::net::decision::types::BlockReason;
+use crate::net::decision::ResponseClass;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
 use crate::net::{decide_handling, stream_to_bytes, HandlingDecision, RenderTarget, RequestDestination, SharedBody};
 use anyhow::anyhow;
@@ -31,6 +32,99 @@ pub enum RoutedOutcome<C: RenderConfiguration> {
 
     /// The request was blocked (with reason).
     Blocked(BlockReason),
+}
+
+fn html_escape(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len() + 16);
+    for ch in text.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+/// Minimal HTML document presenting `body` as escaped plain text, used to render
+/// textual non-HTML navigations (text/plain, unparseable JSON) the way mainstream
+/// browsers do.
+fn text_document_html(body: &[u8]) -> String {
+    let escaped = html_escape(&String::from_utf8_lossy(body));
+    format!(
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head>\
+         <body><pre style=\"white-space: pre-wrap; word-wrap: break-word;\">{escaped}</pre></body></html>"
+    )
+}
+
+// JSON viewer palette (GitHub-light-ish).
+const JSON_KEY_COLOR: &str = "#6f42c1";
+const JSON_STR_COLOR: &str = "#22863a";
+const JSON_NUM_COLOR: &str = "#005cc5";
+const JSON_LIT_COLOR: &str = "#d73a49";
+
+fn json_scalar_html(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => format!("<span style=\"color:{JSON_LIT_COLOR}\">null</span>"),
+        serde_json::Value::Bool(b) => format!("<span style=\"color:{JSON_LIT_COLOR}\">{b}</span>"),
+        serde_json::Value::Number(n) => format!("<span style=\"color:{JSON_NUM_COLOR}\">{n}</span>"),
+        serde_json::Value::String(s) => {
+            format!("<span style=\"color:{JSON_STR_COLOR}\">\"{}\"</span>", html_escape(s))
+        }
+        _ => unreachable!("containers handled by json_lines"),
+    }
+}
+
+/// Emit one `(indent, html)` pair per pretty-printed line of `v`.
+fn json_lines(v: &serde_json::Value, depth: usize, key: Option<&str>, trail: &str, out: &mut Vec<(usize, String)>) {
+    let prefix = key
+        .map(|k| format!("<span style=\"color:{JSON_KEY_COLOR}\">\"{}\"</span>: ", html_escape(k)))
+        .unwrap_or_default();
+    match v {
+        serde_json::Value::Object(map) if map.is_empty() => out.push((depth, format!("{prefix}{{}}{trail}"))),
+        serde_json::Value::Array(arr) if arr.is_empty() => out.push((depth, format!("{prefix}[]{trail}"))),
+        serde_json::Value::Object(map) => {
+            out.push((depth, format!("{prefix}{{")));
+            let n = map.len();
+            for (i, (k, val)) in map.iter().enumerate() {
+                json_lines(val, depth + 1, Some(k), if i + 1 < n { "," } else { "" }, out);
+            }
+            out.push((depth, format!("}}{trail}")));
+        }
+        serde_json::Value::Array(arr) => {
+            out.push((depth, format!("{prefix}[")));
+            let n = arr.len();
+            for (i, val) in arr.iter().enumerate() {
+                json_lines(val, depth + 1, None, if i + 1 < n { "," } else { "" }, out);
+            }
+            out.push((depth, format!("]{trail}")));
+        }
+        _ => out.push((depth, format!("{prefix}{}{trail}", json_scalar_html(v)))),
+    }
+}
+
+/// JSON viewer document: pretty-printed and syntax-highlighted, like the built-in
+/// viewers in mainstream browsers.
+///
+/// Rendered as one `<div>` per line — block boxes force line breaks — because the
+/// layout engine does not implement `white-space: pre` yet; indentation is inline
+/// `padding-left`. Once `white-space` lands this can become a single `<pre>`.
+fn json_document_html(value: &serde_json::Value) -> String {
+    let mut lines = Vec::new();
+    json_lines(value, 0, None, "", &mut lines);
+    let mut body = String::with_capacity(lines.len() * 48);
+    for (indent, html) in lines {
+        if indent > 0 {
+            body.push_str(&format!("<div style=\"padding-left:{}em\">{html}</div>", indent * 2));
+        } else {
+            body.push_str(&format!("<div>{html}</div>"));
+        }
+    }
+    format!(
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head>\
+         <body style=\"font-family:monospace;font-size:13px;color:#24292e;background:#ffffff\">{body}</body></html>"
+    )
 }
 
 /// BodyContent represents either a streaming body or a fully buffered body.
@@ -97,7 +191,28 @@ pub async fn route_response_for<C: RenderConfiguration>(
             RenderTarget::FontLoader => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
             RenderTarget::PdfViewer => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
         },
-        (RequestDestination::Document, HandlingDecision::Download { .. }, _) => {
+        (RequestDestination::Document, HandlingDecision::Download { .. }, body_content) => {
+            // A top-level navigation to a textual non-HTML resource (a JSON API
+            // endpoint, text/plain, …) renders as plain text, like mainstream
+            // browsers. Explicit attachments and binary content stay unloadable
+            // until downloads are implemented.
+            if !outcome.disposition_attachment && matches!(outcome.class, ResponseClass::Json | ResponseClass::Text) {
+                let body = body_content.to_bytes(peek_buf).await?;
+                // JSON gets the highlighted viewer; anything unparseable (and
+                // text/plain) falls back to escaped plain text.
+                let html = if outcome.class == ResponseClass::Json {
+                    match serde_json::from_slice::<serde_json::Value>(&body) {
+                        Ok(value) => json_document_html(&value),
+                        Err(_) => text_document_html(&body),
+                    }
+                } else {
+                    text_document_html(&body)
+                };
+                let mut meta = meta;
+                meta.content_type = Some("text/html; charset=utf-8".into());
+                let doc = hooks.html.parse_bytes(request, handle, meta, html.as_bytes()).await?;
+                return Ok(RoutedOutcome::MainDocument(Arc::new(doc)));
+            }
             Err(anyhow!("Cannot download main document"))
         }
 

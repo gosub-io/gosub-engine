@@ -92,13 +92,17 @@ impl HtmlPipelineImpl {
         let mut on_discover = |hint: ResourceHint| {
             let sub_req_id = RequestId::new();
             REF_REGISTRY.register_request(sub_req_id, hint.kind, Initiator::Parser);
+            let mut headers = sub_headers.clone();
+            if let Ok(val) = hint.kind.accept_header().parse() {
+                headers.insert(http::header::ACCEPT, val);
+            }
             let sub_req = FetchRequest::builder(Method::GET, hint.url)
                 .with_req_id(sub_req_id)
                 .with_reference(parent_ref)
                 .with_priority(hint.priority)
                 .with_initiator(Initiator::Parser.to_net())
                 .with_kind(hint.kind.to_net())
-                .with_headers(sub_headers.clone())
+                .with_headers(headers)
                 .with_streaming(true)
                 .with_auto_decode(true)
                 .build();
@@ -243,7 +247,6 @@ mod tests {
 
         let handle = FetchHandle {
             req_id: req.req_id,
-            key: req.key_data.clone(),
             cancel: tokio_util::sync::CancellationToken::new(),
         };
 
