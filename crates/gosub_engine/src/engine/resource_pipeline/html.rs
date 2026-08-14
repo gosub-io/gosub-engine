@@ -243,7 +243,6 @@ mod tests {
 
         let handle = FetchHandle {
             req_id: req.req_id,
-            key: req.key_data.clone(),
             cancel: tokio_util::sync::CancellationToken::new(),
         };
 

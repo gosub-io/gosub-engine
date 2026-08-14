@@ -1024,7 +1024,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // navigation token itself.
         let handle = FetchHandle {
             req_id,
-            key: req.key_data.clone(),
             cancel: parent_cancel.child_token(),
         };
         let meta = FetchResultMeta {

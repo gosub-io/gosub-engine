@@ -195,7 +195,6 @@ pub async fn submit_to_io(
 
     let handle = FetchHandle {
         req_id: req.req_id,
-        key: req.key_data.clone(),
         cancel: cancel.clone(),
     };
 
@@ -234,7 +233,7 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                         Some(IoCommand::Fetch { zone_id, req, handle, reply_tx }) => {
                             // The I/O thread must keep running; drop the request on fetcher failure.
                             match router.get_or_spawn_zone_fetcher(zone_id) {
-                                Ok(fetcher) => fetcher.submit(req, handle, reply_tx).await,
+                                Ok(fetcher) => fetcher.submit(req, handle.cancel.clone(), reply_tx).await,
                                 Err(e) => log::error!("Failed to create fetcher for zone {zone_id}: {e}"),
                             }
                         }
