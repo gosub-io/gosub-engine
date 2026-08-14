@@ -77,8 +77,8 @@
     {
       "key": "user_agent",
       "type": "s",
-      "default": "s:Gosub/0.1 (+https://gosub.io)",
-      "description": "User-Agent string sent with outgoing HTTP requests. The schema default is the absolute fallback; set this key to send a platform-specific or custom UA."
+      "default": "s:",
+      "description": "User-Agent string sent with outgoing HTTP requests. Empty (the default) sends the computed compat UA (see net::default_user_agent); embedders set this key to add their product token or send a fully custom UA."
     },
     {
       "key": "timeout.connect_secs",

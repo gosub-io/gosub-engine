@@ -162,6 +162,13 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         self.context.event_tx.subscribe()
     }
 
+    /// The engine's settings store, for reading or overriding settings (e.g.
+    /// `net.user_agent`). Network settings are read once when [`start`](Self::start)
+    /// builds the I/O runtime, so overrides must land before then.
+    pub fn settings(&self) -> &Config {
+        &self.context.config_store
+    }
+
     pub fn backend(&self) -> Arc<C::RenderBackend> {
         Arc::clone(&self.render_backend)
     }

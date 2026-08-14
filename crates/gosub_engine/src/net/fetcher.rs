@@ -13,8 +13,16 @@ pub fn fetcher_config_from(cfg: &gosub_config::Config) -> FetcherConfig {
 
     // A body timeout of 0 means "no limit".
     let body_secs = cfg.get_uint("net.timeout.body_secs");
+    // An empty net.user_agent (the default) means the computed compat UA.
+    let user_agent = cfg.get_string("net.user_agent");
+    let user_agent = if user_agent.is_empty() {
+        default_user_agent(None)
+    } else {
+        user_agent
+    };
     FetcherConfig {
         global_slots: cfg.get_uint("net.http.global_slots"),
+        user_agent: Some(user_agent),
         h1_per_origin: cfg.get_uint("net.http.per_origin_h1"),
         h2_per_origin: cfg.get_uint("net.http.per_origin_h2"),
         connect_timeout: Duration::from_secs(cfg.get_uint("net.timeout.connect_secs") as u64),
@@ -22,6 +30,41 @@ pub fn fetcher_config_from(cfg: &gosub_config::Config) -> FetcherConfig {
         read_idle_timeout: Duration::from_secs(cfg.get_uint("net.timeout.read_idle_secs") as u64),
         total_body_timeout: (body_secs > 0).then(|| Duration::from_secs(body_secs as u64)),
         ..FetcherConfig::default()
+    }
+}
+
+/// Platform parenthetical for the User-Agent, matching what mainstream browsers
+/// report on each OS (macOS is frozen at 10_15_7 industry-wide, Windows at NT 10.0).
+fn ua_platform() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "Windows NT 10.0; Win64; x64"
+    } else if cfg!(target_os = "macos") {
+        "Macintosh; Intel Mac OS X 10_15_7"
+    } else if cfg!(target_arch = "aarch64") {
+        "X11; Linux aarch64"
+    } else {
+        "X11; Linux x86_64"
+    }
+}
+
+/// Compat-shaped `User-Agent` for this engine build:
+///
+/// `Mozilla/5.0 (<platform>) AppleWebKit/537.36 (KHTML, like Gecko) Gosub/<version>`
+///
+/// The `Mozilla/5.0` prefix, platform parenthetical and frozen WebKit token are the
+/// lies every browser tells so sniffers serve modern markup instead of the legacy
+/// path; `Gosub/<version>` is the honest engine identity. `product` appends the
+/// embedder's token (e.g. `"Beacon/0.1.0"`) in the position sniffers expect a
+/// browser name. Used whenever the `net.user_agent` setting is empty.
+pub fn default_user_agent(product: Option<&str>) -> String {
+    let base = format!(
+        "Mozilla/5.0 ({}) AppleWebKit/537.36 (KHTML, like Gecko) Gosub/{}",
+        ua_platform(),
+        env!("CARGO_PKG_VERSION"),
+    );
+    match product {
+        Some(product) => format!("{base} {product}"),
+        None => base,
     }
 }
 
