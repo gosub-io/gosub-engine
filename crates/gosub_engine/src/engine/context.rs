@@ -14,6 +14,7 @@ use gosub_render_pipeline::rasterizer::{
     Rasterable, TilePixelCache,
 };
 use gosub_render_pipeline::render::{Color, DisplayItem, RenderContext, RenderList, Viewport};
+use gosub_render_pipeline::tile_budget::TileBudget;
 use std::sync::Arc;
 
 use crate::html::RenderConfiguration;
@@ -144,6 +145,10 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// Per-engine settings store (cloned from the zone/engine). Read settings or subscribe to
     /// changes via [`HasConfig::config`].
     config_store: Config,
+
+    /// LRU bookkeeping + eviction for the tile caches, bounded by the
+    /// `renderer.tile.cache_budget_mb` setting.
+    tile_budget: TileBudget,
 }
 
 impl<C: RenderConfiguration> BrowsingContext<C> {
@@ -176,6 +181,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
             config_store,
+            tile_budget: TileBudget::new(),
         }
     }
 
@@ -211,6 +217,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.invalidate_render();
         self.pipeline_cache = None;
         self.scene_cache = None;
+        self.tile_budget.reset();
         self.hover_dirty = false;
         self.hover_leaf = None;
         self.hover_layout_element = None;
@@ -230,6 +237,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.invalidate_render();
         self.pipeline_cache = None;
         self.scene_cache = None;
+        self.tile_budget.reset();
     }
 
     /// Update the scroll offset without triggering a full re-layout.
@@ -247,6 +255,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.scroll_x = x;
         self.scroll_y = y;
         self.scroll_dirty = true;
+        // Scrolling toward a region whose tiles were evicted by the cache budget: compositing
+        // alone cannot restore pixels, so schedule a full re-render to re-rasterize them.
+        if self.tile_budget.needs_rerender(y, self.viewport.height as f64) {
+            self.render_dirty = true;
+        }
     }
 
     /// Reset scroll to the top (called on navigation).
@@ -303,11 +316,36 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 self.config_store.get_uint("renderer.tile.size") as f64,
             ));
         }
+        self.enforce_tile_budget(true);
         self.render_dirty = false;
         self.hover_dirty = false;
         self.dom_dirty = false;
         self.style_dirty = false;
         self.layout_dirty = false;
+    }
+
+    /// Apply the `renderer.tile.cache_budget_mb` budget to the current pipeline cache, evicting
+    /// LRU tiles outside the near-viewport band. `full_raster` marks that every tile was just
+    /// re-rasterized, so previously evicted regions are live again.
+    fn enforce_tile_budget(&mut self, full_raster: bool) {
+        if full_raster {
+            self.tile_budget.note_full_raster();
+        }
+        let Some(cache) = self.pipeline_cache.as_mut() else {
+            return;
+        };
+        let budget_mb = self.config_store.get_uint("renderer.tile.cache_budget_mb");
+        let report = self.tile_budget.enforce(
+            &mut cache.tiles,
+            &mut cache.tile_pixel_cache,
+            self.scroll_y,
+            self.viewport.height as f64,
+            budget_mb.saturating_mul(1024 * 1024),
+        );
+        if report.evicted_tiles > 0 {
+            // The compositor tile list must not keep evicted pixels alive; rebuild it.
+            cache.cached_tiles = Arc::new(cpu_cached_tiles(&cache.tiles));
+        }
     }
 
     /// Rebuild stages 1-6 (pipeline cache) if content has changed, without building a display
@@ -349,6 +387,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     self.media_store.clone(),
                     self.config_store.get_uint("renderer.tile.size") as f64,
                 ));
+                self.enforce_tile_budget(false);
             } else {
                 // No cached layout yet - fall back to a full rebuild.
                 if let Some(doc) = &self.document {
@@ -361,6 +400,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                         self.media_store.clone(),
                         self.config_store.get_uint("renderer.tile.size") as f64,
                     ));
+                    self.enforce_tile_budget(true);
                 }
             }
             self.hover_dirty = false;
@@ -397,6 +437,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 self.viewport.width as f64,
                 self.viewport.height as f64,
                 &mut rl,
+            );
+            self.tile_budget.touch_composited(
+                &cache.tiles,
+                self.scroll_x,
+                self.scroll_y,
+                self.viewport.width as f64,
+                self.viewport.height as f64,
             );
         }
         self.render_list = rl;
@@ -473,6 +520,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             page_height: cache.page_height as f32,
             tiles: Arc::clone(&cache.cached_tiles),
         };
+        self.tile_budget.touch_composited(
+            &cache.tiles,
+            self.scroll_x,
+            self.scroll_y,
+            self.viewport.width as f64,
+            self.viewport.height as f64,
+        );
         self.scroll_dirty = false;
         self.scene_epoch = self.scene_epoch.wrapping_add(1);
         Some(handle)
@@ -483,6 +537,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// and composite tiles directly on the host thread.
     pub fn tile_cache_handle(&self, dpr: u32) -> Option<ExternalHandle> {
         let cache = self.pipeline_cache.as_ref()?;
+        self.tile_budget.touch_composited(
+            &cache.tiles,
+            self.scroll_x,
+            self.scroll_y,
+            self.viewport.width as f64,
+            self.viewport.height as f64,
+        );
         Some(ExternalHandle::TileCache {
             viewport_width: self.viewport.width,
             viewport_height: self.viewport.height,
@@ -1132,6 +1193,120 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
 #[cfg(test)]
 mod tests {
     use super::parse_clear_color;
+
+    mod tile_budget_integration {
+        use super::super::*;
+        use crate::engine::settings_store;
+        use crate::html::DefaultRenderConfig;
+        use gosub_config::settings::Setting;
+        use gosub_css3::system::Css3System;
+        use gosub_render_pipeline::common::media::MediaStore;
+        use gosub_render_pipeline::common::texture::TextureId;
+        use gosub_render_pipeline::common::texture_store::TextureStore;
+        use gosub_render_pipeline::render::backend::PixelFormat;
+        use gosub_render_pipeline::tiler::Tile;
+
+        /// Stub backend rasterizer: fills every tile with opaque pixels, so each baked tile
+        /// costs exactly width * height * 4 bytes.
+        struct SolidRasterizer;
+
+        impl Rasterable for SolidRasterizer {
+            fn rasterize(&self, tile: &Tile, store: &mut TextureStore, _media: &MediaStore) -> Option<TextureId> {
+                let (w, h) = (tile.rect.width as usize, tile.rect.height as usize);
+                Some(store.add(w, h, vec![0xFFu8; w * h * 4], PixelFormat::PreMulArgb32))
+            }
+        }
+
+        /// Unique pixel bytes held by the cache (baked tiles + pixel cache, shared buffers
+        /// counted once) - the same accounting the budget enforces.
+        fn resident_bytes(cache: &PipelineCache) -> usize {
+            let mut counted = std::collections::HashSet::new();
+            let mut total = 0usize;
+            let buffers = cache
+                .tiles
+                .iter()
+                .map(|t| &t.pixels)
+                .chain(cache.tile_pixel_cache.values().map(|(_, _, p)| p));
+            for pixels in buffers {
+                if let TilePixels::Cpu(d) = pixels {
+                    if counted.insert((d.as_ptr() as usize, d.len())) {
+                        total += d.len();
+                    }
+                }
+            }
+            total
+        }
+
+        fn has_tile_near(cache: &PipelineCache, y: f64, within: f64) -> bool {
+            cache.tiles.iter().any(|t| (t.page_y - y).abs() <= within)
+        }
+
+        #[test]
+        fn tall_page_cache_stays_under_budget_and_scroll_restores_evicted_tiles() {
+            const BUDGET_MB: usize = 4;
+            const BUDGET_BYTES: usize = BUDGET_MB * 1024 * 1024;
+
+            let config = settings_store::default_config();
+            assert!(config
+                .set("renderer.tile.cache_budget_mb", Setting::UInt(BUDGET_MB))
+                .is_ok());
+
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(config);
+            ctx.set_rasterizer(Box::new(SolidRasterizer), RasterStrategy::ParallelCached);
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 512,
+                height: 256,
+            });
+
+            // ~10 000 px tall page: ~40 tile rows x 2 columns ~= 20 MiB unbudgeted.
+            let html =
+                r#"<html><body style="margin:0"><div style="height:10000px;background:#ddd"></div></body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+
+            ctx.rebuild_pipeline_cache_if_needed();
+            {
+                let Some(cache) = ctx.pipeline_cache.as_ref() else {
+                    unreachable!("pipeline cache must exist after rebuild");
+                };
+                assert!(cache.page_height >= 10_000.0, "page must lay out tall");
+                assert!(
+                    resident_bytes(cache) <= BUDGET_BYTES,
+                    "cache must fit the budget: {} > {}",
+                    resident_bytes(cache),
+                    BUDGET_BYTES
+                );
+                assert!(has_tile_near(cache, 0.0, 0.5), "viewport tiles must survive");
+                assert!(
+                    !has_tile_near(cache, 9984.0, 256.0),
+                    "bottom of the page must be evicted"
+                );
+                assert_eq!(
+                    cache.cached_tiles.len(),
+                    cache.tiles.len(),
+                    "compositor list must not keep evicted pixels alive"
+                );
+            }
+
+            // Scrolling toward an evicted region must schedule a full re-render...
+            ctx.set_scroll(0.0, 5000.0);
+            assert!(ctx.render_dirty, "scroll into an evicted region must set render_dirty");
+
+            // ...which restores tiles around the new viewport while staying under budget.
+            ctx.rebuild_pipeline_cache_if_needed();
+            let Some(cache) = ctx.pipeline_cache.as_ref() else {
+                unreachable!("pipeline cache must exist after rebuild");
+            };
+            assert!(
+                has_tile_near(cache, 5000.0, 256.0),
+                "tiles near the new viewport must be back"
+            );
+            assert!(resident_bytes(cache) <= BUDGET_BYTES);
+        }
+    }
 
     #[test]
     fn parse_clear_color_handles_rgb_rgba_and_garbage() {
