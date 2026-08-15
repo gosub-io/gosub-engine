@@ -22,12 +22,21 @@ use crate::html::RenderConfiguration;
 use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType;
+use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
+use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
+use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
+use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::common::texture::TilePixels;
-use gosub_render_pipeline::layering::layer::LayerList;
-use gosub_render_pipeline::layouter::LayoutElementId;
+use gosub_render_pipeline::layering::layer::{LayerId, LayerList};
+use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
+use gosub_render_pipeline::layouter::{CanLayout, LayoutElementId};
 use gosub_render_pipeline::painter::{PaintScene, Painter};
-use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
+use gosub_render_pipeline::render::backend::{anchored_tile_pos, CachedTile, ExternalHandle};
+use gosub_render_pipeline::rendertree_builder::RenderTree;
+use gosub_render_pipeline::tile_budget::defer_tiles_outside_window;
+use gosub_render_pipeline::tiler::{TileList, TileState};
 use gosub_shared::node::NodeId;
+use gosub_shared::{timing_start, timing_stop};
 use std::any::Any;
 use url::Url;
 
@@ -165,7 +174,7 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// Media store shared between the layout and rasterization stages. The layouter loads
     /// images/SVGs into it by id; the rasterizer resolves the same ids back. It persists
     /// across renders so paint-only repaints (e.g. hover) still find previously loaded media.
-    media_store: std::sync::Arc<gosub_render_pipeline::common::media::MediaStore>,
+    media_store: std::sync::Arc<MediaStore>,
 
     /// Per-engine settings store (cloned from the zone/engine). Read settings or subscribe to
     /// changes via [`HasConfig::config`].
@@ -206,7 +215,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_cursor: CursorShape::Default,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
-            media_store: std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
+            media_store: std::sync::Arc::new(MediaStore::new()),
             config_store,
             tile_budget: TileBudget::new(),
         }
@@ -915,15 +924,8 @@ fn pipeline_build_scene<C: RenderConfiguration>(
     doc: Arc<EngineDocument<C>>,
     viewport: &Viewport,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
-    media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
+    media_store: Arc<MediaStore>,
 ) -> SceneCache {
-    use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
-    use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
-    use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
-    use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
-    use gosub_render_pipeline::layouter::CanLayout;
-    use gosub_render_pipeline::rendertree_builder::RenderTree;
-
     // Resolve viewport-relative CSS units (vw/vh/vmin/vmax, incl. inside clamp()) against the
     // real viewport. Must precede parse(), which computes styles for display:none filtering.
     gosub_css3::stylesheet::set_layout_viewport(viewport.width as f32, viewport.height as f32);
@@ -995,18 +997,9 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
     prev_tile_cache: TilePixelCache,
-    media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
+    media_store: Arc<MediaStore>,
     tile_size: f64,
 ) -> PipelineCache {
-    use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
-    use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
-    use gosub_render_pipeline::layering::layer::LayerList;
-    use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
-    use gosub_render_pipeline::layouter::CanLayout;
-    use gosub_render_pipeline::rendertree_builder::RenderTree;
-    use gosub_render_pipeline::tiler::TileList;
-    use gosub_shared::{timing_start, timing_stop};
-
     let ts_total = timing_start!("pipeline.total");
 
     // Resolve viewport-relative CSS units (vw/vh/vmin/vmax, incl. inside clamp()) against the
@@ -1059,7 +1052,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
 
     // Park the rest of the page: stages 5 and 6 below only touch dirty tiles.
     // Scrolling past the window's slack re-rasters around the new position.
-    gosub_render_pipeline::tile_budget::defer_tiles_outside_window(&mut tile_list, scroll_y, viewport.height as f64);
+    defer_tiles_outside_window(&mut tile_list, scroll_y, viewport.height as f64);
 
     let render_height = page_height;
     let ts5 = timing_start!("pipeline.painting");
@@ -1115,14 +1108,9 @@ fn pipeline_extend_raster(
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
     prev_tile_cache: TilePixelCache,
-    media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
+    media_store: Arc<MediaStore>,
     tile_size: f64,
 ) -> PipelineCache {
-    use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
-    use gosub_render_pipeline::tile_budget::defer_tiles_outside_window;
-    use gosub_render_pipeline::tiler::{TileList, TileState};
-    use gosub_shared::{timing_start, timing_stop};
-
     // Stage 4: re-tile against the cached layout. No CSS, no layout.
     let ts4 = timing_start!("pipeline.extend.tiling");
     let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(tile_size, tile_size));
@@ -1198,23 +1186,19 @@ fn pipeline_extend_raster(
 /// re-evaluation, no re-rasterization.
 #[allow(clippy::too_many_arguments)]
 fn pipeline_hover_repaint(
-    layer_list: Arc<gosub_render_pipeline::layering::layer::LayerList>,
+    layer_list: Arc<LayerList>,
     page_height: f64,
     prev_baked_tiles: Vec<BakedTile>,
     old_hover_lei: Option<LayoutElementId>,
     new_hover_lei: Option<LayoutElementId>,
     hover_dirty_nodes: &[NodeId],
-    viewport: &gosub_render_pipeline::render::Viewport,
+    viewport: &Viewport,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
     strategy: RasterStrategy,
     prev_tile_cache: TilePixelCache,
-    media_store: Arc<gosub_render_pipeline::common::media::MediaStore>,
+    media_store: Arc<MediaStore>,
     tile_size: f64,
 ) -> PipelineCache {
-    use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
-    use gosub_render_pipeline::tiler::{TileList, TileState};
-    use gosub_shared::{timing_start, timing_stop};
-
     // Stage 4: tiling — reuse existing LayerList, no layout work.
     let ts4 = timing_start!("pipeline.hover.tiling");
     let mut tile_list = TileList::from_arc(Arc::clone(&layer_list), PipelineDimension::new(tile_size, tile_size));
@@ -1350,14 +1334,11 @@ fn pipeline_hover_repaint(
 /// Stage 5: paint every dirty tile. Callers steer the work through tile state - carried-over
 /// (`Ready`) and out-of-window (`Deferred`) tiles are skipped.
 fn paint_dirty_tiles(
-    tile_list: &mut gosub_render_pipeline::tiler::TileList,
-    layer_ids: &[gosub_render_pipeline::layering::layer::LayerId],
-    full_page_rect: gosub_render_pipeline::common::geo::Rect,
+    tile_list: &mut TileList,
+    layer_ids: &[LayerId],
+    full_page_rect: PipelineRect,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
 ) {
-    use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
-    use gosub_render_pipeline::tiler::TileState;
-
     let paint_state = BrowserState {
         visible_layer_list: vec![true; layer_ids.len()],
         wireframed: WireframeState::None,
@@ -1393,9 +1374,9 @@ fn paint_dirty_tiles(
 /// `(page_x bits, page_y bits, layer_id)` → tile; positions with no baked tile (empty/transparent)
 /// are simply skipped.
 fn order_baked_tiles_by_layer(
-    tile_list: &gosub_render_pipeline::tiler::TileList,
-    layer_ids: &[gosub_render_pipeline::layering::layer::LayerId],
-    full_page_rect: gosub_render_pipeline::common::geo::Rect,
+    tile_list: &TileList,
+    layer_ids: &[LayerId],
+    full_page_rect: PipelineRect,
     mut by_key: std::collections::HashMap<(u64, u64, u64), BakedTile>,
 ) -> Vec<BakedTile> {
     let mut ordered = Vec::with_capacity(by_key.len());
@@ -1418,10 +1399,7 @@ fn order_baked_tiles_by_layer(
 /// Selects tiles that intersect `(scroll_x, scroll_y, vp_w, vp_h)` and blits them at
 /// screen-relative positions. This is the only work done on every scroll tick.
 fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w: f64, vp_h: f64, rl: &mut RenderList) {
-    use gosub_shared::{timing_start, timing_stop};
     let ts7 = timing_start!("pipeline.composite");
-
-    use gosub_render_pipeline::render::backend::anchored_tile_pos;
 
     for tile in &cache.tiles {
         // Resolve the tile's position in viewport space (fixed tiles ignore scroll), then cull
@@ -1591,7 +1569,6 @@ mod tests {
         use crate::html::DefaultRenderConfig;
         use gosub_config::settings::Setting;
         use gosub_css3::system::Css3System;
-        use gosub_render_pipeline::common::media::MediaStore;
         use gosub_render_pipeline::common::texture::TextureId;
         use gosub_render_pipeline::common::texture_store::TextureStore;
         use gosub_render_pipeline::render::backend::PixelFormat;
