@@ -183,11 +183,15 @@ class Renderer:
             rel = page.relative_to(self.root).as_posix()
             out = self.out_dir / (rel.replace("/", "__") + ".png")
             url = f"http://127.0.0.1:{self.port}/{rel}"
+            # Pin the generic font families (see wpt-fonts.conf) so results don't depend on
+            # the distro's fontconfig defaults.
+            env = dict(os.environ,
+                       FONTCONFIG_FILE=str(Path(__file__).resolve().parent / "wpt-fonts.conf"))
             with self.sem:
                 proc = subprocess.run(
                     [self.shot_bin, url, str(out), str(VIEWPORT_W),
                      "--nav-timeout", "20", "--render-timeout", "30"],
-                    capture_output=True, timeout=90)
+                    capture_output=True, timeout=90, env=env)
             if proc.returncode != 0 or not out.exists():
                 raise RuntimeError(
                     f"render failed: {proc.stderr.decode(errors='replace')[-200:]}")

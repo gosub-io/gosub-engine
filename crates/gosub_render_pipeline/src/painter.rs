@@ -59,7 +59,7 @@ fn paint_text_style(font_info: &FontInfo, rect_width: f64, available_width: f64)
             FontStyle::Normal
         },
         stretch: FontStretch::NORMAL,
-        line_height: Some(font_info.line_height as f32),
+        line_height: font_info.line_height.map(|v| v as f32),
         letter_spacing: font_info.letter_spacing as f32,
         max_width: Some(max_width),
         align,
@@ -273,7 +273,7 @@ impl Painter {
             weight: 400,
             width: 100,
             slant: 0,
-            line_height: size * 1.4,
+            line_height: None,
             letter_spacing: 0.0,
             alignment: FontAlignment::Start,
             underline: false,

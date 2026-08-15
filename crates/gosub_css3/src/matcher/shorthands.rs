@@ -4,7 +4,7 @@ use std::collections::hash_map::Entry;
 
 use crate::matcher::property_definitions::CssDefinitions;
 use crate::matcher::styling::{CssProperties, CssProperty, DeclarationProperty};
-use crate::matcher::syntax::{SyntaxComponent, SyntaxComponentMultiplier};
+use crate::matcher::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 use crate::matcher::syntax_matcher::CssSyntaxTree;
 
 impl CssSyntaxTree {
@@ -470,6 +470,77 @@ impl CompleteStep<'_> {
     }
 }
 
+/// Component paths for the `font` shorthand's longhands, validated against the inlined grammar
+/// `[ [ style || variant || weight || stretch ]? <font-size> [ / <line-height> ]? <font-family># ]
+/// | <system-font>`. The shape checks guard against a regenerated definitions file silently
+/// changing the tree: on mismatch the shorthand expands to nothing again (and the unit test that
+/// asserts the expansion catches it).
+fn font_shorthands(syntax: &CssSyntaxTree, name: &str) -> Option<Shorthands> {
+    // Top level: `main-form | system-font` (ExactlyOne). The main form is component 0.
+    let SyntaxComponent::Group {
+        components: top,
+        combinator: GroupCombinators::ExactlyOne,
+        ..
+    } = syntax.components.first()?
+    else {
+        return None;
+    };
+    let SyntaxComponent::Group {
+        components: main,
+        combinator: GroupCombinators::Juxtaposition,
+        ..
+    } = top.first()?
+    else {
+        return None;
+    };
+    if main.len() != 4 {
+        return None;
+    }
+
+    // main[0]: the optional `||` prelude with exactly style/variant/weight/stretch operands.
+    let SyntaxComponent::Group {
+        components: prelude,
+        combinator: GroupCombinators::AtLeastOneAnyOrder,
+        ..
+    } = &main[0]
+    else {
+        return None;
+    };
+    if prelude.len() != 4 {
+        return None;
+    }
+
+    // main[2]: the `[ / <line-height> ]` group - a juxtaposition starting with the `/` literal.
+    let SyntaxComponent::Group { components: slash, .. } = &main[2] else {
+        return None;
+    };
+    if !matches!(slash.first(), Some(SyntaxComponent::Literal { literal, .. }) if literal == "/") {
+        return None;
+    }
+
+    let paths: &[(&str, &[usize])] = &[
+        ("font-style", &[0, 0, 0]),
+        ("font-variant", &[0, 0, 1]),
+        ("font-weight", &[0, 0, 2]),
+        ("font-stretch", &[0, 0, 3]),
+        ("font-size", &[0, 1]),
+        ("line-height", &[0, 2, 1]),
+        ("font-family", &[0, 3]),
+    ];
+
+    Some(Shorthands {
+        multiplier: Multiplier::None,
+        name: name.to_string(),
+        shorthands: paths
+            .iter()
+            .map(|(prop, path)| Shorthand {
+                name: (*prop).to_string(),
+                components: path.to_vec(),
+            })
+            .collect(),
+    })
+}
+
 impl CssDefinitions {
     pub fn index_shorthands(&mut self) {
         let mut shorthands = Vec::new();
@@ -495,6 +566,14 @@ impl CssDefinitions {
     pub fn resolve_shorthands(&self, computed: &[String], syntax: &CssSyntaxTree, name: &str) -> Option<Shorthands> {
         if computed.len() <= 1 || syntax.components.is_empty() {
             return None;
+        }
+
+        // `font` gets hand-built component paths: its longhand references (`<'font-size'>`,
+        // `<'line-height'>`, ...) are inlined into their value grammars at definition-load time,
+        // so the name-based property search below finds nothing and the whole shorthand would
+        // silently expand to nothing - dropping e.g. the line-height in `font: 12px/1.5 serif`.
+        if name == "font" {
+            return font_shorthands(syntax, name);
         }
 
         let mut shorthands: Vec<Shorthand> = Vec::with_capacity(computed.len());
@@ -684,6 +763,76 @@ mod tests {
         ($v:expr, $u:expr) => {
             CssValue::Unit($v, $u.to_string())
         };
+    }
+
+    /// Expand a `font:` declaration (parsed from real CSS) and return the resulting
+    /// (longhand, value) pairs.
+    fn expand_font(decl: &str) -> Vec<(String, CssValue)> {
+        use crate::Css3;
+        use gosub_interface::css3::CssOrigin;
+        use gosub_shared::config::ParserConfig;
+
+        let definitions = get_css_definitions();
+        let prop = definitions.find_property("font").unwrap();
+
+        let css = format!("x {{ font: {decl}; }}");
+        let config = ParserConfig {
+            match_values: false,
+            ignore_errors: true,
+            ..Default::default()
+        };
+        let sheet = Css3::parse_str(&css, config, CssOrigin::Author, "font-test").expect("parse");
+        let decl = &sheet.rules[0].declarations[0];
+        let values = match &decl.value {
+            CssValue::List(v) => v.clone(),
+            other => vec![other.clone()],
+        };
+
+        let mut fix_list = FixList::new();
+        assert!(
+            prop.clone().matches_and_shorthands(&values, &mut fix_list),
+            "font: declaration should match"
+        );
+        fix_list
+            .list
+            .iter()
+            .map(|(name, decls)| (name.clone(), decls.last().unwrap().value.clone()))
+            .collect()
+    }
+
+    fn value_of<'a>(expanded: &'a [(String, CssValue)], name: &str) -> Option<&'a CssValue> {
+        expanded.iter().find(|(n, _)| n == name).map(|(_, v)| v)
+    }
+
+    /// `font: <size>/<line-height> <family>` must expand line-height - it drives the line-box
+    /// height of every WPT table test using the `font:` shorthand.
+    #[test]
+    fn font_shorthand_expands_size_line_height_family() {
+        let expanded = expand_font("1.25em/1.2 serif");
+        assert_eq!(value_of(&expanded, "font-size"), Some(&CssValue::Unit(1.25, "em".into())));
+        assert_eq!(value_of(&expanded, "line-height"), Some(&CssValue::Number(1.2)));
+        assert_eq!(value_of(&expanded, "font-family"), Some(&CssValue::String("serif".into())));
+    }
+
+    #[test]
+    fn font_shorthand_expands_prelude_and_px_line_height() {
+        let expanded = expand_font("italic bold 12px/18px serif");
+        assert_eq!(value_of(&expanded, "font-style"), Some(&CssValue::String("italic".into())));
+        assert_eq!(value_of(&expanded, "font-weight"), Some(&CssValue::String("bold".into())));
+        assert_eq!(value_of(&expanded, "font-size"), Some(&CssValue::Unit(12.0, "px".into())));
+        assert_eq!(value_of(&expanded, "line-height"), Some(&CssValue::Unit(18.0, "px".into())));
+        assert_eq!(value_of(&expanded, "font-family"), Some(&CssValue::String("serif".into())));
+    }
+
+    #[test]
+    fn font_shorthand_without_line_height() {
+        let expanded = expand_font("12px sans-serif");
+        assert_eq!(value_of(&expanded, "font-size"), Some(&CssValue::Unit(12.0, "px".into())));
+        assert_eq!(value_of(&expanded, "line-height"), None);
+        assert_eq!(
+            value_of(&expanded, "font-family"),
+            Some(&CssValue::String("sans-serif".into()))
+        );
     }
 
     #[test]
