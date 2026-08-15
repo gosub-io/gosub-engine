@@ -132,8 +132,18 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
 
         // ── line-height: unitless number is a multiplier, not pixels ───────
         StyleProperty::LineHeight => {
-            if p.as_unit().is_some() {
+            if let Some((v, unit)) = p.as_unit() {
+                // `em` needs the element's font-size, unknown here - defer to `get_style`
+                // (`unit_to_px` would resolve it against a hardcoded 16px).
+                if unit == "em" {
+                    return Some(Value::Unit(v, Unit::Em));
+                }
                 Some(Value::Unit(p.unit_to_px(), Unit::Px))
+            } else if let Some(pct) = p.as_percentage() {
+                // Percentages resolve against the element's own font-size, i.e. exactly `em`
+                // semantics - and `get_style` resolves `em` at the declaring element, giving the
+                // spec's inherit-as-computed-px behaviour for free.
+                Some(Value::Unit(pct / 100.0, Unit::Em))
             } else if let Some(n) = p.as_number() {
                 Some(Value::Number(n))
             } else {

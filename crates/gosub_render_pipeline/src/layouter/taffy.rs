@@ -1175,18 +1175,16 @@ impl TaffyLayouter {
                 };
 
                 let line_height = match doc.get_style(dom_node.node_id, &StyleProperty::LineHeight) {
-                    Value::Unit(value, Unit::Px) => value as f64,
-                    Value::Number(ratio) => font_size * ratio as f64,
-                    // CSS "normal" line-height. We use 1.4 instead of the CSS-spec minimum of
-                    // ~1.2 because pango and parley use different font metrics tables. Parley
-                    // (layout) may return a smaller height than pango (raster), so without this
-                    // buffer the rendered text surface can exceed the span's background
-                    // rectangle, making descenders (e.g. "p") appear to overflow the colored box.
-                    _ => font_size * 1.4,
+                    Value::Unit(value, Unit::Px) => Some(value as f64),
+                    Value::Number(ratio) => Some(font_size * ratio as f64),
+                    // CSS `normal`: no exact height - the font system sizes line boxes from the
+                    // font's natural metrics, which is also what the rasterizer paints.
+                    _ => None,
                 };
 
-                // Calculate vertical offset for centering based on the line height.
-                let text_offset = Coordinate::new(0.0, (line_height - font_size) / 2.0);
+                // Half-leading now lives in the shaped glyph positions (the font system places
+                // baselines inside each line box), so the box itself needs no extra offset.
+                let text_offset = Coordinate::new(0.0, 0.0);
 
                 // Apply CSS white-space: normal - collapse newlines/runs of whitespace to a
                 // single space and strip leading/trailing whitespace.  Raw HTML text nodes
@@ -1384,7 +1382,8 @@ fn measure_node(
                 text_ctx.text.clone(),
                 text_ctx.font_info.family.clone(),
                 (text_ctx.font_info.size as f32).to_bits(),
-                (text_ctx.font_info.line_height as f32).to_bits(),
+                // `normal` (None) hashes as a bit pattern no real px value produces.
+                text_ctx.font_info.line_height.map_or(u32::MAX, |v| (v as f32).to_bits()),
                 text_ctx.font_info.weight,
                 (max_width as f32).to_bits(),
                 (text_ctx.font_info.letter_spacing as f32).to_bits(),
