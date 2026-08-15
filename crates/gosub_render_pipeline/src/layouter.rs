@@ -82,13 +82,84 @@ pub struct ElementContextImage {
     pub alt: Option<String>,
 }
 
-/// Per-element data (text, image, svg) needed by later phases of the rendering pipeline.
+/// Everything the painter needs to draw a native form control widget. Assembled at layout time
+/// (values, labels and states are read from the DOM there) so the painter doesn't walk the DOM
+/// again at paint time.
+#[derive(Debug, Clone)]
+pub struct ElementContextFormControl {
+    pub node_id: DomNodeId,
+    pub control: FormControl,
+    /// Font the control's value/label text is drawn with.
+    pub font_info: FontInfo,
+    /// Intrinsic content-box size, used for any axis CSS leaves unconstrained. Form controls
+    /// have no aspect ratio: constraining one axis never scales the other.
+    pub dimension: Dimension,
+    pub disabled: bool,
+}
+
+/// The widget kind plus the state the painter needs to draw it.
+#[derive(Debug, Clone)]
+pub enum FormControl {
+    /// Text-entry field: `<input>` text-like types and `<textarea>`.
+    TextField {
+        /// Current value; when empty the placeholder is shown instead.
+        value: String,
+        placeholder: String,
+        /// Render the value as password bullets.
+        masked: bool,
+        /// `<textarea>`: wrap the value and top-align it instead of centering one line.
+        multiline: bool,
+    },
+    /// Attribute-labelled push button: `<input type=button/submit/reset/file>`. (`<button>`
+    /// renders its child content through the normal flow and needs no context.)
+    Button {
+        label: String,
+    },
+    Checkbox {
+        checked: bool,
+    },
+    Radio {
+        checked: bool,
+    },
+    /// Slider; `fraction` is the value's position in the min..max range (0..1).
+    Range {
+        fraction: f64,
+    },
+    /// `None` = indeterminate.
+    Progress {
+        fraction: Option<f64>,
+    },
+    Meter {
+        fraction: f64,
+        level: MeterLevel,
+    },
+    /// Color picker swatch; `value` is the raw attribute value (e.g. `#0066cc`).
+    ColorSwatch {
+        value: String,
+    },
+    /// Closed dropdown showing the selected option's label.
+    Select {
+        label: String,
+    },
+}
+
+/// Which of the three meter color bands (green / yellow / red) the value falls in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeterLevel {
+    Optimum,
+    Suboptimum,
+    Critical,
+}
+
+/// Per-element data (text, image, svg, form control) needed by later phases of the rendering
+/// pipeline.
 #[derive(Debug, Clone)]
 pub enum ElementContext {
     None,
     Text(ElementContextText),
     Image(ElementContextImage),
     Svg(ElementContextSvg),
+    FormControl(ElementContextFormControl),
 }
 
 impl ElementContext {

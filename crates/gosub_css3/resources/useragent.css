@@ -1337,3 +1337,50 @@ a:hover {
 dd {
     margin-left: 40px;
 }
+/* ===== Gosub additions: form control metrics =============================
+   Chromium's html.css (which this file is derived from) leaves most control
+   metrics to C++ (LayoutTheme): control fonts, checkbox/radio boxes, slider
+   and swatch sizes, progress/meter dimensions. Gosub has no such native
+   theme layer; the painter draws the widget chrome and these rules pin the
+   metrics that C++ would normally supply. Plain physical properties and px
+   values are used because logical shorthands (padding-inline, inline-size)
+   are not supported by the pipeline yet. */
+input, textarea, select, button {
+    font-size: 13.3333px;
+}
+input[type="button" i], input[type="submit" i], input[type="reset" i],
+input[type="file" i], button {
+    padding: 1px 6px;
+}
+input[type="checkbox" i], input[type="radio" i] {
+    width: 13px;
+    height: 13px;
+    padding: 0;
+    border: none;
+    background-color: transparent;
+}
+input[type="range" i] {
+    width: 129px;
+    height: 21px;
+    padding: 0;
+    border: none;
+    background-color: transparent;
+}
+input[type="color" i] {
+    width: 50px;
+    height: 27px;
+    padding: 2px;
+    background-color: ButtonFace;
+    border: 1px solid #767676;
+}
+select {
+    padding: 1px 4px;
+}
+progress {
+    width: 160px;
+    height: 16px;
+}
+meter {
+    width: 80px;
+    height: 16px;
+}

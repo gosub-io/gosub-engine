@@ -8,7 +8,10 @@ use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo::Rect;
 use crate::common::media::MediaStore;
 use crate::layering::layer::LayerList;
-use crate::layouter::{BackgroundMedia, ElementContext, LayoutElementId, LayoutElementNode};
+use crate::layouter::{
+    BackgroundMedia, ElementContext, ElementContextFormControl, FormControl, LayoutElementId, LayoutElementNode,
+    MeterLevel,
+};
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::color::Color;
@@ -475,6 +478,9 @@ impl Painter {
                     }
                 }
             }
+            ElementContext::FormControl(fc) => {
+                commands.extend(self.form_control_commands(fc, layout_element, dom_node_id));
+            }
             ElementContext::None => {
                 let (brush, overlay_layers) = self.background_fill(dom_node_id);
                 let border_box = layout_element.box_model.border_box;
@@ -499,6 +505,316 @@ impl Painter {
                         .with_blend_mode(blend);
                     commands.push(PaintCommand::rectangle(r));
                 }
+            }
+        }
+
+        commands
+    }
+
+    /// Draw a native form control: the element's CSS chrome (background + border, mostly from
+    /// the UA stylesheet) with the widget's value/state on top. Browsers delegate this to a
+    /// native theme layer; here it is composed from rectangles and shaped text.
+    fn form_control_commands(
+        &self,
+        fc: &ElementContextFormControl,
+        layout_element: &LayoutElementNode,
+        dom_node_id: NodeId,
+    ) -> Vec<PaintCommand> {
+        let border_box = layout_element.box_model.border_box;
+        let content_box = layout_element.box_model.content_box;
+        let blend = self.mix_blend_mode(dom_node_id);
+        let mut commands = Vec::new();
+
+        let (bg_brush, _) = self.background_fill(dom_node_id);
+        let chrome = Rectangle::new(border_box)
+            .with_background(bg_brush)
+            .with_blend_mode(blend);
+        let chrome = self.decorate_with_border_and_radius(dom_node_id, chrome);
+        commands.push(PaintCommand::rectangle(chrome));
+
+        // Solid fill respecting the element's CSS opacity, for widget internals.
+        let fill = |c: Color| self.apply_opacity(dom_node_id, Brush::solid(c));
+        let accent = if fc.disabled {
+            Color::from_rgb8(0xb0, 0xb0, 0xb0)
+        } else {
+            Color::from_rgb8(0x00, 0x60, 0xdd)
+        };
+        let border_gray = if fc.disabled {
+            Color::from_rgb8(0xc5, 0xc5, 0xc5)
+        } else {
+            Color::from_rgb8(0x76, 0x76, 0x76)
+        };
+        let track_gray = Color::from_rgb8(0xe6, 0xe6, 0xe6);
+        let uniform_border = |width: f64, c: Color| {
+            let b = self.apply_opacity(dom_node_id, Brush::solid(c));
+            Border::new(width as f32, BorderStyle::Solid, [b.clone(), b.clone(), b.clone(), b])
+        };
+        // One line of control text, vertically centered in the content box.
+        let line_rect = |inset_x: f64| {
+            let h = fc.font_info.line_height.max(fc.font_info.size);
+            Rect::new(
+                content_box.x + inset_x,
+                content_box.y + ((content_box.height - h) / 2.0).max(0.0),
+                (content_box.width - inset_x * 2.0).max(1.0),
+                h,
+            )
+        };
+        let css_text_brush = || {
+            self.apply_opacity(
+                dom_node_id,
+                self.get_brush(dom_node_id, &StyleProperty::Color, Brush::solid(Color::BLACK)),
+            )
+        };
+
+        match &fc.control {
+            FormControl::TextField {
+                value,
+                placeholder,
+                masked,
+                multiline,
+            } => {
+                let is_placeholder = value.is_empty();
+                let text = if is_placeholder {
+                    placeholder.clone()
+                } else if *masked {
+                    "\u{2022}".repeat(value.chars().count())
+                } else {
+                    value.clone()
+                };
+                if text.is_empty() {
+                    return commands;
+                }
+                let brush = if is_placeholder {
+                    fill(Color::from_rgb8(0x75, 0x75, 0x75))
+                } else {
+                    css_text_brush()
+                };
+                let inset_x = 2.0_f64.min(content_box.width / 2.0);
+                let rect = if *multiline {
+                    Rect::new(
+                        content_box.x + inset_x,
+                        content_box.y,
+                        (content_box.width - inset_x * 2.0).max(1.0),
+                        content_box.height.max(fc.font_info.line_height),
+                    )
+                } else {
+                    line_rect(inset_x)
+                };
+                // Multiline wraps at the box; a single-line value never wraps.
+                let avail = if *multiline { rect.width } else { 1_000_000_000.0 };
+                let shaped = self.shape_text(&text, &fc.font_info, rect.width, avail);
+                commands.push(PaintCommand::text(Text::new(
+                    rect,
+                    &text,
+                    &fc.font_info,
+                    brush,
+                    avail,
+                    shaped,
+                )));
+            }
+            FormControl::Button { label } => {
+                if label.is_empty() {
+                    return commands;
+                }
+                let mut font_info = fc.font_info.clone();
+                font_info.alignment = FontAlignment::Center;
+                let rect = line_rect(0.0);
+                let shaped = self.shape_text(label, &font_info, rect.width, rect.width);
+                commands.push(PaintCommand::text(Text::new(
+                    rect,
+                    label,
+                    &font_info,
+                    css_text_brush(),
+                    rect.width,
+                    shaped,
+                )));
+            }
+            FormControl::Select { label } => {
+                let arrow_w = 14.0_f64.min(content_box.width / 2.0);
+                if !label.is_empty() {
+                    let rect = line_rect(0.0);
+                    let rect = Rect::new(rect.x, rect.y, (rect.width - arrow_w).max(1.0), rect.height);
+                    let shaped = self.shape_text(label, &fc.font_info, rect.width, 1_000_000_000.0);
+                    commands.push(PaintCommand::text(Text::new(
+                        rect,
+                        label,
+                        &fc.font_info,
+                        css_text_brush(),
+                        1_000_000_000.0,
+                        shaped,
+                    )));
+                }
+                let arrow = "\u{25BE}";
+                let mut arrow_font = fc.font_info.clone();
+                arrow_font.alignment = FontAlignment::Center;
+                let rect = line_rect(0.0);
+                let rect = Rect::new(rect.x + (rect.width - arrow_w).max(0.0), rect.y, arrow_w, rect.height);
+                let shaped = self.shape_text(arrow, &arrow_font, rect.width, rect.width);
+                commands.push(PaintCommand::text(Text::new(
+                    rect,
+                    arrow,
+                    &arrow_font,
+                    css_text_brush(),
+                    rect.width,
+                    shaped,
+                )));
+            }
+            FormControl::Checkbox { checked } | FormControl::Radio { checked } => {
+                let is_radio = matches!(fc.control, FormControl::Radio { .. });
+                let side = content_box.width.min(content_box.height).max(1.0);
+                let box_rect = Rect::new(
+                    content_box.x + (content_box.width - side) / 2.0,
+                    content_box.y + (content_box.height - side) / 2.0,
+                    side,
+                    side,
+                );
+                let radius = if is_radio {
+                    Radius::new(side / 2.0)
+                } else {
+                    Radius::new(2.0)
+                };
+                if *checked {
+                    if is_radio {
+                        // Accent ring with a white gap around an accent dot.
+                        commands.push(PaintCommand::rectangle(
+                            Rectangle::new(box_rect)
+                                .with_background(fill(Color::WHITE))
+                                .with_border(uniform_border(2.0, accent.clone()))
+                                .with_radius(radius)
+                                .with_blend_mode(blend),
+                        ));
+                        let inset = (side * 0.28).max(2.0);
+                        let dot = Rect::new(
+                            box_rect.x + inset,
+                            box_rect.y + inset,
+                            (side - inset * 2.0).max(1.0),
+                            (side - inset * 2.0).max(1.0),
+                        );
+                        commands.push(PaintCommand::rectangle(
+                            Rectangle::new(dot)
+                                .with_background(fill(accent.clone()))
+                                .with_radius(Radius::new(dot.width / 2.0))
+                                .with_blend_mode(blend),
+                        ));
+                    } else {
+                        commands.push(PaintCommand::rectangle(
+                            Rectangle::new(box_rect)
+                                .with_background(fill(accent.clone()))
+                                .with_radius(radius)
+                                .with_blend_mode(blend),
+                        ));
+                        let mut check_font = fc.font_info.clone();
+                        check_font.size = side * 0.85;
+                        check_font.line_height = side;
+                        check_font.weight = 700;
+                        check_font.alignment = FontAlignment::Center;
+                        let glyph = "\u{2713}";
+                        let shaped = self.shape_text(glyph, &check_font, box_rect.width, box_rect.width);
+                        commands.push(PaintCommand::text(Text::new(
+                            box_rect,
+                            glyph,
+                            &check_font,
+                            fill(Color::WHITE),
+                            box_rect.width,
+                            shaped,
+                        )));
+                    }
+                } else {
+                    commands.push(PaintCommand::rectangle(
+                        Rectangle::new(box_rect)
+                            .with_background(fill(Color::WHITE))
+                            .with_border(uniform_border(1.0, border_gray))
+                            .with_radius(radius)
+                            .with_blend_mode(blend),
+                    ));
+                }
+            }
+            FormControl::Range { fraction } => {
+                let cy = content_box.y + content_box.height / 2.0;
+                let track_h = 4.0_f64.min(content_box.height);
+                let track = Rect::new(content_box.x, cy - track_h / 2.0, content_box.width.max(1.0), track_h);
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(track)
+                        .with_background(fill(track_gray))
+                        .with_radius(Radius::new(track_h / 2.0))
+                        .with_blend_mode(blend),
+                ));
+                // Filled part of the track, then the thumb on top.
+                let active_w = track.width * fraction;
+                if active_w > 0.5 {
+                    commands.push(PaintCommand::rectangle(
+                        Rectangle::new(Rect::new(track.x, track.y, active_w, track_h))
+                            .with_background(fill(accent.clone()))
+                            .with_radius(Radius::new(track_h / 2.0))
+                            .with_blend_mode(blend),
+                    ));
+                }
+                let d = 12.0_f64.min(content_box.height);
+                let thumb_x = content_box.x + (content_box.width - d).max(0.0) * fraction;
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(Rect::new(thumb_x, cy - d / 2.0, d, d))
+                        .with_background(fill(accent.clone()))
+                        .with_radius(Radius::new(d / 2.0))
+                        .with_blend_mode(blend),
+                ));
+            }
+            FormControl::Progress { fraction } => {
+                let radius = Radius::new(content_box.height / 2.0);
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(content_box)
+                        .with_background(fill(track_gray))
+                        .with_radius(radius)
+                        .with_blend_mode(blend),
+                ));
+                let bar = match fraction {
+                    Some(f) => Rect::new(content_box.x, content_box.y, content_box.width * f, content_box.height),
+                    // Static stand-in for the animated indeterminate bar: a centered segment.
+                    None => Rect::new(
+                        content_box.x + content_box.width * 0.3,
+                        content_box.y,
+                        content_box.width * 0.4,
+                        content_box.height,
+                    ),
+                };
+                if bar.width > 0.5 {
+                    commands.push(PaintCommand::rectangle(
+                        Rectangle::new(bar)
+                            .with_background(fill(accent.clone()))
+                            .with_radius(radius)
+                            .with_blend_mode(blend),
+                    ));
+                }
+            }
+            FormControl::Meter { fraction, level } => {
+                let radius = Radius::new(content_box.height / 2.0);
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(content_box)
+                        .with_background(fill(track_gray))
+                        .with_radius(radius)
+                        .with_blend_mode(blend),
+                ));
+                let color = match level {
+                    MeterLevel::Optimum => Color::from_rgb8(0x10, 0x7c, 0x10),
+                    MeterLevel::Suboptimum => Color::from_rgb8(0xff, 0xb9, 0x00),
+                    MeterLevel::Critical => Color::from_rgb8(0xd8, 0x3b, 0x01),
+                };
+                let bar_w = content_box.width * fraction;
+                if bar_w > 0.5 {
+                    commands.push(PaintCommand::rectangle(
+                        Rectangle::new(Rect::new(content_box.x, content_box.y, bar_w, content_box.height))
+                            .with_background(fill(color))
+                            .with_radius(radius)
+                            .with_blend_mode(blend),
+                    ));
+                }
+            }
+            FormControl::ColorSwatch { value } => {
+                let color = Color::try_from_css(value).unwrap_or(Color::BLACK);
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(content_box)
+                        .with_background(fill(color))
+                        .with_blend_mode(blend),
+                ));
             }
         }
 

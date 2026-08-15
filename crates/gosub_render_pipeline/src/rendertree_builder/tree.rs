@@ -1,6 +1,7 @@
 use crate::common::document::node::Node;
 use crate::common::document::node::NodeType;
 use crate::common::document::pipeline_doc::{PipelineDocument, PipelineNodeKind};
+use cow_utils::CowUtils;
 use gosub_shared::node::NodeId;
 use std::collections::HashMap;
 use std::ops::AddAssign;
@@ -97,6 +98,11 @@ impl RenderTree {
 }
 
 const INVISIBLE_ELEMENTS: [&str; 6] = ["head", "style", "script", "meta", "link", "title"];
+
+/// Elements whose DOM subtree is not rendered as normal content: the layouter turns them into a
+/// self-contained form-control widget (a `<select>`'s options live in its dropdown, a
+/// `<textarea>`'s text is its editable value).
+const SUBTREE_SUPPRESSED_ELEMENTS: [&str; 2] = ["select", "textarea"];
 
 impl RenderTree {
     /// Dump each element's computed CSS to JSON: an array sorted by node_id, of
@@ -206,7 +212,15 @@ impl RenderTree {
                         results.push(None);
                         continue;
                     }
-                    let children = self.doc.children(node_id);
+                    let children = if self
+                        .doc
+                        .tag_name(node_id)
+                        .is_some_and(|t| SUBTREE_SUPPRESSED_ELEMENTS.contains(&t.cow_to_ascii_lowercase().as_ref()))
+                    {
+                        Vec::new()
+                    } else {
+                        self.doc.children(node_id)
+                    };
                     let num_children = children.len();
                     stack.push(Frame::Collect { node_id, num_children });
                     for child_id in children.into_iter().rev() {

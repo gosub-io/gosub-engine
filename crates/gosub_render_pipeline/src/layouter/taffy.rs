@@ -1,7 +1,7 @@
 use cow_utils::CowUtils;
 
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
-use crate::common::document::pipeline_doc::BgSize;
+use crate::common::document::pipeline_doc::{BgSize, PipelineDocument};
 use crate::common::document::style::{lookup, FontWeight, StyleProperty, TextAlign, Unit, Value};
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
@@ -13,8 +13,8 @@ use crate::layouter::css_taffy_converter::CssTaffyConverter;
 use crate::layouter::table::post_process_tables;
 use crate::layouter::text::get_text_layout;
 use crate::layouter::{
-    box_model, BackgroundMedia, CanLayout, ElementContext, ElementContextImage, ElementContextSvg, ElementContextText,
-    LayoutElementId, LayoutElementNode, LayoutTree,
+    box_model, BackgroundMedia, CanLayout, ElementContext, ElementContextFormControl, ElementContextImage,
+    ElementContextSvg, ElementContextText, FormControl, LayoutElementId, LayoutElementNode, LayoutTree, MeterLevel,
 };
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
@@ -127,6 +127,7 @@ pub enum TaffyContext {
     Text(ElementContextText),
     Image(ElementContextImage),
     Svg(ElementContextSvg),
+    FormControl(ElementContextFormControl),
 }
 
 impl TaffyContext {
@@ -342,6 +343,13 @@ impl CanLayout for TaffyLayouter {
                     // SVG-backed <img> elements carry their intrinsic size the same way.
                     // Without this arm they measured as 0×0 and collapsed (e.g. the HN logo).
                     Some(TaffyContext::Svg(svg_ctx)) => measure_replaced(v_kd, svg_ctx.dimension),
+                    // Form controls are replaced-like but have no aspect ratio: an axis CSS
+                    // leaves unconstrained uses its intrinsic size unchanged (a `width: 100%`
+                    // input must not scale its height along).
+                    Some(TaffyContext::FormControl(fc)) => Size {
+                        width: v_kd.width.unwrap_or(fc.dimension.width as f32),
+                        height: v_kd.height.unwrap_or(fc.dimension.height as f32),
+                    },
                     _ => Size::ZERO,
                 }
             })
@@ -1066,6 +1074,15 @@ impl TaffyLayouter {
                     }
                 }
 
+                // Form controls are replaced-like: any DOM subtree (select options, textarea
+                // text) is suppressed by the render tree and the widget chrome is drawn by the
+                // painter. Build the context carrying the state + intrinsic size later stages need.
+                if taffy_context.is_none() {
+                    if let Some(fc) = self.extract_form_control(layout_tree, dom_node, data) {
+                        taffy_context = Some(TaffyContext::FormControl(fc));
+                    }
+                }
+
                 if data.tag_name.eq_ignore_ascii_case("svg") {
                     let inner_html = layout_tree.render_tree.doc.inner_html(dom_node.node_id);
                     match self
@@ -1250,6 +1267,296 @@ impl TaffyLayouter {
     }
 }
 
+impl TaffyLayouter {
+    /// Measure a single-line control label/value at unbounded width. Falls back to a crude
+    /// per-character estimate when shaping fails.
+    fn measure_control_text(&self, text: &str, font_info: &FontInfo) -> geo::Dimension {
+        let measured = {
+            let mut fs = self.font_system.lock();
+            get_text_layout(text, font_info, 1_000_000_000.0, &mut *fs)
+        };
+        match measured {
+            Ok(d) => geo::Dimension::new(d.width.ceil(), d.height.ceil()),
+            Err(_) => geo::Dimension::new(
+                text.chars().count() as f64 * font_info.size * 0.5,
+                font_info.line_height.max(font_info.size),
+            ),
+        }
+    }
+
+    /// Build the form-control context for input/textarea/select/progress/meter elements:
+    /// the widget kind + state read from the DOM, and the intrinsic size that stands in for
+    /// what browsers compute in their native theme layer.
+    fn extract_form_control(
+        &self,
+        layout_tree: &LayoutTree,
+        dom_node: &Node,
+        data: &crate::common::document::node::ElementData,
+    ) -> Option<ElementContextFormControl> {
+        let doc = &layout_tree.render_tree.doc;
+        let node_id = dom_node.node_id;
+        let tag = data.tag_name.cow_to_ascii_lowercase();
+        if !matches!(tag.as_ref(), "input" | "textarea" | "select" | "progress" | "meter") {
+            return None;
+        }
+
+        let font_info = control_font_info(&**doc, node_id);
+        let disabled = data.get_attribute("disabled").is_some();
+        let attr = |name: &str| data.get_attribute(name).map(|s| s.trim().to_string());
+        let attr_f64 = |name: &str| attr(name).and_then(|s| s.parse::<f64>().ok());
+
+        let (control, dimension) = match tag.as_ref() {
+            "input" => {
+                let ty = attr("type")
+                    .map(|t| t.cow_to_ascii_lowercase().into_owned())
+                    .unwrap_or_else(|| "text".to_string());
+                match ty.as_str() {
+                    // Never rendered; don't build a widget for it either.
+                    "hidden" => return None,
+                    "checkbox" => (
+                        FormControl::Checkbox {
+                            checked: data.get_attribute("checked").is_some(),
+                        },
+                        geo::Dimension::new(13.0, 13.0),
+                    ),
+                    "radio" => (
+                        FormControl::Radio {
+                            checked: data.get_attribute("checked").is_some(),
+                        },
+                        geo::Dimension::new(13.0, 13.0),
+                    ),
+                    "button" | "submit" | "reset" | "file" => {
+                        let label = attr("value").filter(|s| !s.is_empty()).unwrap_or_else(|| {
+                            match ty.as_str() {
+                                "submit" => "Submit",
+                                "reset" => "Reset",
+                                "file" => "Choose file",
+                                _ => "",
+                            }
+                            .to_string()
+                        });
+                        let d = self.measure_control_text(if label.is_empty() { " " } else { &label }, &font_info);
+                        (FormControl::Button { label }, d)
+                    }
+                    "range" => {
+                        let min = attr_f64("min").unwrap_or(0.0);
+                        let max = attr_f64("max").unwrap_or(100.0).max(min);
+                        let value = attr_f64("value").unwrap_or((min + max) / 2.0).clamp(min, max);
+                        let fraction = if max > min { (value - min) / (max - min) } else { 0.0 };
+                        (FormControl::Range { fraction }, geo::Dimension::new(129.0, 21.0))
+                    }
+                    "color" => {
+                        let value = attr("value")
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or_else(|| "#000000".to_string());
+                        (FormControl::ColorSwatch { value }, geo::Dimension::new(44.0, 21.0))
+                    }
+                    // Text-entry types: text/password/search/email/number/url/tel/date/time/…
+                    _ => {
+                        let value = attr("value").unwrap_or_default();
+                        let placeholder = attr("placeholder").unwrap_or_else(|| {
+                            // The date/time pickers show their edit format when empty.
+                            match ty.as_str() {
+                                "date" => "dd-mm-yyyy",
+                                "time" => "--:--",
+                                "datetime-local" => "dd-mm-yyyy --:--",
+                                "month" => "--------- ----",
+                                "week" => "Week --, ----",
+                                _ => "",
+                            }
+                            .to_string()
+                        });
+                        let size = attr("size")
+                            .and_then(|s| s.parse::<usize>().ok())
+                            .filter(|n| *n > 0)
+                            .unwrap_or(20);
+                        // Approximates Chromium's default text-field width: `size` (default 20)
+                        // average-character advances, plus slack for the caret/edge insets that
+                        // its native theme adds.
+                        let proto = "0".repeat(size);
+                        let d = self.measure_control_text(&proto, &font_info);
+                        let d = geo::Dimension::new(d.width + 4.0, d.height);
+                        (
+                            FormControl::TextField {
+                                value,
+                                placeholder,
+                                masked: ty == "password",
+                                multiline: false,
+                            },
+                            d,
+                        )
+                    }
+                }
+            }
+            "textarea" => {
+                let value = text_content(&**doc, dom_node);
+                let placeholder = attr("placeholder").unwrap_or_default();
+                let cols = attr("cols")
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .filter(|n| *n > 0)
+                    .unwrap_or(20);
+                let rows = attr("rows")
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .filter(|n| *n > 0)
+                    .unwrap_or(2);
+                let cell = self.measure_control_text("0", &font_info);
+                let d = geo::Dimension::new(cell.width * cols as f64 + 4.0, cell.height * rows as f64);
+                (
+                    FormControl::TextField {
+                        value,
+                        placeholder,
+                        masked: false,
+                        multiline: true,
+                    },
+                    d,
+                )
+            }
+            "select" => {
+                let mut labels: Vec<String> = Vec::new();
+                let mut selected: Option<String> = None;
+                collect_option_labels(&**doc, dom_node, &mut labels, &mut selected);
+                let label = selected.or_else(|| labels.first().cloned()).unwrap_or_default();
+                // Sized to the widest option so the closed box fits any selection.
+                let mut widest = self.measure_control_text(if label.is_empty() { " " } else { &label }, &font_info);
+                for l in &labels {
+                    let d = self.measure_control_text(l, &font_info);
+                    if d.width > widest.width {
+                        widest = geo::Dimension::new(d.width, widest.height);
+                    }
+                }
+                // Room for the dropdown arrow on the right.
+                let d = geo::Dimension::new(widest.width + 16.0, widest.height.max(font_info.line_height));
+                (FormControl::Select { label }, d)
+            }
+            "progress" => {
+                let max = attr_f64("max").filter(|m| *m > 0.0).unwrap_or(1.0);
+                let fraction = attr_f64("value").map(|v| (v / max).clamp(0.0, 1.0));
+                (FormControl::Progress { fraction }, geo::Dimension::new(160.0, 16.0))
+            }
+            "meter" => {
+                let min = attr_f64("min").unwrap_or(0.0);
+                let max = attr_f64("max").unwrap_or(1.0).max(min);
+                let span = (max - min).max(f64::EPSILON);
+                let low = attr_f64("low").unwrap_or(min).clamp(min, max);
+                let high = attr_f64("high").unwrap_or(max).clamp(low, max);
+                let optimum = attr_f64("optimum").unwrap_or((min + max) / 2.0).clamp(min, max);
+                let value = attr_f64("value").unwrap_or(min).clamp(min, max);
+                let fraction = (value - min) / span;
+                // HTML meter coloring: green when the value shares the optimum's band
+                // (below-low / between / above-high), yellow one band away, red two away.
+                let band = |v: f64| -> u8 {
+                    if v < low {
+                        0
+                    } else if v > high {
+                        2
+                    } else {
+                        1
+                    }
+                };
+                let level = match band(value).abs_diff(band(optimum)) {
+                    0 => MeterLevel::Optimum,
+                    1 => MeterLevel::Suboptimum,
+                    _ => MeterLevel::Critical,
+                };
+                (FormControl::Meter { fraction, level }, geo::Dimension::new(80.0, 16.0))
+            }
+            _ => unreachable!(),
+        };
+
+        Some(ElementContextFormControl {
+            node_id,
+            control,
+            font_info,
+            dimension,
+            disabled,
+        })
+    }
+}
+
+/// Concatenated text of an element's direct text children (a `<textarea>`'s value, an
+/// `<option>`'s label).
+fn text_content(doc: &dyn PipelineDocument, node: &Node) -> String {
+    let mut out = String::new();
+    for child_id in &node.children {
+        if let Some(child) = doc.get_node_by_id(*child_id) {
+            if let NodeType::Text(t) = &child.node_type {
+                out.push_str(t);
+            }
+        }
+    }
+    out.trim().to_string()
+}
+
+/// Walk a `<select>`'s options (directly or inside `<optgroup>`s), collecting every label and
+/// the label of the first option carrying `selected`.
+fn collect_option_labels(
+    doc: &dyn PipelineDocument,
+    node: &Node,
+    labels: &mut Vec<String>,
+    selected: &mut Option<String>,
+) {
+    for child_id in &node.children {
+        let Some(child) = doc.get_node_by_id(*child_id) else {
+            continue;
+        };
+        let NodeType::Element(data) = &child.node_type else {
+            continue;
+        };
+        if data.tag_name.eq_ignore_ascii_case("optgroup") {
+            collect_option_labels(doc, &child, labels, selected);
+        } else if data.tag_name.eq_ignore_ascii_case("option") {
+            let label = data
+                .get_attribute("label")
+                .cloned()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| text_content(doc, &child));
+            if selected.is_none() && data.get_attribute("selected").is_some() {
+                *selected = Some(label.clone());
+            }
+            labels.push(label);
+        }
+    }
+}
+
+/// The computed font for a control's own node, mirroring what the text branch derives for
+/// text nodes (controls have no text children to inherit through).
+fn control_font_info(doc: &dyn PipelineDocument, node_id: DomNodeId) -> FontInfo {
+    let mut font_size = DEFAULT_FONT_SIZE;
+    let mut font_family = DEFAULT_FONT_FAMILY.to_string();
+    if let Value::Unit(value, Unit::Px) = doc.get_style(node_id, &StyleProperty::FontSize) {
+        font_size = value as f64;
+    }
+    if let Value::Keyword(id) = doc.get_style(node_id, &StyleProperty::FontFamily) {
+        font_family = lookup(id);
+    }
+    let font_weight = match doc.get_style(node_id, &StyleProperty::FontWeight) {
+        Value::FontWeight(weight) => match weight {
+            FontWeight::Normal => 400.0,
+            FontWeight::Bold | FontWeight::Bolder => 700.0,
+            FontWeight::Number(value) => value as f64,
+            FontWeight::Lighter => 300.0,
+        },
+        _ => 400.0,
+    };
+    let line_height = match doc.get_style(node_id, &StyleProperty::LineHeight) {
+        Value::Unit(value, Unit::Px) => value as f64,
+        Value::Number(ratio) => font_size * ratio as f64,
+        _ => font_size * 1.4,
+    };
+    FontInfo {
+        family: font_family,
+        size: font_size,
+        weight: font_weight as i32,
+        width: 100,
+        slant: 0,
+        line_height,
+        letter_spacing: 0.0,
+        alignment: FontAlignment::Start,
+        underline: false,
+        line_through: false,
+    }
+}
+
 // Convert a URI to an absolute URL based on the base URL if this is needed
 fn to_absolute_url(uri: &str, base_uri: &str) -> String {
     // Already-absolute references (http(s)://, file://, data:, blob:, …) are returned as-is.
@@ -1316,6 +1623,7 @@ fn to_element_context(taffy_context: Option<&TaffyContext>) -> ElementContext {
             svg_ctx.dimension,
             svg_ctx.node_id,
         ),
+        Some(TaffyContext::FormControl(fc)) => ElementContext::FormControl(fc.clone()),
         None => ElementContext::None,
     }
 }
