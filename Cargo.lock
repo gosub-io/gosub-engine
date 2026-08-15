@@ -2435,28 +2435,6 @@ dependencies = [
 
 [[package]]
 name = "fontique"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c20b425addb8661e97fe1d51c4d8bcec3ec29ed6ad0db983976a7521276b8f7"
-dependencies = [
- "hashbrown 0.17.1",
- "linebender_resource_handle",
- "memmap2",
- "objc2 0.6.4",
- "objc2-core-foundation",
- "objc2-core-text",
- "objc2-foundation 0.3.2",
- "parlance",
- "read-fonts 0.39.2",
- "roxmltree 0.21.1",
- "smallvec",
- "windows",
- "windows-core",
- "yeslogic-fontconfig-sys",
-]
-
-[[package]]
-name = "fontique"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e04c4750a17111ebd77c3e0aea00476ce33f59235bc4d9e7f0aded5033ad3fc"
@@ -3345,7 +3323,7 @@ name = "gosub_renderer_vello"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "fontique 0.9.0",
+ "fontique",
  "gosub_fontmanager",
  "gosub_interface",
  "gosub_render_pipeline",
@@ -5302,7 +5280,7 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0478b47dd9885a5e0a4f1c0782ffc42bf6ee8c41dea0917d7a9bcee3e6585fc"
 dependencies = [
- "fontique 0.11.0",
+ "fontique",
  "harfrust 0.10.0",
  "hashbrown 0.17.1",
  "icu_normalizer",
