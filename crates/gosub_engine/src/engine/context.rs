@@ -159,6 +159,7 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// The loader subresources go through - kept beside the media store (which
     /// also holds it) because an out-of-process render needs it directly: the
     /// broker answers the remote renderer's resource requests with it.
+    #[cfg_attr(not(all(feature = "process-isolation", target_os = "linux")), allow(dead_code))]
     loader: std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
     /// The source text of the current document, kept when a renderer process
     /// will re-parse it there. `None` when rendering in-process.
@@ -182,9 +183,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
 pub enum RemoteRenderer {
     /// Fork from the engine's warmed fork server (tier `Full`).
     ForkServer(std::sync::Arc<parking_lot::Mutex<crate::fork_server::client::ForkServer>>),
-    /// Spawn a throwaway exec'd renderer per render (tier `FontPathsReadable`
-    /// - warming buys nothing when font files stay reachable, and the stack
-    /// may not even be constructible in a fork server).
+    /// Spawn a throwaway exec'd renderer per render (tier `FontPathsReadable`:
+    /// warming buys nothing when font files stay reachable, and the stack may
+    /// not even be constructible in a fork server).
     ExecPerRender,
 }
 
@@ -378,6 +379,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     fn rebuild_full_pipeline(&mut self) {
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
         if self.remote_render_active() && self.try_remote_pipeline() {
+            // Every tile is live again; an earlier in-process render may have evicted some.
+            // Remote pages are otherwise unbudgeted: their pixels are shared with the
+            // tile memory that makes re-renders incremental, so evicting here frees nothing.
+            self.tile_budget.note_full_raster();
             self.render_dirty = false;
             self.hover_dirty = false;
             self.dom_dirty = false;
@@ -1528,7 +1533,12 @@ mod tests {
                 .set("renderer.tile.cache_budget_mb", Setting::UInt(BUDGET_MB))
                 .is_ok());
 
-            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(config);
+            // The page has no subresources, so no loader is needed - and no fork server
+            // is installed, so the render stays in-process (`source` is irrelevant).
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
+                config,
+                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+            );
             ctx.set_rasterizer(Box::new(SolidRasterizer), RasterStrategy::ParallelCached);
             ctx.set_viewport(Viewport {
                 x: 0,
@@ -1542,7 +1552,7 @@ mod tests {
                 r#"<html><body style="margin:0"><div style="height:10000px;background:#ddd"></div></body></html>"#;
             let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
             doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
-            ctx.set_document(Arc::new(doc));
+            ctx.set_document(Arc::new(doc), None);
 
             ctx.rebuild_pipeline_cache_if_needed();
             {

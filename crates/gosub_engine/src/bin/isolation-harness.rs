@@ -238,6 +238,12 @@ fn fonts_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
         return 2;
     }
 
+    // A runtime guard rather than a cfg'd block, so the code below it is not
+    // flagged unreachable on the platforms this returns on.
+    if cfg!(not(target_os = "linux")) {
+        eprintln!("the font-readable renderer tier exists only on Linux");
+        return 2;
+    }
     #[cfg(target_os = "linux")]
     {
         let paths = gosub_sandbox::font_filesystem_paths();
@@ -255,11 +261,6 @@ fn fonts_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
         );
         let refs: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
         gosub_sandbox::lock_down_renderer_with_font_access(&refs);
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        eprintln!("the font-readable renderer tier exists only on Linux");
-        return 2;
     }
 
     // Never shaped, never warmed: the match runs cold, under the profile.
@@ -293,6 +294,10 @@ fn webfont_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
     }
     println!("holding {} bytes of font data before lockdown", downloaded.len());
 
+    if cfg!(not(target_os = "linux")) {
+        eprintln!("the font-readable renderer tier exists only on Linux");
+        return 2;
+    }
     #[cfg(target_os = "linux")]
     {
         let scratch = std::env::temp_dir().join(format!("gosub-webfont-scratch-{}", std::process::id()));
@@ -308,11 +313,6 @@ fn webfont_under_font_readable_lockdown<F: FontSystem + Default>() -> i32 {
         let mut refs: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
         refs.push((scratch.as_path(), true));
         gosub_sandbox::lock_down_renderer_with_font_access(&refs);
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        eprintln!("the font-readable renderer tier exists only on Linux");
-        return 2;
     }
 
     if let Err(e) = fonts.register_font(downloaded, Some("gosub-webfont-test")) {
@@ -756,6 +756,7 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
 /// recording them - the harness's stand-in for the engine's cookie-attaching
 /// brokered loader. Serves an image, an external stylesheet (which declares a
 /// layout-visible rule and an `@font-face`), and the font that face names.
+#[cfg(target_os = "linux")]
 #[derive(Debug, Default)]
 struct HarnessResourceLoader {
     served: std::sync::atomic::AtomicU64,
@@ -769,12 +770,14 @@ struct HarnessResourceLoader {
 /// The stylesheet the renderer must fetch through the broker: one rule that
 /// visibly moves layout (asserted via page height) and one `@font-face` whose
 /// font must come back through the same channel.
+#[cfg(target_os = "linux")]
 const HARNESS_CSS: &str = r#"
     @font-face { font-family: "HarnessFace"; src: url("/face.ttf"); }
     .card { margin-top: 300px; font-family: "HarnessFace"; }
     h1:hover { background: #ff0000; }
 "#;
 
+#[cfg(target_os = "linux")]
 impl gosub_interface::resource_loader::ResourceLoader for HarnessResourceLoader {
     fn load(
         &self,

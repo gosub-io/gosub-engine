@@ -246,18 +246,9 @@ mod mitigation_enforcement {
     fn child_token_drops_privileges() {
         check("restricted-token");
     }
-
-    /// A *spawned* child must run under the restricted token, not fall back to
-    /// the inherited one.
-    #[test]
-    fn spawned_children_get_a_restricted_token() {
-        let out = super::run(&[]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(
-            !stderr.contains("using inherited token"),
-            "a child fell back to the inherited token — restricted_token() failed:\n{stderr}"
-        );
-    }
+    // That a *spawned* child actually runs under the restricted token is
+    // checked where spawning happens: `gosub_engine/tests/process_isolation.rs`
+    // (`spawned_children_get_a_restricted_token`), against the network process.
 }
 
 /// Guards the enforcement suite against silently shrinking.

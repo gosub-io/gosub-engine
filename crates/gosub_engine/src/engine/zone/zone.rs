@@ -116,6 +116,7 @@ pub struct ZoneContext<C: RenderConfiguration = crate::html::DefaultRenderConfig
     pub(crate) config_store: Config,
     /// The engine-wide shared context, so tabs can reach engine-scoped state
     /// installed after zone creation (e.g. the renderer fork server).
+    #[cfg_attr(not(all(feature = "process-isolation", target_os = "linux")), allow(dead_code))]
     pub(crate) engine_context: Arc<EngineContext>,
 }
 

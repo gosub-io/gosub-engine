@@ -45,6 +45,20 @@ fn a_request_completes_through_the_network_process() {
     );
 }
 
+/// A *spawned* child must run under the restricted token, not fall back to
+/// the inherited one: `gosub_sandbox::spawn` reports the fallback on stderr,
+/// which the harness (spawning the network process) inherits.
+#[cfg(target_os = "windows")]
+#[test]
+fn spawned_children_get_a_restricted_token() {
+    let out = run("direct");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("using inherited token"),
+        "a child fell back to the inherited token - restricted_token() failed:\n{stderr}"
+    );
+}
+
 /// The wiring: an ordinary navigation with `security.network_process` on resolves
 /// through the child rather than an in-process fetcher.
 #[test]

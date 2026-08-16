@@ -892,6 +892,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let io_tx = self.zone_context.io_tx.clone();
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
+        // Same rule as navigate(): keep the source only when a renderer process may re-parse it.
+        let capture_source = self.remote_render_available();
 
         let span = tracing::info_span!(
             "tab_load_html",
@@ -921,11 +923,17 @@ impl<C: RenderConfiguration> TabWorker<C> {
         spawn_named("tab-load-html", async move {
             let _enter = span.enter();
 
-            let mut hooks =
-                ResourcePipelines::<C>::new(zone_id, io_tx.clone(), accept_language.clone(), max_document_bytes);
+            let mut hooks = ResourcePipelines::<C>::new(
+                zone_id,
+                tab_id,
+                io_tx.clone(),
+                accept_language.clone(),
+                max_document_bytes,
+                capture_source,
+            );
 
             match hooks.html.parse_bytes(req, handle, meta, html.as_bytes()).await {
-                Ok(doc) => {
+                Ok((doc, source)) => {
                     use gosub_interface::document::Document as _;
                     let doc = Arc::new(doc);
                     let final_url = doc.url().unwrap_or(url);
@@ -935,6 +943,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         final_url,
                         title,
                         doc,
+                        source,
                     });
                 }
                 Err(e) => {
