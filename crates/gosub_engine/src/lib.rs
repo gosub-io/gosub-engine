@@ -151,8 +151,9 @@ pub mod child_process;
 pub mod decoder_process;
 
 /// The fork server renderers are forked from: warmed fonts, tier-chosen
-/// sandbox. Linux only - no other platform has a fork to serve.
-#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+/// sandbox. The processes are Linux only - no other platform has a fork to
+/// serve - but the wire protocol is plain data and stays available everywhere,
+/// so the tab's remotely-rendered page state need not be gated.
 pub mod fork_server;
 
 /// Exec-fresh, throwaway renderer processes - how `FontPathsReadable`

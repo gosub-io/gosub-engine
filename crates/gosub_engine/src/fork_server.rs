@@ -5,8 +5,12 @@
 //! The font system's [`Confinement`](gosub_interface::font_system::Confinement)
 //! answer picks both this process's sandbox and its children's.
 
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub mod child;
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub mod client;
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub mod loader;
 pub mod protocol;
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub mod renderer;
