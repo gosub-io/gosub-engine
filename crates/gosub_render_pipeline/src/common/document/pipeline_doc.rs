@@ -717,6 +717,15 @@ pub trait PipelineDocument: Send + Sync {
         false
     }
 
+    fn selected_option(&self, _select: NodeId) -> Option<NodeId> {
+        None
+    }
+
+    /// The open `<select>` dropdown and its hovered option row.
+    fn open_select(&self) -> Option<(NodeId, Option<usize>)> {
+        None
+    }
+
     /// Forces the next `get_own_style` to re-evaluate CSS selectors (including `:hover`) from
     /// scratch. No-op for backends that do not cache styles.
     fn clear_style_cache(&self) {}
@@ -1229,6 +1238,14 @@ where
 
     fn is_checked(&self, id: NodeId) -> bool {
         self.doc.is_checked(id)
+    }
+
+    fn selected_option(&self, select: NodeId) -> Option<NodeId> {
+        self.doc.selected_option(select)
+    }
+
+    fn open_select(&self) -> Option<(NodeId, Option<usize>)> {
+        self.doc.open_select()
     }
 
     fn is_display_none(&self, id: NodeId) -> bool {

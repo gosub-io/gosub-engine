@@ -66,8 +66,8 @@ struct Args {
     /// decode and repaint before the capture
     #[arg(long, default_value = "0")]
     settle: u64,
-    /// Interactions to replay after the first render, before capturing: `click:X,Y` (page px),
-    /// `tab`, `shift-tab`, `key:NAME` (e.g. `key:Backspace`) or `type:TEXT`. Repeatable.
+    /// Interactions to replay after the first render, before capturing: `click:X,Y` / `move:X,Y`
+    /// (page px), `tab`, `shift-tab`, `key:NAME` (e.g. `key:Backspace`) or `type:TEXT`. Repeatable.
     #[arg(short = 'i', long = "interact")]
     interact: Vec<String>,
     /// Print the engine's timing table on exit
@@ -88,15 +88,18 @@ fn parse_interaction(spec: &str) -> Vec<TabCommand> {
         Some((kind, rest)) if kind.eq_ignore_ascii_case("type") => {
             rest.chars().map(|c| key(&c.to_string(), Modifiers::empty())).collect()
         }
-        Some((kind, rest)) if kind.eq_ignore_ascii_case("click") => {
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("click") || kind.eq_ignore_ascii_case("move") => {
             let Some((x, y)) = rest.split_once(',') else {
-                eprintln!("Bad click spec '{spec}': expected click:X,Y");
+                eprintln!("Bad spec '{spec}': expected {kind}:X,Y");
                 std::process::exit(2);
             };
             let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>()) else {
-                eprintln!("Bad click coordinates in '{spec}'");
+                eprintln!("Bad coordinates in '{spec}'");
                 std::process::exit(2);
             };
+            if kind.eq_ignore_ascii_case("move") {
+                return vec![TabCommand::MouseMove { x, y }];
+            }
             // Hover first: link activation piggybacks on hover state.
             vec![
                 TabCommand::MouseMove { x, y },
@@ -113,7 +116,9 @@ fn parse_interaction(spec: &str) -> Vec<TabCommand> {
             ]
         }
         _ => {
-            eprintln!("Unknown interaction '{spec}' (expected click:X,Y | tab | shift-tab | key:NAME | type:TEXT)");
+            eprintln!(
+                "Unknown interaction '{spec}' (expected click:X,Y | move:X,Y | tab | shift-tab | key:NAME | type:TEXT)"
+            );
             std::process::exit(2);
         }
     }

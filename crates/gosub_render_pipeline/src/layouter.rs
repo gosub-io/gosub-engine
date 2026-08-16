@@ -135,6 +135,25 @@ pub enum FormControl {
     },
 }
 
+/// One row of an open `<select>` dropdown.
+#[derive(Debug, Clone)]
+pub struct PopupOption {
+    pub node_id: DomNodeId,
+    pub label: String,
+    pub disabled: bool,
+}
+
+/// An open `<select>` dropdown: a synthetic, out-of-flow element positioned under its select
+/// (see [`LayoutTree::popup`]). Which row is selected/hovered is read from the document at paint
+/// time.
+#[derive(Debug, Clone)]
+pub struct ElementContextSelectPopup {
+    pub select: DomNodeId,
+    pub options: Vec<PopupOption>,
+    pub font_info: FontInfo,
+    pub row_height: f64,
+}
+
 /// Meter color band: green / yellow / red.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeterLevel {
@@ -151,6 +170,7 @@ pub enum ElementContext {
     Image(ElementContextImage),
     Svg(ElementContextSvg),
     FormControl(ElementContextFormControl),
+    SelectPopup(ElementContextSelectPopup),
 }
 
 impl ElementContext {
@@ -237,6 +257,8 @@ pub struct LayoutTree {
     pub root_id: LayoutElementId,
     next_node_id: Arc<RwLock<LayoutElementId>>,
     pub root_dimension: Dimension,
+    /// The open `<select>` dropdown, if any: not attached to the tree, gets its own top layer.
+    pub popup: Option<LayoutElementId>,
 }
 
 impl LayoutTree {

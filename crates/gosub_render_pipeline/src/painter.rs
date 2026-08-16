@@ -9,8 +9,8 @@ use crate::common::geo::Rect;
 use crate::common::media::MediaStore;
 use crate::layering::layer::LayerList;
 use crate::layouter::{
-    BackgroundMedia, ElementContext, ElementContextFormControl, FormControl, LayoutElementId, LayoutElementNode,
-    MeterLevel,
+    BackgroundMedia, ElementContext, ElementContextFormControl, ElementContextSelectPopup, FormControl,
+    LayoutElementId, LayoutElementNode, MeterLevel,
 };
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
@@ -481,6 +481,9 @@ impl Painter {
             ElementContext::FormControl(fc) => {
                 commands.extend(self.form_control_commands(fc, layout_element, dom_node_id));
             }
+            ElementContext::SelectPopup(popup) => {
+                commands.extend(self.select_popup_commands(popup, layout_element));
+            }
             ElementContext::None => {
                 let (brush, overlay_layers) = self.background_fill(dom_node_id);
                 let border_box = layout_element.box_model.border_box;
@@ -508,8 +511,12 @@ impl Painter {
             }
         }
 
-        // Text runs don't carry an outline; the owning element does.
-        if !matches!(layout_element.context, ElementContext::Text(_)) {
+        // Text runs don't carry an outline; the owning element does. The popup shares the select's
+        // node but isn't the select.
+        if !matches!(
+            layout_element.context,
+            ElementContext::Text(_) | ElementContext::SelectPopup(_)
+        ) {
             if let Some(cmd) = self.outline_command(layout_element, dom_node_id) {
                 commands.push(cmd);
             }
@@ -642,6 +649,72 @@ impl Painter {
             }
         }
         lo
+    }
+
+    /// An open `<select>` dropdown: option rows in a bordered white box; the hovered row (or the
+    /// selected one while the pointer is outside) is highlighted.
+    fn select_popup_commands(
+        &self,
+        popup: &ElementContextSelectPopup,
+        layout_element: &LayoutElementNode,
+    ) -> Vec<PaintCommand> {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let bb = layout_element.box_model.border_box;
+        let inner = layout_element.box_model.padding_box;
+        let mut commands = Vec::new();
+
+        let gray = Brush::solid(Color::from_rgb8(0x76, 0x76, 0x76));
+        commands.push(PaintCommand::rectangle(
+            Rectangle::new(bb)
+                .with_background(Brush::solid(Color::WHITE))
+                .with_border(Border::new(
+                    1.0,
+                    BorderStyle::Solid,
+                    [gray.clone(), gray.clone(), gray.clone(), gray],
+                )),
+        ));
+
+        let hovered = doc.open_select().and_then(|(_, row)| row);
+        let chosen = doc.selected_option(popup.select);
+        let highlight = hovered.or_else(|| popup.options.iter().position(|o| Some(o.node_id) == chosen));
+
+        for (i, opt) in popup.options.iter().enumerate() {
+            let row = Rect::new(
+                inner.x,
+                inner.y + i as f64 * popup.row_height,
+                inner.width,
+                popup.row_height,
+            );
+            let is_hl = highlight == Some(i) && !opt.disabled;
+            if is_hl {
+                commands.push(PaintCommand::rectangle(
+                    Rectangle::new(row).with_background(Brush::solid(Color::from_rgb8(0x1e, 0x6f, 0xd9))),
+                ));
+            }
+            let color = if opt.disabled {
+                Color::from_rgb8(0xa0, 0xa0, 0xa0)
+            } else if is_hl {
+                Color::WHITE
+            } else {
+                Color::BLACK
+            };
+            let text_rect = Rect::new(
+                row.x + 6.0,
+                row.y + 3.0,
+                (row.width - 12.0).max(1.0),
+                popup.row_height - 6.0,
+            );
+            let shaped = self.shape_text(&opt.label, &popup.font_info, text_rect.width, 1_000_000_000.0);
+            commands.push(PaintCommand::text(Text::new(
+                text_rect,
+                &opt.label,
+                &popup.font_info,
+                Brush::solid(color),
+                1_000_000_000.0,
+                shaped,
+            )));
+        }
+        commands
     }
 
     /// A native form control: the CSS chrome (background + border) with the widget's state on top,

@@ -1160,7 +1160,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     });
                 }
                 self.report_cursor(self.context.hover_cursor());
-                if visual_dirty {
+                if visual_dirty || self.context.popup_hover_at(x as f64, y as f64) {
                     self.runtime.dirty = true;
                     self.runtime.render_now = true;
                 }

@@ -166,6 +166,15 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn control_edit_state(&self, _id: NodeId) -> Option<ControlEditState> {
         None
     }
+    /// The chosen `<option>` of a `<select>` (the `selected` attribute or the first option until
+    /// the user picks another). `None` = not tracked, use the markup.
+    fn selected_option(&self, _select: NodeId) -> Option<NodeId> {
+        None
+    }
+    /// The `<select>` whose dropdown is open, with the option row the pointer is over.
+    fn open_select(&self) -> Option<(NodeId, Option<usize>)> {
+        None
+    }
 }
 
 /// The DOM value of a text control (as opposed to its `value` attribute) plus the caret as a

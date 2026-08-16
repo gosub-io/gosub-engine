@@ -14,7 +14,8 @@ use crate::layouter::table::post_process_tables;
 use crate::layouter::text::get_text_layout;
 use crate::layouter::{
     box_model, BackgroundMedia, CanLayout, ElementContext, ElementContextFormControl, ElementContextImage,
-    ElementContextSvg, ElementContextText, FormControl, LayoutElementId, LayoutElementNode, LayoutTree, MeterLevel,
+    ElementContextSelectPopup, ElementContextSvg, ElementContextText, FormControl, LayoutElementId, LayoutElementNode,
+    LayoutTree, MeterLevel, PopupOption,
 };
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
@@ -243,6 +244,7 @@ impl CanLayout for TaffyLayouter {
                 root_id: LayoutElementId::new(0),
                 next_node_id: Arc::new(RwLock::new(LayoutElementId::new(0))),
                 root_dimension: geo::Dimension::ZERO,
+                popup: None,
             };
         };
         // let root_id = RenderNodeId::new(2);
@@ -372,7 +374,90 @@ impl CanLayout for TaffyLayouter {
             layout_tree.root_dimension = geo::Dimension::new(w as f64, h as f64);
         }
 
+        self.attach_select_popup(&mut layout_tree);
+
         layout_tree
+    }
+}
+
+impl TaffyLayouter {
+    /// If a `<select>` is open, add its dropdown as a detached element under the select's box
+    /// (above it when there is no room below), sized to the widest option.
+    fn attach_select_popup(&self, layout_tree: &mut LayoutTree) {
+        let doc = Arc::clone(&layout_tree.render_tree.doc);
+        let Some((select_id, _)) = doc.open_select() else {
+            return;
+        };
+        let Some(select_lei) = self.dom_to_layout_mapping.get(&select_id).copied() else {
+            return;
+        };
+        let Some(select_el) = layout_tree.get_node_by_id(select_lei) else {
+            return;
+        };
+        let anchor = select_el.box_model.border_box;
+        let render_node_id = select_el.render_node_id;
+        let Some(select_node) = doc.get_node_by_id(select_id) else {
+            return;
+        };
+
+        let font_info = control_font_info(&*doc, select_id);
+        let options = collect_options(&*doc, &select_node);
+        if options.is_empty() {
+            return;
+        }
+        let row_height = font_info.line_height.max(font_info.size) + 6.0;
+        let widest = options
+            .iter()
+            .map(|o| self.measure_control_text(&o.label, &font_info).width)
+            .fold(0.0, f64::max);
+        let width = anchor.width.max(widest + 24.0);
+        let height = row_height * options.len() as f64 + 2.0;
+        let page_h = layout_tree.root_dimension.height;
+        let y = if anchor.y + anchor.height + height <= page_h || anchor.y - height < 0.0 {
+            anchor.y + anchor.height
+        } else {
+            anchor.y - height
+        };
+
+        let id = layout_tree.next_node_id();
+        let edge = |v: f64| Edges {
+            top: v,
+            right: v,
+            bottom: v,
+            left: v,
+        };
+        let options = options
+            .into_iter()
+            .map(|o| PopupOption {
+                node_id: o.node_id,
+                label: o.label,
+                disabled: o.disabled,
+            })
+            .collect();
+        layout_tree.arena.insert(
+            id,
+            LayoutElementNode {
+                id,
+                dom_node_id: select_id,
+                render_node_id,
+                parent: None,
+                children: Vec::new(),
+                box_model: box_model::BoxModel::new(
+                    geo::Rect::new(anchor.x, y, width, height),
+                    edge(0.0),
+                    edge(1.0),
+                    edge(0.0),
+                ),
+                context: ElementContext::SelectPopup(ElementContextSelectPopup {
+                    select: select_id,
+                    options,
+                    font_info,
+                    row_height,
+                }),
+                background_media: None,
+            },
+        );
+        layout_tree.popup = Some(id);
     }
 }
 
@@ -466,6 +551,7 @@ impl TaffyLayouter {
             root_id: LayoutElementId::new(0), // Will be filled in later
             next_node_id: Arc::new(RwLock::new(LayoutElementId::new(0))),
             root_dimension: geo::Dimension::ZERO,
+            popup: None,
         };
 
         let Some((layout_element_root_id, taffy_root_id)) = self.generate_taffy_element(&mut layout_tree, root_id)
@@ -1391,13 +1477,18 @@ impl TaffyLayouter {
                 )
             }
             "select" => {
-                let mut labels: Vec<String> = Vec::new();
-                let mut selected: Option<String> = None;
-                collect_option_labels(&**doc, dom_node, &mut labels, &mut selected);
-                let label = selected.or_else(|| labels.first().cloned()).unwrap_or_default();
+                let options = collect_options(&**doc, dom_node);
+                let chosen = doc.selected_option(node_id);
+                let label = options
+                    .iter()
+                    .find(|o| Some(o.node_id) == chosen)
+                    .or_else(|| options.iter().find(|o| o.selected))
+                    .or_else(|| options.first())
+                    .map(|o| o.label.clone())
+                    .unwrap_or_default();
                 let mut widest = self.measure_control_text(if label.is_empty() { " " } else { &label }, &font_info);
-                for l in &labels {
-                    let d = self.measure_control_text(l, &font_info);
+                for o in &options {
+                    let d = self.measure_control_text(&o.label, &font_info);
                     if d.width > widest.width {
                         widest = geo::Dimension::new(d.width, widest.height);
                     }
@@ -1464,34 +1555,44 @@ fn text_content(doc: &dyn PipelineDocument, node: &Node) -> String {
     out.trim().to_string()
 }
 
-/// All option labels (through `<optgroup>`s) and the first `selected` one.
-fn collect_option_labels(
-    doc: &dyn PipelineDocument,
-    node: &Node,
-    labels: &mut Vec<String>,
-    selected: &mut Option<String>,
-) {
-    for child_id in &node.children {
-        let Some(child) = doc.get_node_by_id(*child_id) else {
-            continue;
-        };
-        let NodeType::Element(data) = &child.node_type else {
-            continue;
-        };
-        if data.tag_name.eq_ignore_ascii_case("optgroup") {
-            collect_option_labels(doc, &child, labels, selected);
-        } else if data.tag_name.eq_ignore_ascii_case("option") {
-            let label = data
-                .get_attribute("label")
-                .cloned()
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| text_content(doc, &child));
-            if selected.is_none() && data.get_attribute("selected").is_some() {
-                *selected = Some(label.clone());
+/// A `<select>`'s options in order, through `<optgroup>`s.
+fn collect_options(doc: &dyn PipelineDocument, select: &Node) -> Vec<MarkupOption> {
+    fn walk(doc: &dyn PipelineDocument, node: &Node, out: &mut Vec<MarkupOption>) {
+        for child_id in &node.children {
+            let Some(child) = doc.get_node_by_id(*child_id) else {
+                continue;
+            };
+            let NodeType::Element(data) = &child.node_type else {
+                continue;
+            };
+            if data.tag_name.eq_ignore_ascii_case("optgroup") {
+                walk(doc, &child, out);
+            } else if data.tag_name.eq_ignore_ascii_case("option") {
+                let label = data
+                    .get_attribute("label")
+                    .cloned()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| text_content(doc, &child));
+                out.push(MarkupOption {
+                    node_id: child.node_id,
+                    label,
+                    selected: data.get_attribute("selected").is_some(),
+                    disabled: data.get_attribute("disabled").is_some(),
+                });
             }
-            labels.push(label);
         }
     }
+    let mut out = Vec::new();
+    walk(doc, select, &mut out);
+    out
+}
+
+/// An `<option>` as written in the markup.
+struct MarkupOption {
+    node_id: DomNodeId,
+    label: String,
+    selected: bool,
+    disabled: bool,
 }
 
 /// The control's own computed font (it has no text children to derive one from).

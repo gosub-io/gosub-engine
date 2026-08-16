@@ -190,6 +190,25 @@ pub fn apply(state: &mut ControlEditState, action: &EditAction) -> bool {
     }
 }
 
+/// `id` is an enabled `<select>`.
+pub fn is_select<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> bool {
+    doc.tag_name(id) == Some("select") && doc.attribute(id, "disabled").is_none()
+}
+
+/// The enabled options of a `<select>`, in order, through `<optgroup>`s.
+pub fn select_options<C: RenderConfiguration>(doc: &EngineDocument<C>, select: NodeId) -> Vec<NodeId> {
+    let mut out = Vec::new();
+    let mut stack: Vec<NodeId> = doc.children(select).iter().rev().copied().collect();
+    while let Some(id) = stack.pop() {
+        match doc.tag_name(id) {
+            Some("option") if doc.attribute(id, "disabled").is_none() => out.push(id),
+            Some("optgroup") => stack.extend(doc.children(id).iter().rev()),
+            _ => {}
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

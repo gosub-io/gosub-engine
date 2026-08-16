@@ -37,6 +37,10 @@ pub struct DocumentImpl<C: HasDocument> {
     edits: parking_lot::RwLock<HashMap<NodeId, ControlEditState>>,
     /// Checkboxes/radios the user has toggled; absent = the `checked` attribute.
     checked: parking_lot::RwLock<HashMap<NodeId, bool>>,
+    /// `<select>` → option the user picked; absent = the `selected` attribute.
+    selected: parking_lot::RwLock<HashMap<NodeId, NodeId>>,
+    /// The open dropdown: its `<select>` and the hovered option row.
+    open_select: parking_lot::RwLock<Option<(NodeId, Option<usize>)>>,
 }
 
 #[derive(Debug, Default)]
@@ -75,6 +79,8 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             focus: parking_lot::RwLock::new(FocusState::default()),
             edits: parking_lot::RwLock::new(HashMap::new()),
             checked: parking_lot::RwLock::new(HashMap::new()),
+            selected: parking_lot::RwLock::new(HashMap::new()),
+            open_select: parking_lot::RwLock::new(None),
         };
         let root = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
         doc.arena.register_node(root);
@@ -411,10 +417,47 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn is_checked(&self, id: NodeId) -> bool {
+        // `option:checked` = the select's chosen option.
+        if self.tag_name(id) == Some("option") {
+            let mut cur = self.parent(id);
+            while let Some(p) = cur {
+                if self.tag_name(p) == Some("select") {
+                    return self.selected_option(p) == Some(id);
+                }
+                cur = self.parent(p);
+            }
+            return false;
+        }
         match self.checked.read().get(&id) {
             Some(c) => *c,
             None => self.attribute(id, "checked").is_some(),
         }
+    }
+
+    fn selected_option(&self, select: NodeId) -> Option<NodeId> {
+        if let Some(opt) = self.selected.read().get(&select) {
+            return Some(*opt);
+        }
+        // Default: the `selected` attribute, else the first option.
+        let mut first = None;
+        let mut stack: Vec<NodeId> = self.children(select).iter().rev().copied().collect();
+        while let Some(id) = stack.pop() {
+            match self.tag_name(id) {
+                Some("option") => {
+                    if self.attribute(id, "selected").is_some() {
+                        return Some(id);
+                    }
+                    first.get_or_insert(id);
+                }
+                Some("optgroup") => stack.extend(self.children(id).iter().rev()),
+                _ => {}
+            }
+        }
+        first
+    }
+
+    fn open_select(&self) -> Option<(NodeId, Option<usize>)> {
+        *self.open_select.read()
     }
 }
 
@@ -450,6 +493,14 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 }
             }
         }
+    }
+
+    pub fn set_selected_option(&self, select: NodeId, option: NodeId) {
+        self.selected.write().insert(select, option);
+    }
+
+    pub fn set_open_select(&self, state: Option<(NodeId, Option<usize>)>) {
+        *self.open_select.write() = state;
     }
 
     /// `None` reverts to the `checked` attribute.

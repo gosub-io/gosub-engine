@@ -843,15 +843,91 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.set_focus(target, visible)
     }
 
-    /// Click activation of the control under the point: toggles a checkbox / selects a radio.
+    /// Click activation of what's under the point: picks a dropdown row, opens/closes a
+    /// `<select>`, toggles a checkbox / selects a radio. Any click closes an open dropdown.
     pub fn activate_at(&mut self, vp_x: f64, vp_y: f64) -> bool {
-        let (Some(leaf), Some(doc)) = (self.hit_at(vp_x, vp_y).0, self.document.clone()) else {
+        let Some(doc) = self.document.clone() else {
             return false;
         };
-        let Some(target) = focus::click_target(&doc, leaf) else {
+        let (leaf, lei) = self.hit_at(vp_x, vp_y);
+
+        if let Some((select, _)) = doc.open_select() {
+            if let Some(row) = self.popup_row_at(lei, vp_y) {
+                self.pick_option(select, row);
+                return true;
+            }
+            // Any other click just closes it.
+            doc.set_open_select(None);
+            self.invalidate_render();
+            return true;
+        }
+
+        let Some(target) = leaf.and_then(|l| focus::click_target(&doc, l)) else {
             return false;
         };
+        if edit::is_select(&doc, target) {
+            doc.set_open_select(Some((target, None)));
+            self.invalidate_render();
+            return true;
+        }
         self.toggle_control(target)
+    }
+
+    /// The dropdown row under a hit on the popup element, if the hit is the popup.
+    fn popup_row_at(&self, lei: Option<LayoutElementId>, vp_y: f64) -> Option<usize> {
+        let ll = self.active_layer_list()?;
+        let popup = ll.layout_tree.popup?;
+        if lei != Some(popup) {
+            return None;
+        }
+        let el = ll.layout_tree.get_node_by_id(popup)?;
+        let gosub_render_pipeline::layouter::ElementContext::SelectPopup(ctx) = &el.context else {
+            return None;
+        };
+        let inner = el.box_model.padding_box;
+        let row = ((vp_y + self.scroll_y - inner.y) / ctx.row_height).floor();
+        (row >= 0.0 && (row as usize) < ctx.options.len()).then_some(row as usize)
+    }
+
+    /// Choose row `row` of `select`'s options (as listed in the popup) and close the dropdown.
+    fn pick_option(&mut self, select: NodeId, row: usize) {
+        let Some(doc) = &self.document else {
+            return;
+        };
+        let option = self.active_layer_list().and_then(|ll| {
+            let el = ll.layout_tree.get_node_by_id(ll.layout_tree.popup?)?;
+            match &el.context {
+                gosub_render_pipeline::layouter::ElementContext::SelectPopup(ctx) => {
+                    ctx.options.get(row).filter(|o| !o.disabled).map(|o| o.node_id)
+                }
+                _ => None,
+            }
+        });
+        if let Some(option) = option {
+            doc.set_selected_option(select, option);
+        }
+        doc.set_open_select(None);
+        self.invalidate_render();
+    }
+
+    /// Pointer over an open dropdown: highlight the row under it (paint-only).
+    pub fn popup_hover_at(&mut self, vp_x: f64, vp_y: f64) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some((select, current)) = doc.open_select() else {
+            return false;
+        };
+        let (_, lei) = self.hit_at(vp_x, vp_y);
+        let row = self.popup_row_at(lei, vp_y);
+        if row == current {
+            return false;
+        }
+        doc.set_open_select(Some((select, row)));
+        if let Some(popup) = self.active_layer_list().and_then(|ll| ll.layout_tree.popup) {
+            self.paint_dirty_leis.push(popup);
+        }
+        true
     }
 
     fn toggle_control(&mut self, node: NodeId) -> bool {
@@ -882,6 +958,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if key == " " && !ctrl_or_meta && edit::toggle_kind(&doc, node).is_some() {
             return self.toggle_control(node);
         }
+        if edit::is_select(&doc, node) && !ctrl_or_meta {
+            return self.select_key(node, key);
+        }
         let Some(multiline) = edit::text_entry_kind(&doc, node) else {
             return false;
         };
@@ -890,6 +969,63 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         };
         self.apply_edit(node, &action);
         true
+    }
+
+    /// Keyboard on a focused `<select>`: arrows move the selection (closed) or the highlighted
+    /// row (open); Enter/Space open or commit; Escape closes.
+    fn select_key(&mut self, select: NodeId, key: &str) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let options = edit::select_options(&doc, select);
+        let open = doc.open_select();
+        match key {
+            "Escape" if open.is_some() => {
+                doc.set_open_select(None);
+                self.invalidate_render();
+                true
+            }
+            "Enter" | " " => {
+                match open {
+                    Some((_, Some(row))) => self.pick_option(select, row),
+                    Some((_, None)) => {
+                        doc.set_open_select(None);
+                        self.invalidate_render();
+                    }
+                    None => {
+                        doc.set_open_select(Some((select, None)));
+                        self.invalidate_render();
+                    }
+                }
+                true
+            }
+            "ArrowDown" | "ArrowUp" if !options.is_empty() => {
+                let step: isize = if key == "ArrowDown" { 1 } else { -1 };
+                let chosen = doc.selected_option(select);
+                let cur = chosen.and_then(|c| options.iter().position(|&o| o == c));
+                let next = match cur {
+                    Some(i) => (i as isize + step).clamp(0, options.len() as isize - 1) as usize,
+                    None => 0,
+                };
+                doc.set_selected_option(select, options[next]);
+                if let Some((s, _)) = open {
+                    // The popup lists every option; find the row of the new choice there.
+                    let row = self.active_layer_list().and_then(|ll| {
+                        let el = ll.layout_tree.get_node_by_id(ll.layout_tree.popup?)?;
+                        match &el.context {
+                            gosub_render_pipeline::layouter::ElementContext::SelectPopup(ctx) => {
+                                ctx.options.iter().position(|o| o.node_id == options[next])
+                            }
+                            _ => None,
+                        }
+                    });
+                    doc.set_open_select(Some((s, row)));
+                }
+                self.invalidate_render();
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Committed text (IME / `TextInput`) into the focused text control.
@@ -944,6 +1080,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let Some(doc) = self.document.clone() else {
             return false;
         };
+        if doc.open_select().is_some() {
+            doc.set_open_select(None);
+            self.invalidate_render();
+        }
         // Only elements with a box are reachable by keyboard; no render yet = every focusable.
         let rendered: Option<std::collections::HashSet<NodeId>> = self
             .active_layer_list()
