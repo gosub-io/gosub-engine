@@ -68,9 +68,13 @@ struct Args {
     settle: u64,
     /// Interactions to replay after the first render, in order, before capturing. Each is
     /// `click:X,Y` (left click at CSS-pixel page coordinates), `tab` or `shift-tab` (move
-    /// keyboard focus), or `key:NAME` (a bare key press). Repeatable, e.g. `-i tab -i tab`.
+    /// keyboard focus), `key:NAME` (a bare key press, e.g. `key:Backspace`) or `type:TEXT`
+    /// (one key press per character). Repeatable, e.g. `-i tab -i type:hello`.
     #[arg(short = 'i', long = "interact")]
     interact: Vec<String>,
+    /// Print the engine's aggregated timing table (pipeline stages, hover/typing repaints) on exit
+    #[arg(long)]
+    timings: bool,
 }
 
 /// Turn one `--interact` spec into the tab command(s) it stands for.
@@ -84,6 +88,10 @@ fn parse_interaction(spec: &str) -> Vec<TabCommand> {
         None if spec.eq_ignore_ascii_case("tab") => vec![key("Tab", Modifiers::empty())],
         None if spec.eq_ignore_ascii_case("shift-tab") => vec![key("Tab", Modifiers::SHIFT)],
         Some((kind, rest)) if kind.eq_ignore_ascii_case("key") => vec![key(rest, Modifiers::empty())],
+        // One key press per character, as a keyboard would deliver it.
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("type") => {
+            rest.chars().map(|c| key(&c.to_string(), Modifiers::empty())).collect()
+        }
         Some((kind, rest)) if kind.eq_ignore_ascii_case("click") => {
             let Some((x, y)) = rest.split_once(',') else {
                 eprintln!("Bad click spec '{spec}': expected click:X,Y");
@@ -109,7 +117,7 @@ fn parse_interaction(spec: &str) -> Vec<TabCommand> {
             ]
         }
         _ => {
-            eprintln!("Unknown interaction '{spec}' (expected click:X,Y | tab | shift-tab | key:NAME)");
+            eprintln!("Unknown interaction '{spec}' (expected click:X,Y | tab | shift-tab | key:NAME | type:TEXT)");
             std::process::exit(2);
         }
     }
@@ -425,4 +433,7 @@ fn main() {
 
     image::save_buffer(&output, &pixels, page_w, page_h, ColorType::Rgba8).expect("save PNG");
     eprintln!("Saved {output} ({}×{})", page_w, page_h);
+    if args.timings {
+        gosub_shared::timing::dump(false);
+    }
 }

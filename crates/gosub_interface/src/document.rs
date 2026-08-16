@@ -160,4 +160,18 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn focused_node(&self) -> Option<NodeId> {
         None
     }
+
+    /// What the user has typed into a text control so far, if anything. `None` means the control
+    /// is untouched and shows its `value` attribute / initial text content.
+    fn control_edit_state(&self, _id: NodeId) -> Option<ControlEditState> {
+        None
+    }
+}
+
+/// Live editing state of a text control (`<input>` text-like types, `<textarea>`): the DOM
+/// *value* as opposed to the `value` content attribute, plus the caret as a char index into it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControlEditState {
+    pub value: String,
+    pub caret: usize,
 }

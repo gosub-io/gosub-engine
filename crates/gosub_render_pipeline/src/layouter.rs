@@ -102,7 +102,8 @@ pub struct ElementContextFormControl {
 pub enum FormControl {
     /// Text-entry field: `<input>` text-like types and `<textarea>`.
     TextField {
-        /// Current value; when empty the placeholder is shown instead.
+        /// The markup's initial value. The painter overrides it with what the user has typed
+        /// (read from the document at paint time), and shows the placeholder when empty.
         value: String,
         placeholder: String,
         /// Render the value as password bullets.

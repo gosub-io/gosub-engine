@@ -704,6 +704,16 @@ pub trait PipelineDocument: Send + Sync {
         BgImageLayout::default()
     }
 
+    /// Whether `id` is the focused element (drives the caret in text controls).
+    fn is_focused(&self, _id: NodeId) -> bool {
+        false
+    }
+
+    /// The typed-in value of a text control and its caret (char index), `None` while untouched.
+    fn control_edit_state(&self, _id: NodeId) -> Option<(String, usize)> {
+        None
+    }
+
     /// Forces the next `get_own_style` to re-evaluate CSS selectors (including `:hover`) from
     /// scratch. No-op for backends that do not cache styles.
     fn clear_style_cache(&self) {}
@@ -1199,6 +1209,14 @@ where
             return None;
         }
         self.doc.tag_name(id).map(|s| s.to_string())
+    }
+
+    fn is_focused(&self, id: NodeId) -> bool {
+        self.doc.is_focused(id)
+    }
+
+    fn control_edit_state(&self, id: NodeId) -> Option<(String, usize)> {
+        self.doc.control_edit_state(id).map(|s| (s.value, s.caret))
     }
 
     fn is_display_none(&self, id: NodeId) -> bool {

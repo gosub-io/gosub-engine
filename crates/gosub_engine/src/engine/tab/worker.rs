@@ -856,6 +856,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// scrolling); the shell has already consumed its own shortcuts before forwarding.
     /// Text editing is not here yet - that arrives with the editing slice of M1.
     fn handle_key_down(&mut self, key: &str, modifiers: Modifiers) -> ControlFlow {
+        // The focused control gets non-Tab keys first (typing; more editing follows).
+        if key != "Tab" {
+            let chord = modifiers.intersects(Modifiers::CONTROL | Modifiers::META);
+            if self.context.edit_key(key, chord) {
+                self.runtime.dirty = true;
+                self.runtime.render_now = true;
+                return ControlFlow::Continue;
+            }
+        }
         match key {
             // Focus traversal.
             "Tab" => {
@@ -1180,7 +1189,21 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             TabCommand::KeyDown { key, modifiers, .. } => self.handle_key_down(&key, modifiers),
-            TabCommand::MouseUp { .. } | TabCommand::KeyUp { .. } | TabCommand::CharInput { .. } => {
+            TabCommand::TextInput { text } => {
+                if self.context.insert_text(&text) {
+                    self.runtime.render_now = true;
+                }
+                self.runtime.dirty = true;
+                ControlFlow::Continue
+            }
+            TabCommand::CharInput { ch } => {
+                if self.context.insert_text(&ch.to_string()) {
+                    self.runtime.render_now = true;
+                }
+                self.runtime.dirty = true;
+                ControlFlow::Continue
+            }
+            TabCommand::MouseUp { .. } | TabCommand::KeyUp { .. } => {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }

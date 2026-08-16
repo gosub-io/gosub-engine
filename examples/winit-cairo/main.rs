@@ -541,6 +541,8 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
 /// follow the DOM `KeyboardEvent.key` values, so their Debug form is the key name.
 fn key_down_command(logical_key: &Key, mods: ModifiersState) -> Option<TabCommand> {
     let key = match logical_key {
+        // DOM reports the space bar as its character, not a name.
+        Key::Named(NamedKey::Space) => " ".to_string(),
         Key::Named(named) => format!("{named:?}"),
         Key::Character(c) => c.to_string(),
         _ => return None,

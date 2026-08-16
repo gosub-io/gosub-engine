@@ -573,6 +573,82 @@ impl Painter {
         Some(PaintCommand::rectangle(r))
     }
 
+    /// Where the caret goes for a caret at char index `caret` in `text`, as an (x, y) offset from
+    /// the text box's top-left. The row comes from counting the lines the shaped prefix occupies
+    /// (so soft wraps are honoured); the x offset is the width of the prefix's last hard line,
+    /// measured on its own. Run x offsets are deliberately not used: not every font backend
+    /// reports them relative to the box (Pango's are relative to the paragraph flow).
+    fn caret_offset(&self, text: &str, caret: usize, font_info: &FontInfo, avail: f64) -> (f64, f64) {
+        let prefix: String = text.chars().take(caret).collect();
+        let line_h = font_info.line_height.max(font_info.size);
+        if prefix.is_empty() {
+            return (0.0, 0.0);
+        }
+        let rows = self
+            .shape_text(&prefix, font_info, avail, avail)
+            .runs
+            .iter()
+            .map(|r| r.baseline.to_bits())
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            .max(1);
+        // A trailing newline starts a fresh (still empty) row the shaper doesn't report.
+        let (row, last_line) = match prefix.rsplit_once('\n') {
+            Some((_, "")) => (rows, ""),
+            Some((_, tail)) => (rows - 1, tail),
+            None => (rows - 1, prefix.as_str()),
+        };
+        let x = if last_line.is_empty() {
+            0.0
+        } else {
+            let w = self
+                .shape_text(last_line, font_info, 1_000_000_000.0, 1_000_000_000.0)
+                .width as f64;
+            // Trailing spaces shape to no advance; keep the caret moving past them.
+            let trailing = last_line.chars().rev().take_while(|c| *c == ' ').count();
+            (w + trailing as f64 * font_info.size * 0.3).min(avail)
+        };
+        (x, row as f64 * line_h)
+    }
+
+    /// First char to draw so that `text[start..caret]` fits in `width` (single-line scrolling).
+    /// Binary search on the start index, shaping each candidate suffix.
+    fn scroll_start_for_caret(&self, text: &str, caret: usize, font_info: &FontInfo, width: f64) -> usize {
+        let fits = |start: usize| -> bool {
+            let seg: String = text.chars().skip(start).take(caret - start).collect();
+            self.shape_text(&seg, font_info, 1_000_000_000.0, 1_000_000_000.0).width as f64 <= width - 1.0
+        };
+        let (mut lo, mut hi) = (0usize, caret);
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if fits(mid) {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        lo
+    }
+
+    /// Last char index (exclusive) such that `text[start..end]` fits in `width`. Binary search.
+    fn fit_end(&self, text: &str, start: usize, font_info: &FontInfo, width: f64) -> usize {
+        let total = text.chars().count();
+        let fits = |end: usize| -> bool {
+            let seg: String = text.chars().skip(start).take(end - start).collect();
+            self.shape_text(&seg, font_info, 1_000_000_000.0, 1_000_000_000.0).width as f64 <= width
+        };
+        let (mut lo, mut hi) = (start, total);
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            if fits(mid) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        lo
+    }
+
     /// Draw a native form control: the element's CSS chrome (background + border, mostly from
     /// the UA stylesheet) with the widget's value/state on top. Browsers delegate this to a
     /// native theme layer; here it is composed from rectangles and shaped text.
@@ -630,22 +706,32 @@ impl Painter {
 
         match &fc.control {
             FormControl::TextField {
-                value,
+                value: initial_value,
                 placeholder,
                 masked,
                 multiline,
+                ..
             } => {
+                // The live value/caret come from the document at paint time (not from layout),
+                // so typing only needs a paint-only repaint of this element's tiles. The
+                // layout-time value is the fallback for an untouched control.
+                let doc = &self.layer_list.layout_tree.render_tree.doc;
+                let focused = doc.is_focused(dom_node_id);
+                let (value, caret) = match doc.control_edit_state(dom_node_id) {
+                    Some((v, c)) => (v, focused.then_some(c)),
+                    None => {
+                        let n = initial_value.chars().count();
+                        (initial_value.clone(), focused.then_some(n))
+                    }
+                };
                 let is_placeholder = value.is_empty();
-                let text = if is_placeholder {
+                let mut text = if is_placeholder {
                     placeholder.clone()
                 } else if *masked {
                     "\u{2022}".repeat(value.chars().count())
                 } else {
                     value.clone()
                 };
-                if text.is_empty() {
-                    return commands;
-                }
                 let brush = if is_placeholder {
                     fill(Color::from_rgb8(0x75, 0x75, 0x75))
                 } else {
@@ -664,15 +750,57 @@ impl Painter {
                 };
                 // Multiline wraps at the box; a single-line value never wraps.
                 let avail = if *multiline { rect.width } else { 1_000_000_000.0 };
-                let shaped = self.shape_text(&text, &fc.font_info, rect.width, avail);
-                commands.push(PaintCommand::text(Text::new(
-                    rect,
-                    &text,
-                    &fc.font_info,
-                    brush,
-                    avail,
-                    shaped,
-                )));
+                let line_h = fc.font_info.line_height.max(fc.font_info.size);
+                // The placeholder never carries a caret; it sits at the start there.
+                let mut caret = caret.map(|c| if is_placeholder { 0 } else { c.min(text.chars().count()) });
+
+                // Clip to the box. Paint commands can't clip, so the text itself is cut to what
+                // fits: a single-line field shows its head, or scrolls so the caret is in view;
+                // a textarea shows as many hard lines as fit, scrolled to keep the caret's line
+                // visible (soft-wrapped rows are not accounted for yet).
+                if *multiline {
+                    let rows_fit = ((rect.height / line_h).floor() as usize).max(1);
+                    let lines: Vec<&str> = text.split('\n').collect();
+                    if lines.len() > rows_fit {
+                        let caret_line = caret.map_or(0, |c| text.chars().take(c).filter(|ch| *ch == '\n').count());
+                        let first = caret_line.saturating_sub(rows_fit - 1);
+                        let dropped_chars: usize = lines[..first].iter().map(|l| l.chars().count() + 1).sum();
+                        let kept = lines[first..(first + rows_fit).min(lines.len())].join("\n");
+                        text = kept;
+                        caret = caret.map(|c| c.saturating_sub(dropped_chars).min(text.chars().count()));
+                    }
+                } else {
+                    let start = match caret {
+                        Some(c) if self.caret_offset(&text, c, &fc.font_info, avail).0 > rect.width => {
+                            self.scroll_start_for_caret(&text, c, &fc.font_info, rect.width)
+                        }
+                        _ => 0,
+                    };
+                    let end = self.fit_end(&text, start, &fc.font_info, rect.width);
+                    text = text.chars().skip(start).take(end - start).collect();
+                    caret = caret.map(|c| c.saturating_sub(start).min(text.chars().count()));
+                }
+
+                if !text.is_empty() {
+                    let shaped = self.shape_text(&text, &fc.font_info, rect.width, avail);
+                    commands.push(PaintCommand::text(Text::new(
+                        rect,
+                        &text,
+                        &fc.font_info,
+                        brush,
+                        avail,
+                        shaped,
+                    )));
+                }
+                if let Some(c) = caret {
+                    let (cx, cy) = self.caret_offset(&text, c, &fc.font_info, avail);
+                    let caret_rect = Rect::new((rect.x + cx).min(rect.x + rect.width - 1.0), rect.y + cy, 1.0, line_h);
+                    commands.push(PaintCommand::rectangle(
+                        Rectangle::new(caret_rect)
+                            .with_background(css_text_brush())
+                            .with_blend_mode(blend),
+                    ));
+                }
             }
             FormControl::Button { label } => {
                 if label.is_empty() {

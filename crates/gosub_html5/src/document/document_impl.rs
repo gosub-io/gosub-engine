@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 use gosub_interface::css3::CssSystem;
-use gosub_interface::document::{Document, DocumentType};
+use gosub_interface::document::{ControlEditState, Document, DocumentType};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
@@ -35,6 +35,8 @@ pub struct DocumentImpl<C: HasDocument> {
     /// The focused element and its ancestor chain (for `:focus-within`), plus whether the focus
     /// ring should show (`:focus-visible`: keyboard focus, or a text-entry control).
     focus: parking_lot::RwLock<FocusState>,
+    /// Typed-in values of text controls, keyed by node. Absent = untouched (attribute value).
+    edits: parking_lot::RwLock<HashMap<NodeId, ControlEditState>>,
 }
 
 #[derive(Debug, Default)]
@@ -69,6 +71,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             stylesheets: Vec::new(),
             hovered_nodes: parking_lot::RwLock::new(std::collections::HashSet::new()),
             focus: parking_lot::RwLock::new(FocusState::default()),
+            edits: parking_lot::RwLock::new(HashMap::new()),
         };
         let root = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
         doc.arena.register_node(root);
@@ -399,6 +402,10 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     fn focused_node(&self) -> Option<NodeId> {
         self.focus.read().node
     }
+
+    fn control_edit_state(&self, id: NodeId) -> Option<ControlEditState> {
+        self.edits.read().get(&id).cloned()
+    }
 }
 
 // ── Internal helpers (not part of Document trait) ───────────────────────────
@@ -433,6 +440,19 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                     Some(parent) => id = parent,
                     None => break,
                 }
+            }
+        }
+    }
+
+    /// Store (or with `None`, forget) the typed-in state of a text control.
+    pub fn set_control_edit_state(&self, id: NodeId, state: Option<ControlEditState>) {
+        let mut edits = self.edits.write();
+        match state {
+            Some(s) => {
+                edits.insert(id, s);
+            }
+            None => {
+                edits.remove(&id);
             }
         }
     }

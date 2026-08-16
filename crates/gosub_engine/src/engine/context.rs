@@ -6,6 +6,7 @@
 //! context via `set_document`, after which the context rebuilds whichever render
 //! representation the active backend consumes.
 
+use crate::engine::edit;
 use crate::engine::events::{CursorShape, HitTestResponse};
 use crate::engine::focus;
 use crate::engine::storage::{StorageArea, StorageHandles};
@@ -166,6 +167,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     pub hover_link_url: Option<String>,
     /// Cursor shape for what is under the pointer, derived from the hovered node's ancestry.
     hover_cursor: CursorShape,
+    /// Layout elements whose *paint* changed without any layout/style change (e.g. the value of
+    /// a text control being typed into). Repainted through the same paint-only path as hover.
+    paint_dirty_leis: Vec<LayoutElementId>,
 
     /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
     /// worker from the engine's `RenderBackend` (replacing the former per-backend cfg cascade).
@@ -214,6 +218,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_chain_sensitive: false,
             hover_link_url: None,
             hover_cursor: CursorShape::Default,
+            paint_dirty_leis: Vec::new(),
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(MediaStore::new()),
@@ -263,6 +268,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_chain_sensitive = false;
         self.hover_link_url = None;
         self.hover_cursor = CursorShape::Default;
+        self.paint_dirty_leis.clear();
     }
 
     /// Update the viewport SIZE. Only triggers a full re-layout when width or height changes.
@@ -367,6 +373,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.raster_dirty = false;
         self.render_dirty = false;
         self.hover_dirty = false;
+        self.paint_dirty_leis.clear();
         self.dom_dirty = false;
         self.style_dirty = false;
         self.layout_dirty = false;
@@ -450,14 +457,15 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// - **Paint-only repaint** (`hover_dirty`): reuses the cached layout tree and repaints
     ///   only the affected tiles, skipping stages 1–2.
     pub fn rebuild_pipeline_cache_if_needed(&mut self) {
-        if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty && !self.raster_dirty {
+        let paint_only = self.hover_dirty || !self.paint_dirty_leis.is_empty();
+        if !self.render_dirty && !paint_only && !self.scroll_dirty && !self.raster_dirty {
             return;
         }
         if self.render_dirty {
             self.rebuild_full_pipeline();
         } else if self.raster_dirty {
             self.extend_raster_window();
-        } else if self.hover_dirty {
+        } else if paint_only {
             // Paint-only repaint: reuse the cached layout tree, skip stages 1–2.
             if let Some(old_cache) = self.pipeline_cache.take() {
                 let PipelineCache {
@@ -467,13 +475,21 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     tiles: prev_baked_tiles,
                     ..
                 } = old_cache;
-                self.pipeline_cache = Some(pipeline_hover_repaint(
+                let mut dirty_leis: Vec<LayoutElementId> = std::mem::take(&mut self.paint_dirty_leis);
+                if self.hover_dirty {
+                    dirty_leis.extend([self.hover_old_lei, self.hover_layout_element].into_iter().flatten());
+                }
+                let dirty_nodes = if self.hover_dirty {
+                    std::mem::take(&mut self.hover_dirty_nodes)
+                } else {
+                    Vec::new()
+                };
+                self.pipeline_cache = Some(pipeline_paint_repaint(
                     layer_list,
                     page_height,
                     prev_baked_tiles,
-                    self.hover_old_lei,
-                    self.hover_layout_element,
-                    &self.hover_dirty_nodes,
+                    &dirty_leis,
+                    &dirty_nodes,
                     &self.viewport,
                     self.rasterizer.as_deref(),
                     self.raster_strategy,
@@ -500,6 +516,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 }
             }
             self.hover_dirty = false;
+            self.paint_dirty_leis.clear();
         }
         self.scroll_dirty = false;
         self.scene_epoch = self.scene_epoch.wrapping_add(1);
@@ -557,13 +574,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// don't rebuild anything (the backend re-renders with a new translate); they just advance the
     /// scene epoch so the worker emits a frame.
     pub fn rebuild_scene_cache_if_needed(&mut self) {
-        if !self.render_dirty && !self.hover_dirty && !self.scroll_dirty {
+        let paint_only = self.hover_dirty || !self.paint_dirty_leis.is_empty();
+        if !self.render_dirty && !paint_only && !self.scroll_dirty {
             return;
         }
-        // Both content changes and hover-style changes rebuild the command list. Hover could reuse
-        // the cached layout (it only changes paint), but a GPU re-paint is cheap and avoids the
-        // tile path's hover-repaint bookkeeping; revisit if hover proves hot.
-        if self.render_dirty || self.hover_dirty {
+        // Both content changes and paint-only changes (hover, typing) rebuild the command list.
+        // Those could reuse the cached layout, but a GPU re-paint is cheap and avoids the tile
+        // path's repaint bookkeeping; revisit if it proves hot.
+        if self.render_dirty || paint_only {
             if let Some(doc) = &self.document {
                 self.scene_cache = Some(pipeline_build_scene(
                     doc.clone(),
@@ -574,6 +592,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             }
             self.render_dirty = false;
             self.hover_dirty = false;
+            self.paint_dirty_leis.clear();
             self.dom_dirty = false;
             self.style_dirty = false;
             self.layout_dirty = false;
@@ -822,6 +841,75 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         };
         log::debug!("focus: click at ({vp_x}, {vp_y}) hit {leaf:?} -> focus {target:?} (ring: {visible})");
         self.set_focus(target, visible)
+    }
+
+    /// A key press while a text control has focus: edit its value/caret. Returns whether the
+    /// key was consumed (so the caller doesn't also treat it as e.g. a shortcut). Non-text keys
+    /// and chords with Ctrl/Meta are left alone.
+    pub fn edit_key(&mut self, key: &str, ctrl_or_meta: bool) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some(node) = doc.focused_node() else {
+            return false;
+        };
+        let Some(multiline) = edit::text_entry_kind(&doc, node) else {
+            return false;
+        };
+        let Some(action) = edit::action_for_key(key, multiline, ctrl_or_meta) else {
+            return false;
+        };
+        self.apply_edit(node, &action);
+        true
+    }
+
+    /// Committed text (IME / `TextInput`) for the focused text control.
+    pub fn insert_text(&mut self, text: &str) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some(node) = doc.focused_node() else {
+            return false;
+        };
+        if edit::text_entry_kind(&doc, node).is_none() || text.is_empty() {
+            return false;
+        }
+        self.apply_edit(node, &edit::EditAction::Insert(text.to_string()));
+        true
+    }
+
+    fn apply_edit(&mut self, node: NodeId, action: &edit::EditAction) {
+        let Some(doc) = &self.document else {
+            return;
+        };
+        let mut state = doc.control_edit_state(node).unwrap_or_else(|| {
+            let value = edit::initial_value(doc, node);
+            let caret = value.chars().count();
+            gosub_interface::document::ControlEditState { value, caret }
+        });
+        if !edit::apply(&mut state, action) {
+            return;
+        }
+        doc.set_control_edit_state(node, Some(state));
+        // A text control's box doesn't depend on its value, and the painter reads the live value
+        // from the document, so only the control's tiles need repainting.
+        self.request_repaint(node);
+    }
+
+    /// Repaint just the tiles under `node` (no restyle, no relayout). Falls back to a full render
+    /// when the node has no cached layout element yet.
+    fn request_repaint(&mut self, node: NodeId) {
+        let lei = self.active_layer_list().and_then(|ll| {
+            ll.layout_tree
+                .arena
+                .iter()
+                .find(|(_, el)| el.dom_node_id == node)
+                .map(|(id, _)| *id)
+        });
+        match lei {
+            Some(lei) => self.paint_dirty_leis.push(lei),
+            None => self.invalidate_render(),
+        }
     }
 
     /// Sequential focus navigation (Tab / Shift+Tab): step to the next/previous element in tab
@@ -1271,17 +1359,16 @@ fn pipeline_extend_raster(
     }
 }
 
-/// Hover-only repaint: skip stages 1–2 (render-tree + layout), reuse the cached
-/// `LayerList`, and only repaint tiles that intersect the old or new hovered element.
-/// All other tiles are carried over from `prev_baked_tiles` unchanged - no CSS
-/// re-evaluation, no re-rasterization.
+/// Paint-only repaint (stages 4–6) for changes that leave layout and the render tree intact:
+/// hover state, or the value of a text control. Only tiles under `dirty_leis` are re-painted and
+/// re-rasterized; `dirty_nodes` get their cached styles dropped first (hover chains - a typed
+/// value needs no restyle). Everything else is carried over from the previous tiles.
 #[allow(clippy::too_many_arguments)]
-fn pipeline_hover_repaint(
-    layer_list: Arc<LayerList>,
+fn pipeline_paint_repaint(
+    layer_list: Arc<gosub_render_pipeline::layering::layer::LayerList>,
     page_height: f64,
     prev_baked_tiles: Vec<BakedTile>,
-    old_hover_lei: Option<LayoutElementId>,
-    new_hover_lei: Option<LayoutElementId>,
+    dirty_leis: &[LayoutElementId],
     hover_dirty_nodes: &[NodeId],
     viewport: &Viewport,
     rasterizer: Option<&(dyn Rasterable + Send + Sync)>,
@@ -1312,7 +1399,7 @@ fn pipeline_hover_repaint(
     // don't intersect this region cannot have changed visually, so we skip them.
     let hover_rect: Option<PipelineRect> = {
         let mut union: Option<PipelineRect> = None;
-        for lei in [old_hover_lei, new_hover_lei].into_iter().flatten() {
+        for &lei in dirty_leis {
             if let Some(el) = layer_list.layout_tree.get_node_by_id(lei) {
                 let m = el.box_model.margin_box;
                 let r = PipelineRect::new(m.x, m.y, m.width, m.height);
