@@ -735,6 +735,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
                 ControlFlow::Continue
             }
+            TabCommand::QueryHitTest { x, y, token } => {
+                let hit = self.context.hit_test(x as f64, y as f64, self.current_url.as_ref());
+                self.send_event(EngineEvent::HitTestResult {
+                    tab_id: self.tab_id,
+                    token,
+                    hit,
+                });
+                ControlFlow::Continue
+            }
             TabCommand::SetViewport {
                 x: _,
                 y: _,

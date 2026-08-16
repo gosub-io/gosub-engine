@@ -7,7 +7,7 @@
 //! representation the active backend consumes.
 
 use crate::engine::storage::{StorageArea, StorageHandles};
-use crate::engine::events::CursorShape;
+use crate::engine::events::{CursorShape, HitTestResponse};
 use crate::html::EngineDocument;
 use gosub_config::{Config, HasConfig};
 use gosub_render_pipeline::rasterizer::{
@@ -28,6 +28,7 @@ use gosub_render_pipeline::painter::{PaintScene, Painter};
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
+use url::Url;
 use std::any::Any;
 
 /// GPU-scene cache: the layer list (for hit-testing) plus the whole-page paint command list
@@ -624,6 +625,51 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Cursor shape for what is under the pointer, as of the last [`Self::update_hover`].
     pub fn hover_cursor(&self) -> CursorShape {
         self.hover_cursor
+    }
+
+    /// Describe what is at viewport point `(vp_x, vp_y)` for a context menu: the nearest
+    /// enclosing link, an image at the point, editable-ness, and the hit text node's
+    /// content. URLs are resolved against `base`. Read-only: does not touch hover state.
+    pub fn hit_test(&self, vp_x: f64, vp_y: f64, base: Option<&Url>) -> HitTestResponse {
+        let mut out = HitTestResponse::default();
+        let (Some(layer_list), Some(doc)) = (self.active_layer_list(), self.document.as_ref()) else {
+            return out;
+        };
+        let Some(lei) = layer_list.find_element_at(vp_x, vp_y, self.scroll_x, self.scroll_y) else {
+            return out;
+        };
+        let Some(leaf) = layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id) else {
+            return out;
+        };
+        let resolve = |raw: &str| base.and_then(|b| b.join(raw).ok()).map(|u| u.to_string()).unwrap_or_else(|| raw.to_string());
+
+        if doc.node_type(leaf) == NodeType::TextNode {
+            out.text = doc.text_value(leaf).map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+        }
+        let mut id = leaf;
+        loop {
+            match doc.tag_name(id) {
+                Some("a") if out.link_url.is_none() => {
+                    if let Some(href) = doc.attribute(id, "href") {
+                        out.link_url = Some(resolve(href));
+                    }
+                }
+                Some("img") if out.image_url.is_none() => {
+                    if let Some(src) = doc.attribute(id, "src") {
+                        out.image_url = Some(resolve(src));
+                    }
+                }
+                _ => {}
+            }
+            if !out.is_editable && is_text_input(doc, id) {
+                out.is_editable = true;
+            }
+            match doc.parent(id) {
+                Some(parent) => id = parent,
+                None => break,
+            }
+        }
+        out
     }
 
     /// Hit-test at viewport coordinates `(vp_x, vp_y)` and update hover state.
@@ -1260,7 +1306,7 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
 mod tests {
     use super::parse_clear_color;
 
-    mod fragment_navigation {
+    mod point_queries {
         use super::super::*;
         use crate::engine::settings_store;
         use crate::html::DefaultRenderConfig;
@@ -1338,6 +1384,48 @@ mod tests {
             // Text input: I-beam.
             ctx.update_hover(10.0, 320.0);
             assert_eq!(ctx.hover_cursor(), CursorShape::Text);
+        }
+
+        /// Context-menu hit test: link/image/text/editable are independent facts about the
+        /// point, URLs come back absolute.
+        #[test]
+        fn hit_test_describes_point() {
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 500,
+            });
+            let html = r#"<html><body style="margin:0">
+                <div style="height:100px;background:#eee"></div>
+                <a href="/target"><img src="pic.png" style="display:block;width:100px;height:100px"></a>
+                <p style="margin:0;height:100px;font-size:20px">  some words  </p>
+                <textarea style="display:block;height:50px;width:200px"></textarea>
+            </body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+            ctx.rebuild_pipeline_cache_if_needed();
+            let base = Url::parse("https://example.com/dir/page.html").unwrap();
+
+            // Empty area.
+            assert_eq!(ctx.hit_test(10.0, 50.0, Some(&base)), HitTestResponse::default());
+            // Linked image: both facts, absolute URLs.
+            let hit = ctx.hit_test(50.0, 150.0, Some(&base));
+            assert_eq!(hit.link_url.as_deref(), Some("https://example.com/target"));
+            assert_eq!(hit.image_url.as_deref(), Some("https://example.com/dir/pic.png"));
+            assert!(!hit.is_editable);
+            // Paragraph text: trimmed content, no link.
+            let hit = ctx.hit_test(10.0, 210.0, Some(&base));
+            assert_eq!(hit.text.as_deref(), Some("some words"));
+            assert_eq!(hit.link_url, None);
+            // Textarea: editable.
+            let hit = ctx.hit_test(10.0, 320.0, Some(&base));
+            assert!(hit.is_editable);
+            // No document URL: raw attribute values pass through.
+            let hit = ctx.hit_test(50.0, 150.0, None);
+            assert_eq!(hit.link_url.as_deref(), Some("/target"));
         }
 
         #[test]
