@@ -161,8 +161,12 @@ pub use html::DefaultRenderConfig;
 /// Builds a [`gosub_config::Config`] seeded with the engine's built-in settings schema.
 pub use engine::default_settings;
 
-/// Setting value type for the engine's settings store (see [`GosubEngine::settings`]).
-pub use gosub_config::settings::Setting;
+/// The engine's settings store and its value/schema types (see [`GosubEngine::settings`]).
+pub use gosub_config::settings::{Constraint, Setting, SettingInfo};
+pub use gosub_config::Config;
+/// Storage adapters an embedder can attach to the settings store to persist overrides.
+pub use gosub_config::storage as config_storage;
+pub use gosub_config::StorageAdapter;
 
 pub use engine::types::Action;
 pub use engine::types::NavigationId;

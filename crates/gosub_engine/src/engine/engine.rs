@@ -464,6 +464,117 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// Session history end to end: two navigations push two entries, GoBack moves the cursor
+    /// (announced immediately via HistoryChanged) and refetches the first page, GoForward
+    /// returns to the second. Verifies the tree from the embedder's point of view only.
+    #[tokio::test]
+    async fn session_history_back_and_forward() {
+        use crate::events::NavigationEvent;
+        use crate::tab::HistoryEntryId;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Tiny HTTP server answering every request; records the paths it served.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let served = Arc::new(Mutex::new(Vec::<String>::new()));
+        let served_srv = served.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let served = served_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let path = req.split_whitespace().nth(1).unwrap_or("/").to_string();
+                    served.lock().push(path.clone());
+                    let body = format!("<html><title>{path}</title><body>{path}</body></html>");
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        // Collect HistoryChanged snapshots until `pred` holds (or time out).
+        async fn next_history(
+            rx: &mut tokio::sync::broadcast::Receiver<EngineEvent>,
+            pred: impl Fn(&crate::tab::HistorySnapshot) -> bool,
+        ) -> crate::tab::HistorySnapshot {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    if let Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::HistoryChanged { history },
+                        ..
+                    }) = rx.recv().await
+                    {
+                        if pred(&history) {
+                            return history;
+                        }
+                    }
+                }
+            })
+            .await
+            .expect("timed out waiting for HistoryChanged")
+        }
+
+        let a = format!("http://127.0.0.1:{port}/a");
+        let b = format!("http://127.0.0.1:{port}/b");
+
+        tab.navigate(a.clone()).await.expect("navigate a");
+        let h = next_history(&mut event_rx, |h| h.entries.len() == 1).await;
+        assert_eq!(h.current, Some(HistoryEntryId(0)));
+        assert!(!h.can_go_back);
+        assert!(h.forward.is_empty());
+        assert_eq!(h.entries[0].url.as_str(), a);
+        assert_eq!(h.entries[0].title.as_deref(), Some("/a"));
+
+        tab.navigate(b.clone()).await.expect("navigate b");
+        let h = next_history(&mut event_rx, |h| h.entries.len() == 2).await;
+        assert_eq!(h.current, Some(HistoryEntryId(1)));
+        assert!(h.can_go_back);
+        assert!(h.forward.is_empty());
+        assert_eq!(h.entries[1].parent, Some(HistoryEntryId(0)));
+
+        // Back: cursor moves to /a immediately, /a is refetched, /b becomes the forward entry.
+        let served_before = served.lock().len();
+        tab.go_back().await.expect("go back");
+        let h = next_history(&mut event_rx, |h| h.current == Some(HistoryEntryId(0))).await;
+        assert!(!h.can_go_back);
+        assert_eq!(h.forward.len(), 1);
+        assert_eq!(h.forward[0].id, HistoryEntryId(1));
+        assert_eq!(h.forward[0].url.as_str(), b);
+        // The traversal commits (Finished + another HistoryChanged) and still has 2 entries:
+        // a traversal must not push.
+        let h = next_history(&mut event_rx, |h| h.current == Some(HistoryEntryId(0))).await;
+        assert_eq!(h.entries.len(), 2, "back must not create a new entry");
+        for _ in 0..100 {
+            if served.lock().len() > served_before {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(served.lock().last().map(String::as_str), Some("/a"), "back must refetch /a");
+
+        // Forward returns to /b, again without pushing.
+        tab.go_forward().await.expect("go forward");
+        let h = next_history(&mut event_rx, |h| h.current == Some(HistoryEntryId(1))).await;
+        assert!(h.can_go_back);
+        assert!(h.forward.is_empty());
+        assert_eq!(h.entries.len(), 2);
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     #[tokio::test]
     async fn close_zone_frees_slot_and_releases_cookies() {
         let dir = tempfile::tempdir().unwrap();

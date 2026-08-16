@@ -13,6 +13,7 @@ use crate::net::types::{
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
 use crate::storage::types::compute_partition_key;
 use crate::storage::StorageHandles;
+use crate::tab::history::{History, HistoryEntryId};
 use crate::tab::scroll::{default_text_scroll, ScrollState};
 use crate::tab::services::EffectiveTabServices;
 use crate::tab::state::{TabRuntime, TabState};
@@ -58,6 +59,21 @@ struct ActiveNav {
     pub nav_id: NavigationId,
     pub cancel: CancellationToken,
     pub url: Url,
+    /// How this navigation relates to session history, decided when it starts and applied
+    /// when it commits (see `on_nav_result`).
+    pub history: HistoryIntent,
+}
+
+/// What a navigation does to the tab's session history once it commits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HistoryIntent {
+    /// A fresh navigation (URL bar, link click, LoadHtml): push a new entry.
+    Push,
+    /// Reload: keep the current entry, refresh its URL, restore its scroll offset.
+    Reload,
+    /// Back/forward/jump: the cursor already moved to `entry` when the navigation started;
+    /// on commit only the entry's saved scroll offset is restored.
+    Traverse(HistoryEntryId),
 }
 
 struct NavJoin<C: RenderConfiguration> {
@@ -125,6 +141,12 @@ pub struct TabWorker<C: RenderConfiguration> {
     load: Option<NavJoin<C>>,
     /// Current active navigation (if any)
     active_nav: Option<ActiveNav>,
+    /// Session history (tree). Fresh navigations push, back/forward move the cursor.
+    history: History,
+    /// Scroll offset to restore once the just-committed document has laid out (page height
+    /// is only known then, and `set_scroll` clamps against it). Set by `on_nav_result` for
+    /// reload/back/forward, consumed by `tick_draw`.
+    pending_scroll_restore: Option<(i32, i32)>,
 }
 
 /// Whether a CSS `unicode-range` descriptor (e.g. `"U+0000-00FF, U+0131"`) includes the
@@ -321,6 +343,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
             runtime,
             load: None,
             active_nav: None,
+            history: History::default(),
+            pending_scroll_restore: None,
         }
     }
 
@@ -484,7 +508,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.context.set_document(Arc::clone(&doc));
                 self.load_web_fonts(&doc, &final_url);
                 self.current_url = Some(final_url.clone());
-                if let Some(t) = title {
+                if let Some(t) = title.clone() {
                     self.title = t;
                 }
                 self.is_loading = false;
@@ -492,10 +516,40 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.state = TabState::Idle;
                 self.runtime.dirty = true;
 
+                // Commit to session history. The final URL is used so server redirects
+                // collapse into one entry.
+                let intent = self
+                    .active_nav
+                    .as_ref()
+                    .filter(|a| a.nav_id == nav_id)
+                    .map(|a| a.history)
+                    .unwrap_or(HistoryIntent::Push);
+                let restore_scroll = match intent {
+                    HistoryIntent::Push => {
+                        self.history.push(final_url.clone(), title);
+                        None
+                    }
+                    HistoryIntent::Reload => {
+                        self.history.replace_current_url(final_url.clone());
+                        self.history.set_current_title(title);
+                        self.history.current_entry().map(|e| e.scroll)
+                    }
+                    HistoryIntent::Traverse(entry) => {
+                        self.history.replace_current_url(final_url.clone());
+                        self.history.set_current_title(title);
+                        self.history.entry(entry).map(|e| e.scroll)
+                    }
+                };
+
                 self.send_event(EngineEvent::Navigation {
                     tab_id: self.tab_id,
                     event: NavigationEvent::Finished { nav_id, url: final_url },
                 });
+                self.emit_history_changed();
+
+                // Returning to an entry lands where the user left it. Deferred to the first
+                // tick after layout so the offset clamps against the real page height.
+                self.pending_scroll_restore = restore_scroll.filter(|s| *s != (0, 0));
             }
             NavigationResult::Err { nav_id, error } => {
                 self.is_loading = false;
@@ -530,7 +584,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             TabCommand::Navigate { url } => {
-                self.navigate_to(&url, false);
+                self.navigate_to(&url, false, HistoryIntent::Push);
                 ControlFlow::Continue
             }
             TabCommand::LoadHtml { html, base_url } => {
@@ -544,7 +598,30 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     .map(|u| u.as_str())
                     .unwrap_or("about:blank")
                     .to_string();
-                self.navigate_to(url.as_str(), ignore_cache);
+                self.navigate_to(url.as_str(), ignore_cache, HistoryIntent::Reload);
+                ControlFlow::Continue
+            }
+            TabCommand::GoBack => {
+                self.history.set_current_scroll(self.scroll_x, self.scroll_y);
+                if let Some(entry) = self.history.go_back() {
+                    self.traverse_history(entry);
+                }
+                ControlFlow::Continue
+            }
+            TabCommand::GoForward { entry } => {
+                self.history.set_current_scroll(self.scroll_x, self.scroll_y);
+                if let Some(entry) = self.history.go_forward(entry) {
+                    self.traverse_history(entry);
+                }
+                ControlFlow::Continue
+            }
+            TabCommand::GoToHistoryEntry { entry } => {
+                if Some(entry) != self.history.current() {
+                    self.history.set_current_scroll(self.scroll_x, self.scroll_y);
+                    if let Some(entry) = self.history.go_to(entry) {
+                        self.traverse_history(entry);
+                    }
+                }
                 ControlFlow::Continue
             }
             TabCommand::SetViewport {
@@ -630,7 +707,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                             .and_then(|base| base.join(&href).ok())
                             .map(|u| u.to_string())
                             .unwrap_or(href);
-                        self.navigate_to(resolved, false);
+                        self.navigate_to(resolved, false, HistoryIntent::Push);
                         return ControlFlow::Continue;
                     }
                 }
@@ -695,8 +772,38 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
     }
 
-    /// Navigate to a new URL, cancelling any in-flight navigation.
-    fn navigate_to(&mut self, url: impl Into<String>, _ignore_cache: bool) {
+    /// Load the history entry the cursor was just moved to (back/forward/jump). The entry's URL
+    /// is refetched; its saved scroll offset is restored once the load commits.
+    fn traverse_history(&mut self, entry: HistoryEntryId) {
+        let Some(url) = self.history.entry(entry).map(|e| e.url.to_string()) else {
+            return;
+        };
+        self.navigate_to(url, false, HistoryIntent::Traverse(entry));
+        // The cursor moved even though the load is still in flight: tell the shell now so
+        // back/forward buttons track the traversal, not the eventual load.
+        self.emit_history_changed();
+    }
+
+    /// Broadcast the current history snapshot to the embedder.
+    fn emit_history_changed(&self) {
+        self.send_event(EngineEvent::Navigation {
+            tab_id: self.tab_id,
+            event: NavigationEvent::HistoryChanged {
+                history: self.history.snapshot(),
+            },
+        });
+    }
+
+    /// Navigate to a new URL, cancelling any in-flight navigation. `history` says what the
+    /// navigation does to session history once it commits.
+    fn navigate_to(&mut self, url: impl Into<String>, _ignore_cache: bool, history: HistoryIntent) {
+        // Leaving the current entry: remember where the user was so back/forward can restore
+        // it. (Traversals already saved it before moving the cursor - see `traverse_history`.)
+        if !matches!(history, HistoryIntent::Traverse(_)) {
+            self.history.set_current_scroll(self.scroll_x, self.scroll_y);
+        }
+        self.pending_scroll_restore = None;
+
         self.scroll_x = 0;
         self.scroll_y = 0;
         self.scroll.reset(0.0, 0.0);
@@ -728,6 +835,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             nav_id,
             cancel: parent_cancel.clone(),
             url: url.clone(),
+            history,
         });
 
         {
@@ -970,6 +1078,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             nav_id,
             cancel: parent_cancel.clone(),
             url: url.clone(),
+            history: HistoryIntent::Push,
         });
 
         {
@@ -1076,6 +1185,21 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Do a draw tick. This will be called based on the FPS that is requested
     #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
+        // History scroll restore, once the committed document has laid out (page height known,
+        // so the offset clamps correctly). The first dirty tick after `set_document` runs the
+        // layout; this applies on the tick after that and re-renders at the restored offset.
+        if let Some((x, y)) = self.pending_scroll_restore {
+            if self.context.page_height() > 0.0 {
+                self.pending_scroll_restore = None;
+                self.context.set_scroll(x as f64, y as f64);
+                let (cx, cy) = self.context.scroll_xy();
+                self.scroll_x = cx.round() as i32;
+                self.scroll_y = cy.round() as i32;
+                self.scroll.reset(cx, cy);
+                self.runtime.dirty = true;
+            }
+        }
+
         // Advance an in-flight smooth scroll: ease the engine scroll one step toward its target and
         // keep the frame loop alive (mark dirty) until it settles exactly on the target. Dormant
         // unless the scroll behavior is animated - `Instant` applies moves synchronously in the

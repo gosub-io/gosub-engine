@@ -7,6 +7,7 @@ use crate::net::req_ref_tracker::RequestReference;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, Priority, ResourceKind};
 use crate::net::DecisionToken;
 use crate::storage::event::StorageScope;
+use crate::tab::history::{HistoryEntryId, HistorySnapshot};
 use crate::tab::TabId;
 use crate::zone::ZoneId;
 use crate::EngineError;
@@ -112,6 +113,18 @@ pub enum TabCommand {
     },
     /// Cancel the current navigation
     CancelNavigation,
+    /// Session history: go to the previous entry (nearest navigable ancestor). No-op at the root.
+    GoBack,
+    /// Session history: go to a forward entry - `entry` must be one of the current entry's
+    /// forward children (see [`NavigationEvent::HistoryChanged`]); `None` takes the preferred
+    /// (most recently visited) one. No-op when there is no forward entry.
+    GoForward {
+        entry: Option<HistoryEntryId>,
+    },
+    /// Session history: jump to any entry in the tab's history tree.
+    GoToHistoryEntry {
+        entry: HistoryEntryId,
+    },
     /// Answer a pending [`NavigationEvent::DecisionRequired`].
     SubmitDecision {
         nav_id: NavigationId,
@@ -274,6 +287,12 @@ pub enum NavigationEvent {
         nav_id: NavigationId,
         meta: FetchResultMeta,
         decision_token: DecisionToken,
+    },
+    /// The tab's session history changed (entry added, back/forward moved, title learned).
+    /// Carries the full snapshot so shells can update back/forward buttons and menus without
+    /// querying. Emitted after the corresponding `Finished`.
+    HistoryChanged {
+        history: HistorySnapshot,
     },
 }
 
