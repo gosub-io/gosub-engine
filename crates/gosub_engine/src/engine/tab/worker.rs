@@ -1,6 +1,6 @@
 use crate::cookies::SameSiteContext;
 use crate::engine::errors::NavigationError;
-use crate::engine::events::{EngineEvent, NavigationEvent};
+use crate::engine::events::{CursorShape, EngineEvent, NavigationEvent};
 use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
@@ -143,6 +143,8 @@ pub struct TabWorker<C: RenderConfiguration> {
     active_nav: Option<ActiveNav>,
     /// Session history (tree). Fresh navigations push, back/forward move the cursor.
     history: History,
+    /// Last cursor shape reported to the embedder (CursorChanged is emitted on change only).
+    reported_cursor: CursorShape,
     /// Scroll to apply once the just-committed document has laid out (positions and page
     /// height are only known then, and `set_scroll` clamps against the latter). Set by
     /// `on_nav_result`, consumed by `tick_draw`.
@@ -353,6 +355,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             load: None,
             active_nav: None,
             history: History::default(),
+            reported_cursor: CursorShape::Default,
             pending_scroll: None,
         }
     }
@@ -444,6 +447,95 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.services.storage.drop_tab(self.zone_id, self.tab_id);
     }
 
+    /// Resolve the document's icon URL: the first `<link>` whose `rel` contains `icon`
+    /// (covers `icon`, `shortcut icon`, `apple-touch-icon`) with an `href`, resolved against
+    /// the document URL; else the well-known `/favicon.ico` for http(s) documents.
+    fn favicon_url(doc: &C::Document, base_url: &Url) -> Option<Url> {
+        use gosub_interface::document::Document as _;
+
+        fn walk<C: RenderConfiguration>(doc: &C::Document, node: gosub_shared::node::NodeId, base: &Url) -> Option<Url> {
+            for &child in doc.children(node) {
+                if doc.tag_name(child).is_some_and(|t| t.eq_ignore_ascii_case("link")) {
+                    // `icon`, `shortcut icon` (space-separated tokens) and the hyphenated
+                    // `apple-touch-icon` / `apple-touch-icon-precomposed`.
+                    let is_icon = doc.attribute(child, "rel").is_some_and(|rel| {
+                        rel.split_ascii_whitespace().any(|t| {
+                            t.eq_ignore_ascii_case("icon") || t.len() >= 16 && t[..16].eq_ignore_ascii_case("apple-touch-icon")
+                        })
+                    });
+                    if is_icon {
+                        if let Some(url) = doc.attribute(child, "href").and_then(|h| base.join(h).ok()) {
+                            return Some(url);
+                        }
+                    }
+                }
+                if let Some(found) = walk::<C>(doc, child, base) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+
+        walk::<C>(doc, doc.root(), base_url).or_else(|| {
+            matches!(base_url.scheme(), "http" | "https")
+                .then(|| base_url.join("/favicon.ico").ok())
+                .flatten()
+        })
+    }
+
+    /// Fetch the document's icon through the zone fetcher (so it carries the UA, cookies and
+    /// shows up in resource events) and emit `FavIconChanged` with its bytes on success.
+    /// Fire-and-forget: runs on its own task, cancelled with the navigation.
+    fn fetch_favicon(&self, doc: &C::Document, base_url: &Url, nav_cancel: &CancellationToken) {
+        let Some(icon_url) = Self::favicon_url(doc, base_url) else {
+            return;
+        };
+        let req_id = RequestId::new();
+        REF_REGISTRY.register_request(req_id, ResourceKind::Image, Initiator::Other);
+        let mut headers = HeaderMap::new();
+        if let Ok(val) = ResourceKind::Image.accept_header().parse() {
+            headers.insert(http::header::ACCEPT, val);
+        }
+        let req = FetchRequest::builder(Method::GET, icon_url.clone())
+            .with_req_id(req_id)
+            .with_headers(headers)
+            .with_priority(Priority::Low)
+            .with_kind(ResourceKind::Image.to_net())
+            .with_initiator(Initiator::Other.to_net())
+            .with_streaming(false)
+            .with_auto_decode(true)
+            .build();
+
+        let tab_id = self.tab_id;
+        let zone_id = self.zone_id;
+        let io_tx = self.zone_context.io_tx.clone();
+        let event_tx = self.zone_context.event_tx.clone();
+        let cancel = nav_cancel.child_token();
+        spawn_named("tab-favicon", async move {
+            let Ok((handle, rx)) = submit_to_io(zone_id, req, io_tx, Some(cancel.clone())).await else {
+                return;
+            };
+            let result = tokio::select! {
+                _ = cancel.cancelled() => {
+                    handle.cancel.cancel();
+                    return;
+                }
+                r = rx => r,
+            };
+            let Ok(FetchResult::Buffered { meta, body }) = result else {
+                return;
+            };
+            if meta.status != 200 || body.is_empty() {
+                log::debug!("favicon {icon_url}: status {} ({} bytes), ignored", meta.status, body.len());
+                return;
+            }
+            let _ = event_tx.send(EngineEvent::FavIconChanged {
+                tab_id,
+                favicon: body.to_vec(),
+            });
+        });
+    }
+
     /// Fetch and register any `@font-face` web fonts declared in the document's stylesheets
     /// so the first layout/paint can use them. Runs once per navigation, before the first
     /// render, and deduplicates by resolved font URL. Fetches are synchronous (blocking this
@@ -516,6 +608,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
             } => {
                 self.context.set_document(Arc::clone(&doc));
                 self.load_web_fonts(&doc, &final_url);
+                if let Some(cancel) = self.active_nav.as_ref().filter(|a| a.nav_id == nav_id).map(|a| a.cancel.clone()) {
+                    self.fetch_favicon(&doc, &final_url, &cancel);
+                }
                 self.current_url = Some(final_url.clone());
                 if let Some(t) = title.clone() {
                     self.title = t;
@@ -564,7 +659,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     event: NavigationEvent::Finished { nav_id, url: final_url },
                 });
                 self.emit_history_changed();
-
+                // set_document cleared hover state; the next mouse move re-derives it.
+                self.report_cursor(CursorShape::Default);
             }
             NavigationResult::Err { nav_id, error } => {
                 self.is_loading = false;
@@ -707,6 +803,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         url: link_url,
                     });
                 }
+                self.report_cursor(self.context.hover_cursor());
                 if visual_dirty {
                     self.runtime.dirty = true;
                     self.runtime.render_now = true;
@@ -797,6 +894,17 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // The cursor moved even though the load is still in flight: tell the shell now so
         // back/forward buttons track the traversal, not the eventual load.
         self.emit_history_changed();
+    }
+
+    /// Emit `CursorChanged` if the shape differs from the last one reported.
+    fn report_cursor(&mut self, cursor: CursorShape) {
+        if cursor != self.reported_cursor {
+            self.reported_cursor = cursor;
+            self.send_event(EngineEvent::CursorChanged {
+                tab_id: self.tab_id,
+                cursor,
+            });
+        }
     }
 
     /// Broadcast the current history snapshot to the embedder.
@@ -1671,6 +1779,49 @@ mod tests {
     use crate::net::SharedBody;
     use bytes::Bytes;
     use futures_util::TryStreamExt;
+
+    mod favicon_url {
+        use crate::html::DefaultRenderConfig;
+        use crate::tab::worker::TabWorker;
+        use url::Url;
+
+        fn resolve(html: &str, base: &str) -> Option<String> {
+            let doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            let base = Url::parse(base).unwrap();
+            TabWorker::<DefaultRenderConfig>::favicon_url(&doc, &base).map(|u| u.to_string())
+        }
+
+        #[test]
+        fn link_rel_icon_wins_and_resolves_relative() {
+            let html = r#"<html><head><link rel="icon" href="img/fav.png"></head><body></body></html>"#;
+            assert_eq!(
+                resolve(html, "https://example.com/dir/page.html").as_deref(),
+                Some("https://example.com/dir/img/fav.png")
+            );
+        }
+
+        #[test]
+        fn shortcut_icon_and_apple_touch_icon_count() {
+            let html = r#"<html><head><link rel="Shortcut Icon" href="/a.ico"></head></html>"#;
+            assert_eq!(resolve(html, "https://example.com/").as_deref(), Some("https://example.com/a.ico"));
+            let html = r#"<html><head><link rel="apple-touch-icon" href="/t.png"></head></html>"#;
+            assert_eq!(resolve(html, "https://example.com/").as_deref(), Some("https://example.com/t.png"));
+        }
+
+        #[test]
+        fn stylesheet_links_are_ignored_and_fallback_is_well_known() {
+            let html = r#"<html><head><link rel="stylesheet" href="/s.css"></head></html>"#;
+            assert_eq!(
+                resolve(html, "https://example.com/deep/path").as_deref(),
+                Some("https://example.com/favicon.ico")
+            );
+        }
+
+        #[test]
+        fn no_fallback_for_non_http_documents() {
+            assert_eq!(resolve("<html></html>", "gosub://home"), None);
+        }
+    }
 
     /// Verify `decode_web_font` turns a real WOFF2 payload into an SFNT the font stack can
     /// parse. Reads the fixture path from `GOSUB_WOFF2_FIXTURE` so we neither hit the network

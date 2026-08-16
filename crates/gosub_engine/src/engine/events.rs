@@ -27,6 +27,19 @@ pub enum MouseButton {
     Right,
 }
 
+/// The mouse cursor the page wants shown at the pointer's position. The engine reports it
+/// (see [`EngineEvent::CursorChanged`]); the shell maps it to the native cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CursorShape {
+    /// The platform's ordinary arrow.
+    #[default]
+    Default,
+    /// Hand: over a link (or anything else the page marks clickable).
+    Pointer,
+    /// I-beam: over selectable text or an editable field.
+    Text,
+}
+
 impl Display for MouseButton {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -441,12 +454,21 @@ pub enum EngineEvent {
         tab_id: TabId,
         url: Option<String>,
     },
+    /// The cursor shape for what is under the pointer changed (emitted on change only, from
+    /// mouse-move handling; resets to `Default` on navigation).
+    CursorChanged {
+        tab_id: TabId,
+        cursor: CursorShape,
+    },
     /// Not yet emitted by the engine; emission arrives with the pending mac-app patches.
     TitleChanged {
         tab_id: TabId,
         title: String,
     },
-    /// Not yet emitted by the engine.
+    /// The page's icon was fetched: raw image bytes (ICO/PNG/SVG… as served) of the first
+    /// `<link rel="icon">` (or `shortcut icon` / `apple-touch-icon`) with an `href`, else
+    /// `/favicon.ico`. Emitted once per committed navigation when the fetch succeeds; a
+    /// navigation without a reachable icon emits nothing (the shell keeps its placeholder).
     FavIconChanged {
         tab_id: TabId,
         favicon: Vec<u8>,

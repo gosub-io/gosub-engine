@@ -7,6 +7,7 @@
 //! representation the active backend consumes.
 
 use crate::engine::storage::{StorageArea, StorageHandles};
+use crate::engine::events::CursorShape;
 use crate::html::EngineDocument;
 use gosub_config::{Config, HasConfig};
 use gosub_render_pipeline::rasterizer::{
@@ -25,6 +26,7 @@ use gosub_render_pipeline::layering::layer::LayerList;
 use gosub_render_pipeline::layouter::LayoutElementId;
 use gosub_render_pipeline::painter::{PaintScene, Painter};
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
+use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
 use std::any::Any;
 
@@ -61,6 +63,23 @@ fn hover_matches<C: RenderConfiguration>(fp: &HoverFingerprints, doc: &EngineDoc
     }
     false
 }
+/// True for elements whose content is edited as text (they show the I-beam cursor).
+fn is_text_input<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) -> bool {
+    match doc.tag_name(node_id) {
+        Some("textarea") => true,
+        Some("input") => !doc.attribute(node_id, "type").is_some_and(|t| {
+            [
+                "button", "submit", "reset", "checkbox", "radio", "range", "color", "file", "image", "hidden",
+            ]
+            .iter()
+            .any(|k| t.eq_ignore_ascii_case(k))
+        }),
+        _ => doc
+            .attribute(node_id, "contenteditable")
+            .is_some_and(|v| v.is_empty() || v.eq_ignore_ascii_case("true")),
+    }
+}
+
 /// Cached output of stages 1–6 for the whole page. Re-used on every scroll tick.
 struct PipelineCache {
     tiles: Vec<BakedTile>,
@@ -131,6 +150,8 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     hover_chain_sensitive: bool,
     /// The href of the link currently under the pointer, if any.
     pub hover_link_url: Option<String>,
+    /// Cursor shape for what is under the pointer, derived from the hovered node's ancestry.
+    hover_cursor: CursorShape,
 
     /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
     /// worker from the engine's `RenderBackend` (replacing the former per-backend cfg cascade).
@@ -177,6 +198,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_fingerprints: None,
             hover_chain_sensitive: false,
             hover_link_url: None,
+            hover_cursor: CursorShape::Default,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
@@ -223,6 +245,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_layout_element = None;
         self.hover_fingerprints = None;
         self.hover_chain_sensitive = false;
+        self.hover_link_url = None;
+        self.hover_cursor = CursorShape::Default;
     }
 
     /// Update the viewport SIZE. Only triggers a full re-layout when width or height changes.
@@ -597,12 +621,20 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         (self.scroll_x, self.scroll_y)
     }
 
+    /// Cursor shape for what is under the pointer, as of the last [`Self::update_hover`].
+    pub fn hover_cursor(&self) -> CursorShape {
+        self.hover_cursor
+    }
+
     /// Hit-test at viewport coordinates `(vp_x, vp_y)` and update hover state.
     ///
     /// Returns `(visual_dirty, url_changed, link_url)`:
     /// - `visual_dirty`: a node with a `:hover` CSS rule entered or left the hover chain → needs repaint.
     /// - `url_changed`: the link URL under the cursor changed → caller should emit a `HoverUrl` event.
     /// - `link_url`: the href of the nearest `<a>` ancestor, if any.
+    ///
+    /// The cursor shape for the hovered node is derived in the same pass; read it with
+    /// [`Self::hover_cursor`].
     pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> (bool, bool, Option<String>) {
         let _t_total = gosub_shared::timing_guard!("hover.total");
 
@@ -659,9 +691,15 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let (link_url, new_sensitive) = {
             let mut link: Option<String> = None;
             let mut sensitive = false;
+            let mut cursor = CursorShape::Default;
 
             if let (Some(leaf), Some(doc)) = (new_leaf, self.document.as_ref()) {
                 let _t = gosub_shared::timing_guard!("hover.ancestor_walk");
+                // Text gets the I-beam unless an enclosing link (checked below) claims the
+                // pointer hand.
+                if doc.node_type(leaf) == NodeType::TextNode {
+                    cursor = CursorShape::Text;
+                }
                 let mut id = leaf;
                 loop {
                     if !sensitive && hover_matches(fps, doc, id) {
@@ -670,7 +708,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     if link.is_none() && doc.tag_name(id) == Some("a") {
                         if let Some(href) = doc.attribute(id, "href") {
                             link = Some(href.to_string());
+                            cursor = CursorShape::Pointer;
                         }
+                    }
+                    if cursor != CursorShape::Pointer && is_text_input(doc, id) {
+                        cursor = CursorShape::Text;
                     }
                     if sensitive && link.is_some() {
                         break;
@@ -681,6 +723,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     }
                 }
             }
+            self.hover_cursor = cursor;
             (link, sensitive)
         };
 
@@ -1259,6 +1302,42 @@ mod tests {
             assert_eq!(ctx.fragment_target_y(""), Some(0.0));
             assert_eq!(ctx.fragment_target_y("top"), Some(0.0));
             assert_eq!(ctx.fragment_target_y("nope"), None);
+        }
+
+        /// Cursor shape derived from what is under the pointer: hand over links, I-beam over
+        /// text and inputs, arrow elsewhere.
+        #[test]
+        fn hover_cursor_follows_content() {
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 400,
+            });
+            let html = r#"<html><body style="margin:0">
+                <div style="height:100px;background:#eee"></div>
+                <a href="/x" style="display:block;height:100px">link</a>
+                <p style="margin:0;height:100px;font-size:20px">plain text</p>
+                <input style="display:block;height:50px;width:200px">
+            </body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            // Empty div: arrow.
+            ctx.update_hover(10.0, 50.0);
+            assert_eq!(ctx.hover_cursor(), CursorShape::Default);
+            // Link block (its text or its box): hand.
+            ctx.update_hover(10.0, 150.0);
+            assert_eq!(ctx.hover_cursor(), CursorShape::Pointer);
+            // Text in the paragraph: I-beam.
+            ctx.update_hover(10.0, 210.0);
+            assert_eq!(ctx.hover_cursor(), CursorShape::Text);
+            // Text input: I-beam.
+            ctx.update_hover(10.0, 320.0);
+            assert_eq!(ctx.hover_cursor(), CursorShape::Text);
         }
 
         #[test]

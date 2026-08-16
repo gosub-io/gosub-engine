@@ -486,14 +486,27 @@ mod tests {
                     let n = stream.read(&mut buf).await.unwrap_or(0);
                     let req = String::from_utf8_lossy(&buf[..n]).to_string();
                     let path = req.split_whitespace().nth(1).unwrap_or("/").to_string();
-                    served.lock().push(path.clone());
-                    let body = format!("<html><title>{path}</title><body>{path}</body></html>");
+                    if path != "/icon.png" {
+                        served.lock().push(path.clone());
+                    }
+                    // Every page advertises the same icon; the icon itself is a fixed byte blob.
+                    let (ctype, body): (&str, Vec<u8>) = if path == "/icon.png" {
+                        ("image/png", b"PNGBYTES".to_vec())
+                    } else {
+                        (
+                            "text/html",
+                            format!(
+                                "<html><head><title>{path}</title><link rel=\"icon\" href=\"/icon.png\"></head><body>{path}</body></html>"
+                            )
+                            .into_bytes(),
+                        )
+                    };
                     let head = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        "HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                         body.len()
                     );
                     let _ = stream.write_all(head.as_bytes()).await;
-                    let _ = stream.write_all(body.as_bytes()).await;
+                    let _ = stream.write_all(&body).await;
                 });
             }
         });
@@ -536,6 +549,18 @@ mod tests {
         assert!(h.forward.is_empty());
         assert_eq!(h.entries[0].url.as_str(), a);
         assert_eq!(h.entries[0].title.as_deref(), Some("/a"));
+
+        // The page's <link rel=icon> is fetched through the zone fetcher and delivered as bytes.
+        let favicon = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Ok(EngineEvent::FavIconChanged { favicon, .. }) = event_rx.recv().await {
+                    return favicon;
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for FavIconChanged");
+        assert_eq!(favicon, b"PNGBYTES");
 
         tab.navigate(b.clone()).await.expect("navigate b");
         let h = next_history(&mut event_rx, |h| h.entries.len() == 2).await;
