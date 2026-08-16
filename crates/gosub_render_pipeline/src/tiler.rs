@@ -342,7 +342,18 @@ impl TileList {
                     log::warn!("Warning: Element {:?} not found in layout tree!", element_id);
                     continue;
                 };
-                let margin_box = element.box_model.margin_box;
+                // An outline paints outside the margin box, so grow the assignment box by its
+                // extent or the ring gets clipped at the edge of a tile the element wasn't in.
+                let mut margin_box = element.box_model.margin_box;
+                let ext = outline_extent(&*self.layer_list.layout_tree.render_tree.doc, element.dom_node_id);
+                if ext > 0.0 {
+                    margin_box = Rect::new(
+                        margin_box.x - ext,
+                        margin_box.y - ext,
+                        margin_box.width + ext * 2.0,
+                        margin_box.height + ext * 2.0,
+                    );
+                }
 
                 let matching_tile_ids = tile_layer.intersects_with(margin_box);
                 for tile_id in &matching_tile_ids {
@@ -396,6 +407,25 @@ impl TileList {
         *nid += 1;
         id
     }
+}
+
+/// How far a visible CSS outline reaches beyond the element's box (width + positive offset),
+/// 0 when there is none. Must agree with the painter's ring geometry.
+fn outline_extent(doc: &dyn PipelineDocument, node_id: NodeId) -> f64 {
+    let width = doc.get_style_f32(node_id, &StyleProperty::OutlineWidth) as f64;
+    if width <= 0.0 {
+        return 0.0;
+    }
+    match doc.get_style(node_id, &StyleProperty::OutlineStyle) {
+        Value::BorderStyle(s)
+            if !matches!(
+                s,
+                crate::common::document::style::BorderStyle::None | crate::common::document::style::BorderStyle::Hidden
+            ) => {}
+        _ => return 0.0,
+    }
+    let offset = doc.get_style_f32(node_id, &StyleProperty::OutlineOffset) as f64;
+    width + offset.max(0.0)
 }
 
 fn get_background_color_from_node(node_id: Option<NodeId>, doc: &dyn PipelineDocument) -> Option<(f32, f32, f32, f32)> {

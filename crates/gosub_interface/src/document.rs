@@ -142,9 +142,22 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
         false
     }
 
-    /// Whether `id` is the currently focused element (drives `:focus` matching).
-    /// Implementations use interior mutability, like hover.
+    // Focus state, consumed by the `:focus` family of selectors. Defaults for documents that
+    // don't track focus.
+
     fn is_focused(&self, _id: NodeId) -> bool {
         false
+    }
+    /// `:focus-visible` - focused AND the focus indicator should show (keyboard focus, or a
+    /// text-entry control).
+    fn is_focus_visible(&self, _id: NodeId) -> bool {
+        false
+    }
+    /// `:focus-within` - the node is the focused element or one of its ancestors.
+    fn is_focus_within(&self, _id: NodeId) -> bool {
+        false
+    }
+    fn focused_node(&self) -> Option<NodeId> {
+        None
     }
 }

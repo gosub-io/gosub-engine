@@ -508,7 +508,69 @@ impl Painter {
             }
         }
 
+        // Text runs never carry an outline of their own; the owning element does.
+        if !matches!(layout_element.context, ElementContext::Text(_)) {
+            if let Some(cmd) = self.outline_command(layout_element, dom_node_id) {
+                commands.push(cmd);
+            }
+        }
+
         commands
+    }
+
+    /// CSS `outline`: a ring drawn *around* the border box (never taking layout space), pushed
+    /// out by `outline-offset`. Rendered as a border-only rectangle whose border box is the
+    /// element's border box inflated by offset + width, following the element's corner radii.
+    /// This is what the UA's `:focus-visible { outline: auto 1px ... }` focus ring paints with.
+    fn outline_command(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Option<PaintCommand> {
+        let doc = &self.layer_list.layout_tree.render_tree.doc;
+        let width = doc.get_style_f32(dom_node_id, &StyleProperty::OutlineWidth) as f64;
+        if width <= 0.0 {
+            return None;
+        }
+        let style = match doc.get_style(dom_node_id, &StyleProperty::OutlineStyle) {
+            Value::BorderStyle(s) if !matches!(s, CssBorderStyle::None | CssBorderStyle::Hidden) => {
+                css_border_style_to_paint(&s)
+            }
+            _ => return None,
+        };
+        let offset = doc.get_style_f32(dom_node_id, &StyleProperty::OutlineOffset) as f64;
+        // Only the box grows outward: a negative offset pulls the ring inside the border box.
+        let grow = offset + width;
+
+        let bb = layout_element.box_model.border_box;
+        let ring = Rect::new(bb.x - grow, bb.y - grow, bb.width + grow * 2.0, bb.height + grow * 2.0);
+        if ring.width <= 0.0 || ring.height <= 0.0 {
+            return None;
+        }
+
+        let brush = self.get_brush(dom_node_id, &StyleProperty::OutlineColor, Brush::solid(Color::BLACK));
+        let border = Border::new(
+            width as f32,
+            style,
+            [brush.clone(), brush.clone(), brush.clone(), brush],
+        );
+        let mut r = Rectangle::new(ring).with_border(border);
+
+        // Follow the element's rounding, expanded by the same amount as the box.
+        let radius = |prop: &StyleProperty| {
+            let v = doc.get_style_f32(dom_node_id, prop) as f64;
+            if v > 0.0 {
+                v + grow
+            } else {
+                0.0
+            }
+        };
+        let (tl, tr, br, bl) = (
+            radius(&StyleProperty::BorderTopLeftRadius),
+            radius(&StyleProperty::BorderTopRightRadius),
+            radius(&StyleProperty::BorderBottomRightRadius),
+            radius(&StyleProperty::BorderBottomLeftRadius),
+        );
+        if tl > 0.0 || tr > 0.0 || br > 0.0 || bl > 0.0 {
+            r = r.with_radius_tlrb(Radius::new(tl), Radius::new(tr), Radius::new(br), Radius::new(bl));
+        }
+        Some(PaintCommand::rectangle(r))
     }
 
     /// Draw a native form control: the element's CSS chrome (background + border, mostly from

@@ -7,6 +7,7 @@
 //! representation the active backend consumes.
 
 use crate::engine::events::{CursorShape, HitTestResponse};
+use crate::engine::focus;
 use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::EngineDocument;
 use gosub_config::{Config, HasConfig};
@@ -90,27 +91,6 @@ fn is_text_input<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeI
     }
 }
 
-/// True for elements that participate in keyboard focus: links, form controls,
-/// editable regions, and anything with a non-negative `tabindex`.
-fn is_focusable<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) -> bool {
-    if doc.node_type(node_id) != NodeType::ElementNode || doc.attribute(node_id, "disabled").is_some() {
-        return false;
-    }
-    if let Some(tabindex) = doc.attribute(node_id, "tabindex") {
-        return tabindex.trim().parse::<i32>().is_ok_and(|t| t >= 0);
-    }
-    match doc.tag_name(node_id) {
-        Some("a" | "area") => doc.attribute(node_id, "href").is_some(),
-        Some("input") => doc
-            .attribute(node_id, "type")
-            .is_none_or(|t| !t.eq_ignore_ascii_case("hidden")),
-        Some("textarea" | "select" | "button") => true,
-        _ => doc
-            .attribute(node_id, "contenteditable")
-            .is_some_and(|v| v.is_empty() || v.eq_ignore_ascii_case("true")),
-    }
-}
-
 /// Cached output of stages 1–6 for the whole page. Re-used on every scroll tick.
 struct PipelineCache {
     tiles: Vec<BakedTile>,
@@ -184,9 +164,6 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     hover_chain_sensitive: bool,
     /// The href of the link currently under the pointer, if any.
     pub hover_link_url: Option<String>,
-    /// The focused element (mirrors the document's interior-mutable focus, which drives
-    /// `:focus` matching; this field is the engine-side source of truth).
-    focused_node: Option<NodeId>,
     /// Cursor shape for what is under the pointer, derived from the hovered node's ancestry.
     hover_cursor: CursorShape,
 
@@ -236,7 +213,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_fingerprints: None,
             hover_chain_sensitive: false,
             hover_link_url: None,
-            focused_node: None,
             hover_cursor: CursorShape::Default,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
@@ -287,7 +263,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_chain_sensitive = false;
         self.hover_link_url = None;
         self.hover_cursor = CursorShape::Default;
-        self.focused_node = None;
     }
 
     /// Update the viewport SIZE. Only triggers a full re-layout when width or height changes.
@@ -726,14 +701,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_cursor
     }
 
-    /// The currently focused element.
-    pub fn focused_node(&self) -> Option<NodeId> {
-        self.focused_node
-    }
-
     /// Whether the focused element is text-editable (input/textarea/contenteditable).
     pub fn focused_editable(&self) -> bool {
-        match (self.focused_node, self.document.as_ref()) {
+        match (self.focused_node(), self.document.as_ref()) {
             (Some(id), Some(doc)) => is_text_input(doc, id),
             _ => false,
         }
@@ -741,90 +711,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     /// The focused element's link target (`<a href>`), for Enter-to-activate.
     pub fn focused_link(&self) -> Option<String> {
-        let (id, doc) = (self.focused_node?, self.document.as_ref()?);
+        let doc = self.document.as_ref()?;
+        let id = self.focused_node()?;
         if doc.tag_name(id) == Some("a") {
             doc.attribute(id, "href").map(str::to_string)
         } else {
             None
         }
-    }
-
-    /// Move focus to `node` (or clear it with `None`). Returns whether focus changed.
-    /// A change re-styles the document so `:focus` rules apply.
-    pub fn set_focus(&mut self, node: Option<NodeId>) -> bool {
-        if self.focused_node == node {
-            return false;
-        }
-        self.focused_node = node;
-        if let Some(doc) = &self.document {
-            doc.set_focused_node(node);
-        }
-        // Style-only change; the pipeline recomputes styles, layout and paint.
-        self.style_dirty = true;
-        self.invalidate_render();
-        true
-    }
-
-    /// Focus the nearest focusable ancestor of the element at viewport point `(x, y)`
-    /// (click-to-focus), blurring when the point hits nothing focusable. Returns whether
-    /// focus changed.
-    pub fn focus_at(&mut self, vp_x: f64, vp_y: f64) -> bool {
-        let target = self.active_layer_list().and_then(|layer_list| {
-            let lei = layer_list.find_element_at(vp_x, vp_y, self.scroll_x, self.scroll_y)?;
-            layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id)
-        });
-        let focusable = target.and_then(|leaf| {
-            let doc = self.document.as_ref()?;
-            let mut id = leaf;
-            loop {
-                if is_focusable(doc.as_ref(), id) {
-                    return Some(id);
-                }
-                match doc.parent(id) {
-                    Some(parent) => id = parent,
-                    None => return None,
-                }
-            }
-        });
-        self.set_focus(focusable)
-    }
-
-    /// Move focus to the next (or previous) focusable element in document order,
-    /// wrapping around; from no focus, starts at the first (or last). Returns the newly
-    /// focused element, or `None` when the document has none.
-    pub fn focus_step(&mut self, backwards: bool) -> Option<NodeId> {
-        let order = self.focusable_elements();
-        if order.is_empty() {
-            self.set_focus(None);
-            return None;
-        }
-        let next = match self.focused_node.and_then(|cur| order.iter().position(|&n| n == cur)) {
-            Some(pos) if backwards => order[(pos + order.len() - 1) % order.len()],
-            Some(pos) => order[(pos + 1) % order.len()],
-            None if backwards => *order.last()?,
-            None => order[0],
-        };
-        self.set_focus(Some(next));
-        Some(next)
-    }
-
-    /// Every focusable element, in document order.
-    fn focusable_elements(&self) -> Vec<NodeId> {
-        let Some(doc) = self.document.as_ref() else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        let mut stack = vec![doc.root()];
-        while let Some(id) = stack.pop() {
-            if is_focusable(doc.as_ref(), id) {
-                out.push(id);
-            }
-            // Push children reversed so the stack yields document order.
-            for &child in doc.children(id).iter().rev() {
-                stack.push(child);
-            }
-        }
-        out
     }
 
     /// Describe what is at viewport point `(vp_x, vp_y)` for a context menu: the nearest
@@ -879,6 +772,84 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         out
     }
 
+    /// The DOM node and layout element under viewport point `(vp_x, vp_y)`, honouring per-layer
+    /// scroll anchoring. `(None, None)` when nothing is laid out there (or no render exists yet).
+    fn hit_at(&self, vp_x: f64, vp_y: f64) -> (Option<NodeId>, Option<LayoutElementId>) {
+        let (scroll_x, scroll_y) = (self.scroll_x, self.scroll_y);
+        self.active_layer_list().map_or((None, None), |layer_list| {
+            // find_element_at handles scroll per-layer (fixed layers ignore it).
+            let Some(lei) = layer_list.find_element_at(vp_x, vp_y, scroll_x, scroll_y) else {
+                return (None, None);
+            };
+            let dom_node_id = layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id);
+            (dom_node_id, Some(lei))
+        })
+    }
+
+    /// Currently focused DOM node, if any.
+    pub fn focused_node(&self) -> Option<NodeId> {
+        self.document.as_ref().and_then(|d| d.focused_node())
+    }
+
+    /// Move focus to `node` (`None` blurs); `visible` controls `:focus-visible`. Returns whether
+    /// anything changed. A change re-renders fully: focus is rare, and `:focus` rules may change
+    /// layout (borders, padding), which the paint-only hover path would render stale.
+    pub fn set_focus(&mut self, node: Option<NodeId>, visible: bool) -> bool {
+        let Some(doc) = &self.document else {
+            return false;
+        };
+        let unchanged = doc.focused_node() == node && node.is_none_or(|n| doc.is_focus_visible(n) == visible);
+        if unchanged {
+            return false;
+        }
+        doc.set_focused_node(node, visible);
+        self.invalidate_render();
+        true
+    }
+
+    /// Pointer click at viewport `(vp_x, vp_y)`: focus the nearest focusable element under it
+    /// (through `<label>` bindings), or blur when the click lands on nothing focusable.
+    /// Returns whether the focus state changed.
+    pub fn focus_at(&mut self, vp_x: f64, vp_y: f64) -> bool {
+        let (leaf, _) = self.hit_at(vp_x, vp_y);
+        let (target, visible) = match (&self.document, leaf) {
+            (Some(doc), Some(leaf)) => {
+                let target = focus::click_target(doc, leaf);
+                let visible = target.is_some_and(|t| focus::click_shows_ring(doc, t));
+                (target, visible)
+            }
+            _ => (None, false),
+        };
+        log::debug!("focus: click at ({vp_x}, {vp_y}) hit {leaf:?} -> focus {target:?} (ring: {visible})");
+        self.set_focus(target, visible)
+    }
+
+    /// Sequential focus navigation (Tab / Shift+Tab): step to the next/previous element in tab
+    /// order, wrapping around; with nothing focused, start from the first/last. Keyboard focus
+    /// always shows the ring. Returns whether the focus state changed.
+    pub fn focus_step(&mut self, backwards: bool) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        // Only elements that actually have a box are reachable by keyboard; before the first
+        // render there are no boxes yet, so fall back to every focusable element.
+        let rendered: Option<std::collections::HashSet<NodeId>> = self
+            .active_layer_list()
+            .map(|ll| ll.layout_tree.arena.values().map(|el| el.dom_node_id).collect());
+        let order = focus::tab_order(&doc, rendered.as_ref());
+        if order.is_empty() {
+            return self.set_focus(None, false);
+        }
+        let current = doc.focused_node().and_then(|f| order.iter().position(|&n| n == f));
+        let next = match (current, backwards) {
+            (Some(i), false) => (i + 1) % order.len(),
+            (Some(i), true) => (i + order.len() - 1) % order.len(),
+            (None, false) => 0,
+            (None, true) => order.len() - 1,
+        };
+        self.set_focus(Some(order[next]), true)
+    }
+
     /// Hit-test at viewport coordinates `(vp_x, vp_y)` and update hover state.
     ///
     /// Returns `(visual_dirty, url_changed, link_url)`:
@@ -891,17 +862,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> (bool, bool, Option<String>) {
         let _t_total = gosub_shared::timing_guard!("hover.total");
 
-        let (scroll_x, scroll_y) = (self.scroll_x, self.scroll_y);
-
-        let (new_leaf, new_lei) = self.active_layer_list().map_or((None, None), |layer_list| {
+        let (new_leaf, new_lei) = {
             let _t = gosub_shared::timing_guard!("hover.hit_test");
-            // find_element_at handles scroll per-layer (fixed layers ignore it).
-            let Some(lei) = layer_list.find_element_at(vp_x, vp_y, scroll_x, scroll_y) else {
-                return (None, None);
-            };
-            let dom_node_id = layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id);
-            (dom_node_id, Some(lei))
-        });
+            self.hit_at(vp_x, vp_y)
+        };
 
         // Common case: same element - skip the ancestor walk entirely.
         if new_leaf == self.hover_leaf {
@@ -1706,14 +1670,19 @@ mod tests {
             ctx.rebuild_pipeline_cache_if_needed();
 
             // Tab cycles a → input → button → wraps to a. The tabindex=-1 link is skipped.
-            let a = ctx.focus_step(false).expect("first focusable");
+            assert!(ctx.focus_step(false));
+            let a = ctx.focused_node().expect("first focusable");
             assert_eq!(ctx.focused_link().as_deref(), Some("/one"));
-            let input = ctx.focus_step(false).expect("second");
+            assert!(ctx.focus_step(false));
+            let input = ctx.focused_node().expect("second");
             assert!(ctx.focused_editable());
-            let button = ctx.focus_step(false).expect("third");
+            assert!(ctx.focus_step(false));
+            let button = ctx.focused_node().expect("third");
             assert!(!ctx.focused_editable());
-            assert_eq!(ctx.focus_step(false), Some(a), "wraps around");
-            assert_eq!(ctx.focus_step(true), Some(button), "shift-tab goes back");
+            assert!(ctx.focus_step(false));
+            assert_eq!(ctx.focused_node(), Some(a), "wraps around");
+            assert!(ctx.focus_step(true));
+            assert_eq!(ctx.focused_node(), Some(button), "shift-tab goes back");
             assert_ne!(a, input);
 
             // The document agrees (this is what :focus matching reads).

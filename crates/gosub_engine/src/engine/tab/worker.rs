@@ -866,7 +866,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             "Escape" => {
-                if self.context.set_focus(None) {
+                if self.context.set_focus(None, false) {
                     self.runtime.dirty = true;
                     self.runtime.render_now = true;
                     self.emit_focus_changed();
@@ -1157,12 +1157,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
                 ControlFlow::Continue
             }
-            TabCommand::MouseDown { button, x, y } => {
+            TabCommand::MouseDown { x, y, button } => {
                 if matches!(button, crate::events::MouseButton::Left) {
-                    // Click-to-focus: focus the nearest focusable ancestor of the hit element
-                    // (or blur), before any link activation.
+                    // Click-to-focus (or blur when the click lands on nothing focusable),
+                    // before any link activation.
                     if self.context.focus_at(x as f64, y as f64) {
-                        self.runtime.dirty = true;
+                        self.runtime.render_now = true;
                         self.emit_focus_changed();
                     }
                     if let Some(href) = self.context.hover_link_url.clone() {
@@ -1180,10 +1180,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             TabCommand::KeyDown { key, modifiers, .. } => self.handle_key_down(&key, modifiers),
-            // Key releases and legacy char events need no handling yet; text input arrives
-            // with the editing slice of M1.
-            TabCommand::KeyUp { .. } | TabCommand::CharInput { .. } => ControlFlow::Continue,
-            TabCommand::MouseUp { .. } => {
+            TabCommand::MouseUp { .. } | TabCommand::KeyUp { .. } | TabCommand::CharInput { .. } => {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }

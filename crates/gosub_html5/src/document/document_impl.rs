@@ -32,9 +32,16 @@ pub struct DocumentImpl<C: HasDocument> {
     pub quirks_mode: QuirksMode,
     pub stylesheets: Vec<<C::CssSystem as CssSystem>::Stylesheet>,
     hovered_nodes: parking_lot::RwLock<std::collections::HashSet<NodeId>>,
-    /// The focused element, if any (drives `:focus`). Interior-mutable like hover so the
-    /// engine can update it through the shared `Arc`.
-    focused_node: parking_lot::RwLock<Option<NodeId>>,
+    /// The focused element and its ancestor chain (for `:focus-within`), plus whether the focus
+    /// ring should show (`:focus-visible`: keyboard focus, or a text-entry control).
+    focus: parking_lot::RwLock<FocusState>,
+}
+
+#[derive(Debug, Default)]
+struct FocusState {
+    node: Option<NodeId>,
+    chain: std::collections::HashSet<NodeId>,
+    visible: bool,
 }
 
 impl<C: HasDocument> PartialEq for DocumentImpl<C> {
@@ -61,7 +68,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             quirks_mode: QuirksMode::NoQuirks,
             stylesheets: Vec::new(),
             hovered_nodes: parking_lot::RwLock::new(std::collections::HashSet::new()),
-            focused_node: parking_lot::RwLock::new(None),
+            focus: parking_lot::RwLock::new(FocusState::default()),
         };
         let root = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
         doc.arena.register_node(root);
@@ -377,26 +384,51 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn is_focused(&self, id: NodeId) -> bool {
-        *self.focused_node.read() == Some(id)
+        self.focus.read().node == Some(id)
+    }
+
+    fn is_focus_visible(&self, id: NodeId) -> bool {
+        let f = self.focus.read();
+        f.visible && f.node == Some(id)
+    }
+
+    fn is_focus_within(&self, id: NodeId) -> bool {
+        self.focus.read().chain.contains(&id)
+    }
+
+    fn focused_node(&self) -> Option<NodeId> {
+        self.focus.read().node
     }
 }
 
 // ── Internal helpers (not part of Document trait) ───────────────────────────
 
 impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
-    /// Update the set of hovered nodes to the ancestor chain of `leaf` (inclusive).
-    /// Pass `None` to clear hover state. Uses interior mutability so it works through Arc.
-    /// Set (or clear) the focused element. Uses interior mutability so it works through Arc.
-    pub fn set_focused_node(&self, node: Option<NodeId>) {
-        *self.focused_node.write() = node;
-    }
-
     pub fn set_hovered_nodes(&self, leaf: Option<NodeId>) {
         let mut set = self.hovered_nodes.write();
         set.clear();
         if let Some(mut id) = leaf {
             loop {
                 set.insert(id);
+                match self.arena.node_ref(id).and_then(|n| n.parent) {
+                    Some(parent) => id = parent,
+                    None => break,
+                }
+            }
+        }
+    }
+
+    /// Move focus to `node` (`None` blurs). `visible` says whether `:focus-visible` should
+    /// match - true for keyboard-driven focus, false for a pointer click on e.g. a button.
+    /// Interior mutability so it works through `Arc`, like hover.
+    pub fn set_focused_node(&self, node: Option<NodeId>, visible: bool) {
+        let mut f = self.focus.write();
+        f.node = node;
+        f.visible = visible;
+        f.chain.clear();
+        if let Some(mut id) = node {
+            loop {
+                f.chain.insert(id);
                 match self.arena.node_ref(id).and_then(|n| n.parent) {
                     Some(parent) => id = parent,
                     None => break,

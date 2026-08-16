@@ -360,13 +360,16 @@ impl From<&[CssSelectorPart]> for Specificity {
                 CssSelectorPart::Id(_) => {
                     id_count += 1;
                 }
-                CssSelectorPart::Class(_) => {
+                // Attribute selectors and pseudo-classes weigh the same as a class; pseudo-elements
+                // the same as a type (CSS Selectors §17). Without this `a:focus` tied with `a`
+                // and lost or won on source order alone.
+                CssSelectorPart::Class(_) | CssSelectorPart::Attribute(_) | CssSelectorPart::PseudoClass(_) => {
                     class_count += 1;
                 }
-                CssSelectorPart::Type(_) => {
+                CssSelectorPart::Type(_) | CssSelectorPart::PseudoElement(_) => {
                     element_count += 1;
                 }
-                _ => {}
+                CssSelectorPart::Universal | CssSelectorPart::Combinator(_) => {}
             }
         }
         Specificity::new(id_count, class_count, element_count)

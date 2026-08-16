@@ -299,6 +299,10 @@ pub enum StyleProperty {
     ZIndex,
     LetterSpacing,
     MixBlendMode,
+    OutlineWidth,
+    OutlineStyle,
+    OutlineColor,
+    OutlineOffset,
 }
 
 impl StyleProperty {
@@ -383,6 +387,10 @@ impl StyleProperty {
             StyleProperty::ZIndex => 75,
             StyleProperty::LetterSpacing => 76,
             StyleProperty::MixBlendMode => 77,
+            StyleProperty::OutlineWidth => 78,
+            StyleProperty::OutlineStyle => 79,
+            StyleProperty::OutlineColor => 80,
+            StyleProperty::OutlineOffset => 81,
         }
     }
 
@@ -917,6 +925,31 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("normal"),
     },
+    // 78 outline-width - initial = medium = 3px; computes to 0 when outline-style is none
+    // (enforced in `get_style`, like border widths).
+    PropertyMeta {
+        name: "outline-width",
+        inherited: false,
+        initial_kind: InitialKind::Unit(3.0, Unit::Px),
+    },
+    // 79 outline-style
+    PropertyMeta {
+        name: "outline-style",
+        inherited: false,
+        initial_kind: InitialKind::BorderStyle(BorderStyle::None),
+    },
+    // 80 outline-color - initial = currentColor (resolved in `get_style`)
+    PropertyMeta {
+        name: "outline-color",
+        inherited: false,
+        initial_kind: InitialKind::Color(0, 0, 0, 255),
+    },
+    // 81 outline-offset
+    PropertyMeta {
+        name: "outline-offset",
+        inherited: false,
+        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+    },
 ];
 
 // ── NodeStyle - replaces StylePropertyList ────────────────────────────────────
@@ -1056,6 +1089,10 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         75 => Some(StyleProperty::ZIndex),
         76 => Some(StyleProperty::LetterSpacing),
         77 => Some(StyleProperty::MixBlendMode),
+        78 => Some(StyleProperty::OutlineWidth),
+        79 => Some(StyleProperty::OutlineStyle),
+        80 => Some(StyleProperty::OutlineColor),
+        81 => Some(StyleProperty::OutlineOffset),
         _ => None,
     }
 }

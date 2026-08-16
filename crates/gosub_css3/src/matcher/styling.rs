@@ -239,9 +239,9 @@ fn match_selector_part<C: HasDocument>(
                     && doc.attribute(current_id, "disabled").is_none()
                     && doc.node_type(current_id) == NodeType::ElementNode
             }
-            "focus" | "focus-visible" => doc.is_focused(current_id),
-            // :focus-within needs the focus chain; not tracked yet.
-            "focus-within" => false,
+            "focus" => doc.is_focused(current_id),
+            "focus-visible" => doc.is_focus_visible(current_id),
+            "focus-within" => doc.is_focus_within(current_id),
             "active" => false,
             // Unknown / unimplemented pseudo-classes never match.
             _ => false,

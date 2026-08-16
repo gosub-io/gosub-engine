@@ -5,7 +5,7 @@
 //! No GTK dependency - Skia has its own font system.
 //! Press Ctrl+L to focus the address bar.
 
-use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
+use gosub_engine::events::{EngineEvent, Modifiers, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
@@ -27,7 +27,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use winit::keyboard::{Key, NamedKey};
+use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-00000000000a");
@@ -63,6 +63,8 @@ struct BrowserApp {
 
     url_input: String,
     addr_focused: bool,
+    /// Live keyboard modifier state, for Shift+Tab etc.
+    modifiers: ModifiersState,
     cursor: PhysicalPosition<f64>,
     scroll: (f32, f32),
     page_height: f32,
@@ -262,6 +264,10 @@ impl ApplicationHandler<()> for BrowserApp {
                 }
             }
 
+            WindowEvent::ModifiersChanged(mods) => {
+                self.modifiers = mods.state();
+            }
+
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
@@ -294,6 +300,24 @@ impl ApplicationHandler<()> for BrowserApp {
                     }
                 }
             },
+
+            // Page content has keyboard focus: hand the key to the engine (Tab cycles focus).
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        logical_key,
+                        state: ElementState::Pressed,
+                        ..
+                    },
+                ..
+            } => {
+                if let Some(cmd) = key_down_command(&logical_key, self.modifiers) {
+                    let tab = self.tab.clone();
+                    TOKIO_RT.spawn(async move {
+                        let _ = tab.send(cmd).await;
+                    });
+                }
+            }
 
             _ => {}
         }
@@ -426,6 +450,34 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
     }
 }
 
+/// Map a winit key press to the engine's DOM-style key event. Winit's `NamedKey` variant names
+/// follow the DOM `KeyboardEvent.key` values, so their Debug form is the key name.
+fn key_down_command(logical_key: &Key, mods: ModifiersState) -> Option<TabCommand> {
+    let key = match logical_key {
+        Key::Named(named) => format!("{named:?}"),
+        Key::Character(c) => c.to_string(),
+        _ => return None,
+    };
+    let mut modifiers = Modifiers::empty();
+    if mods.shift_key() {
+        modifiers |= Modifiers::SHIFT;
+    }
+    if mods.control_key() {
+        modifiers |= Modifiers::CONTROL;
+    }
+    if mods.alt_key() {
+        modifiers |= Modifiers::ALT;
+    }
+    if mods.super_key() {
+        modifiers |= Modifiers::META;
+    }
+    Some(TabCommand::KeyDown {
+        code: key.clone(),
+        key,
+        modifiers,
+    })
+}
+
 fn main() {
     eprintln!(
         "{} v{} — winit browser window, Skia (CPU) rendering via softbuffer",
@@ -542,6 +594,7 @@ fn main() {
         surface_size: (0, 0),
         url_input: initial_url,
         addr_focused: false,
+        modifiers: ModifiersState::empty(),
         cursor: PhysicalPosition::default(),
         scroll: (0.0, 0.0),
         page_height: 0.0,

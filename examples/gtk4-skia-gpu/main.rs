@@ -69,6 +69,49 @@ fn get_bound_fbo() -> u32 {
 
 // ── Application ───────────────────────────────────────────────────────────────
 
+/// Map a GDK key press to the engine's DOM-style key event. GDK key names mostly match DOM
+/// `KeyboardEvent.key` values; the few that differ are translated. Shift+Tab arrives on X11 as
+/// the distinct `ISO_Left_Tab` keysym, so fold it back into Tab + SHIFT.
+fn key_down_command(key: gtk4::gdk::Key, state: gtk4::gdk::ModifierType) -> Option<TabCommand> {
+    use gosub_engine::events::Modifiers;
+    let mut modifiers = Modifiers::empty();
+    if state.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
+        modifiers |= Modifiers::SHIFT;
+    }
+    if state.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+        modifiers |= Modifiers::CONTROL;
+    }
+    if state.contains(gtk4::gdk::ModifierType::ALT_MASK) {
+        modifiers |= Modifiers::ALT;
+    }
+    if state.contains(gtk4::gdk::ModifierType::SUPER_MASK) {
+        modifiers |= Modifiers::META;
+    }
+    let name = key.name()?;
+    let key_name = match name.as_str() {
+        "ISO_Left_Tab" => {
+            modifiers |= Modifiers::SHIFT;
+            "Tab".to_string()
+        }
+        "Return" | "KP_Enter" => "Enter".to_string(),
+        "BackSpace" => "Backspace".to_string(),
+        "Left" => "ArrowLeft".to_string(),
+        "Right" => "ArrowRight".to_string(),
+        "Up" => "ArrowUp".to_string(),
+        "Down" => "ArrowDown".to_string(),
+        "space" => " ".to_string(),
+        _ => match key.to_unicode() {
+            Some(c) if !c.is_control() => c.to_string(),
+            _ => name.to_string(),
+        },
+    };
+    Some(TabCommand::KeyDown {
+        code: key_name.clone(),
+        key: key_name,
+        modifiers,
+    })
+}
+
 fn main() {
     eprintln!(
         "{} v{} — GTK4 browser window, Skia GPU (OpenGL) rendering",
@@ -380,7 +423,10 @@ fn main() {
         click_ctl.set_button(gtk4::gdk::BUTTON_PRIMARY);
         click_ctl.connect_pressed({
             let tab = tab.clone();
-            move |_, _, x, y| {
+            move |gesture, _, x, y| {
+                if let Some(w) = gesture.widget() {
+                    w.grab_focus();
+                }
                 let tab = tab.borrow().clone();
                 TOKIO_RT.spawn(async move {
                     let _ = tab
@@ -394,6 +440,30 @@ fn main() {
             }
         });
         gl_area.add_controller(click_ctl);
+
+        // Keyboard → engine (Tab cycles focus between page elements). Clicking the page gives
+        // the area GTK focus so keys reach it; Tab is swallowed so GTK doesn't move focus to the
+        // address bar instead.
+        let key_ctl = gtk4::EventControllerKey::new();
+        key_ctl.connect_key_pressed({
+            let tab = tab.clone();
+            move |_, key, _code, state| {
+                let Some(cmd) = key_down_command(key, state) else {
+                    return glib::Propagation::Proceed;
+                };
+                let is_tab = matches!(&cmd, TabCommand::KeyDown { key, .. } if key == "Tab");
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab.send(cmd).await;
+                });
+                if is_tab {
+                    glib::Propagation::Stop
+                } else {
+                    glib::Propagation::Proceed
+                }
+            }
+        });
+        gl_area.add_controller(key_ctl);
 
         // ── Address bar ──────────────────────────────────────────────────────
 

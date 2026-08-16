@@ -10,7 +10,7 @@
 //! On Wayland an incompatible adapter causes `get_current_texture()` to silently fail
 //! every frame, keeping the surface un-committed and the window invisible.
 
-use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
+use gosub_engine::events::{EngineEvent, Modifiers, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
@@ -448,6 +448,16 @@ impl ApplicationHandler<()> for BrowserApp {
                     },
                 ..
             } => {
+                // Page content has keyboard focus: hand the key to the engine (Tab cycles focus).
+                if !self.addr_focused {
+                    if let (Some(rt), Some(cmd)) = (&self.state, key_down_command(&logical_key, self.modifiers)) {
+                        let tab = rt.tab.clone();
+                        TOKIO_RT.spawn(async move {
+                            let _ = tab.send(cmd).await;
+                        });
+                    }
+                }
+
                 if logical_key == Key::Character("l".into()) && self.modifiers.control_key() {
                     self.addr_focused = true;
                     self.url_input = self.current_url.clone();
@@ -489,6 +499,34 @@ impl ApplicationHandler<()> for BrowserApp {
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
+
+/// Map a winit key press to the engine's DOM-style key event. Winit's `NamedKey` variant names
+/// follow the DOM `KeyboardEvent.key` values, so their Debug form is the key name.
+fn key_down_command(logical_key: &Key, mods: ModifiersState) -> Option<TabCommand> {
+    let key = match logical_key {
+        Key::Named(named) => format!("{named:?}"),
+        Key::Character(c) => c.to_string(),
+        _ => return None,
+    };
+    let mut modifiers = Modifiers::empty();
+    if mods.shift_key() {
+        modifiers |= Modifiers::SHIFT;
+    }
+    if mods.control_key() {
+        modifiers |= Modifiers::CONTROL;
+    }
+    if mods.alt_key() {
+        modifiers |= Modifiers::ALT;
+    }
+    if mods.super_key() {
+        modifiers |= Modifiers::META;
+    }
+    Some(TabCommand::KeyDown {
+        code: key.clone(),
+        key,
+        modifiers,
+    })
+}
 
 fn main() {
     eprintln!(

@@ -7,7 +7,7 @@
 //! GPU texture-size limit and pages of any height can be captured.
 
 use clap::Parser;
-use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+use gosub_engine::events::{EngineEvent, Modifiers, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
@@ -66,6 +66,53 @@ struct Args {
     /// decode and repaint before the capture
     #[arg(long, default_value = "0")]
     settle: u64,
+    /// Interactions to replay after the first render, in order, before capturing. Each is
+    /// `click:X,Y` (left click at CSS-pixel page coordinates), `tab` or `shift-tab` (move
+    /// keyboard focus), or `key:NAME` (a bare key press). Repeatable, e.g. `-i tab -i tab`.
+    #[arg(short = 'i', long = "interact")]
+    interact: Vec<String>,
+}
+
+/// Turn one `--interact` spec into the tab command(s) it stands for.
+fn parse_interaction(spec: &str) -> Vec<TabCommand> {
+    let key = |k: &str, modifiers: Modifiers| TabCommand::KeyDown {
+        key: k.to_string(),
+        code: k.to_string(),
+        modifiers,
+    };
+    match spec.split_once(':') {
+        None if spec.eq_ignore_ascii_case("tab") => vec![key("Tab", Modifiers::empty())],
+        None if spec.eq_ignore_ascii_case("shift-tab") => vec![key("Tab", Modifiers::SHIFT)],
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("key") => vec![key(rest, Modifiers::empty())],
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("click") => {
+            let Some((x, y)) = rest.split_once(',') else {
+                eprintln!("Bad click spec '{spec}': expected click:X,Y");
+                std::process::exit(2);
+            };
+            let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>()) else {
+                eprintln!("Bad click coordinates in '{spec}'");
+                std::process::exit(2);
+            };
+            // Hover first, like a real pointer: link activation piggybacks on hover state.
+            vec![
+                TabCommand::MouseMove { x, y },
+                TabCommand::MouseDown {
+                    x,
+                    y,
+                    button: MouseButton::Left,
+                },
+                TabCommand::MouseUp {
+                    x,
+                    y,
+                    button: MouseButton::Left,
+                },
+            ]
+        }
+        _ => {
+            eprintln!("Unknown interaction '{spec}' (expected click:X,Y | tab | shift-tab | key:NAME)");
+            std::process::exit(2);
+        }
+    }
 }
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
@@ -228,6 +275,45 @@ fn main() {
     if args.settle > 0 {
         std::thread::sleep(Duration::from_secs(args.settle));
         while rx_redraw.try_recv().is_ok() {}
+    }
+
+    // ── Phase 1b: replay interactions, waiting for each resulting repaint ─────
+    if !args.interact.is_empty() {
+        let commands: Vec<TabCommand> = args.interact.iter().flat_map(|s| parse_interaction(s)).collect();
+        eprintln!("Replaying {} interaction(s)…", args.interact.len());
+        for cmd in commands {
+            let is_input = matches!(cmd, TabCommand::MouseDown { .. } | TabCommand::KeyDown { .. });
+            let is_move = matches!(cmd, TabCommand::MouseMove { .. });
+            let tab_i = tab.clone();
+            TOKIO_RT.block_on(async move {
+                let _ = tab_i.send(cmd).await;
+            });
+            if is_move {
+                // A hover repaint may follow; swallow it so it isn't mistaken for the click's.
+                std::thread::sleep(Duration::from_millis(200));
+                while rx_redraw.try_recv().is_ok() {}
+                continue;
+            }
+            if !is_input {
+                continue;
+            }
+            // Focus changes trigger a full re-render; give it a bounded window to land.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut repainted = false;
+            while Instant::now() < deadline {
+                if rx_redraw.try_recv().is_ok() {
+                    repainted = true;
+                    // Drain any burst, then move on.
+                    std::thread::sleep(Duration::from_millis(100));
+                    while rx_redraw.try_recv().is_ok() {}
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if !repainted {
+                eprintln!("(no repaint observed after interaction - focus state may be unchanged)");
+            }
+        }
     }
 
     let phase1_handle = compositor.frame_for(tab_id);

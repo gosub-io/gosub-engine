@@ -6,6 +6,7 @@ mod context;
 #[allow(clippy::module_inception)]
 mod engine;
 mod errors;
+mod focus;
 pub mod internal_pages;
 pub mod places;
 

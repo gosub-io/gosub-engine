@@ -25,7 +25,8 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
         | StyleProperty::BorderTopColor
         | StyleProperty::BorderRightColor
         | StyleProperty::BorderBottomColor
-        | StyleProperty::BorderLeftColor => {
+        | StyleProperty::BorderLeftColor
+        | StyleProperty::OutlineColor => {
             if let Some(s) = p.as_string() {
                 if let Some((r, g, b, a)) = css_system_color(s) {
                     return Some(Value::Color(r, g, b, a));
@@ -118,6 +119,15 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
         | StyleProperty::BorderLeftStyle => {
             let s = p.as_string()?;
             Some(Value::BorderStyle(str_to_border_style(s)))
+        }
+        // `outline-style: auto` is the UA focus ring; painted as a solid ring.
+        StyleProperty::OutlineStyle => {
+            let s = p.as_string()?;
+            Some(Value::BorderStyle(if s.eq_ignore_ascii_case("auto") {
+                BorderStyle::Solid
+            } else {
+                str_to_border_style(s)
+            }))
         }
 
         // ── Numeric properties ─────────────────────────────────────────────
@@ -1063,9 +1073,14 @@ where
                 | StyleProperty::BorderRightColor
                 | StyleProperty::BorderBottomColor
                 | StyleProperty::BorderLeftColor
+                | StyleProperty::OutlineColor
         ) {
             if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, css_name) {
-                if p.as_string().is_some_and(|s| s.eq_ignore_ascii_case("currentcolor")) {
+                // `outline-color: auto` (its initial value) also follows the text color.
+                if p.as_string().is_some_and(|s| {
+                    s.eq_ignore_ascii_case("currentcolor")
+                        || (matches!(prop, StyleProperty::OutlineColor) && s.eq_ignore_ascii_case("auto"))
+                }) {
                     return Some(self.get_style(id, &StyleProperty::Color));
                 }
             }
@@ -1496,6 +1511,7 @@ fn border_width_peer_style(prop: &StyleProperty) -> Option<StyleProperty> {
         StyleProperty::BorderRightWidth => StyleProperty::BorderRightStyle,
         StyleProperty::BorderBottomWidth => StyleProperty::BorderBottomStyle,
         StyleProperty::BorderLeftWidth => StyleProperty::BorderLeftStyle,
+        StyleProperty::OutlineWidth => StyleProperty::OutlineStyle,
         _ => return None,
     })
 }
@@ -1527,6 +1543,9 @@ fn css_system_color(name: &str) -> Option<(u8, u8, u8, u8)> {
         "fieldtext" | "canvastext" | "buttontext" | "graytext" => Some((0, 0, 0, 255)),
         "buttonface" | "threedface" => Some((240, 240, 240, 255)),
         "buttonborder" | "threedlightshadow" | "threedhighlight" => Some((160, 160, 160, 255)),
+        // Chromium's default focus ring blue. The cascade strips vendor prefixes, so the bare
+        // name is what usually arrives here.
+        "-webkit-focus-ring-color" | "focus-ring-color" => Some((0x10, 0x1e, 0xf5, 255)),
         // Selection / highlights
         "highlight" | "selecteditem" | "activecaption" => Some((0, 120, 215, 255)),
         "highlighttext" | "selecteditemtext" | "captiontext" => Some((255, 255, 255, 255)),

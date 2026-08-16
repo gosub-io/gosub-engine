@@ -16,7 +16,7 @@ use glutin::display::GetGlDisplay;
 use glutin::prelude::{GlDisplay, GlSurface, NotCurrentGlContext as _};
 use glutin::surface::{Surface as GlSurface_, WindowSurface};
 use glutin_winit::{DisplayBuilder, GlWindow};
-use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
+use gosub_engine::events::{EngineEvent, Modifiers, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
@@ -41,7 +41,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use winit::keyboard::{Key, NamedKey};
+use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::raw_window_handle::HasWindowHandle;
 use winit::window::{Window, WindowAttributes, WindowId};
 
@@ -112,6 +112,8 @@ struct BrowserApp {
 
     url_input: String,
     addr_focused: bool,
+    /// Live keyboard modifier state, for Shift+Tab etc.
+    modifiers: ModifiersState,
     cursor: PhysicalPosition<f64>,
     scroll: (f32, f32),
     page_height: f32,
@@ -328,9 +330,59 @@ impl ApplicationHandler<()> for BrowserApp {
                 }
             },
 
+            WindowEvent::ModifiersChanged(mods) => {
+                self.modifiers = mods.state();
+            }
+
+            // Page content has keyboard focus: hand the key to the engine (Tab cycles focus).
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        logical_key,
+                        state: ElementState::Pressed,
+                        ..
+                    },
+                ..
+            } => {
+                if let Some(cmd) = key_down_command(&logical_key, self.modifiers) {
+                    let tab = self.tab.clone();
+                    TOKIO_RT.spawn(async move {
+                        let _ = tab.send(cmd).await;
+                    });
+                }
+            }
+
             _ => {}
         }
     }
+}
+
+/// Map a winit key press to the engine's DOM-style key event. Winit's `NamedKey` variant names
+/// follow the DOM `KeyboardEvent.key` values, so their Debug form is the key name.
+fn key_down_command(logical_key: &Key, mods: ModifiersState) -> Option<TabCommand> {
+    let key = match logical_key {
+        Key::Named(named) => format!("{named:?}"),
+        Key::Character(c) => c.to_string(),
+        _ => return None,
+    };
+    let mut modifiers = Modifiers::empty();
+    if mods.shift_key() {
+        modifiers |= Modifiers::SHIFT;
+    }
+    if mods.control_key() {
+        modifiers |= Modifiers::CONTROL;
+    }
+    if mods.alt_key() {
+        modifiers |= Modifiers::ALT;
+    }
+    if mods.super_key() {
+        modifiers |= Modifiers::META;
+    }
+    Some(TabCommand::KeyDown {
+        code: key.clone(),
+        key,
+        modifiers,
+    })
 }
 
 // ── GPU tile compositing ───────────────────────────────────────────────────────
@@ -636,6 +688,7 @@ fn main() {
         surface_size: (size.width, size.height),
         url_input: initial_url,
         addr_focused: false,
+        modifiers: ModifiersState::empty(),
         cursor: PhysicalPosition::default(),
         scroll: (0.0, 0.0),
         page_height: 0.0,
