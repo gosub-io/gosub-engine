@@ -493,6 +493,29 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             .or_else(|| self.pipeline_cache.as_ref().map(|c| &c.layer_list))
     }
 
+    /// Page-space top of the element a URL fragment points at, per the HTML "indicated part
+    /// of the document": the element whose `id` equals the (percent-decoded) fragment, else
+    /// the first `<a name=…>` with that name. An empty fragment or `top` means the top of the
+    /// document. `None` when nothing matches or layout has not run yet.
+    pub fn fragment_target_y(&self, fragment: &str) -> Option<f64> {
+        let decoded = percent_encoding::percent_decode_str(fragment).decode_utf8_lossy();
+        if decoded.is_empty() || decoded == "top" {
+            return Some(0.0);
+        }
+        let doc = self.document.as_ref()?;
+        let layer_list = self.active_layer_list()?;
+        let arena = &layer_list.layout_tree.arena;
+        let matches = |dom_id: NodeId, attr: &str| doc.attribute(dom_id, attr) == Some(decoded.as_ref());
+
+        let by_id = arena.values().find(|n| matches(n.dom_node_id, "id"));
+        let node = by_id.or_else(|| {
+            arena
+                .values()
+                .find(|n| doc.tag_name(n.dom_node_id) == Some("a") && matches(n.dom_node_id, "name"))
+        })?;
+        Some(node.box_model.border_box.y)
+    }
+
     /// The active full-page height, from whichever cache this tab populates.
     fn active_page_height(&self) -> Option<f64> {
         self.scene_cache
@@ -1193,6 +1216,59 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
 #[cfg(test)]
 mod tests {
     use super::parse_clear_color;
+
+    mod fragment_navigation {
+        use super::super::*;
+        use crate::engine::settings_store;
+        use crate::html::DefaultRenderConfig;
+        use gosub_css3::system::Css3System;
+
+        /// Lays out a page with an `id` target and an `<a name>` target at known offsets and
+        /// resolves fragments against it.
+        fn context_with_targets() -> BrowsingContext<DefaultRenderConfig> {
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 300,
+            });
+            let html = r#"<html><body style="margin:0">
+                <div style="height:1000px"></div>
+                <h2 id="section-2" style="margin:0;height:20px">Two</h2>
+                <div style="height:500px"></div>
+                <a name="legacy anchor" style="display:block;height:10px"></a>
+                <div style="height:2000px"></div>
+            </body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+            ctx.rebuild_pipeline_cache_if_needed();
+            ctx
+        }
+
+        #[test]
+        fn resolves_id_name_and_top() {
+            let ctx = context_with_targets();
+            // The h2 sits right after the 1000px spacer.
+            let y = ctx.fragment_target_y("section-2").expect("id target");
+            assert!((y - 1000.0).abs() < 1.0, "expected ~1000, got {y}");
+            // `<a name>` fallback, percent-encoded in the URL: 1000 + 20 + 500.
+            let y = ctx.fragment_target_y("legacy%20anchor").expect("name target");
+            assert!((y - 1520.0).abs() < 1.0, "expected ~1520, got {y}");
+            assert_eq!(ctx.fragment_target_y(""), Some(0.0));
+            assert_eq!(ctx.fragment_target_y("top"), Some(0.0));
+            assert_eq!(ctx.fragment_target_y("nope"), None);
+        }
+
+        #[test]
+        fn unknown_before_layout() {
+            let ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            assert_eq!(ctx.fragment_target_y("section-2"), None);
+            // Top-of-document needs no layout.
+            assert_eq!(ctx.fragment_target_y(""), Some(0.0));
+        }
+    }
 
     mod tile_budget_integration {
         use super::super::*;

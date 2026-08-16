@@ -570,6 +570,28 @@ mod tests {
         assert!(h.can_go_back);
         assert!(h.forward.is_empty());
         assert_eq!(h.entries.len(), 2);
+        // A traversal announces the cursor move first and again when the load commits; wait
+        // for the commit so the document is loaded before navigating within it.
+        let _ = next_history(&mut event_rx, |h| h.current == Some(HistoryEntryId(1))).await;
+
+        // Fragment navigation within /b: a history entry, but no fetch.
+        let served_before = served.lock().len();
+        let b_frag = format!("{b}#section");
+        tab.navigate(b_frag.clone()).await.expect("navigate fragment");
+        let h = next_history(&mut event_rx, |h| h.entries.len() == 3).await;
+        assert_eq!(h.current, Some(HistoryEntryId(2)));
+        assert_eq!(h.entries[2].url.as_str(), b_frag);
+        assert_eq!(h.entries[2].parent, Some(HistoryEntryId(1)));
+        // Back to /b (same document): cursor moves, still no fetch.
+        tab.go_back().await.expect("go back from fragment");
+        let h = next_history(&mut event_rx, |h| h.current == Some(HistoryEntryId(1))).await;
+        assert_eq!(h.forward[0].id, HistoryEntryId(2));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(
+            served.lock().len(),
+            served_before,
+            "fragment navigation and same-document back must not refetch"
+        );
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");

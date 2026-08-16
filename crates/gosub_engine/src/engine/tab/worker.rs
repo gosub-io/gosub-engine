@@ -143,10 +143,19 @@ pub struct TabWorker<C: RenderConfiguration> {
     active_nav: Option<ActiveNav>,
     /// Session history (tree). Fresh navigations push, back/forward move the cursor.
     history: History,
-    /// Scroll offset to restore once the just-committed document has laid out (page height
-    /// is only known then, and `set_scroll` clamps against it). Set by `on_nav_result` for
-    /// reload/back/forward, consumed by `tick_draw`.
-    pending_scroll_restore: Option<(i32, i32)>,
+    /// Scroll to apply once the just-committed document has laid out (positions and page
+    /// height are only known then, and `set_scroll` clamps against the latter). Set by
+    /// `on_nav_result`, consumed by `tick_draw`.
+    pending_scroll: Option<PendingScroll>,
+}
+
+/// Deferred scroll for a freshly committed document.
+#[derive(Debug, Clone, PartialEq)]
+enum PendingScroll {
+    /// Restore a saved history offset (reload, back/forward).
+    Offset(i32, i32),
+    /// Scroll to the element the URL fragment indicates (fresh load of `…#anchor`).
+    Fragment(String),
 }
 
 /// Whether a CSS `unicode-range` descriptor (e.g. `"U+0000-00FF, U+0131"`) includes the
@@ -344,7 +353,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             load: None,
             active_nav: None,
             history: History::default(),
-            pending_scroll_restore: None,
+            pending_scroll: None,
         }
     }
 
@@ -540,6 +549,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         self.history.entry(entry).map(|e| e.scroll)
                     }
                 };
+                // Where to land once layout exists: a saved offset wins (returning to an entry
+                // the user scrolled), otherwise the URL's fragment, otherwise the top.
+                self.pending_scroll = match restore_scroll {
+                    Some(offset) if offset != (0, 0) => Some(PendingScroll::Offset(offset.0, offset.1)),
+                    _ => final_url
+                        .fragment()
+                        .filter(|f| !f.is_empty())
+                        .map(|f| PendingScroll::Fragment(f.to_string())),
+                };
 
                 self.send_event(EngineEvent::Navigation {
                     tab_id: self.tab_id,
@@ -547,9 +565,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 });
                 self.emit_history_changed();
 
-                // Returning to an entry lands where the user left it. Deferred to the first
-                // tick after layout so the offset clamps against the real page height.
-                self.pending_scroll_restore = restore_scroll.filter(|s| *s != (0, 0));
             }
             NavigationResult::Err { nav_id, error } => {
                 self.is_loading = false;
@@ -794,15 +809,98 @@ impl<C: RenderConfiguration> TabWorker<C> {
         });
     }
 
+    /// Whether `url` differs from the loaded document's URL only in its fragment - a
+    /// "navigate to a fragment" per HTML, which must not refetch the document.
+    fn is_same_document(&self, url: &Url) -> bool {
+        match (&self.current_url, self.is_loading) {
+            (Some(cur), false) => {
+                let mut a = cur.clone();
+                let mut b = url.clone();
+                a.set_fragment(None);
+                b.set_fragment(None);
+                a == b
+            }
+            _ => false,
+        }
+    }
+
+    /// Same-document (fragment) navigation: no fetch. Updates the current URL, records
+    /// history like a real navigation would (fresh navigations push, traversals just moved
+    /// the cursor), scrolls to the indicated part, and reports the navigation as finished so
+    /// the shell updates its address bar.
+    fn navigate_same_document(&mut self, url: Url, history: HistoryIntent) {
+        let nav_id = NavigationId::new();
+        self.send_event(EngineEvent::Navigation {
+            tab_id: self.tab_id,
+            event: NavigationEvent::Started {
+                nav_id,
+                url: url.clone(),
+            },
+        });
+
+        match history {
+            HistoryIntent::Push => {
+                self.history.set_current_scroll(self.scroll_x, self.scroll_y);
+                self.history.push(url.clone(), Some(self.title.clone()));
+            }
+            HistoryIntent::Reload | HistoryIntent::Traverse(_) => {}
+        }
+        self.current_url = Some(url.clone());
+
+        // Layout already exists, so the target can be scrolled to right away. A traversal to
+        // an entry restores its saved offset instead (the user may have scrolled after
+        // arriving at the fragment).
+        let target = match history {
+            HistoryIntent::Traverse(entry) => self.history.entry(entry).map(|e| e.scroll),
+            _ => url
+                .fragment()
+                .and_then(|f| self.context.fragment_target_y(f))
+                .map(|y| (0, y.round() as i32)),
+        };
+        if let Some((x, y)) = target {
+            self.apply_scroll(x, y);
+        }
+
+        self.send_event(EngineEvent::Navigation {
+            tab_id: self.tab_id,
+            event: NavigationEvent::Finished { nav_id, url },
+        });
+        self.emit_history_changed();
+    }
+
+    /// Set the scroll offset immediately (clamped by the context) and re-render.
+    fn apply_scroll(&mut self, x: i32, y: i32) {
+        self.context.set_scroll(x as f64, y as f64);
+        let (cx, cy) = self.context.scroll_xy();
+        self.scroll_x = cx.round() as i32;
+        self.scroll_y = cy.round() as i32;
+        self.scroll.reset(cx, cy);
+        self.scroll_anim_last = None;
+        self.runtime.dirty = true;
+        self.runtime.render_now = true;
+    }
+
     /// Navigate to a new URL, cancelling any in-flight navigation. `history` says what the
     /// navigation does to session history once it commits.
     fn navigate_to(&mut self, url: impl Into<String>, _ignore_cache: bool, history: HistoryIntent) {
+        let url = match self.parse_url(url.into()) {
+            Ok(u) => u,
+            Err(_) => return,
+        };
+
+        // A fragment-only change of the loaded document does not refetch it. Reloads always
+        // refetch (that is what reload means).
+        if history != HistoryIntent::Reload && self.is_same_document(&url) {
+            self.navigate_same_document(url, history);
+            return;
+        }
+
         // Leaving the current entry: remember where the user was so back/forward can restore
         // it. (Traversals already saved it before moving the cursor - see `traverse_history`.)
         if !matches!(history, HistoryIntent::Traverse(_)) {
             self.history.set_current_scroll(self.scroll_x, self.scroll_y);
         }
-        self.pending_scroll_restore = None;
+        self.pending_scroll = None;
 
         self.scroll_x = 0;
         self.scroll_y = 0;
@@ -811,11 +909,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.context.reset_scroll();
         // Cancel any previous running navigation in this tab
         self.cancel_current_nav();
-
-        let url = match self.parse_url(url.into()) {
-            Ok(u) => u,
-            Err(_) => return,
-        };
 
         if let Err(e) = self.bind_storage_for(url.clone()) {
             self.send_event(EngineEvent::Navigation {
@@ -1185,18 +1278,20 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Do a draw tick. This will be called based on the FPS that is requested
     #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
-        // History scroll restore, once the committed document has laid out (page height known,
-        // so the offset clamps correctly). The first dirty tick after `set_document` runs the
-        // layout; this applies on the tick after that and re-renders at the restored offset.
-        if let Some((x, y)) = self.pending_scroll_restore {
-            if self.context.page_height() > 0.0 {
-                self.pending_scroll_restore = None;
-                self.context.set_scroll(x as f64, y as f64);
-                let (cx, cy) = self.context.scroll_xy();
-                self.scroll_x = cx.round() as i32;
-                self.scroll_y = cy.round() as i32;
-                self.scroll.reset(cx, cy);
-                self.runtime.dirty = true;
+        // Deferred scroll for a freshly committed document (history restore or URL fragment),
+        // once it has laid out: page height and element positions are only known then. The
+        // first dirty tick after `set_document` runs layout; this applies on the tick after
+        // that and re-renders at the new offset.
+        if self.pending_scroll.is_some() && self.context.page_height() > 0.0 {
+            let target = match self.pending_scroll.take() {
+                Some(PendingScroll::Offset(x, y)) => Some((x, y)),
+                Some(PendingScroll::Fragment(f)) => {
+                    self.context.fragment_target_y(&f).map(|y| (0, y.round() as i32))
+                }
+                None => None,
+            };
+            if let Some((x, y)) = target {
+                self.apply_scroll(x, y);
             }
         }
 
