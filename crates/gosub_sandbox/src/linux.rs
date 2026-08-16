@@ -499,6 +499,7 @@ pub fn lock_down_renderer_with_font_access(fs_allow: &[(&std::path::Path, bool)]
 /// system: the font directories, the fontconfig configuration, and its caches.
 /// Only paths that exist are returned, like [`net_filesystem_paths`], and the
 /// list is expected to grow per distribution the same way.
+#[cfg(feature = "multi-process")]
 pub fn font_filesystem_paths() -> Vec<std::path::PathBuf> {
     let mut candidates: Vec<std::path::PathBuf> = [
         // Font files, as the major distributions arrange them.
@@ -574,6 +575,7 @@ pub fn lock_down_net(fs_allow: &[(&std::path::Path, bool)]) {
 /// returned (Landlock rules name real objects; distributions differ). A
 /// missing entry surfaces as SIGSYS on `openat` or a failing TLS handshake;
 /// expected to grow per distribution.
+#[cfg(feature = "multi-process")]
 pub fn net_filesystem_paths() -> Vec<std::path::PathBuf> {
     const CANDIDATES: &[&str] = &[
         // Resolver configuration.
