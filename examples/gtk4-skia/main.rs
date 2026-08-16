@@ -54,9 +54,8 @@ struct TileDrawState {
     page_height: f32,
 }
 
-/// Map a GDK key press to the engine's DOM-style key event. GDK key names mostly match DOM
-/// `KeyboardEvent.key` values; the few that differ are translated. Shift+Tab arrives on X11 as
-/// the distinct `ISO_Left_Tab` keysym, so fold it back into Tab + SHIFT.
+/// GDK key names mostly match DOM `KeyboardEvent.key`; translate the ones that don't. X11 gives
+/// Shift+Tab its own `ISO_Left_Tab` keysym.
 fn key_down_command(key: gtk4::gdk::Key, state: gtk4::gdk::ModifierType) -> Option<TabCommand> {
     use gosub_engine::events::Modifiers;
     let mut modifiers = Modifiers::empty();
@@ -528,9 +527,8 @@ fn main() {
         });
         drawing_area.add_controller(click_ctl);
 
-        // Keyboard → engine (Tab cycles focus between page elements). Clicking the page gives
-        // the area GTK focus so keys reach it; Tab is swallowed so GTK doesn't move focus to the
-        // address bar instead.
+        // Clicking the page gives the area GTK focus so keys reach it; Tab is swallowed so GTK
+        // doesn't move focus to the address bar.
         let key_ctl = gtk4::EventControllerKey::new();
         key_ctl.connect_key_pressed({
             let tab = tab.clone();

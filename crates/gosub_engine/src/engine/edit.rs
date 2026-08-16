@@ -1,6 +1,5 @@
-//! Text editing in form controls: which controls take typed input, and how a key press changes
-//! a control's value and caret. The state itself lives on the DOM document (see
-//! `ControlEditState`) so layout/paint read the same value the user sees.
+//! Editing form controls: typing into text fields, toggling checkboxes/radios. The state lives
+//! on the DOM document (`ControlEditState`, `is_checked`) where selectors and the painter read it.
 
 use crate::html::{EngineDocument, RenderConfiguration};
 use cow_utils::CowUtils;
@@ -29,9 +28,8 @@ pub fn text_entry_kind<C: RenderConfiguration>(doc: &EngineDocument<C>, id: Node
     }
 }
 
-/// The value a control shows before the user touches it: the `value` attribute for `<input>`,
-/// the text content for `<textarea>` (minus the single leading newline HTML allows after the
-/// start tag).
+/// The markup value: the `value` attribute, or a `<textarea>`'s text content minus the one
+/// leading newline HTML allows after the start tag.
 pub fn initial_value<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> String {
     if doc.tag_name(id) == Some("textarea") {
         let mut out = String::new();
@@ -45,7 +43,63 @@ pub fn initial_value<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId
     doc.attribute(id, "value").unwrap_or_default().to_string()
 }
 
-/// An editing action derived from a key press.
+/// `Some(is_radio)` when `id` is an enabled checkbox or radio button.
+pub fn toggle_kind<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Option<bool> {
+    if doc.tag_name(id) != Some("input") || doc.attribute(id, "disabled").is_some() {
+        return None;
+    }
+    match doc
+        .attribute(id, "type")
+        .map(|t| t.cow_to_ascii_lowercase().into_owned())
+        .as_deref()
+    {
+        Some("checkbox") => Some(false),
+        Some("radio") => Some(true),
+        _ => None,
+    }
+}
+
+/// A checkbox flips; a radio becomes checked and the rest of its group (same `name` within the
+/// nearest `<form>`, or the document) is unchecked. Returns the `(node, checked)` changes.
+pub fn toggle<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Vec<(NodeId, bool)> {
+    match toggle_kind(doc, id) {
+        None => Vec::new(),
+        Some(false) => vec![(id, !doc.is_checked(id))],
+        Some(true) => {
+            let mut changes = Vec::new();
+            if !doc.is_checked(id) {
+                changes.push((id, true));
+            }
+            let Some(name) = doc.attribute(id, "name").filter(|n| !n.is_empty()) else {
+                return changes;
+            };
+            let scope = form_owner(doc, id).unwrap_or_else(|| doc.root());
+            let mut stack: Vec<NodeId> = doc.children(scope).iter().rev().copied().collect();
+            while let Some(n) = stack.pop() {
+                if n != id
+                    && toggle_kind(doc, n) == Some(true)
+                    && doc.attribute(n, "name") == Some(name)
+                    && doc.is_checked(n)
+                {
+                    changes.push((n, false));
+                }
+                stack.extend(doc.children(n).iter().rev());
+            }
+            changes
+        }
+    }
+}
+
+fn form_owner<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Option<NodeId> {
+    let mut cur = doc.parent(id)?;
+    loop {
+        if doc.tag_name(cur) == Some("form") {
+            return Some(cur);
+        }
+        cur = doc.parent(cur)?;
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditAction {
     Insert(String),
@@ -57,8 +111,8 @@ pub enum EditAction {
     End,
 }
 
-/// Map a DOM `KeyboardEvent.key` value to an edit action. Printable keys arrive as their
-/// character (a single grapheme); `ctrl`/`meta` chords are shortcuts, not text.
+/// DOM `KeyboardEvent.key` → edit action. Printable keys arrive as their character; Ctrl/Meta
+/// chords are shortcuts, not text.
 pub fn action_for_key(key: &str, multiline: bool, ctrl_or_meta: bool) -> Option<EditAction> {
     if ctrl_or_meta {
         return None;
@@ -78,7 +132,7 @@ pub fn action_for_key(key: &str, multiline: bool, ctrl_or_meta: bool) -> Option<
     })
 }
 
-/// Apply `action` to `state`; returns whether anything changed. The caret is a char index.
+/// Returns whether anything changed. The caret is a char index.
 pub fn apply(state: &mut ControlEditState, action: &EditAction) -> bool {
     let len = state.value.chars().count();
     state.caret = state.caret.min(len);

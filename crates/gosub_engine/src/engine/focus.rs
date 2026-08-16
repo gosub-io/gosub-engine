@@ -1,9 +1,5 @@
-//! Keyboard focus: which element receives key input and shows the focus ring.
-//!
-//! Focus lives on the DOM document (so the `:focus` selector family can read it during style
-//! resolution, like `:hover`); this module decides *what* is focusable and *where* focus moves on
-//! a click or a Tab press. A focus change is rare, so it triggers a full re-render rather than the
-//! paint-only hover fast path - that also keeps `:focus` rules that touch layout correct.
+//! Which elements are focusable and where focus moves on a click or Tab. The state itself lives
+//! on the DOM document, where the `:focus` selectors read it (like `:hover`).
 
 use crate::html::{EngineDocument, RenderConfiguration};
 use cow_utils::CowUtils;
@@ -12,13 +8,12 @@ use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
 use std::collections::HashSet;
 
-/// Whether, and how, an element can take focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focusability {
     No,
-    /// Focusable by click/script only (`tabindex="-1"`), skipped by Tab.
+    /// `tabindex="-1"`: click/script only, skipped by Tab.
     ClickOnly,
-    /// In the sequential focus order; the value is `tabindex` (0 = document order).
+    /// In tab order; the `tabindex` value (0 = document order).
     Sequential(i32),
 }
 
@@ -57,9 +52,8 @@ pub fn focusability<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId)
     }
 }
 
-/// Whether a *pointer* click on this element should show the focus ring (`:focus-visible`).
-/// Browsers show it for text-entry controls, where the caret needs a visible home, and hide it
-/// for buttons/checkboxes/links clicked with the mouse. Keyboard focus always shows it.
+/// Whether a *click* shows the focus ring: browsers do for text-entry controls, not for buttons,
+/// checkboxes or links. Keyboard focus always shows it.
 pub fn click_shows_ring<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> bool {
     match doc.tag_name(id) {
         Some("textarea") | Some("select") => true,
@@ -73,8 +67,8 @@ pub fn click_shows_ring<C: RenderConfiguration>(doc: &EngineDocument<C>, id: Nod
     }
 }
 
-/// The element a click on `leaf` gives focus to: the nearest focusable ancestor-or-self, or the
-/// control a `<label>` on that path is bound to. `None` blurs.
+/// The nearest focusable ancestor-or-self of `leaf`, or the control a `<label>` on that path is
+/// bound to.
 pub fn click_target<C: RenderConfiguration>(doc: &EngineDocument<C>, leaf: NodeId) -> Option<NodeId> {
     let mut id = leaf;
     loop {
@@ -105,10 +99,9 @@ fn label_control<C: RenderConfiguration>(doc: &EngineDocument<C>, label: NodeId)
     None
 }
 
-/// The sequential focus order: positive `tabindex` values first (ascending, document order
-/// within a value), then everything else in document order. `rendered` filters out elements
-/// that have no box (display:none and friends), which are unreachable by keyboard; `None` (no
-/// render exists yet, e.g. a Tab before the first frame) keeps every focusable element.
+/// Positive `tabindex` first (ascending, then document order), then the rest in document order.
+/// `rendered` = elements that have a box (the others are unreachable by keyboard); `None` = no
+/// render yet, keep every focusable element.
 pub fn tab_order<C: RenderConfiguration>(doc: &EngineDocument<C>, rendered: Option<&HashSet<NodeId>>) -> Vec<NodeId> {
     let mut positive: Vec<(i32, usize, NodeId)> = Vec::new();
     let mut natural: Vec<NodeId> = Vec::new();

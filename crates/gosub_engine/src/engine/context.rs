@@ -25,6 +25,7 @@ use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType;
 use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
+use gosub_render_pipeline::common::document::pipeline_doc::pseudo_owner;
 use gosub_render_pipeline::common::document::pipeline_doc::GosubDocumentAdapter;
 use gosub_render_pipeline::common::geo::{Dimension as PipelineDimension, Rect as PipelineRect};
 use gosub_render_pipeline::common::media::MediaStore;
@@ -167,8 +168,8 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     pub hover_link_url: Option<String>,
     /// Cursor shape for what is under the pointer, derived from the hovered node's ancestry.
     hover_cursor: CursorShape,
-    /// Layout elements whose *paint* changed without any layout/style change (e.g. the value of
-    /// a text control being typed into). Repainted through the same paint-only path as hover.
+    /// Elements whose paint changed but not their layout or style (e.g. a typed value); repainted
+    /// through the same paint-only path as hover.
     paint_dirty_leis: Vec<LayoutElementId>,
 
     /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
@@ -578,9 +579,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if !self.render_dirty && !paint_only && !self.scroll_dirty {
             return;
         }
-        // Both content changes and paint-only changes (hover, typing) rebuild the command list.
-        // Those could reuse the cached layout, but a GPU re-paint is cheap and avoids the tile
-        // path's repaint bookkeeping; revisit if it proves hot.
+        // Paint-only changes (hover, typing) could reuse the cached layout, but a GPU re-paint is
+        // cheap and avoids the tile path's repaint bookkeeping; revisit if it proves hot.
         if self.render_dirty || paint_only {
             if let Some(doc) = &self.document {
                 self.scene_cache = Some(pipeline_build_scene(
@@ -791,8 +791,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         out
     }
 
-    /// The DOM node and layout element under viewport point `(vp_x, vp_y)`, honouring per-layer
-    /// scroll anchoring. `(None, None)` when nothing is laid out there (or no render exists yet).
+    /// The DOM node and layout element under viewport point `(vp_x, vp_y)`.
     fn hit_at(&self, vp_x: f64, vp_y: f64) -> (Option<NodeId>, Option<LayoutElementId>) {
         let (scroll_x, scroll_y) = (self.scroll_x, self.scroll_y);
         self.active_layer_list().map_or((None, None), |layer_list| {
@@ -800,19 +799,21 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             let Some(lei) = layer_list.find_element_at(vp_x, vp_y, scroll_x, scroll_y) else {
                 return (None, None);
             };
-            let dom_node_id = layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id);
+            // A `::before`/`::after` box counts as a hit on its owner.
+            let dom_node_id = layer_list
+                .layout_tree
+                .get_node_by_id(lei)
+                .map(|el| pseudo_owner(el.dom_node_id).unwrap_or(el.dom_node_id));
             (dom_node_id, Some(lei))
         })
     }
 
-    /// Currently focused DOM node, if any.
     pub fn focused_node(&self) -> Option<NodeId> {
         self.document.as_ref().and_then(|d| d.focused_node())
     }
 
-    /// Move focus to `node` (`None` blurs); `visible` controls `:focus-visible`. Returns whether
-    /// anything changed. A change re-renders fully: focus is rare, and `:focus` rules may change
-    /// layout (borders, padding), which the paint-only hover path would render stale.
+    /// Move focus to `node` (`None` blurs); `visible` = show the ring. Full re-render: `:focus`
+    /// rules may change layout, which the paint-only path would render stale.
     pub fn set_focus(&mut self, node: Option<NodeId>, visible: bool) -> bool {
         let Some(doc) = &self.document else {
             return false;
@@ -826,9 +827,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         true
     }
 
-    /// Pointer click at viewport `(vp_x, vp_y)`: focus the nearest focusable element under it
-    /// (through `<label>` bindings), or blur when the click lands on nothing focusable.
-    /// Returns whether the focus state changed.
+    /// Click-to-focus: the nearest focusable element under the point (via `<label>` bindings),
+    /// or blur when there is none.
     pub fn focus_at(&mut self, vp_x: f64, vp_y: f64) -> bool {
         let (leaf, _) = self.hit_at(vp_x, vp_y);
         let (target, visible) = match (&self.document, leaf) {
@@ -843,9 +843,35 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.set_focus(target, visible)
     }
 
-    /// A key press while a text control has focus: edit its value/caret. Returns whether the
-    /// key was consumed (so the caller doesn't also treat it as e.g. a shortcut). Non-text keys
-    /// and chords with Ctrl/Meta are left alone.
+    /// Click activation of the control under the point: toggles a checkbox / selects a radio.
+    pub fn activate_at(&mut self, vp_x: f64, vp_y: f64) -> bool {
+        let (Some(leaf), Some(doc)) = (self.hit_at(vp_x, vp_y).0, self.document.clone()) else {
+            return false;
+        };
+        let Some(target) = focus::click_target(&doc, leaf) else {
+            return false;
+        };
+        self.toggle_control(target)
+    }
+
+    fn toggle_control(&mut self, node: NodeId) -> bool {
+        let Some(doc) = &self.document else {
+            return false;
+        };
+        let changes = edit::toggle(doc, node);
+        if changes.is_empty() {
+            return false;
+        }
+        for (n, checked) in changes {
+            doc.set_checked(n, Some(checked));
+        }
+        // `:checked` rules may restyle siblings and change layout.
+        self.invalidate_render();
+        true
+    }
+
+    /// Key press for the focused control: text editing, or Space toggling a checkbox/radio.
+    /// Returns whether the key was consumed. Ctrl/Meta chords are left alone.
     pub fn edit_key(&mut self, key: &str, ctrl_or_meta: bool) -> bool {
         let Some(doc) = self.document.clone() else {
             return false;
@@ -853,6 +879,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let Some(node) = doc.focused_node() else {
             return false;
         };
+        if key == " " && !ctrl_or_meta && edit::toggle_kind(&doc, node).is_some() {
+            return self.toggle_control(node);
+        }
         let Some(multiline) = edit::text_entry_kind(&doc, node) else {
             return false;
         };
@@ -863,7 +892,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         true
     }
 
-    /// Committed text (IME / `TextInput`) for the focused text control.
+    /// Committed text (IME / `TextInput`) into the focused text control.
     pub fn insert_text(&mut self, text: &str) -> bool {
         let Some(doc) = self.document.clone() else {
             return false;
@@ -891,13 +920,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             return;
         }
         doc.set_control_edit_state(node, Some(state));
-        // A text control's box doesn't depend on its value, and the painter reads the live value
-        // from the document, so only the control's tiles need repainting.
+        // The box doesn't depend on the value and the painter reads it live: paint-only.
         self.request_repaint(node);
     }
 
-    /// Repaint just the tiles under `node` (no restyle, no relayout). Falls back to a full render
-    /// when the node has no cached layout element yet.
+    /// Repaint the tiles under `node` only; full render if it has no layout element yet.
     fn request_repaint(&mut self, node: NodeId) {
         let lei = self.active_layer_list().and_then(|ll| {
             ll.layout_tree
@@ -912,15 +939,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
     }
 
-    /// Sequential focus navigation (Tab / Shift+Tab): step to the next/previous element in tab
-    /// order, wrapping around; with nothing focused, start from the first/last. Keyboard focus
-    /// always shows the ring. Returns whether the focus state changed.
+    /// Tab / Shift+Tab: next/previous element in tab order, wrapping.
     pub fn focus_step(&mut self, backwards: bool) -> bool {
         let Some(doc) = self.document.clone() else {
             return false;
         };
-        // Only elements that actually have a box are reachable by keyboard; before the first
-        // render there are no boxes yet, so fall back to every focusable element.
+        // Only elements with a box are reachable by keyboard; no render yet = every focusable.
         let rendered: Option<std::collections::HashSet<NodeId>> = self
             .active_layer_list()
             .map(|ll| ll.layout_tree.arena.values().map(|el| el.dom_node_id).collect());
@@ -1359,10 +1383,9 @@ fn pipeline_extend_raster(
     }
 }
 
-/// Paint-only repaint (stages 4–6) for changes that leave layout and the render tree intact:
-/// hover state, or the value of a text control. Only tiles under `dirty_leis` are re-painted and
-/// re-rasterized; `dirty_nodes` get their cached styles dropped first (hover chains - a typed
-/// value needs no restyle). Everything else is carried over from the previous tiles.
+/// Paint-only repaint (stages 4–6) for changes that leave layout intact - hover, typed values.
+/// Only tiles under `dirty_leis` are repainted; `dirty_nodes` get their cached styles dropped
+/// first. Everything else is carried over from the previous tiles.
 #[allow(clippy::too_many_arguments)]
 fn pipeline_paint_repaint(
     layer_list: Arc<gosub_render_pipeline::layering::layer::LayerList>,

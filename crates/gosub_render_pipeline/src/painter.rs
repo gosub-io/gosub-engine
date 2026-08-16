@@ -508,7 +508,7 @@ impl Painter {
             }
         }
 
-        // Text runs never carry an outline of their own; the owning element does.
+        // Text runs don't carry an outline; the owning element does.
         if !matches!(layout_element.context, ElementContext::Text(_)) {
             if let Some(cmd) = self.outline_command(layout_element, dom_node_id) {
                 commands.push(cmd);
@@ -518,10 +518,8 @@ impl Painter {
         commands
     }
 
-    /// CSS `outline`: a ring drawn *around* the border box (never taking layout space), pushed
-    /// out by `outline-offset`. Rendered as a border-only rectangle whose border box is the
-    /// element's border box inflated by offset + width, following the element's corner radii.
-    /// This is what the UA's `:focus-visible { outline: auto 1px ... }` focus ring paints with.
+    /// CSS `outline`: a border-only rectangle around the border box, inflated by offset + width,
+    /// following the element's corner radii. Takes no layout space.
     fn outline_command(&self, layout_element: &LayoutElementNode, dom_node_id: NodeId) -> Option<PaintCommand> {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let width = doc.get_style_f32(dom_node_id, &StyleProperty::OutlineWidth) as f64;
@@ -535,7 +533,7 @@ impl Painter {
             _ => return None,
         };
         let offset = doc.get_style_f32(dom_node_id, &StyleProperty::OutlineOffset) as f64;
-        // Only the box grows outward: a negative offset pulls the ring inside the border box.
+        // A negative offset pulls the ring inside the border box.
         let grow = offset + width;
 
         let bb = layout_element.box_model.border_box;
@@ -552,7 +550,7 @@ impl Painter {
         );
         let mut r = Rectangle::new(ring).with_border(border);
 
-        // Follow the element's rounding, expanded by the same amount as the box.
+        // Radii grow with the box.
         let radius = |prop: &StyleProperty| {
             let v = doc.get_style_f32(dom_node_id, prop) as f64;
             if v > 0.0 {
@@ -573,11 +571,9 @@ impl Painter {
         Some(PaintCommand::rectangle(r))
     }
 
-    /// Where the caret goes for a caret at char index `caret` in `text`, as an (x, y) offset from
-    /// the text box's top-left. The row comes from counting the lines the shaped prefix occupies
-    /// (so soft wraps are honoured); the x offset is the width of the prefix's last hard line,
-    /// measured on its own. Run x offsets are deliberately not used: not every font backend
-    /// reports them relative to the box (Pango's are relative to the paragraph flow).
+    /// (x, y) of the caret at char index `caret`, relative to the text box. Row = lines the shaped
+    /// prefix occupies (honours soft wraps); x = width of the prefix's last hard line, measured
+    /// alone. Run x offsets aren't used: Pango reports them relative to the paragraph, not the box.
     fn caret_offset(&self, text: &str, caret: usize, font_info: &FontInfo, avail: f64) -> (f64, f64) {
         let prefix: String = text.chars().take(caret).collect();
         let line_h = font_info.line_height.max(font_info.size);
@@ -592,7 +588,7 @@ impl Painter {
             .collect::<std::collections::HashSet<_>>()
             .len()
             .max(1);
-        // A trailing newline starts a fresh (still empty) row the shaper doesn't report.
+        // A trailing newline starts an empty row the shaper doesn't report.
         let (row, last_line) = match prefix.rsplit_once('\n') {
             Some((_, "")) => (rows, ""),
             Some((_, tail)) => (rows - 1, tail),
@@ -604,7 +600,7 @@ impl Painter {
             let w = self
                 .shape_text(last_line, font_info, 1_000_000_000.0, 1_000_000_000.0)
                 .width as f64;
-            // Trailing spaces shape to no advance; keep the caret moving past them.
+            // Trailing spaces shape to no advance.
             let trailing = last_line.chars().rev().take_while(|c| *c == ' ').count();
             (w + trailing as f64 * font_info.size * 0.3).min(avail)
         };
@@ -612,7 +608,6 @@ impl Painter {
     }
 
     /// First char to draw so that `text[start..caret]` fits in `width` (single-line scrolling).
-    /// Binary search on the start index, shaping each candidate suffix.
     fn scroll_start_for_caret(&self, text: &str, caret: usize, font_info: &FontInfo, width: f64) -> usize {
         let fits = |start: usize| -> bool {
             let seg: String = text.chars().skip(start).take(caret - start).collect();
@@ -630,7 +625,7 @@ impl Painter {
         lo
     }
 
-    /// Last char index (exclusive) such that `text[start..end]` fits in `width`. Binary search.
+    /// Last char index (exclusive) such that `text[start..end]` fits in `width`.
     fn fit_end(&self, text: &str, start: usize, font_info: &FontInfo, width: f64) -> usize {
         let total = text.chars().count();
         let fits = |end: usize| -> bool {
@@ -649,9 +644,8 @@ impl Painter {
         lo
     }
 
-    /// Draw a native form control: the element's CSS chrome (background + border, mostly from
-    /// the UA stylesheet) with the widget's value/state on top. Browsers delegate this to a
-    /// native theme layer; here it is composed from rectangles and shaped text.
+    /// A native form control: the CSS chrome (background + border) with the widget's state on top,
+    /// composed from rectangles and shaped text.
     fn form_control_commands(
         &self,
         fc: &ElementContextFormControl,
@@ -670,7 +664,7 @@ impl Painter {
         let chrome = self.decorate_with_border_and_radius(dom_node_id, chrome);
         commands.push(PaintCommand::rectangle(chrome));
 
-        // Solid fill respecting the element's CSS opacity, for widget internals.
+        // Solid fill respecting the element's opacity.
         let fill = |c: Color| self.apply_opacity(dom_node_id, Brush::solid(c));
         let accent = if fc.disabled {
             Color::from_rgb8(0xb0, 0xb0, 0xb0)
@@ -687,7 +681,7 @@ impl Painter {
             let b = self.apply_opacity(dom_node_id, Brush::solid(c));
             Border::new(width as f32, BorderStyle::Solid, [b.clone(), b.clone(), b.clone(), b])
         };
-        // One line of control text, vertically centered in the content box.
+        // One line of text, vertically centered in the content box.
         let line_rect = |inset_x: f64| {
             let h = fc.font_info.line_height.max(fc.font_info.size);
             Rect::new(
@@ -712,9 +706,7 @@ impl Painter {
                 multiline,
                 ..
             } => {
-                // The live value/caret come from the document at paint time (not from layout),
-                // so typing only needs a paint-only repaint of this element's tiles. The
-                // layout-time value is the fallback for an untouched control.
+                // The typed value/caret are read here, not at layout, so typing is paint-only.
                 let doc = &self.layer_list.layout_tree.render_tree.doc;
                 let focused = doc.is_focused(dom_node_id);
                 let (value, caret) = match doc.control_edit_state(dom_node_id) {
@@ -748,16 +740,14 @@ impl Painter {
                 } else {
                     line_rect(inset_x)
                 };
-                // Multiline wraps at the box; a single-line value never wraps.
                 let avail = if *multiline { rect.width } else { 1_000_000_000.0 };
                 let line_h = fc.font_info.line_height.max(fc.font_info.size);
-                // The placeholder never carries a caret; it sits at the start there.
+                // No caret index into a placeholder; it sits at the start.
                 let mut caret = caret.map(|c| if is_placeholder { 0 } else { c.min(text.chars().count()) });
 
-                // Clip to the box. Paint commands can't clip, so the text itself is cut to what
-                // fits: a single-line field shows its head, or scrolls so the caret is in view;
-                // a textarea shows as many hard lines as fit, scrolled to keep the caret's line
-                // visible (soft-wrapped rows are not accounted for yet).
+                // Paint commands can't clip, so cut the text to what fits: single-line shows the
+                // head or scrolls to the caret; textarea shows the hard lines around the caret's
+                // (soft-wrapped rows not accounted for).
                 if *multiline {
                     let rows_fit = ((rect.height / line_h).floor() as usize).max(1);
                     let lines: Vec<&str> = text.split('\n').collect();
@@ -849,8 +839,9 @@ impl Painter {
                     shaped,
                 )));
             }
-            FormControl::Checkbox { checked } | FormControl::Radio { checked } => {
-                let is_radio = matches!(fc.control, FormControl::Radio { .. });
+            FormControl::Checkbox | FormControl::Radio => {
+                let is_radio = matches!(fc.control, FormControl::Radio);
+                let checked = &self.layer_list.layout_tree.render_tree.doc.is_checked(dom_node_id);
                 let side = content_box.width.min(content_box.height).max(1.0);
                 let box_rect = Rect::new(
                     content_box.x + (content_box.width - side) / 2.0,
@@ -865,7 +856,6 @@ impl Painter {
                 };
                 if *checked {
                     if is_radio {
-                        // Accent ring with a white gap around an accent dot.
                         commands.push(PaintCommand::rectangle(
                             Rectangle::new(box_rect)
                                 .with_background(fill(Color::WHITE))
@@ -929,7 +919,6 @@ impl Painter {
                         .with_radius(Radius::new(track_h / 2.0))
                         .with_blend_mode(blend),
                 ));
-                // Filled part of the track, then the thumb on top.
                 let active_w = track.width * fraction;
                 if active_w > 0.5 {
                     commands.push(PaintCommand::rectangle(
@@ -958,7 +947,7 @@ impl Painter {
                 ));
                 let bar = match fraction {
                     Some(f) => Rect::new(content_box.x, content_box.y, content_box.width * f, content_box.height),
-                    // Static stand-in for the animated indeterminate bar: a centered segment.
+                    // Static stand-in for the animated indeterminate bar.
                     None => Rect::new(
                         content_box.x + content_box.width * 0.3,
                         content_box.y,

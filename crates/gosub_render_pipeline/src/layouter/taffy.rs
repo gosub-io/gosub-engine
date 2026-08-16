@@ -343,9 +343,7 @@ impl CanLayout for TaffyLayouter {
                     // SVG-backed <img> elements carry their intrinsic size the same way.
                     // Without this arm they measured as 0×0 and collapsed (e.g. the HN logo).
                     Some(TaffyContext::Svg(svg_ctx)) => measure_replaced(v_kd, svg_ctx.dimension),
-                    // Form controls are replaced-like but have no aspect ratio: an axis CSS
-                    // leaves unconstrained uses its intrinsic size unchanged (a `width: 100%`
-                    // input must not scale its height along).
+                    // No aspect ratio: `width: 100%` on an input must not scale its height.
                     Some(TaffyContext::FormControl(fc)) => Size {
                         width: v_kd.width.unwrap_or(fc.dimension.width as f32),
                         height: v_kd.height.unwrap_or(fc.dimension.height as f32),
@@ -1074,9 +1072,6 @@ impl TaffyLayouter {
                     }
                 }
 
-                // Form controls are replaced-like: any DOM subtree (select options, textarea
-                // text) is suppressed by the render tree and the widget chrome is drawn by the
-                // painter. Build the context carrying the state + intrinsic size later stages need.
                 if taffy_context.is_none() {
                     if let Some(fc) = self.extract_form_control(layout_tree, dom_node, data) {
                         taffy_context = Some(TaffyContext::FormControl(fc));
@@ -1268,8 +1263,7 @@ impl TaffyLayouter {
 }
 
 impl TaffyLayouter {
-    /// Measure a single-line control label/value at unbounded width. Falls back to a crude
-    /// per-character estimate when shaping fails.
+    /// Single-line measure at unbounded width; crude per-char estimate if shaping fails.
     fn measure_control_text(&self, text: &str, font_info: &FontInfo) -> geo::Dimension {
         let measured = {
             let mut fs = self.font_system.lock();
@@ -1284,9 +1278,7 @@ impl TaffyLayouter {
         }
     }
 
-    /// Build the form-control context for input/textarea/select/progress/meter elements:
-    /// the widget kind + state read from the DOM, and the intrinsic size that stands in for
-    /// what browsers compute in their native theme layer.
+    /// The form-control context for input/textarea/select/progress/meter, `None` for anything else.
     fn extract_form_control(
         &self,
         layout_tree: &LayoutTree,
@@ -1311,20 +1303,9 @@ impl TaffyLayouter {
                     .map(|t| t.cow_to_ascii_lowercase().into_owned())
                     .unwrap_or_else(|| "text".to_string());
                 match ty.as_str() {
-                    // Never rendered; don't build a widget for it either.
                     "hidden" => return None,
-                    "checkbox" => (
-                        FormControl::Checkbox {
-                            checked: data.get_attribute("checked").is_some(),
-                        },
-                        geo::Dimension::new(13.0, 13.0),
-                    ),
-                    "radio" => (
-                        FormControl::Radio {
-                            checked: data.get_attribute("checked").is_some(),
-                        },
-                        geo::Dimension::new(13.0, 13.0),
-                    ),
+                    "checkbox" => (FormControl::Checkbox, geo::Dimension::new(13.0, 13.0)),
+                    "radio" => (FormControl::Radio, geo::Dimension::new(13.0, 13.0)),
                     "button" | "submit" | "reset" | "file" => {
                         let label = attr("value").filter(|s| !s.is_empty()).unwrap_or_else(|| {
                             match ty.as_str() {
@@ -1351,11 +1332,11 @@ impl TaffyLayouter {
                             .unwrap_or_else(|| "#000000".to_string());
                         (FormControl::ColorSwatch { value }, geo::Dimension::new(44.0, 21.0))
                     }
-                    // Text-entry types: text/password/search/email/number/url/tel/date/time/…
+                    // Text-entry types.
                     _ => {
                         let value = attr("value").unwrap_or_default();
                         let placeholder = attr("placeholder").unwrap_or_else(|| {
-                            // The date/time pickers show their edit format when empty.
+                            // Date/time pickers show their edit format when empty.
                             match ty.as_str() {
                                 "date" => "dd-mm-yyyy",
                                 "time" => "--:--",
@@ -1370,9 +1351,7 @@ impl TaffyLayouter {
                             .and_then(|s| s.parse::<usize>().ok())
                             .filter(|n| *n > 0)
                             .unwrap_or(20);
-                        // Approximates Chromium's default text-field width: `size` (default 20)
-                        // average-character advances, plus slack for the caret/edge insets that
-                        // its native theme adds.
+                        // Chromium: `size` (default 20) average-char advances plus edge insets.
                         let proto = "0".repeat(size);
                         let d = self.measure_control_text(&proto, &font_info);
                         let d = geo::Dimension::new(d.width + 4.0, d.height);
@@ -1416,7 +1395,6 @@ impl TaffyLayouter {
                 let mut selected: Option<String> = None;
                 collect_option_labels(&**doc, dom_node, &mut labels, &mut selected);
                 let label = selected.or_else(|| labels.first().cloned()).unwrap_or_default();
-                // Sized to the widest option so the closed box fits any selection.
                 let mut widest = self.measure_control_text(if label.is_empty() { " " } else { &label }, &font_info);
                 for l in &labels {
                     let d = self.measure_control_text(l, &font_info);
@@ -1424,7 +1402,7 @@ impl TaffyLayouter {
                         widest = geo::Dimension::new(d.width, widest.height);
                     }
                 }
-                // Room for the dropdown arrow on the right.
+                // + dropdown arrow
                 let d = geo::Dimension::new(widest.width + 16.0, widest.height.max(font_info.line_height));
                 (FormControl::Select { label }, d)
             }
@@ -1442,8 +1420,8 @@ impl TaffyLayouter {
                 let optimum = attr_f64("optimum").unwrap_or((min + max) / 2.0).clamp(min, max);
                 let value = attr_f64("value").unwrap_or(min).clamp(min, max);
                 let fraction = (value - min) / span;
-                // HTML meter coloring: green when the value shares the optimum's band
-                // (below-low / between / above-high), yellow one band away, red two away.
+                // Green when the value shares the optimum's band (below-low / between /
+                // above-high), yellow one band away, red two away.
                 let band = |v: f64| -> u8 {
                     if v < low {
                         0
@@ -1460,7 +1438,7 @@ impl TaffyLayouter {
                 };
                 (FormControl::Meter { fraction, level }, geo::Dimension::new(80.0, 16.0))
             }
-            _ => unreachable!(),
+            _ => return None,
         };
 
         Some(ElementContextFormControl {
@@ -1473,8 +1451,7 @@ impl TaffyLayouter {
     }
 }
 
-/// Concatenated text of an element's direct text children (a `<textarea>`'s value, an
-/// `<option>`'s label).
+/// Concatenated direct text children (a `<textarea>` value, an `<option>` label).
 fn text_content(doc: &dyn PipelineDocument, node: &Node) -> String {
     let mut out = String::new();
     for child_id in &node.children {
@@ -1487,8 +1464,7 @@ fn text_content(doc: &dyn PipelineDocument, node: &Node) -> String {
     out.trim().to_string()
 }
 
-/// Walk a `<select>`'s options (directly or inside `<optgroup>`s), collecting every label and
-/// the label of the first option carrying `selected`.
+/// All option labels (through `<optgroup>`s) and the first `selected` one.
 fn collect_option_labels(
     doc: &dyn PipelineDocument,
     node: &Node,
@@ -1518,8 +1494,7 @@ fn collect_option_labels(
     }
 }
 
-/// The computed font for a control's own node, mirroring what the text branch derives for
-/// text nodes (controls have no text children to inherit through).
+/// The control's own computed font (it has no text children to derive one from).
 fn control_font_info(doc: &dyn PipelineDocument, node_id: DomNodeId) -> FontInfo {
     let mut font_size = DEFAULT_FONT_SIZE;
     let mut font_family = DEFAULT_FONT_FAMILY.to_string();

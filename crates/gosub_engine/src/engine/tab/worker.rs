@@ -1170,8 +1170,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 if matches!(button, crate::events::MouseButton::Left) {
                     // Click-to-focus (or blur when the click lands on nothing focusable),
                     // before any link activation.
-                    if self.context.focus_at(x as f64, y as f64) {
-                        self.runtime.render_now = true;
+                    let focused = self.context.focus_at(x as f64, y as f64);
+                    if focused {
                         self.emit_focus_changed();
                     }
                     if let Some(href) = self.context.hover_link_url.clone() {
@@ -1183,6 +1183,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                             .unwrap_or(href);
                         self.navigate_to(resolved, false, HistoryIntent::Push);
                         return ControlFlow::Continue;
+                    }
+                    // Activation (checkbox/radio toggles) lands in the same render as the focus.
+                    let toggled = self.context.activate_at(x as f64, y as f64);
+                    if focused || toggled {
+                        self.runtime.render_now = true;
                     }
                 }
                 self.runtime.dirty = true;

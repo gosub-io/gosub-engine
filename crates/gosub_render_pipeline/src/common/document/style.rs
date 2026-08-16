@@ -925,8 +925,7 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("normal"),
     },
-    // 78 outline-width - initial = medium = 3px; computes to 0 when outline-style is none
-    // (enforced in `get_style`, like border widths).
+    // 78 outline-width - initial = medium = 3px; 0 when outline-style is none (see `get_style`)
     PropertyMeta {
         name: "outline-width",
         inherited: false,
@@ -938,7 +937,7 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::BorderStyle(BorderStyle::None),
     },
-    // 80 outline-color - initial = currentColor (resolved in `get_style`)
+    // 80 outline-color - initial = currentColor (see `get_style`)
     PropertyMeta {
         name: "outline-color",
         inherited: false,

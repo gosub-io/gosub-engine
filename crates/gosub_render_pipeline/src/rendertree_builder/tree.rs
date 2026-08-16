@@ -99,9 +99,7 @@ impl RenderTree {
 
 const INVISIBLE_ELEMENTS: [&str; 6] = ["head", "style", "script", "meta", "link", "title"];
 
-/// Elements whose DOM subtree is not rendered as normal content: the layouter turns them into a
-/// self-contained form-control widget (a `<select>`'s options live in its dropdown, a
-/// `<textarea>`'s text is its editable value).
+/// Elements rendered as a widget instead of their subtree (options, textarea text).
 const SUBTREE_SUPPRESSED_ELEMENTS: [&str; 2] = ["select", "textarea"];
 
 impl RenderTree {

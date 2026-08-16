@@ -342,8 +342,8 @@ impl TileList {
                     log::warn!("Warning: Element {:?} not found in layout tree!", element_id);
                     continue;
                 };
-                // An outline paints outside the margin box, so grow the assignment box by its
-                // extent or the ring gets clipped at the edge of a tile the element wasn't in.
+                // An outline paints outside the margin box; without this the ring is clipped at
+                // the edge of a tile the element isn't assigned to.
                 let mut margin_box = element.box_model.margin_box;
                 let ext = outline_extent(&*self.layer_list.layout_tree.render_tree.doc, element.dom_node_id);
                 if ext > 0.0 {
@@ -409,8 +409,8 @@ impl TileList {
     }
 }
 
-/// How far a visible CSS outline reaches beyond the element's box (width + positive offset),
-/// 0 when there is none. Must agree with the painter's ring geometry.
+/// How far a visible outline reaches beyond the box (width + positive offset). Must agree with
+/// the painter's ring geometry.
 fn outline_extent(doc: &dyn PipelineDocument, node_id: NodeId) -> f64 {
     let width = doc.get_style_f32(node_id, &StyleProperty::OutlineWidth) as f64;
     if width <= 0.0 {

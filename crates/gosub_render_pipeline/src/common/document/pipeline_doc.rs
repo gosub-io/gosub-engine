@@ -120,7 +120,7 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             let s = p.as_string()?;
             Some(Value::BorderStyle(str_to_border_style(s)))
         }
-        // `outline-style: auto` is the UA focus ring; painted as a solid ring.
+        // `auto` (the UA focus ring) paints as solid.
         StyleProperty::OutlineStyle => {
             let s = p.as_string()?;
             Some(Value::BorderStyle(if s.eq_ignore_ascii_case("auto") {
@@ -704,14 +704,17 @@ pub trait PipelineDocument: Send + Sync {
         BgImageLayout::default()
     }
 
-    /// Whether `id` is the focused element (drives the caret in text controls).
     fn is_focused(&self, _id: NodeId) -> bool {
         false
     }
 
-    /// The typed-in value of a text control and its caret (char index), `None` while untouched.
+    /// Typed value + caret (char index) of a text control; `None` = untouched.
     fn control_edit_state(&self, _id: NodeId) -> Option<(String, usize)> {
         None
+    }
+
+    fn is_checked(&self, _id: NodeId) -> bool {
+        false
     }
 
     /// Forces the next `get_own_style` to re-evaluate CSS selectors (including `:hover`) from
@@ -800,6 +803,11 @@ const ROLE_BEFORE_ELEM: u64 = 0; // the ::before pseudo-element box
 const ROLE_AFTER_ELEM: u64 = 1; // the ::after pseudo-element box
 const ROLE_BEFORE_TEXT: u64 = 2; // generated text child of ::before
 const ROLE_AFTER_TEXT: u64 = 3; // generated text child of ::after
+
+/// The element that generated a synthetic `::before`/`::after` node id; `None` for real nodes.
+pub fn pseudo_owner(id: NodeId) -> Option<NodeId> {
+    is_pseudo_id(u64::from(id)).then(|| decode_pseudo(id).0)
+}
 
 const fn is_pseudo_id(id_val: u64) -> bool {
     id_val & PSEUDO_FLAG != 0
@@ -1086,7 +1094,7 @@ where
                 | StyleProperty::OutlineColor
         ) {
             if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, css_name) {
-                // `outline-color: auto` (its initial value) also follows the text color.
+                // `outline-color: auto` (the initial value) follows the text color too.
                 if p.as_string().is_some_and(|s| {
                     s.eq_ignore_ascii_case("currentcolor")
                         || (matches!(prop, StyleProperty::OutlineColor) && s.eq_ignore_ascii_case("auto"))
@@ -1217,6 +1225,10 @@ where
 
     fn control_edit_state(&self, id: NodeId) -> Option<(String, usize)> {
         self.doc.control_edit_state(id).map(|s| (s.value, s.caret))
+    }
+
+    fn is_checked(&self, id: NodeId) -> bool {
+        self.doc.is_checked(id)
     }
 
     fn is_display_none(&self, id: NodeId) -> bool {
@@ -1561,8 +1573,7 @@ fn css_system_color(name: &str) -> Option<(u8, u8, u8, u8)> {
         "fieldtext" | "canvastext" | "buttontext" | "graytext" => Some((0, 0, 0, 255)),
         "buttonface" | "threedface" => Some((240, 240, 240, 255)),
         "buttonborder" | "threedlightshadow" | "threedhighlight" => Some((160, 160, 160, 255)),
-        // Chromium's default focus ring blue. The cascade strips vendor prefixes, so the bare
-        // name is what usually arrives here.
+        // Chromium's focus ring blue; the cascade strips the vendor prefix before we see it.
         "-webkit-focus-ring-color" | "focus-ring-color" => Some((0x10, 0x1e, 0xf5, 255)),
         // Selection / highlights
         "highlight" | "selecteditem" | "activecaption" => Some((0, 120, 215, 255)),

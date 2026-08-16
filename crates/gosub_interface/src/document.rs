@@ -142,34 +142,34 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
         false
     }
 
-    // Focus state, consumed by the `:focus` family of selectors. Defaults for documents that
-    // don't track focus.
+    // Interaction state read by the `:focus`/`:checked` selectors and the painter.
 
     fn is_focused(&self, _id: NodeId) -> bool {
         false
     }
-    /// `:focus-visible` - focused AND the focus indicator should show (keyboard focus, or a
-    /// text-entry control).
+    /// Focused and the ring should show (keyboard focus, or a text-entry control).
     fn is_focus_visible(&self, _id: NodeId) -> bool {
         false
     }
-    /// `:focus-within` - the node is the focused element or one of its ancestors.
+    /// The focused element or one of its ancestors.
     fn is_focus_within(&self, _id: NodeId) -> bool {
         false
     }
     fn focused_node(&self) -> Option<NodeId> {
         None
     }
-
-    /// What the user has typed into a text control so far, if anything. `None` means the control
-    /// is untouched and shows its `value` attribute / initial text content.
+    /// Live checkedness; the `checked` attribute is only the default.
+    fn is_checked(&self, id: NodeId) -> bool {
+        self.attribute(id, "checked").is_some()
+    }
+    /// What has been typed into a text control; `None` = untouched (shows its markup value).
     fn control_edit_state(&self, _id: NodeId) -> Option<ControlEditState> {
         None
     }
 }
 
-/// Live editing state of a text control (`<input>` text-like types, `<textarea>`): the DOM
-/// *value* as opposed to the `value` content attribute, plus the caret as a char index into it.
+/// The DOM value of a text control (as opposed to its `value` attribute) plus the caret as a
+/// char index into it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControlEditState {
     pub value: String,

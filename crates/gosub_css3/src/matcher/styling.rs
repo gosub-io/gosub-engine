@@ -228,7 +228,7 @@ fn match_selector_part<C: HasDocument>(
                         .parent(current_id)
                         .is_none_or(|p| doc.node_type(p) != NodeType::ElementNode)
             }
-            "checked" => doc.attribute(current_id, "checked").is_some(),
+            "checked" => doc.is_checked(current_id),
             "disabled" => doc.attribute(current_id, "disabled").is_some(),
             "enabled" => {
                 doc.attribute(current_id, "disabled").is_none() && doc.node_type(current_id) == NodeType::ElementNode
@@ -298,11 +298,12 @@ fn match_selector_part<C: HasDocument>(
                     return false;
                 };
 
-                if my_index == 0 {
-                    return false;
-                }
-
-                let Some(&prev_id) = children.get(my_index - 1) else {
+                // Previous *element* sibling: whitespace text between tags doesn't count.
+                let Some(&prev_id) = children[..my_index]
+                    .iter()
+                    .rev()
+                    .find(|&&c| doc.node_type(c) == NodeType::ElementNode)
+                else {
                     return false;
                 };
 

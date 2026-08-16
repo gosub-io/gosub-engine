@@ -82,47 +82,38 @@ pub struct ElementContextImage {
     pub alt: Option<String>,
 }
 
-/// Everything the painter needs to draw a native form control widget. Assembled at layout time
-/// (values, labels and states are read from the DOM there) so the painter doesn't walk the DOM
-/// again at paint time.
+/// A native form control widget: kind, initial state, and the intrinsic size that stands in for
+/// what browsers get from their native theme layer.
 #[derive(Debug, Clone)]
 pub struct ElementContextFormControl {
     pub node_id: DomNodeId,
     pub control: FormControl,
-    /// Font the control's value/label text is drawn with.
     pub font_info: FontInfo,
-    /// Intrinsic content-box size, used for any axis CSS leaves unconstrained. Form controls
-    /// have no aspect ratio: constraining one axis never scales the other.
+    /// Intrinsic content-box size for whichever axis CSS leaves unconstrained (no aspect ratio).
     pub dimension: Dimension,
     pub disabled: bool,
 }
 
-/// The widget kind plus the state the painter needs to draw it.
 #[derive(Debug, Clone)]
 pub enum FormControl {
-    /// Text-entry field: `<input>` text-like types and `<textarea>`.
+    /// `<input>` text-like types and `<textarea>`.
     TextField {
-        /// The markup's initial value. The painter overrides it with what the user has typed
-        /// (read from the document at paint time), and shows the placeholder when empty.
+        /// The markup value; the painter reads what the user typed from the document.
         value: String,
         placeholder: String,
-        /// Render the value as password bullets.
+        /// Password bullets.
         masked: bool,
-        /// `<textarea>`: wrap the value and top-align it instead of centering one line.
+        /// `<textarea>`: wrap and top-align.
         multiline: bool,
     },
-    /// Attribute-labelled push button: `<input type=button/submit/reset/file>`. (`<button>`
-    /// renders its child content through the normal flow and needs no context.)
+    /// `<input type=button/submit/reset/file>`; `<button>` renders its children normally.
     Button {
         label: String,
     },
-    Checkbox {
-        checked: bool,
-    },
-    Radio {
-        checked: bool,
-    },
-    /// Slider; `fraction` is the value's position in the min..max range (0..1).
+    /// Checked state comes from the document at paint time.
+    Checkbox,
+    Radio,
+    /// `fraction` = position in min..max, 0..1.
     Range {
         fraction: f64,
     },
@@ -134,7 +125,7 @@ pub enum FormControl {
         fraction: f64,
         level: MeterLevel,
     },
-    /// Color picker swatch; `value` is the raw attribute value (e.g. `#0066cc`).
+    /// Raw `value` attribute, e.g. `#0066cc`.
     ColorSwatch {
         value: String,
     },
@@ -144,7 +135,7 @@ pub enum FormControl {
     },
 }
 
-/// Which of the three meter color bands (green / yellow / red) the value falls in.
+/// Meter color band: green / yellow / red.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeterLevel {
     Optimum,
@@ -152,8 +143,7 @@ pub enum MeterLevel {
     Critical,
 }
 
-/// Per-element data (text, image, svg, form control) needed by later phases of the rendering
-/// pipeline.
+/// Per-element data (text, image, svg, form control) needed by later phases of the rendering pipeline.
 #[derive(Debug, Clone)]
 pub enum ElementContext {
     None,

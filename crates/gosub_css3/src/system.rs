@@ -239,13 +239,10 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                                 value
                             };
 
-                            // A validated `background` shorthand stays under its own key, but its
-                            // color must also compete in the `background-color` cascade: the UA
-                            // stylesheet declares longhands (e.g. `button { background-color:
-                            // ButtonFace }`) which would otherwise always win over an author
-                            // `background: #c22` because the style consumer prefers the longhand
-                            // key. Per spec the shorthand also RESETS the color when it names
-                            // none, hence the `transparent` fallback.
+                            // Also emit the color as a `background-color` longhand: the consumer
+                            // reads the longhand key first, so a UA `background-color: ButtonFace`
+                            // would otherwise beat an author `background: #c22`. No color = reset
+                            // to transparent.
                             if declaration.property == "background" {
                                 let color_value = find_background_color(&value)
                                     .unwrap_or(CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 0.0)));
@@ -500,10 +497,8 @@ pub fn resolve_functions<C: HasDocument>(
                     "clamp" | "min" | "max" => {
                         resolve_math(func, values).map_or_else(|| vec![val.clone()], |v| vec![v])
                     }
-                    // No dark-mode support yet: always resolve to the light (first) argument.
-                    // Chromium's UA stylesheet uses `-internal-light-dark()` throughout its form
-                    // control rules; leaving it unresolved would fail grammar validation and drop
-                    // the whole declaration (e.g. `input { border: ... }`).
+                    // No dark mode: take the light (first) argument. Unresolved, the whole
+                    // declaration fails validation - the UA sheet uses it on form controls.
                     "light-dark" | "-internal-light-dark" => values
                         .split(|v| matches!(v, CssValue::Comma))
                         .next()

@@ -112,7 +112,6 @@ struct BrowserApp {
 
     url_input: String,
     addr_focused: bool,
-    /// Live keyboard modifier state, for Shift+Tab etc.
     modifiers: ModifiersState,
     cursor: PhysicalPosition<f64>,
     scroll: (f32, f32),
@@ -334,7 +333,6 @@ impl ApplicationHandler<()> for BrowserApp {
                 self.modifiers = mods.state();
             }
 
-            // Page content has keyboard focus: hand the key to the engine (Tab cycles focus).
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
@@ -357,11 +355,9 @@ impl ApplicationHandler<()> for BrowserApp {
     }
 }
 
-/// Map a winit key press to the engine's DOM-style key event. Winit's `NamedKey` variant names
-/// follow the DOM `KeyboardEvent.key` values, so their Debug form is the key name.
+/// Winit's `NamedKey` variant names follow DOM `KeyboardEvent.key`, so Debug gives the key name.
 fn key_down_command(logical_key: &Key, mods: ModifiersState) -> Option<TabCommand> {
     let key = match logical_key {
-        // DOM reports the space bar as its character, not a name.
         Key::Named(NamedKey::Space) => " ".to_string(),
         Key::Named(named) => format!("{named:?}"),
         Key::Character(c) => c.to_string(),

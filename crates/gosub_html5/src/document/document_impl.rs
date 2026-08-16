@@ -32,17 +32,19 @@ pub struct DocumentImpl<C: HasDocument> {
     pub quirks_mode: QuirksMode,
     pub stylesheets: Vec<<C::CssSystem as CssSystem>::Stylesheet>,
     hovered_nodes: parking_lot::RwLock<std::collections::HashSet<NodeId>>,
-    /// The focused element and its ancestor chain (for `:focus-within`), plus whether the focus
-    /// ring should show (`:focus-visible`: keyboard focus, or a text-entry control).
     focus: parking_lot::RwLock<FocusState>,
-    /// Typed-in values of text controls, keyed by node. Absent = untouched (attribute value).
+    /// Text controls the user has typed into; absent = still showing the markup value.
     edits: parking_lot::RwLock<HashMap<NodeId, ControlEditState>>,
+    /// Checkboxes/radios the user has toggled; absent = the `checked` attribute.
+    checked: parking_lot::RwLock<HashMap<NodeId, bool>>,
 }
 
 #[derive(Debug, Default)]
 struct FocusState {
     node: Option<NodeId>,
+    /// `node` and its ancestors, for `:focus-within`.
     chain: std::collections::HashSet<NodeId>,
+    /// Whether the focus ring shows (`:focus-visible`).
     visible: bool,
 }
 
@@ -72,6 +74,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             hovered_nodes: parking_lot::RwLock::new(std::collections::HashSet::new()),
             focus: parking_lot::RwLock::new(FocusState::default()),
             edits: parking_lot::RwLock::new(HashMap::new()),
+            checked: parking_lot::RwLock::new(HashMap::new()),
         };
         let root = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
         doc.arena.register_node(root);
@@ -406,6 +409,13 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     fn control_edit_state(&self, id: NodeId) -> Option<ControlEditState> {
         self.edits.read().get(&id).cloned()
     }
+
+    fn is_checked(&self, id: NodeId) -> bool {
+        match self.checked.read().get(&id) {
+            Some(c) => *c,
+            None => self.attribute(id, "checked").is_some(),
+        }
+    }
 }
 
 // ── Internal helpers (not part of Document trait) ───────────────────────────
@@ -425,9 +435,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
     }
 
-    /// Move focus to `node` (`None` blurs). `visible` says whether `:focus-visible` should
-    /// match - true for keyboard-driven focus, false for a pointer click on e.g. a button.
-    /// Interior mutability so it works through `Arc`, like hover.
+    /// Move focus to `node` (`None` blurs); `visible` = show the focus ring.
     pub fn set_focused_node(&self, node: Option<NodeId>, visible: bool) {
         let mut f = self.focus.write();
         f.node = node;
@@ -444,7 +452,20 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
     }
 
-    /// Store (or with `None`, forget) the typed-in state of a text control.
+    /// `None` reverts to the `checked` attribute.
+    pub fn set_checked(&self, id: NodeId, checked: Option<bool>) {
+        let mut map = self.checked.write();
+        match checked {
+            Some(c) => {
+                map.insert(id, c);
+            }
+            None => {
+                map.remove(&id);
+            }
+        }
+    }
+
+    /// `None` reverts to the markup value.
     pub fn set_control_edit_state(&self, id: NodeId, state: Option<ControlEditState>) {
         let mut edits = self.edits.write();
         match state {
