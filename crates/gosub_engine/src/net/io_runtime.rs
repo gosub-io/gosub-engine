@@ -264,10 +264,9 @@ fn dispatch_to_net_process(
 ) {
     use crate::net::process::protocol::FetchOutcome;
 
-    let url = req.key_data.url.to_string();
-    let method = req.key_data.method.as_str().to_string();
+    let url = req.url.to_string();
+    let method = req.method.as_str().to_string();
     let headers = req
-        .key_data
         .headers
         .iter()
         .filter_map(|(n, v)| v.to_str().ok().map(|v| (n.as_str().to_string(), v.to_string())))
@@ -301,22 +300,21 @@ fn dispatch_to_net_process(
 
 /// Put the requesting tab's cookies on an outbound request.
 fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIdentity>) {
-    req.key_data.headers.remove(http::header::COOKIE);
+    req.headers.remove(http::header::COOKIE);
 
     let Some(identity) = identity else {
         return;
     };
-    let context = same_site_context(identity.top_level.as_ref(), &req.key_data.url);
-    let Some(cookies) =
-        identity
-            .cookie_jar
-            .read()
-            .get_request_cookies(&req.key_data.url, identity.top_level.as_ref(), context)
+    let context = same_site_context(identity.top_level.as_ref(), &req.url);
+    let Some(cookies) = identity
+        .cookie_jar
+        .read()
+        .get_request_cookies(&req.url, identity.top_level.as_ref(), context)
     else {
         return;
     };
     if let Ok(value) = cookies.parse() {
-        req.key_data.headers.insert(http::header::COOKIE, value);
+        req.headers.insert(http::header::COOKIE, value);
     }
 }
 
@@ -493,7 +491,7 @@ mod tests {
         }
 
         fn cookie_header(req: &FetchRequest) -> Option<&str> {
-            req.key_data.headers.get(http::header::COOKIE).map(|v| {
+            req.headers.get(http::header::COOKIE).map(|v| {
                 #[allow(clippy::unwrap_used)] // test-only: values are ASCII literals
                 v.to_str().unwrap()
             })
@@ -529,8 +527,7 @@ mod tests {
                 top_level: Some(Url::parse("https://example.com/page").unwrap()),
             };
             let mut req = request_to("https://example.com/api");
-            req.key_data
-                .headers
+            req.headers
                 .insert(http::header::COOKIE, "sid=forged; admin=1".parse().unwrap());
 
             attach_request_cookies(&mut req, Some(&identity));
@@ -541,9 +538,7 @@ mod tests {
         #[test]
         fn a_forged_header_is_dropped_even_with_no_identity() {
             let mut req = request_to("https://example.com/api");
-            req.key_data
-                .headers
-                .insert(http::header::COOKIE, "sid=forged".parse().unwrap());
+            req.headers.insert(http::header::COOKIE, "sid=forged".parse().unwrap());
 
             attach_request_cookies(&mut req, None);
 

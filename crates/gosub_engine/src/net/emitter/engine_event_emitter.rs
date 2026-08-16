@@ -197,10 +197,8 @@ impl NetObserver for EngineEventEmitter {
                 });
             }
 
-            NetEvent::Io { .. } => {
-            }
-            NetEvent::Warning { .. } => {
-            }
+            NetEvent::Io { .. } => {}
+            NetEvent::Warning { .. } => {}
         }
     }
 }

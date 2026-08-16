@@ -103,11 +103,9 @@ pub fn decide_handling(
                 path: std::path::PathBuf::new(),
             },
         },
-        _ => {
-            HandlingDecision::Download {
-                path: std::path::PathBuf::new(),
-            }
-        }
+        _ => HandlingDecision::Download {
+            path: std::path::PathBuf::new(),
+        },
     };
 
     DecisionOutcome {

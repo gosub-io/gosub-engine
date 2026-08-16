@@ -70,7 +70,6 @@ impl ResourceLoader for BrokeredLoader {
 
         let handle = FetchHandle {
             req_id: req.req_id,
-            key: req.key_data.clone(),
             cancel: self.cancel.child_token(),
         };
 

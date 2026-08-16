@@ -32,6 +32,10 @@ pub struct NetFetch {
     /// the PoC's `vault` component.
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
+    // Only these cross. `FetchRequest::origin` / `referrer` / `mixed_content`
+    // (sonar 0.2.0) do not: the engine sets none of them yet. When it does, add
+    // them here - otherwise the network process rebuilds the request without
+    // them and mixed-content blocking silently disappears out-of-process.
 }
 
 /// Network process → broker.
