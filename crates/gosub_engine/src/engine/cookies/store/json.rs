@@ -1,24 +1,15 @@
 //! JSON-backed cookie store.
 //!
-//! `JsonCookieStore` persists **all zones'** cookie jars in a single JSON file on disk.
-//! It implements the [`CookieStore`] trait and returns per-zone jars wrapped in
-//! [`PersistentCookieJar`](crate::cookies::PersistentCookieJar), so that **every mutation** to a jar triggers a snapshot
-//! write back to this store.
+//! `JsonCookieStore` persists all zones' cookie jars in a single JSON file; jars are
+//! cached in memory and returned wrapped in
+//! [`PersistentCookieJar`](crate::cookies::PersistentCookieJar), so every jar mutation
+//! snapshots back to this store.
 //!
-//! ### Design
-//! - One file for all zones; jars are cached in memory for quick reuse.
-//! - The store keeps a self handle (`store_self`) so the persistent jars can call
-//!   back into `persist_zone_from_snapshot`.
-//! - Internally synchronized; safe to share behind a [`CookieStoreHandle`].
+//! `persist_zone_from_snapshot` and `remove_zone` read then rewrite the entire JSON
+//! file; for large datasets use the SQLite store. Writes go to a temp file renamed
+//! over the target (atomic on POSIX filesystems). Persistence is best-effort: I/O and
+//! serialization errors are logged, never panicked on.
 //!
-//! ### I/O characteristics & caveats
-//! - `persist_zone_from_snapshot` and `remove_zone` **read then rewrite** the entire
-//!   JSON file. For large datasets, consider an SQLite-backed store.
-//! - Writes go to a temp file which is then renamed over the target (atomic on
-//!   POSIX filesystems).
-//! - Persistence is best-effort: I/O and serialization errors are logged, never panicked on.
-//!
-//! ### Example
 //! ```ignore,no_run
 //! let store = JsonCookieStore::new("cookies.json".into())?;
 //!
@@ -45,10 +36,6 @@ struct CookieStoreFile {
 }
 
 /// A JSON-based cookie store that persists cookies across sessions.
-///
-/// The store caches per-zone jars in memory and loads/saves them to a single JSON file.
-/// Jars returned by this store are wrapped in [`PersistentCookieJar`](crate::cookies::PersistentCookieJar), so that writes
-/// automatically trigger persistence to disk.
 pub struct JsonCookieStore {
     path: PathBuf,
 
@@ -129,15 +116,6 @@ impl JsonCookieStore {
 }
 
 impl CookieStore for JsonCookieStore {
-    /// Returns the cookie jar handle for `zone_id`, creating it if needed.
-    ///
-    /// Behavior:
-    /// - If a jar for `zone_id` exists in the in-memory cache, it is returned.
-    /// - Otherwise, a serialized jar is loaded from disk (if present) or an empty
-    ///   [`DefaultCookieJar`] is created.
-    /// - That jar is wrapped in a [`PersistentCookieJar`](crate::cookies::PersistentCookieJar) bound to this store
-    ///   (via `store_self`) so that subsequent mutations persist automatically.
-    ///
     /// Returns `None` only on the defensive internal-error path (uninitialized
     /// `store_self`); for a healthy store this always provisions a jar.
     fn jar_for(&self, zone_id: ZoneId) -> Option<CookieJarHandle> {
@@ -146,10 +124,7 @@ impl CookieStore for JsonCookieStore {
         })
     }
 
-    /// Persists a snapshot of `zone_id`'s jar to disk (best-effort).
-    ///
-    /// Called by [`PersistentCookieJar`](crate::cookies::PersistentCookieJar) after each mutation. This method reads
-    /// the current file, updates/replaces the zone entry, and writes the file back.
+    /// Reads the current file, replaces the zone entry, and writes the file back.
     fn persist_zone_from_snapshot(&self, zone_id: ZoneId, snapshot: &DefaultCookieJar) {
         let mut store_file = self.load_file();
         store_file.zones.insert(zone_id, snapshot.clone());
@@ -172,10 +147,8 @@ impl CookieStore for JsonCookieStore {
         self.save_file(&file);
     }
 
-    /// Persists **all** in-memory jars to disk by snapshotting them (best-effort).
-    ///
-    /// Only jars of type [`PersistentCookieJar`](crate::cookies::PersistentCookieJar) that wrap a [`DefaultCookieJar`]
-    /// are snapshotted here. This avoids double-wrapping and keeps the format stable.
+    /// Only jars of type [`PersistentCookieJar`](crate::cookies::PersistentCookieJar)
+    /// wrapping a [`DefaultCookieJar`] are snapshotted, keeping the format stable.
     fn persist_all(&self) {
         let jars = self.jars.read();
 

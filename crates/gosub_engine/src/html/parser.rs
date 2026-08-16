@@ -60,6 +60,15 @@ pub struct HtmlParseConfig {
     /// Max bytes to buffer from the stream; a larger document is truncated (with a warning).
     /// The engine reads this from the `net.document.max_bytes` setting.
     pub max_bytes: usize,
+    /// How the parser fetches an external stylesheet. `None` means it does not:
+    /// the parser has no network capability of its own (see
+    /// `gosub_html5::parser::Html5ParserOptions::resource_loader`).
+    pub resource_loader: Option<std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>>,
+    /// Also return the document's source text, for an engine that will hand it
+    /// to a renderer process (which re-parses; a DOM cannot cross a fork by
+    /// value). Off by default - retaining a copy of every document would tax
+    /// engines that render in-process.
+    pub capture_source: bool,
 }
 
 impl Default for HtmlParseConfig {
@@ -67,31 +76,26 @@ impl Default for HtmlParseConfig {
         // Matches the `net.document.max_bytes` schema default.
         Self {
             max_bytes: 10 * 1024 * 1024,
+            resource_loader: None,
+            capture_source: false,
         }
     }
 }
 
 /// Main entry point: buffer the HTML stream, parse it into a real DOM document,
-/// and report discovered sub-resources.
-///
-/// - `base_url`: used to resolve relative URLs and as the document URL.
-/// - `reader`: the response body stream (after the UA has chosen Render).
-/// - `cancel`: cancellation token (tab/nav cancellation).
-/// - `cfg`: buffer limit config.
-/// - `on_discover`: callback invoked for each sub-resource hint found.
+/// and report discovered sub-resources via `on_discover`.
 pub async fn parse_main_document_stream<C, R, F>(
     base_url: Url,
     mut reader: R,
     cancel: CancellationToken,
     cfg: HtmlParseConfig,
     mut on_discover: F,
-) -> Result<EngineDocument<C>, DocumentError>
+) -> Result<(EngineDocument<C>, Option<std::sync::Arc<str>>), DocumentError>
 where
     C: RenderConfiguration,
     R: AsyncRead + Unpin + Send + 'static,
     F: FnMut(ResourceHint) + Send,
 {
-    // Buffer the full stream (up to cfg.max_bytes); bail on cancellation.
     let mut buf = Vec::with_capacity(32 * 1024);
     let mut tmp = [0u8; 16 * 1024];
 
@@ -116,8 +120,6 @@ where
                 "Document {base_url} exceeds the {} byte limit (net.document.max_bytes); parsing truncated content",
                 cfg.max_bytes
             );
-            // Drain (non-blocking-ish) without growing memory
-            // We don't strictly need to, but it's polite to the transport.
             let mut drain = [0u8; 16 * 1024];
             while reader.read(&mut drain).await? != 0 {
                 if cancel.is_cancelled() {
@@ -128,8 +130,12 @@ where
         }
     }
 
-    // Use lossy UTF-8 only for the fast resource-discovery regex scan.
+    // Use lossy UTF-8 only for the fast resource-discovery regex scan (and,
+    // when asked, the captured source).
     let html_lossy = String::from_utf8_lossy(&buf);
+    let source = cfg
+        .capture_source
+        .then(|| std::sync::Arc::<str>::from(html_lossy.as_ref()));
 
     // Fire sub-resource callbacks using the fast regex-based scanner so that
     // image/CSS/script fetches are submitted before the full parse completes.
@@ -149,11 +155,17 @@ where
     let mut stream = ByteStream::new(encoding, None);
     stream.read_from_bytes(&buf)?;
     let mut doc = DocumentBuilderImpl::new_document::<C>(Some(base_url));
-    let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, None);
+    // Hand the parser the loader so `<link rel="stylesheet">` resolves through the
+    // broker rather than a socket opened mid-parse.
+    let parser_options = gosub_html5::parser::Html5ParserOptions {
+        resource_loader: cfg.resource_loader.clone(),
+        ..Default::default()
+    };
+    let _ = Html5Parser::<C>::parse_document(&mut stream, &mut doc, Some(parser_options));
     let ua = <C::CssSystem as CssSystem>::load_default_useragent_stylesheet();
     doc.add_stylesheet(ua);
 
-    Ok(doc)
+    Ok((doc, source))
 }
 
 // ======== Forgiving resource discovery (regex-based) ========
@@ -314,7 +326,6 @@ mod tests {
         .await
         .unwrap();
 
-        // Ensure we discovered 3 resources with resolved URLs
         assert_eq!(hints.len(), 3);
         assert!(hints
             .iter()
@@ -357,7 +368,10 @@ mod tests {
     async fn truncates_at_max_bytes() {
         let base = Url::parse("https://e.test/").unwrap();
         let big = "A".repeat(150_000); // 150 KiB
-        let cfg = HtmlParseConfig { max_bytes: 64 * 1024 }; // 64 KiB
+        let cfg = HtmlParseConfig {
+            max_bytes: 64 * 1024, // 64 KiB
+            ..Default::default()
+        };
 
         // Just verify truncated input still produces a valid document (no panic).
         parse_main_document_stream::<DefaultRenderConfig, _, _>(

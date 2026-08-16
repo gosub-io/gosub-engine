@@ -24,6 +24,13 @@ pub trait FontSystem: Send + Sync + 'static {
     /// Measure the bounding box of `text` laid out in `style`, in CSS pixels.
     /// Provided: shapes and reads the bounding box; implementations may override.
     fn measure(&mut self, text: &str, style: &TextStyle) -> (f32, f32) { … }
+    /// The confinement tier, knowable without an instance (see below).
+    /// Provided: answers `Confinement::Full`.
+    fn confinement() -> Confinement where Self: Sized { … }
+    /// Load everything that needs the filesystem now, then answer how confined
+    /// a renderer process using this font system may be (see below).
+    /// Provided: warms every family and answers `Confinement::Full`.
+    fn prepare_for_confinement(&mut self) -> Confinement { … }
 }
 ```
 
@@ -41,6 +48,33 @@ The trait file also defines the shared value types: `TextStyle` (family, size, w
 | `SkiaFontSystem`   | [`gosub_fontmanager/src/skia_system.rs`](../crates/gosub_fontmanager/src/skia_system.rs) (feature `skia`)     | Skia, `skia_safe`, paragraph layout        | Measures and shapes through a thread-local `FontCollection`; `resolve`/`shape` export font bytes via `Typeface::to_font_data`. |
 
 The heavyweight engines are feature-gated (`pango` pulls in the GTK/fontconfig stack, `skia` pulls in `skia-safe`). The Cairo and Skia renderer crates enable their feature and re-export the type for convenience (`gosub_renderer_cairo::PangoFontSystem`, `gosub_renderer_skia::SkiaFontSystem`).
+
+### Font systems under process isolation
+
+A future renderer process runs behind a default-deny seccomp sandbox that wants to forbid file access outright — but font stacks read font files, and *when* they read them differs per stack. Because the font system is a configuration choice, "can a renderer be sandboxed" is not a fact about the engine; it is a fact about each font system, and only the implementation knows what it defers to the filesystem. That is what `FontSystem::prepare_for_confinement()` expresses: the implementation loads whatever it can front-load, then answers with a `Confinement` value naming the strongest sandbox tier it supports. All of the below was measured on Linux via the `isolation-harness` font scenarios (`fonts-under-lockdown`, `webfont-under-lockdown`, and the `…-font-readable-…` variants, each taking the backend name as an argument).
+
+| Answer | Sandbox the renderer gets | Who |
+|---|---|---|
+| `Confinement::Full` | `lock_down_renderer()`: **no file access at all** | Parley, cosmic-text |
+| `Confinement::FontPathsReadable` | `lock_down_renderer_with_font_access()`: read-only font paths + one private writable scratch, nothing else | Pango, Skia |
+| `Confinement::Unsupported(reason)` | none — the engine must fall back to single-process rendering | no bundled system |
+
+Per implementation:
+
+- **Parley (fontique)** — defers file reads lazily **per face**: a family-level warm-up loads only the face the default attributes select (regular), and the first *bold* heading laid out under the sandbox died opening `…-Bold.ttf`. Its override loads every face of every family — into **both** of the system's source caches, which are separate (`resolve` reads its own; parley's shaping reads the one inside `FontContext`) — at ~110 ms and near-zero RSS, since fontique memory-maps the files. Fully confinable.
+- **cosmic-text** — defers lazily **per face** (through its `get_font` cache), and shaping consults fallback faces that a family-by-family warm-up never touches, so the trait default is *not* enough (measured as a `SIGSYS` on `openat` mid-shape). Its override loads every face in the fontdb instead: ~20 ms / +46 MiB, and fully confinable. Note that even a web font delivered as bytes only shapes safely because preparation ran — shaping it still consults fallback faces.
+- **Pango** — cannot be fully confined, and no warm-up changes that: fontconfig re-validates its caches against the filesystem (`access(2)`, then re-opening files) *while matching*, in steady state. It answers `FontPathsReadable` and does no preparation work at all — under that tier it shapes cold, with nothing pre-loaded. Two Pango-specific limitations to know about: web fonts must be **staged as temp files** (fontconfig's app-font API takes a path; there is no from-memory variant), which is why the tier includes a writable scratch directory with `TMPDIR` pointed at it; and the fontconfig config is **process-global**, so registered web fonts are visible engine-wide rather than per-instance.
+- **Skia** — same fontconfig story on Linux (its default `FontMgr` is fontconfig-backed), so the same `FontPathsReadable` answer. Its font machinery additionally wants `getcwd`, `fstatfs`/`statfs`, and `fadvise64`, all included in the tier's allowlist. Its `FontCollection` is **thread-local**, which under full confinement would be an independent problem (a worker thread rebuilds its collection from scratch, re-reading files); under the font-readable tier it is harmless, since the paths stay reachable.
+
+The font-readable tier is the WebKitGTK arrangement (their fontconfig-based renderers get font directories bind-mounted read-only) and lives in `gosub_sandbox`: the renderer seccomp baseline plus the file-reading syscalls, with a **Landlock** ruleset confining those syscalls to `font_filesystem_paths()` — the font directories, fontconfig configuration, and caches, read-only. What an exploited renderer gains under it, compared to full confinement, is the ability to read world-readable font data and enumerate installed fonts; network, exec, devices, and all other filesystem access stay denied. On kernels without Landlock the path scoping degrades (the syscalls stay allowed unscoped), which is one more reason the engine applies the strongest tier the configured font system answers rather than defaulting to the relaxed one.
+
+The tier also decides how renderer processes are *created* (`gosub_engine::fork_server`). A `Full` system gets a **fork server**: a process that builds and prepares the font system once, confines itself, and forks renderers that inherit the warmed state copy-on-write — warm-up paid once, free per renderer. A `FontPathsReadable` system gets **no fork server**: warming buys nothing when the files stay reachable (renderers are exec'd fresh, ~3.7 ms), and the fork server deliberately never constructs such a stack — which is why `Confinement` is answerable *statically* via `FontSystem::confinement()`. That is not an optimization but a hard constraint, measured with Pango: GLib insists on spawning a worker thread during setup, a process that has unshared its PID namespace (as the fork server has) cannot create threads, and GLib escalates the failure to a fatal abort. Reaching the fork-server role requires `child_process::dispatch_with::<AppConfig>()` — plain `dispatch()` is type-erased and cannot construct the embedder's configuration.
+
+A forked renderer runs the actual pipeline (`fork_server::renderer::render_page`): parse, style, layout, layering, tiling, paint — single-threaded (the renderer filter has no `clone`), shaping through the inherited fonts. Fonts are not the only lazily-file-loading state that had to move pre-fork: constructing a `MediaStore` decodes the placeholder SVG, whose decoder loads a system fontdb from disk, so the fork server builds the store once before its lockdown and renderers inherit it (`TaffyLayouter::with_font_system_and_media_store` exists so the layouter constructs neither).
+
+Stage 6 runs there too when the configuration provides a rasterizer via `RenderConfiguration::forked_tile_rasterizer()` (default `None`) — a seam separate from `RenderBackend::create_rasterizer` because a re-exec'd child has only *types* to construct from, never a backend instance. The rasterized tiles come back **zero-copy** over `gosub_ipc::shm`: sealed memfds passed as fds, mapped and validated broker-side. `CairoRasterizer` (with `gosub_renderer_cairo`'s default GTK/Pango features off) rasterizes under the strictest sandbox and pairs with any font system; the engine feature `cairo-tiles` compiles it into the isolation harness.
+
+Subresources are **brokered**: a renderer has no fetch capability, so every load blocks on a round trip to the broker (`fork_server::loader::ForkedResourceLoader`, relayed by the fork server, answered by whatever `ResourceLoader` the broker passes to `render_page` — in the engine, the cookie-attaching brokered loader). The shared `MediaStore` runs in synchronous-fetch mode there (`set_synchronous_fetch`): its usual background `media-fetch` threads cannot exist in a process whose filter has no `clone`, and inline fetching means media lands in a single layout pass.
 
 ### How a font system reaches layout and rendering
 

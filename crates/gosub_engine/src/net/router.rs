@@ -16,8 +16,10 @@ use std::sync::Arc;
 /// The outcome of routing a fetch result.
 #[derive(Debug)]
 pub enum RoutedOutcome<C: RenderConfiguration> {
-    /// The main document has been parsed and is ready.
-    MainDocument(Arc<EngineDocument<C>>),
+    /// The main document has been parsed and is ready. The second field is
+    /// the document's source text, captured when the engine renders
+    /// out-of-process (its renderer re-parses; a DOM cannot cross a fork).
+    MainDocument(Arc<EngineDocument<C>>, Option<Arc<str>>),
     /// The resource has been rendered in a viewer (text, image, pdf, etc.).
     ViewerRendered(Bytes),
 
@@ -127,14 +129,13 @@ fn json_document_html(value: &serde_json::Value) -> String {
     )
 }
 
-/// BodyContent represents either a streaming body or a fully buffered body.
 enum BodyContent {
     Stream { shared: Arc<SharedBody> },
     Buffered { body: Bytes },
 }
 
 impl BodyContent {
-    // Convert to bytes, collecting the stream if necessary. Will take the peek buffer into account (if needed)
+    // Collect into bytes; a streamed body is re-joined with its peek buffer.
     #[allow(clippy::wrong_self_convention)]
     async fn to_bytes(self, peek_buf: PeekBuf) -> anyhow::Result<Bytes> {
         match self {
@@ -156,7 +157,6 @@ pub async fn route_response_for<C: RenderConfiguration>(
     policy: &UaPolicy,
     hooks: &mut ResourcePipelines<C>,
 ) -> anyhow::Result<RoutedOutcome<C>> {
-    // Fetch the metadata, peek buffer and content (type)
     let (meta, body_content, peek_buf) = match fetch_result {
         FetchResult::Stream { meta, peek_buf, shared } => (meta, BodyContent::Stream { shared }, peek_buf),
         FetchResult::Buffered { meta, body } => {
@@ -169,13 +169,12 @@ pub async fn route_response_for<C: RenderConfiguration>(
         }
     };
 
-    // Decide what we need to do with the response
     let outcome = decide_handling(&meta, dest, peek_buf.clone(), policy);
 
     match (dest, outcome.decision, body_content) {
         (RequestDestination::Document, HandlingDecision::Render(target), body_content) => match target {
             RenderTarget::HtmlParser => {
-                let doc = match body_content {
+                let (doc, source) = match body_content {
                     BodyContent::Stream { shared } => {
                         hooks.html.parse_stream(request, handle, meta, peek_buf, shared).await?
                     }
@@ -183,7 +182,7 @@ pub async fn route_response_for<C: RenderConfiguration>(
                         hooks.html.parse_bytes(request, handle, meta, body.as_ref()).await?
                     }
                 };
-                Ok(RoutedOutcome::MainDocument(Arc::new(doc)))
+                Ok(RoutedOutcome::MainDocument(Arc::new(doc), source))
             }
             RenderTarget::CssParser => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
             RenderTarget::JsEngine => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
@@ -210,8 +209,10 @@ pub async fn route_response_for<C: RenderConfiguration>(
                 };
                 let mut meta = meta;
                 meta.content_type = Some("text/html; charset=utf-8".into());
-                let doc = hooks.html.parse_bytes(request, handle, meta, html.as_bytes()).await?;
-                return Ok(RoutedOutcome::MainDocument(Arc::new(doc)));
+                // The synthesized viewer page is a document like any other: its
+                // source travels along so a renderer process can re-parse it too.
+                let (doc, source) = hooks.html.parse_bytes(request, handle, meta, html.as_bytes()).await?;
+                return Ok(RoutedOutcome::MainDocument(Arc::new(doc), source));
             }
             Err(anyhow!("Cannot download main document"))
         }

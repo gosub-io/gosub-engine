@@ -49,6 +49,7 @@ panic = "deny"
 [workspace.dependencies]
 anyhow = "1.0.102"
 base64 = "0.23.1"
+bincode = "1.3"
 bytemuck = "1.25.0"
 bytes = "1.10.1"
 cairo-rs = "0.22.0"
@@ -71,6 +72,7 @@ image = "0.25.10"
 indicatif = "0.18.0"
 js-sys = "0.3.91"
 lazy_static = "1.5.0"
+libc = "0.2"
 log = "0.4.29"
 nom = "8.0.0"
 once_cell = "1.21.3"
@@ -83,6 +85,7 @@ rand = "0.10.1"
 regex = "1.12.3"
 reqwest = {version = "0.13.3", default-features = false}
 resvg = "0.47.0"
+seccompiler = "0.4"
 serde = "1.0.228"
 serde_json = "1.0.150"
 simple_logger = "5.2.0"
@@ -108,6 +111,7 @@ wasm-bindgen = "0.2.114"
 wasm-bindgen-futures = "0.4.64"
 web-sys = "0.3.91"
 wgpu = "30.0.0"
+windows-sys = "0.59"
 winit = "0.30.12"
 [[example]]
 name = "html5-parser"
@@ -127,6 +131,12 @@ path = "examples/hello-world.rs"
 name = "multi-tab"
 path = "examples/multi-tab.rs"
 
+# The only example that runs components in separate processes; the rest are
+# deliberately single-process (see its module docs).
+[[example]]
+name = "multi-process"
+path = "examples/multi-process.rs"
+
 [[example]]
 name = "metrics-cli"
 path = "examples/metrics_cli.rs"
@@ -144,6 +154,7 @@ name = "bytestream"
 harness = false
 
 [dependencies]
+bytes = { workspace = true }
 gosub_interface = { version = "0.1.1", path = "./crates/gosub_interface", features = [], registry = "gosub" }
 gosub_shared = { version = "0.1.1", path = "./crates/gosub_shared", features = [], registry = "gosub" }
 gosub_html5 = { version = "0.1.1", path = "./crates/gosub_html5", features = [], registry = "gosub" }

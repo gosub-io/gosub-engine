@@ -19,7 +19,6 @@ use std::sync::Arc;
 /// `None` when the property carries no usable value (e.g. `CssValue::None`).
 fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) -> Option<Value> {
     match prop {
-        // ── Color properties ───────────────────────────────────────────────
         StyleProperty::Color
         | StyleProperty::BackgroundColor
         | StyleProperty::BorderTopColor
@@ -36,7 +35,6 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             Some(Value::Color(r as u8, g as u8, b as u8, a as u8))
         }
 
-        // ── Display ────────────────────────────────────────────────────────
         StyleProperty::Display => {
             let s = p.as_string()?;
             let d = match s {
@@ -60,7 +58,6 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             Some(Value::Display(d))
         }
 
-        // ── FontWeight ─────────────────────────────────────────────────────
         StyleProperty::FontWeight => {
             let fw = if let Some(n) = p.as_number() {
                 FontWeight::Number(n)
@@ -75,7 +72,6 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             Some(Value::FontWeight(fw))
         }
 
-        // ── TextAlign ──────────────────────────────────────────────────────
         StyleProperty::TextAlign => {
             let ta = match p.as_string()? {
                 "left" => TextAlign::Left,
@@ -94,7 +90,6 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             Some(Value::TextAlign(ta))
         }
 
-        // ── TextWrap ───────────────────────────────────────────────────────
         StyleProperty::TextWrap => {
             let tw = match p.as_string()? {
                 "nowrap" => TextWrap::NoWrap,
@@ -111,7 +106,6 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             Some(Value::TextWrap(tw))
         }
 
-        // ── Border styles ──────────────────────────────────────────────────
         StyleProperty::BorderTopStyle
         | StyleProperty::BorderRightStyle
         | StyleProperty::BorderBottomStyle
@@ -120,13 +114,12 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             Some(Value::BorderStyle(str_to_border_style(s)))
         }
 
-        // ── Numeric properties ─────────────────────────────────────────────
         StyleProperty::FlexGrow
         | StyleProperty::FlexShrink
         | StyleProperty::AspectRatio
         | StyleProperty::ScrollbarWidth => Some(Value::Number(p.as_number()?)),
 
-        // ── line-height: unitless number is a multiplier, not pixels ───────
+        // Unitless line-height is a multiplier, not px.
         StyleProperty::LineHeight => {
             if p.as_unit().is_some() {
                 Some(Value::Unit(p.unit_to_px(), Unit::Px))
@@ -137,7 +130,6 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             }
         }
 
-        // ── font-family: single string or comma-separated list ─────────────
         StyleProperty::FontFamily => {
             if let Some(s) = p.as_string() {
                 return Some(Value::Keyword(intern(s)));
@@ -168,7 +160,6 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             None
         }
 
-        // ── z-index: an integer (stacking order) or the `auto` keyword ─────
         StyleProperty::ZIndex => {
             if let Some(n) = p.as_number() {
                 Some(Value::Number(n))
@@ -177,10 +168,8 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             }
         }
 
-        // ── Grid track lists: `repeat(3, 1fr)`, `210px 1fr`, `auto`, … ─────
-        // Stored as a `Function` (repeat/minmax) or a `List` - neither of which `as_string()`
-        // returns - and a bare `1fr` is a `Unit`, so the default branch would drop or mis-type
-        // them. Re-serialize to canonical CSS text for the layouter's `parse_grid_template`.
+        // Grid track lists arrive as Function/List/Unit, which the default branch would drop or
+        // mis-type. Re-serialize to canonical CSS text for the layouter's `parse_grid_template`.
         StyleProperty::GridTemplateColumns
         | StyleProperty::GridTemplateRows
         | StyleProperty::GridAutoColumns
@@ -200,15 +189,11 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             Some(Value::Keyword(intern(&s)))
         }
 
-        // ── Default: unit-based or keyword ────────────────────────────────
         _ => {
             if let Some((v, unit)) = p.as_unit() {
-                // Font-relative units must scale with the *element's* font-size, which we
-                // don't know here. Express them as `em` (with an approximate factor for the
-                // ones that aren't already font-multiples) and let `get_style` resolve them
-                // against the computed font-size. Absolute and viewport units resolve to px
-                // immediately. The factors are coarse stand-ins for real font metrics:
-                // `ch` ≈ width of "0", `ex` ≈ x-height, `lh` ≈ line box.
+                // The element's font-size is unknown here, so font-relative units become `em`
+                // (coarse factors standing in for real font metrics) for `get_style` to resolve;
+                // absolute and viewport units resolve to px immediately.
                 let value = match unit {
                     "em" => Value::Unit(v, Unit::Em),
                     // 0.55em, not the spec's 0.5em fallback: real proportional fonts sit nearer
@@ -707,7 +692,7 @@ pub trait PipelineDocument: Send + Sync {
     ///  3. the CSS-spec initial value otherwise.
     fn get_style(&self, id: NodeId, prop: &StyleProperty) -> Value {
         // A border whose style is none/hidden computes to zero width regardless of the declared or
-        // initial width. Enforced here so layout and paint can't disagree about the box.
+        // initial width.
         if let Some(style_prop) = border_width_peer_style(prop) {
             if let Value::BorderStyle(s) = self.get_style(id, &style_prop) {
                 if matches!(s, BorderStyle::None | BorderStyle::Hidden) {

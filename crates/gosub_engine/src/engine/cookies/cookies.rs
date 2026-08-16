@@ -2,12 +2,11 @@
 //! [`Cookie`] data structure.
 //!
 //! # Concurrency model
-//! - [`CookieJarHandle`]: callers take a **read lock** for non-mutating operations and
-//!   a **write lock** for mutating operations on the underlying jar.
-//! - [`CookieStoreHandle`]: stores manage their **own internal synchronization** (e.g. via
-//!   `parking_lot`, `Mutex`, connection pools, etc.) - the trait methods take `&self`.
+//! - [`CookieJarHandle`]: callers take a read lock for queries and a write lock for
+//!   mutations on the underlying jar.
+//! - [`CookieStoreHandle`]: stores manage their own internal synchronization - the
+//!   trait methods take `&self`.
 //!
-//! # Typical usage
 //! ```ignore,no_run
 //! // Acquire cookies for a request.
 //! // Pass the tab's current page URL as `top_level` so the jar can apply
@@ -54,7 +53,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 /// A reference-counted, read/write-locked pointer to a type-erased [`CookieJar`].
-/// Obtain a **read lock** for queries and a **write lock** for mutations.
 #[derive(Clone, Debug)]
 pub struct CookieJarHandle(Arc<RwLock<Box<dyn CookieJar + Send + Sync>>>);
 
@@ -102,10 +100,8 @@ where
 
 /// A reference-counted pointer to a type-erased [`CookieStore`].
 ///
-/// Store implementations must be **`Send + Sync` and internally synchronized**,
-/// since callers hold only `&self` when invoking trait methods.
-///
-/// Typical use is at **build/initialization time** to mint a per-zone jar.
+/// Implementations must be `Send + Sync` and internally synchronized; callers hold
+/// only `&self`.
 #[derive(Clone)]
 pub struct CookieStoreHandle(Arc<dyn CookieStore + Send + Sync>);
 
@@ -163,7 +159,7 @@ pub struct Cookie {
     /// If `true`, cookie is sent only over HTTPS.
     pub secure: bool,
 
-    /// Expiration time as **Unix timestamp** (seconds since 1970-01-01T00:00:00Z).
+    /// Expiration time as Unix timestamp (seconds since 1970-01-01T00:00:00Z).
     ///
     /// Computed at receive time from `Max-Age` (preferred) or the `Expires` date header.
     /// `None` means a session cookie that is not persisted across browser restarts.
@@ -172,7 +168,7 @@ pub struct Cookie {
     /// SameSite policy (`"Strict"`, `"Lax"`, or `"None"`).
     ///
     /// `Option::None` means the attribute was absent; the jar then applies the
-    /// modern default of **Lax**. The string value `"None"` (cross-site allowed)
+    /// modern default of Lax. The string value `"None"` (cross-site allowed)
     /// additionally requires `secure=true`.
     /// Consider modeling as an enum in the future.
     pub same_site: Option<String>,
@@ -180,7 +176,7 @@ pub struct Cookie {
     /// If `true`, cookie is blocked from access by client-side scripts (`document.cookie`).
     pub http_only: bool,
 
-    /// Creation time as Unix timestamp in **milliseconds**.
+    /// Creation time as Unix timestamp in milliseconds.
     ///
     /// Set once when the cookie is first stored; preserved on subsequent updates to
     /// the same (name, domain, path) triple so that creation order survives overwrites.

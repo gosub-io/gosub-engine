@@ -7,6 +7,7 @@ use crate::engine::types::{EventChannel, IoChannel};
 use crate::engine::DEFAULT_CHANNEL_CAPACITY;
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
+use crate::net::tab_identity::TabIdentityRegistry;
 use crate::net::{fetcher_config_from, spawn_io_thread, IoHandle};
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineConfig, EngineError};
@@ -67,6 +68,18 @@ pub struct EngineContext {
     pub io_tx: OnceLock<IoChannel>,
     /// Map for requests to tabs
     pub request_reference_map: Arc<RwLock<RequestReferenceMap>>,
+    /// Which cookie jar and top-level document each tab has. The I/O side reads
+    /// this to attach cookies itself, so no cookie value is ever handled by tab
+    /// code - see [`TabIdentityRegistry`].
+    pub tab_identities: Arc<TabIdentityRegistry>,
+    /// The fork server renderers are forked from, if `security.renderer_process`
+    /// is on and it started (set once at [`GosubEngine::start`], like `io_tx`).
+    /// One per engine: what it holds (a warmed font system, a confinement tier)
+    /// is engine-wide state. On the shared context so tab workers can route
+    /// their renders through it; behind a `Mutex` because its request/reply
+    /// protocol is strictly serial.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub renderer_process: OnceLock<Arc<Mutex<crate::fork_server::client::ForkServer>>>,
 }
 
 impl Default for EngineContext {
@@ -77,6 +90,9 @@ impl Default for EngineContext {
             config_store: crate::engine::settings_store::default_config(),
             io_tx: OnceLock::new(),
             request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
+            tab_identities: Arc::new(TabIdentityRegistry::new()),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            renderer_process: OnceLock::new(),
         }
     }
 }
@@ -115,6 +131,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 config_store: crate::engine::settings_store::default_config(),
                 io_tx: OnceLock::new(),
                 request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
+                tab_identities: Arc::new(TabIdentityRegistry::new()),
+                #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                renderer_process: OnceLock::new(),
             }),
             render_backend: backend,
             compositor,
@@ -130,7 +149,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
     /// Starts the engine's I/O runtime and returns the main run-loop future.
     ///
-    /// The returned future is intentionally **not** spawned: the caller decides how to drive it -
+    /// The returned future is intentionally not spawned: the caller decides how to drive it -
     /// `tokio::spawn` it onto a background task, `.await` it inline, or poll it inside a `select!`.
     /// This keeps the engine from imposing a runtime/threading model on the embedder (it can be
     /// driven on the caller's current task/thread). The engine is considered running as soon as
@@ -151,10 +170,95 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         #[cfg(feature = "metrics")]
         crate::metrics::start(9090);
 
+        // Spawn the renderer fork server if asked to. Blocks briefly (spawn
+        // plus font warm-up, ~200 ms typical) - acceptable at startup, and
+        // the answer decides engine-wide behaviour, so it belongs here.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.start_renderer_process();
+
         // Hand the run-loop future to the caller to drive (spawn / await / select!) rather than
         // spawning it ourselves. `run()` yields `None` only if the loop was already taken, which
         // cannot happen here since `self.running` was false above.
         self.run().ok_or(EngineError::AlreadyRunning)
+    }
+
+    /// Spawn the fork server when `security.renderer_process` asks for it.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn start_renderer_process(&mut self) {
+        use crate::fork_server::client::ForkServer;
+        use crate::fork_server::protocol::ConfinementTier;
+
+        if !self.context.config_store.get_bool("security.renderer_process") {
+            return;
+        }
+
+        // The configured font system's (static) tier decides the mechanism:
+        // only `Full` systems benefit from a warmed fork server.
+        // `FontPathsReadable` renders in throwaway exec'd processes spawned
+        // per render (see `render_process`) - nothing to start here.
+        {
+            use gosub_interface::font_system::{Confinement, FontSystem as _};
+            match C::FontSystem::confinement() {
+                Confinement::Full => {}
+                Confinement::FontPathsReadable => {
+                    log::info!(
+                        "renderer isolation active in exec-per-render mode                          (the configured font system reads font files while operating)"
+                    );
+                    return;
+                }
+                Confinement::Unsupported(reason) => {
+                    log::warn!(
+                        "security.renderer_process is on, but the configured font system cannot run                          isolated ({reason}); rendering stays in-process"
+                    );
+                    return;
+                }
+            }
+        }
+
+        match ForkServer::spawn() {
+            Ok(mut server) => {
+                let tier = server.confinement().clone();
+                match tier {
+                    ConfinementTier::Unsupported(reason) => {
+                        log::warn!(
+                            "security.renderer_process is on, but the configured font system cannot run \
+                             isolated ({reason}); rendering stays in-process"
+                        );
+                        server.shutdown();
+                    }
+                    tier => {
+                        log::info!("renderer fork server ready (confinement tier: {tier:?})");
+                        // Set once, like `io_tx`; `start()` refuses to run twice.
+                        let _ = self.context.renderer_process.set(Arc::new(Mutex::new(server)));
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "security.renderer_process is on, but the fork server could not be started ({e}); \
+                     rendering stays in-process. The most likely cause is an embedder that has not \
+                     called gosub_engine::child_process::dispatch_with() first thing in main()."
+                );
+            }
+        }
+    }
+
+    /// The running renderer fork server, when `security.renderer_process` is on
+    /// and it started - the handle render routing goes through. `None` means
+    /// this engine renders in-process.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn renderer_process(&self) -> Option<&Arc<Mutex<crate::fork_server::client::ForkServer>>> {
+        self.context.renderer_process.get()
+    }
+
+    /// The confinement tier the renderer fork server announced, when one is
+    /// running: how confined this engine's forked renderers are.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn renderer_process_tier(&self) -> Option<crate::fork_server::protocol::ConfinementTier> {
+        self.context
+            .renderer_process
+            .get()
+            .map(|server| server.lock().confinement().clone())
     }
 
     /// Return a receiver for engine events.
@@ -218,6 +322,14 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Persist cookie stores before tearing anything down.
         self.flush_persistence();
 
+        // Ask the fork server for a clean exit (it kills-and-reaps on drop
+        // regardless, but a Shutdown lets it leave without a SIGKILL).
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if let Some(server) = self.context.renderer_process.get() {
+            log::trace!("signal: shutting down the renderer fork server");
+            server.lock().shutdown();
+        }
+
         // Shutdown I/O thread
         log::trace!("signal: shutting down I/O thread");
         let shutdown_secs = self.context.config_store.get_uint("engine.io_shutdown_secs") as u64;
@@ -251,18 +363,12 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
     /// Create and register a new zone, returning a [`Zone`] for userland code.
     ///
-    /// - `config`: zone configuration (features, limits, identity); if `None`, the
-    ///   engine's [`EngineConfig::default_zone_config`] is used
-    /// - `services`: storage, cookie store/jar, partition policy, etc.
-    /// - `zone_id`: optional id; if `None`, a fresh one is generated
-    /// - `event_tx`: channel where the zone (and its tabs) will emit [`EngineEvent`]s
-    ///
-    /// Fails with [`EngineError::ZoneLimitExceeded`] once the engine holds
-    /// [`EngineConfig::max_zones`] zones.
-    ///
-    /// The returned handle contains the [`ZoneId`] and a clone of the engine’s
-    /// command sender, allowing the caller to send zone commands without holding
-    /// a reference to the engine.
+    /// `None` for `config` uses the engine's [`EngineConfig::default_zone_config`];
+    /// `None` for `zone_id` generates a fresh id. Fails with
+    /// [`EngineError::ZoneLimitExceeded`] once the engine holds
+    /// [`EngineConfig::max_zones`] zones. The returned handle carries the [`ZoneId`]
+    /// and a clone of the engine's command sender, so the caller can send zone
+    /// commands without holding a reference to the engine.
     pub fn create_zone(
         &mut self,
         config: Option<ZoneConfig>,
@@ -369,6 +475,86 @@ mod tests {
             Arc::new(NullBackend::new()),
             Arc::new(DefaultCompositor::default()),
         )
+    }
+
+    /// The inversion, end to end: the I/O side stores a `Set-Cookie` from one
+    /// navigation and attaches it to the next, with no cookie code on the tab
+    /// path at all. Both halves are covered - a failure to store and a failure to
+    /// attach look identical here, which is why the second request is inspected
+    /// rather than the jar.
+    #[tokio::test]
+    async fn cookies_are_stored_and_replayed_by_the_io_side() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        // Only the second request matters; the first exists to hand out the cookie.
+        let second_request = Arc::new(Mutex::new(String::new()));
+        let captured = second_request.clone();
+
+        tokio::spawn(async move {
+            for i in 0..2 {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buf = vec![0u8; 4096];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                if i == 1 {
+                    *captured.lock() = String::from_utf8_lossy(&buf[..n]).to_string();
+                }
+
+                let body = b"<html><title>hi</title></html>";
+                let set_cookie = if i == 0 {
+                    "Set-Cookie: sid=abc123; Path=/\r\n"
+                } else {
+                    ""
+                };
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{set_cookie}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes()).await;
+                let _ = stream.write_all(body).await;
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let _event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        // One tab for both navigations: with no zone store or jar configured every
+        // tab gets its own jar, so a second tab would start empty.
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        tab.navigate(format!("http://127.0.0.1:{port}/first"))
+            .await
+            .expect("first navigation");
+        // The store happens on the I/O side after the response arrives, so the
+        // second navigation must not start until the first has been answered.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        tab.navigate(format!("http://127.0.0.1:{port}/second"))
+            .await
+            .expect("second navigation");
+
+        let mut request = String::new();
+        for _ in 0..100 {
+            request = second_request.lock().clone();
+            if !request.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        use cow_utils::CowUtils;
+        assert!(
+            request.cow_to_ascii_lowercase().contains("cookie: sid=abc123"),
+            "the I/O side should have stored and replayed the cookie, got:\n{request}"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
     }
 
     #[tokio::test]

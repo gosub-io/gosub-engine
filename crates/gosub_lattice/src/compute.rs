@@ -262,7 +262,7 @@ fn row_y_offsets(row_heights: &[f32], spacing_y: f32) -> Vec<f32> {
     offsets
 }
 
-/// Total height of a section: its rows plus the gutters *between* them.
+/// Total height of a section: its rows plus the gutters between them.
 /// Boundary gutters (above the first row / below the last) are added by the
 /// caller when stacking groups, so they are not counted here.
 fn section_height(row_heights: &[f32], spacing_y: f32) -> f32 {

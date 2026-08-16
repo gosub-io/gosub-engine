@@ -1,8 +1,10 @@
 use crate::common::hash::{hash_from_data, hash_from_string, Sha256Hash};
 use crate::common::media::{
-    DecodedMedia, Image, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg,
+    DecodedImage, DecodedMedia, Image, Media, MediaDecoderRegistry, MediaId, MediaImage, MediaSvg, MediaType, Svg,
 };
 use bytes::Bytes;
+use gosub_interface::media_decoder::{BrokeredDecode, ImageDecoder};
+use gosub_interface::resource_loader::{NoResourceLoader, ResourceLoader};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -34,6 +36,10 @@ pub struct MediaStore {
     pending: RwLock<HashSet<Sha256Hash>>,
     /// Set whenever a background fetch lands, so the engine knows a reflow is needed
     completed: AtomicBool,
+    /// Fetch inline on the calling thread instead of spawning `media-fetch` threads.
+    /// A sandboxed renderer cannot spawn (its seccomp filter has no `clone`; a spawn is
+    /// SIGSYS, not `Err`), and an inline fetch means one layout pass instead of fetch-then-reflow.
+    synchronous_fetch: AtomicBool,
     /// Next media ID (atomic to prevent allocation races)
     next_id: AtomicU64,
     /// Compiled-in placeholder returned when an SVG is missing or failed to load
@@ -41,6 +47,12 @@ pub struct MediaStore {
     /// Compiled-in placeholder returned when an image is missing or failed to load
     default_image: Arc<Media>,
     decoders: MediaDecoderRegistry,
+    /// How remote media is fetched. The store holds a loader rather than reaching
+    /// for the network itself, so layout carries no network capability.
+    loader: Arc<dyn ResourceLoader>,
+    /// Where raster decoding happens. `None` decodes in this process, which is
+    /// the default; the engine installs one to move it out.
+    decoder: Option<Arc<dyn ImageDecoder>>,
 }
 
 impl Default for MediaStore {
@@ -54,7 +66,24 @@ impl MediaStore {
         MediaId::new(self.next_id.fetch_add(1, Ordering::Relaxed))
     }
 
+    /// A store with no network: `data:` URIs still decode, remote sources do not
+    /// load. For tests and measurement-only layout passes; the engine builds its
+    /// store with [`with_loader`](Self::with_loader).
     pub fn new() -> MediaStore {
+        Self::with_loader(Arc::new(NoResourceLoader))
+    }
+
+    /// A store that pulls remote media through `loader`.
+    pub fn with_loader(loader: Arc<dyn ResourceLoader>) -> MediaStore {
+        Self::with_loader_and_decoder(loader, None)
+    }
+
+    /// A store that also decodes raster images through `decoder` rather than in
+    /// this process. See [`ImageDecoder`].
+    pub fn with_loader_and_decoder(
+        loader: Arc<dyn ResourceLoader>,
+        decoder: Option<Arc<dyn ImageDecoder>>,
+    ) -> MediaStore {
         let decoders = MediaDecoderRegistry::with_defaults();
 
         #[allow(clippy::expect_used)] // PANIC-SAFE: compiled-in asset, exercised by every pipeline test
@@ -85,11 +114,21 @@ impl MediaStore {
             cache: RwLock::new(HashMap::new()),
             pending: RwLock::new(HashSet::new()),
             completed: AtomicBool::new(false),
+            synchronous_fetch: AtomicBool::new(false),
             next_id: AtomicU64::new(FIRST_FREE_IMAGE_ID),
             default_svg,
             default_image,
             decoders,
+            loader,
+            decoder,
         }
+    }
+
+    /// Fetch inline instead of spawning `media-fetch` threads (see the field). Set once,
+    /// before the store is shared with a context that cannot thread (the fork server sets
+    /// it before renderers are forked from it).
+    pub fn set_synchronous_fetch(&self, on: bool) {
+        self.synchronous_fetch.store(on, Ordering::Relaxed);
     }
 
     /// Non-blocking media load: cached hits return `Ready`, otherwise a background fetch (deduped
@@ -106,6 +145,18 @@ impl MediaStore {
         // Register as in-flight; if another request already owns this hash, just report Pending.
         if !self.pending.write().insert(h) {
             return MediaRequest::Pending;
+        }
+
+        // Synchronous mode: fetch on the calling thread. `load_media` caches even
+        // failures (as the placeholder), so the lookup below normally succeeds.
+        if self.synchronous_fetch.load(Ordering::Relaxed) {
+            let _ = self.load_media(src);
+            self.pending.write().remove(&h);
+            self.completed.store(true, Ordering::Relaxed);
+            return match self.cache.read().get(&h) {
+                Some(media_id) => MediaRequest::Ready(*media_id),
+                None => MediaRequest::Pending,
+            };
         }
 
         let store = Arc::clone(self);
@@ -134,6 +185,23 @@ impl MediaStore {
 
     /// Shared by the data, source and inline decode paths.
     fn decode_media(&self, src: &str, mime: Option<&str>, data: &[u8]) -> anyhow::Result<Media> {
+        if let Some(decoder) = &self.decoder {
+            match decoder.decode(mime, data) {
+                Ok(BrokeredDecode::Raster(raster)) => {
+                    // Length is checked against the dimensions rather than
+                    // trusted: the producer may be a compromised decoder.
+                    let image = DecodedImage::new_rgba8(raster.width, raster.height, raster.rgba.to_vec())
+                        .map_err(|e| anyhow::anyhow!("brokered decode of '{}' returned bad pixels: {}", src, e))?;
+                    return Ok(Media::image(src, image));
+                }
+                // Vector data: fall through and parse it here.
+                Ok(BrokeredDecode::Vector) => {}
+                Err(e) => {
+                    log::debug!("brokered decode of '{src}' did not produce an image ({e}); decoding locally");
+                }
+            }
+        }
+
         match self.decoders.decode(mime, data) {
             Ok(DecodedMedia::Raster(img)) => Ok(Media::image(src, img)),
             Ok(DecodedMedia::Vector(tree)) => Ok(Media::svg(src, Svg::new(*tree))),
@@ -304,16 +372,13 @@ impl MediaStore {
     /// the decoder registry, which treats the content type as a hint only.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(Option<String>, Bytes)> {
         let url = Url::parse(src)?;
-        let response = gosub_sonar::net::simple::sync_fetch(&url)?;
+        let response = self.loader.load(&url).map_err(|e| anyhow::anyhow!("{e}"))?;
 
         if !response.is_ok() {
             anyhow::bail!("HTTP {} fetching resource", response.status);
         }
 
-        let content_type = response.headers.get("content-type").cloned();
-        let raw_bytes = Bytes::from(response.body);
-
-        Ok((content_type, raw_bytes))
+        Ok((response.content_type, response.body))
     }
 }
 

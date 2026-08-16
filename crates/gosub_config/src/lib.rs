@@ -36,10 +36,8 @@ pub trait StorageAdapter: Send + Sync {
     /// setting.
     fn all(&self) -> Result<HashMap<String, Setting>>;
 
-    /// Flushes any buffered writes to the backing store. Adapters that persist eagerly on every `set`
-    /// (or that do not persist at all, like the in-memory adapter) treat this as a no-op. It exists so
-    /// callers can request an explicit durability point and so adapters can later batch writes without
-    /// changing the trait.
+    /// Flushes any buffered writes to the backing store. Adapters that persist eagerly on every
+    /// `set` (or not at all, like the in-memory adapter) treat this as a no-op.
     fn flush(&self) -> Result<()> {
         Ok(())
     }
@@ -64,8 +62,7 @@ struct Subscription {
 
 /// A shareable handle to a configuration store. Cloning is cheap (an `Arc` bump); all clones refer
 /// to the same underlying store, so subscriptions and writes made through one clone are visible to
-/// the others. This is the per-engine entry point to configuration - construct one and hand clones
-/// to whichever components need it.
+/// the others.
 #[derive(Clone)]
 pub struct Config(Arc<RwLock<ConfigStore>>);
 
@@ -95,15 +92,11 @@ impl Config {
 
     /// Merges every setting from `other` into this config under an optional namespace.
     ///
-    /// Each of `other`'s settings is registered here with key `"{namespace}.{key}"` (or just
-    /// `key` when `namespace` is empty), carrying over its description, default, constraint and
-    /// *current* value. For example, merging a user-agent config under `"user_agent"` turns its
-    /// `tabs.close_position` into `user_agent.tabs.close_position`.
-    ///
-    /// This is a one-time snapshot copy, not a live link: later changes in `other` are not
-    /// reflected here. Keys that already exist are left untouched (and logged). Merged settings
-    /// live in memory only; they are not written to this config's storage adapter unless later
-    /// `set`. Returns the number of settings actually merged.
+    /// Each of `other`'s settings is registered here as `"{namespace}.{key}"` (or bare `key` when
+    /// `namespace` is empty), carrying over its description, default, constraint and current value.
+    /// One-time snapshot, not a live link: later changes in `other` are not reflected here. Keys
+    /// that already exist are left untouched (and logged). Merged settings are not written to this
+    /// config's storage adapter unless later `set`. Returns the number of settings merged.
     pub fn merge(&self, other: &Config, namespace: &str) -> usize {
         // Snapshot `other` first (its read guard is released at the end of this statement) so that
         // acquiring our own write lock can never overlap with it - safe even if `other` is a clone
@@ -246,9 +239,6 @@ impl Config {
 /// Grants access to a [`Config`] handle. Subsystems that only need to read or watch settings
 /// should bound on `T: HasConfig` rather than taking a concrete context type, so they stay
 /// decoupled from how the engine is assembled.
-///
-/// A bare [`Config`] implements this (returning itself), and a runtime context that owns a
-/// `Config` implements it by returning a reference to that field.
 pub trait HasConfig {
     /// Returns the configuration handle.
     fn config(&self) -> &Config;

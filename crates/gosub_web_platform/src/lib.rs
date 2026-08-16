@@ -16,8 +16,7 @@ pub mod poll_guard;
 #[allow(dead_code)]
 mod timers;
 
-/// The web event loop for a JS or Lua runtime. Previously generic over `HasWebComponents`;
-/// the rendering/chrome handles now live outside this crate.
+/// The web event loop for a JS or Lua runtime.
 #[allow(unused)]
 pub struct WebEventLoop<E: FutureExecutor = TokioExecutor> {
     listeners: EventListeners<E>,

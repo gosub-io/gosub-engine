@@ -91,9 +91,8 @@ pub struct TaffyLayouter {
     dom_to_layout_mapping: HashMap<DomNodeId, LayoutElementId>,
 }
 
-/// Apply the CSS `text-transform` keyword to a text run. `uppercase`/`lowercase` map the whole
-/// string; `capitalize` uppercases the first letter of each whitespace-separated word. `none`
-/// (and any unsupported keyword such as `full-width`) leaves the text unchanged.
+/// Apply the CSS `text-transform` keyword to a text run. Unsupported keywords (e.g. `full-width`)
+/// leave the text unchanged.
 fn apply_text_transform(text: String, transform: Value) -> String {
     let Value::Keyword(id) = transform else {
         return text;
@@ -183,21 +182,27 @@ impl Default for TaffyLayouter {
 
 impl TaffyLayouter {
     /// Create a layouter with its own font system.
-    ///
-    /// To share the font collection with other components (e.g. a `VelloRasterizer`)
-    /// use [`TaffyLayouter::with_font_system`] and pass the same `Arc` to both.
     pub fn new() -> Self {
         Self::with_font_system(Arc::new(Mutex::new(ParleyFontSystem::new())))
     }
 
     /// Create a layouter that shares an existing font system.
     pub fn with_font_system(font_system: Arc<Mutex<dyn FontSystem>>) -> Self {
+        Self::with_font_system_and_media_store(font_system, Arc::new(MediaStore::new()))
+    }
+
+    /// Create a layouter that shares an existing font system *and* media
+    /// store, constructing neither.
+    pub fn with_font_system_and_media_store(
+        font_system: Arc<Mutex<dyn FontSystem>>,
+        media_store: Arc<MediaStore>,
+    ) -> Self {
         Self {
             tree: TaffyTree::new(),
             root_id: TaffyNodeId::new(0),
             layout_taffy_mapping: HashMap::new(),
             anon_container_map: HashMap::new(),
-            media_store: Arc::new(MediaStore::new()),
+            media_store,
             font_system,
             measure_cache: HashMap::new(),
             dom_to_layout_mapping: HashMap::new(),
@@ -209,9 +214,8 @@ impl TaffyLayouter {
         Arc::clone(&self.font_system)
     }
 
-    /// Share an external media store with this layouter. Resources loaded during layout are
-    /// stored here; passing the same store to the rasterizer lets it resolve those resources
-    /// by id. Without this they live in two separate stores and images render as placeholders.
+    /// Share an external media store with this layouter. The rasterizer must share the same
+    /// store to resolve resources by id; otherwise images render as placeholders.
     pub fn set_media_store(&mut self, media_store: Arc<MediaStore>) {
         self.media_store = media_store;
     }
@@ -247,7 +251,6 @@ impl CanLayout for TaffyLayouter {
         // let root_id = RenderNodeId::new(2);
         let mut layout_tree = self.generate_tree(render_tree, root_id);
 
-        // // Compute the layout based on the viewport
         let size = match viewport {
             Some(viewport) => Size {
                 width: AvailableSpace::Definite(viewport.width as f32),
@@ -352,9 +355,7 @@ impl CanLayout for TaffyLayouter {
         }
         self.measure_cache = measure_cache;
 
-        // Since we are not interested in taffy layout after this stage in the pipeline, we convert
-        // the taffy layout to a box model layout tree. This makes the rest of the pipeline
-        // layout-engine agnostic.
+        // Convert to the box-model tree so the rest of the pipeline is layout-engine agnostic.
         let root_id = layout_tree.root_id;
         let root_width = layout_tree.root_dimension.width;
         self.populate_boxmodel(&mut layout_tree, root_id, Coordinate::ZERO, root_width);
@@ -863,8 +864,7 @@ impl TaffyLayouter {
             }
         }
 
-        // Create a mapping between the layout element id and the taffy node id. We need this to generate
-        // the boxmodel at a later time in this pipeline stage.
+        // Needed by populate_boxmodel later in this stage.
         self.layout_taffy_mapping.insert(layout_element_id, leaf_id);
         self.dom_to_layout_mapping.insert(dom_node.node_id, layout_element_id);
 

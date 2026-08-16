@@ -1,10 +1,4 @@
-//! A second [`FontSystem`] implementation, backed by **cosmic-text** (fontdb discovery +
-//! rustybuzz shaping + swash). It implements exactly the same trait as [`crate::ParleyFontSystem`],
-//! demonstrating that the font abstraction is engine-agnostic - the layouter can measure with it,
-//! and a backend that paints [`ShapedText`] glyph runs can render with it.
-//!
-//! Note: cosmic-text doesn't expose the underlying shared font bytes, so `blob_for` copies them
-//! when filling a [`FontBlob`] (cached upstream by whoever holds the `ResolvedFont`).
+//! [`FontSystem`] backed by cosmic-text (fontdb discovery + rustybuzz shaping + swash).
 
 use cosmic_text::{
     fontdb, Align, Attrs, Buffer, Family, FontSystem as CosmicTextFontSystem, Metrics, Shaping, Stretch, Style, Weight,
@@ -12,8 +6,8 @@ use cosmic_text::{
 use cow_utils::CowUtils;
 use gosub_interface::font::{FontBlob, FontError, FontStyle};
 use gosub_interface::font_system::{
-    FontQuery, FontStretch, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText, TextAlign,
-    TextStyle,
+    Confinement, FontQuery, FontStretch, FontSystem, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun, ShapedText,
+    TextAlign, TextStyle,
 };
 use std::sync::Arc;
 
@@ -34,9 +28,8 @@ impl Default for CosmicFontSystem {
     }
 }
 
-/// A run of shaped glyphs that all share one font. Collected while the cosmic-text `buffer`
-/// is borrowed, so the per-run font-blob lookup (which borrows `self.inner`) can run afterward
-/// without overlapping borrows.
+/// A run of shaped glyphs sharing one font. Collected while the cosmic-text `buffer` is
+/// borrowed, so the font-blob lookup (which borrows `self.inner`) can run afterward.
 struct RawRun {
     id: fontdb::ID,
     weight: Weight,
@@ -46,11 +39,7 @@ struct RawRun {
     glyphs: Vec<ShapedGlyph>,
 }
 
-/// Decoration metrics estimated from the font size.
-///
-/// cosmic-text doesn't surface the font's own underline/strikeout tables, so use the common
-/// conventions (underline ~1/10 em below the baseline, strikeout ~1/4 em above, both ~1/14 em
-/// thick) until a swash-based lookup replaces this.
+/// cosmic-text doesn't surface the font's underline/strikeout tables; estimate from em size.
 fn heuristic_metrics(size: f32) -> RunMetrics {
     RunMetrics {
         underline_offset: size * 0.1,
@@ -64,8 +53,7 @@ impl CosmicFontSystem {
     /// Create a font system with system fonts loaded and Roboto registered as a bundled fallback.
     pub fn new() -> Self {
         let mut inner = CosmicTextFontSystem::new();
-        // Load the bundled Roboto without copying: the static bytes already implement
-        // `AsRef<[u8]>`, so hand fontdb a shared reference instead of an owned `Vec`.
+        // Source::Binary avoids copying the static Roboto bytes.
         inner
             .db_mut()
             .load_font_source(fontdb::Source::Binary(Arc::new(gosub_shared::ROBOTO_FONT)));
@@ -98,12 +86,8 @@ impl CosmicFontSystem {
         buffer
     }
 
-    /// Raw font bytes for a resolved face, as a [`FontBlob`].
-    ///
-    /// cosmic-text doesn't expose the underlying shared `Arc<[u8]>`, so this copies the file
-    /// bytes and assumes face index 0 (correct for single-face files; `.ttc` collections would
-    /// need the real index). Only used to fill `FontBlob`, which a cosmic draw path doesn't yet
-    /// consume - so the copy is harmless for now.
+    /// cosmic-text doesn't expose the shared `Arc<[u8]>`, so this copies the bytes and
+    /// assumes face index 0 (wrong for `.ttc` collections).
     fn blob_for(&mut self, id: fontdb::ID, weight: Weight) -> Option<FontBlob> {
         let font = self.inner.get_font(id, weight)?;
         Some(FontBlob::new(Arc::new(font.data().to_vec()), 0))
@@ -134,8 +118,7 @@ impl FontSystem for CosmicFontSystem {
     /// Resolve a CSS font query to a concrete font via fontdb.
     fn resolve(&mut self, query: &FontQuery<'_>) -> Result<ResolvedFont, FontError> {
         let mut families: Vec<Family> = query.families.iter().map(|f| css_family(f)).collect();
-        // Bundled last-resort fallback so resolution always succeeds even with no system fonts
-        // (e.g. headless/CI) - Roboto is registered in `new()`.
+        // Roboto (registered in `new()`) as last resort so resolution succeeds with no system fonts.
         families.push(Family::Name("Roboto"));
         let weight = Weight(query.weight.0);
         let fq = fontdb::Query {
@@ -161,6 +144,15 @@ impl FontSystem for CosmicFontSystem {
             stretch: query.stretch,
             blob,
         })
+    }
+
+    /// Force every face in the database into cosmic-text's font cache.
+    fn prepare_for_confinement(&mut self) -> Confinement {
+        let faces: Vec<(fontdb::ID, Weight)> = self.inner.db().faces().map(|f| (f.id, f.weight)).collect();
+        for (id, weight) in faces {
+            let _ = self.inner.get_font(id, weight);
+        }
+        Confinement::Full
     }
 
     fn families(&mut self) -> Vec<String> {
@@ -266,7 +258,7 @@ impl FontSystem for CosmicFontSystem {
     }
 }
 
-// ── conversions: our neutral font-query types → cosmic-text/fontdb types ──
+// Conversions to cosmic-text/fontdb types
 
 fn css_family(name: &str) -> Family<'_> {
     match name.cow_to_lowercase().as_ref() {

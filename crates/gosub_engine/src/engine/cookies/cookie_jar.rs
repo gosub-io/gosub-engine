@@ -1,18 +1,16 @@
-//! A **cookie jar** holds all cookies belonging to a single zone; the engine passes
-//! request/response metadata to the jar so it can update and query cookies.
+//! A cookie jar holds all cookies belonging to a single zone.
 //!
 //! [`CookieJar`] is the trait; [`DefaultCookieJar`] is the reference implementation,
-//! which stores cookies **in memory only** (no persistence) and parses a subset of
-//! RFC 6265 `Set-Cookie` semantics.
+//! which stores cookies in memory only and parses a subset of RFC 6265 `Set-Cookie`
+//! semantics.
 //!
-//! ## Notes & limitations
-//! - The attributes `Expires`, `Max-Age`, `Path`, `Domain`, `Secure`,
-//!   `HttpOnly`, and `SameSite` are parsed and enforced; expired cookies are
-//!   filtered on read and can be removed via [`CookieJar::purge_expired`].
-//!   Priorities, size limits, and eviction policies are not (yet) implemented.
-//! - Cookies are bucketed by **origin** (`url.origin().ascii_serialization()`).
-//!   Within a bucket, simple host/subdomain and path prefix checks are applied.
-//! - This module is **not** internally synchronized. Use it via a
+//! ## Limitations
+//! - `Expires`, `Max-Age`, `Path`, `Domain`, `Secure`, `HttpOnly`, and `SameSite`
+//!   are parsed and enforced; expired cookies are filtered on read and removed via
+//!   [`CookieJar::purge_expired`]. Priorities, size limits, and eviction policies
+//!   are not (yet) implemented.
+//! - Cookies are bucketed by origin (`url.origin().ascii_serialization()`).
+//! - This module is not internally synchronized. Use it via a
 //!   `CookieJarHandle = Arc<RwLock<dyn CookieJar + Send + Sync>>`.
 //!
 //! See also: RFC 6265bis (HTTP State Management Mechanism).
@@ -161,18 +159,10 @@ pub enum SameSiteContext {
 
 /// A cookie jar keeps the cookies for one single zone.
 ///
-/// Types implementing this trait should encapsulate storage, retrieval, and
-/// mutation of cookies according to the URL/headers they receive.
-///
-/// ### Third-party context
-/// Both `store_response_cookies` and `get_request_cookies` accept an optional
-/// `top_level` URL representing the page that initiated the request. When present,
-/// implementations can use it to distinguish first-party from third-party requests
-/// and apply the appropriate cookie policy.
-///
-/// ### Type erasure
-/// `as_any` / `as_any_mut` enable downcasting when callers need access to
-/// concrete implementations (e.g., for snapshotting/persistence).
+/// The optional `top_level` URL on `store_response_cookies` / `get_request_cookies`
+/// is the page that initiated the request; implementations use it to apply
+/// third-party cookie policy. `as_any` / `as_any_mut` enable downcasting to
+/// concrete implementations (e.g. for snapshotting/persistence).
 pub trait CookieJar: Send + Sync {
     /// Returns a type-erased reference to the jar.
     fn as_any(&self) -> &dyn Any;
@@ -180,34 +170,19 @@ pub trait CookieJar: Send + Sync {
     /// Returns a mutable type-erased reference to the jar.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
-    /// Stores cookies found in response `headers` for the given `url`.
-    ///
-    /// `top_level` is the URL of the page that triggered the request (tab's current
-    /// URL). When `Some`, implementations may enforce third-party cookie policy
-    /// (e.g., block storage when the request is cross-site).
-    ///
-    /// Implementations typically parse all `Set-Cookie` headers and update
-    /// existing entries using "last write wins" semantics when names collide.
+    /// Stores cookies found in response `headers` for the given `url`; name
+    /// collisions are last-write-wins.
     fn store_response_cookies(&mut self, url: &Url, headers: &HeaderMap, top_level: Option<&Url>);
 
-    /// Returns the `Cookie` request header value to send for `url`, if any.
-    ///
-    /// `top_level` is the URL of the page that triggered the request (tab's current
-    /// URL). When `Some`, implementations should enforce third-party cookie policy.
-    ///
-    /// `samesite` encodes the request's cross-site context and drives enforcement of
-    /// the `SameSite` cookie attribute per RFC 6265bis.
-    ///
-    /// Implementations should also filter by domain, path, and the `Secure` flag.
-    /// Returns `None` when no cookies match the request.
+    /// Returns the `Cookie` request header value to send for `url`, or `None` when
+    /// no cookies match. `samesite` encodes the request's cross-site context for
+    /// `SameSite` attribute enforcement per RFC 6265bis.
     fn get_request_cookies(&self, url: &Url, top_level: Option<&Url>, samesite: SameSiteContext) -> Option<String>;
 
     /// Removes all cookies from the jar.
     fn clear(&mut self);
 
-    /// Retrieves all cookies grouped by origin, formatted as `"name=value"` pairs.
-    ///
-    /// This is primarily intended for diagnostics/inspection.
+    /// All cookies grouped by origin as `"name=value"` pairs; for diagnostics/inspection.
     fn get_all_cookies(&self) -> Vec<(Url, String)>;
 
     /// Removes a single cookie with `cookie_name` associated with `url`.
@@ -216,41 +191,18 @@ pub trait CookieJar: Send + Sync {
     /// Removes all cookies associated with `url` (bucketed by its origin).
     fn remove_cookies_for_url(&mut self, url: &Url);
 
-    /// Removes all cookies whose expiry timestamp is in the past.
-    ///
-    /// Session cookies (`expires == None`) are never removed by this call.
-    /// Useful on jar load and for periodic cleanup to bound memory growth.
+    /// Removes all cookies whose expiry timestamp is in the past. Session cookies
+    /// (`expires == None`) are never removed.
     fn purge_expired(&mut self);
 }
 
-/// Default cookie jar which holds cookies for a single zone.
-///
-/// This implementation is **in-memory only** and performs **no persistence**.
-/// Cookies are stored per **origin** (`scheme://host:port`) and matched to
-/// requests via basic domain/path rules.
-///
-/// ### Third-party policy
-/// When `top_level` is provided to `get_request_cookies` or `store_response_cookies`,
-/// the `third_party_policy` field controls cross-site behavior:
-/// - `Allow` - legacy behavior, all cookies pass through.
-/// - `Block` - no cookies are sent or stored for third-party requests.
-/// - `SameSiteNoneOnly` - only `SameSite=None; Secure` cookies are allowed in
-///   third-party context.
-///
-/// ### Parsing behavior
-/// - Accepts multiple `Set-Cookie` headers.
-/// - Attributes handled: `Path`, `Domain` (leading dot stripped), `Expires`
-///   (parsed into a unix timestamp), `SameSite` (`Strict`/`Lax`/`None`, case-insensitive),
-///   `Secure`, `HttpOnly`.
-/// - If `Path` is absent, a default path is derived from the request URL.
-/// - Expired cookies are filtered out on read; [`Self::purge_expired`] removes them
-///   from the jar.
+/// Default cookie jar: in-memory only, no persistence. Cookies are stored per
+/// origin (`scheme://host:port`) and matched to requests via basic domain/path
+/// rules; `third_party_policy` governs cross-site behavior when `top_level` is
+/// supplied. If `Path` is absent, a default path is derived from the request URL.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefaultCookieJar {
-    /// Simple hashmap of cookies, bucketed by **origin**.
-    ///
-    /// Key: origin string from `Url::origin().ascii_serialization()`.
-    /// Value: vector of cookie records for that origin.
+    /// Cookie records keyed by origin (`Url::origin().ascii_serialization()`).
     pub entries: HashMap<String, Vec<Cookie>>,
 
     /// Policy applied when a cross-site `top_level` URL is detected.

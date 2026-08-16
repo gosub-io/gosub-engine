@@ -8,9 +8,8 @@
 //! - [`GpuPresenter`] - a wgpu surface + full-screen blit pipeline that puts a texture (Vello's
 //!   GPU frame) or a CPU RGBA buffer (the tile fallback) onto the window's swap chain.
 //!
-//! [`GpuPresenter::new`] also performs the fiddly, easy-to-get-wrong adapter/surface setup: it
-//! selects an adapter that is compatible with the window's surface (see its docs for the Wayland
-//! trap) and a non-sRGB swap-chain format, so the embedder just creates a window and calls it.
+//! [`GpuPresenter::new`] selects an adapter compatible with the window's surface (see its docs
+//! for the Wayland trap) and a non-sRGB swap-chain format.
 
 use gosub_renderer_vello::WgpuContextProvider;
 use parking_lot::RwLock;
@@ -19,8 +18,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use vello::wgpu;
 use winit::window::Window;
-
-// ── WgpuContextProvider ───────────────────────────────────────────────────────
 
 /// A [`WgpuContextProvider`] backed by a shared `wgpu` device/queue and an in-memory registry of
 /// engine-created textures (keyed by an opaque id the engine hands back inside a `WgpuTextureId`
@@ -93,8 +90,6 @@ impl WgpuContextProvider for WinitWgpuContextProvider {
     }
 }
 
-// ── GpuPresenter ──────────────────────────────────────────────────────────────
-
 /// A wgpu surface plus a full-screen blit pipeline that presents a texture (or a CPU RGBA buffer)
 /// to a winit window.
 ///
@@ -116,11 +111,11 @@ impl GpuPresenter {
     /// Create a surface for `window`, pick a surface-compatible adapter + device, configure a
     /// non-sRGB swap chain, and build the blit pipeline.
     ///
-    /// Adapter selection passes `compatible_surface`: **without** that hint wgpu may return an
+    /// Adapter selection passes `compatible_surface`: without that hint wgpu may return an
     /// adapter that cannot render to the Wayland/X11 surface, making `get_current_texture` silently
     /// fail every frame so the window never becomes visible.
     ///
-    /// The swap-chain format is chosen **non-sRGB** where possible: both the Vello GPU texture and
+    /// The swap-chain format is chosen non-sRGB where possible: both the Vello GPU texture and
     /// the CPU tile blits already hold sRGB-encoded bytes, so an sRGB surface format would encode
     /// them a second time - washing colors out (orange → yellow) and thinning anti-aliased glyph
     /// edges. A plain `Unorm` surface passes the bytes straight through to the (sRGB) display.

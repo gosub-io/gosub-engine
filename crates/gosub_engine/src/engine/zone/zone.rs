@@ -8,6 +8,7 @@ use crate::engine::types::{EventChannel, IoChannel, TabChannel};
 use crate::events::TabCommand;
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
+use crate::net::tab_identity::TabIdentityRegistry;
 use crate::storage::types::PartitionPolicy;
 use crate::tab::services::resolve_tab_services;
 use crate::tab::{create_tab_and_spawn, TabDefaults, TabHandle, TabOverrides, TabSink};
@@ -100,6 +101,9 @@ pub struct ZoneContext<C: RenderConfiguration = crate::html::DefaultRenderConfig
     pub(crate) io_tx: IoChannel,
     /// Map of request references to tab IDs, used to route network events back to the right tab
     pub(crate) request_reference_map: Arc<RwLock<RequestReferenceMap>>,
+    /// Per-tab cookie jars, published here for the I/O side to attach cookies on
+    /// a tab's behalf (see [`TabIdentityRegistry`](crate::net::tab_identity::TabIdentityRegistry)).
+    pub(crate) tab_identities: Arc<TabIdentityRegistry>,
 
     /// Compositor sink to use for this zone (concrete, per the module config).
     pub(crate) compositor: Arc<C::CompositorSink>,
@@ -110,6 +114,10 @@ pub struct ZoneContext<C: RenderConfiguration = crate::html::DefaultRenderConfig
     pub(crate) font_system: Arc<Mutex<C::FontSystem>>,
     /// Per-engine settings store, cloned from the engine context and passed on to each tab.
     pub(crate) config_store: Config,
+    /// The engine-wide shared context, so tabs can reach engine-scoped state
+    /// installed after zone creation (e.g. the renderer fork server).
+    #[cfg_attr(not(all(feature = "process-isolation", target_os = "linux")), allow(dead_code))]
+    pub(crate) engine_context: Arc<EngineContext>,
 }
 
 // Things that are shared upwards to the engine
@@ -210,7 +218,9 @@ impl<C: RenderConfiguration> Zone<C> {
         let event_tx = engine_context.event_tx.clone();
         let io_tx = engine_context.io_tx.get().cloned().ok_or(EngineError::IoNotStarted)?;
         let request_reference_map = engine_context.request_reference_map.clone();
+        let tab_identities = engine_context.tab_identities.clone();
         let config_store = engine_context.config_store.clone();
+        let engine_context_for_tabs = Arc::clone(&engine_context);
 
         let zone = Self {
             engine_context,
@@ -229,10 +239,12 @@ impl<C: RenderConfiguration> Zone<C> {
                 event_tx,
                 io_tx,
                 request_reference_map,
+                tab_identities,
                 compositor,
                 render_backend,
                 font_system,
                 config_store,
+                engine_context: engine_context_for_tabs,
             }),
             id: zone_id,
             tabs: HashMap::new(),
@@ -319,18 +331,15 @@ impl<C: RenderConfiguration> Zone<C> {
             },
         );
 
-        // Increase metrics
         self.sink
             .tabs_created
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        // Set tab defaults
         tab_handle
             .set_title(initial.title.as_deref().unwrap_or("New Tab"))
             .await?;
         tab_handle.set_viewport(initial.viewport.unwrap_or_default()).await?;
 
-        // Load URL in tab if provided
         if let Some(url) = initial.url.as_ref() {
             tab_handle.navigate(url).await?;
         }
