@@ -209,8 +209,10 @@ pub async fn route_response_for<C: RenderConfiguration>(
                 };
                 let mut meta = meta;
                 meta.content_type = Some("text/html; charset=utf-8".into());
-                let doc = hooks.html.parse_bytes(request, handle, meta, html.as_bytes()).await?;
-                return Ok(RoutedOutcome::MainDocument(Arc::new(doc)));
+                // The synthesized viewer page is a document like any other: its
+                // source travels along so a renderer process can re-parse it too.
+                let (doc, source) = hooks.html.parse_bytes(request, handle, meta, html.as_bytes()).await?;
+                return Ok(RoutedOutcome::MainDocument(Arc::new(doc), source));
             }
             Err(anyhow!("Cannot download main document"))
         }

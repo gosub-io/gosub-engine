@@ -1535,10 +1535,8 @@ mod tests {
 
             // The page has no subresources, so no loader is needed - and no fork server
             // is installed, so the render stays in-process (`source` is irrelevant).
-            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
-                config,
-                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
-            );
+            let mut ctx: BrowsingContext<DefaultRenderConfig> =
+                BrowsingContext::new(config, Arc::new(gosub_interface::resource_loader::NoResourceLoader));
             ctx.set_rasterizer(Box::new(SolidRasterizer), RasterStrategy::ParallelCached);
             ctx.set_viewport(Viewport {
                 x: 0,

@@ -2,7 +2,7 @@
 
 use crate::net::fetcher::{Fetcher, FetcherConfig};
 use crate::net::process::protocol::{FetchOutcome, FromNet, NetFetch, ToNet};
-use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
+use crate::net::types::{FetchRequest, FetchResult};
 use gosub_ipc::Endpoint;
 use gosub_sonar::net::fetcher_context::NullContext;
 use http::Method;
@@ -111,14 +111,10 @@ async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch) -> FetchOutcome {
         .with_auto_decode(true)
         .build();
 
-    let handle = FetchHandle {
-        req_id: req.req_id,
-        key: req.key_data.clone(),
-        cancel: CancellationToken::new(),
-    };
-
+    // Nothing cancels a brokered fetch from this side; the broker's deadline does.
+    let cancel = CancellationToken::new();
     let (tx, rx) = tokio::sync::oneshot::channel::<FetchResult>();
-    fetcher.submit(req, handle, tx).await;
+    fetcher.submit(req, cancel, tx).await;
 
     match rx.await {
         Ok(FetchResult::Buffered { meta, body }) => FetchOutcome::Ok {

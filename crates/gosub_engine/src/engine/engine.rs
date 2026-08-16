@@ -282,11 +282,6 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         Arc::clone(&self.compositor)
     }
 
-    /// This engine's settings store, for reading or changing runtime settings.
-    pub fn settings(&self) -> &Config {
-        &self.context.config_store
-    }
-
     /// Get a clone of the engine’s command sender (mainly for testing or
     /// custom handles).
     #[cfg(test)]
