@@ -28,6 +28,21 @@ pub fn text_entry_kind<C: RenderConfiguration>(doc: &EngineDocument<C>, id: Node
     }
 }
 
+/// Drop the characters a control refuses: `type=number` takes only what can be part of a number
+/// (Chrome/Safari behaviour); everything else takes anything.
+pub fn filter_insert<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId, text: &str) -> String {
+    let numeric = doc.tag_name(id) == Some("input")
+        && doc
+            .attribute(id, "type")
+            .is_some_and(|t| t.eq_ignore_ascii_case("number"));
+    if !numeric {
+        return text.to_string();
+    }
+    text.chars()
+        .filter(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'))
+        .collect()
+}
+
 /// The markup value: the `value` attribute, or a `<textarea>`'s text content minus the one
 /// leading newline HTML allows after the start tag.
 pub fn initial_value<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> String {

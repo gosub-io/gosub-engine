@@ -1047,6 +1047,17 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let Some(doc) = &self.document else {
             return;
         };
+        let filtered;
+        let action = match action {
+            edit::EditAction::Insert(text) => {
+                filtered = edit::EditAction::Insert(edit::filter_insert(doc, node, text));
+                if matches!(&filtered, edit::EditAction::Insert(t) if t.is_empty()) {
+                    return;
+                }
+                &filtered
+            }
+            other => other,
+        };
         let mut state = doc.control_edit_state(node).unwrap_or_else(|| {
             let value = edit::initial_value(doc, node);
             let caret = value.chars().count();
