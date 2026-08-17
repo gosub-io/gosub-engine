@@ -1105,6 +1105,63 @@ mod layout_tests {
         assert_eq!(sup(1), [false, false, false, false], "thick paints the shared border");
     }
 
+    // CSS 2.1 §17.2.1: bare cells sitting BETWEEN two row groups form an anonymous row that
+    // must keep its source position - after group 1's rows, before group 2's
+    // (WPT table-anonymous-objects-063).
+    #[test]
+    fn bare_cells_between_row_groups_keep_source_order() {
+        use crate::mock::MockTree;
+
+        let mut tree = MockTree::new(0.0, 0.0);
+        let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
+
+        let g1 = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, g1);
+        let r1 = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(g1, r1);
+        for label in ["a1", "a2", "a3"] {
+            let c = tree.alloc_cell(cell(label).height(20.0).padding(0.0));
+            tree.add_child(r1, c);
+        }
+
+        for label in ["b1", "b2", "b3"] {
+            let c = tree.alloc_cell(cell(label).height(20.0).padding(0.0));
+            tree.add_child(root, c);
+        }
+
+        let g2 = tree.alloc(TableRole::RowGroup, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, g2);
+        let r2 = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(g2, r2);
+        for label in ["c1", "c2", "c3"] {
+            let c = tree.alloc_cell(cell(label).height(20.0).padding(0.0));
+            tree.add_child(r2, c);
+        }
+
+        compute_table_layout(&mut tree, root, 300.0, None).expect("layout");
+
+        let y_of = |label: &str| {
+            let cells = tree.nodes_with_role(TableRole::Cell);
+            let id = cells
+                .iter()
+                .copied()
+                .find(|&id| tree.label(id) == Some(label))
+                .expect("cell exists");
+            tree.layout(id).expect("cell laid out").position.y
+        };
+        // Positions are relative to the DOM parent: cells in real rows stay row-relative,
+        // while the bare cells (whose DOM parent is the table) carry the anonymous row's
+        // table-relative offset themselves.
+        assert_approx!(y_of("a1"), 0.0, "cell in group-1's real row is row-relative");
+        assert_approx!(y_of("b1"), 20.0, "bare cell carries the anonymous row's offset");
+        assert_approx!(y_of("c1"), 0.0, "cell in group-2's real row is row-relative");
+        assert_approx!(
+            tree.layout(g2).expect("group 2 laid out").position.y,
+            40.0,
+            "group 2 sits below the anonymous row"
+        );
+    }
+
     // Auto layout: <col> widths seed columns; the rest distribute as usual.
     #[test]
     fn col_widths_in_auto_layout() {
