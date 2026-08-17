@@ -41,6 +41,97 @@ mod rendertree_from_engine {
         rt
     }
 
+    /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
+    /// but never exceed its containing block - an abs div wrapping a wide table once sized
+    /// to the table's raw max-content (812px in an 800px viewport).
+    #[test]
+    fn absolute_auto_width_capped_at_containing_block() {
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout as _;
+
+        let html = r#"<html><body style="font-family: monospace; font-size: 16px">
+          <div style="position: relative; font-size: 2em;">
+            <div style="position: relative; padding: 1px;">flow</div>
+            <div id="overlay" style="position: absolute; top: 0; padding: 1px;">
+              <table cellpadding="0" cellspacing="0" style="margin: 0; padding: 0; border: none">
+                <tr><td>Row 1, Col 1</td><td>Row 1, Col 2</td><td>Row 1, Col 3</td></tr>
+                <tr><td>Row 333, Col 1</td><td>Row 333, Col 2</td><td>Row 333, Col 3</td></tr>
+              </table>
+            </div>
+          </div></body></html>"#;
+        let rt = parse_to_rendertree(html);
+        let doc = rt.doc.clone();
+        let mut l = TaffyLayouter::new();
+        let tree = l.layout(rt, Some(Dimension { width: 800.0, height: 600.0 }), 1.0);
+
+        let overlay = tree
+            .arena
+            .values()
+            .find(|el| {
+                doc.get_node_by_id(el.dom_node_id).is_some_and(|n| match n.node_type {
+                    crate::common::document::node::NodeType::Element(ref d) => {
+                        d.attributes.get("id").is_some_and(|v| v == "overlay")
+                    }
+                    _ => false,
+                })
+            })
+            .expect("overlay div in layout tree");
+        // Containing block: body content = 800 - 2x8 margin = 784.
+        assert!(
+            (overlay.box_model.border_box.width - 784.0).abs() < 0.5,
+            "abs overlay must cap at the containing block width, got {}",
+            overlay.box_model.border_box.width
+        );
+    }
+
+    /// CSS 2.1 §17.2.1: consecutive table-internal boxes without a table ancestor get an
+    /// anonymous table wrapper, so bare `display: table-cell` spans lay out side by side
+    /// (WPT table-anonymous-objects-061 and friends).
+    #[test]
+    fn parentless_table_cells_get_anonymous_table() {
+        use crate::common::document::node::NodeType;
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::geo::Dimension;
+        use crate::layouter::taffy::TaffyLayouter;
+        use crate::layouter::CanLayout as _;
+
+        let html = r#"<html><body>
+          <div>
+            <span style="display: table-cell">alpha</span>
+            <span style="display: table-cell">beta</span>
+          </div></body></html>"#;
+        let rt = parse_to_rendertree(html);
+        let doc = rt.doc.clone();
+        let mut l = TaffyLayouter::new();
+        let tree = l.layout(rt, Some(Dimension { width: 800.0, height: 600.0 }), 1.0);
+
+        let cell_boxes: Vec<_> = tree
+            .arena
+            .values()
+            .filter(|el| {
+                doc.get_node_by_id(el.dom_node_id).is_some_and(|n|
+
+                    matches!(n.node_type, NodeType::Element(ref d) if d.tag_name == "span"))
+            })
+            .map(|el| el.box_model.border_box)
+            .collect();
+        assert_eq!(cell_boxes.len(), 2, "both cells reach the layout tree");
+        let (a, b) = (&cell_boxes[0], &cell_boxes[1]);
+        assert!(
+            (a.y - b.y).abs() < 0.5,
+            "cells share a table row: y {} vs {}",
+            a.y,
+            b.y
+        );
+        assert!(
+            (a.x - b.x).abs() > 10.0,
+            "cells occupy adjacent columns: x {} vs {}",
+            a.x,
+            b.x
+        );
+    }
+
     #[test]
     fn minimal_document_has_root() {
         let rt = parse_to_rendertree("<html><body><p>Hello</p></body></html>");

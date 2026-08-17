@@ -164,6 +164,21 @@ impl<'a> CssTaffyConverter<'a> {
             _ => {}
         }
 
+        // CSS 2 §10.3.7: an absolutely-positioned box with `width: auto` shrinks to fit but
+        // never beyond its containing block. Taffy sizes such children to raw fit-content
+        // (an abs-positioned wide table would overflow the viewport), so cap the BORDER box
+        // at 100%. Flipping box-sizing is safe here: it only reinterprets non-auto sizes,
+        // and every size except the cap itself is auto in this branch.
+        if ts.position == Position::Absolute
+            && ts.size.width.is_auto()
+            && ts.size.height.is_auto()
+            && ts.max_size.width.is_auto()
+            && ts.min_size.width.is_auto()
+        {
+            ts.box_sizing = BoxSizing::BorderBox;
+            ts.max_size.width = Dimension::percent(1.0);
+        }
+
         ts
     }
 

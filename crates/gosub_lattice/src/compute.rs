@@ -249,6 +249,9 @@ pub fn compute_table_layout<T: TableTree>(
                 );
             }
 
+            // Positions are consumed relative to the DOM parent chain. An anonymous group has
+            // no node to carry `group_y`, so its offset folds into its rows/cells instead.
+            let group_base_y = if group.node.is_none() { group_y } else { 0.0 };
             place_rows(
                 tree,
                 group,
@@ -259,6 +262,7 @@ pub fn compute_table_layout<T: TableTree>(
                 &col_widths,
                 &content_heights,
                 &collapsed_borders,
+                group_base_y,
             );
 
             group_y += group_height + spacing_y;
@@ -293,6 +297,10 @@ pub fn compute_table_layout<T: TableTree>(
 }
 
 /// Write layouts for every row and cell within one section.
+///
+/// Positions are relative to the nearest ANCESTOR WITH A NODE (the consumer resolves them
+/// along the DOM parent chain): `group_base_y` carries an anonymous group's table-relative
+/// offset, and an anonymous row folds its own offset into its cells the same way.
 #[allow(clippy::too_many_arguments)]
 fn place_rows<T: TableTree>(
     tree: &mut T,
@@ -304,6 +312,7 @@ fn place_rows<T: TableTree>(
     col_widths: &[f32],
     content_heights: &HashMap<T::NodeId, f32>,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
+    group_base_y: f32,
 ) {
     let inner_width: f32 = match (col_x.last(), col_widths.last()) {
         (Some(&x), Some(&w)) => x + w - col_x.first().copied().unwrap_or(0.0),
@@ -318,7 +327,7 @@ fn place_rows<T: TableTree>(
             tree.set_layout(
                 node,
                 CellLayout {
-                    position: Point::new(0.0, ry),
+                    position: Point::new(0.0, group_base_y + ry),
                     size: Size::new(inner_width, rh),
                     border: BOX_EDGES_ZERO,
                     padding: BOX_EDGES_ZERO,
@@ -329,7 +338,9 @@ fn place_rows<T: TableTree>(
             );
         }
 
-        // Cells for this row.
+        // Cells of an anonymous row hang off the group (or table) in the DOM, so they
+        // carry the row's offset themselves.
+        let cell_base_y = if row.node.is_some() { 0.0 } else { group_base_y + ry };
         for cell in grid.cells_in_row(row_idx) {
             place_cell(
                 tree,
@@ -340,6 +351,7 @@ fn place_rows<T: TableTree>(
                 row_y,
                 content_heights,
                 collapsed_borders,
+                cell_base_y,
             );
         }
     }
@@ -356,6 +368,8 @@ fn place_cell<T: TableTree>(
     row_y: &[f32],
     content_heights: &HashMap<T::NodeId, f32>,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
+    // Offset of the cell's (anonymous) row relative to the cell's DOM parent; 0 in a real row.
+    base_y: f32,
 ) {
     // Extents come from the offset tables so gutters (separate borders) and
     // overlaps (collapsed borders) are both handled: a spanning cell runs from
@@ -369,8 +383,8 @@ fn place_cell<T: TableTree>(
     let cell_height =
         row_y.get(last_row).copied().unwrap_or(0.0) + row_heights.get(last_row).copied().unwrap_or(0.0) - cell_row_y;
 
-    // Cell y is relative to its own row's top.
-    let y_within_row = 0.0;
+    // Cell y is relative to its own row's top (plus that row's own offset when anonymous).
+    let y_within_row = base_y;
 
     let collapsed = collapsed_borders.get(&cell.node).copied();
     let border = effective_border(tree, cell.node, collapsed_borders);

@@ -66,6 +66,11 @@ struct Args {
     /// decode and repaint before the capture
     #[arg(long, default_value = "0")]
     settle: u64,
+    /// Minimum capture height in CSS pixels. The image is normally cut at the page's flow
+    /// height; absolutely-positioned content below it (common in WPT reftest references)
+    /// would be lost, so reftest runners pass the comparison-canvas height here.
+    #[arg(long, default_value = "0")]
+    min_height: u32,
 }
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
@@ -269,7 +274,7 @@ fn main() {
     };
 
     let page_w = viewport_w;
-    let page_h = (page_height_f.ceil() as u32).max(1);
+    let page_h = (page_height_f.ceil() as u32).max(1).max(args.min_height);
 
     eprintln!(
         "Page size: {}×{} px. Compositing {} tile(s)…",

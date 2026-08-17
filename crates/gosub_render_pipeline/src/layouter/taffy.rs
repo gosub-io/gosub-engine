@@ -623,9 +623,12 @@ impl TaffyLayouter {
             let NodeType::Text(full) = &text_node.node_type else {
                 return;
             };
+            let doc = &layout_tree.render_tree.doc;
             (
-                full.starts_with(|c: char| c.is_ascii_whitespace()),
-                full.ends_with(|c: char| c.is_ascii_whitespace()),
+                full.starts_with(|c: char| c.is_ascii_whitespace())
+                    && text_has_inline_neighbor(doc, text_node.node_id, false),
+                full.ends_with(|c: char| c.is_ascii_whitespace())
+                    && text_has_inline_neighbor(doc, text_node.node_id, true),
                 full.split_whitespace().map(str::to_string).collect::<Vec<_>>(),
             )
         };
@@ -717,7 +720,18 @@ impl TaffyLayouter {
         // Flex and grid containers are formatting contexts where ALL children - inline or block -
         // are direct layout participants. Wrapping inline children in an anonymous flex container
         // would insert an extra level that breaks the parent's `gap`, `align-items`, etc.
-        let parent_is_flex_or_grid = matches!(taffy_style.display, Display::Flex | Display::Grid);
+        // INLINE elements also map to taffy Flex, but their children are inline CONTENT: they
+        // must go through the line-grouping path or inter-element whitespace (which real flex
+        // containers rightly drop) would vanish between nested spans.
+        let is_inline_container = matches!(
+            layout_tree
+                .render_tree
+                .doc
+                .get_own_style(dom_node.node_id, &StyleProperty::Display),
+            None | Some(Value::Display(crate::common::document::style::Display::Inline))
+        ) && matches!(dom_node.node_type, NodeType::Element(_));
+        let parent_is_flex_or_grid =
+            matches!(taffy_style.display, Display::Flex | Display::Grid) && !is_inline_container;
 
         // The context will be moved to the taffy tree, so we need to convert it before that happens.
         let element_context = match taffy_context {
@@ -1195,8 +1209,13 @@ impl TaffyLayouter {
                 let is_whitespace_only = !text.is_empty() && text.chars().all(|c: char| c.is_ascii_whitespace());
                 // Preserve one leading/trailing inter-element gap as NBSP (non-breaking) so
                 // pango does not wrap at the boundary space, while still rendering a visible gap.
-                let had_leading_space = text.starts_with(|c: char| c.is_ascii_whitespace());
-                let had_trailing_space = text.ends_with(|c: char| c.is_ascii_whitespace());
+                // The gap only survives when an inline sibling exists on that side: whitespace at
+                // the very start or end of a block's inline content is removed entirely by CSS
+                // white-space collapsing, so "\n      Row 1..." in a div must not indent the line.
+                let had_leading_space = text.starts_with(|c: char| c.is_ascii_whitespace())
+                    && text_has_inline_neighbor(doc, dom_node.node_id, false);
+                let had_trailing_space = text.ends_with(|c: char| c.is_ascii_whitespace())
+                    && text_has_inline_neighbor(doc, dom_node.node_id, true);
                 let mut text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
                 if !is_whitespace_only {
                     if had_leading_space && !text.is_empty() {
@@ -1208,13 +1227,10 @@ impl TaffyLayouter {
                 }
                 if is_whitespace_only {
                     // Inter-element whitespace (e.g. between </span><span>). Collapse to a single
-                    // NBSP so the text context is non-empty. We bypass parley measurement entirely
-                    // by setting an explicit taffy width (~0.3em), because parley returns 0 for
-                    // spaces when called with MinContent (max_advance=0), causing the flex item to
-                    // collapse. flex_shrink=0 prevents the space from being squeezed away.
+                    // NBSP so the text context is non-empty and measures at the font's real space
+                    // advance (Pango includes NBSP in the logical extents). flex_shrink=0 prevents
+                    // the gap from being squeezed away when the line is tight.
                     text = "\u{00A0}".to_string();
-                    let space_width = (font_size * 0.3) as f32;
-                    taffy_style.size.width = Dimension::from_length(space_width);
                     taffy_style.flex_shrink = 0.0;
                 }
                 // if inline_element_counter > 0 {
@@ -1349,6 +1365,58 @@ fn to_element_context(taffy_context: Option<&TaffyContext>) -> ElementContext {
     }
 }
 
+/// Does the text node `id` share its line box with an inline-level sibling on the given
+/// side? Decides whether edge whitespace survives collapsing (CSS `white-space: normal`
+/// drops whitespace at line-box edges; a single gap survives BETWEEN inline content).
+/// Ascends through inline ancestors while the text sits at their edge: the space at the
+/// end of `<span>a </span><span>b</span>` separates the SPANS.
+fn text_has_inline_neighbor(doc: &Arc<dyn crate::common::document::pipeline_doc::PipelineDocument>, id: gosub_shared::node::NodeId, forward: bool) -> bool {
+    // The same classification the tree build uses, so anonymous inline-tables (marked
+    // inline-block on their synthetic Node) keep the whitespace next to them.
+    let inline_level = |n: &Node| n.is_inline_element() || n.is_inline_block_element();
+    let mut node = id;
+    loop {
+        let Some(parent) = doc.parent(node) else {
+            return false;
+        };
+        let siblings = doc.children(parent);
+        let Some(pos) = siblings.iter().position(|&s| s == node) else {
+            return false;
+        };
+        let neighbors: Box<dyn Iterator<Item = &gosub_shared::node::NodeId>> = if forward {
+            Box::new(siblings[pos + 1..].iter())
+        } else {
+            Box::new(siblings[..pos].iter().rev())
+        };
+        for &sib in neighbors {
+            let Some(n) = doc.get_node_by_id(sib) else { continue };
+            match &n.node_type {
+                NodeType::Text(t) => {
+                    if t.trim().is_empty() {
+                        continue; // whitespace-only sibling: look further
+                    }
+                    return true;
+                }
+                NodeType::Element(_) => {
+                    // A block-level sibling starts/ends its own line box; only an inline
+                    // one shares it.
+                    return inline_level(&n);
+                }
+                _ => continue, // comments etc.
+            }
+        }
+        // No deciding sibling at this level: an inline parent's own siblings continue the
+        // same line box - keep ascending. A block-level parent ends the line.
+        let parent_inline = doc
+            .get_node_by_id(parent)
+            .is_some_and(|n| matches!(n.node_type, NodeType::Element(_)) && inline_level(&n));
+        if !parent_inline {
+            return false;
+        }
+        node = parent;
+    }
+}
+
 /// Converts a taffy layout to our own BoxModel structure
 /// Measure callback shared by the full first pass and per-cell table re-layout
 /// (`relayout_cell`). Text is shaped through the font system with memoization;
@@ -1407,17 +1475,6 @@ fn measure_node(
                     // the text requires and wraps. Ceiling ensures allocated width >=
                     // natural text width, preventing spurious wrapping at the boundary.
                     let mut width = text_layout.width.ceil() as f32;
-
-                    // Parley strips trailing whitespace (including NBSP) from the line-box
-                    // advance width. When we appended U+00A0 as a trailing-space marker
-                    // for a text node that ended with whitespace, that NBSP is never
-                    // counted by parley, so taffy under-allocates and pango clips it.
-                    // Detect the marker and add the missing space width manually.
-                    // Whitespace-only nodes ("\u{00A0}") have their width fixed explicitly
-                    // in the taffy style, so the measure callback is not invoked for them.
-                    if text_ctx.text.ends_with('\u{00A0}') && text_ctx.text != "\u{00A0}" {
-                        width += (text_ctx.font_info.size * 0.3) as f32;
-                    }
 
                     let result = Size {
                         width,

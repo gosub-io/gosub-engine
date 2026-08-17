@@ -425,6 +425,8 @@ fn parse_display(value: &str) -> Value {
         "table-header-group" => Value::Display(Display::TableHeaderGroup),
         "table-row" => Value::Display(Display::TableRow),
         "table-row-group" => Value::Display(Display::TableRowGroup),
+        "table-column" => Value::Display(Display::TableColumn),
+        "table-column-group" => Value::Display(Display::TableColumnGroup),
         _ => Value::Keyword(intern(value)),
     }
 }

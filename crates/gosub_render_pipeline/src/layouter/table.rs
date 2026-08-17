@@ -391,9 +391,16 @@ impl TableTree for PipelineTableTree<'_> {
 
     fn cell_intrinsic_widths(&mut self, id: DomNodeId) -> (f32, f32) {
         let Some(&layout_id) = self.dom_to_layout.get(&id) else {
+            if std::env::var("LATTICE_DEBUG").is_ok() {
+                eprintln!("lattice-dbg: cell {:?} NOT in dom_to_layout", id);
+            }
             return (0.0, 0.0);
         };
-        self.layouter.measure_intrinsic_widths(layout_id).unwrap_or((0.0, 0.0))
+        let w = self.layouter.measure_intrinsic_widths(layout_id).unwrap_or((0.0, 0.0));
+        if std::env::var("LATTICE_DEBUG").is_ok() {
+            eprintln!("lattice-dbg: cell {:?} intrinsics={:?}", id, w);
+        }
+        w
     }
 }
 
@@ -475,18 +482,30 @@ fn lay_out_one_table(
     // tables the parent is a table cell whose box model was already updated
     // by the outer table's apply_positions call, giving us the correct width.
     // Fall back to the table's own Taffy-computed width for root-level tables.
-    let available_width = doc
-        .parent(table_dom_id)
-        .and_then(|p| dom_to_layout.get(&p))
-        .and_then(|&pid| layout_tree.arena.get(&pid))
-        .map(|el| el.box_model.content_box.width as f32)
-        .unwrap_or_else(|| {
-            layout_tree
-                .arena
-                .get(&table_layout_id)
-                .map(|e| e.box_model.content_box.width as f32)
-                .unwrap_or(0.0)
-        });
+    //
+    // An absolutely-positioned table is the exception: its width is constrained by its
+    // insets (`left`/`right`), which taffy has already resolved in the first pass - the
+    // parent's content width would ignore them (CSS 2 §10.3.7).
+    let table_is_abs = matches!(
+        doc.get_own_style(table_dom_id, &StyleProperty::Position),
+        Some(Value::Keyword(id)) if matches!(lookup(id).as_str(), "absolute" | "fixed")
+    );
+    let own_width = || {
+        layout_tree
+            .arena
+            .get(&table_layout_id)
+            .map(|e| e.box_model.content_box.width as f32)
+            .unwrap_or(0.0)
+    };
+    let available_width = if table_is_abs {
+        own_width()
+    } else {
+        doc.parent(table_dom_id)
+            .and_then(|p| dom_to_layout.get(&p))
+            .and_then(|&pid| layout_tree.arena.get(&pid))
+            .map(|el| el.box_model.content_box.width as f32)
+            .unwrap_or_else(own_width)
+    };
 
     let old_box = layout_tree.arena.get(&table_layout_id).map(|e| e.box_model.border_box);
 

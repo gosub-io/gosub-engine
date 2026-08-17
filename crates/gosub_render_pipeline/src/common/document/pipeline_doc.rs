@@ -1,12 +1,12 @@
 use crate::common::document::node::{AttrMap, ElementData, Node, NodeType};
 use crate::common::document::style::{
-    intern, BorderStyle, Display, FontWeight, NodeStyle, StyleProperty, TextAlign, TextWrap, Unit, Value,
+    intern, lookup, BorderStyle, Display, FontWeight, NodeStyle, StyleProperty, TextAlign, TextWrap, Unit, Value,
 };
 use crate::painter::commands::color::Color;
 use crate::painter::commands::gradient::{ColorStop, Gradient, LinearGradient, Tiling};
 use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
-use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem, CssValue};
+use gosub_interface::css3::{CssOrigin, CssProperty, CssPropertyMap, CssSystem, CssValue};
 use gosub_interface::document::Document as _;
 use gosub_interface::node::NodeType as GosubNodeType;
 use gosub_shared::node::NodeId;
@@ -760,6 +760,34 @@ pub trait PipelineDocument: Send + Sync {
         let raw = if let Some(v) = self.get_own_style(id, prop) {
             v
         } else {
+            // Monospace default-size quirk (Chrome/Firefox both do this): the default
+            // font-size is 13px instead of 16px for elements whose font-family is the bare
+            // generic `monospace`. Browsers keep the `medium` keyword identity through
+            // inheritance and re-evaluate it per family; we approximate by applying the
+            // quirk when no ancestor declares a font-size at all.
+            if matches!(prop, StyleProperty::FontSize) {
+                let family_is_monospace = match self.get_style(id, &StyleProperty::FontFamily) {
+                    Value::Keyword(fam) => lookup(fam)
+                        .split(',')
+                        .next()
+                        .is_some_and(|f| f.trim().eq_ignore_ascii_case("monospace")),
+                    _ => false,
+                };
+                if family_is_monospace {
+                    let mut cur = self.parent(id);
+                    let mut declared = false;
+                    while let Some(p) = cur {
+                        if self.get_own_style(p, prop).is_some() {
+                            declared = true;
+                            break;
+                        }
+                        cur = self.parent(p);
+                    }
+                    if !declared {
+                        return Value::Unit(13.0, Unit::Px);
+                    }
+                }
+            }
             let meta = prop.meta();
             if meta.inherited {
                 if let Some(parent) = self.parent(id) {
@@ -837,6 +865,106 @@ fn decode_pseudo(id: NodeId) -> (NodeId, u64) {
 
 const fn role_is_after(role: u64) -> bool {
     matches!(role, ROLE_AFTER_ELEM | ROLE_AFTER_TEXT)
+}
+
+// ── Anonymous table boxes (CSS 2.1 §17.2.1, "generate missing parents") ───────
+//
+// A run of consecutive table-internal children (display: table-cell / table-row /
+// row groups / ...) whose parent provides no table context must be wrapped in an
+// anonymous table box. The wrapper is minted like a pseudo-element id: bit 61 flags
+// the id and the payload is the run's FIRST member. Downstream (render tree, taffy,
+// lattice, painter) then sees a regular `display: table` element; lattice's own
+// fixup generates the missing rows/row-groups inside it.
+const ANON_TABLE_FLAG: u64 = 1 << 61;
+/// Anonymous table-ROW wrapper around a run of children that are not proper table/row-group
+/// children. Needed not just for CSS structure: the taffy FIRST pass approximates a row as a
+/// flex row, so without the wrapper bare cells stack vertically and a fit-content ancestor
+/// (e.g. an abs-positioned overlay div) collapses to one cell's width.
+const ANON_ROW_FLAG: u64 = 1 << 60;
+/// Anonymous table-CELL wrapper around a run of non-cell children inside a row.
+const ANON_CELL_FLAG: u64 = 1 << 59;
+
+const ANON_FLAGS: u64 = ANON_TABLE_FLAG | ANON_ROW_FLAG | ANON_CELL_FLAG;
+
+const fn is_anon_table_id(id_val: u64) -> bool {
+    id_val & ANON_FLAGS == ANON_TABLE_FLAG && id_val & PSEUDO_FLAG == 0
+}
+
+const fn is_anon_row_id(id_val: u64) -> bool {
+    id_val & ANON_FLAGS == ANON_ROW_FLAG && id_val & PSEUDO_FLAG == 0
+}
+
+const fn is_anon_cell_id(id_val: u64) -> bool {
+    id_val & ANON_FLAGS == ANON_CELL_FLAG && id_val & PSEUDO_FLAG == 0
+}
+
+/// Any flavour of synthetic anonymous table box.
+const fn is_anon_box_id(id_val: u64) -> bool {
+    is_anon_table_id(id_val) || is_anon_row_id(id_val) || is_anon_cell_id(id_val)
+}
+
+/// The display a synthetic anonymous box carries.
+fn anon_box_display(id_val: u64) -> Option<Display> {
+    if is_anon_table_id(id_val) {
+        Some(Display::Table)
+    } else if is_anon_row_id(id_val) {
+        Some(Display::TableRow)
+    } else if is_anon_cell_id(id_val) {
+        Some(Display::TableCell)
+    } else {
+        None
+    }
+}
+
+fn encode_anon_table(first_member: NodeId) -> NodeId {
+    NodeId::from(ANON_TABLE_FLAG | u64::from(first_member))
+}
+
+fn encode_anon_row(first_member: NodeId) -> NodeId {
+    NodeId::from(ANON_ROW_FLAG | u64::from(first_member))
+}
+
+fn encode_anon_cell(first_member: NodeId) -> NodeId {
+    NodeId::from(ANON_CELL_FLAG | u64::from(first_member))
+}
+
+fn decode_anon_box(id: NodeId) -> NodeId {
+    NodeId::from(u64::from(id) & !ANON_FLAGS)
+}
+
+/// Is `child` a proper child of a table box (CSS 2.1 §17.2)? Everything else inside a table
+/// gets wrapped in an anonymous row.
+fn proper_table_child(d: Option<&Display>) -> bool {
+    matches!(
+        d,
+        Some(
+            Display::TableRow
+                | Display::TableRowGroup
+                | Display::TableHeaderGroup
+                | Display::TableFooterGroup
+                | Display::TableCaption
+                | Display::TableColumn
+                | Display::TableColumnGroup
+        )
+    )
+}
+
+/// Does a child with display `child` require a table ancestor that a parent with
+/// display `parent` does not provide?
+fn needs_table_parent(child: &Display, parent: Option<&Display>) -> bool {
+    use Display::*;
+    match child {
+        TableCell => !matches!(
+            parent,
+            Some(Table | TableRow | TableRowGroup | TableHeaderGroup | TableFooterGroup)
+        ),
+        TableRow => !matches!(parent, Some(Table | TableRowGroup | TableHeaderGroup | TableFooterGroup)),
+        TableRowGroup | TableHeaderGroup | TableFooterGroup | TableCaption | TableColumnGroup => {
+            !matches!(parent, Some(Table))
+        }
+        TableColumn => !matches!(parent, Some(Table | TableColumnGroup)),
+        _ => false,
+    }
 }
 
 const fn role_is_text(role: u64) -> bool {
@@ -1049,6 +1177,399 @@ where
         self.style_from_map(id, prop, pb.styles.as_ref())
     }
 
+    // ── Anonymous table synthesis ─────────────────────────────────────────────
+
+    /// The node's computed `display`, if the cascade assigned one.
+    fn display_of(&self, id: NodeId) -> Option<Display> {
+        match self.get_own_style(id, &StyleProperty::Display) {
+            Some(Value::Display(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    /// Children skipped silently when collecting anonymous runs: whitespace-only text,
+    /// comments/doctypes, and `display: none` children (none of them generate a box).
+    fn run_skippable(&self, id: NodeId) -> bool {
+        let raw = u64::from(id);
+        if is_pseudo_id(raw) || is_anon_box_id(raw) {
+            return false;
+        }
+        match self.doc.node_type(id) {
+            GosubNodeType::TextNode => self.doc.text_value(id).is_none_or(|t| t.trim().is_empty()),
+            GosubNodeType::CommentNode | GosubNodeType::DocTypeNode => true,
+            _ => matches!(self.display_of(id), Some(Display::None)),
+        }
+    }
+
+    /// Is `id` an improper child of a row container with display `parent_display`
+    /// (a table or row group), i.e. must it be wrapped in an anonymous row?
+    fn needy_for_row(&self, id: NodeId, parent_display: &Display) -> bool {
+        if self.run_skippable(id) {
+            return false;
+        }
+        let d = self.display_of(id);
+        match parent_display {
+            Display::Table => !proper_table_child(d.as_ref()),
+            // Row groups: only rows are proper.
+            _ => !matches!(d, Some(Display::TableRow)),
+        }
+    }
+
+    /// Is `id` an improper (non-cell) child of a row, i.e. must it be wrapped in an
+    /// anonymous cell?
+    fn needy_for_cell(&self, id: NodeId) -> bool {
+        !self.run_skippable(id) && !matches!(self.display_of(id), Some(Display::TableCell))
+    }
+
+
+    /// Generic run-collapser: replace each run of consecutive `needy` children with one
+    /// synthetic id (`encode` of the first member). Skippable children (whitespace text,
+    /// comments, display:none) BETWEEN run members are absorbed into the run and dropped.
+    fn collapse_runs(&self, kids: Vec<NodeId>, needy: impl Fn(NodeId) -> bool, encode: fn(NodeId) -> NodeId) -> Vec<NodeId> {
+        if !kids.iter().any(|&k| needy(k)) {
+            return kids;
+        }
+        let mut out = Vec::with_capacity(kids.len());
+        let mut i = 0;
+        while i < kids.len() {
+            if !needy(kids[i]) {
+                out.push(kids[i]);
+                i += 1;
+                continue;
+            }
+            out.push(encode(kids[i]));
+            i += 1;
+            loop {
+                let mut j = i;
+                while j < kids.len() && self.run_skippable(kids[j]) {
+                    j += 1;
+                }
+                if j < kids.len() && needy(kids[j]) {
+                    i = j + 1;
+                } else {
+                    break;
+                }
+            }
+        }
+        out
+    }
+
+    /// The real members of a synthetic run: the needy siblings starting at `first`
+    /// (interior skippable children are dropped).
+    fn run_members(&self, first: NodeId, needy: impl Fn(NodeId) -> bool) -> Vec<NodeId> {
+        let mut members = vec![first];
+        let Some(parent) = self.doc.parent(first) else {
+            return members;
+        };
+        let kids = self.doc.children(parent);
+        let Some(pos) = kids.iter().position(|&k| k == first) else {
+            return members;
+        };
+        let mut i = pos + 1;
+        loop {
+            let mut j = i;
+            while j < kids.len() && self.run_skippable(kids[j]) {
+                j += 1;
+            }
+            if j < kids.len() && needy(kids[j]) {
+                members.push(kids[j]);
+                i = j + 1;
+            } else {
+                break;
+            }
+        }
+        members
+    }
+
+    /// First member of the run (per `needy`) among `parent`'s children that contains
+    /// `member`, mirroring `collapse_runs`' grouping.
+    fn run_start_containing(&self, parent: NodeId, member: NodeId, needy: impl Fn(NodeId) -> bool) -> Option<NodeId> {
+        let kids = self.doc.children(parent);
+        let mut i = 0;
+        while i < kids.len() {
+            if !needy(kids[i]) {
+                i += 1;
+                continue;
+            }
+            let start = kids[i];
+            let mut hit = kids[i] == member;
+            i += 1;
+            loop {
+                let mut j = i;
+                while j < kids.len() && self.run_skippable(kids[j]) {
+                    j += 1;
+                }
+                if j < kids.len() && needy(kids[j]) {
+                    hit |= kids[j] == member;
+                    i = j + 1;
+                } else {
+                    break;
+                }
+            }
+            if hit {
+                return Some(start);
+            }
+        }
+        None
+    }
+
+    /// Collapse each run of table-internal children lacking a table parent into one
+    /// anonymous-table id (CSS 2.1 §17.2.1 "generate missing parents").
+    fn wrap_anon_table_runs(&self, parent_display: Option<&Display>, kids: Vec<NodeId>) -> Vec<NodeId> {
+        // A parent that itself provides table context never wraps a table: the anonymous
+        // row/cell wrappers below own the interior of a table.
+        if matches!(
+            parent_display,
+            Some(
+                Display::Table
+                    | Display::TableRow
+                    | Display::TableRowGroup
+                    | Display::TableHeaderGroup
+                    | Display::TableFooterGroup
+                    | Display::TableColumnGroup
+            )
+        ) {
+            return kids;
+        }
+        self.collapse_runs(
+            kids,
+            |id| self.display_of(id).is_some_and(|d| needs_table_parent(&d, parent_display)),
+            encode_anon_table,
+        )
+    }
+
+    /// Collapse each run of improper children of a table / row group into one
+    /// anonymous-row id.
+    fn wrap_anon_row_runs(&self, parent_display: Option<&Display>, kids: Vec<NodeId>) -> Vec<NodeId> {
+        let Some(pd) = parent_display else { return kids };
+        if !matches!(
+            pd,
+            Display::Table | Display::TableRowGroup | Display::TableHeaderGroup | Display::TableFooterGroup
+        ) {
+            return kids;
+        }
+        self.collapse_runs(kids, |id| self.needy_for_row(id, pd), encode_anon_row)
+    }
+
+    /// Collapse each run of non-cell children of a (real or anonymous) row into one
+    /// anonymous-cell id.
+    fn wrap_anon_cell_runs(&self, parent_display: Option<&Display>, kids: Vec<NodeId>) -> Vec<NodeId> {
+        if !matches!(parent_display, Some(Display::TableRow)) {
+            return kids;
+        }
+        self.collapse_runs(kids, |id| self.needy_for_cell(id), encode_anon_cell)
+    }
+
+    /// Start of the maximal sub-run of consecutive `pred` members containing `id`.
+    fn sub_run_start(&self, members: &[NodeId], id: NodeId, pred: impl Fn(NodeId) -> bool) -> NodeId {
+        let Some(mut i) = members.iter().position(|&m| m == id) else {
+            return id;
+        };
+        while i > 0 && pred(members[i - 1]) {
+            i -= 1;
+        }
+        members[i]
+    }
+
+    /// The synthetic wrapper `children()` places `id` under, if any. Run members' parent
+    /// chain must route through the anonymous boxes, or sibling walks (whitespace
+    /// collapsing, vertical-align resolution) diverge from the tree children() produces.
+    fn synthetic_parent_of(&self, id: NodeId) -> Option<NodeId> {
+        let raw = u64::from(id);
+        if is_pseudo_id(raw) || is_anon_box_id(raw) {
+            return None;
+        }
+        let parent = self.doc.parent(id)?;
+        let parent_display = self.display_of(parent);
+        let d = self.display_of(id);
+
+        // Inside a real row: non-cell children live in an anonymous cell.
+        if matches!(parent_display, Some(Display::TableRow)) {
+            if matches!(d, Some(Display::TableCell)) || self.run_skippable(id) {
+                return None;
+            }
+            let start = self.run_start_containing(parent, id, |c| self.needy_for_cell(c))?;
+            return Some(encode_anon_cell(start));
+        }
+
+        // Inside a real table / row group: improper children live in an anonymous row,
+        // and non-cells among them one level deeper in an anonymous cell.
+        if matches!(
+            parent_display,
+            Some(Display::Table | Display::TableRowGroup | Display::TableHeaderGroup | Display::TableFooterGroup)
+        ) {
+            let pd = parent_display.clone().unwrap_or(Display::Table);
+            if !self.needy_for_row(id, &pd) {
+                return None;
+            }
+            let rstart = self.run_start_containing(parent, id, |c| self.needy_for_row(c, &pd))?;
+            if matches!(d, Some(Display::TableCell)) {
+                return Some(encode_anon_row(rstart));
+            }
+            let rmembers = self.anon_box_members(encode_anon_row(rstart));
+            let cstart = self.sub_run_start(&rmembers, id, |c| self.needy_for_cell(c));
+            return Some(encode_anon_cell(cstart));
+        }
+
+        // No table context at all: table-internal children live inside an anonymous table.
+        let table_needy =
+            |c: NodeId| self.display_of(c).is_some_and(|dd| needs_table_parent(&dd, parent_display.as_ref()));
+        if !table_needy(id) {
+            return None;
+        }
+        let tstart = self.run_start_containing(parent, id, table_needy)?;
+        if proper_table_child(d.as_ref()) {
+            return Some(encode_anon_table(tstart));
+        }
+        let tmembers = self.anon_box_members(encode_anon_table(tstart));
+        let rstart = self.sub_run_start(&tmembers, id, |c| self.needy_for_row(c, &Display::Table));
+        if matches!(d, Some(Display::TableCell)) {
+            return Some(encode_anon_row(rstart));
+        }
+        let rmembers = self.anon_box_members(encode_anon_row(rstart));
+        let cstart = self.sub_run_start(&rmembers, id, |c| self.needy_for_cell(c));
+        Some(encode_anon_cell(cstart))
+    }
+
+    /// The prefix of `members` starting at `first` for which `pred` holds contiguously.
+    fn members_sub_run(&self, members: &[NodeId], first: NodeId, pred: impl Fn(NodeId) -> bool) -> Vec<NodeId> {
+        let Some(i) = members.iter().position(|&m| m == first) else {
+            return vec![first];
+        };
+        let mut out = vec![first];
+        for &m in &members[i + 1..] {
+            if pred(m) {
+                out.push(m);
+            } else {
+                break;
+            }
+        }
+        out
+    }
+
+    /// Members of the row-level run containing `id`. In a real table/row-group the run is
+    /// collected over the raw siblings; inside an anonymous table it is BOUNDED by the
+    /// table's own member run - the broad "improper child" predicate must never leak past
+    /// the anonymous table and absorb ordinary siblings (`a <cell/><cell/> d`).
+    fn row_run_members_for(&self, id: NodeId) -> Vec<NodeId> {
+        let Some(parent) = self.doc.parent(id) else {
+            return vec![id];
+        };
+        let parent_display = self.display_of(parent);
+        if matches!(
+            parent_display,
+            Some(Display::Table | Display::TableRowGroup | Display::TableHeaderGroup | Display::TableFooterGroup)
+        ) {
+            let pd = parent_display.clone().unwrap_or(Display::Table);
+            let rstart = self
+                .run_start_containing(parent, id, |c| self.needy_for_row(c, &pd))
+                .unwrap_or(id);
+            return self.run_members(rstart, |c| self.needy_for_row(c, &pd));
+        }
+        let table_needy =
+            |c: NodeId| self.display_of(c).is_some_and(|d| needs_table_parent(&d, parent_display.as_ref()));
+        let tstart = self.run_start_containing(parent, id, table_needy).unwrap_or(id);
+        let tmembers = self.run_members(tstart, table_needy);
+        let rstart = self.sub_run_start(&tmembers, id, |c| self.needy_for_row(c, &Display::Table));
+        self.members_sub_run(&tmembers, rstart, |c| self.needy_for_row(c, &Display::Table))
+    }
+
+    /// The real members of a synthetic anonymous box's run (the wrapper's flavour decides
+    /// the run predicate).
+    fn anon_box_members(&self, anon: NodeId) -> Vec<NodeId> {
+        let raw = u64::from(anon);
+        let first = decode_anon_box(anon);
+        let Some(parent) = self.doc.parent(first) else {
+            return vec![first];
+        };
+        let parent_display = self.display_of(parent);
+
+        if is_anon_table_id(raw) {
+            return self.run_members(first, |id| {
+                self.display_of(id).is_some_and(|d| needs_table_parent(&d, parent_display.as_ref()))
+            });
+        }
+
+        if is_anon_row_id(raw) {
+            return self.row_run_members_for(first);
+        }
+
+        // Anonymous cell: bounded by the enclosing row's members unless the parent is a
+        // real row (then the raw sibling run is the row's interior).
+        if matches!(parent_display, Some(Display::TableRow)) {
+            return self.run_members(first, |id| self.needy_for_cell(id));
+        }
+        let rmembers = self.row_run_members_for(first);
+        self.members_sub_run(&rmembers, first, |c| self.needy_for_cell(c))
+    }
+
+    /// HTML `cellspacing` (on the table -> border-spacing) and `cellpadding` (on the table ->
+    /// in-table td/th padding, defaulting to 1px like WebKit's
+    /// `HTMLTableCellElement::additionalPresentationAttributeStyle` - see the UA sheet comment
+    /// at `td:not(table td)`). Returns `None` whenever an author declaration exists for the
+    /// property: author styles always beat presentational markup, UA rules never do.
+    fn table_attr_hint(
+        &self,
+        id: NodeId,
+        prop: &StyleProperty,
+        map: &<C::CssSystem as CssSystem>::PropertyMap,
+    ) -> Option<Value> {
+        let author_declared = |name: &str| {
+            <_ as CssPropertyMap<C::CssSystem>>::get(map, name)
+                .and_then(|p| p.winning_origin())
+                .is_some_and(|o| matches!(o, CssOrigin::Author))
+        };
+        let attr_px = |node: NodeId, attr: &str| -> Option<f32> {
+            self.doc
+                .attributes(node)?
+                .get(attr)?
+                .trim()
+                .parse::<f32>()
+                .ok()
+                .map(|v| v.max(0.0))
+        };
+
+        match prop {
+            StyleProperty::BorderSpacingX | StyleProperty::BorderSpacingY => {
+                if !self.doc.tag_name(id).is_some_and(|t| t.eq_ignore_ascii_case("table")) {
+                    return None;
+                }
+                if author_declared("border-spacing") {
+                    return None;
+                }
+                attr_px(id, "cellspacing").map(|v| Value::Unit(v, Unit::Px))
+            }
+            StyleProperty::PaddingTop
+            | StyleProperty::PaddingRight
+            | StyleProperty::PaddingBottom
+            | StyleProperty::PaddingLeft => {
+                if !self
+                    .doc
+                    .tag_name(id)
+                    .is_some_and(|t| t.eq_ignore_ascii_case("td") || t.eq_ignore_ascii_case("th"))
+                {
+                    return None;
+                }
+                // The hint applies to in-table cells only; a parentless td keeps the UA default.
+                let mut table = None;
+                let mut cur = self.doc.parent(id);
+                while let Some(p) = cur {
+                    if self.doc.tag_name(p).is_some_and(|t| t.eq_ignore_ascii_case("table")) {
+                        table = Some(p);
+                        break;
+                    }
+                    cur = self.doc.parent(p);
+                }
+                let table = table?;
+                if author_declared(prop.css_name()) || author_declared("padding") {
+                    return None;
+                }
+                Some(Value::Unit(attr_px(table, "cellpadding").unwrap_or(1.0), Unit::Px))
+            }
+            _ => None,
+        }
+    }
+
     /// Bridges a computed `PropertyMap` to a single `Value`, shared by real elements and
     /// pseudo-elements. Handles the `text-decoration` / `background[-image]` shorthands and
     /// `currentColor`. `id` is only used to resolve `currentColor` against the node's `color`.
@@ -1171,6 +1692,19 @@ where
     }
 
     fn children(&self, id: NodeId) -> Vec<NodeId> {
+        if is_anon_table_id(u64::from(id)) {
+            // The anonymous table's members may need row wrappers of their own.
+            let members = self.anon_box_members(id);
+            return self.wrap_anon_row_runs(Some(&Display::Table), members);
+        }
+        if is_anon_row_id(u64::from(id)) {
+            // ...and an anonymous row's members may need cell wrappers.
+            let members = self.anon_box_members(id);
+            return self.wrap_anon_cell_runs(Some(&Display::TableRow), members);
+        }
+        if is_anon_cell_id(u64::from(id)) {
+            return self.anon_box_members(id);
+        }
         if is_pseudo_id(u64::from(id)) {
             let (owner, role) = decode_pseudo(id);
             // A pseudo-element's only child is its generated text (if any); text nodes are leaves.
@@ -1199,10 +1733,16 @@ where
         if self.pseudo_box(id, true).is_some() {
             out.push(encode_pseudo(id, ROLE_AFTER_ELEM));
         }
-        out
+        let display = self.display_of(id);
+        let out = self.wrap_anon_table_runs(display.as_ref(), out);
+        let out = self.wrap_anon_row_runs(display.as_ref(), out);
+        self.wrap_anon_cell_runs(display.as_ref(), out)
     }
 
     fn node_kind(&self, id: NodeId) -> PipelineNodeKind {
+        if is_anon_box_id(u64::from(id)) {
+            return PipelineNodeKind::Element;
+        }
         if is_pseudo_id(u64::from(id)) {
             let (_, role) = decode_pseudo(id);
             return if role_is_text(role) {
@@ -1220,8 +1760,8 @@ where
     }
 
     fn tag_name(&self, id: NodeId) -> Option<String> {
-        // Pseudo-elements have no tag name.
-        if is_pseudo_id(u64::from(id)) {
+        // Pseudo-elements and anonymous table boxes have no tag name.
+        if is_pseudo_id(u64::from(id)) || is_anon_box_id(u64::from(id)) {
             return None;
         }
         self.doc.tag_name(id).map(|s| s.to_string())
@@ -1235,6 +1775,46 @@ where
     }
 
     fn parent(&self, id: NodeId) -> Option<NodeId> {
+        // Synthetic anonymous boxes: parent is the members' real parent when it provides the
+        // right context, else the next synthetic wrapper up - located by finding the enclosing
+        // run's start among the real parent's children.
+        if is_anon_cell_id(u64::from(id)) {
+            let first = decode_anon_box(id);
+            let real_parent = self.doc.parent(first)?;
+            if matches!(self.display_of(real_parent), Some(Display::TableRow)) {
+                return Some(real_parent);
+            }
+            // The enclosing anonymous row wraps the row-level run containing this cell run.
+            let rmembers = self.row_run_members_for(first);
+            return Some(encode_anon_row(rmembers[0]));
+        }
+        if is_anon_row_id(u64::from(id)) {
+            let first = decode_anon_box(id);
+            let real_parent = self.doc.parent(first)?;
+            let parent_display = self.display_of(real_parent);
+            if matches!(
+                parent_display,
+                Some(Display::Table | Display::TableRowGroup | Display::TableHeaderGroup | Display::TableFooterGroup)
+            ) {
+                return Some(real_parent);
+            }
+            // The enclosing anonymous table wraps the table-level run containing this row run.
+            let start = self
+                .run_start_containing(real_parent, first, |c| {
+                    self.display_of(c)
+                        .is_some_and(|d| needs_table_parent(&d, parent_display.as_ref()))
+                })
+                .unwrap_or(first);
+            return Some(encode_anon_table(start));
+        }
+        if is_anon_table_id(u64::from(id)) {
+            return self.doc.parent(decode_anon_box(id));
+        }
+        // Members of a synthesized run report the wrapper as their parent, so the parent
+        // chain matches the child lists children() hands out.
+        if let Some(wrapper) = self.synthetic_parent_of(id) {
+            return Some(wrapper);
+        }
         if is_pseudo_id(u64::from(id)) {
             let (owner, role) = decode_pseudo(id);
             // Text child's parent is its pseudo-element; the pseudo-element's parent is the owner.
@@ -1255,6 +1835,11 @@ where
     }
 
     fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value> {
+        // An anonymous table box IS its display (table / table-row) and has no other own
+        // styles; inherited properties resolve through its (real) parent.
+        if let Some(d) = anon_box_display(u64::from(id)) {
+            return matches!(prop, StyleProperty::Display).then(|| Value::Display(d));
+        }
         // Generated content (::before / ::after) draws its styles from a separate map.
         if is_pseudo_id(u64::from(id)) {
             return self.pseudo_own_style(id, prop);
@@ -1267,6 +1852,13 @@ where
             if let Some(v) = inline.get_own(prop) {
                 return Some(v.clone());
             }
+        }
+
+        // `cellspacing`/`cellpadding` are presentational hints that sit BETWEEN origins: they
+        // beat user-agent rules (notably the UA `table { border-spacing: 2px }`) but lose to
+        // any author declaration, so they must be consulted before the cascaded map.
+        if let Some(v) = self.table_attr_hint(id, prop, arc.as_ref()) {
+            return Some(v);
         }
 
         if let Some(v) = self.style_from_map(id, prop, arc.as_ref()) {
@@ -1282,6 +1874,9 @@ where
     }
 
     fn background_layers(&self, id: NodeId) -> Vec<Gradient> {
+        if is_anon_box_id(u64::from(id)) {
+            return Vec::new();
+        }
         // Read the layers from the pseudo-element's own map, never the owner's.
         let arc = if is_pseudo_id(u64::from(id)) {
             let (owner, role) = decode_pseudo(id);
@@ -1346,6 +1941,9 @@ where
     }
 
     fn background_image_layout(&self, id: NodeId) -> BgImageLayout {
+        if is_anon_box_id(u64::from(id)) {
+            return BgImageLayout::default();
+        }
         let arc = self.cached_styles(id);
         let map = arc.as_ref();
 
@@ -1450,13 +2048,46 @@ where
     }
 
     fn inner_html(&self, id: NodeId) -> String {
-        if is_pseudo_id(u64::from(id)) {
+        if is_pseudo_id(u64::from(id)) || is_anon_box_id(u64::from(id)) {
             return String::new();
         }
         self.doc.write_from_node(id)
     }
 
     fn get_node_by_id(&self, id: NodeId) -> Option<Node> {
+        // Synthetic anonymous-table wrapper: a tagless `display: table` / `table-row` element.
+        if let Some(d) = anon_box_display(u64::from(id)) {
+            let mut style = NodeStyle::new();
+            // An anonymous table generated in INLINE context is an inline-table (CSS 2.1
+            // §17.2.1). We have no inline-table display; marking the synthetic NODE
+            // inline-block makes the layouter's line grouping keep it (and the whitespace
+            // around it) in the line box, while the cascade via get_own_style still reports
+            // `table` to the converter, lattice, and painter.
+            let node_display = if matches!(d, Display::Table) {
+                let parent_inline = self.parent(id).is_some_and(|p| {
+                    matches!(
+                        self.display_of(p),
+                        None | Some(
+                            Display::Inline | Display::InlineBlock | Display::InlineFlex | Display::InlineGrid
+                        )
+                    ) && !matches!(self.doc.node_type(p), GosubNodeType::DocumentNode)
+                });
+                if parent_inline {
+                    Display::InlineBlock
+                } else {
+                    d
+                }
+            } else {
+                d
+            };
+            style.set(StyleProperty::Display, Value::Display(node_display));
+            return Some(Node {
+                node_id: id,
+                parent_id: self.parent(id),
+                children: self.children(id),
+                node_type: NodeType::Element(ElementData::new(String::new(), Some(AttrMap::new()), Some(style))),
+            });
+        }
         // Synthetic pseudo nodes: build a transient Element (the box) or Text (its content).
         if is_pseudo_id(u64::from(id)) {
             let (owner, role) = decode_pseudo(id);
