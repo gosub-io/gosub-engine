@@ -67,7 +67,8 @@ struct Args {
     #[arg(long, default_value = "0")]
     settle: u64,
     /// Interactions to replay after the first render, before capturing: `click:X,Y` / `move:X,Y`
-    /// (page px), `tab`, `shift-tab`, `key:NAME` (e.g. `key:Backspace`) or `type:TEXT`. Repeatable.
+    /// (page px), `tab`, `shift-tab`, `key:NAME` (e.g. `key:Backspace`), `type:TEXT` or `wait:MS`
+    /// (e.g. for a submit navigation to land). Repeatable.
     #[arg(short = 'i', long = "interact")]
     interact: Vec<String>,
     /// Print the engine's timing table on exit
@@ -75,11 +76,18 @@ struct Args {
     timings: bool,
 }
 
-fn parse_interaction(spec: &str) -> Vec<TabCommand> {
-    let key = |k: &str, modifiers: Modifiers| TabCommand::KeyDown {
-        key: k.to_string(),
-        code: k.to_string(),
-        modifiers,
+enum Step {
+    Send(TabCommand),
+    Wait(Duration),
+}
+
+fn parse_interaction(spec: &str) -> Vec<Step> {
+    let key = |k: &str, modifiers: Modifiers| {
+        Step::Send(TabCommand::KeyDown {
+            key: k.to_string(),
+            code: k.to_string(),
+            modifiers,
+        })
     };
     match spec.split_once(':') {
         None if spec.eq_ignore_ascii_case("tab") => vec![key("Tab", Modifiers::empty())],
@@ -88,6 +96,13 @@ fn parse_interaction(spec: &str) -> Vec<TabCommand> {
         Some((kind, rest)) if kind.eq_ignore_ascii_case("type") => {
             rest.chars().map(|c| key(&c.to_string(), Modifiers::empty())).collect()
         }
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("wait") => match rest.trim().parse::<u64>() {
+            Ok(ms) => vec![Step::Wait(Duration::from_millis(ms))],
+            Err(_) => {
+                eprintln!("Bad wait spec '{spec}': expected wait:MILLISECONDS");
+                std::process::exit(2);
+            }
+        },
         Some((kind, rest)) if kind.eq_ignore_ascii_case("click") || kind.eq_ignore_ascii_case("move") => {
             let Some((x, y)) = rest.split_once(',') else {
                 eprintln!("Bad spec '{spec}': expected {kind}:X,Y");
@@ -98,26 +113,26 @@ fn parse_interaction(spec: &str) -> Vec<TabCommand> {
                 std::process::exit(2);
             };
             if kind.eq_ignore_ascii_case("move") {
-                return vec![TabCommand::MouseMove { x, y }];
+                return vec![Step::Send(TabCommand::MouseMove { x, y })];
             }
             // Hover first: link activation piggybacks on hover state.
             vec![
-                TabCommand::MouseMove { x, y },
-                TabCommand::MouseDown {
+                Step::Send(TabCommand::MouseMove { x, y }),
+                Step::Send(TabCommand::MouseDown {
                     x,
                     y,
                     button: MouseButton::Left,
-                },
-                TabCommand::MouseUp {
+                }),
+                Step::Send(TabCommand::MouseUp {
                     x,
                     y,
                     button: MouseButton::Left,
-                },
+                }),
             ]
         }
         _ => {
             eprintln!(
-                "Unknown interaction '{spec}' (expected click:X,Y | move:X,Y | tab | shift-tab | key:NAME | type:TEXT)"
+                "Unknown interaction '{spec}' (expected click:X,Y | move:X,Y | tab | shift-tab | key:NAME | type:TEXT | wait:MS)"
             );
             std::process::exit(2);
         }
@@ -288,9 +303,17 @@ fn main() {
 
     // ── Phase 1b: replay interactions, waiting for each repaint ──────────────
     if !args.interact.is_empty() {
-        let commands: Vec<TabCommand> = args.interact.iter().flat_map(|s| parse_interaction(s)).collect();
+        let steps: Vec<Step> = args.interact.iter().flat_map(|s| parse_interaction(s)).collect();
         eprintln!("Replaying {} interaction(s)…", args.interact.len());
-        for cmd in commands {
+        for step in steps {
+            let cmd = match step {
+                Step::Wait(d) => {
+                    std::thread::sleep(d);
+                    while rx_redraw.try_recv().is_ok() {}
+                    continue;
+                }
+                Step::Send(cmd) => cmd,
+            };
             let is_input = matches!(cmd, TabCommand::MouseDown { .. } | TabCommand::KeyDown { .. });
             let is_move = matches!(cmd, TabCommand::MouseMove { .. });
             let tab_i = tab.clone();

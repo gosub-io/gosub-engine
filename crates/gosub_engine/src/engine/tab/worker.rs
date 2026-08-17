@@ -10,7 +10,7 @@ use crate::events::{IoCommand, TabCommand};
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{
-    FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, NetError, Priority, ResourceKind,
+    FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, NetError, Priority, RequestBody, ResourceKind,
 };
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
 use crate::storage::types::compute_partition_key;
@@ -862,6 +862,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             if self.context.edit_key(key, chord) {
                 self.runtime.dirty = true;
                 self.runtime.render_now = true;
+                self.run_pending_submission();
                 return ControlFlow::Continue;
             }
         }
@@ -1189,6 +1190,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     if focused || toggled {
                         self.runtime.render_now = true;
                     }
+                    self.run_pending_submission();
                 }
                 self.runtime.dirty = true;
                 ControlFlow::Continue
@@ -1273,6 +1275,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // The cursor moved even though the load is still in flight: tell the shell now so
         // back/forward buttons track the traversal, not the eventual load.
         self.emit_history_changed();
+    }
+    /// Run a form submission the browsing context queued for the last click/key. Pushes a
+    /// history entry like any fresh navigation.
+    fn run_pending_submission(&mut self) {
+        let Some(sub) = self.context.take_submission() else {
+            return;
+        };
+        let (method, body) = if sub.post {
+            (Method::POST, sub.body.map(RequestBody::form))
+        } else {
+            (Method::GET, None)
+        };
+        self.navigate_request(sub.url.to_string(), method, body, HistoryIntent::Push);
     }
 
     /// Emit `CursorChanged` if the shape differs from the last one reported.
@@ -1369,7 +1384,20 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Navigate to a new URL, cancelling any in-flight navigation. `history` says what the
     /// navigation does to session history once it commits.
-    fn navigate_to(&mut self, url: impl Into<String>, _ignore_cache: bool, history: HistoryIntent) {
+    fn navigate_to(&mut self, url: impl Into<String>, ignore_cache: bool, history: HistoryIntent) {
+        let _ = ignore_cache;
+        self.navigate_request(url, Method::GET, None, history);
+    }
+
+    /// Navigate with an explicit method and optional body (form POSTs), cancelling any
+    /// in-flight navigation.
+    fn navigate_request(
+        &mut self,
+        url: impl Into<String>,
+        method: Method,
+        body: Option<RequestBody>,
+        history: HistoryIntent,
+    ) {
         let url = match self.parse_url(url.into()) {
             Ok(u) => u,
             Err(_) => return,
@@ -1470,7 +1498,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Document, Initiator::Navigation);
-        let req = FetchRequest::builder(Method::GET, url.clone())
+        let mut req = FetchRequest::builder(method, url.clone())
             .with_reference(REF_REGISTRY.to_net(RequestReference::Navigation(nav_id)))
             .with_req_id(req_id)
             .with_headers(fetch_headers)
@@ -1481,8 +1509,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // The streaming path has a race where SharedBody can close before parse_stream
             // subscribes, causing truncated HTML (only the 5 KB peek buffer is parsed).
             .with_streaming(false)
-            .with_auto_decode(true)
-            .build();
+            .with_auto_decode(true);
+        if let Some(body) = body {
+            req = req.with_body(body);
+        }
+        let req = req.build();
 
         let (tx_done, rx_done) = oneshot::channel::<NavigationResult<C>>();
 

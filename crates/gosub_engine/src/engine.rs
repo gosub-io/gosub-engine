@@ -8,6 +8,7 @@ mod edit;
 mod engine;
 mod errors;
 mod focus;
+mod form;
 pub mod internal_pages;
 pub mod places;
 

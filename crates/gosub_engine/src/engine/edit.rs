@@ -88,7 +88,7 @@ pub fn toggle<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Ve
             let Some(name) = doc.attribute(id, "name").filter(|n| !n.is_empty()) else {
                 return changes;
             };
-            let scope = form_owner(doc, id).unwrap_or_else(|| doc.root());
+            let scope = crate::engine::form::form_owner(doc, id).unwrap_or_else(|| doc.root());
             let mut stack: Vec<NodeId> = doc.children(scope).iter().rev().copied().collect();
             while let Some(n) = stack.pop() {
                 if n != id
@@ -102,16 +102,6 @@ pub fn toggle<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Ve
             }
             changes
         }
-    }
-}
-
-fn form_owner<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Option<NodeId> {
-    let mut cur = doc.parent(id)?;
-    loop {
-        if doc.tag_name(cur) == Some("form") {
-            return Some(cur);
-        }
-        cur = doc.parent(cur)?;
     }
 }
 

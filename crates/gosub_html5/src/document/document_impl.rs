@@ -495,8 +495,17 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
     }
 
-    pub fn set_selected_option(&self, select: NodeId, option: NodeId) {
-        self.selected.write().insert(select, option);
+    /// `None` reverts to the `selected` attribute.
+    pub fn set_selected_option(&self, select: NodeId, option: Option<NodeId>) {
+        let mut map = self.selected.write();
+        match option {
+            Some(o) => {
+                map.insert(select, o);
+            }
+            None => {
+                map.remove(&select);
+            }
+        }
     }
 
     pub fn set_open_select(&self, state: Option<(NodeId, Option<usize>)>) {

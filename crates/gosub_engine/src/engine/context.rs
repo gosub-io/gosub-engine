@@ -9,6 +9,8 @@
 use crate::engine::edit;
 use crate::engine::events::{CursorShape, HitTestResponse};
 use crate::engine::focus;
+use crate::engine::form;
+pub use crate::engine::form::Submission;
 use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::EngineDocument;
 use gosub_config::{Config, HasConfig};
@@ -171,6 +173,8 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// Elements whose paint changed but not their layout or style (e.g. a typed value); repainted
     /// through the same paint-only path as hover.
     paint_dirty_leis: Vec<LayoutElementId>,
+    /// A form submit triggered by the last click/key, for the tab worker to navigate.
+    pending_submission: Option<Submission>,
 
     /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
     /// worker from the engine's `RenderBackend` (replacing the former per-backend cfg cascade).
@@ -220,6 +224,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_link_url: None,
             hover_cursor: CursorShape::Default,
             paint_dirty_leis: Vec::new(),
+            pending_submission: None,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(MediaStore::new()),
@@ -865,12 +870,70 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let Some(target) = leaf.and_then(|l| focus::click_target(&doc, l)) else {
             return false;
         };
+        match form::button_kind(&doc, target) {
+            Some(false) => return self.submit(target, Some(target)),
+            Some(true) => return self.reset_form(target),
+            None => {}
+        }
         if edit::is_select(&doc, target) {
             doc.set_open_select(Some((target, None)));
             self.invalidate_render();
             return true;
         }
         self.toggle_control(target)
+    }
+
+    /// The submission the last click/Enter asked for, if any (consumed).
+    pub fn take_submission(&mut self) -> Option<Submission> {
+        self.pending_submission.take()
+    }
+
+    /// Submit the form owning `control` (a submit button, or a text field on Enter). Nothing
+    /// happens outside a form or without a document URL to resolve against.
+    fn submit(&mut self, control: NodeId, submitter: Option<NodeId>) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some(form) = form::form_owner(&doc, control) else {
+            return false;
+        };
+        let Some(base) = doc.url() else {
+            return false;
+        };
+        self.pending_submission = form::submission(&doc, form, submitter, &base);
+        self.pending_submission.is_some()
+    }
+
+    /// Reset button: forget everything typed/toggled/picked in its form.
+    fn reset_form(&mut self, button: NodeId) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some(form) = form::form_owner(&doc, button) else {
+            return false;
+        };
+        for id in form::controls(&doc, form) {
+            doc.set_control_edit_state(id, None);
+            doc.set_checked(id, None);
+            doc.set_selected_option(id, None);
+        }
+        self.invalidate_render();
+        true
+    }
+
+    /// Enter in a single-line text field: implicit submission through the form's first submit
+    /// button (or without one when the form has a single text field).
+    fn implicit_submit(&mut self, field: NodeId) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some(form) = form::form_owner(&doc, field) else {
+            return false;
+        };
+        match form::default_submitter(&doc, form) {
+            Some(submitter) => self.submit(field, submitter),
+            None => false,
+        }
     }
 
     /// The dropdown row under a hit on the popup element, if the hit is the popup.
@@ -904,7 +967,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             }
         });
         if let Some(option) = option {
-            doc.set_selected_option(select, option);
+            doc.set_selected_option(select, Some(option));
         }
         doc.set_open_select(None);
         self.invalidate_render();
@@ -961,9 +1024,19 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if edit::is_select(&doc, node) && !ctrl_or_meta {
             return self.select_key(node, key);
         }
+        if matches!(key, "Enter" | " ") && !ctrl_or_meta {
+            match form::button_kind(&doc, node) {
+                Some(false) => return self.submit(node, Some(node)),
+                Some(true) => return self.reset_form(node),
+                None => {}
+            }
+        }
         let Some(multiline) = edit::text_entry_kind(&doc, node) else {
             return false;
         };
+        if key == "Enter" && !multiline && !ctrl_or_meta {
+            return self.implicit_submit(node);
+        }
         let Some(action) = edit::action_for_key(key, multiline, ctrl_or_meta) else {
             return false;
         };
@@ -1007,7 +1080,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     Some(i) => (i as isize + step).clamp(0, options.len() as isize - 1) as usize,
                     None => 0,
                 };
-                doc.set_selected_option(select, options[next]);
+                doc.set_selected_option(select, Some(options[next]));
                 if let Some((s, _)) = open {
                     // The popup lists every option; find the row of the new choice there.
                     let row = self.active_layer_list().and_then(|ll| {
