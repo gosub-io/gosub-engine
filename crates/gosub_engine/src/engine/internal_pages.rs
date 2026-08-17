@@ -192,7 +192,8 @@ pub mod builtins {
         ))
     }
 
-    const BLANK: &str = "<!DOCTYPE html><html><head><title></title></head><body style=\"margin:0;background:#ffffff\"></body></html>";
+    const BLANK: &str =
+        "<!DOCTYPE html><html><head><title></title></head><body style=\"margin:0;background:#ffffff\"></body></html>";
 
     fn home(_r: &PageRequest<'_>) -> PageResponse {
         page(
@@ -210,7 +211,9 @@ pub mod builtins {
             ("history", "This tab's session history tree"),
             ("config", "Engine settings (read-only dump)"),
         ];
-        let mut body = String::from("<h1>Internal pages</h1><p class=\"sub\">Also reachable as <code>about:&lt;name&gt;</code>.</p><table>");
+        let mut body = String::from(
+            "<h1>Internal pages</h1><p class=\"sub\">Also reachable as <code>about:&lt;name&gt;</code>.</p><table>",
+        );
         for (name, desc) in items {
             body.push_str(&format!(
                 "<tr><td><a href=\"gosub://{name}\"><code>gosub://{name}</code></a></td><td>{desc}</td></tr>"
@@ -226,11 +229,18 @@ pub mod builtins {
             ("Engine", format!("gosub_engine {}", env!("CARGO_PKG_VERSION"))),
             ("Render backend", r.tab.render_backend.to_string()),
             ("User agent", r.settings.get_string("net.user_agent")),
-            ("Target", format!("{} / {}", std::env::consts::OS, std::env::consts::ARCH)),
+            (
+                "Target",
+                format!("{} / {}", std::env::consts::OS, std::env::consts::ARCH),
+            ),
         ];
         let mut body = String::from("<h1>Version</h1><table>");
         for (k, v) in rows {
-            body.push_str(&format!("<tr><th>{}</th><td><code>{}</code></td></tr>", escape(k), escape(&v)));
+            body.push_str(&format!(
+                "<tr><th>{}</th><td><code>{}</code></td></tr>",
+                escape(k),
+                escape(&v)
+            ));
         }
         body.push_str("</table>");
         page("Version", &body)
@@ -265,8 +275,15 @@ pub mod builtins {
         keys.sort();
         let mut body = String::from("<h1>Engine settings</h1><p class=\"sub\">Read-only dump of the settings store; bold rows differ from their default.</p><table><tr><th>Key</th><th>Value</th><th>Default</th><th>Description</th></tr>");
         for key in keys {
-            let Some(info) = r.settings.get_info(&key) else { continue };
-            let current = r.settings.get(&key).ok().flatten().unwrap_or_else(|| info.default.clone());
+            let Some(info) = r.settings.get_info(&key) else {
+                continue;
+            };
+            let current = r
+                .settings
+                .get(&key)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| info.default.clone());
             let cls = if current != info.default { " class=\"cur\"" } else { "" };
             body.push_str(&format!(
                 "<tr{cls}><td><code>{}</code></td><td><code>{}</code></td><td class=\"muted\"><code>{}</code></td><td>{}</td></tr>",
@@ -286,7 +303,9 @@ pub mod builtins {
             escape(r.url.as_str())
         );
         for name in known {
-            body.push_str(&format!("<li><a href=\"gosub://{name}\"><code>gosub://{name}</code></a></li>"));
+            body.push_str(&format!(
+                "<li><a href=\"gosub://{name}\"><code>gosub://{name}</code></a></li>"
+            ));
         }
         body.push_str("</ul>");
         page("No such page", &body)
@@ -300,7 +319,9 @@ mod tests {
 
     fn resolve(pages: &InternalPages, url: &str) -> String {
         let url = Url::parse(url).unwrap();
-        pages.resolve(&url, &settings_store::default_config(), &TabView::default()).html
+        pages
+            .resolve(&url, &settings_store::default_config(), &TabView::default())
+            .html
     }
 
     #[test]
@@ -353,7 +374,11 @@ mod tests {
         };
         let pages = InternalPages::with_builtins();
         let html = pages
-            .resolve(&Url::parse("gosub://history").unwrap(), &settings_store::default_config(), &tab)
+            .resolve(
+                &Url::parse("gosub://history").unwrap(),
+                &settings_store::default_config(),
+                &tab,
+            )
             .html;
         assert!(html.contains("https://a.example/"));
         assert!(html.contains("https://b.example/"));

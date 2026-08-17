@@ -6,8 +6,8 @@
 //! context via `set_document`, after which the context rebuilds whichever render
 //! representation the active backend consumes.
 
-use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::engine::events::{CursorShape, HitTestResponse};
+use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::EngineDocument;
 use gosub_config::{Config, HasConfig};
 use gosub_render_pipeline::rasterizer::{
@@ -21,15 +21,15 @@ use std::sync::Arc;
 use crate::html::RenderConfiguration;
 use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
+use gosub_interface::node::NodeType;
 use gosub_render_pipeline::common::texture::TilePixels;
 use gosub_render_pipeline::layering::layer::LayerList;
 use gosub_render_pipeline::layouter::LayoutElementId;
 use gosub_render_pipeline::painter::{PaintScene, Painter};
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
-use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
-use url::Url;
 use std::any::Any;
+use url::Url;
 
 /// GPU-scene cache: the layer list (for hit-testing) plus the whole-page paint command list
 /// (for the backend to render). The GPU equivalent of [`PipelineCache`] - it skips tiling,
@@ -641,10 +641,17 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let Some(leaf) = layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id) else {
             return out;
         };
-        let resolve = |raw: &str| base.and_then(|b| b.join(raw).ok()).map(|u| u.to_string()).unwrap_or_else(|| raw.to_string());
+        let resolve = |raw: &str| {
+            base.and_then(|b| b.join(raw).ok())
+                .map(|u| u.to_string())
+                .unwrap_or_else(|| raw.to_string())
+        };
 
         if doc.node_type(leaf) == NodeType::TextNode {
-            out.text = doc.text_value(leaf).map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+            out.text = doc
+                .text_value(leaf)
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty());
         }
         let mut id = leaf;
         loop {

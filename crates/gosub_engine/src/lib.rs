@@ -166,9 +166,9 @@ pub use engine::internal_pages;
 
 /// The engine's settings store and its value/schema types (see [`GosubEngine::settings`]).
 pub use gosub_config::settings::{Constraint, Setting, SettingInfo};
-pub use gosub_config::Config;
 /// Storage adapters an embedder can attach to the settings store to persist overrides.
 pub use gosub_config::storage as config_storage;
+pub use gosub_config::Config;
 pub use gosub_config::StorageAdapter;
 
 pub use engine::types::Action;

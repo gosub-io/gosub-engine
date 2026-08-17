@@ -454,14 +454,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
     fn favicon_url(doc: &C::Document, base_url: &Url) -> Option<Url> {
         use gosub_interface::document::Document as _;
 
-        fn walk<C: RenderConfiguration>(doc: &C::Document, node: gosub_shared::node::NodeId, base: &Url) -> Option<Url> {
+        fn walk<C: RenderConfiguration>(
+            doc: &C::Document,
+            node: gosub_shared::node::NodeId,
+            base: &Url,
+        ) -> Option<Url> {
             for &child in doc.children(node) {
                 if doc.tag_name(child).is_some_and(|t| t.eq_ignore_ascii_case("link")) {
                     // `icon`, `shortcut icon` (space-separated tokens) and the hyphenated
                     // `apple-touch-icon` / `apple-touch-icon-precomposed`.
                     let is_icon = doc.attribute(child, "rel").is_some_and(|rel| {
                         rel.split_ascii_whitespace().any(|t| {
-                            t.eq_ignore_ascii_case("icon") || t.len() >= 16 && t[..16].eq_ignore_ascii_case("apple-touch-icon")
+                            t.eq_ignore_ascii_case("icon")
+                                || t.len() >= 16 && t[..16].eq_ignore_ascii_case("apple-touch-icon")
                         })
                     });
                     if is_icon {
@@ -527,7 +532,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 return;
             };
             if meta.status != 200 || body.is_empty() {
-                log::debug!("favicon {icon_url}: status {} ({} bytes), ignored", meta.status, body.len());
+                log::debug!(
+                    "favicon {icon_url}: status {} ({} bytes), ignored",
+                    meta.status,
+                    body.len()
+                );
                 return;
             }
             let _ = event_tx.send(EngineEvent::FavIconChanged {
@@ -609,7 +618,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             } => {
                 self.context.set_document(Arc::clone(&doc));
                 self.load_web_fonts(&doc, &final_url);
-                if let Some(cancel) = self.active_nav.as_ref().filter(|a| a.nav_id == nav_id).map(|a| a.cancel.clone()) {
+                if let Some(cancel) = self
+                    .active_nav
+                    .as_ref()
+                    .filter(|a| a.nav_id == nav_id)
+                    .map(|a| a.cancel.clone())
+                {
                     self.fetch_favicon(&doc, &final_url, &cancel);
                 }
                 self.current_url = Some(final_url.clone());
@@ -1425,9 +1439,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         if self.pending_scroll.is_some() && self.context.page_height() > 0.0 {
             let target = match self.pending_scroll.take() {
                 Some(PendingScroll::Offset(x, y)) => Some((x, y)),
-                Some(PendingScroll::Fragment(f)) => {
-                    self.context.fragment_target_y(&f).map(|y| (0, y.round() as i32))
-                }
+                Some(PendingScroll::Fragment(f)) => self.context.fragment_target_y(&f).map(|y| (0, y.round() as i32)),
                 None => None,
             };
             if let Some((x, y)) = target {
@@ -1835,9 +1847,15 @@ mod tests {
         #[test]
         fn shortcut_icon_and_apple_touch_icon_count() {
             let html = r#"<html><head><link rel="Shortcut Icon" href="/a.ico"></head></html>"#;
-            assert_eq!(resolve(html, "https://example.com/").as_deref(), Some("https://example.com/a.ico"));
+            assert_eq!(
+                resolve(html, "https://example.com/").as_deref(),
+                Some("https://example.com/a.ico")
+            );
             let html = r#"<html><head><link rel="apple-touch-icon" href="/t.png"></head></html>"#;
-            assert_eq!(resolve(html, "https://example.com/").as_deref(), Some("https://example.com/t.png"));
+            assert_eq!(
+                resolve(html, "https://example.com/").as_deref(),
+                Some("https://example.com/t.png")
+            );
         }
 
         #[test]

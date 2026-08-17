@@ -598,7 +598,11 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        assert_eq!(served.lock().last().map(String::as_str), Some("/a"), "back must refetch /a");
+        assert_eq!(
+            served.lock().last().map(String::as_str),
+            Some("/a"),
+            "back must refetch /a"
+        );
 
         // Forward returns to /b, again without pushing.
         tab.go_forward().await.expect("go forward");
@@ -631,26 +635,42 @@ mod tests {
 
         // Internal pages: served by the engine's registry (no fetch), real history entries,
         // titles from the page, `about:` alias, and embedder overrides.
-        engine
-            .internal_pages()
-            .register_html("mine", "<html><head><title>Mine</title></head><body>custom</body></html>");
+        engine.internal_pages().register_html(
+            "mine",
+            "<html><head><title>Mine</title></head><body>custom</body></html>",
+        );
         let served_before = served.lock().len();
         tab.navigate("gosub://version").await.expect("navigate internal");
-        let h = next_history(&mut event_rx, |h| h.entries.last().is_some_and(|e| e.url.as_str() == "gosub://version"))
-            .await;
+        let h = next_history(&mut event_rx, |h| {
+            h.entries.last().is_some_and(|e| e.url.as_str() == "gosub://version")
+        })
+        .await;
         assert_eq!(h.entries.last().unwrap().title.as_deref(), Some("Version"));
         tab.navigate("about:blank").await.expect("navigate about");
-        let _ = next_history(&mut event_rx, |h| h.entries.last().is_some_and(|e| e.url.as_str() == "about:blank")).await;
+        let _ = next_history(&mut event_rx, |h| {
+            h.entries.last().is_some_and(|e| e.url.as_str() == "about:blank")
+        })
+        .await;
         tab.navigate("gosub://mine").await.expect("navigate override");
-        let h = next_history(&mut event_rx, |h| h.entries.last().is_some_and(|e| e.url.as_str() == "gosub://mine")).await;
+        let h = next_history(&mut event_rx, |h| {
+            h.entries.last().is_some_and(|e| e.url.as_str() == "gosub://mine")
+        })
+        .await;
         assert_eq!(h.entries.last().unwrap().title.as_deref(), Some("Mine"));
         // Back over internal pages traverses (no new entries) and still fetches nothing.
         let n = h.entries.len();
         tab.go_back().await.expect("back");
-        let h = next_history(&mut event_rx, |h| h.entries.last().is_some_and(|e| e.title.as_deref() == Some("Mine")) && h.forward.len() == 1).await;
+        let h = next_history(&mut event_rx, |h| {
+            h.entries.last().is_some_and(|e| e.title.as_deref() == Some("Mine")) && h.forward.len() == 1
+        })
+        .await;
         assert_eq!(h.entries.len(), n, "back over internal pages must not push");
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(served.lock().len(), served_before, "internal pages must never hit the network");
+        assert_eq!(
+            served.lock().len(),
+            served_before,
+            "internal pages must never hit the network"
+        );
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");
