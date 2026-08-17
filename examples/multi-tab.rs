@@ -307,6 +307,17 @@ fn handle_event(ev: EngineEvent) {
                 } => {
                     println!("nav: decision required: {} {:?} {:?}", nav_id, meta, decision_token);
                 }
+                NavigationEvent::HistoryChanged { history } => {
+                    ui.update(
+                        tab_id,
+                        format!(
+                            "nav: history {} entries, back={}, forward={}",
+                            history.entries.len(),
+                            history.can_go_back,
+                            history.forward.len()
+                        ),
+                    );
+                }
             }
         }
         EngineEvent::Resource { tab_id, event } => {
