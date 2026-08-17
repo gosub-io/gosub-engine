@@ -280,6 +280,14 @@ async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
                     }
                     on_decision_required(tab_handle, nav_id, meta, decision_token).await;
                 }
+                NavigationEvent::HistoryChanged { history } => {
+                    println!(
+                        "[nav ] history   [{t}] {} entries, back={}, forward={}",
+                        history.entries.len(),
+                        history.can_go_back,
+                        history.forward.len()
+                    );
+                }
             }
         }
 

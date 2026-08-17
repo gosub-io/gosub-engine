@@ -1,4 +1,5 @@
 mod handle;
+pub mod history;
 mod options;
 mod scroll;
 pub mod services;
@@ -17,6 +18,8 @@ pub use options::TabOverrides;
 pub use options::TabStorageScope;
 
 pub use sink::TabSink;
+
+pub use history::{HistoryEntryId, HistoryEntrySummary, HistorySnapshot};
 
 // Tab management and tab-related types.
 //

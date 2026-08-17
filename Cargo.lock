@@ -3162,6 +3162,7 @@ dependencies = [
  "mimetype-detector",
  "once_cell",
  "parking_lot",
+ "percent-encoding",
  "psl",
  "r2d2",
  "r2d2_sqlite",

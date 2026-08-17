@@ -6,6 +6,7 @@
 //! context via `set_document`, after which the context rebuilds whichever render
 //! representation the active backend consumes.
 
+use crate::engine::events::{CursorShape, HitTestResponse};
 use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::EngineDocument;
 use gosub_config::{Config, HasConfig};
@@ -20,6 +21,7 @@ use std::sync::Arc;
 use crate::html::RenderConfiguration;
 use gosub_interface::css3::{CssSystem, HoverFingerprints};
 use gosub_interface::document::Document as _;
+use gosub_interface::node::NodeType;
 use gosub_render_pipeline::common::texture::TilePixels;
 use gosub_render_pipeline::layering::layer::LayerList;
 use gosub_render_pipeline::layouter::LayoutElementId;
@@ -27,6 +29,7 @@ use gosub_render_pipeline::painter::{PaintScene, Painter};
 use gosub_render_pipeline::render::backend::{CachedTile, ExternalHandle};
 use gosub_shared::node::NodeId;
 use std::any::Any;
+use url::Url;
 
 /// GPU-scene cache: the layer list (for hit-testing) plus the whole-page paint command list
 /// (for the backend to render). The GPU equivalent of [`PipelineCache`] - it skips tiling,
@@ -61,6 +64,23 @@ fn hover_matches<C: RenderConfiguration>(fp: &HoverFingerprints, doc: &EngineDoc
     }
     false
 }
+/// True for elements whose content is edited as text (they show the I-beam cursor).
+fn is_text_input<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) -> bool {
+    match doc.tag_name(node_id) {
+        Some("textarea") => true,
+        Some("input") => !doc.attribute(node_id, "type").is_some_and(|t| {
+            [
+                "button", "submit", "reset", "checkbox", "radio", "range", "color", "file", "image", "hidden",
+            ]
+            .iter()
+            .any(|k| t.eq_ignore_ascii_case(k))
+        }),
+        _ => doc
+            .attribute(node_id, "contenteditable")
+            .is_some_and(|v| v.is_empty() || v.eq_ignore_ascii_case("true")),
+    }
+}
+
 /// Cached output of stages 1–6 for the whole page. Re-used on every scroll tick.
 struct PipelineCache {
     tiles: Vec<BakedTile>,
@@ -131,6 +151,8 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     hover_chain_sensitive: bool,
     /// The href of the link currently under the pointer, if any.
     pub hover_link_url: Option<String>,
+    /// Cursor shape for what is under the pointer, derived from the hovered node's ancestry.
+    hover_cursor: CursorShape,
 
     /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
     /// worker from the engine's `RenderBackend` (replacing the former per-backend cfg cascade).
@@ -177,6 +199,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_fingerprints: None,
             hover_chain_sensitive: false,
             hover_link_url: None,
+            hover_cursor: CursorShape::Default,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new()),
@@ -223,6 +246,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_layout_element = None;
         self.hover_fingerprints = None;
         self.hover_chain_sensitive = false;
+        self.hover_link_url = None;
+        self.hover_cursor = CursorShape::Default;
     }
 
     /// Update the viewport SIZE. Only triggers a full re-layout when width or height changes.
@@ -493,6 +518,29 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             .or_else(|| self.pipeline_cache.as_ref().map(|c| &c.layer_list))
     }
 
+    /// Page-space top of the element a URL fragment points at, per the HTML "indicated part
+    /// of the document": the element whose `id` equals the (percent-decoded) fragment, else
+    /// the first `<a name=…>` with that name. An empty fragment or `top` means the top of the
+    /// document. `None` when nothing matches or layout has not run yet.
+    pub fn fragment_target_y(&self, fragment: &str) -> Option<f64> {
+        let decoded = percent_encoding::percent_decode_str(fragment).decode_utf8_lossy();
+        if decoded.is_empty() || decoded == "top" {
+            return Some(0.0);
+        }
+        let doc = self.document.as_ref()?;
+        let layer_list = self.active_layer_list()?;
+        let arena = &layer_list.layout_tree.arena;
+        let matches = |dom_id: NodeId, attr: &str| doc.attribute(dom_id, attr) == Some(decoded.as_ref());
+
+        let by_id = arena.values().find(|n| matches(n.dom_node_id, "id"));
+        let node = by_id.or_else(|| {
+            arena
+                .values()
+                .find(|n| doc.tag_name(n.dom_node_id) == Some("a") && matches(n.dom_node_id, "name"))
+        })?;
+        Some(node.box_model.border_box.y)
+    }
+
     /// The active full-page height, from whichever cache this tab populates.
     fn active_page_height(&self) -> Option<f64> {
         self.scene_cache
@@ -574,12 +622,72 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         (self.scroll_x, self.scroll_y)
     }
 
+    /// Cursor shape for what is under the pointer, as of the last [`Self::update_hover`].
+    pub fn hover_cursor(&self) -> CursorShape {
+        self.hover_cursor
+    }
+
+    /// Describe what is at viewport point `(vp_x, vp_y)` for a context menu: the nearest
+    /// enclosing link, an image at the point, editable-ness, and the hit text node's
+    /// content. URLs are resolved against `base`. Read-only: does not touch hover state.
+    pub fn hit_test(&self, vp_x: f64, vp_y: f64, base: Option<&Url>) -> HitTestResponse {
+        let mut out = HitTestResponse::default();
+        let (Some(layer_list), Some(doc)) = (self.active_layer_list(), self.document.as_ref()) else {
+            return out;
+        };
+        let Some(lei) = layer_list.find_element_at(vp_x, vp_y, self.scroll_x, self.scroll_y) else {
+            return out;
+        };
+        let Some(leaf) = layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id) else {
+            return out;
+        };
+        let resolve = |raw: &str| {
+            base.and_then(|b| b.join(raw).ok())
+                .map(|u| u.to_string())
+                .unwrap_or_else(|| raw.to_string())
+        };
+
+        if doc.node_type(leaf) == NodeType::TextNode {
+            out.text = doc
+                .text_value(leaf)
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty());
+        }
+        let mut id = leaf;
+        loop {
+            match doc.tag_name(id) {
+                Some("a") if out.link_url.is_none() => {
+                    if let Some(href) = doc.attribute(id, "href") {
+                        out.link_url = Some(resolve(href));
+                    }
+                }
+                Some("img") if out.image_url.is_none() => {
+                    if let Some(src) = doc.attribute(id, "src") {
+                        out.image_url = Some(resolve(src));
+                    }
+                }
+                _ => {}
+            }
+            if !out.is_editable && is_text_input(doc, id) {
+                out.is_editable = true;
+            }
+            match doc.parent(id) {
+                Some(parent) => id = parent,
+                None => break,
+            }
+        }
+        out
+    }
+
     /// Hit-test at viewport coordinates `(vp_x, vp_y)` and update hover state.
     ///
     /// Returns `(visual_dirty, url_changed, link_url)`:
     /// - `visual_dirty`: a node with a `:hover` CSS rule entered or left the hover chain → needs repaint.
     /// - `url_changed`: the link URL under the cursor changed → caller should emit a `HoverUrl` event.
     /// - `link_url`: the href of the nearest `<a>` ancestor, if any.
+    ///
+    /// The cursor shape for the hovered node is derived in the same pass; read it with
+    /// [`Self::hover_cursor`].
     pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> (bool, bool, Option<String>) {
         let _t_total = gosub_shared::timing_guard!("hover.total");
 
@@ -636,9 +744,15 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let (link_url, new_sensitive) = {
             let mut link: Option<String> = None;
             let mut sensitive = false;
+            let mut cursor = CursorShape::Default;
 
             if let (Some(leaf), Some(doc)) = (new_leaf, self.document.as_ref()) {
                 let _t = gosub_shared::timing_guard!("hover.ancestor_walk");
+                // Text gets the I-beam unless an enclosing link (checked below) claims the
+                // pointer hand.
+                if doc.node_type(leaf) == NodeType::TextNode {
+                    cursor = CursorShape::Text;
+                }
                 let mut id = leaf;
                 loop {
                     if !sensitive && hover_matches(fps, doc, id) {
@@ -647,7 +761,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     if link.is_none() && doc.tag_name(id) == Some("a") {
                         if let Some(href) = doc.attribute(id, "href") {
                             link = Some(href.to_string());
+                            cursor = CursorShape::Pointer;
                         }
+                    }
+                    if cursor != CursorShape::Pointer && is_text_input(doc, id) {
+                        cursor = CursorShape::Text;
                     }
                     if sensitive && link.is_some() {
                         break;
@@ -658,6 +776,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     }
                 }
             }
+            self.hover_cursor = cursor;
             (link, sensitive)
         };
 
@@ -1193,6 +1312,137 @@ fn pipeline_composite(cache: &PipelineCache, scroll_x: f64, scroll_y: f64, vp_w:
 #[cfg(test)]
 mod tests {
     use super::parse_clear_color;
+
+    mod point_queries {
+        use super::super::*;
+        use crate::engine::settings_store;
+        use crate::html::DefaultRenderConfig;
+        use gosub_css3::system::Css3System;
+
+        /// Lays out a page with an `id` target and an `<a name>` target at known offsets and
+        /// resolves fragments against it.
+        fn context_with_targets() -> BrowsingContext<DefaultRenderConfig> {
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 300,
+            });
+            let html = r#"<html><body style="margin:0">
+                <div style="height:1000px"></div>
+                <h2 id="section-2" style="margin:0;height:20px">Two</h2>
+                <div style="height:500px"></div>
+                <a name="legacy anchor" style="display:block;height:10px"></a>
+                <div style="height:2000px"></div>
+            </body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+            ctx.rebuild_pipeline_cache_if_needed();
+            ctx
+        }
+
+        #[test]
+        fn resolves_id_name_and_top() {
+            let ctx = context_with_targets();
+            // The h2 sits right after the 1000px spacer.
+            let y = ctx.fragment_target_y("section-2").expect("id target");
+            assert!((y - 1000.0).abs() < 1.0, "expected ~1000, got {y}");
+            // `<a name>` fallback, percent-encoded in the URL: 1000 + 20 + 500.
+            let y = ctx.fragment_target_y("legacy%20anchor").expect("name target");
+            assert!((y - 1520.0).abs() < 1.0, "expected ~1520, got {y}");
+            assert_eq!(ctx.fragment_target_y(""), Some(0.0));
+            assert_eq!(ctx.fragment_target_y("top"), Some(0.0));
+            assert_eq!(ctx.fragment_target_y("nope"), None);
+        }
+
+        /// Cursor shape derived from what is under the pointer: hand over links, I-beam over
+        /// text and inputs, arrow elsewhere.
+        #[test]
+        fn hover_cursor_follows_content() {
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 400,
+            });
+            let html = r#"<html><body style="margin:0">
+                <div style="height:100px;background:#eee"></div>
+                <a href="/x" style="display:block;height:100px">link</a>
+                <p style="margin:0;height:100px;font-size:20px">plain text</p>
+                <input style="display:block;height:50px;width:200px">
+            </body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            // Empty div: arrow.
+            ctx.update_hover(10.0, 50.0);
+            assert_eq!(ctx.hover_cursor(), CursorShape::Default);
+            // Link block (its text or its box): hand.
+            ctx.update_hover(10.0, 150.0);
+            assert_eq!(ctx.hover_cursor(), CursorShape::Pointer);
+            // Text in the paragraph: I-beam.
+            ctx.update_hover(10.0, 210.0);
+            assert_eq!(ctx.hover_cursor(), CursorShape::Text);
+            // Text input: I-beam.
+            ctx.update_hover(10.0, 320.0);
+            assert_eq!(ctx.hover_cursor(), CursorShape::Text);
+        }
+
+        /// Context-menu hit test: link/image/text/editable are independent facts about the
+        /// point, URLs come back absolute.
+        #[test]
+        fn hit_test_describes_point() {
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 500,
+            });
+            let html = r#"<html><body style="margin:0">
+                <div style="height:100px;background:#eee"></div>
+                <a href="/target"><img src="pic.png" style="display:block;width:100px;height:100px"></a>
+                <p style="margin:0;height:100px;font-size:20px">  some words  </p>
+                <textarea style="display:block;height:50px;width:200px"></textarea>
+            </body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+            ctx.rebuild_pipeline_cache_if_needed();
+            let base = Url::parse("https://example.com/dir/page.html").unwrap();
+
+            // Empty area.
+            assert_eq!(ctx.hit_test(10.0, 50.0, Some(&base)), HitTestResponse::default());
+            // Linked image: both facts, absolute URLs.
+            let hit = ctx.hit_test(50.0, 150.0, Some(&base));
+            assert_eq!(hit.link_url.as_deref(), Some("https://example.com/target"));
+            assert_eq!(hit.image_url.as_deref(), Some("https://example.com/dir/pic.png"));
+            assert!(!hit.is_editable);
+            // Paragraph text: trimmed content, no link.
+            let hit = ctx.hit_test(10.0, 210.0, Some(&base));
+            assert_eq!(hit.text.as_deref(), Some("some words"));
+            assert_eq!(hit.link_url, None);
+            // Textarea: editable.
+            let hit = ctx.hit_test(10.0, 320.0, Some(&base));
+            assert!(hit.is_editable);
+            // No document URL: raw attribute values pass through.
+            let hit = ctx.hit_test(50.0, 150.0, None);
+            assert_eq!(hit.link_url.as_deref(), Some("/target"));
+        }
+
+        #[test]
+        fn unknown_before_layout() {
+            let ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            assert_eq!(ctx.fragment_target_y("section-2"), None);
+            // Top-of-document needs no layout.
+            assert_eq!(ctx.fragment_target_y(""), Some(0.0));
+        }
+    }
 
     mod tile_budget_integration {
         use super::super::*;

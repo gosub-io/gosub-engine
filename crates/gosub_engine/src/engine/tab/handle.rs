@@ -92,4 +92,14 @@ impl TabHandle {
     pub async fn navigate(&self, url: impl Into<String>) -> Result<(), EngineError> {
         self.send(TabCommand::Navigate { url: url.into() }).await
     }
+
+    /// Session history: go to the previous entry. See [`TabCommand::GoBack`].
+    pub async fn go_back(&self) -> Result<(), EngineError> {
+        self.send(TabCommand::GoBack).await
+    }
+
+    /// Session history: go to the preferred forward entry. See [`TabCommand::GoForward`].
+    pub async fn go_forward(&self) -> Result<(), EngineError> {
+        self.send(TabCommand::GoForward { entry: None }).await
+    }
 }
