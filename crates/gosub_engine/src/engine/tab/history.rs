@@ -41,7 +41,7 @@ pub struct HistoryEntry {
 
 /// Embedder-facing snapshot of the tree, sent with every change so shells never have to
 /// query. `forward` lists the current entry's navigable children, preferred first.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct HistorySnapshot {
     pub current: Option<HistoryEntryId>,
     pub can_go_back: bool,

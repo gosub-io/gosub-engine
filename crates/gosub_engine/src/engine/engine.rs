@@ -3,6 +3,7 @@
 
 use crate::cookies::CookieStoreHandle;
 use crate::engine::events::{EngineCommand, EngineEvent};
+use crate::engine::internal_pages::InternalPages;
 use crate::engine::types::{EventChannel, IoChannel};
 use crate::engine::DEFAULT_CHANNEL_CAPACITY;
 use crate::html::RenderConfiguration;
@@ -67,6 +68,8 @@ pub struct EngineContext {
     pub io_tx: OnceLock<IoChannel>,
     /// Map for requests to tabs
     pub request_reference_map: Arc<RwLock<RequestReferenceMap>>,
+    /// `gosub://` page registry (built-ins + embedder overrides), shared with every tab.
+    pub internal_pages: InternalPages,
 }
 
 impl Default for EngineContext {
@@ -77,6 +80,7 @@ impl Default for EngineContext {
             config_store: crate::engine::settings_store::default_config(),
             io_tx: OnceLock::new(),
             request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
+            internal_pages: InternalPages::with_builtins(),
         }
     }
 }
@@ -115,6 +119,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 config_store: crate::engine::settings_store::default_config(),
                 io_tx: OnceLock::new(),
                 request_reference_map: Arc::new(RwLock::new(RequestReferenceMap::new())),
+                internal_pages: InternalPages::with_builtins(),
             }),
             render_backend: backend,
             compositor,
@@ -160,6 +165,12 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// Return a receiver for engine events.
     pub fn subscribe_events(&self) -> broadcast::Receiver<EngineEvent> {
         self.context.event_tx.subscribe()
+    }
+
+    /// The `gosub://` page registry. Register a provider to add an internal page or override
+    /// a built-in one (e.g. a branded `home`); see [`InternalPages`].
+    pub fn internal_pages(&self) -> &InternalPages {
+        &self.context.internal_pages
     }
 
     /// The engine's settings store, for reading or overriding settings (e.g.
@@ -617,6 +628,29 @@ mod tests {
             served_before,
             "fragment navigation and same-document back must not refetch"
         );
+
+        // Internal pages: served by the engine's registry (no fetch), real history entries,
+        // titles from the page, `about:` alias, and embedder overrides.
+        engine
+            .internal_pages()
+            .register_html("mine", "<html><head><title>Mine</title></head><body>custom</body></html>");
+        let served_before = served.lock().len();
+        tab.navigate("gosub://version").await.expect("navigate internal");
+        let h = next_history(&mut event_rx, |h| h.entries.last().is_some_and(|e| e.url.as_str() == "gosub://version"))
+            .await;
+        assert_eq!(h.entries.last().unwrap().title.as_deref(), Some("Version"));
+        tab.navigate("about:blank").await.expect("navigate about");
+        let _ = next_history(&mut event_rx, |h| h.entries.last().is_some_and(|e| e.url.as_str() == "about:blank")).await;
+        tab.navigate("gosub://mine").await.expect("navigate override");
+        let h = next_history(&mut event_rx, |h| h.entries.last().is_some_and(|e| e.url.as_str() == "gosub://mine")).await;
+        assert_eq!(h.entries.last().unwrap().title.as_deref(), Some("Mine"));
+        // Back over internal pages traverses (no new entries) and still fetches nothing.
+        let n = h.entries.len();
+        tab.go_back().await.expect("back");
+        let h = next_history(&mut event_rx, |h| h.entries.last().is_some_and(|e| e.title.as_deref() == Some("Mine")) && h.forward.len() == 1).await;
+        assert_eq!(h.entries.len(), n, "back over internal pages must not push");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(served.lock().len(), served_before, "internal pages must never hit the network");
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");

@@ -3,6 +3,7 @@
 //! Most users should start with [`GosubEngine`].
 
 mod context;
+pub mod internal_pages;
 #[allow(clippy::module_inception)]
 mod engine;
 mod errors;

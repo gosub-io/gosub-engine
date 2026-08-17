@@ -161,6 +161,9 @@ pub use html::DefaultRenderConfig;
 /// Builds a [`gosub_config::Config`] seeded with the engine's built-in settings schema.
 pub use engine::default_settings;
 
+/// `gosub://` internal pages: the registry embedders extend/override (see [`GosubEngine::internal_pages`]).
+pub use engine::internal_pages;
+
 /// The engine's settings store and its value/schema types (see [`GosubEngine::settings`]).
 pub use gosub_config::settings::{Constraint, Setting, SettingInfo};
 pub use gosub_config::Config;

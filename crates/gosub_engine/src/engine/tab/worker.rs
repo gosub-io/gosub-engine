@@ -1,6 +1,7 @@
 use crate::cookies::SameSiteContext;
 use crate::engine::errors::NavigationError;
 use crate::engine::events::{CursorShape, EngineEvent, NavigationEvent};
+use crate::engine::internal_pages::{InternalPages, TabView};
 use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
@@ -1018,14 +1019,23 @@ impl<C: RenderConfiguration> TabWorker<C> {
             self.history.set_current_scroll(self.scroll_x, self.scroll_y);
         }
         self.pending_scroll = None;
-
-        self.scroll_x = 0;
-        self.scroll_y = 0;
-        self.scroll.reset(0.0, 0.0);
-        self.scroll_anim_last = None;
-        self.context.reset_scroll();
+        self.reset_scroll_for_navigation();
         // Cancel any previous running navigation in this tab
         self.cancel_current_nav();
+
+        // gosub:// and about: pages are served by the engine's page registry, never fetched.
+        if InternalPages::handles(&url) {
+            let tab_view = TabView {
+                history: self.history.snapshot(),
+                render_backend: self.zone_context.render_backend.name(),
+            };
+            let page = self
+                .zone_context
+                .internal_pages
+                .resolve(&url, &self.zone_context.config_store, &tab_view);
+            self.load_html_document(page.html, url, history);
+            return;
+        }
 
         if let Err(e) = self.bind_storage_for(url.clone()) {
             self.send_event(EngineEvent::Navigation {
@@ -1256,20 +1266,33 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// parsed through the regular HTML pipeline (so subresources like stylesheets and
     /// images are still discovered and fetched, resolved against `base_url`) and
     /// completes through the same navigation path as `navigate_to`.
+    /// `TabCommand::LoadHtml`: caller-supplied HTML as a fresh navigation to `base_url`.
     fn load_html(&mut self, html: String, base_url: String) {
+        let url = match self.parse_url(base_url) {
+            Ok(u) => u,
+            Err(_) => return,
+        };
+        self.history.set_current_scroll(self.scroll_x, self.scroll_y);
+        self.pending_scroll = None;
+        self.reset_scroll_for_navigation();
+        self.cancel_current_nav();
+        self.load_html_document(html, url, HistoryIntent::Push);
+    }
+
+    /// Reset scroll state at the start of a navigation.
+    fn reset_scroll_for_navigation(&mut self) {
         self.scroll_x = 0;
         self.scroll_y = 0;
         self.scroll.reset(0.0, 0.0);
         self.scroll_anim_last = None;
         self.context.reset_scroll();
-        // Cancel any previous running navigation in this tab
-        self.cancel_current_nav();
+    }
 
-        let url = match self.parse_url(base_url) {
-            Ok(u) => u,
-            Err(_) => return,
-        };
-
+    /// Parse `html` as the document for `url` without touching the network, with `history`
+    /// deciding what the commit does to session history. Shared by `LoadHtml` (always a push)
+    /// and `gosub://` internal pages (push, reload or traversal like any navigation). The
+    /// caller has already reset scroll and cancelled the previous navigation.
+    fn load_html_document(&mut self, html: String, url: Url, history: HistoryIntent) {
         if let Err(e) = self.bind_storage_for(url.clone()) {
             self.send_event(EngineEvent::Navigation {
                 tab_id: self.tab_id,
@@ -1288,7 +1311,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             nav_id,
             cancel: parent_cancel.clone(),
             url: url.clone(),
-            history: HistoryIntent::Push,
+            history,
         });
 
         {
