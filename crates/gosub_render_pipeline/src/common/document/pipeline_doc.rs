@@ -760,6 +760,18 @@ pub trait PipelineDocument: Send + Sync {
         let raw = if let Some(v) = self.get_own_style(id, prop) {
             v
         } else {
+            // border-*-color's initial value is `currentColor`, not black: an undeclared
+            // border color renders in the element's computed `color`
+            // (`td { border: solid; color: blue }` draws blue borders).
+            if matches!(
+                prop,
+                StyleProperty::BorderTopColor
+                    | StyleProperty::BorderRightColor
+                    | StyleProperty::BorderBottomColor
+                    | StyleProperty::BorderLeftColor
+            ) {
+                return self.get_style(id, &StyleProperty::Color);
+            }
             // Monospace default-size quirk (Chrome/Firefox both do this): the default
             // font-size is 13px instead of 16px for elements whose font-family is the bare
             // generic `monospace`. Browsers keep the `medium` keyword identity through
