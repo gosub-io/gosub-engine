@@ -375,9 +375,52 @@ impl CanLayout for TaffyLayouter {
             layout_tree.root_dimension = geo::Dimension::new(w as f64, h as f64);
         }
 
+        apply_translations(&mut layout_tree);
         self.attach_select_popup(&mut layout_tree);
 
         layout_tree
+    }
+}
+
+/// CSS `transform: translate*()`: shift the element and its whole subtree after layout. A
+/// translation never affects flow, so moving the boxes is equivalent to a paint-time offset (and
+/// keeps hit-testing right). Percentages are of the element's own border box.
+fn apply_translations(layout_tree: &mut LayoutTree) {
+    let doc = Arc::clone(&layout_tree.render_tree.doc);
+    let ids: Vec<LayoutElementId> = layout_tree.arena.keys().copied().collect();
+    for id in ids {
+        let Some(el) = layout_tree.arena.get(&id) else {
+            continue;
+        };
+        let Some((tx, ty)) = doc.transform_translate(el.dom_node_id) else {
+            continue;
+        };
+        let bb = el.box_model.border_box;
+        let px = |v: &Value, len: f64| match v {
+            Value::Unit(n, Unit::Percent) => len * (*n as f64) / 100.0,
+            Value::Unit(n, _) => *n as f64,
+            _ => 0.0,
+        };
+        let (dx, dy) = (px(&tx, bb.width), px(&ty, bb.height));
+        if dx == 0.0 && dy == 0.0 {
+            continue;
+        }
+        let mut stack = vec![id];
+        while let Some(cur) = stack.pop() {
+            let Some(el) = layout_tree.arena.get_mut(&cur) else {
+                continue;
+            };
+            for r in [
+                &mut el.box_model.content_box,
+                &mut el.box_model.padding_box,
+                &mut el.box_model.border_box,
+                &mut el.box_model.margin_box,
+            ] {
+                r.x += dx;
+                r.y += dy;
+            }
+            stack.extend(el.children.iter().copied());
+        }
     }
 }
 

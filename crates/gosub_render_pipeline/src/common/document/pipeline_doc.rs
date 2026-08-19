@@ -742,6 +742,12 @@ pub trait PipelineDocument: Send + Sync {
         None
     }
 
+    /// The translation part of CSS `transform` (`translate`/`translateX`/`translateY`), each axis
+    /// in px or a percentage of the element's own box. Other transform functions are ignored.
+    fn transform_translate(&self, _id: NodeId) -> Option<(Value, Value)> {
+        None
+    }
+
     /// Forces the next `get_own_style` to re-evaluate CSS selectors (including `:hover`) from
     /// scratch. No-op for backends that do not cache styles.
     fn clear_style_cache(&self) {}
@@ -1268,6 +1274,20 @@ where
         self.doc.control_size(id)
     }
 
+    fn transform_translate(&self, id: NodeId) -> Option<(Value, Value)> {
+        let arc = if is_pseudo_id(u64::from(id)) {
+            let (owner, role) = decode_pseudo(id);
+            if role_is_text(role) {
+                return None;
+            }
+            self.pseudo_box(owner, role_is_after(role))?.styles.clone()
+        } else {
+            self.cached_styles(id)
+        };
+        let p = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), "transform")?;
+        translate_of::<C::CssSystem>(p)
+    }
+
     fn is_display_none(&self, id: NodeId) -> bool {
         matches!(
             self.get_own_style(id, &StyleProperty::Display),
@@ -1596,6 +1616,55 @@ fn str_to_border_style(s: &str) -> BorderStyle {
         "outset" => BorderStyle::Outset,
         _ => BorderStyle::None,
     }
+}
+
+/// Sum the translate functions of a `transform` list; `None` when there is no translation.
+fn translate_of<S: CssSystem>(p: &S::Property) -> Option<(Value, Value)> {
+    fn length<S: CssSystem>(v: &S::Value) -> Option<Value> {
+        if let Some(pct) = v.as_percentage() {
+            return Some(Value::Unit(pct, Unit::Percent));
+        }
+        if v.as_unit().is_some() {
+            return Some(Value::Unit(v.unit_to_px(), Unit::Px));
+        }
+        v.as_number().map(|n| Value::Unit(n, Unit::Px))
+    }
+    fn add(a: Value, b: Value) -> Value {
+        match (a, b) {
+            (Value::Unit(x, ux), Value::Unit(y, uy)) if ux == uy => Value::Unit(x + y, ux),
+            // Mixed px/% can't be summed without the box; keep the later one.
+            (_, b) => b,
+        }
+    }
+    let funcs: Vec<(&str, &[S::Value])> = match p.as_function() {
+        Some(f) => vec![f],
+        None => p.as_list()?.iter().filter_map(|v| v.as_function()).collect(),
+    };
+    let mut out: Option<(Value, Value)> = None;
+    for (name, args) in funcs {
+        let args: Vec<&S::Value> = args.iter().filter(|a| !a.is_comma()).collect();
+        let zero = Value::Unit(0.0, Unit::Px);
+        let (dx, dy) = match name.cow_to_ascii_lowercase().as_ref() {
+            "translate" => (
+                args.first().and_then(|a| length::<S>(a)).unwrap_or(zero.clone()),
+                args.get(1).and_then(|a| length::<S>(a)).unwrap_or(zero.clone()),
+            ),
+            "translatex" => (
+                args.first().and_then(|a| length::<S>(a)).unwrap_or(zero.clone()),
+                zero.clone(),
+            ),
+            "translatey" => (
+                zero.clone(),
+                args.first().and_then(|a| length::<S>(a)).unwrap_or(zero.clone()),
+            ),
+            _ => continue,
+        };
+        out = Some(match out {
+            None => (dx, dy),
+            Some((x, y)) => (add(x, dx), add(y, dy)),
+        });
+    }
+    out
 }
 
 /// Intercepts system color keywords before the normal parse path, since `RgbColor::from` returns
