@@ -402,6 +402,12 @@ impl TableTree for PipelineTableTree<'_> {
         }
         w
     }
+
+    // Taffy genuinely measures: all-zero intrinsics mean truly empty cells, which
+    // shrink to fit rather than triggering the mock-tree fill-available fallback.
+    fn measures_intrinsics(&self) -> bool {
+        true
+    }
 }
 
 /// Post-process all `display: table` nodes in the layout tree after the
@@ -516,14 +522,16 @@ fn lay_out_one_table(
             tree.apply_positions(table_dom_id);
             // Write back both dimensions so deeply-nested tables can read the
             // correct width from this table's box model via their parent lookup.
+            // Lattice returns the GRID extents (content box); the table's own border
+            // and padding wrap around them to form the border box - without this a
+            // `border-bottom: 100px` table collapsed to its (possibly zero) grid.
             if let Some(el) = layout_tree.arena.get_mut(&table_layout_id) {
                 let bb = el.box_model.border_box;
-                el.box_model = BoxModel::new(
-                    Rect::new(bb.x, bb.y, table_width as f64, table_height as f64),
-                    el.box_model.padding,
-                    el.box_model.border,
-                    el.box_model.margin,
-                );
+                let border = el.box_model.border;
+                let padding = el.box_model.padding;
+                let bw = table_width as f64 + border.left + border.right + padding.left + padding.right;
+                let bh = table_height as f64 + border.top + border.bottom + padding.top + padding.bottom;
+                el.box_model = BoxModel::new(Rect::new(bb.x, bb.y, bw, bh), padding, border, el.box_model.margin);
             }
             // The first taffy pass only approximated the table's height; when
             // lattice's real height differs, the rest of the document flow
@@ -534,7 +542,18 @@ fn lay_out_one_table(
             // geometry around them.
             if !is_nested {
                 if let Some(old) = old_box {
-                    let delta = table_height as f64 - old.height;
+                    let new_h = layout_tree
+                        .arena
+                        .get(&table_layout_id)
+                        .map(|e| e.box_model.border_box.height)
+                        .unwrap_or(table_height as f64);
+                    let delta = new_h - old.height;
+                    if std::env::var("LATTICE_DEBUG").is_ok() {
+                        eprintln!(
+                            "lattice-dbg: shift table {:?} old_h={} new_h={} delta={}",
+                            table_dom_id, old.height, new_h, delta
+                        );
+                    }
                     if delta.abs() > 0.5 {
                         shift_flow_below(layout_tree, table_layout_id, old.y + old.height, delta);
                     }
