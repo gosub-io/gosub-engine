@@ -85,7 +85,11 @@ def discover(root, target):
             href = HREF_RE.search(link.group(0))
             if href:
                 rel = link.group(1).lower()
-                ref = (f.parent / href.group(1)).resolve()
+                h = href.group(1)
+                # WPT-root-absolute hrefs ("/css/reference/...") resolve against the
+                # checkout root, not the test's directory.
+                base = root if h.startswith("/") else f.parent
+                ref = (base / h.lstrip("/")).resolve()
                 refs.append((rel, ref))
         if not refs:
             continue

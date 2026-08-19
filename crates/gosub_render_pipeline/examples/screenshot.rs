@@ -131,7 +131,7 @@ fn main() {
                     );
                 }
             }
-            ElementContext::Image(_) | ElementContext::Svg(_) => {}
+            _ => {}
         }
 
         for &child_id in el.children.iter().rev() {

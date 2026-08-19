@@ -89,6 +89,11 @@ pub enum ElementContext {
     Text(ElementContextText),
     Image(ElementContextImage),
     Svg(ElementContextSvg),
+    /// Synthetic overlay appended as a collapsed table's LAST child: paints every listed
+    /// cell's collapsed border AFTER the table's content, per the css-tables resolution
+    /// that collapsed borders paint in front of all table descendants
+    /// (w3c/csswg-drafts#11570). Carries the cells (in paint order) whose borders it owns.
+    TableBorderOverlay(Vec<LayoutElementId>),
 }
 
 impl ElementContext {
