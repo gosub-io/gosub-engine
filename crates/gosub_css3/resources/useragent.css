@@ -1341,8 +1341,8 @@ input[type="file" i], button {
     padding: 1px 6px;
 }
 input[type="checkbox" i], input[type="radio" i] {
-    width: 13px;
-    height: 13px;
+    width: 14px;
+    height: 14px;
     padding: 0;
     border: none;
     background-color: transparent;

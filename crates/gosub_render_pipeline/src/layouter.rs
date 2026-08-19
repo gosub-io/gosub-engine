@@ -10,6 +10,7 @@ use std::ops::AddAssign;
 use std::sync::Arc;
 
 mod box_model;
+pub mod control_icons;
 mod css_taffy_converter;
 mod inline_run;
 pub mod table;
@@ -110,9 +111,9 @@ pub enum FormControl {
     Button {
         label: String,
     },
-    /// Checked state comes from the document at paint time.
-    Checkbox,
-    Radio,
+    /// Checked state comes from the document at paint time; the icons cover all four looks.
+    Checkbox(control_icons::ToggleIcons),
+    Radio(control_icons::ToggleIcons),
     /// `fraction` = position in min..max, 0..1.
     Range {
         fraction: f64,

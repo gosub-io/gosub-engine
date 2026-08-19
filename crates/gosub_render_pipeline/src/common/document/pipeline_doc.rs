@@ -28,6 +28,17 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
         | StyleProperty::BorderLeftColor
         | StyleProperty::OutlineColor => {
             if let Some(s) = p.as_string() {
+                if s.eq_ignore_ascii_case("transparent") {
+                    return Some(Value::Color(0, 0, 0, 0));
+                }
+                // CSS-wide keywords: unset the declaration so the property's initial value applies
+                // (the colour parser would otherwise read them as black).
+                if matches!(
+                    s.cow_to_ascii_lowercase().as_ref(),
+                    "initial" | "unset" | "revert" | "revert-layer" | "inherit"
+                ) {
+                    return None;
+                }
                 if let Some((r, g, b, a)) = css_system_color(s) {
                     return Some(Value::Color(r, g, b, a));
                 }
@@ -1590,8 +1601,8 @@ fn css_system_color(name: &str) -> Option<(u8, u8, u8, u8)> {
         "fieldtext" | "canvastext" | "buttontext" | "graytext" => Some((0, 0, 0, 255)),
         "buttonface" | "threedface" => Some((240, 240, 240, 255)),
         "buttonborder" | "threedlightshadow" | "threedhighlight" => Some((160, 160, 160, 255)),
-        // Chromium's focus ring blue; the cascade strips the vendor prefix before we see it.
-        "-webkit-focus-ring-color" | "focus-ring-color" => Some((0x10, 0x1e, 0xf5, 255)),
+        // Gosub blue; the cascade strips the vendor prefix before we see it.
+        "-webkit-focus-ring-color" | "focus-ring-color" => Some((0x23, 0x82, 0xeb, 255)),
         // Selection / highlights
         "highlight" | "selecteditem" | "activecaption" => Some((0, 120, 215, 255)),
         "highlighttext" | "selecteditemtext" | "captiontext" => Some((255, 255, 255, 255)),

@@ -121,7 +121,7 @@ fn match_selector_part<C: HasDocument>(
             let mut _got_buf = String::new();
 
             let (wanted_attr_value, got_attr_value): (&str, &str) = if attr.case_insensitive {
-                _wanted_buf = attr.name.cow_to_lowercase().to_string();
+                _wanted_buf = attr.value.cow_to_lowercase().to_string();
                 _got_buf = got_raw.cow_to_lowercase().to_string();
                 (&_wanted_buf, &_got_buf)
             } else {

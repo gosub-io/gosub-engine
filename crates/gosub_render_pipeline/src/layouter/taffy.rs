@@ -9,6 +9,7 @@ use crate::common::geo::Coordinate;
 use crate::common::media::MediaStore;
 use crate::common::media::{Media, MediaId, MediaRequest, MediaType};
 use crate::layouter::box_model::Edges;
+use crate::layouter::control_icons;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
 use crate::layouter::table::post_process_tables;
 use crate::layouter::text::get_text_layout;
@@ -1390,8 +1391,14 @@ impl TaffyLayouter {
                     .unwrap_or_else(|| "text".to_string());
                 match ty.as_str() {
                     "hidden" => return None,
-                    "checkbox" => (FormControl::Checkbox, geo::Dimension::new(13.0, 13.0)),
-                    "radio" => (FormControl::Radio, geo::Dimension::new(13.0, 13.0)),
+                    "checkbox" => (
+                        FormControl::Checkbox(control_icons::load(&self.media_store, false)?),
+                        geo::Dimension::new(14.0, 14.0),
+                    ),
+                    "radio" => (
+                        FormControl::Radio(control_icons::load(&self.media_store, true)?),
+                        geo::Dimension::new(14.0, 14.0),
+                    ),
                     "button" | "submit" | "reset" | "file" => {
                         let label = attr("value").filter(|s| !s.is_empty()).unwrap_or_else(|| {
                             match ty.as_str() {

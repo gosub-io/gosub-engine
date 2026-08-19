@@ -739,21 +739,13 @@ impl Painter {
 
         // Solid fill respecting the element's opacity.
         let fill = |c: Color| self.apply_opacity(dom_node_id, Brush::solid(c));
+        // Gosub blue, matching the checkbox/radio artwork.
         let accent = if fc.disabled {
             Color::from_rgb8(0xb0, 0xb0, 0xb0)
         } else {
-            Color::from_rgb8(0x00, 0x60, 0xdd)
-        };
-        let border_gray = if fc.disabled {
-            Color::from_rgb8(0xc5, 0xc5, 0xc5)
-        } else {
-            Color::from_rgb8(0x76, 0x76, 0x76)
+            Color::from_rgb8(0x23, 0x82, 0xeb)
         };
         let track_gray = Color::from_rgb8(0xe6, 0xe6, 0xe6);
-        let uniform_border = |width: f64, c: Color| {
-            let b = self.apply_opacity(dom_node_id, Brush::solid(c));
-            Border::new(width as f32, BorderStyle::Solid, [b.clone(), b.clone(), b.clone(), b])
-        };
         // One line of text, vertically centered in the content box.
         let line_rect = |inset_x: f64| {
             let h = fc.font_info.line_height.max(fc.font_info.size);
@@ -912,9 +904,9 @@ impl Painter {
                     shaped,
                 )));
             }
-            FormControl::Checkbox | FormControl::Radio => {
-                let is_radio = matches!(fc.control, FormControl::Radio);
-                let checked = &self.layer_list.layout_tree.render_tree.doc.is_checked(dom_node_id);
+            FormControl::Checkbox(icons) | FormControl::Radio(icons) => {
+                let doc = &self.layer_list.layout_tree.render_tree.doc;
+                let icon = icons.pick(doc.is_checked(dom_node_id), fc.disabled);
                 let side = content_box.width.min(content_box.height).max(1.0);
                 let box_rect = Rect::new(
                     content_box.x + (content_box.width - side) / 2.0,
@@ -922,65 +914,7 @@ impl Painter {
                     side,
                     side,
                 );
-                let radius = if is_radio {
-                    Radius::new(side / 2.0)
-                } else {
-                    Radius::new(2.0)
-                };
-                if *checked {
-                    if is_radio {
-                        commands.push(PaintCommand::rectangle(
-                            Rectangle::new(box_rect)
-                                .with_background(fill(Color::WHITE))
-                                .with_border(uniform_border(2.0, accent.clone()))
-                                .with_radius(radius)
-                                .with_blend_mode(blend),
-                        ));
-                        let inset = (side * 0.28).max(2.0);
-                        let dot = Rect::new(
-                            box_rect.x + inset,
-                            box_rect.y + inset,
-                            (side - inset * 2.0).max(1.0),
-                            (side - inset * 2.0).max(1.0),
-                        );
-                        commands.push(PaintCommand::rectangle(
-                            Rectangle::new(dot)
-                                .with_background(fill(accent.clone()))
-                                .with_radius(Radius::new(dot.width / 2.0))
-                                .with_blend_mode(blend),
-                        ));
-                    } else {
-                        commands.push(PaintCommand::rectangle(
-                            Rectangle::new(box_rect)
-                                .with_background(fill(accent.clone()))
-                                .with_radius(radius)
-                                .with_blend_mode(blend),
-                        ));
-                        let mut check_font = fc.font_info.clone();
-                        check_font.size = side * 0.85;
-                        check_font.line_height = side;
-                        check_font.weight = 700;
-                        check_font.alignment = FontAlignment::Center;
-                        let glyph = "\u{2713}";
-                        let shaped = self.shape_text(glyph, &check_font, box_rect.width, box_rect.width);
-                        commands.push(PaintCommand::text(Text::new(
-                            box_rect,
-                            glyph,
-                            &check_font,
-                            fill(Color::WHITE),
-                            box_rect.width,
-                            shaped,
-                        )));
-                    }
-                } else {
-                    commands.push(PaintCommand::rectangle(
-                        Rectangle::new(box_rect)
-                            .with_background(fill(Color::WHITE))
-                            .with_border(uniform_border(1.0, border_gray))
-                            .with_radius(radius)
-                            .with_blend_mode(blend),
-                    ));
-                }
+                commands.push(PaintCommand::svg(icon, Rectangle::new(box_rect)));
             }
             FormControl::Range { fraction } => {
                 let cy = content_box.y + content_box.height / 2.0;
