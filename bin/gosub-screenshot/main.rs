@@ -232,6 +232,27 @@ fn main() {
     if args.settle > 0 {
         std::thread::sleep(Duration::from_secs(args.settle));
         while rx_redraw.try_recv().is_ok() {}
+    } else {
+        // Quiescence wait: async media (images) decode after the first render and
+        // trigger reflows. Capturing between first render and that reflow races -
+        // e.g. an image-only table captures as zero-size. Wait until no redraw has
+        // arrived for a quiet window (capped, so pages that keep animating still
+        // capture promptly).
+        let quiet_window = Duration::from_millis(300);
+        let cap = Instant::now() + Duration::from_secs(3);
+        let mut last_redraw = Instant::now();
+        while Instant::now() < cap {
+            let mut saw = false;
+            while rx_redraw.try_recv().is_ok() {
+                saw = true;
+            }
+            if saw {
+                last_redraw = Instant::now();
+            } else if last_redraw.elapsed() >= quiet_window {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
     }
 
     let phase1_handle = compositor.frame_for(tab_id);

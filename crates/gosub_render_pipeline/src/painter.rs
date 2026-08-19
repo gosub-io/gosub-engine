@@ -572,6 +572,7 @@ impl Painter {
                     Some(Value::Display(Display::Table))
                 )
             };
+
             let brushes: [Brush; 4] = std::array::from_fn(|e| match cb.owners[e] {
                 Some(owner) if owner_is_table(owner) => {
                     self.get_brush(owner, &own_color[e], Brush::solid(Color::BLACK))

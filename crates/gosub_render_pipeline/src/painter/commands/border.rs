@@ -74,7 +74,18 @@ impl Border {
     /// All four sides share width and style, so the whole-rectangle stroke path applies. Per-side
     /// colours are still allowed, but that fast path only uses the first brush.
     pub fn is_uniform(&self) -> bool {
-        self.widths.iter().all(|&w| w == self.widths[0]) && self.styles.iter().all(|s| *s == self.styles[0])
+        self.widths.iter().all(|&w| w == self.widths[0])
+            && self.styles.iter().all(|s| *s == self.styles[0])
+            // Same-width same-style borders can still differ per side in COLOR (collapsed
+            // table boundaries owned by different neighbours) - the single-stroke path
+            // would paint all four sides with one brush. Non-solid brushes conservatively
+            // count as differing.
+            && self.brushes.iter().all(|b| match (b, &self.brushes[0]) {
+                (crate::painter::commands::brush::Brush::Solid(a), crate::painter::commands::brush::Brush::Solid(c)) => {
+                    a.r() == c.r() && a.g() == c.g() && a.b() == c.b() && a.a() == c.a()
+                }
+                _ => false,
+            })
     }
 
     pub fn widths(&self) -> [f32; 4] {
