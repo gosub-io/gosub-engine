@@ -200,7 +200,8 @@ pub use crate::engine::cookies::ThirdPartyCookiePolicy;
 /// Public `events` namespace with the enums/structs:
 pub mod events {
     pub use crate::engine::events::{
-        CursorShape, EngineCommand, EngineEvent, HitTestResponse, HitTestToken, IoCommand, MouseButton, TabCommand,
+        CursorShape, EngineCommand, EngineEvent, HitTestResponse, HitTestToken, IoCommand, Modifiers, MouseButton,
+        TabCommand,
     };
     pub use crate::engine::events::{NavigationEvent, ResourceEvent};
 }

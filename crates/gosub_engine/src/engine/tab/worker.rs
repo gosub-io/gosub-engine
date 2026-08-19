@@ -1,5 +1,6 @@
 use crate::cookies::SameSiteContext;
 use crate::engine::errors::NavigationError;
+use crate::engine::events::Modifiers;
 use crate::engine::events::{CursorShape, EngineEvent, NavigationEvent};
 use crate::engine::internal_pages::{InternalPages, TabView};
 use crate::engine::resource_pipeline::ResourcePipelines;
@@ -702,6 +703,129 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
     }
 
+    /// Handle a key press. Keys act on the page (focus traversal, link activation,
+    /// scrolling); the shell has already consumed its own shortcuts before forwarding.
+    /// Text editing is not here yet - that arrives with the editing slice of M1.
+    fn handle_key_down(&mut self, key: &str, modifiers: Modifiers) -> ControlFlow {
+        match key {
+            // Focus traversal.
+            "Tab" => {
+                self.context.focus_step(modifiers.contains(Modifiers::SHIFT));
+                self.runtime.dirty = true;
+                self.runtime.render_now = true;
+                self.emit_focus_changed();
+                ControlFlow::Continue
+            }
+            "Escape" => {
+                if self.context.set_focus(None) {
+                    self.runtime.dirty = true;
+                    self.runtime.render_now = true;
+                    self.emit_focus_changed();
+                }
+                ControlFlow::Continue
+            }
+            // Activate a focused link.
+            "Enter" => {
+                if let Some(href) = self.context.focused_link() {
+                    let resolved = self
+                        .current_url
+                        .as_ref()
+                        .and_then(|base| base.join(&href).ok())
+                        .map(|u| u.to_string())
+                        .unwrap_or(href);
+                    self.navigate_to(resolved, false, HistoryIntent::Push);
+                }
+                ControlFlow::Continue
+            }
+            // Page scrolling - only while no text-editable element is focused (an editable
+            // will own these keys once editing lands).
+            _ if !self.context.focused_editable() => {
+                /// One arrow-key step, matching a wheel notch.
+                const LINE: f32 = 40.0;
+                /// "Almost to the end of the page" - clamped to the real maximum by the
+                /// scroll state, so it means "top"/"bottom" for Home/End.
+                const FAR: f32 = 1.0e9;
+                let page = (self.desired_viewport.height as f32 - LINE).max(LINE);
+                let shift = modifiers.contains(Modifiers::SHIFT);
+                match key {
+                    "ArrowDown" => self.scroll_page_by(0.0, LINE),
+                    "ArrowUp" => self.scroll_page_by(0.0, -LINE),
+                    "ArrowRight" => self.scroll_page_by(LINE, 0.0),
+                    "ArrowLeft" => self.scroll_page_by(-LINE, 0.0),
+                    "PageDown" => self.scroll_page_by(0.0, page),
+                    "PageUp" => self.scroll_page_by(0.0, -page),
+                    " " if shift => self.scroll_page_by(0.0, -page),
+                    " " => self.scroll_page_by(0.0, page),
+                    "Home" => self.scroll_page_by(0.0, -FAR),
+                    "End" => self.scroll_page_by(0.0, FAR),
+                    _ => ControlFlow::Continue,
+                }
+            }
+            _ => ControlFlow::Continue,
+        }
+    }
+
+    /// Tell the shell where keyboard focus went (e.g. to drive IME/on-screen keyboards).
+    fn emit_focus_changed(&self) {
+        self.send_event(EngineEvent::FocusChanged {
+            tab_id: self.tab_id,
+            focused: self.context.focused_node().is_some(),
+            editable: self.context.focused_editable(),
+        });
+    }
+
+    /// Scroll the page by a CSS-px delta - shared by wheel scrolling and keyboard
+    /// scrolling. Uses the zero-copy TileCache fast path when only the offset changed.
+    fn scroll_page_by(&mut self, delta_x: f32, delta_y: f32) -> ControlFlow {
+        // When page height is known, clamp to the real maximum so worker and context
+        // stay in sync. When the page hasn't rendered yet, allow free scrolling (the
+        // context will clamp to the actual page height on its own).
+        let max_y = {
+            let ph = self.context.page_height();
+            if ph > 0.0 {
+                (ph - self.desired_viewport.height as f64).max(0.0)
+            } else {
+                f64::MAX
+            }
+        };
+
+        match self.scroll.scroll_by(delta_x as f64, delta_y as f64, f64::MAX, max_y) {
+            // Instant behavior: apply the new offset now and keep the immediate-submit fast
+            // path (avoids up to 1/fps of latency per scroll event).
+            Some((x, y)) => {
+                let moved = x != self.scroll_x || y != self.scroll_y;
+                self.scroll_x = x;
+                self.scroll_y = y;
+                self.context.set_scroll(x as f64, y as f64);
+
+                // GPU-tile-compositing backends skip this CPU TileCache fast path (their
+                // tiles have no CPU pixels); they re-composite on the next tick.
+                if self.zone_context.render_backend.raster_strategy() != RasterStrategy::None
+                    && !self.zone_context.render_backend.gpu_tile_compositing()
+                {
+                    let dpr = self.zone_context.render_backend.device_pixel_ratio();
+                    if let Some(handle) = self.context.take_scroll_handle(dpr) {
+                        self.runtime.committed_scene_epoch = self.context.scene_epoch();
+                        self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                        return ControlFlow::Continue;
+                    }
+                }
+
+                // TileCache not ready yet; fall back to the timer path. Only mark dirty if
+                // the integer offset actually moved (sub-pixel deltas are no-ops).
+                if moved {
+                    self.runtime.dirty = true;
+                }
+            }
+            // Animated behavior: tick_draw advances the ease toward the new target. Request
+            // an immediate tick so the first frame lands without waiting up to 1/fps.
+            None => {
+                self.runtime.render_now = true;
+            }
+        }
+        ControlFlow::Continue
+    }
+
     fn handle_tab_command(&mut self, cmd: TabCommand) -> ControlFlow {
         match cmd {
             TabCommand::CloseTab => ControlFlow::Break,
@@ -769,55 +893,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }
-            TabCommand::MouseScroll { delta_x, delta_y } => {
-                // When page height is known, clamp to the real maximum so worker and context
-                // stay in sync. When the page hasn't rendered yet, allow free scrolling (the
-                // context will clamp to the actual page height on its own).
-                let max_y = {
-                    let ph = self.context.page_height();
-                    if ph > 0.0 {
-                        (ph - self.desired_viewport.height as f64).max(0.0)
-                    } else {
-                        f64::MAX
-                    }
-                };
-
-                match self.scroll.scroll_by(delta_x as f64, delta_y as f64, f64::MAX, max_y) {
-                    // Instant behavior: apply the new offset now and keep the immediate-submit fast
-                    // path (avoids up to 1/fps of latency per scroll event).
-                    Some((x, y)) => {
-                        let moved = x != self.scroll_x || y != self.scroll_y;
-                        self.scroll_x = x;
-                        self.scroll_y = y;
-                        self.context.set_scroll(x as f64, y as f64);
-
-                        // GPU-tile-compositing backends skip this CPU TileCache fast path (their
-                        // tiles have no CPU pixels); they re-composite on the next tick.
-                        if self.zone_context.render_backend.raster_strategy() != RasterStrategy::None
-                            && !self.zone_context.render_backend.gpu_tile_compositing()
-                        {
-                            let dpr = self.zone_context.render_backend.device_pixel_ratio();
-                            if let Some(handle) = self.context.take_scroll_handle(dpr) {
-                                self.runtime.committed_scene_epoch = self.context.scene_epoch();
-                                self.zone_context.compositor.submit_frame(self.tab_id, handle);
-                                return ControlFlow::Continue;
-                            }
-                        }
-
-                        // TileCache not ready yet; fall back to the timer path. Only mark dirty if
-                        // the integer offset actually moved (sub-pixel deltas are no-ops).
-                        if moved {
-                            self.runtime.dirty = true;
-                        }
-                    }
-                    // Animated behavior: tick_draw advances the ease toward the new target. Request
-                    // an immediate tick so the first frame lands without waiting up to 1/fps.
-                    None => {
-                        self.runtime.render_now = true;
-                    }
-                }
-                ControlFlow::Continue
-            }
+            TabCommand::MouseScroll { delta_x, delta_y } => self.scroll_page_by(delta_x, delta_y),
             TabCommand::MouseMove { x, y } => {
                 // Process the hit-test immediately so hover doesn't wait for the next tick.
                 let (visual_dirty, url_changed, link_url) = self.context.update_hover(x as f64, y as f64);
@@ -834,8 +910,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
                 ControlFlow::Continue
             }
-            TabCommand::MouseDown { button, .. } => {
+            TabCommand::MouseDown { button, x, y } => {
                 if matches!(button, crate::events::MouseButton::Left) {
+                    // Click-to-focus: focus the nearest focusable ancestor of the hit element
+                    // (or blur), before any link activation.
+                    if self.context.focus_at(x as f64, y as f64) {
+                        self.runtime.dirty = true;
+                        self.emit_focus_changed();
+                    }
                     if let Some(href) = self.context.hover_link_url.clone() {
                         let resolved = self
                             .current_url
@@ -850,10 +932,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }
-            TabCommand::MouseUp { .. }
-            | TabCommand::KeyDown { .. }
-            | TabCommand::KeyUp { .. }
-            | TabCommand::CharInput { .. } => {
+            TabCommand::KeyDown { key, modifiers, .. } => self.handle_key_down(&key, modifiers),
+            // Key releases and legacy char events need no handling yet; text input arrives
+            // with the editing slice of M1.
+            TabCommand::KeyUp { .. } | TabCommand::CharInput { .. } => ControlFlow::Continue,
+            TabCommand::MouseUp { .. } => {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }

@@ -491,6 +491,14 @@ pub enum EngineEvent {
         tab_id: TabId,
         cursor: CursorShape,
     },
+    /// Keyboard focus moved to another element (or cleared). `editable` says whether the
+    /// newly focused element accepts text input - the shell's cue for IME/OSK behaviour.
+    FocusChanged {
+        tab_id: TabId,
+        /// `true` while an element is focused; `false` after a blur.
+        focused: bool,
+        editable: bool,
+    },
     /// Answer to [`TabCommand::QueryHitTest`].
     HitTestResult {
         tab_id: TabId,

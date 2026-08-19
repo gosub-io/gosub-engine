@@ -478,6 +478,118 @@ mod tests {
     /// Session history end to end: two navigations push two entries, GoBack moves the cursor
     /// (announced immediately via HistoryChanged) and refetches the first page, GoForward
     /// returns to the second. Verifies the tree from the embedder's point of view only.
+    /// Keyboard focus end to end: Tab focuses the first link (FocusChanged), Enter
+    /// activates it (a real navigation to its href).
+    #[tokio::test]
+    async fn keyboard_focus_and_link_activation() {
+        use crate::events::{NavigationEvent, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let body = "<html><title>t</title><body><a href=\"/target\">go</a></body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        })
+        .await
+        .expect("viewport");
+
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+        wait_for(&mut event_rx, |ev| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                }
+            )
+        })
+        .await;
+
+        // Tab -> the link gets focus; the engine announces it (non-editable).
+        tab.send(TabCommand::KeyDown {
+            key: "Tab".into(),
+            code: "Tab".into(),
+            modifiers: crate::engine::events::Modifiers::empty(),
+        })
+        .await
+        .expect("tab key");
+        let matched = wait_for(&mut event_rx, |ev| {
+            matches!(
+                ev,
+                EngineEvent::FocusChanged {
+                    focused: true,
+                    editable: false,
+                    ..
+                }
+            )
+        })
+        .await;
+        assert!(matched, "expected FocusChanged after Tab");
+
+        // Enter -> activates the focused link: a navigation to /target starts.
+        tab.send(TabCommand::KeyDown {
+            key: "Enter".into(),
+            code: "Enter".into(),
+            modifiers: crate::engine::events::Modifiers::empty(),
+        })
+        .await
+        .expect("enter key");
+        let matched = wait_for(&mut event_rx, |ev| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Started { url, .. },
+                    ..
+                } if url.path() == "/target"
+            )
+        })
+        .await;
+        assert!(matched, "expected navigation to /target after Enter");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// Wait (with timeout) for an event matching `pred`; true when it arrived.
+    async fn wait_for(rx: &mut broadcast::Receiver<EngineEvent>, pred: impl Fn(&EngineEvent) -> bool) -> bool {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match rx.recv().await {
+                    Ok(ev) if pred(&ev) => return true,
+                    Ok(_) => continue,
+                    Err(_) => return false,
+                }
+            }
+        })
+        .await
+        .unwrap_or(false)
+    }
+
     #[tokio::test]
     async fn session_history_back_and_forward() {
         use crate::events::NavigationEvent;

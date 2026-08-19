@@ -141,4 +141,10 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn is_hovered(&self, _id: NodeId) -> bool {
         false
     }
+
+    /// Whether `id` is the currently focused element (drives `:focus` matching).
+    /// Implementations use interior mutability, like hover.
+    fn is_focused(&self, _id: NodeId) -> bool {
+        false
+    }
 }
