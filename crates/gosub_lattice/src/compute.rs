@@ -102,7 +102,7 @@ pub fn compute_table_layout<T: TableTree>(
     // collapse geometry. The implementor is notified so its layout engine
     // agrees.
     let collapsed_borders: HashMap<T::NodeId, CollapsedBorders> = if collapse {
-        let (resolved, owners) = resolve_border_conflicts(tree, n_cols, &all_grids);
+        let (resolved, owners) = resolve_border_conflicts(tree, table_node, n_cols, &all_grids);
         for (&node, cb) in &resolved {
             let edge_owners = owners.get(&node).copied().unwrap_or([None; 4]);
             tree.set_collapsed_cell_borders(node, cb.layout, edge_owners);
@@ -148,11 +148,25 @@ pub fn compute_table_layout<T: TableTree>(
         );
     }
 
+    // Under collapse the table's border box spans OUTER border edge to outer border
+    // edge (matching browsers): the perimeter cells' outer border halves live inside
+    // the table box, not in its margin. Grow the box by the widest perimeter half on
+    // each side and shift the grid inward to make room.
+    let perimeter = if collapse {
+        perimeter_halves::<T>(&collapsed_borders, n_cols, &all_grids)
+    } else {
+        BOX_EDGES_ZERO
+    };
+    let table_width = table_width + perimeter.left + perimeter.right;
+
     // Precompute cumulative column x-offsets (relative to the row's left edge).
     // col_x[i] = x of the left edge of column i (within a row). Under collapse
     // the cells sit flush (spacing 0) and conflict resolution below decides
     // which cell paints each shared border.
-    let col_x = col_x_offsets(&col_widths, spacing_x);
+    let mut col_x = col_x_offsets(&col_widths, spacing_x);
+    for x in &mut col_x {
+        *x += perimeter.left;
+    }
 
     // Row heights per section
     //
@@ -237,7 +251,7 @@ pub fn compute_table_layout<T: TableTree>(
     // flat stack of rows: one gutter above the first row, one between any two adjacent
     // rows (also across group boundaries), one below the last. Groups therefore carry
     // only the (n_rows - 1) *internal* gutters; the shared boundary gutters live here.
-    let mut group_y = if caption_bottom { 0.0 } else { caption_height } + spacing_y;
+    let mut group_y = if caption_bottom { 0.0 } else { caption_height } + spacing_y + perimeter.top;
 
     #[allow(clippy::type_complexity)]
     let section_data: &[(&[RowGroup<T::NodeId>], &[SectionGrid<T::NodeId>], &[Vec<f32>])] = &[
@@ -288,7 +302,7 @@ pub fn compute_table_layout<T: TableTree>(
 
     // A top caption's height is already part of group_y; a bottom caption
     // extends the table below the grid.
-    let mut total_height = group_y;
+    let mut total_height = group_y + perimeter.bottom;
     if let Some(cap) = model.caption {
         let y = if caption_bottom { total_height } else { 0.0 };
         let border = read_border(tree, cap);
@@ -471,6 +485,36 @@ fn section_height(row_heights: &[f32], row_y: &[f32]) -> f32 {
     }
 }
 
+/// The widest outer border half on each side of a collapsed table: the halves that
+/// stick out beyond the grid and become part of the table's border box.
+fn perimeter_halves<T: TableTree>(
+    collapsed: &HashMap<T::NodeId, CollapsedBorders>,
+    n_cols: usize,
+    grids: &[&SectionGrid<T::NodeId>],
+) -> crate::types::BoxEdges {
+    let mut out = BOX_EDGES_ZERO;
+    let last_grid = grids.iter().rposition(|g| g.n_rows > 0);
+    let first_grid = grids.iter().position(|g| g.n_rows > 0);
+    for (gi, grid) in grids.iter().enumerate() {
+        for cell in grid.cells() {
+            let Some(cb) = collapsed.get(&cell.node) else { continue };
+            if cell.col == 0 {
+                out.left = out.left.max(cb.layout.left);
+            }
+            if cell.col + cell.colspan >= n_cols {
+                out.right = out.right.max(cb.layout.right);
+            }
+            if Some(gi) == first_grid && cell.row == 0 {
+                out.top = out.top.max(cb.layout.top);
+            }
+            if Some(gi) == last_grid && cell.row + cell.rowspan >= grid.n_rows {
+                out.bottom = out.bottom.max(cb.layout.bottom);
+            }
+        }
+    }
+    out
+}
+
 /// CSS border-conflict resolution for `border-collapse`, per CSS 2 §17.6.2:
 /// collapsed borders are CENTERED on the grid lines. The wider border wins a
 /// boundary; ties go to the left/top cell (the style-rank tiebreak is not
@@ -492,6 +536,7 @@ fn section_height(row_heights: &[f32], row_y: &[f32]) -> f32 {
 #[allow(clippy::type_complexity)]
 fn resolve_border_conflicts<T: TableTree>(
     tree: &T,
+    table_node: T::NodeId,
     n_cols: usize,
     grids: &[&SectionGrid<T::NodeId>],
 ) -> (
@@ -612,9 +657,13 @@ fn resolve_border_conflicts<T: TableTree>(
         }
     }
 
-    // Every cell of a collapsed table gets an entry: outer edges resolve to
-    // the cell's own border (half in the layout, half sticking out of the
-    // table box, like browsers).
+    // Every cell of a collapsed table gets an entry. Perimeter edges (no facing
+    // neighbour) conflict with the TABLE's own border instead (CSS 2 §17.6.2.1 -
+    // wider wins, tie -> the cell, per the style-source precedence cell > table):
+    // half the resolved boundary in the layout, half painted as outset up to the
+    // table's border-box edge.
+    let table_border = read_border(tree, table_node);
+    let table_edge = [table_border.top, table_border.right, table_border.bottom, table_border.left];
     let mut collapsed_map = HashMap::new();
     let mut owners_map = HashMap::new();
     for (&node, raw) in &borders {
@@ -626,12 +675,21 @@ fn resolve_border_conflicts<T: TableTree>(
         let mut owners = [None; 4];
         for e in 0..4 {
             suppressed[e] = s.has_seg[e] && !s.won_any[e];
-            resolved[e] = if s.has_seg[e] { s.resolved[e] } else { own[e] };
+            resolved[e] = if s.has_seg[e] {
+                s.resolved[e]
+            } else {
+                own[e].max(table_edge[e])
+            };
             // Only perimeter edges paint outside the box; internal boundaries
             // are covered half-and-half by the two adjacent cells.
-            outsets[e] = if s.has_seg[e] { 0.0 } else { own[e] / 2.0 };
+            outsets[e] = if s.has_seg[e] { 0.0 } else { resolved[e] / 2.0 };
             if suppressed[e] {
                 owners[e] = s.winner[e];
+            } else if !s.has_seg[e] && table_edge[e] > own[e] {
+                // The table's wider border wins the perimeter boundary: the cell
+                // paints its half in the table's edge style.
+                suppressed[e] = true;
+                owners[e] = Some(table_node);
             }
         }
         collapsed_map.insert(

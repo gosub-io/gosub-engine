@@ -91,11 +91,26 @@ impl<'a> PipelineTableTree<'a> {
     /// Convert pending relative positions to absolute `BoxModel`s in the arena.
     /// Must be called after `compute_table_layout` returns.
     pub fn apply_positions(&mut self, table_dom_id: DomNodeId) {
+        // Under border-collapse the grid (incl. the perimeter border halves) starts at
+        // the table's BORDER box origin - the table's own border joined the conflict
+        // inside lattice and no longer insets the content. The box model read here is
+        // still the taffy first-pass one, whose border/padding would inset wrongly.
+        let collapse = matches!(
+            self.doc.get_style(table_dom_id, &StyleProperty::BorderCollapse),
+            Value::Keyword(k) if lookup(k) == "collapse"
+        );
         let table_abs = self
             .dom_to_layout
             .get(&table_dom_id)
             .and_then(|id| self.layout_tree.arena.get(id))
-            .map(|e| Coordinate::new(e.box_model.content_box.x, e.box_model.content_box.y))
+            .map(|e| {
+                let b = if collapse {
+                    e.box_model.border_box
+                } else {
+                    e.box_model.content_box
+                };
+                Coordinate::new(b.x, b.y)
+            })
             .unwrap_or(Coordinate::ZERO);
 
         let pending = std::mem::take(&mut self.pending);
@@ -525,10 +540,20 @@ fn lay_out_one_table(
             // Lattice returns the GRID extents (content box); the table's own border
             // and padding wrap around them to form the border box - without this a
             // `border-bottom: 100px` table collapsed to its (possibly zero) grid.
+            // Under border-collapse the table has no padding and its border joined the
+            // perimeter conflict inside lattice (the resolved halves are part of the
+            // returned extents), so nothing wraps around the grid.
+            let collapse = matches!(
+                doc.get_style(table_dom_id, &StyleProperty::BorderCollapse),
+                Value::Keyword(k) if lookup(k) == "collapse"
+            );
             if let Some(el) = layout_tree.arena.get_mut(&table_layout_id) {
                 let bb = el.box_model.border_box;
-                let border = el.box_model.border;
-                let padding = el.box_model.padding;
+                let (border, padding) = if collapse {
+                    (Edges::ZERO, Edges::ZERO)
+                } else {
+                    (el.box_model.border, el.box_model.padding)
+                };
                 let bw = table_width as f64 + border.left + border.right + padding.left + padding.right;
                 let bh = table_height as f64 + border.top + border.bottom + padding.top + padding.bottom;
                 el.box_model = BoxModel::new(Rect::new(bb.x, bb.y, bw, bh), padding, border, el.box_model.margin);

@@ -550,7 +550,10 @@ impl Painter {
                 StyleProperty::BorderLeftStyle,
             ];
             // A lost edge renders the winning neighbour's FACING edge: our top
-            // is its bottom, our right is its left, and vice versa.
+            // is its bottom, our right is its left, and vice versa. When the winner
+            // is the TABLE itself (a perimeter boundary the table's border won),
+            // the same side applies - the table's left border faces the same way
+            // as the cell's left border.
             let facing_color = [
                 StyleProperty::BorderBottomColor,
                 StyleProperty::BorderLeftColor,
@@ -563,12 +566,22 @@ impl Painter {
                 StyleProperty::BorderTopStyle,
                 StyleProperty::BorderRightStyle,
             ];
+            let owner_is_table = |owner: NodeId| {
+                matches!(
+                    doc.get_own_style(owner, &StyleProperty::Display),
+                    Some(Value::Display(Display::Table))
+                )
+            };
             let brushes: [Brush; 4] = std::array::from_fn(|e| match cb.owners[e] {
+                Some(owner) if owner_is_table(owner) => {
+                    self.get_brush(owner, &own_color[e], Brush::solid(Color::BLACK))
+                }
                 Some(owner) => self.get_brush(owner, &facing_color[e], Brush::solid(Color::BLACK)),
                 None => self.get_brush(dom_node_id, &own_color[e], Brush::solid(Color::BLACK)),
             });
             let styles: [BorderStyle; 4] = std::array::from_fn(|e| {
                 let (node, prop) = match cb.owners[e] {
+                    Some(owner) if owner_is_table(owner) => (owner, &own_style[e]),
                     Some(owner) => (owner, &facing_style[e]),
                     None => (dom_node_id, &own_style[e]),
                 };
@@ -599,6 +612,19 @@ impl Painter {
             return r
                 .with_rect(Rect::new(left, top, right - left, bottom - top))
                 .with_border(Border::new_per_side(widths, styles, brushes));
+        }
+
+        // A collapsed table's boundary is painted entirely by its perimeter cells
+        // (their halves + outsets, in whatever style won the conflict); painting the
+        // table's own CSS border as well would double-draw the losing style on top.
+        if matches!(
+            doc.get_own_style(dom_node_id, &StyleProperty::Display),
+            Some(Value::Display(Display::Table))
+        ) && matches!(
+            doc.get_style(dom_node_id, &StyleProperty::BorderCollapse),
+            Value::Keyword(k) if lookup(k) == "collapse"
+        ) {
+            return r;
         }
 
         let border_top_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopWidth);
