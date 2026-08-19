@@ -65,6 +65,7 @@ tempfile = { workspace = true }
 [features]
 default = ["sqlite_cookie_store"]
 sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
+sqlite_places = ["r2d2", "r2d2_sqlite"]
 metrics = []
 
 [lints]

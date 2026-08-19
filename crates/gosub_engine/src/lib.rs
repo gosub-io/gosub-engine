@@ -164,6 +164,9 @@ pub use engine::default_settings;
 /// `gosub://` internal pages: the registry embedders extend/override (see [`GosubEngine::internal_pages`]).
 pub use engine::internal_pages;
 
+/// Bookmarks + visited history ("places"), per zone: the store type shells share.
+pub use engine::places;
+
 /// The engine's settings store and its value/schema types (see [`GosubEngine::settings`]).
 pub use gosub_config::settings::{Constraint, Setting, SettingInfo};
 /// Storage adapters an embedder can attach to the settings store to persist overrides.
