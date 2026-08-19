@@ -1195,7 +1195,25 @@ where
             return false;
         }
         match self.doc.node_type(id) {
-            GosubNodeType::TextNode => self.doc.text_value(id).is_none_or(|t| t.trim().is_empty()),
+            GosubNodeType::TextNode => {
+                if self.doc.text_value(id).is_some_and(|t| !t.trim().is_empty()) {
+                    return false;
+                }
+                // Whitespace-only text: skippable only when collapsing would remove it.
+                // Under `white-space: pre`/`pre-wrap` the spaces are content and generate
+                // anonymous boxes (CSS 2.1 §17.2.1 considers only whitespace "that would be
+                // collapsed"). Resolved over the RAW DOM parent chain: `get_style` routes
+                // through `parent()`, whose synthetic-wrapper resolution calls back into
+                // `run_skippable` - a cycle.
+                let mut cur = self.doc.parent(id);
+                while let Some(p) = cur {
+                    if let Some(Value::Keyword(k)) = self.get_own_style(p, &StyleProperty::WhiteSpace) {
+                        return !matches!(lookup(k).as_str(), "pre" | "pre-wrap");
+                    }
+                    cur = self.doc.parent(p);
+                }
+                true
+            }
             GosubNodeType::CommentNode | GosubNodeType::DocTypeNode => true,
             _ => matches!(self.display_of(id), Some(Display::None)),
         }
