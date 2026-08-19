@@ -1559,7 +1559,9 @@ impl TaffyLayouter {
                     .filter(|n| *n > 0)
                     .unwrap_or(2);
                 let cell = self.measure_control_text("0", &font_info);
-                let d = geo::Dimension::new(cell.width * cols as f64 + 4.0, cell.height * rows as f64);
+                // Rows are `line-height` apart in the painter; size the box in the same units.
+                let row_h = font_info.line_height.max(font_info.size);
+                let d = geo::Dimension::new(cell.width * cols as f64 + 4.0, row_h * rows as f64);
                 let resize = match doc.get_style(node_id, &StyleProperty::Resize) {
                     Value::Keyword(k) => Resize::from_keyword(&lookup(k)),
                     _ => Resize::None,

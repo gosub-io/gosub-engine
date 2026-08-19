@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod text_field;
 
 use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::document::node::NodeId;
@@ -78,6 +79,10 @@ pub struct Painter {
     /// time. `None` (e.g. the null backend) yields empty glyph runs, drawable only by
     /// engine-native text rasterizers.
     font_system: Option<Arc<Mutex<dyn FontSystem>>>,
+    /// Commands per element for this paint pass. An element straddling several tiles is asked for
+    /// its commands once per tile; they don't depend on the tile (page coordinates), and shaping
+    /// a textarea's text six times per keystroke is what made typing feel slow.
+    memo: Mutex<std::collections::HashMap<LayoutElementId, Vec<PaintCommand>>>,
 }
 
 impl Painter {
@@ -85,6 +90,7 @@ impl Painter {
         Painter {
             layer_list,
             font_system,
+            memo: Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -101,7 +107,12 @@ impl Painter {
     }
 
     pub fn paint(&self, element: &TiledLayoutElement, state: &BrowserState) -> Vec<PaintCommand> {
-        self.paint_element(element.id, state)
+        if let Some(cmds) = self.memo.lock().get(&element.id) {
+            return cmds.clone();
+        }
+        let cmds = self.paint_element(element.id, state);
+        self.memo.lock().insert(element.id, cmds.clone());
+        cmds
     }
 
     /// Flattens every element into one command list, in z-order (`layer_ids`) then paint order
@@ -578,79 +589,6 @@ impl Painter {
         Some(PaintCommand::rectangle(r))
     }
 
-    /// (x, y) of the caret at char index `caret`, relative to the text box. Row = lines the shaped
-    /// prefix occupies (honours soft wraps); x = width of the prefix's last hard line, measured
-    /// alone. Run x offsets aren't used: Pango reports them relative to the paragraph, not the box.
-    fn caret_offset(&self, text: &str, caret: usize, font_info: &FontInfo, avail: f64) -> (f64, f64) {
-        let prefix: String = text.chars().take(caret).collect();
-        let line_h = font_info.line_height.max(font_info.size);
-        if prefix.is_empty() {
-            return (0.0, 0.0);
-        }
-        let rows = self
-            .shape_text(&prefix, font_info, avail, avail)
-            .runs
-            .iter()
-            .map(|r| r.baseline.to_bits())
-            .collect::<std::collections::HashSet<_>>()
-            .len()
-            .max(1);
-        // A trailing newline starts an empty row the shaper doesn't report.
-        let (row, last_line) = match prefix.rsplit_once('\n') {
-            Some((_, "")) => (rows, ""),
-            Some((_, tail)) => (rows - 1, tail),
-            None => (rows - 1, prefix.as_str()),
-        };
-        let x = if last_line.is_empty() {
-            0.0
-        } else {
-            let w = self
-                .shape_text(last_line, font_info, 1_000_000_000.0, 1_000_000_000.0)
-                .width as f64;
-            // Trailing spaces shape to no advance.
-            let trailing = last_line.chars().rev().take_while(|c| *c == ' ').count();
-            (w + trailing as f64 * font_info.size * 0.3).min(avail)
-        };
-        (x, row as f64 * line_h)
-    }
-
-    /// First char to draw so that `text[start..caret]` fits in `width` (single-line scrolling).
-    fn scroll_start_for_caret(&self, text: &str, caret: usize, font_info: &FontInfo, width: f64) -> usize {
-        let fits = |start: usize| -> bool {
-            let seg: String = text.chars().skip(start).take(caret - start).collect();
-            self.shape_text(&seg, font_info, 1_000_000_000.0, 1_000_000_000.0).width as f64 <= width - 1.0
-        };
-        let (mut lo, mut hi) = (0usize, caret);
-        while lo < hi {
-            let mid = (lo + hi) / 2;
-            if fits(mid) {
-                hi = mid;
-            } else {
-                lo = mid + 1;
-            }
-        }
-        lo
-    }
-
-    /// Last char index (exclusive) such that `text[start..end]` fits in `width`.
-    fn fit_end(&self, text: &str, start: usize, font_info: &FontInfo, width: f64) -> usize {
-        let total = text.chars().count();
-        let fits = |end: usize| -> bool {
-            let seg: String = text.chars().skip(start).take(end - start).collect();
-            self.shape_text(&seg, font_info, 1_000_000_000.0, 1_000_000_000.0).width as f64 <= width
-        };
-        let (mut lo, mut hi) = (start, total);
-        while lo < hi {
-            let mid = (lo + hi).div_ceil(2);
-            if fits(mid) {
-                lo = mid;
-            } else {
-                hi = mid - 1;
-            }
-        }
-        lo
-    }
-
     /// An open `<select>` dropdown per the design guide: shadowed white box, 30px rows, light
     /// hover / solid keyboard-active highlight, checkmark on the committed value, muted group
     /// labels and disabled options, scrollbar when needed.
@@ -862,7 +800,7 @@ impl Painter {
                 } else {
                     css_text_brush()
                 };
-                let inset_x = 2.0_f64.min(content_box.width / 2.0);
+                let inset_x = text_field::inset_x(content_box.width);
                 let rect = if *multiline {
                     Rect::new(
                         content_box.x + inset_x,
@@ -878,30 +816,51 @@ impl Painter {
                 // No caret index into a placeholder; it sits at the start.
                 let mut caret = caret.map(|c| if is_placeholder { 0 } else { c.min(text.chars().count()) });
 
-                // Paint commands can't clip, so cut the text to what fits: single-line shows the
-                // head or scrolls to the caret; textarea shows the hard lines around the caret's
-                // (soft-wrapped rows not accounted for).
-                if *multiline {
-                    let rows_fit = ((rect.height / line_h).floor() as usize).max(1);
-                    let lines: Vec<&str> = text.split('\n').collect();
-                    if lines.len() > rows_fit {
-                        let caret_line = caret.map_or(0, |c| text.chars().take(c).filter(|ch| *ch == '\n').count());
-                        let first = caret_line.saturating_sub(rows_fit - 1);
-                        let dropped_chars: usize = lines[..first].iter().map(|l| l.chars().count() + 1).sum();
-                        let kept = lines[first..(first + rows_fit).min(lines.len())].join("\n");
-                        text = kept;
-                        caret = caret.map(|c| c.saturating_sub(dropped_chars).min(text.chars().count()));
-                    }
-                } else {
-                    let start = match caret {
-                        Some(c) if self.caret_offset(&text, c, &fc.font_info, avail).0 > rect.width => {
-                            self.scroll_start_for_caret(&text, c, &fc.font_info, rect.width)
+                // Paint commands can't clip, so cut the text to what fits (see `text_field`).
+                let mut caret_pos: Option<(f64, f64)> = None;
+                let mut rows_to_draw: Vec<(String, f64)> = Vec::new();
+                if let Some(fs) = &self.font_system {
+                    let mut fs = fs.lock();
+                    if *multiline {
+                        // Visual rows (greedy wrap) drawn one by one; the window follows the caret.
+                        let rows = text_field::layout_rows(&mut *fs, &text, &fc.font_info, rect.width);
+                        let rows_fit = (((rect.height + 0.5) / line_h).floor() as usize).max(1);
+                        let caret_row = caret.map_or(0, |c| text_field::row_of_caret(&rows, c));
+                        let first = text_field::first_visible_row(rows.len(), caret_row, rows_fit);
+                        for (i, row) in rows.iter().enumerate().skip(first).take(rows_fit) {
+                            let rt = text_field::row_text(&text, row);
+                            if !rt.is_empty() {
+                                rows_to_draw.push((rt, (i - first) as f64 * line_h));
+                            }
                         }
-                        _ => 0,
-                    };
-                    let end = self.fit_end(&text, start, &fc.font_info, rect.width);
-                    text = text.chars().skip(start).take(end - start).collect();
-                    caret = caret.map(|c| c.saturating_sub(start).min(text.chars().count()));
+                        if let Some(c) = caret {
+                            let row = &rows[caret_row];
+                            let rt = text_field::row_text(&text, row);
+                            let x = text_field::x_in_row(&mut *fs, &rt, c - row.start, &fc.font_info);
+                            caret_pos = Some((x.min(rect.width), (caret_row - first) as f64 * line_h));
+                        }
+                        text.clear();
+                    } else {
+                        let (start, end) =
+                            text_field::single_line_window(&mut *fs, &text, caret, &fc.font_info, rect.width);
+                        text = text.chars().skip(start).take(end - start).collect();
+                        caret = caret.map(|c| c.saturating_sub(start).min(text.chars().count()));
+                        if let Some(c) = caret {
+                            caret_pos = Some(text_field::caret_offset(&mut *fs, &text, c, &fc.font_info, avail));
+                        }
+                    }
+                }
+                for (row_text, dy) in rows_to_draw {
+                    let row_rect = Rect::new(rect.x, rect.y + dy, rect.width, line_h);
+                    let shaped = self.shape_text(&row_text, &fc.font_info, row_rect.width, 1_000_000_000.0);
+                    commands.push(PaintCommand::text(Text::new(
+                        row_rect,
+                        &row_text,
+                        &fc.font_info,
+                        brush.clone(),
+                        1_000_000_000.0,
+                        shaped,
+                    )));
                 }
 
                 if !text.is_empty() {
@@ -915,8 +874,7 @@ impl Painter {
                         shaped,
                     )));
                 }
-                if let Some(c) = caret {
-                    let (cx, cy) = self.caret_offset(&text, c, &fc.font_info, avail);
+                if let Some((cx, cy)) = caret_pos {
                     let caret_rect = Rect::new((rect.x + cx).min(rect.x + rect.width - 1.0), rect.y + cy, 1.0, line_h);
                     commands.push(PaintCommand::rectangle(
                         Rectangle::new(caret_rect)

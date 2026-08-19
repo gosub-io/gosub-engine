@@ -453,3 +453,104 @@ fn textarea_grip_drag_resizes() {
         "{before:?} -> {after:?}"
     );
 }
+
+// ── caret placement ───────────────────────────────────────────────────────────
+
+/// Content box and font of a text control's layout element.
+fn text_box(
+    ctx: &Ctx,
+    node: NodeId,
+) -> (
+    gosub_render_pipeline::common::geo::Rect,
+    gosub_render_pipeline::common::font::FontInfo,
+) {
+    let ll = ctx.active_layer_list().unwrap_or_else(|| unreachable!("rendered"));
+    let el = ll
+        .layout_tree
+        .arena
+        .values()
+        .find(|el| el.dom_node_id == node && matches!(el.context, ElementContext::FormControl(_)))
+        .unwrap_or_else(|| panic!("{node:?} is not a form control"));
+    let ElementContext::FormControl(fc) = &el.context else {
+        unreachable!()
+    };
+    (el.box_model.content_box, fc.font_info.clone())
+}
+
+#[test]
+fn click_places_the_caret_in_a_text_field() {
+    use gosub_render_pipeline::painter::text_field;
+    let mut ctx = page(r#"<input id="t" type="text" value="hello world" size="30">"#);
+    let node = by_id(&ctx, "t");
+    let (content, font) = text_box(&ctx, node);
+    let x_after_hello = {
+        let fs = ctx.font_system();
+        let w = text_field::width(&mut *fs.lock(), "hello", &font);
+        content.x + text_field::inset_x(content.width) + w + 1.0
+    };
+    click_at(&mut ctx, x_after_hello, content.y + content.height / 2.0);
+    assert_eq!(doc(&ctx).control_edit_state(node).map(|s| s.caret), Some(5));
+    type_text(&mut ctx, "X");
+    assert_eq!(value(&ctx, "t"), "helloX world");
+
+    // Far right of the text → caret at the end; far left → at the start.
+    click_at(
+        &mut ctx,
+        content.x + content.width - 1.0,
+        content.y + content.height / 2.0,
+    );
+    type_text(&mut ctx, "!");
+    assert_eq!(value(&ctx, "t"), "helloX world!");
+    click_at(&mut ctx, content.x + 1.0, content.y + content.height / 2.0);
+    type_text(&mut ctx, ">");
+    assert_eq!(value(&ctx, "t"), ">helloX world!");
+}
+
+#[test]
+fn click_places_the_caret_on_a_textarea_line() {
+    let mut ctx = page(
+        r#"<textarea id="ta" rows="4" cols="20">ab
+cd
+ef</textarea>"#,
+    );
+    let node = by_id(&ctx, "ta");
+    let (content, font) = text_box(&ctx, node);
+    let line_h = font.line_height.max(font.size);
+    // Start of the second line.
+    click_at(&mut ctx, content.x + 1.0, content.y + line_h * 1.5);
+    type_text(&mut ctx, "Z");
+    assert_eq!(value(&ctx, "ta"), "ab\nZcd\nef");
+    // End of the third line.
+    click_at(&mut ctx, content.x + content.width - 1.0, content.y + line_h * 2.5);
+    type_text(&mut ctx, "!");
+    assert_eq!(value(&ctx, "ta"), "ab\nZcd\nef!");
+}
+
+#[test]
+fn click_places_the_caret_on_a_soft_wrapped_row() {
+    use gosub_render_pipeline::painter::text_field;
+    let mut ctx = page(
+        r#"<textarea id="ta" rows="5" cols="20">The quick brown fox jumps over the lazy dog and keeps on running</textarea>"#,
+    );
+    let node = by_id(&ctx, "ta");
+    let (content, font) = text_box(&ctx, node);
+    let line_h = font.line_height.max(font.size);
+    let rows = {
+        let fs = ctx.font_system();
+        let mut fs = fs.lock();
+        let width = content.width - 2.0 * text_field::inset_x(content.width);
+        text_field::layout_rows(
+            &mut *fs,
+            "The quick brown fox jumps over the lazy dog and keeps on running",
+            &font,
+            width,
+        )
+    };
+    assert!(rows.len() >= 3, "the text must wrap into several rows: {rows:?}");
+    // Click at the very start of the second visual row: the caret goes to that row's first char.
+    click_at(&mut ctx, content.x + 1.0, content.y + line_h * 1.5);
+    assert_eq!(doc(&ctx).control_edit_state(node).map(|s| s.caret), Some(rows[1].start));
+    type_text(&mut ctx, "|");
+    let v = value(&ctx, "ta");
+    assert_eq!(&v[rows[1].start..=rows[1].start], "|");
+}

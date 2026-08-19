@@ -200,6 +200,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     drag_popup_thumb: Option<(f64, usize)>,
     /// Dropdown type-ahead: the letters typed so far and when the last one arrived.
     typeahead: Option<(String, std::time::Instant)>,
+    /// Font system for caret placement when the rasterizer doesn't share one (tests, null
+    /// backend): the same default the layouter falls back to, so measurements agree.
+    fallback_font_system: std::sync::OnceLock<Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>>>,
 
     /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
     /// worker from the engine's `RenderBackend` (replacing the former per-backend cfg cascade).
@@ -255,6 +258,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             pointer: None,
             drag_popup_thumb: None,
             typeahead: None,
+            fallback_font_system: std::sync::OnceLock::new(),
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(MediaStore::new()),
@@ -883,7 +887,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Click-to-focus: the nearest focusable element under the point (via `<label>` bindings),
     /// or blur when there is none.
     pub fn focus_at(&mut self, vp_x: f64, vp_y: f64) -> bool {
-        let (leaf, _) = self.hit_at(vp_x, vp_y);
+        let (leaf, lei) = self.hit_at(vp_x, vp_y);
         let (target, visible) = match (&self.document, leaf) {
             (Some(doc), Some(leaf)) => {
                 let target = focus::click_target(doc, leaf);
@@ -893,7 +897,98 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             _ => (None, false),
         };
         log::debug!("focus: click at ({vp_x}, {vp_y}) hit {leaf:?} -> focus {target:?} (ring: {visible})");
-        self.set_focus(target, visible)
+        let changed = self.set_focus(target, visible);
+        // A click straight into a text control also puts the caret where it landed.
+        let placed = match (target, lei) {
+            (Some(t), Some(lei)) if leaf == Some(t) => self.place_caret(t, lei, vp_x, vp_y),
+            _ => false,
+        };
+        changed || placed
+    }
+
+    /// Put the caret of text control `node` at the character nearest to the click, mirroring the
+    /// painter's text window (insets, horizontal scroll, textarea line window). Paint-only.
+    fn place_caret(&mut self, node: NodeId, lei: LayoutElementId, vp_x: f64, vp_y: f64) -> bool {
+        use gosub_render_pipeline::layouter::{ElementContext, FormControl};
+        use gosub_render_pipeline::painter::text_field;
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some(multiline) = edit::text_entry_kind(&doc, node) else {
+            return false;
+        };
+        let (font_info, masked, content) = {
+            let Some(ll) = self.active_layer_list() else {
+                return false;
+            };
+            let Some(el) = ll.layout_tree.get_node_by_id(lei) else {
+                return false;
+            };
+            let ElementContext::FormControl(fc) = &el.context else {
+                return false;
+            };
+            let FormControl::TextField { masked, .. } = &fc.control else {
+                return false;
+            };
+            (fc.font_info.clone(), *masked, el.box_model.content_box)
+        };
+
+        let mut state = doc.control_edit_state(node).unwrap_or_else(|| {
+            let value = edit::initial_value(&doc, node);
+            let caret = value.chars().count();
+            gosub_interface::document::ControlEditState { value, caret }
+        });
+        if state.value.is_empty() {
+            return false;
+        }
+        let shown = if masked {
+            "\u{2022}".repeat(state.value.chars().count())
+        } else {
+            state.value.clone()
+        };
+        let inset = text_field::inset_x(content.width);
+        let (x, y) = (
+            vp_x + self.scroll_x - content.x - inset,
+            vp_y + self.scroll_y - content.y,
+        );
+        let width = (content.width - inset * 2.0).max(1.0);
+        let line_h = font_info.line_height.max(font_info.size);
+
+        let fs = self.font_system();
+        let mut fs = fs.lock();
+        let caret = if multiline {
+            let rows = text_field::layout_rows(&mut *fs, &shown, &font_info, width);
+            let rows_fit = (((content.height + 0.5) / line_h).floor() as usize).max(1);
+            let caret_row = text_field::row_of_caret(&rows, state.caret);
+            let first = text_field::first_visible_row(rows.len(), caret_row, rows_fit);
+            let row_idx = (first + (y / line_h).floor().max(0.0) as usize).min(rows.len() - 1);
+            let row = &rows[row_idx];
+            let rt = text_field::row_text(&shown, row);
+            row.start + text_field::index_at_x(&mut *fs, &rt, &font_info, x).min(row.end - row.start)
+        } else {
+            let (start, end) = text_field::single_line_window(&mut *fs, &shown, Some(state.caret), &font_info, width);
+            let visible: String = shown.chars().skip(start).take(end - start).collect();
+            start + text_field::index_at_x(&mut *fs, &visible, &font_info, x)
+        };
+        drop(fs);
+
+        if caret == state.caret && doc.control_edit_state(node).is_some() {
+            return false;
+        }
+        state.caret = caret;
+        doc.set_control_edit_state(node, Some(state));
+        self.request_repaint(node);
+        true
+    }
+
+    /// The font system text measurements use: the rasterizer's, else a shared default.
+    fn font_system(&self) -> Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>> {
+        if let Some(fs) = self.rasterizer.as_ref().and_then(|r| r.font_system()) {
+            return fs;
+        }
+        self.fallback_font_system
+            .get_or_init(|| Arc::new(parking_lot::Mutex::new(gosub_fontmanager::ParleyFontSystem::new())))
+            .clone()
     }
 
     /// Click activation of what's under the point: picks a dropdown row, opens/closes a
