@@ -27,8 +27,16 @@ pub fn compute_row_heights<T: TableTree>(
     spacing_y: f32,
     content_heights: &mut HashMap<T::NodeId, f32>,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
+    baseline_shifts: &mut HashMap<T::NodeId, f32>,
 ) -> Vec<f32> {
     let mut heights = vec![0.0_f32; grid.n_rows];
+
+    // Baseline alignment (CSS 2 §17.5.3): cells with `vertical-align: baseline` share a
+    // row baseline - the deepest first-line baseline among them; shallower cells shift
+    // down by the difference, which can grow the row.
+    let mut measured: Vec<(&PlacedCell<T::NodeId>, f32)> = Vec::new();
+    let mut row_baseline = vec![0.0_f32; grid.n_rows];
+    let mut cell_baselines: HashMap<T::NodeId, f32> = HashMap::new();
 
     for cell in grid.cells() {
         if cell.rowspan != 1 {
@@ -37,8 +45,27 @@ pub fn compute_row_heights<T: TableTree>(
 
         let (content_h, cell_h) = measure_cell(tree, cell, col_widths, spacing_x, collapsed_borders);
         content_heights.insert(cell.node, content_h);
-        if cell_h > heights[cell.row] {
-            heights[cell.row] = cell_h;
+        measured.push((cell, cell_h));
+
+        if tree.vertical_align(cell.node) == crate::types::VerticalAlign::Baseline {
+            if let Some(b) = tree.cell_baseline(cell.node) {
+                cell_baselines.insert(cell.node, b);
+                row_baseline[cell.row] = row_baseline[cell.row].max(b);
+            }
+        }
+    }
+
+    for (cell, cell_h) in measured {
+        let shift = cell_baselines
+            .get(&cell.node)
+            .map(|b| (row_baseline[cell.row] - b).max(0.0))
+            .unwrap_or(0.0);
+        if shift > 0.0 {
+            baseline_shifts.insert(cell.node, shift);
+        }
+        let effective = cell_h + shift;
+        if effective > heights[cell.row] {
+            heights[cell.row] = effective;
         }
     }
 

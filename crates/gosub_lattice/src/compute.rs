@@ -175,6 +175,7 @@ pub fn compute_table_layout<T: TableTree>(
     // than iterator combinators because a closure can't hold `&mut tree` while
     // the model is also borrowed.
     let mut content_heights: HashMap<T::NodeId, f32> = HashMap::new();
+    let mut baseline_shifts: HashMap<T::NodeId, f32> = HashMap::new();
 
     let mut header_heights: Vec<Vec<f32>> = Vec::with_capacity(header_grids.len());
     for grid in &header_grids {
@@ -186,6 +187,7 @@ pub fn compute_table_layout<T: TableTree>(
             spacing_y,
             &mut content_heights,
             &collapsed_borders,
+            &mut baseline_shifts,
         ));
     }
 
@@ -199,6 +201,7 @@ pub fn compute_table_layout<T: TableTree>(
             spacing_y,
             &mut content_heights,
             &collapsed_borders,
+            &mut baseline_shifts,
         ));
     }
 
@@ -212,6 +215,7 @@ pub fn compute_table_layout<T: TableTree>(
             spacing_y,
             &mut content_heights,
             &collapsed_borders,
+            &mut baseline_shifts,
         ));
     }
 
@@ -293,6 +297,7 @@ pub fn compute_table_layout<T: TableTree>(
                 &col_widths,
                 &content_heights,
                 &collapsed_borders,
+                &baseline_shifts,
                 group_base_y,
             );
 
@@ -343,6 +348,7 @@ fn place_rows<T: TableTree>(
     col_widths: &[f32],
     content_heights: &HashMap<T::NodeId, f32>,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
+    baseline_shifts: &HashMap<T::NodeId, f32>,
     group_base_y: f32,
 ) {
     let inner_width: f32 = match (col_x.last(), col_widths.last()) {
@@ -382,6 +388,7 @@ fn place_rows<T: TableTree>(
                 row_y,
                 content_heights,
                 collapsed_borders,
+                baseline_shifts,
                 cell_base_y,
             );
         }
@@ -399,6 +406,7 @@ fn place_cell<T: TableTree>(
     row_y: &[f32],
     content_heights: &HashMap<T::NodeId, f32>,
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
+    baseline_shifts: &HashMap<T::NodeId, f32>,
     // Offset of the cell's (anonymous) row relative to the cell's DOM parent; 0 in a real row.
     base_y: f32,
 ) {
@@ -430,6 +438,9 @@ fn place_cell<T: TableTree>(
         crate::types::VerticalAlign::Top => 0.0,
         crate::types::VerticalAlign::Middle => free / 2.0,
         crate::types::VerticalAlign::Bottom => free,
+        // Shift down so the first-line baseline meets the row baseline; a cell with
+        // no line box (no shift entry) stays at the top.
+        crate::types::VerticalAlign::Baseline => baseline_shifts.get(&cell.node).copied().unwrap_or(0.0),
     };
 
     tree.set_layout(

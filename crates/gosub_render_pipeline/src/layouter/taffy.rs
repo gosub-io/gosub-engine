@@ -301,6 +301,29 @@ impl TaffyLayouter {
     /// available space; box models in the LayoutTree are untouched (the
     /// subsequent `relayout_cell` at the final width rewrites taffy's internal
     /// layout anyway).
+    /// Ascent of `text`'s first line under `font_info` - the distance from the line-box
+    /// top to the first baseline, as the font system will paint it (half-leading included
+    /// for an explicit line-height). Used for table-cell baseline alignment.
+    pub(super) fn first_line_ascent(&self, text: &str, font_info: &crate::common::font::FontInfo) -> Option<f32> {
+        if text.is_empty() {
+            return None;
+        }
+        let style = gosub_interface::font_system::TextStyle {
+            family: font_info.family.clone(),
+            size: font_info.size as f32,
+            weight: gosub_interface::font_system::FontWeight(font_info.weight.clamp(1, 1000) as u16),
+            style: gosub_interface::font::FontStyle::Normal,
+            stretch: gosub_interface::font_system::FontStretch::NORMAL,
+            line_height: font_info.line_height.map(|v| v as f32),
+            letter_spacing: font_info.letter_spacing as f32,
+            max_width: None,
+            align: gosub_interface::font_system::TextAlign::Start,
+            display_scale: 1.0,
+        };
+        let shaped = self.font_system.lock().shape(text, &style);
+        (shaped.ascent > 0.0).then_some(shaped.ascent)
+    }
+
     pub(super) fn measure_intrinsic_widths(&mut self, cell_layout_id: LayoutElementId) -> Option<(f32, f32)> {
         let &taffy_id = self.layout_taffy_mapping.get(&cell_layout_id)?;
 
