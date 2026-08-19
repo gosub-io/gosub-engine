@@ -470,6 +470,34 @@ impl CompleteStep<'_> {
     }
 }
 
+/// Reorder a 4-longhand box list into the [bottom, left, right, top] order QuadMulti's
+/// value->side mapping expects. Lists that are not four distinct sides (or already carry no
+/// side keywords) are returned unchanged - only the order is normalised, never the names.
+fn quad_side_order(computed: &[String]) -> Vec<String> {
+    if computed.len() != 4 {
+        return computed.to_vec();
+    }
+    let side_of = |name: &str| -> Option<usize> {
+        // Match the side as a hyphen-delimited segment so e.g. `border-top-color`
+        // and bare `top` both classify, but unrelated names never do.
+        for (i, side) in ["bottom", "left", "right", "top"].iter().enumerate() {
+            if name.split('-').any(|seg| seg == *side) {
+                return Some(i);
+            }
+        }
+        None
+    };
+    let mut ordered: [Option<&String>; 4] = [None; 4];
+    for name in computed {
+        match side_of(name) {
+            Some(i) if ordered[i].is_none() => ordered[i] = Some(name),
+            // Missing or duplicate side: not a box shorthand - keep the original order.
+            _ => return computed.to_vec(),
+        }
+    }
+    ordered.into_iter().flatten().cloned().collect()
+}
+
 /// Component paths for the `font` shorthand's longhands, validated against the inlined grammar
 /// `[ [ style || variant || weight || stretch ]? <font-size> [ / <line-height> ]? <font-family># ]
 /// | <system-font>`. The shape checks guard against a regenerated definitions file silently
@@ -581,31 +609,17 @@ impl CssDefinitions {
         if let Some(component) = syntax.components.first() {
             for m in component.multipliers() {
                 match m {
-                    SyntaxComponentMultiplier::Between(_, b) if *b == computed.len() => {
-                        for c in computed {
+                    SyntaxComponentMultiplier::Between(_, b) | SyntaxComponentMultiplier::CommaSeparatedRepeat(_, b)
+                        if *b == computed.len() =>
+                    {
+                        // QuadMulti's value->side mapping assumes the longhand list order
+                        // [bottom, left, right, top] (what margin/padding use in the
+                        // definitions data). Properties listing their longhands in natural
+                        // TRBL order (border-color/style/width) must be reordered, or
+                        // `border-color: a b c LEFT` lands its 4th value on the RIGHT.
+                        for c in quad_side_order(computed) {
                             shorthands.push(Shorthand {
-                                name: c.clone(),
-                                components: vec![],
-                            });
-                        }
-
-                        let multiplier = match computed.len() {
-                            2 => Multiplier::DuoMulti,
-                            4 => Multiplier::QuadMulti,
-                            _ => Multiplier::NextProp,
-                        };
-
-                        return Some(Shorthands {
-                            multiplier,
-                            shorthands,
-                            name: name.to_string(),
-                        });
-                    }
-
-                    SyntaxComponentMultiplier::CommaSeparatedRepeat(_, b) if *b == computed.len() => {
-                        for c in computed {
-                            shorthands.push(Shorthand {
-                                name: c.clone(),
+                                name: c,
                                 components: vec![],
                             });
                         }
@@ -833,6 +847,31 @@ mod tests {
             value_of(&expanded, "font-family"),
             Some(&CssValue::String("sans-serif".into()))
         );
+    }
+
+    /// `border-color`'s longhands are listed in TRBL order in the definitions data, but
+    /// QuadMulti maps values assuming [bottom, left, right, top] - without reordering,
+    /// `border-color: a b c LEFT` landed its 4th value on the RIGHT
+    /// (WPT border-conflict-element-001*).
+    #[test]
+    fn border_color_shorthand_assigns_sides_correctly() {
+        let definitions = get_css_definitions();
+        let prop = definitions.find_property("border-color").unwrap();
+
+        let mut fix_list = FixList::new();
+        assert!(prop.clone().matches_and_shorthands(
+            &[str!("green"), str!("green"), str!("green"), str!("red")],
+            &mut fix_list,
+        ));
+
+        let get = |name: &str| -> String {
+            let (_, v) = fix_list.list.iter().find(|(k, _)| k == name).expect("longhand present");
+            format!("{}", v.last().unwrap().value)
+        };
+        assert_eq!(get("border-top-color"), "green");
+        assert_eq!(get("border-right-color"), "green");
+        assert_eq!(get("border-bottom-color"), "green");
+        assert_eq!(get("border-left-color"), "red");
     }
 
     #[test]
