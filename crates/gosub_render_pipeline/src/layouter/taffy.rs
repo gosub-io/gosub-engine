@@ -794,9 +794,18 @@ impl TaffyLayouter {
 
             // In a mixed inline run, split text into per-word inline boxes (see push_text_words).
             // Whitespace-only nodes fall through to the normal NBSP-separator path below.
+            // Preserved text (`white-space: pre`/`pre-wrap`) is never word-split - its spaces
+            // are significant and `pre` forbids wrapping anyway, so it stays one atomic box.
             if has_inline_element_child {
                 if let NodeType::Text(text) = &child_node.node_type {
-                    if !text.trim().is_empty() {
+                    let preserved = matches!(
+                        layout_tree
+                            .render_tree
+                            .doc
+                            .get_style(child_node.node_id, &StyleProperty::WhiteSpace),
+                        Value::Keyword(id) if matches!(lookup(id).as_str(), "pre" | "pre-wrap")
+                    );
+                    if !text.trim().is_empty() && !preserved {
                         self.push_text_words(layout_tree, &child_node, *child_id, &mut current_inline_group);
                         trailing_ws_count = 0;
                         continue;
@@ -853,13 +862,22 @@ impl TaffyLayouter {
                 }
                 let is_ws = if let NodeType::Text(text) = &child_node.node_type {
                     if text.trim().is_empty() {
+                        // Under `white-space: pre`/`pre-wrap` whitespace is content: it is
+                        // never dropped as leading nor stripped as trailing.
+                        let preserved = matches!(
+                            layout_tree
+                                .render_tree
+                                .doc
+                                .get_style(child_node.node_id, &StyleProperty::WhiteSpace),
+                            Value::Keyword(id) if matches!(lookup(id).as_str(), "pre" | "pre-wrap")
+                        );
                         // Drop leading whitespace (before any inline sibling). Keep inter-element
                         // whitespace - it collapses to a single space in extract_taffy_data and
                         // visually separates adjacent inline elements (e.g. between </span><span>).
-                        if current_inline_group.is_empty() {
+                        if current_inline_group.is_empty() && !preserved {
                             continue;
                         }
-                        true
+                        !preserved
                     } else {
                         false
                     }
@@ -1200,32 +1218,48 @@ impl TaffyLayouter {
                 // baselines inside each line box), so the box itself needs no extra offset.
                 let text_offset = Coordinate::new(0.0, 0.0);
 
+                let white_space = match doc.get_style(dom_node.node_id, &StyleProperty::WhiteSpace) {
+                    Value::Keyword(id) => lookup(id),
+                    _ => String::new(),
+                };
+                let preserve_spaces = matches!(white_space.as_str(), "pre" | "pre-wrap");
+
                 // Apply CSS white-space: normal - collapse newlines/runs of whitespace to a
                 // single space and strip leading/trailing whitespace.  Raw HTML text nodes
                 // contain the literal source indentation (e.g. "\n    Red box…\n  ") which
                 // pango would render as a blank first line if left untouched.
                 // Whitespace-only source nodes (e.g. "\n  " between </span><span>) collapse
                 // to a single space so they produce an inter-element gap when kept.
+                // `white-space: pre`/`pre-wrap` skip collapsing: the text keeps its spaces
+                // and newlines verbatim (Pango honors \n as line breaks natively).
                 let is_whitespace_only = !text.is_empty() && text.chars().all(|c: char| c.is_ascii_whitespace());
-                // Preserve one leading/trailing inter-element gap as NBSP (non-breaking) so
-                // pango does not wrap at the boundary space, while still rendering a visible gap.
-                // The gap only survives when an inline sibling exists on that side: whitespace at
-                // the very start or end of a block's inline content is removed entirely by CSS
-                // white-space collapsing, so "\n      Row 1..." in a div must not indent the line.
-                let had_leading_space = text.starts_with(|c: char| c.is_ascii_whitespace())
-                    && text_has_inline_neighbor(doc, dom_node.node_id, false);
-                let had_trailing_space = text.ends_with(|c: char| c.is_ascii_whitespace())
-                    && text_has_inline_neighbor(doc, dom_node.node_id, true);
-                let mut text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-                if !is_whitespace_only {
-                    if had_leading_space && !text.is_empty() {
-                        text.insert(0, '\u{00A0}');
+                let mut text: String = if preserve_spaces {
+                    // Spaces are significant; substitute NBSP so Pango never elides them at
+                    // line-box edges (same advance width as a regular space).
+                    text.replace(' ', "\u{00A0}")
+                } else {
+                    // Preserve one leading/trailing inter-element gap as NBSP (non-breaking) so
+                    // pango does not wrap at the boundary space, while still rendering a visible
+                    // gap. The gap only survives when an inline sibling exists on that side:
+                    // whitespace at the very start or end of a block's inline content is removed
+                    // entirely by CSS white-space collapsing, so "\n      Row 1..." in a div must
+                    // not indent the line.
+                    let had_leading_space = text.starts_with(|c: char| c.is_ascii_whitespace())
+                        && text_has_inline_neighbor(doc, dom_node.node_id, false);
+                    let had_trailing_space = text.ends_with(|c: char| c.is_ascii_whitespace())
+                        && text_has_inline_neighbor(doc, dom_node.node_id, true);
+                    let mut collapsed: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                    if !is_whitespace_only {
+                        if had_leading_space && !collapsed.is_empty() {
+                            collapsed.insert(0, '\u{00A0}');
+                        }
+                        if had_trailing_space && !collapsed.is_empty() {
+                            collapsed.push('\u{00A0}');
+                        }
                     }
-                    if had_trailing_space && !text.is_empty() {
-                        text.push('\u{00A0}');
-                    }
-                }
-                if is_whitespace_only {
+                    collapsed
+                };
+                if is_whitespace_only && !preserve_spaces {
                     // Inter-element whitespace (e.g. between </span><span>). Collapse to a single
                     // NBSP so the text context is non-empty and measures at the font's real space
                     // advance (Pango includes NBSP in the logical extents). flex_shrink=0 prevents
@@ -1233,15 +1267,12 @@ impl TaffyLayouter {
                     text = "\u{00A0}".to_string();
                     taffy_style.flex_shrink = 0.0;
                 }
-                // if inline_element_counter > 0 {
-                //     // If we are in an inline container, we need to add a space between the text nodes
-                //     text = format!(" {}", text).clone()
-                // }
+                if is_whitespace_only && preserve_spaces {
+                    taffy_style.flex_shrink = 0.0;
+                }
 
-                let no_wrap = matches!(
-                    doc.get_style(dom_node.node_id, &StyleProperty::WhiteSpace),
-                    Value::Keyword(id) if lookup(id) == "nowrap"
-                );
+                // `pre` and `nowrap` both forbid wrapping (`pre-wrap` keeps it).
+                let no_wrap = matches!(white_space.as_str(), "nowrap" | "pre");
                 if no_wrap {
                     taffy_style.flex_shrink = 0.0;
                 }
