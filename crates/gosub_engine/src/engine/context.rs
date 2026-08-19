@@ -47,6 +47,9 @@ use url::Url;
 
 mod select_ui;
 
+#[cfg(test)]
+mod forms_tests;
+
 /// A textarea resize in progress: where the pointer started and the border-box size then.
 #[derive(Debug, Clone, Copy)]
 struct ResizeDrag {
