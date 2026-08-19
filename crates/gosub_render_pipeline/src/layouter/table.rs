@@ -6,7 +6,7 @@ use crate::common::document::style::{lookup, Display, StyleProperty, Unit, Value
 use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
 use crate::layouter::taffy::TaffyLayouter;
-use crate::layouter::{CollapsedCellBorders, LayoutElementId, LayoutElementNode, LayoutTree};
+use crate::layouter::{CollapsedCellBorders, ElementContext, LayoutElementId, LayoutElementNode, LayoutTree};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -391,7 +391,11 @@ impl TableTree for PipelineTableTree<'_> {
                     "top" => return VerticalAlign::Top,
                     "middle" => return VerticalAlign::Middle,
                     "bottom" => return VerticalAlign::Bottom,
-                    "baseline" | "text-top" | "text-bottom" | "sub" | "super" => return VerticalAlign::Top,
+                    // CSS 2 §17.5.3: cell values other than top/middle/bottom behave
+                    // as baseline.
+                    "baseline" | "text-top" | "text-bottom" | "sub" | "super" => {
+                        return VerticalAlign::Baseline
+                    }
                     // "inherit" (or anything unrecognised): keep walking.
                     _ => {}
                 }
@@ -402,6 +406,39 @@ impl TableTree for PipelineTableTree<'_> {
             cur = self.doc.parent(node);
         }
         VerticalAlign::Top
+    }
+
+    fn cell_baseline(&mut self, id: DomNodeId) -> Option<f32> {
+        let &layout_id = self.dom_to_layout.get(&id)?;
+        let cell_top = self.layout_tree.arena.get(&layout_id)?.box_model.border_box.y;
+
+        // First text element in the cell's subtree, in tree order = the first in-flow
+        // line box (nested tables excluded - their baselines don't propagate here).
+        fn first_text(tree: &LayoutTree, id: LayoutElementId, doc: &dyn PipelineDocument) -> Option<LayoutElementId> {
+            let el = tree.arena.get(&id)?;
+            if matches!(el.context, ElementContext::Text(_)) {
+                return Some(id);
+            }
+            if matches!(
+                doc.get_own_style(el.dom_node_id, &StyleProperty::Display),
+                Some(Value::Display(Display::Table))
+            ) {
+                return None;
+            }
+            for &c in &el.children {
+                if let Some(hit) = first_text(tree, c, doc) {
+                    return Some(hit);
+                }
+            }
+            None
+        }
+        let text_id = first_text(self.layout_tree, layout_id, self.doc)?;
+        let text_el = self.layout_tree.arena.get(&text_id)?;
+        let ElementContext::Text(ref ctx) = text_el.context else {
+            return None;
+        };
+        let ascent = self.layouter.first_line_ascent(&ctx.text, &ctx.font_info)?;
+        Some((text_el.box_model.content_box.y - cell_top) as f32 + ascent)
     }
 
     fn cell_intrinsic_widths(&mut self, id: DomNodeId) -> (f32, f32) {

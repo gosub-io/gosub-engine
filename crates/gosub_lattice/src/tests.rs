@@ -1200,6 +1200,31 @@ mod layout_tests {
         assert_approx!(w_narrow, 100.0, "CAPMIN wins over a narrower containing block");
     }
 
+    // CSS 2 §17.5.3: baseline-aligned cells share the deepest first-line baseline;
+    // shallower cells shift down and the row grows to fit the shifted content.
+    #[test]
+    fn baseline_cells_align_on_row_baseline() {
+        use crate::types::VerticalAlign;
+        let (mut tree, root) = MockTable::new(300.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("deep").height(30.0).padding(0.0).valign(VerticalAlign::Baseline).baseline(25.0),
+                cell("shallow").height(30.0).padding(0.0).valign(VerticalAlign::Baseline).baseline(10.0),
+                cell("top").height(30.0).padding(0.0),
+            ])
+            .into_tree();
+
+        let (_, total_h) = compute_table_layout(&mut tree, root, 300.0, None).expect("layout");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        let off = |i: usize| tree.layout(cells[i]).unwrap().content_offset_y;
+        assert_approx!(off(0), 0.0, "deepest baseline cell stays put");
+        assert_approx!(off(1), 15.0, "shallow cell shifts down by the baseline difference");
+        assert_approx!(off(2), 0.0, "top-aligned cell unaffected");
+        // Row grows to hold the shifted cell: 30 + 15.
+        assert_approx!(total_h, 45.0, "row height includes the baseline shift");
+    }
+
     // Auto layout: <col> widths seed columns; the rest distribute as usual.
     #[test]
     fn col_widths_in_auto_layout() {

@@ -31,6 +31,8 @@ pub struct MockCell {
     pub padding: f32,
     /// Max-content border-box width reported via `cell_intrinsic_widths`.
     pub content_width: f32,
+    /// First-line baseline offset reported via `cell_baseline`.
+    pub baseline: Option<f32>,
     /// Min-content border-box width reported via `cell_intrinsic_widths`.
     pub min_content_width: f32,
     /// Content height reported by `layout_cell` (as if children were laid out).
@@ -54,6 +56,7 @@ impl MockCell {
             min_content_width: 0.0,
             content_height: 0.0,
             valign: VerticalAlign::Top,
+            baseline: None,
         }
     }
 
@@ -97,6 +100,11 @@ impl MockCell {
         self.content_height = h;
         self
     }
+    pub fn baseline(mut self, b: f32) -> Self {
+        self.baseline = Some(b);
+        self
+    }
+
     pub fn valign(mut self, v: VerticalAlign) -> Self {
         self.valign = v;
         self
@@ -283,6 +291,7 @@ struct MockNode {
     min_content_width: f32,
     content_height: f32,
     valign: VerticalAlign,
+    baseline: Option<f32>,
 }
 
 pub struct MockTree {
@@ -343,6 +352,7 @@ impl MockTree {
                 min_content_width: 0.0,
                 content_height: 0.0,
                 valign: VerticalAlign::Top,
+                baseline: None,
             },
         );
         id
@@ -366,6 +376,7 @@ impl MockTree {
             node.min_content_width = mc.min_content_width;
             node.content_height = mc.content_height;
             node.valign = mc.valign;
+            node.baseline = mc.baseline;
         }
         id
     }
@@ -467,6 +478,10 @@ impl TableTree for MockTree {
 
     fn vertical_align(&self, id: u32) -> VerticalAlign {
         self.nodes.get(&id).map(|n| n.valign).unwrap_or_default()
+    }
+
+    fn cell_baseline(&mut self, id: u32) -> Option<f32> {
+        self.nodes.get(&id).and_then(|n| n.baseline)
     }
 }
 

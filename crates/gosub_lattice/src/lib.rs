@@ -70,6 +70,13 @@ pub trait TableTree {
         false
     }
 
+    /// Distance from the top of cell `id`'s BORDER box to the baseline of its first
+    /// in-flow line box, measured after `layout_cell` has run for the cell. `None`
+    /// when the cell has no line box (empty cells align top).
+    fn cell_baseline(&mut self, _id: Self::NodeId) -> Option<f32> {
+        None
+    }
+
     /// `vertical-align` for cell `id`, resolved through the cascade (including
     /// the HTML rendering-spec pattern of `inherit` on cells picking up
     /// `middle` from the row/section) by the implementor.

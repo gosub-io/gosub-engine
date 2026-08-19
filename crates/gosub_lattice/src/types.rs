@@ -118,6 +118,9 @@ pub enum VerticalAlign {
     Top,
     Middle,
     Bottom,
+    /// Align the cell's first in-flow line baseline with the row baseline
+    /// (CSS 2 §17.5.3). Cells without a line box fall back to Top.
+    Baseline,
 }
 
 /// The computed layout written back to the tree for each table-internal node.
