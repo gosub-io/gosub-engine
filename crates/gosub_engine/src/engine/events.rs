@@ -45,6 +45,11 @@ pub enum CursorShape {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HitTestToken(pub u64);
 
+/// Identifies one download across its progress/finished/failed events. Minted by the
+/// embedder when it starts the download (like [`HitTestToken`]); the engine echoes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DownloadId(pub u64);
+
 /// What is under a point of the page - the input for a shell's native context menu.
 /// Fields are independent: a linked image yields both `link_url` and `image_url`. URLs are
 /// absolute (resolved against the document URL). Selection and editable-field details grow
@@ -161,6 +166,14 @@ pub enum TabCommand {
     /// Session history: jump to any entry in the tab's history tree.
     GoToHistoryEntry {
         entry: HistoryEntryId,
+    },
+    /// Save `url` to `target_path` through the zone's fetcher (cookies and UA apply).
+    /// Sent to accept an [`EngineEvent::DownloadRequested`] offer, or directly
+    /// (save-link-as). Progress arrives as `Download*` events carrying the same `id`.
+    StartDownload {
+        id: DownloadId,
+        url: String,
+        target_path: std::path::PathBuf,
     },
     /// Ask what is at viewport point `(x, y)` (CSS px), e.g. on right-click, to build a native
     /// context menu. Answered with [`EngineEvent::HitTestResult`] carrying the same `token`.
@@ -504,6 +517,37 @@ pub enum EngineEvent {
         tab_id: TabId,
         token: HitTestToken,
         hit: HitTestResponse,
+    },
+    /// A navigation turned out to be a download (binary content or an attachment). The
+    /// navigation itself was cancelled (the page stays); the shell decides where to save
+    /// and answers with [`TabCommand::StartDownload`] - or ignores the offer.
+    DownloadRequested {
+        tab_id: TabId,
+        url: Url,
+        /// From `Content-Disposition` when present, else the URL's last path segment.
+        suggested_filename: String,
+        content_type: Option<String>,
+        total_bytes: Option<u64>,
+    },
+    /// Bytes are flowing to disk for a [`TabCommand::StartDownload`].
+    DownloadProgress {
+        tab_id: TabId,
+        id: DownloadId,
+        received_bytes: u64,
+        total_bytes: Option<u64>,
+    },
+    /// The download completed and the file is fully written.
+    DownloadFinished {
+        tab_id: TabId,
+        id: DownloadId,
+        path: std::path::PathBuf,
+        received_bytes: u64,
+    },
+    /// The download failed; a partial file may remain at the target path.
+    DownloadFailed {
+        tab_id: TabId,
+        id: DownloadId,
+        error: String,
     },
     /// Not yet emitted by the engine; emission arrives with the pending mac-app patches.
     TitleChanged {

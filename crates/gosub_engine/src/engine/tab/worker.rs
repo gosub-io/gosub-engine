@@ -36,6 +36,93 @@ use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+/// Filename to suggest for downloading `meta`'s resource: the `Content-Disposition`
+/// `filename` parameter when present, else the final URL's last path segment, else
+/// "download". Path separators are stripped so a hostile header cannot escape the
+/// directory the embedder picks.
+fn suggested_filename(meta: &FetchResultMeta) -> String {
+    let from_disposition = meta
+        .headers
+        .get(http::header::CONTENT_DISPOSITION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| {
+            v.split(';').find_map(|part| {
+                let part = part.trim();
+                part.strip_prefix("filename=")
+                    .map(|f| f.trim_matches('"').to_string())
+                    .filter(|f| !f.is_empty())
+            })
+        });
+    let name = from_disposition.or_else(|| {
+        meta.final_url
+            .path_segments()
+            .and_then(|mut segments| segments.next_back())
+            .filter(|segment| !segment.is_empty())
+            .map(|segment| {
+                percent_encoding::percent_decode_str(segment)
+                    .decode_utf8_lossy()
+                    .into_owned()
+            })
+    });
+    let name = name.unwrap_or_default();
+    let name = name.rsplit(['/', '\\']).next().unwrap_or("").trim().to_string();
+    if name.is_empty() {
+        "download".to_string()
+    } else {
+        name
+    }
+}
+
+/// Stream a response body to `path`, emitting `DownloadProgress` roughly every 256 KiB
+/// and `DownloadFinished` once the file is fully written.
+async fn stream_to_file(
+    id: crate::engine::events::DownloadId,
+    tab_id: TabId,
+    event_tx: &crate::engine::types::EventChannel,
+    total_bytes: Option<u64>,
+    peek_buf: crate::engine::types::PeekBuf,
+    shared: Arc<crate::net::SharedBody>,
+    path: &std::path::Path,
+) -> anyhow::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    const REPORT_EVERY: u64 = 256 * 1024;
+    let mut reader = crate::net::SharedBody::combined_reader(peek_buf, shared);
+    let mut file = tokio::fs::File::create(path)
+        .await
+        .with_context(|| format!("create {}", path.display()))?;
+    let mut received: u64 = 0;
+    let mut last_reported: u64 = 0;
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = reader.read(&mut buf).await.context("read body")?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n])
+            .await
+            .with_context(|| format!("write {}", path.display()))?;
+        received += n as u64;
+        if received - last_reported >= REPORT_EVERY {
+            last_reported = received;
+            let _ = event_tx.send(EngineEvent::DownloadProgress {
+                tab_id,
+                id,
+                received_bytes: received,
+                total_bytes,
+            });
+        }
+    }
+    file.flush().await.context("flush")?;
+    let _ = event_tx.send(EngineEvent::DownloadFinished {
+        tab_id,
+        id,
+        path: path.to_path_buf(),
+        received_bytes: received,
+    });
+    Ok(())
+}
+
 /// Fallback URL used when a navigation has no usable URL.
 fn about_blank() -> Url {
     #[allow(clippy::unwrap_used)] // PANIC-SAFE: literal URL
@@ -53,6 +140,12 @@ pub enum NavigationResult<C: RenderConfiguration> {
     Err {
         nav_id: NavigationId,
         error: NavigationError,
+    },
+    /// The response is non-renderable content: the navigation ends (page stays) and the
+    /// metadata becomes a `DownloadRequested` offer to the embedder.
+    Download {
+        nav_id: NavigationId,
+        meta: FetchResultMeta,
     },
 }
 
@@ -678,6 +771,29 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 // set_document cleared hover state; the next mouse move re-derives it.
                 self.report_cursor(CursorShape::Default);
             }
+            NavigationResult::Download { nav_id, meta } => {
+                // Not an error and not a page change: the tab stays on its current document
+                // and the shell gets a download offer. The Cancelled event stops spinners.
+                self.is_loading = false;
+                self.is_error = false;
+                self.state = TabState::Idle;
+                self.pending_url = None;
+                self.send_event(EngineEvent::Navigation {
+                    tab_id: self.tab_id,
+                    event: NavigationEvent::Cancelled {
+                        nav_id,
+                        url: meta.final_url.clone(),
+                        reason: crate::engine::events::CancelReason::Custom("download".into()),
+                    },
+                });
+                self.send_event(EngineEvent::DownloadRequested {
+                    tab_id: self.tab_id,
+                    suggested_filename: suggested_filename(&meta),
+                    content_type: meta.content_type.clone(),
+                    total_bytes: meta.content_length,
+                    url: meta.final_url,
+                });
+            }
             NavigationResult::Err { nav_id, error } => {
                 self.is_loading = false;
                 self.is_error = true;
@@ -763,6 +879,98 @@ impl<C: RenderConfiguration> TabWorker<C> {
             }
             _ => ControlFlow::Continue,
         }
+    }
+
+    /// Save `url` to `target_path` through the zone fetcher, with progress/finished/failed
+    /// events carrying `id`. Runs on its own task; tab shutdown does not cancel it (a
+    /// deliberate v1 simplification - there is no cancel command yet).
+    ///
+    /// V1 fetches in **buffered** mode (whole body in memory before writing): sonar's
+    /// `SharedBody` replays nothing to late subscribers, so a streaming consumer that
+    /// attaches after the fetch result arrives misses early chunks. True streaming-to-disk
+    /// needs replay support in gosub-sonar (see the board).
+    fn start_download(&self, id: crate::engine::events::DownloadId, url: String, target_path: std::path::PathBuf) {
+        let Ok(url) = Url::parse(&url) else {
+            self.send_event(EngineEvent::DownloadFailed {
+                tab_id: self.tab_id,
+                id,
+                error: format!("invalid URL: {url}"),
+            });
+            return;
+        };
+
+        let req_id = RequestId::new();
+        REF_REGISTRY.register_request(req_id, ResourceKind::Other, Initiator::Other);
+        let req = FetchRequest::builder(Method::GET, url.clone())
+            .with_req_id(req_id)
+            .with_priority(Priority::Low)
+            .with_kind(ResourceKind::Other.to_net())
+            .with_initiator(Initiator::Other.to_net())
+            .with_streaming(false)
+            .with_auto_decode(true)
+            .build();
+
+        let tab_id = self.tab_id;
+        let zone_id = self.zone_id;
+        let io_tx = self.zone_context.io_tx.clone();
+        let event_tx = self.zone_context.event_tx.clone();
+        spawn_named("tab-download", async move {
+            let fail = |error: String| {
+                let _ = event_tx.send(EngineEvent::DownloadFailed { tab_id, id, error });
+            };
+
+            let result = match submit_to_io(zone_id, req, io_tx, None).await {
+                Ok((_handle, rx)) => match rx.await {
+                    Ok(result) => result,
+                    Err(_) => return fail("fetch channel closed".into()),
+                },
+                Err(e) => return fail(format!("submit failed: {e}")),
+            };
+
+            match result {
+                FetchResult::Stream { meta, peek_buf, shared } => {
+                    if meta.status != 200 {
+                        return fail(format!("HTTP {} {}", meta.status, meta.status_text));
+                    }
+                    if let Err(e) = stream_to_file(
+                        id,
+                        tab_id,
+                        &event_tx,
+                        meta.content_length,
+                        peek_buf,
+                        shared,
+                        &target_path,
+                    )
+                    .await
+                    {
+                        fail(e.to_string());
+                    }
+                }
+                FetchResult::Buffered { meta, body } => {
+                    if meta.status != 200 {
+                        return fail(format!("HTTP {} {}", meta.status, meta.status_text));
+                    }
+                    // Buffered mode: the body is complete, so progress is a single report
+                    // (keeps the shell's event sequence uniform with a streaming future).
+                    let _ = event_tx.send(EngineEvent::DownloadProgress {
+                        tab_id,
+                        id,
+                        received_bytes: body.len() as u64,
+                        total_bytes: Some(body.len() as u64),
+                    });
+                    if let Err(e) = tokio::fs::write(&target_path, &body).await {
+                        return fail(format!("write {}: {e}", target_path.display()));
+                    }
+                    let _ = event_tx.send(EngineEvent::DownloadFinished {
+                        tab_id,
+                        id,
+                        path: target_path,
+                        received_bytes: body.len() as u64,
+                    });
+                }
+                FetchResult::Error(e) => fail(e.to_string()),
+            }
+        });
     }
 
     /// Tell the shell where keyboard focus went (e.g. to drive IME/on-screen keyboards).
@@ -872,6 +1080,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         self.traverse_history(entry);
                     }
                 }
+                ControlFlow::Continue
+            }
+            TabCommand::StartDownload { id, url, target_path } => {
+                self.start_download(id, url, target_path);
                 ControlFlow::Continue
             }
             TabCommand::QueryHitTest { x, y, token } => {
@@ -1309,6 +1521,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         title,
                         doc,
                     });
+                }
+                Ok(RoutedOutcome::DownloadOffer(meta)) => {
+                    let _ = tx_done.send(NavigationResult::Download { nav_id, meta: *meta });
                 }
                 Ok(RoutedOutcome::ViewerRendered(_doc)) => {
                     log::warn!("Tab[{:?}] viewer rendering not supported yet", tab_id);
