@@ -27,6 +27,16 @@
   textarea.v { resize: vertical; }
   textarea.n { resize: none; }
   output { font-family: DejaVu Sans Mono, monospace; font-size: 12px; color: #2382eb; }
+  /* Dark scheme (renderer.color_scheme = dark; the GTK examples follow the desktop setting) */
+  @media (prefers-color-scheme: dark) {
+    body { background: #1b1b1b; color: #e6e6e6; }
+    fieldset { background: #242424; border-color: #3a3a3a; }
+    legend { color: #ddd; }
+    h2 { border-color: #3a3a3a; }
+    p.lead, .hint, label.k { color: #9a9a9a; }
+    .styled { background: #1e1e1e; border-color: #555; color: #eee; }
+    .btn.ghost { color: #ddd; border-color: #555; }
+  }
 </style>
 </head>
 <body>

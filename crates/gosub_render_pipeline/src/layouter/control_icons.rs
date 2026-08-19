@@ -77,7 +77,8 @@ fn radio_svg(checked: bool, disabled: bool) -> String {
 
 /// Dropdown chevron (16px box, 2px stroke); `muted` for a disabled control.
 pub fn chevron(store: &MediaStore, muted: bool) -> Option<MediaId> {
-    let color = if muted { "#bbbbbb" } else { "#4a4a4a" };
+    let t = crate::common::theme::select_theme();
+    let color = if muted { t.icon_muted } else { t.icon };
     let svg = format!(
         r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M4 6.2 8 10.2 12 6.2" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>"##
     );
@@ -86,7 +87,11 @@ pub fn chevron(store: &MediaStore, muted: bool) -> Option<MediaId> {
 
 /// Checkmark for the committed option in a dropdown.
 pub fn check(store: &MediaStore, on_blue: bool) -> Option<MediaId> {
-    let color = if on_blue { "#ffffff" } else { "#111111" };
+    let color = if on_blue {
+        "#ffffff"
+    } else {
+        crate::common::theme::select_theme().check
+    };
     let svg = format!(
         r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>"##
     );
@@ -99,8 +104,9 @@ pub fn check(store: &MediaStore, on_blue: bool) -> Option<MediaId> {
 pub fn drop_shadow(store: &MediaStore, w: f64, h: f64, radius: f64) -> Option<MediaId> {
     let (sx, st, sb) = crate::layouter::SELECT_POPUP_SHADOW;
     let (iw, ih) = (w + sx * 2.0, h + st + sb);
+    let alpha = crate::common::theme::select_theme().shadow_alpha;
     let svg = format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="{iw}" height="{ih}" viewBox="0 0 {iw} {ih}"><defs><filter id="b" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6"/></filter></defs><rect x="{sx}" y="{}" width="{w}" height="{h}" rx="{radius}" fill="rgba(0,0,0,0.12)" filter="url(#b)"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="{iw}" height="{ih}" viewBox="0 0 {iw} {ih}"><defs><filter id="b" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6"/></filter></defs><rect x="{sx}" y="{}" width="{w}" height="{h}" rx="{radius}" fill="rgba(0,0,0,{alpha})" filter="url(#b)"/></svg>"##,
         st + 4.0
     );
     store.load_media_from_data(MediaType::Svg, svg.as_bytes()).ok()

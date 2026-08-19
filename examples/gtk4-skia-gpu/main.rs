@@ -111,6 +111,41 @@ fn key_down_command(key: gtk4::gdk::Key, state: gtk4::gdk::ModifierType) -> Opti
     })
 }
 
+fn contains_ci(haystack: &str, needle: &str) -> bool {
+    haystack
+        .as_bytes()
+        .windows(needle.len())
+        .any(|w| w.eq_ignore_ascii_case(needle.as_bytes()))
+}
+
+fn ends_with_ci(s: &str, suffix: &str) -> bool {
+    s.len() >= suffix.len() && s.as_bytes()[s.len() - suffix.len()..].eq_ignore_ascii_case(suffix.as_bytes())
+}
+
+/// Whether to render dark: `GOSUB_COLOR_SCHEME` if set, else the desktop's preference.
+fn desktop_prefers_dark() -> bool {
+    if let Ok(v) = std::env::var("GOSUB_COLOR_SCHEME") {
+        return v.eq_ignore_ascii_case("dark");
+    }
+    // GNOME / freedesktop: org.gnome.desktop.interface color-scheme = 'prefer-dark'.
+    let gnome_dark = gtk4::gio::SettingsSchemaSource::default()
+        .and_then(|src| src.lookup("org.gnome.desktop.interface", true))
+        .filter(|schema| schema.has_key("color-scheme"))
+        .map(|_| gtk4::gio::Settings::new("org.gnome.desktop.interface").string("color-scheme"))
+        .is_some_and(|s| s == "prefer-dark");
+    if gnome_dark {
+        return true;
+    }
+    let Some(settings) = gtk4::Settings::default() else {
+        return false;
+    };
+    settings.is_gtk_application_prefer_dark_theme()
+        || settings
+            .gtk_theme_name()
+            .is_some_and(|n| contains_ci(n.as_str(), "dark"))
+        || std::env::var("GTK_THEME").is_ok_and(|t| ends_with_ci(&t, ":dark"))
+}
+
 fn main() {
     eprintln!(
         "{} v{} — GTK4 browser window, Skia GPU (OpenGL) rendering",
@@ -144,6 +179,14 @@ fn main() {
 
         let backend = SkiaBackend::new();
         let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
+        // Colour scheme: GOSUB_COLOR_SCHEME=dark|light wins; otherwise the desktop preference
+        // (GNOME's color-scheme GSetting, a "-dark" GTK theme, or an app-level prefer-dark flag).
+        if desktop_prefers_dark() {
+            let _ = engine.settings().set(
+                "renderer.color_scheme",
+                gosub_config::settings::Setting::String("dark".into()),
+            );
+        }
         let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
         let event_rx = engine.subscribe_events();
 

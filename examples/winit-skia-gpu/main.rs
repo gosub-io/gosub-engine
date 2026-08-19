@@ -621,6 +621,13 @@ fn main() {
     // produces no tiles - the engine needs a real rasterizer to emit TileCache frames.)
     let backend = SkiaBackend::new();
     let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
+    // GOSUB_COLOR_SCHEME=dark renders pages and native controls in the dark scheme.
+    if std::env::var("GOSUB_COLOR_SCHEME").is_ok_and(|v| v.eq_ignore_ascii_case("dark")) {
+        let _ = engine.settings().set(
+            "renderer.color_scheme",
+            gosub_config::settings::Setting::String("dark".into()),
+        );
+    }
     let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
 
     let proxy_ev = proxy.clone();

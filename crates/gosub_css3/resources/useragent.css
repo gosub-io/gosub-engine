@@ -1365,26 +1365,33 @@ input[type="color" i] {
 select {
     height: 32px;
     padding: 0 28px 0 10px;
-    border: 1px solid #c7c7c7;
+    border: 1px solid light-dark(#c7c7c7, #555555);
     border-radius: 6px;
-    background-color: #ffffff;
-    color: #111111;
+    background-color: light-dark(#ffffff, #2b2b2b);
+    color: light-dark(#111111, #eeeeee);
     box-sizing: border-box;
 }
 select:hover {
-    border-color: #a8a8a8;
-    background-color: #fcfcfc;
+    border-color: light-dark(#a8a8a8, #777777);
+    background-color: light-dark(#fcfcfc, #303030);
 }
 select:focus-visible {
-    outline: 2px solid #3a7afe;
+    outline: 2px solid light-dark(#3a7afe, #5a95ff);
     outline-offset: 0;
 }
 /* after :hover so a disabled control keeps its quiet look under the pointer */
 select:disabled {
-    background-color: #f2f2f2;
-    border-color: #c7c7c7;
-    color: #888888;
+    background-color: light-dark(#f2f2f2, #222222);
+    border-color: light-dark(#c7c7c7, #444444);
+    color: light-dark(#888888, #777777);
     opacity: 1;
+}
+/* Text-entry controls follow the scheme too, so a dark page isn't dotted with white boxes.
+   (The checkbox/radio/range/color rules above outrank this by specificity.) */
+input, textarea {
+    background-color: light-dark(Field, #1e1e1e);
+    color: light-dark(FieldText, #eeeeee);
+    border-color: light-dark(#767676, #555555);
 }
 textarea {
     resize: both;

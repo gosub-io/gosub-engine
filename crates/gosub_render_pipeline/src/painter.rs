@@ -665,13 +665,14 @@ impl Painter {
         let inner = layout_element.box_model.content_box;
         let mut commands = Vec::new();
 
+        let theme = crate::common::theme::select_theme();
         if let Some(shadow) = popup.shadow {
             commands.push(PaintCommand::svg(shadow, Rectangle::new(mb)));
         }
-        let border = Brush::solid(Color::from_rgb8(0xc7, 0xc7, 0xc7));
+        let border = Brush::solid(theme.popup_border.clone());
         commands.push(PaintCommand::rectangle(
             Rectangle::new(bb)
-                .with_background(Brush::solid(Color::WHITE))
+                .with_background(Brush::solid(theme.popup_bg.clone()))
                 .with_border(Border::new(
                     1.0,
                     BorderStyle::Solid,
@@ -707,9 +708,9 @@ impl Painter {
             let is_hover = selectable && !is_active && hovered == Some(i);
             if is_active || is_hover {
                 let bg = if is_active {
-                    Color::from_rgb8(0x3a, 0x7a, 0xfe)
+                    theme.active_bg.clone()
                 } else {
-                    Color::from_rgb8(0xe6, 0xf0, 0xff)
+                    theme.hover_bg.clone()
                 };
                 commands.push(PaintCommand::rectangle(
                     Rectangle::new(rect)
@@ -718,13 +719,13 @@ impl Painter {
                 ));
             }
             let color = if is_active {
-                Color::WHITE
+                theme.active_text.clone()
             } else if is_group {
-                Color::from_rgb8(0x6b, 0x6b, 0x6b)
+                theme.group_text.clone()
             } else if disabled {
-                Color::from_rgb8(0x88, 0x88, 0x88)
+                theme.disabled_text.clone()
             } else {
-                Color::from_rgb8(0x11, 0x11, 0x11)
+                theme.text.clone()
             };
             let text = if is_group {
                 format!("\u{2014} {label} \u{2014}")
@@ -764,11 +765,11 @@ impl Painter {
 
         if let Some((track, thumb)) = popup.scrollbar(inner, first) {
             commands.push(PaintCommand::rectangle(
-                Rectangle::new(track).with_background(Brush::solid(Color::from_rgb8(0xf0, 0xf0, 0xf0))),
+                Rectangle::new(track).with_background(Brush::solid(theme.scrollbar_track.clone())),
             ));
             commands.push(PaintCommand::rectangle(
                 Rectangle::new(thumb)
-                    .with_background(Brush::solid(Color::from_rgb8(0xb8, 0xb8, 0xb8)))
+                    .with_background(Brush::solid(theme.scrollbar_thumb.clone()))
                     .with_radius(Radius::new(4.0)),
             ));
         }

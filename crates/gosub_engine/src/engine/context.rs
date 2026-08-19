@@ -480,6 +480,21 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
     }
 
+    /// Push the `renderer.color_scheme` setting to the CSS and paint layers. Cheap; called before
+    /// every rebuild so a change takes effect on the next render.
+    fn sync_color_scheme(&mut self) {
+        let dark = self
+            .config_store
+            .get_string("renderer.color_scheme")
+            .eq_ignore_ascii_case("dark");
+        if dark != gosub_css3::stylesheet::prefers_dark() {
+            // Cached styles were computed under the other scheme.
+            self.invalidate_render();
+        }
+        gosub_css3::stylesheet::set_prefers_dark(dark);
+        gosub_render_pipeline::common::theme::set_dark(dark);
+    }
+
     /// Rebuild stages 1-6 (pipeline cache) if content has changed, without building a display
     /// list. Used by TileCache backends (Cairo, Skia, Vello) which composite tiles directly
     /// on the host thread and never consume the render list.
@@ -490,6 +505,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// - **Paint-only repaint** (`hover_dirty`): reuses the cached layout tree and repaints
     ///   only the affected tiles, skipping stages 1–2.
     pub fn rebuild_pipeline_cache_if_needed(&mut self) {
+        self.sync_color_scheme();
         let paint_only = self.hover_dirty || !self.paint_dirty_leis.is_empty();
         if !self.render_dirty && !paint_only && !self.scroll_dirty && !self.raster_dirty {
             return;
@@ -563,6 +579,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// - **Scroll composite** (`scroll_dirty`): re-composites visible tiles from the cache with
     ///   the new scroll offset. No layout or rasterization work.
     pub fn rebuild_render_list_if_needed(&mut self) {
+        self.sync_color_scheme();
         if !self.render_dirty && !self.scroll_dirty && !self.raster_dirty {
             return;
         }
@@ -607,6 +624,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// don't rebuild anything (the backend re-renders with a new translate); they just advance the
     /// scene epoch so the worker emits a frame.
     pub fn rebuild_scene_cache_if_needed(&mut self) {
+        self.sync_color_scheme();
         let paint_only = self.hover_dirty || !self.paint_dirty_leis.is_empty();
         if !self.render_dirty && !paint_only && !self.scroll_dirty {
             return;

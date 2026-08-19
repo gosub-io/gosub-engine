@@ -74,6 +74,9 @@ struct Args {
     /// Print the engine's timing table on exit
     #[arg(long)]
     timings: bool,
+    /// Render with the dark colour scheme (prefers-color-scheme: dark, dark native controls)
+    #[arg(long)]
+    dark: bool,
 }
 
 enum Step {
@@ -208,6 +211,12 @@ fn main() {
     }));
 
     let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
+    if args.dark {
+        let _ = engine.settings().set(
+            "renderer.color_scheme",
+            gosub_config::settings::Setting::String("dark".into()),
+        );
+    }
     let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
     let mut event_rx = engine.subscribe_events();
 
