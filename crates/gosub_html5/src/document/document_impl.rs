@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 use gosub_interface::css3::CssSystem;
-use gosub_interface::document::{ControlEditState, Document, DocumentType};
+use gosub_interface::document::{ControlEditState, Document, DocumentType, OpenSelect};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
@@ -39,8 +39,7 @@ pub struct DocumentImpl<C: HasDocument> {
     checked: parking_lot::RwLock<HashMap<NodeId, bool>>,
     /// `<select>` → option the user picked; absent = the `selected` attribute.
     selected: parking_lot::RwLock<HashMap<NodeId, NodeId>>,
-    /// The open dropdown: its `<select>` and the hovered option row.
-    open_select: parking_lot::RwLock<Option<(NodeId, Option<usize>)>>,
+    open_select: parking_lot::RwLock<Option<OpenSelect>>,
     /// Controls the user resized, with their border-box size.
     sizes: parking_lot::RwLock<HashMap<NodeId, (f64, f64)>>,
 }
@@ -459,7 +458,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         first
     }
 
-    fn open_select(&self) -> Option<(NodeId, Option<usize>)> {
+    fn open_select(&self) -> Option<OpenSelect> {
         *self.open_select.read()
     }
 
@@ -528,7 +527,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         }
     }
 
-    pub fn set_open_select(&self, state: Option<(NodeId, Option<usize>)>) {
+    pub fn set_open_select(&self, state: Option<OpenSelect>) {
         *self.open_select.write() = state;
     }
 

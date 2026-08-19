@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gosub interactive forms test</title>
+<style>
+  body { margin: 0; padding: 24px; font-family: DejaVu Sans, system-ui, sans-serif; font-size: 14px; color: #1a1a1a; background: #fafafa; line-height: 1.5; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 20px; color: #555; }
+  h2 { font-size: 16px; margin: 28px 0 10px; border-bottom: 2px solid #ddd; padding-bottom: 4px; }
+  fieldset { border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 14px 16px; margin: 0 0 16px; }
+  legend { font-weight: bold; padding: 0 6px; color: #333; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 8px 0; }
+  .col { display: flex; flex-direction: column; gap: 4px; }
+  .hint { font-size: 12px; color: #777; }
+  label.k { font-size: 12px; color: #555; }
+  .styled { font: inherit; padding: 7px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
+  .styled:focus { outline: none; border-color: #2382eb; }
+  .btn { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; background: #2382eb; color: #fff; }
+  .btn.ghost { background: transparent; color: #444; border-color: #ccc; }
+  .switch { position: relative; display: inline-block; width: 46px; height: 26px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; inset: 0; cursor: pointer; background: #ccc; border-radius: 26px; }
+  .slider::before { content: ""; position: absolute; height: 20px; width: 20px; left: 3px; top: 3px; background: #fff; border-radius: 50%; }
+  .switch input:checked + .slider { background: #2382eb; }
+  .switch input:checked + .slider::before { transform: translateX(20px); }
+  textarea.v { resize: vertical; }
+  textarea.n { resize: none; }
+  output { font-family: DejaVu Sans Mono, monospace; font-size: 12px; color: #2382eb; }
+</style>
+</head>
+<body>
+  <h1>Interactive forms test</h1>
+  <p class="lead">Everything here submits to <code>/echo</code>, which lists what was sent. Served by <code>tests/data/forms/serve.py</code>.</p>
+
+  <form action="/echo" method="get">
+    <h2>Selects</h2>
+    <fieldset>
+      <legend>Long lists scroll (wheel over the list, arrow keys keep the highlight in view)</legend>
+      <div class="row">
+        <div class="col"><label class="k">30 numbered options, #17 preselected</label>
+          <select name="number">
+      <option value="1">Option number 1</option>
+      <option value="2">Option number 2</option>
+      <option value="3">Option number 3</option>
+      <option value="4">Option number 4</option>
+      <option value="5">Option number 5</option>
+      <option value="6">Option number 6</option>
+      <option value="7">Option number 7</option>
+      <option value="8">Option number 8</option>
+      <option value="9">Option number 9</option>
+      <option value="10">Option number 10</option>
+      <option value="11">Option number 11</option>
+      <option value="12">Option number 12</option>
+      <option value="13">Option number 13</option>
+      <option value="14">Option number 14</option>
+      <option value="15">Option number 15</option>
+      <option value="16">Option number 16</option>
+      <option value="17" selected>Option number 17</option>
+      <option value="18">Option number 18</option>
+      <option value="19">Option number 19</option>
+      <option value="20">Option number 20</option>
+      <option value="21">Option number 21</option>
+      <option value="22">Option number 22</option>
+      <option value="23">Option number 23</option>
+      <option value="24">Option number 24</option>
+      <option value="25">Option number 25</option>
+      <option value="26">Option number 26</option>
+      <option value="27">Option number 27</option>
+      <option value="28">Option number 28</option>
+      <option value="29">Option number 29</option>
+      <option value="30">Option number 30</option>
+          </select></div>
+        <div class="col"><label class="k">countries (100)</label>
+          <select name="country" class="styled">
+      <option>Afghanistan</option>
+      <option>Albania</option>
+      <option>Algeria</option>
+      <option>Andorra</option>
+      <option>Angola</option>
+      <option>Argentina</option>
+      <option>Armenia</option>
+      <option>Australia</option>
+      <option>Austria</option>
+      <option>Azerbaijan</option>
+      <option>Bahamas</option>
+      <option>Bahrain</option>
+      <option>Bangladesh</option>
+      <option>Belgium</option>
+      <option>Belize</option>
+      <option>Benin</option>
+      <option>Bhutan</option>
+      <option>Bolivia</option>
+      <option>Bosnia</option>
+      <option>Botswana</option>
+      <option>Brazil</option>
+      <option>Bulgaria</option>
+      <option>Cambodia</option>
+      <option>Cameroon</option>
+      <option>Canada</option>
+      <option>Chile</option>
+      <option>China</option>
+      <option>Colombia</option>
+      <option>Croatia</option>
+      <option>Cuba</option>
+      <option>Cyprus</option>
+      <option>Czechia</option>
+      <option>Denmark</option>
+      <option>Ecuador</option>
+      <option>Egypt</option>
+      <option>Estonia</option>
+      <option>Ethiopia</option>
+      <option>Fiji</option>
+      <option>Finland</option>
+      <option>France</option>
+      <option>Georgia</option>
+      <option>Germany</option>
+      <option>Ghana</option>
+      <option>Greece</option>
+      <option>Guatemala</option>
+      <option>Honduras</option>
+      <option>Hungary</option>
+      <option>Iceland</option>
+      <option>India</option>
+      <option>Indonesia</option>
+      <option>Iran</option>
+      <option>Iraq</option>
+      <option>Ireland</option>
+      <option>Israel</option>
+      <option>Italy</option>
+      <option>Jamaica</option>
+      <option>Japan</option>
+      <option>Jordan</option>
+      <option>Kenya</option>
+      <option>Latvia</option>
+      <option>Lebanon</option>
+      <option>Lithuania</option>
+      <option>Luxembourg</option>
+      <option>Malaysia</option>
+      <option>Malta</option>
+      <option>Mexico</option>
+      <option>Monaco</option>
+      <option>Mongolia</option>
+      <option>Morocco</option>
+      <option>Nepal</option>
+      <option>Netherlands</option>
+      <option>New Zealand</option>
+      <option>Nigeria</option>
+      <option>Norway</option>
+      <option>Pakistan</option>
+      <option>Panama</option>
+      <option>Peru</option>
+      <option>Philippines</option>
+      <option>Poland</option>
+      <option>Portugal</option>
+      <option>Qatar</option>
+      <option>Romania</option>
+      <option>Serbia</option>
+      <option>Singapore</option>
+      <option>Slovakia</option>
+      <option>Slovenia</option>
+      <option>Spain</option>
+      <option>Sweden</option>
+      <option>Switzerland</option>
+      <option>Thailand</option>
+      <option>Turkey</option>
+      <option>Uganda</option>
+      <option>Ukraine</option>
+      <option>United Kingdom</option>
+      <option>United States</option>
+      <option>Uruguay</option>
+      <option>Vietnam</option>
+      <option>Zambia</option>
+      <option>Zimbabwe</option>
+          </select></div>
+        <div class="col"><label class="k">short list (no scrollbar)</label>
+          <select name="fruit"><option>Apple</option><option>Banana</option><option>Cherry</option></select></div>
+        <div class="col"><label class="k">disabled option in list</label>
+          <select name="size"><option>Small</option><option disabled>Medium (sold out)</option><option>Large</option></select></div>
+        <div class="col"><label class="k">optgroups</label>
+          <select name="region">
+            <optgroup label="Europe"><option>Netherlands</option><option>Norway</option><option selected>Portugal</option><option disabled>Romania</option></optgroup>
+            <optgroup label="Asia"><option>Afghanistan</option><option>Armenia</option><option>Azerbaijan</option></optgroup>
+            <optgroup label="Americas"><option>Argentina</option><option>Brazil</option></optgroup>
+          </select></div>
+        <div class="col"><label class="k">emoji labels</label>
+          <select name="food"><option>🍎 Apple</option><option>🍌 Banana</option><option>🍒 Cherry</option><option>🥦 Broccoli</option><option>🥕 Carrot</option></select></div>
+        <div class="col"><label class="k">disabled control</label>
+          <select name="dis" disabled><option>Small</option></select></div>
+        <div class="col"><label class="k">long labels</label>
+          <select name="long"><option>Very long country name that should not be truncated at all</option><option>Another extremely long country name that might exceed</option><option>Short name</option></select></div>
+      </div>
+    </fieldset>
+
+    <h2>Text</h2>
+    <fieldset>
+      <legend>Typing, caret, Home/End/arrows, Enter submits</legend>
+      <div class="row">
+        <div class="col"><label class="k">text</label><input type="text" name="q" value="hello" size="20"></div>
+        <div class="col"><label class="k">styled, placeholder</label><input class="styled" type="text" name="name" placeholder="Jane Doe"></div>
+        <div class="col"><label class="k">password</label><input type="password" name="pw" value="secret"></div>
+        <div class="col"><label class="k">number (letters are refused)</label><input type="number" name="n" value="42" min="0" max="100"></div>
+      </div>
+      <div class="row">
+        <div class="col"><label class="k">textarea, resize both (drag the corner)</label><textarea name="msg" rows="3" cols="30">first line
+second</textarea></div>
+        <div class="col"><label class="k">resize: vertical only</label><textarea class="v" name="msg2" rows="3" cols="30"></textarea></div>
+        <div class="col"><label class="k">resize: none</label><textarea class="n" name="msg3" rows="3" cols="20"></textarea></div>
+      </div>
+    </fieldset>
+
+    <h2>Toggles</h2>
+    <fieldset>
+      <legend>Click the box, its label text, or Space when focused</legend>
+      <div class="row">
+        <label><input type="checkbox" name="a" value="yes" checked> Checked</label>
+        <label><input type="checkbox" name="b" value="yes"> Unchecked</label>
+        <label><input type="checkbox" name="c" disabled> Disabled</label>
+        <label><input type="checkbox" name="d" checked disabled> Disabled checked</label>
+      </div>
+      <div class="row">
+        <label><input type="radio" name="size2" value="s"> Small</label>
+        <label><input type="radio" name="size2" value="m" checked> Medium</label>
+        <label><input type="radio" name="size2" value="l"> Large</label>
+        <label><input type="radio" name="size2" value="x" disabled> XL</label>
+      </div>
+      <div class="row">
+        <label class="switch"><input type="checkbox" name="sw1" checked><span class="slider"></span></label>
+        <label class="switch"><input type="checkbox" name="sw2"><span class="slider"></span></label>
+        <span class="hint">CSS toggle switches (knob moves via transform: translateX)</span>
+      </div>
+    </fieldset>
+
+    <h2>Range</h2>
+    <fieldset>
+      <legend>Press and drag the thumb; arrows / PageUp / Home / End when focused</legend>
+      <div class="row">
+        <div class="col"><label class="k">0–100, step 1</label><input type="range" name="vol" min="0" max="100" value="60"></div>
+        <div class="col"><label class="k">0–1, step 0.05</label><input type="range" name="fine" min="0" max="1" step="0.05" value="0.5"></div>
+        <div class="col"><label class="k">disabled</label><input type="range" name="off" value="30" disabled></div>
+      </div>
+    </fieldset>
+
+    <h2>Buttons</h2>
+    <fieldset>
+      <legend>Submit shows everything above on /echo; Reset restores the markup state</legend>
+      <div class="row">
+        <button type="submit" name="btn" value="go" class="btn">Submit (GET)</button>
+        <button type="submit" formmethod="post" name="btn" value="post" class="btn">Submit (POST)</button>
+        <button type="reset" class="btn ghost">Reset</button>
+        <input type="submit" value="input submit">
+        <input type="reset" value="input reset">
+        <button type="button" class="btn ghost">Does nothing</button>
+      </div>
+    </fieldset>
+  </form>
+
+  <h2>Focus order</h2>
+  <fieldset>
+    <legend>Tab / Shift+Tab walk these in DOM order; a tabindex reorders</legend>
+    <div class="row">
+      <button class="btn ghost">first</button>
+      <button class="btn ghost" tabindex="1">tabindex=1 (goes first)</button>
+      <a href="/echo?link=clicked">a link</a>
+      <button class="btn ghost" tabindex="-1">tabindex=-1 (click only)</button>
+      <input type="text" value="last" size="8">
+    </div>
+  </fieldset>
+</body>
+</html>

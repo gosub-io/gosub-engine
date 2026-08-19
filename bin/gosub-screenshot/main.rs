@@ -68,7 +68,7 @@ struct Args {
     settle: u64,
     /// Interactions to replay after the first render, before capturing: `click:X,Y`, `move:X,Y`,
     /// `press:X,Y` / `release:X,Y` (drags; page px), `tab`, `shift-tab`, `key:NAME` (e.g.
-    /// `key:Backspace`), `type:TEXT` or `wait:MS` (e.g. for a submit navigation). Repeatable.
+    /// `key:Backspace`), `type:TEXT`, `scroll:DX,DY` (wheel) or `wait:MS`. Repeatable.
     #[arg(short = 'i', long = "interact")]
     interact: Vec<String>,
     /// Print the engine's timing table on exit
@@ -95,6 +95,16 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
         Some((kind, rest)) if kind.eq_ignore_ascii_case("key") => vec![key(rest, Modifiers::empty())],
         Some((kind, rest)) if kind.eq_ignore_ascii_case("type") => {
             rest.chars().map(|c| key(&c.to_string(), Modifiers::empty())).collect()
+        }
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("scroll") => {
+            let parsed = rest
+                .split_once(',')
+                .and_then(|(x, y)| Some((x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?)));
+            let Some((delta_x, delta_y)) = parsed else {
+                eprintln!("Bad scroll spec '{spec}': expected scroll:DX,DY");
+                std::process::exit(2);
+            };
+            vec![Step::Send(TabCommand::MouseScroll { delta_x, delta_y })]
         }
         Some((kind, rest)) if kind.eq_ignore_ascii_case("wait") => match rest.trim().parse::<u64>() {
             Ok(ms) => vec![Step::Wait(Duration::from_millis(ms))],
@@ -139,7 +149,7 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
         }
         _ => {
             eprintln!(
-                "Unknown interaction '{spec}' (expected click:X,Y | move:X,Y | press:X,Y | release:X,Y | tab | shift-tab | key:NAME | type:TEXT | wait:MS)"
+                "Unknown interaction '{spec}' (expected click:X,Y | move:X,Y | press:X,Y | release:X,Y | scroll:DX,DY | tab | shift-tab | key:NAME | type:TEXT | wait:MS)"
             );
             std::process::exit(2);
         }
@@ -321,7 +331,10 @@ fn main() {
                 }
                 Step::Send(cmd) => cmd,
             };
-            let is_input = matches!(cmd, TabCommand::MouseDown { .. } | TabCommand::KeyDown { .. });
+            let is_input = matches!(
+                cmd,
+                TabCommand::MouseDown { .. } | TabCommand::KeyDown { .. } | TabCommand::MouseScroll { .. }
+            );
             let is_move = matches!(cmd, TabCommand::MouseMove { .. });
             let tab_i = tab.clone();
             TOKIO_RT.block_on(async move {

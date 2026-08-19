@@ -682,6 +682,17 @@ impl Default for BgImageLayout {
     }
 }
 
+/// The open `<select>` dropdown as the pipeline sees it (mirrors the engine's state).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OpenPopup {
+    pub select: NodeId,
+    pub hover: Option<usize>,
+    pub active: Option<usize>,
+    pub first_row: usize,
+    pub viewport_top: f64,
+    pub viewport_height: f64,
+}
+
 // ── PipelineDocument trait ────────────────────────────────────────────────────
 
 pub trait PipelineDocument: Send + Sync {
@@ -732,8 +743,8 @@ pub trait PipelineDocument: Send + Sync {
         None
     }
 
-    /// The open `<select>` dropdown and its hovered option row.
-    fn open_select(&self) -> Option<(NodeId, Option<usize>)> {
+    /// The open `<select>` dropdown, if any.
+    fn open_select(&self) -> Option<OpenPopup> {
         None
     }
 
@@ -1266,8 +1277,15 @@ where
         self.doc.selected_option(select)
     }
 
-    fn open_select(&self) -> Option<(NodeId, Option<usize>)> {
-        self.doc.open_select()
+    fn open_select(&self) -> Option<OpenPopup> {
+        self.doc.open_select().map(|o| OpenPopup {
+            select: o.select,
+            hover: o.hover,
+            active: o.active,
+            first_row: o.first_row,
+            viewport_top: o.viewport.0,
+            viewport_height: o.viewport.1,
+        })
     }
 
     fn control_size(&self, id: NodeId) -> Option<(f64, f64)> {

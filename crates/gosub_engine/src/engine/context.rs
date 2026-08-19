@@ -45,6 +45,8 @@ use gosub_shared::{timing_start, timing_stop};
 use std::any::Any;
 use url::Url;
 
+mod select_ui;
+
 /// A textarea resize in progress: where the pointer started and the border-box size then.
 #[derive(Debug, Clone, Copy)]
 struct ResizeDrag {
@@ -189,6 +191,12 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     drag_range: Option<(NodeId, LayoutElementId)>,
     /// Textarea corner being dragged.
     drag_resize: Option<ResizeDrag>,
+    /// Last pointer position in viewport px (for wheel routing).
+    pointer: Option<(f64, f64)>,
+    /// Dropdown scrollbar thumb being dragged: pointer y and `first_row` at the press.
+    drag_popup_thumb: Option<(f64, usize)>,
+    /// Dropdown type-ahead: the letters typed so far and when the last one arrived.
+    typeahead: Option<(String, std::time::Instant)>,
 
     /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
     /// worker from the engine's `RenderBackend` (replacing the former per-backend cfg cascade).
@@ -241,6 +249,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             pending_submission: None,
             drag_range: None,
             drag_resize: None,
+            pointer: None,
+            drag_popup_thumb: None,
+            typeahead: None,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(MediaStore::new()),
@@ -872,15 +883,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         };
         let (leaf, lei) = self.hit_at(vp_x, vp_y);
 
-        if let Some((select, _)) = doc.open_select() {
-            if let Some(row) = self.popup_row_at(lei, vp_y) {
-                self.pick_option(select, row);
-                return true;
-            }
-            // Any other click just closes it.
-            doc.set_open_select(None);
-            self.invalidate_render();
-            return true;
+        if doc.open_select().is_some() {
+            return self.popup_press(lei, vp_x, vp_y);
         }
 
         let Some(target) = leaf.and_then(|l| focus::click_target(&doc, l)) else {
@@ -906,9 +910,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             None => {}
         }
         if edit::is_select(&doc, target) {
-            doc.set_open_select(Some((target, None)));
-            self.invalidate_render();
-            return true;
+            return self.open_select_popup(target);
         }
         self.toggle_control(target)
     }
@@ -918,6 +920,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     pub fn drag_move(&mut self, vp_x: f64, vp_y: f64) -> bool {
         if self.drag_range.is_some() {
             return self.drag_to(vp_x);
+        }
+        if let Some((start_y, start_first)) = self.drag_popup_thumb {
+            return self.popup_thumb_drag_to(start_y, start_first, vp_y);
         }
         let (Some(drag), Some(doc)) = (self.drag_resize, &self.document) else {
             return false;
@@ -940,10 +945,15 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     pub fn end_drag(&mut self) {
         self.drag_range = None;
         self.drag_resize = None;
+        self.drag_popup_thumb = None;
     }
 
     pub fn is_resizing(&self) -> bool {
         self.drag_resize.is_some()
+    }
+
+    pub fn pointer(&self) -> Option<(f64, f64)> {
+        self.pointer
     }
 
     /// A press inside the bottom-right grip of a resizable textarea starts a resize.
@@ -1092,63 +1102,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
     }
 
-    /// The dropdown row under a hit on the popup element, if the hit is the popup.
-    fn popup_row_at(&self, lei: Option<LayoutElementId>, vp_y: f64) -> Option<usize> {
-        let ll = self.active_layer_list()?;
-        let popup = ll.layout_tree.popup?;
-        if lei != Some(popup) {
-            return None;
-        }
-        let el = ll.layout_tree.get_node_by_id(popup)?;
-        let gosub_render_pipeline::layouter::ElementContext::SelectPopup(ctx) = &el.context else {
-            return None;
-        };
-        let inner = el.box_model.padding_box;
-        let row = ((vp_y + self.scroll_y - inner.y) / ctx.row_height).floor();
-        (row >= 0.0 && (row as usize) < ctx.options.len()).then_some(row as usize)
-    }
-
-    /// Choose row `row` of `select`'s options (as listed in the popup) and close the dropdown.
-    fn pick_option(&mut self, select: NodeId, row: usize) {
-        let Some(doc) = &self.document else {
-            return;
-        };
-        let option = self.active_layer_list().and_then(|ll| {
-            let el = ll.layout_tree.get_node_by_id(ll.layout_tree.popup?)?;
-            match &el.context {
-                gosub_render_pipeline::layouter::ElementContext::SelectPopup(ctx) => {
-                    ctx.options.get(row).filter(|o| !o.disabled).map(|o| o.node_id)
-                }
-                _ => None,
-            }
-        });
-        if let Some(option) = option {
-            doc.set_selected_option(select, Some(option));
-        }
-        doc.set_open_select(None);
-        self.invalidate_render();
-    }
-
-    /// Pointer over an open dropdown: highlight the row under it (paint-only).
-    pub fn popup_hover_at(&mut self, vp_x: f64, vp_y: f64) -> bool {
-        let Some(doc) = self.document.clone() else {
-            return false;
-        };
-        let Some((select, current)) = doc.open_select() else {
-            return false;
-        };
-        let (_, lei) = self.hit_at(vp_x, vp_y);
-        let row = self.popup_row_at(lei, vp_y);
-        if row == current {
-            return false;
-        }
-        doc.set_open_select(Some((select, row)));
-        if let Some(popup) = self.active_layer_list().and_then(|ll| ll.layout_tree.popup) {
-            self.paint_dirty_leis.push(popup);
-        }
-        true
-    }
-
     fn toggle_control(&mut self, node: NodeId) -> bool {
         let Some(doc) = &self.document else {
             return false;
@@ -1167,7 +1120,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     /// Key press for the focused control: text editing, or Space toggling a checkbox/radio.
     /// Returns whether the key was consumed. Ctrl/Meta chords are left alone.
-    pub fn edit_key(&mut self, key: &str, ctrl_or_meta: bool) -> bool {
+    pub fn edit_key(&mut self, key: &str, ctrl_or_meta: bool, alt: bool) -> bool {
         let Some(doc) = self.document.clone() else {
             return false;
         };
@@ -1178,7 +1131,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             return self.toggle_control(node);
         }
         if edit::is_select(&doc, node) && !ctrl_or_meta {
-            return self.select_key(node, key);
+            return self.select_key(node, key, alt);
         }
         if edit::range_params(&doc, node).is_some() && !ctrl_or_meta {
             return self.range_key(node, key);
@@ -1201,63 +1154,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         };
         self.apply_edit(node, &action);
         true
-    }
-
-    /// Keyboard on a focused `<select>`: arrows move the selection (closed) or the highlighted
-    /// row (open); Enter/Space open or commit; Escape closes.
-    fn select_key(&mut self, select: NodeId, key: &str) -> bool {
-        let Some(doc) = self.document.clone() else {
-            return false;
-        };
-        let options = edit::select_options(&doc, select);
-        let open = doc.open_select();
-        match key {
-            "Escape" if open.is_some() => {
-                doc.set_open_select(None);
-                self.invalidate_render();
-                true
-            }
-            "Enter" | " " => {
-                match open {
-                    Some((_, Some(row))) => self.pick_option(select, row),
-                    Some((_, None)) => {
-                        doc.set_open_select(None);
-                        self.invalidate_render();
-                    }
-                    None => {
-                        doc.set_open_select(Some((select, None)));
-                        self.invalidate_render();
-                    }
-                }
-                true
-            }
-            "ArrowDown" | "ArrowUp" if !options.is_empty() => {
-                let step: isize = if key == "ArrowDown" { 1 } else { -1 };
-                let chosen = doc.selected_option(select);
-                let cur = chosen.and_then(|c| options.iter().position(|&o| o == c));
-                let next = match cur {
-                    Some(i) => (i as isize + step).clamp(0, options.len() as isize - 1) as usize,
-                    None => 0,
-                };
-                doc.set_selected_option(select, Some(options[next]));
-                if let Some((s, _)) = open {
-                    // The popup lists every option; find the row of the new choice there.
-                    let row = self.active_layer_list().and_then(|ll| {
-                        let el = ll.layout_tree.get_node_by_id(ll.layout_tree.popup?)?;
-                        match &el.context {
-                            gosub_render_pipeline::layouter::ElementContext::SelectPopup(ctx) => {
-                                ctx.options.iter().position(|o| o.node_id == options[next])
-                            }
-                            _ => None,
-                        }
-                    });
-                    doc.set_open_select(Some((s, row)));
-                }
-                self.invalidate_render();
-                true
-            }
-            _ => false,
-        }
     }
 
     /// Committed text (IME / `TextInput`) into the focused text control.
@@ -1324,8 +1220,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             return false;
         };
         if doc.open_select().is_some() {
-            doc.set_open_select(None);
-            self.invalidate_render();
+            self.close_select_popup();
         }
         // Only elements with a box are reachable by keyboard; no render yet = every focusable.
         let rendered: Option<std::collections::HashSet<NodeId>> = self
@@ -1356,6 +1251,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// [`Self::hover_cursor`].
     pub fn update_hover(&mut self, vp_x: f64, vp_y: f64) -> (bool, bool, Option<String>) {
         let _t_total = gosub_shared::timing_guard!("hover.total");
+        self.pointer = Some((vp_x, vp_y));
 
         let (new_leaf, new_lei) = {
             let _t = gosub_shared::timing_guard!("hover.hit_test");

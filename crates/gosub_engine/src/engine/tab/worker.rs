@@ -859,7 +859,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // The focused control gets non-Tab keys first (typing; more editing follows).
         if key != "Tab" {
             let chord = modifiers.intersects(Modifiers::CONTROL | Modifiers::META);
-            if self.context.edit_key(key, chord) {
+            let alt = modifiers.contains(Modifiers::ALT);
+            if self.context.edit_key(key, chord, alt) {
                 self.runtime.dirty = true;
                 self.runtime.render_now = true;
                 self.run_pending_submission();
@@ -1150,7 +1151,17 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }
-            TabCommand::MouseScroll { delta_x, delta_y } => self.scroll_page_by(delta_x, delta_y),
+            TabCommand::MouseScroll { delta_x, delta_y } => {
+                // An open dropdown under the pointer takes the wheel.
+                if let Some((px, py)) = self.context.pointer() {
+                    if self.context.popup_scroll(px, py, delta_y as f64) {
+                        self.runtime.dirty = true;
+                        self.runtime.render_now = true;
+                        return ControlFlow::Continue;
+                    }
+                }
+                self.scroll_page_by(delta_x, delta_y)
+            }
             TabCommand::MouseMove { x, y } => {
                 // Process the hit-test immediately so hover doesn't wait for the next tick.
                 let (visual_dirty, url_changed, link_url) = self.context.update_hover(x as f64, y as f64);

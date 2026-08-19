@@ -10,7 +10,7 @@ use crate::common::media::MediaStore;
 use crate::layering::layer::LayerList;
 use crate::layouter::{
     BackgroundMedia, ElementContext, ElementContextFormControl, ElementContextSelectPopup, FormControl,
-    LayoutElementId, LayoutElementNode, MeterLevel,
+    LayoutElementId, LayoutElementNode, MeterLevel, PopupRow,
 };
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
@@ -651,8 +651,9 @@ impl Painter {
         lo
     }
 
-    /// An open `<select>` dropdown: option rows in a bordered white box; the hovered row (or the
-    /// selected one while the pointer is outside) is highlighted.
+    /// An open `<select>` dropdown per the design guide: shadowed white box, 30px rows, light
+    /// hover / solid keyboard-active highlight, checkmark on the committed value, muted group
+    /// labels and disabled options, scrollbar when needed.
     fn select_popup_commands(
         &self,
         popup: &ElementContextSelectPopup,
@@ -660,59 +661,116 @@ impl Painter {
     ) -> Vec<PaintCommand> {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let bb = layout_element.box_model.border_box;
-        let inner = layout_element.box_model.padding_box;
+        let mb = layout_element.box_model.margin_box;
+        let inner = layout_element.box_model.content_box;
         let mut commands = Vec::new();
 
-        let gray = Brush::solid(Color::from_rgb8(0x76, 0x76, 0x76));
+        if let Some(shadow) = popup.shadow {
+            commands.push(PaintCommand::svg(shadow, Rectangle::new(mb)));
+        }
+        let border = Brush::solid(Color::from_rgb8(0xc7, 0xc7, 0xc7));
         commands.push(PaintCommand::rectangle(
             Rectangle::new(bb)
                 .with_background(Brush::solid(Color::WHITE))
                 .with_border(Border::new(
                     1.0,
                     BorderStyle::Solid,
-                    [gray.clone(), gray.clone(), gray.clone(), gray],
-                )),
+                    [border.clone(), border.clone(), border.clone(), border],
+                ))
+                .with_radius(Radius::new(6.0)),
         ));
 
-        let hovered = doc.open_select().and_then(|(_, row)| row);
+        let open = doc.open_select();
+        let (hovered, active, first) = open.map_or((None, None, 0), |o| (o.hover, o.active, o.first_row));
         let chosen = doc.selected_option(popup.select);
-        let highlight = hovered.or_else(|| popup.options.iter().position(|o| Some(o.node_id) == chosen));
+        let bar_w = popup.scrollbar_width();
+        let mut ink_font = popup.font_info.clone();
+        ink_font.alignment = FontAlignment::Start;
 
-        for (i, opt) in popup.options.iter().enumerate() {
-            let row = Rect::new(
+        for (i, row) in popup.rows.iter().enumerate().skip(first).take(popup.visible_rows) {
+            let rect = Rect::new(
                 inner.x,
-                inner.y + i as f64 * popup.row_height,
-                inner.width,
+                inner.y + (i - first) as f64 * popup.row_height,
+                inner.width - bar_w,
                 popup.row_height,
             );
-            let is_hl = highlight == Some(i) && !opt.disabled;
-            if is_hl {
+            let (label, is_group, disabled, is_chosen) = match row {
+                PopupRow::Group { label } => (label, true, false, false),
+                PopupRow::Option {
+                    label,
+                    disabled,
+                    node_id,
+                } => (label, false, *disabled, Some(*node_id) == chosen),
+            };
+            let selectable = row.selectable();
+            let is_active = selectable && active == Some(i);
+            let is_hover = selectable && !is_active && hovered == Some(i);
+            if is_active || is_hover {
+                let bg = if is_active {
+                    Color::from_rgb8(0x3a, 0x7a, 0xfe)
+                } else {
+                    Color::from_rgb8(0xe6, 0xf0, 0xff)
+                };
                 commands.push(PaintCommand::rectangle(
-                    Rectangle::new(row).with_background(Brush::solid(Color::from_rgb8(0x1e, 0x6f, 0xd9))),
+                    Rectangle::new(rect)
+                        .with_background(Brush::solid(bg))
+                        .with_radius(Radius::new(4.0)),
                 ));
             }
-            let color = if opt.disabled {
-                Color::from_rgb8(0xa0, 0xa0, 0xa0)
-            } else if is_hl {
+            let color = if is_active {
                 Color::WHITE
+            } else if is_group {
+                Color::from_rgb8(0x6b, 0x6b, 0x6b)
+            } else if disabled {
+                Color::from_rgb8(0x88, 0x88, 0x88)
             } else {
-                Color::BLACK
+                Color::from_rgb8(0x11, 0x11, 0x11)
+            };
+            let text = if is_group {
+                format!("\u{2014} {label} \u{2014}")
+            } else {
+                label.clone()
             };
             let text_rect = Rect::new(
-                row.x + 6.0,
-                row.y + 3.0,
-                (row.width - 12.0).max(1.0),
-                popup.row_height - 6.0,
+                rect.x + 10.0,
+                rect.y + 6.0,
+                (rect.width - 20.0 - 24.0).max(1.0),
+                rect.height - 12.0,
             );
-            let shaped = self.shape_text(&opt.label, &popup.font_info, text_rect.width, 1_000_000_000.0);
+            let shaped = self.shape_text(&text, &ink_font, text_rect.width, 1_000_000_000.0);
             commands.push(PaintCommand::text(Text::new(
                 text_rect,
-                &opt.label,
-                &popup.font_info,
+                &text,
+                &ink_font,
                 Brush::solid(color),
                 1_000_000_000.0,
                 shaped,
             )));
+            if is_chosen && !is_active {
+                if let Some(check) = popup.check {
+                    let s = 16.0;
+                    commands.push(PaintCommand::svg(
+                        check,
+                        Rectangle::new(Rect::new(
+                            rect.x + rect.width - 10.0 - s,
+                            rect.y + (rect.height - s) / 2.0,
+                            s,
+                            s,
+                        )),
+                    ));
+                }
+            }
+        }
+
+        if let Some((track, thumb)) = popup.scrollbar(inner, first) {
+            commands.push(PaintCommand::rectangle(
+                Rectangle::new(track).with_background(Brush::solid(Color::from_rgb8(0xf0, 0xf0, 0xf0))),
+            ));
+            commands.push(PaintCommand::rectangle(
+                Rectangle::new(thumb)
+                    .with_background(Brush::solid(Color::from_rgb8(0xb8, 0xb8, 0xb8)))
+                    .with_radius(Radius::new(4.0)),
+            ));
         }
         commands
     }
@@ -883,11 +941,13 @@ impl Painter {
                     shaped,
                 )));
             }
-            FormControl::Select { label } => {
-                let arrow_w = 14.0_f64.min(content_box.width / 2.0);
+            FormControl::Select { label, chevron } => {
+                // Label in the content area; chevron centred in the 28px arrow area at the right
+                // (the padding the UA sheet reserves for it).
+                let pb = layout_element.box_model.padding_box;
+                let arrow_w = 28.0_f64.min(pb.width / 2.0);
                 if !label.is_empty() {
                     let rect = line_rect(0.0);
-                    let rect = Rect::new(rect.x, rect.y, (rect.width - arrow_w).max(1.0), rect.height);
                     let shaped = self.shape_text(label, &fc.font_info, rect.width, 1_000_000_000.0);
                     commands.push(PaintCommand::text(Text::new(
                         rect,
@@ -898,20 +958,18 @@ impl Painter {
                         shaped,
                     )));
                 }
-                let arrow = "\u{25BE}";
-                let mut arrow_font = fc.font_info.clone();
-                arrow_font.alignment = FontAlignment::Center;
-                let rect = line_rect(0.0);
-                let rect = Rect::new(rect.x + (rect.width - arrow_w).max(0.0), rect.y, arrow_w, rect.height);
-                let shaped = self.shape_text(arrow, &arrow_font, rect.width, rect.width);
-                commands.push(PaintCommand::text(Text::new(
-                    rect,
-                    arrow,
-                    &arrow_font,
-                    css_text_brush(),
-                    rect.width,
-                    shaped,
-                )));
+                if let Some(chevron) = chevron {
+                    let s = 16.0_f64.min(pb.height);
+                    commands.push(PaintCommand::svg(
+                        *chevron,
+                        Rectangle::new(Rect::new(
+                            pb.x + pb.width - arrow_w + (arrow_w - s) / 2.0,
+                            pb.y + (pb.height - s) / 2.0,
+                            s,
+                            s,
+                        )),
+                    ));
+                }
             }
             FormControl::Checkbox(icons) | FormControl::Radio(icons) => {
                 let doc = &self.layer_list.layout_tree.render_tree.doc;

@@ -1361,8 +1361,24 @@ input[type="color" i] {
     background-color: ButtonFace;
     border: 1px solid #767676;
 }
+/* Dropdown per the design guide: 32px control, 10px text inset, 28px arrow area, 6px corners. */
 select {
-    padding: 1px 4px;
+    height: 32px;
+    padding: 0 28px 0 10px;
+    border: 1px solid #c7c7c7;
+    border-radius: 6px;
+    background-color: #ffffff;
+    color: #111111;
+    box-sizing: border-box;
+}
+select:focus-visible {
+    outline: 2px solid #3a7afe;
+    outline-offset: 0;
+}
+select:disabled {
+    background-color: #f2f2f2;
+    color: #888888;
+    opacity: 1;
 }
 textarea {
     resize: both;

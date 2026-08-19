@@ -175,10 +175,25 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn control_size(&self, _id: NodeId) -> Option<(f64, f64)> {
         None
     }
-    /// The `<select>` whose dropdown is open, with the option row the pointer is over.
-    fn open_select(&self) -> Option<(NodeId, Option<usize>)> {
+    /// The open `<select>` dropdown, if any.
+    fn open_select(&self) -> Option<OpenSelect> {
         None
     }
+}
+
+/// An open `<select>` dropdown. Row indices count every popup row (options and group labels).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OpenSelect {
+    pub select: NodeId,
+    /// Row under the pointer (light highlight).
+    pub hover: Option<usize>,
+    /// Row the keyboard moved to (strong highlight); committed by Enter/Space.
+    pub active: Option<usize>,
+    /// First row shown when the list is taller than the popup.
+    pub first_row: usize,
+    /// Viewport `(top, height)` in page px when the dropdown opened: decides whether the popup
+    /// opens below or above, and how tall it may be.
+    pub viewport: (f64, f64),
 }
 
 /// The DOM value of a text control (as opposed to its `value` attribute) plus the caret as a

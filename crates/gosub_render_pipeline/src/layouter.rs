@@ -139,15 +139,34 @@ pub enum FormControl {
     /// Closed dropdown showing the selected option's label.
     Select {
         label: String,
+        chevron: Option<MediaId>,
     },
 }
 
-/// One row of an open `<select>` dropdown.
+/// One row of an open `<select>` dropdown: an option, or an `<optgroup>` label.
 #[derive(Debug, Clone)]
-pub struct PopupOption {
-    pub node_id: DomNodeId,
-    pub label: String,
-    pub disabled: bool,
+pub enum PopupRow {
+    Option {
+        node_id: DomNodeId,
+        label: String,
+        disabled: bool,
+    },
+    Group {
+        label: String,
+    },
+}
+
+impl PopupRow {
+    /// An enabled option: can be hovered, keyboard-selected and committed.
+    pub fn selectable(&self) -> bool {
+        matches!(self, PopupRow::Option { disabled: false, .. })
+    }
+    pub fn option_id(&self) -> Option<DomNodeId> {
+        match self {
+            PopupRow::Option { node_id, .. } => Some(*node_id),
+            PopupRow::Group { .. } => None,
+        }
+    }
 }
 
 /// An open `<select>` dropdown: a synthetic, out-of-flow element positioned under its select
@@ -156,9 +175,86 @@ pub struct PopupOption {
 #[derive(Debug, Clone)]
 pub struct ElementContextSelectPopup {
     pub select: DomNodeId,
-    pub options: Vec<PopupOption>,
+    pub rows: Vec<PopupRow>,
     pub font_info: FontInfo,
     pub row_height: f64,
+    /// Rows the popup shows at once; the list scrolls when it has more.
+    pub visible_rows: usize,
+    /// Soft drop shadow, rendered as a blurred SVG under the popup.
+    pub shadow: Option<MediaId>,
+    /// Checkmark drawn on the committed option's row.
+    pub check: Option<MediaId>,
+    /// Inset between the border and the first/last row.
+    pub pad_y: f64,
+}
+
+/// Popup chrome per the design guide.
+pub const SELECT_POPUP_ROW_HEIGHT: f64 = 30.0;
+pub const SELECT_POPUP_MAX_HEIGHT: f64 = 320.0;
+pub const SELECT_POPUP_MIN_HEIGHT: f64 = 240.0;
+/// How far the shadow reaches past the popup box (left/right, top, bottom).
+pub const SELECT_POPUP_SHADOW: (f64, f64, f64) = (12.0, 8.0, 16.0);
+/// Inset between the popup border and its first/last row.
+pub const SELECT_POPUP_PAD_Y: f64 = 4.0;
+
+/// Where a dropdown with `rows` rows opens for a select at `anchor` (border box, page px) given
+/// the viewport `(top, height)` in page px: `(opens above, rows shown)`. Below unless the space
+/// there is short of the minimum height and there is more room above; rows are whatever fits in
+/// the lesser of max-height and that space.
+pub fn popup_placement(anchor: crate::common::geo::Rect, viewport: (f64, f64), rows: usize) -> (bool, usize) {
+    let (_, st, sb) = SELECT_POPUP_SHADOW;
+    let chrome = SELECT_POPUP_PAD_Y * 2.0 + 2.0;
+    let (vp_top, vp_h) = (viewport.0, viewport.1.max(1.0));
+    let below = (vp_top + vp_h - (anchor.y + anchor.height) - sb - 4.0).max(0.0);
+    let above = (anchor.y - vp_top - st - 4.0).max(0.0);
+    let wanted = SELECT_POPUP_ROW_HEIGHT * rows as f64 + chrome;
+    let open_above = below < SELECT_POPUP_MIN_HEIGHT.min(wanted) && above > below;
+    let space = if open_above { above } else { below };
+    let avail = SELECT_POPUP_MAX_HEIGHT
+        .min(space)
+        .max(SELECT_POPUP_ROW_HEIGHT * 2.0 + chrome);
+    let visible = (((avail - chrome) / SELECT_POPUP_ROW_HEIGHT).floor() as usize).clamp(1, rows.max(1));
+    (open_above, visible)
+}
+
+impl ElementContextSelectPopup {
+    pub fn scrolls(&self) -> bool {
+        self.rows.len() > self.visible_rows
+    }
+
+    /// Width of the scrollbar strip at the popup's right edge (0 when the list fits).
+    pub fn scrollbar_width(&self) -> f64 {
+        if self.scrolls() {
+            10.0
+        } else {
+            0.0
+        }
+    }
+
+    /// Highest `first_row` value.
+    pub fn max_first_row(&self) -> usize {
+        self.rows.len().saturating_sub(self.visible_rows)
+    }
+
+    /// Scrollbar track and thumb for a given `first_row`, inside the popup's padding box.
+    pub fn scrollbar(
+        &self,
+        inner: crate::common::geo::Rect,
+        first_row: usize,
+    ) -> Option<(crate::common::geo::Rect, crate::common::geo::Rect)> {
+        if !self.scrolls() {
+            return None;
+        }
+        let bar_w = self.scrollbar_width();
+        let track = crate::common::geo::Rect::new(inner.x + inner.width - bar_w, inner.y, bar_w, inner.height);
+        let thumb_h = (inner.height * self.visible_rows as f64 / self.rows.len() as f64).max(12.0);
+        let travel = inner.height - thumb_h;
+        let thumb_y = track.y + travel * (first_row as f64 / self.max_first_row().max(1) as f64);
+        Some((
+            track,
+            crate::common::geo::Rect::new(track.x + 1.0, thumb_y, bar_w - 2.0, thumb_h),
+        ))
+    }
 }
 
 /// CSS `resize` on a text control.

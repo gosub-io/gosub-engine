@@ -75,6 +75,37 @@ fn radio_svg(checked: bool, disabled: bool) -> String {
     )
 }
 
+/// Dropdown chevron (16px box, 2px stroke); `muted` for a disabled control.
+pub fn chevron(store: &MediaStore, muted: bool) -> Option<MediaId> {
+    let color = if muted { "#bbbbbb" } else { "#4a4a4a" };
+    let svg = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M4 6.2 8 10.2 12 6.2" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>"##
+    );
+    store.load_media_from_data(MediaType::Svg, svg.as_bytes()).ok()
+}
+
+/// Checkmark for the committed option in a dropdown.
+pub fn check(store: &MediaStore, on_blue: bool) -> Option<MediaId> {
+    let color = if on_blue { "#ffffff" } else { "#111111" };
+    let svg = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>"##
+    );
+    store.load_media_from_data(MediaType::Svg, svg.as_bytes()).ok()
+}
+
+/// A soft drop shadow for a `w`×`h` box with `radius` corners: `0 4px 12px rgba(0,0,0,.12)`,
+/// rendered by the SVG rasterizer's Gaussian blur. The image is the box inflated by
+/// [`crate::layouter::SELECT_POPUP_SHADOW`].
+pub fn drop_shadow(store: &MediaStore, w: f64, h: f64, radius: f64) -> Option<MediaId> {
+    let (sx, st, sb) = crate::layouter::SELECT_POPUP_SHADOW;
+    let (iw, ih) = (w + sx * 2.0, h + st + sb);
+    let svg = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="{iw}" height="{ih}" viewBox="0 0 {iw} {ih}"><defs><filter id="b" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6"/></filter></defs><rect x="{sx}" y="{}" width="{w}" height="{h}" rx="{radius}" fill="rgba(0,0,0,0.12)" filter="url(#b)"/></svg>"##,
+        st + 4.0
+    );
+    store.load_media_from_data(MediaType::Svg, svg.as_bytes()).ok()
+}
+
 /// The textarea resize grip: two short diagonal lines in the corner.
 pub fn resize_grip(store: &MediaStore) -> Option<MediaId> {
     let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M11 5 5 11 M11 9 9 11" fill="none" stroke="#8a8fa0" stroke-width="1.5" stroke-linecap="round"/></svg>"##;
