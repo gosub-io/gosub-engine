@@ -1161,9 +1161,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     });
                 }
                 self.report_cursor(self.context.hover_cursor());
-                if visual_dirty || self.context.popup_hover_at(x as f64, y as f64) || self.context.drag_move(x as f64) {
+                if visual_dirty
+                    || self.context.popup_hover_at(x as f64, y as f64)
+                    || self.context.drag_move(x as f64, y as f64)
+                {
                     self.runtime.dirty = true;
-                    self.runtime.render_now = true;
+                    // A resize re-layouts the page; let the frame tick pace it so a burst of
+                    // pointer events collapses into one render instead of one each.
+                    self.runtime.render_now = !self.context.is_resizing();
                 }
                 ControlFlow::Continue
             }

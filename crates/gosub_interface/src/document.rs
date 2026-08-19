@@ -171,6 +171,10 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn selected_option(&self, _select: NodeId) -> Option<NodeId> {
         None
     }
+    /// Border-box size the user dragged a resizable control (`<textarea>`) to.
+    fn control_size(&self, _id: NodeId) -> Option<(f64, f64)> {
+        None
+    }
     /// The `<select>` whose dropdown is open, with the option row the pointer is over.
     fn open_select(&self) -> Option<(NodeId, Option<usize>)> {
         None

@@ -1364,6 +1364,9 @@ input[type="color" i] {
 select {
     padding: 1px 4px;
 }
+textarea {
+    resize: both;
+}
 progress {
     width: 160px;
     height: 16px;

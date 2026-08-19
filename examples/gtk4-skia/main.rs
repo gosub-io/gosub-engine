@@ -525,6 +525,21 @@ fn main() {
                 });
             }
         });
+        click_ctl.connect_released({
+            let tab = tab.clone();
+            move |_, _, x, y| {
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseUp {
+                            x: x as f32,
+                            y: y as f32,
+                            button: gosub_engine::events::MouseButton::Left,
+                        })
+                        .await;
+                });
+            }
+        });
         drawing_area.add_controller(click_ctl);
 
         // Clicking the page gives the area GTK focus so keys reach it; Tab is swallowed so GTK

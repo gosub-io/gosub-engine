@@ -16,7 +16,7 @@ use crate::layouter::text::get_text_layout;
 use crate::layouter::{
     box_model, BackgroundMedia, CanLayout, ElementContext, ElementContextFormControl, ElementContextImage,
     ElementContextSelectPopup, ElementContextSvg, ElementContextText, FormControl, LayoutElementId, LayoutElementNode,
-    LayoutTree, MeterLevel, PopupOption,
+    LayoutTree, MeterLevel, PopupOption, Resize,
 };
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
@@ -1162,6 +1162,16 @@ impl TaffyLayouter {
                 if taffy_context.is_none() {
                     if let Some(fc) = self.extract_form_control(layout_tree, dom_node, data) {
                         taffy_context = Some(TaffyContext::FormControl(fc));
+                        // A drag-resized control keeps the size the user gave it (border box).
+                        if let Some((w, h)) = layout_tree.render_tree.doc.control_size(dom_node.node_id) {
+                            taffy_style.box_sizing = taffy::BoxSizing::BorderBox;
+                            taffy_style.size = Size {
+                                width: Dimension::from_length(w as f32),
+                                height: Dimension::from_length(h as f32),
+                            };
+                            taffy_style.min_size = Size::auto();
+                            taffy_style.max_size = Size::auto();
+                        }
                     }
                 }
 
@@ -1457,6 +1467,8 @@ impl TaffyLayouter {
                                 placeholder,
                                 masked: ty == "password",
                                 multiline: false,
+                                resize: Resize::None,
+                                grip: None,
                             },
                             d,
                         )
@@ -1476,12 +1488,21 @@ impl TaffyLayouter {
                     .unwrap_or(2);
                 let cell = self.measure_control_text("0", &font_info);
                 let d = geo::Dimension::new(cell.width * cols as f64 + 4.0, cell.height * rows as f64);
+                let resize = match doc.get_style(node_id, &StyleProperty::Resize) {
+                    Value::Keyword(k) => Resize::from_keyword(&lookup(k)),
+                    _ => Resize::None,
+                };
+                let grip = (resize != Resize::None)
+                    .then(|| control_icons::resize_grip(&self.media_store))
+                    .flatten();
                 (
                     FormControl::TextField {
                         value,
                         placeholder,
                         masked: false,
                         multiline: true,
+                        resize,
+                        grip,
                     },
                     d,
                 )

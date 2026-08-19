@@ -106,6 +106,9 @@ pub enum FormControl {
         masked: bool,
         /// `<textarea>`: wrap and top-align.
         multiline: bool,
+        /// Which axes the user may drag-resize (CSS `resize`), with the grip icon to show.
+        resize: Resize,
+        grip: Option<MediaId>,
     },
     /// `<input type=button/submit/reset/file>`; `<button>` renders its children normally.
     Button {
@@ -156,6 +159,26 @@ pub struct ElementContextSelectPopup {
     pub options: Vec<PopupOption>,
     pub font_info: FontInfo,
     pub row_height: f64,
+}
+
+/// CSS `resize` on a text control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Resize {
+    None,
+    Both,
+    Horizontal,
+    Vertical,
+}
+
+impl Resize {
+    pub fn from_keyword(k: &str) -> Resize {
+        match k {
+            "both" => Resize::Both,
+            "horizontal" | "inline" => Resize::Horizontal,
+            "vertical" | "block" => Resize::Vertical,
+            _ => Resize::None,
+        }
+    }
 }
 
 /// Meter color band: green / yellow / red.

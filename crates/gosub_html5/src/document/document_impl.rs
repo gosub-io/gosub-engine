@@ -41,6 +41,8 @@ pub struct DocumentImpl<C: HasDocument> {
     selected: parking_lot::RwLock<HashMap<NodeId, NodeId>>,
     /// The open dropdown: its `<select>` and the hovered option row.
     open_select: parking_lot::RwLock<Option<(NodeId, Option<usize>)>>,
+    /// Controls the user resized, with their border-box size.
+    sizes: parking_lot::RwLock<HashMap<NodeId, (f64, f64)>>,
 }
 
 #[derive(Debug, Default)]
@@ -81,6 +83,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             checked: parking_lot::RwLock::new(HashMap::new()),
             selected: parking_lot::RwLock::new(HashMap::new()),
             open_select: parking_lot::RwLock::new(None),
+            sizes: parking_lot::RwLock::new(HashMap::new()),
         };
         let root = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
         doc.arena.register_node(root);
@@ -459,6 +462,10 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     fn open_select(&self) -> Option<(NodeId, Option<usize>)> {
         *self.open_select.read()
     }
+
+    fn control_size(&self, id: NodeId) -> Option<(f64, f64)> {
+        self.sizes.read().get(&id).copied()
+    }
 }
 
 // ── Internal helpers (not part of Document trait) ───────────────────────────
@@ -504,6 +511,19 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             }
             None => {
                 map.remove(&select);
+            }
+        }
+    }
+
+    /// `None` reverts to the stylesheet size.
+    pub fn set_control_size(&self, id: NodeId, size: Option<(f64, f64)>) {
+        let mut map = self.sizes.write();
+        match size {
+            Some(s) => {
+                map.insert(id, s);
+            }
+            None => {
+                map.remove(&id);
             }
         }
     }

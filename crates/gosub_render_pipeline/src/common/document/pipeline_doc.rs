@@ -737,6 +737,11 @@ pub trait PipelineDocument: Send + Sync {
         None
     }
 
+    /// Border-box size the user resized a control to.
+    fn control_size(&self, _id: NodeId) -> Option<(f64, f64)> {
+        None
+    }
+
     /// Forces the next `get_own_style` to re-evaluate CSS selectors (including `:hover`) from
     /// scratch. No-op for backends that do not cache styles.
     fn clear_style_cache(&self) {}
@@ -1257,6 +1262,10 @@ where
 
     fn open_select(&self) -> Option<(NodeId, Option<usize>)> {
         self.doc.open_select()
+    }
+
+    fn control_size(&self, id: NodeId) -> Option<(f64, f64)> {
+        self.doc.control_size(id)
     }
 
     fn is_display_none(&self, id: NodeId) -> bool {

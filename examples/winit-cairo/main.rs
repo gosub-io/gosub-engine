@@ -301,6 +301,28 @@ impl ApplicationHandler<()> for BrowserApp {
                 }
             }
 
+            // Release always reaches the engine (even over the address bar) so drags end.
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: WinitMouseButton::Left,
+                ..
+            } => {
+                let (x, y) = (
+                    self.content_x_to_css(self.cursor.x),
+                    self.content_y_to_css(self.cursor.y),
+                );
+                let tab = self.tab.clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseUp {
+                            x,
+                            y,
+                            button: MouseButton::Left,
+                        })
+                        .await;
+                });
+            }
+
             WindowEvent::MouseWheel { delta, .. } => {
                 let (dx, dy) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_MULTIPLIER, y * SCROLL_MULTIPLIER),

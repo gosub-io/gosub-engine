@@ -75,6 +75,12 @@ fn radio_svg(checked: bool, disabled: bool) -> String {
     )
 }
 
+/// The textarea resize grip: two short diagonal lines in the corner.
+pub fn resize_grip(store: &MediaStore) -> Option<MediaId> {
+    let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M11 5 5 11 M11 9 9 11" fill="none" stroke="#8a8fa0" stroke-width="1.5" stroke-linecap="round"/></svg>"##;
+    store.load_media_from_data(MediaType::Svg, svg.as_bytes()).ok()
+}
+
 /// Load (or fetch from the store's content cache) the four looks of a checkbox or radio.
 pub fn load(store: &MediaStore, radio: bool) -> Option<ToggleIcons> {
     let svg = |checked, disabled| {

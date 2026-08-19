@@ -769,8 +769,17 @@ impl Painter {
                 placeholder,
                 masked,
                 multiline,
+                grip,
                 ..
             } => {
+                if let Some(grip) = grip {
+                    let pb = layout_element.box_model.padding_box;
+                    let g = 12.0_f64.min(pb.width).min(pb.height);
+                    commands.push(PaintCommand::svg(
+                        *grip,
+                        Rectangle::new(Rect::new(pb.x + pb.width - g - 1.0, pb.y + pb.height - g - 1.0, g, g)),
+                    ));
+                }
                 // The typed value/caret are read here, not at layout, so typing is paint-only.
                 let doc = &self.layer_list.layout_tree.render_tree.doc;
                 let focused = doc.is_focused(dom_node_id);

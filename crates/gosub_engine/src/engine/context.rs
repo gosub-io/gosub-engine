@@ -45,6 +45,16 @@ use gosub_shared::{timing_start, timing_stop};
 use std::any::Any;
 use url::Url;
 
+/// A textarea resize in progress: where the pointer started and the border-box size then.
+#[derive(Debug, Clone, Copy)]
+struct ResizeDrag {
+    node: NodeId,
+    start: (f64, f64),
+    size: (f64, f64),
+    horizontal: bool,
+    vertical: bool,
+}
+
 /// GPU-scene cache: the layer list (for hit-testing) plus the whole-page paint command list
 /// (for the backend to render). The GPU equivalent of [`PipelineCache`] - it skips tiling,
 /// rasterization, and tile compositing.
@@ -177,6 +187,8 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     pending_submission: Option<Submission>,
     /// Range slider being dragged: the input and its layout element (for track geometry).
     drag_range: Option<(NodeId, LayoutElementId)>,
+    /// Textarea corner being dragged.
+    drag_resize: Option<ResizeDrag>,
 
     /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
     /// worker from the engine's `RenderBackend` (replacing the former per-backend cfg cascade).
@@ -228,6 +240,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             paint_dirty_leis: Vec::new(),
             pending_submission: None,
             drag_range: None,
+            drag_resize: None,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(MediaStore::new()),
@@ -880,6 +893,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 return self.drag_to(vp_x);
             }
         }
+        // Pressing a textarea's grip corner starts a resize.
+        if leaf == Some(target) {
+            if let Some(drag) = lei.and_then(|lei| self.resize_grip_hit(target, lei, vp_x, vp_y)) {
+                self.drag_resize = Some(drag);
+                return true;
+            }
+        }
         match form::button_kind(&doc, target) {
             Some(false) => return self.submit(target, Some(target)),
             Some(true) => return self.reset_form(target),
@@ -893,13 +913,66 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.toggle_control(target)
     }
 
-    /// Pointer moved while a slider is held: follow it (paint-only).
-    pub fn drag_move(&mut self, vp_x: f64) -> bool {
-        self.drag_range.is_some() && self.drag_to(vp_x)
+    /// Pointer moved with the button held: follow a slider drag (paint-only) or a textarea
+    /// resize (re-layout).
+    pub fn drag_move(&mut self, vp_x: f64, vp_y: f64) -> bool {
+        if self.drag_range.is_some() {
+            return self.drag_to(vp_x);
+        }
+        let (Some(drag), Some(doc)) = (self.drag_resize, &self.document) else {
+            return false;
+        };
+        let (mut w, mut h) = drag.size;
+        if drag.horizontal {
+            w = (drag.size.0 + vp_x - drag.start.0).max(40.0);
+        }
+        if drag.vertical {
+            h = (drag.size.1 + vp_y - drag.start.1).max(30.0);
+        }
+        if doc.control_size(drag.node) == Some((w, h)) {
+            return false;
+        }
+        doc.set_control_size(drag.node, Some((w, h)));
+        self.invalidate_render();
+        true
     }
 
     pub fn end_drag(&mut self) {
         self.drag_range = None;
+        self.drag_resize = None;
+    }
+
+    pub fn is_resizing(&self) -> bool {
+        self.drag_resize.is_some()
+    }
+
+    /// A press inside the bottom-right grip of a resizable textarea starts a resize.
+    fn resize_grip_hit(&self, node: NodeId, lei: LayoutElementId, vp_x: f64, vp_y: f64) -> Option<ResizeDrag> {
+        use gosub_render_pipeline::layouter::{ElementContext, FormControl, Resize};
+        let ll = self.active_layer_list()?;
+        let el = ll.layout_tree.get_node_by_id(lei)?;
+        let ElementContext::FormControl(fc) = &el.context else {
+            return None;
+        };
+        let FormControl::TextField { resize, .. } = &fc.control else {
+            return None;
+        };
+        if *resize == Resize::None {
+            return None;
+        }
+        let bb = el.box_model.border_box;
+        let (x, y) = (vp_x + self.scroll_x, vp_y + self.scroll_y);
+        const GRIP: f64 = 16.0;
+        if x < bb.x + bb.width - GRIP || y < bb.y + bb.height - GRIP {
+            return None;
+        }
+        Some(ResizeDrag {
+            node,
+            start: (vp_x, vp_y),
+            size: (bb.width, bb.height),
+            horizontal: matches!(resize, Resize::Both | Resize::Horizontal),
+            vertical: matches!(resize, Resize::Both | Resize::Vertical),
+        })
     }
 
     /// Set the dragged slider from a viewport x, mapping the thumb's travel across the content

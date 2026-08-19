@@ -303,6 +303,7 @@ pub enum StyleProperty {
     OutlineStyle,
     OutlineColor,
     OutlineOffset,
+    Resize,
 }
 
 impl StyleProperty {
@@ -391,6 +392,7 @@ impl StyleProperty {
             StyleProperty::OutlineStyle => 79,
             StyleProperty::OutlineColor => 80,
             StyleProperty::OutlineOffset => 81,
+            StyleProperty::Resize => 82,
         }
     }
 
@@ -949,6 +951,12 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Unit(0.0, Unit::Px),
     },
+    // 82 resize
+    PropertyMeta {
+        name: "resize",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("none"),
+    },
 ];
 
 // ── NodeStyle - replaces StylePropertyList ────────────────────────────────────
@@ -1092,6 +1100,7 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         79 => Some(StyleProperty::OutlineStyle),
         80 => Some(StyleProperty::OutlineColor),
         81 => Some(StyleProperty::OutlineOffset),
+        82 => Some(StyleProperty::Resize),
         _ => None,
     }
 }
