@@ -140,6 +140,13 @@ impl LayerList {
                     log::warn!("Layout element {:?} not found during hit test", element_id);
                     continue;
                 };
+                // The collapsed-border overlay is a paint phase, not content - never a hit target.
+                if matches!(
+                    layout_element.context,
+                    crate::layouter::ElementContext::TableBorderOverlay(_)
+                ) {
+                    continue;
+                }
                 let box_model = &layout_element.box_model;
 
                 // @TODO: use rtree for this

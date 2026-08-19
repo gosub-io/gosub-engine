@@ -379,7 +379,7 @@ impl Painter {
                 let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));
-                let r = self.decorate_with_border_and_radius(dom_node_id, layout_element.collapsed_borders.as_ref(), r);
+                let r = self.decorate_with_border_and_radius(dom_node_id, None, r);
                 vec![PaintCommand::rectangle(r)]
             }
             BackgroundMedia::Svg(media_id) => vec![PaintCommand::svg(media_id, Rectangle::new(border_box))],
@@ -421,7 +421,7 @@ impl Painter {
                 // separate border-only rectangle painted on top of the icon (e.g. the HN logo's
                 // `border:1px white solid`).
                 if self.has_border(dom_node_id) {
-                    let r = self.decorate_with_border_and_radius(dom_node_id, layout_element.collapsed_borders.as_ref(), Rectangle::new(border_box));
+                    let r = self.decorate_with_border_and_radius(dom_node_id, None, Rectangle::new(border_box));
                     commands.push(PaintCommand::rectangle(r));
                 }
             }
@@ -437,7 +437,7 @@ impl Painter {
                         .with_background(bg_brush)
                         .with_blend_mode(blend);
                     commands.push(PaintCommand::rectangle(
-                        self.decorate_with_border_and_radius(dom_node_id, layout_element.collapsed_borders.as_ref(), bg_r),
+                        self.decorate_with_border_and_radius(dom_node_id, None, bg_r),
                     ));
                 }
 
@@ -454,7 +454,7 @@ impl Painter {
                 let r = Rectangle::new(draw_box).with_background(brush).with_blend_mode(blend);
                 // The border/radius belongs to the element box, not the shrunk icon rect.
                 let border_target = if image_ctx.placeholder { border_box } else { draw_box };
-                let border_r = self.decorate_with_border_and_radius(dom_node_id, layout_element.collapsed_borders.as_ref(), Rectangle::new(border_target));
+                let border_r = self.decorate_with_border_and_radius(dom_node_id, None, Rectangle::new(border_target));
                 if image_ctx.placeholder {
                     commands.push(PaintCommand::rectangle(r));
                     // Emit the element border separately so it frames the full reserved box.
@@ -462,7 +462,7 @@ impl Painter {
                         commands.push(PaintCommand::rectangle(border_r));
                     }
                 } else {
-                    let r = self.decorate_with_border_and_radius(dom_node_id, layout_element.collapsed_borders.as_ref(), r);
+                    let r = self.decorate_with_border_and_radius(dom_node_id, None, r);
                     commands.push(PaintCommand::rectangle(r));
                 }
 
@@ -481,7 +481,13 @@ impl Painter {
                 let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));
-                let r = self.decorate_with_border_and_radius(dom_node_id, layout_element.collapsed_borders.as_ref(), r);
+                // A collapsed cell paints only its background here; its border strips are
+                // painted by the table's TableBorderOverlay AFTER all table content.
+                let r = if layout_element.collapsed_borders.is_some() {
+                    r
+                } else {
+                    self.decorate_with_border_and_radius(dom_node_id, None, r)
+                };
                 commands.push(PaintCommand::rectangle(r));
 
                 // background-image paints on top of the background-color.
@@ -497,6 +503,19 @@ impl Painter {
                     let r = Rectangle::new(border_box)
                         .with_background(Brush::gradient(layer))
                         .with_blend_mode(blend);
+                    commands.push(PaintCommand::rectangle(r));
+                }
+            }
+            // Collapsed borders of a whole table, painted in front of its content: one
+            // border-only rectangle per collapsed cell, in cell paint order.
+            ElementContext::TableBorderOverlay(cells) => {
+                for &cell_id in cells {
+                    let Some(cell) = self.layer_list.layout_tree.get_node_by_id(cell_id) else {
+                        continue;
+                    };
+                    let Some(ref cb) = cell.collapsed_borders else { continue };
+                    let r = Rectangle::new(cell.box_model.border_box);
+                    let r = self.decorate_with_border_and_radius(cell.dom_node_id, Some(cb), r);
                     commands.push(PaintCommand::rectangle(r));
                 }
             }

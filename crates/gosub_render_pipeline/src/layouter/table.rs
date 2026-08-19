@@ -522,6 +522,70 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
             );
         }
     }
+
+    // Collapsed borders paint IN FRONT of all table content (css-tables /
+    // w3c/csswg-drafts#11570): append a synthetic overlay element as each collapsed
+    // table's last child. The paint-order DFS then emits the cells' border strips after
+    // the whole subtree, so descendants (negative margins, abs boxes) cannot cover them.
+    for (table_dom_id, table_layout_id) in table_nodes {
+        let collapse = matches!(
+            doc.get_style(table_dom_id, &StyleProperty::BorderCollapse),
+            Value::Keyword(k) if lookup(k) == "collapse"
+        );
+        if !collapse {
+            continue;
+        }
+        let mut cells: Vec<LayoutElementId> = Vec::new();
+        collect_collapsed_cells(layout_tree, table_layout_id, &mut cells);
+        if cells.is_empty() {
+            continue;
+        }
+        let Some(table_el) = layout_tree.arena.get(&table_layout_id) else {
+            continue;
+        };
+        let (bm, render_node_id) = (table_el.box_model, table_el.render_node_id);
+        let overlay_id = layout_tree.next_node_id();
+        layout_tree.arena.insert(
+            overlay_id,
+            LayoutElementNode {
+                id: overlay_id,
+                dom_node_id: table_dom_id,
+                render_node_id,
+                parent: Some(table_layout_id),
+                box_model: bm,
+                children: vec![],
+                context: crate::layouter::ElementContext::TableBorderOverlay(cells),
+                background_media: None,
+                collapsed_borders: None,
+            },
+        );
+        if let Some(table_el) = layout_tree.arena.get_mut(&table_layout_id) {
+            table_el.children.push(overlay_id);
+        }
+    }
+}
+
+/// DFS-collect (in paint order) the layout elements under `id` that carry collapsed
+/// borders. Nested collapsed tables collect their own overlay, so recursion stops at
+/// inner `display: table` boundaries.
+fn collect_collapsed_cells(layout_tree: &LayoutTree, id: LayoutElementId, out: &mut Vec<LayoutElementId>) {
+    let Some(el) = layout_tree.arena.get(&id) else { return };
+    for &child_id in &el.children {
+        let Some(child) = layout_tree.arena.get(&child_id) else { continue };
+        if child.collapsed_borders.is_some() {
+            out.push(child_id);
+        }
+        let child_is_table = matches!(
+            layout_tree
+                .render_tree
+                .doc
+                .get_own_style(child.dom_node_id, &StyleProperty::Display),
+            Some(Value::Display(Display::Table))
+        );
+        if !child_is_table {
+            collect_collapsed_cells(layout_tree, child_id, out);
+        }
+    }
 }
 
 /// Run lattice for a single table node and write the computed cell positions and the table's
