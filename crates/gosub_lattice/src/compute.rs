@@ -112,6 +112,22 @@ pub fn compute_table_layout<T: TableTree>(
         HashMap::new()
     };
 
+    // CAPMIN: the caption's minimum border-box width. CSS 2 §17.5.2 floors the used
+    // table width at it in both layout modes (an empty table with a 100px caption is
+    // still 100px wide). Intrinsics are border-box; a specified width is content-box,
+    // so it gains the caption's own border and padding.
+    let capmin = match model.caption {
+        Some(cap) => {
+            let intrinsic_min = tree.cell_intrinsic_widths(cap).0;
+            let specified = match tree.css_length(cap, CssProp::Width) {
+                CssLength::Px(w) => w + read_border(tree, cap).horizontal() + read_padding(tree, cap).horizontal(),
+                _ => 0.0,
+            };
+            intrinsic_min.max(specified)
+        }
+        None => 0.0,
+    };
+
     let (col_widths, table_width) = compute_column_widths(
         tree,
         n_cols,
@@ -122,6 +138,7 @@ pub fn compute_table_layout<T: TableTree>(
         model.sizing,
         &col_specs,
         &collapsed_borders,
+        capmin,
     );
 
     if std::env::var_os("LATTICE_DEBUG").is_some() {

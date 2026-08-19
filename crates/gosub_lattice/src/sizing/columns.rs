@@ -55,16 +55,20 @@ pub fn compute_column_widths<T: TableTree>(
     sizing: TableSizing,
     col_specs: &[CssLength],
     collapsed_borders: &HashMap<T::NodeId, CollapsedBorders>,
+    // CAPMIN: the caption's minimum border-box width. CSS 2 §17.5.2 makes the used
+    // table width the greater of the width the columns require and CAPMIN, in both
+    // layout modes. 0.0 when there is no caption.
+    capmin: f32,
 ) -> (Vec<f32>, f32) {
     if n_cols == 0 {
-        return (Vec::new(), 0.0);
+        return (Vec::new(), capmin.max(0.0));
     }
 
     // Total space consumed by border-spacing gutters.
     let spacing_total = (n_cols as f32 + 1.0) * border_spacing_x;
 
     if sizing == TableSizing::Fixed {
-        let table_width = explicit_table_width.unwrap_or(available_width);
+        let table_width = explicit_table_width.unwrap_or(available_width).max(capmin);
         let available = (table_width - spacing_total).max(0.0);
         let widths = fixed_column_widths(tree, n_cols, available, grids, col_specs, collapsed_borders);
         return (widths, table_width);
@@ -137,9 +141,13 @@ pub fn compute_column_widths<T: TableTree>(
     let cmin: f32 = contrib_min.iter().sum();
     let cmax: f32 = contrib_max.iter().sum();
 
-    // With no intrinsic information at all (mock trees, fully empty cells)
-    // shrink-to-fit would collapse the table - fill the available width instead.
-    let has_intrinsic = max.iter().any(|&m| m > 0.0) || min.iter().any(|&m| m > 0.0);
+    // With no intrinsic information at all shrink-to-fit would collapse the table -
+    // fill the available width instead. Only for mock trees using the intrinsics
+    // stub: a measuring implementor's all-zero result means genuinely empty cells,
+    // which DO shrink to fit (an empty auto table is CAPMIN/spacing wide, CSS 2
+    // §17.5.2.2).
+    let has_intrinsic =
+        tree.measures_intrinsics() || max.iter().any(|&m| m > 0.0) || min.iter().any(|&m| m > 0.0);
 
     let used_width = match explicit_table_width {
         Some(w) => w.max(cmin + spacing_total),
@@ -147,7 +155,8 @@ pub fn compute_column_widths<T: TableTree>(
         // Shrink-to-fit: as wide as the content wants, capped by the containing
         // block, but never below the min-content total.
         None => (cmax + spacing_total).min(available_width).max(cmin + spacing_total),
-    };
+    }
+    .max(capmin);
 
     // Distribute the inner width: start every column at its min contribution,
     // grow toward the max contributions, then hand any extra to auto columns.

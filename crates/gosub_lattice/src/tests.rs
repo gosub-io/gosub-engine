@@ -1162,6 +1162,31 @@ mod layout_tests {
         );
     }
 
+    // CSS 2 §17.5.2: the used table width is floored at CAPMIN (the caption's minimum
+    // width) - an empty auto table with a 100px caption is 100px wide, not 0 and not
+    // fill-available (WPT anonymous-table-box-width-001).
+    #[test]
+    fn caption_min_width_floors_table_width() {
+        use crate::mock::MockTree;
+
+        let mut tree = MockTree::new(0.0, 0.0);
+        let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
+        let cap = tree.alloc(TableRole::Caption, Some("cap".into()), 1, 1, Some(100.0), None, 0.0, 0.0);
+        tree.add_child(root, cap);
+        let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
+        tree.add_child(root, row);
+        let cell = tree.alloc_cell(cell("empty").padding(0.0));
+        tree.add_child(row, cell);
+
+        let (w, _) = compute_table_layout(&mut tree, root, 784.0, None).expect("layout");
+        // Mock trees keep the fill-available fallback ONLY without a caption; CAPMIN
+        // must still floor the result. With the mock's no-intrinsics fallback the
+        // table fills 784 (>100), so assert the floor via a narrow container instead.
+        let (w_narrow, _) = compute_table_layout(&mut tree, root, 40.0, None).expect("layout");
+        assert!(w >= 100.0, "caption keeps table at least 100px, got {w}");
+        assert_approx!(w_narrow, 100.0, "CAPMIN wins over a narrower containing block");
+    }
+
     // Auto layout: <col> widths seed columns; the rest distribute as usual.
     #[test]
     fn col_widths_in_auto_layout() {

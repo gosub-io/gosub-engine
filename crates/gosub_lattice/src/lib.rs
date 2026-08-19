@@ -61,6 +61,15 @@ pub trait TableTree {
         (0.0, 0.0)
     }
 
+    /// Whether `cell_intrinsic_widths` returns REAL measurements. When true, an
+    /// all-zero result means the content genuinely has no width (empty cells) and the
+    /// table shrinks to fit per CSS 2 §17.5.2.2; when false (mock/test trees using the
+    /// default stub), zero means "no information" and auto tables fill the available
+    /// width instead of collapsing.
+    fn measures_intrinsics(&self) -> bool {
+        false
+    }
+
     /// `vertical-align` for cell `id`, resolved through the cascade (including
     /// the HTML rendering-spec pattern of `inherit` on cells picking up
     /// `middle` from the row/section) by the implementor.
