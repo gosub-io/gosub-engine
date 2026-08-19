@@ -114,8 +114,11 @@ pub enum FormControl {
     /// Checked state comes from the document at paint time; the icons cover all four looks.
     Checkbox(control_icons::ToggleIcons),
     Radio(control_icons::ToggleIcons),
-    /// `fraction` = position in min..max, 0..1.
+    /// `fraction` = the markup value's position in min..max (0..1); the painter recomputes it
+    /// from the live value while the user drags.
     Range {
+        min: f64,
+        max: f64,
         fraction: f64,
     },
     /// `None` = indeterminate.

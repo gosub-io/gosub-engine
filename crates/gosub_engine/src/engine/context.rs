@@ -175,6 +175,8 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     paint_dirty_leis: Vec<LayoutElementId>,
     /// A form submit triggered by the last click/key, for the tab worker to navigate.
     pending_submission: Option<Submission>,
+    /// Range slider being dragged: the input and its layout element (for track geometry).
+    drag_range: Option<(NodeId, LayoutElementId)>,
 
     /// The active backend's per-tile rasterizer and how to drive it. Built once by the tab
     /// worker from the engine's `RenderBackend` (replacing the former per-backend cfg cascade).
@@ -225,6 +227,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_cursor: CursorShape::Default,
             paint_dirty_leis: Vec::new(),
             pending_submission: None,
+            drag_range: None,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
             media_store: std::sync::Arc::new(MediaStore::new()),
@@ -870,6 +873,13 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let Some(target) = leaf.and_then(|l| focus::click_target(&doc, l)) else {
             return false;
         };
+        // Pressing on a slider's own box jumps the thumb there and starts a drag.
+        if leaf == Some(target) && edit::range_params(&doc, target).is_some() {
+            if let Some(lei) = lei {
+                self.drag_range = Some((target, lei));
+                return self.drag_to(vp_x);
+            }
+        }
         match form::button_kind(&doc, target) {
             Some(false) => return self.submit(target, Some(target)),
             Some(true) => return self.reset_form(target),
@@ -881,6 +891,79 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             return true;
         }
         self.toggle_control(target)
+    }
+
+    /// Pointer moved while a slider is held: follow it (paint-only).
+    pub fn drag_move(&mut self, vp_x: f64) -> bool {
+        self.drag_range.is_some() && self.drag_to(vp_x)
+    }
+
+    pub fn end_drag(&mut self) {
+        self.drag_range = None;
+    }
+
+    /// Set the dragged slider from a viewport x, mapping the thumb's travel across the content
+    /// box the same way the painter does (thumb diameter = min(12, height)).
+    fn drag_to(&mut self, vp_x: f64) -> bool {
+        let (Some((node, lei)), Some(doc)) = (self.drag_range, self.document.clone()) else {
+            return false;
+        };
+        let Some((min, max, step)) = edit::range_params(&doc, node) else {
+            return false;
+        };
+        let Some(cb) = self
+            .active_layer_list()
+            .and_then(|ll| ll.layout_tree.get_node_by_id(lei).map(|el| el.box_model.content_box))
+        else {
+            return false;
+        };
+        let d = 12.0_f64.min(cb.height);
+        let travel = (cb.width - d).max(1.0);
+        let fraction = ((vp_x + self.scroll_x - cb.x - d / 2.0) / travel).clamp(0.0, 1.0);
+        let value = edit::range_snap(min, max, step, min + fraction * (max - min));
+        self.set_range_value(node, value)
+    }
+
+    fn set_range_value(&mut self, node: NodeId, value: f64) -> bool {
+        let Some(doc) = &self.document else {
+            return false;
+        };
+        let (min, max, _) = edit::range_params(doc, node).unwrap_or((0.0, 100.0, 1.0));
+        if edit::range_value(doc, node, min, max) == value && doc.control_edit_state(node).is_some() {
+            return false;
+        }
+        doc.set_control_edit_state(
+            node,
+            Some(gosub_interface::document::ControlEditState {
+                value: edit::format_number(value),
+                caret: 0,
+            }),
+        );
+        self.request_repaint(node);
+        true
+    }
+
+    /// Keyboard on a focused slider: arrows step, PageUp/Down jump 10 steps, Home/End go to the
+    /// ends.
+    fn range_key(&mut self, node: NodeId, key: &str) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
+        };
+        let Some((min, max, step)) = edit::range_params(&doc, node) else {
+            return false;
+        };
+        let cur = edit::range_value(&doc, node, min, max);
+        let target = match key {
+            "ArrowRight" | "ArrowUp" => cur + step,
+            "ArrowLeft" | "ArrowDown" => cur - step,
+            "PageUp" => cur + step * 10.0,
+            "PageDown" => cur - step * 10.0,
+            "Home" => min,
+            "End" => max,
+            _ => return false,
+        };
+        self.set_range_value(node, edit::range_snap(min, max, step, target));
+        true
     }
 
     /// The submission the last click/Enter asked for, if any (consumed).
@@ -1023,6 +1106,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
         if edit::is_select(&doc, node) && !ctrl_or_meta {
             return self.select_key(node, key);
+        }
+        if edit::range_params(&doc, node).is_some() && !ctrl_or_meta {
+            return self.range_key(node, key);
         }
         if matches!(key, "Enter" | " ") && !ctrl_or_meta {
             match form::button_kind(&doc, node) {

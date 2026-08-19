@@ -195,6 +195,52 @@ pub fn apply(state: &mut ControlEditState, action: &EditAction) -> bool {
     }
 }
 
+/// `(min, max, step)` of an enabled `<input type=range>`. `step="any"` → a fine step.
+pub fn range_params<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Option<(f64, f64, f64)> {
+    if doc.tag_name(id) != Some("input")
+        || doc.attribute(id, "disabled").is_some()
+        || !doc
+            .attribute(id, "type")
+            .is_some_and(|t| t.eq_ignore_ascii_case("range"))
+    {
+        return None;
+    }
+    let num = |name: &str| doc.attribute(id, name).and_then(|v| v.trim().parse::<f64>().ok());
+    let min = num("min").unwrap_or(0.0);
+    let max = num("max").unwrap_or(100.0).max(min);
+    let step = match doc.attribute(id, "step") {
+        Some(s) if s.trim().eq_ignore_ascii_case("any") => (max - min) / 1000.0,
+        _ => num("step").filter(|s| *s > 0.0).unwrap_or(1.0),
+    };
+    Some((min, max, step.max(f64::EPSILON)))
+}
+
+/// The slider's current value: what the user dragged to, else the `value` attribute, else the
+/// midpoint (HTML's default for range).
+pub fn range_value<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId, min: f64, max: f64) -> f64 {
+    doc.control_edit_state(id)
+        .and_then(|s| s.value.trim().parse::<f64>().ok())
+        .or_else(|| doc.attribute(id, "value").and_then(|v| v.trim().parse::<f64>().ok()))
+        .unwrap_or((min + max) / 2.0)
+        .clamp(min, max)
+}
+
+/// Snap `raw` to the step grid anchored at `min`, clamped to the range.
+pub fn range_snap(min: f64, max: f64, step: f64, raw: f64) -> f64 {
+    let v = min + ((raw - min) / step).round() * step;
+    v.clamp(min, max)
+}
+
+/// Shortest decimal form: `42`, `7.5`, `0.125`.
+pub fn format_number(v: f64) -> String {
+    if v.fract() == 0.0 && v.abs() < 1e15 {
+        format!("{}", v as i64)
+    } else {
+        let s = format!("{v:.6}");
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+
 /// `id` is an enabled `<select>`.
 pub fn is_select<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> bool {
     doc.tag_name(id) == Some("select") && doc.attribute(id, "disabled").is_none()

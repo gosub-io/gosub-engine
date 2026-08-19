@@ -66,9 +66,9 @@ struct Args {
     /// decode and repaint before the capture
     #[arg(long, default_value = "0")]
     settle: u64,
-    /// Interactions to replay after the first render, before capturing: `click:X,Y` / `move:X,Y`
-    /// (page px), `tab`, `shift-tab`, `key:NAME` (e.g. `key:Backspace`), `type:TEXT` or `wait:MS`
-    /// (e.g. for a submit navigation to land). Repeatable.
+    /// Interactions to replay after the first render, before capturing: `click:X,Y`, `move:X,Y`,
+    /// `press:X,Y` / `release:X,Y` (drags; page px), `tab`, `shift-tab`, `key:NAME` (e.g.
+    /// `key:Backspace`), `type:TEXT` or `wait:MS` (e.g. for a submit navigation). Repeatable.
     #[arg(short = 'i', long = "interact")]
     interact: Vec<String>,
     /// Print the engine's timing table on exit
@@ -103,7 +103,11 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
                 std::process::exit(2);
             }
         },
-        Some((kind, rest)) if kind.eq_ignore_ascii_case("click") || kind.eq_ignore_ascii_case("move") => {
+        Some((kind, rest))
+            if ["click", "move", "press", "release"]
+                .iter()
+                .any(|k| kind.eq_ignore_ascii_case(k)) =>
+        {
             let Some((x, y)) = rest.split_once(',') else {
                 eprintln!("Bad spec '{spec}': expected {kind}:X,Y");
                 std::process::exit(2);
@@ -112,27 +116,30 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
                 eprintln!("Bad coordinates in '{spec}'");
                 std::process::exit(2);
             };
-            if kind.eq_ignore_ascii_case("move") {
-                return vec![Step::Send(TabCommand::MouseMove { x, y })];
-            }
+            let down = Step::Send(TabCommand::MouseDown {
+                x,
+                y,
+                button: MouseButton::Left,
+            });
+            let up = Step::Send(TabCommand::MouseUp {
+                x,
+                y,
+                button: MouseButton::Left,
+            });
             // Hover first: link activation piggybacks on hover state.
-            vec![
-                Step::Send(TabCommand::MouseMove { x, y }),
-                Step::Send(TabCommand::MouseDown {
-                    x,
-                    y,
-                    button: MouseButton::Left,
-                }),
-                Step::Send(TabCommand::MouseUp {
-                    x,
-                    y,
-                    button: MouseButton::Left,
-                }),
-            ]
+            let mut steps = vec![Step::Send(TabCommand::MouseMove { x, y })];
+            if kind.eq_ignore_ascii_case("click") {
+                steps.extend([down, up]);
+            } else if kind.eq_ignore_ascii_case("press") {
+                steps.push(down);
+            } else if kind.eq_ignore_ascii_case("release") {
+                steps.push(up);
+            }
+            steps
         }
         _ => {
             eprintln!(
-                "Unknown interaction '{spec}' (expected click:X,Y | move:X,Y | tab | shift-tab | key:NAME | type:TEXT | wait:MS)"
+                "Unknown interaction '{spec}' (expected click:X,Y | move:X,Y | press:X,Y | release:X,Y | tab | shift-tab | key:NAME | type:TEXT | wait:MS)"
             );
             std::process::exit(2);
         }

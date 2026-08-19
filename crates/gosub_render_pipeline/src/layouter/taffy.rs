@@ -1417,7 +1417,10 @@ impl TaffyLayouter {
                         let max = attr_f64("max").unwrap_or(100.0).max(min);
                         let value = attr_f64("value").unwrap_or((min + max) / 2.0).clamp(min, max);
                         let fraction = if max > min { (value - min) / (max - min) } else { 0.0 };
-                        (FormControl::Range { fraction }, geo::Dimension::new(129.0, 21.0))
+                        (
+                            FormControl::Range { min, max, fraction },
+                            geo::Dimension::new(129.0, 21.0),
+                        )
                     }
                     "color" => {
                         let value = attr("value")

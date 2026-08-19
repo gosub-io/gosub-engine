@@ -1161,7 +1161,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     });
                 }
                 self.report_cursor(self.context.hover_cursor());
-                if visual_dirty || self.context.popup_hover_at(x as f64, y as f64) {
+                if visual_dirty || self.context.popup_hover_at(x as f64, y as f64) || self.context.drag_move(x as f64) {
                     self.runtime.dirty = true;
                     self.runtime.render_now = true;
                 }
@@ -1210,7 +1210,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }
-            TabCommand::MouseUp { .. } | TabCommand::KeyUp { .. } => {
+            TabCommand::MouseUp { .. } => {
+                self.context.end_drag();
+                self.runtime.dirty = true;
+                ControlFlow::Continue
+            }
+            TabCommand::KeyUp { .. } => {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }

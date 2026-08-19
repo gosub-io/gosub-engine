@@ -916,7 +916,17 @@ impl Painter {
                 );
                 commands.push(PaintCommand::svg(icon, Rectangle::new(box_rect)));
             }
-            FormControl::Range { fraction } => {
+            FormControl::Range { min, max, fraction } => {
+                let live = self
+                    .layer_list
+                    .layout_tree
+                    .render_tree
+                    .doc
+                    .control_edit_state(dom_node_id)
+                    .and_then(|(v, _)| v.trim().parse::<f64>().ok())
+                    .filter(|_| max > min)
+                    .map(|v| ((v - min) / (max - min)).clamp(0.0, 1.0));
+                let fraction = &live.unwrap_or(*fraction);
                 let cy = content_box.y + content_box.height / 2.0;
                 let track_h = 4.0_f64.min(content_box.height);
                 let track = Rect::new(content_box.x, cy - track_h / 2.0, content_box.width.max(1.0), track_h);
