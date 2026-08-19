@@ -594,6 +594,50 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// Crash containment: a panicking tab worker produces a TabCrashed event (instead of
+    /// dying silently), and the tab's handle then reports closed on further commands.
+    #[tokio::test]
+    async fn worker_panic_emits_tab_crashed() {
+        use crate::events::TabCommand;
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let tab_id = tab.tab_id;
+
+        tab.send(TabCommand::CrashForTest).await.expect("send crash command");
+
+        let crashed = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match event_rx.recv().await {
+                    Ok(EngineEvent::TabCrashed {
+                        tab_id: crashed_id,
+                        error,
+                        ..
+                    }) => return (crashed_id, error),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for TabCrashed");
+        assert_eq!(crashed.0, tab_id);
+        assert!(
+            crashed.1.contains("deliberate test crash"),
+            "panic message: {}",
+            crashed.1
+        );
+
+        // The dead tab's handle fails cleanly rather than hanging.
+        assert!(tab.send(TabCommand::Reload { ignore_cache: false }).await.is_err());
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// Keyboard focus end to end: Tab focuses the first link (FocusChanged), Enter
     /// activates it (a real navigation to its href).
     #[tokio::test]

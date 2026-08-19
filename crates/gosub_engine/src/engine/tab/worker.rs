@@ -458,7 +458,32 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Spawns the tab worker into a new task and returns the join handle
     pub fn spawn_worker(self) -> anyhow::Result<JoinHandle<()>> {
         let name = format!("Tab Worker {}", self.tab_id);
-        let join_handle = spawn_named(&name, self.run_worker());
+        let tab_id = self.tab_id;
+        let zone_id = self.zone_id;
+        let event_tx = self.zone_context.event_tx.clone();
+        let worker = spawn_named(&name, self.run_worker());
+
+        // Crash containment (in-process): a panic anywhere in the worker kills only its
+        // task. This watchdog turns that into a `TabCrashed` event so the shell can show
+        // a crashed-tab page and recreate the tab, instead of a silently dead handle.
+        let join_handle = spawn_named(&format!("{name} watchdog"), async move {
+            let Err(join_err) = worker.await else {
+                return; // clean exit: TabClosed was emitted by the run loop
+            };
+            let error = if join_err.is_panic() {
+                match join_err.into_panic().downcast::<String>() {
+                    Ok(msg) => *msg,
+                    Err(payload) => payload
+                        .downcast::<&'static str>()
+                        .map(|msg| msg.to_string())
+                        .unwrap_or_else(|_| "panic with non-string payload".into()),
+                }
+            } else {
+                "worker task was cancelled".into()
+            };
+            log::error!("Tab[{tab_id:?}] worker crashed: {error}");
+            let _ = event_tx.send(EngineEvent::TabCrashed { tab_id, zone_id, error });
+        });
 
         Ok(join_handle)
     }
@@ -1086,6 +1111,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.start_download(id, url, target_path);
                 ControlFlow::Continue
             }
+            #[cfg(test)]
+            TabCommand::CrashForTest => panic!("deliberate test crash"),
             TabCommand::QueryHitTest { x, y, token } => {
                 let hit = self.context.hit_test(x as f64, y as f64, self.current_url.as_ref());
                 self.send_event(EngineEvent::HitTestResult {

@@ -271,13 +271,20 @@ impl TileList {
                 if min_x > max_x || min_y > max_y {
                     continue;
                 }
-                let cs = (min_x / tile_w).floor() as usize;
-                let ce = ((max_x / tile_w).ceil() as usize).min(max_cols);
-                let rs = (min_y / tile_h).floor() as usize;
-                let re = ((max_y / tile_h).ceil() as usize).min(max_rows);
+                // Clamp BOTH ends into the page's tile grid: elements can sit entirely
+                // outside the page box (negative text-indent / off-screen positioning),
+                // which would otherwise put start past the clamped end.
+                let cs = ((min_x / tile_w).floor().max(0.0) as usize).min(max_cols);
+                let ce = ((max_x / tile_w).ceil().max(0.0) as usize).min(max_cols);
+                let rs = ((min_y / tile_h).floor().max(0.0) as usize).min(max_rows);
+                let re = ((max_y / tile_h).ceil().max(0.0) as usize).min(max_rows);
                 (rs, re, cs, ce)
             };
 
+            // Empty after clamping = the layer lies entirely outside the page box.
+            if row_start >= row_end || col_start >= col_end {
+                continue;
+            }
             let estimated = (row_end - row_start) * (col_end - col_start);
             let mut tile_ids = Vec::with_capacity(estimated);
 

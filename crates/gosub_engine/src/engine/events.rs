@@ -182,6 +182,10 @@ pub enum TabCommand {
         y: f32,
         token: HitTestToken,
     },
+    /// Test-only: panic the tab worker, to exercise crash containment. Not compiled into
+    /// release builds.
+    #[cfg(test)]
+    CrashForTest,
     /// Answer a pending [`NavigationEvent::DecisionRequired`].
     SubmitDecision {
         nav_id: NavigationId,
@@ -660,10 +664,14 @@ pub enum EngineEvent {
         line: u32,
         column: u32,
     },
-    /// Not yet emitted by the engine.
+    /// The tab's worker task panicked. The tab is dead: its handle's commands will fail
+    /// from now on, and no further events arrive for it. The shell should show a
+    /// "tab crashed" page and offer reload-by-recreating the tab. `error` is the panic
+    /// message (best effort).
     TabCrashed {
         tab_id: TabId,
-        reason: String,
+        zone_id: ZoneId,
+        error: String,
     },
     // Uncategorized / generic
 }
