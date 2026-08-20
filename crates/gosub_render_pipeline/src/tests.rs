@@ -91,7 +91,6 @@ mod rendertree_from_engine {
     #[test]
     fn parentless_table_cells_get_anonymous_table() {
         use crate::common::document::node::NodeType;
-        use crate::common::document::pipeline_doc::PipelineDocument;
         use crate::common::geo::Dimension;
         use crate::layouter::taffy::TaffyLayouter;
         use crate::layouter::CanLayout as _;

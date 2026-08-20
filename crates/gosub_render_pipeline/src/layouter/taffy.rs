@@ -1528,7 +1528,7 @@ fn measure_node(
                     // available_width, parley re-measures with slightly less space than
                     // the text requires and wraps. Ceiling ensures allocated width >=
                     // natural text width, preventing spurious wrapping at the boundary.
-                    let mut width = text_layout.width.ceil() as f32;
+                    let width = text_layout.width.ceil() as f32;
 
                     let result = Size {
                         width,

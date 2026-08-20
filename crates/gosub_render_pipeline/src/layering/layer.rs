@@ -268,6 +268,30 @@ impl LayerList {
         self.layer_ids
             .write()
             .sort_by_key(|id| layers.get(id).map(|l| l.order).unwrap_or(0));
+
+        if std::env::var("LATTICE_DEBUG_LAYERS").is_ok() {
+            for id in self.layer_ids.read().iter() {
+                let Some(l) = layers.get(id) else { continue };
+                eprintln!("layer {} order={}", id, l.order);
+                for &eid in &l.elements {
+                    let Some(el) = self.layout_tree.get_node_by_id(eid) else { continue };
+                    let doc = &self.layout_tree.render_tree.doc;
+                    let tag = doc.tag_name(el.dom_node_id).unwrap_or_default();
+                    let b = el.box_model.border_box;
+                    let ctx = match &el.context {
+                        crate::layouter::ElementContext::None => "none",
+                        crate::layouter::ElementContext::Text(_) => "text",
+                        crate::layouter::ElementContext::Image(_) => "image",
+                        crate::layouter::ElementContext::Svg(_) => "svg",
+                        crate::layouter::ElementContext::TableBorderOverlay(_) => "overlay",
+                    };
+                    eprintln!(
+                        "  el {:?} dom={:?} <{}> ctx={} border_box=({},{} {}x{})",
+                        eid, el.dom_node_id, tag, ctx, b.x, b.y, b.width, b.height
+                    );
+                }
+            }
+        }
     }
 
     /// Walk the layout tree assigning each element to a layer. An element is *promoted* to its own
@@ -289,6 +313,15 @@ impl LayerList {
             return;
         };
         let doc = &self.layout_tree.render_tree.doc;
+
+        // The collapsed-border overlay is a paint phase of its table, not a real element. It
+        // shares the table's DOM node, so style-driven promotion (position/opacity/fixed) would
+        // re-promote it into a layer of its own - painting it out of order with respect to its
+        // table. It always joins the enclosing layer.
+        if matches!(layout_element.context, crate::layouter::ElementContext::TableBorderOverlay(_)) {
+            self.add_to_layer(layer_id, layout_element.id);
+            return;
+        }
 
         // OWN (non-inherited) styles only: descendants inherit the group through the layer and
         // must not each re-promote.
@@ -343,6 +376,20 @@ impl LayerList {
             }
             for &child_id in &layout_element.children {
                 self.traverse(group_layer_id, child_id, true, faded, order);
+            }
+            return;
+        }
+
+        // Positioned elements with `z-index: auto` paint after ALL in-flow content of their
+        // stacking context (CSS 2.1 Appendix E step 8). A fresh layer at the same stacking level
+        // achieves this: the stable sort keeps creation order, so it composites after the
+        // enclosing layer, which holds both earlier and later in-flow siblings. Inside a
+        // promoted group the split would break group compositing, so the subtree stays put.
+        if is_positioned && z_index.is_none() && !in_promoted_group {
+            let positioned_layer_id = self.new_layer(order);
+            self.add_to_layer(positioned_layer_id, layout_element.id);
+            for &child_id in &layout_element.children {
+                self.traverse(positioned_layer_id, child_id, in_promoted_group, group_faded, order);
             }
             return;
         }
