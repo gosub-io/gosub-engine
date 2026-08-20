@@ -334,7 +334,7 @@ impl Painter {
     ) -> Vec<PaintCommand> {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let color = match doc.get_own_style(dom_node_id, &StyleProperty::Display) {
-            Some(Value::Display(Display::Table)) => Color::from_rgb8(255, 0, 0),
+            Some(Value::Display(Display::Table | Display::InlineTable)) => Color::from_rgb8(255, 0, 0),
             Some(Value::Display(Display::TableCell)) => Color::from_rgb8(0, 180, 0),
             Some(Value::Display(Display::TableRow)) => Color::from_rgb8(0, 0, 255),
             Some(Value::Display(Display::TableRowGroup))
@@ -588,7 +588,7 @@ impl Painter {
             let owner_is_table = |owner: NodeId| {
                 matches!(
                     doc.get_own_style(owner, &StyleProperty::Display),
-                    Some(Value::Display(Display::Table))
+                    Some(Value::Display(Display::Table | Display::InlineTable))
                 )
             };
 
@@ -639,7 +639,7 @@ impl Painter {
         // table's own CSS border as well would double-draw the losing style on top.
         if matches!(
             doc.get_own_style(dom_node_id, &StyleProperty::Display),
-            Some(Value::Display(Display::Table))
+            Some(Value::Display(Display::Table | Display::InlineTable))
         ) && matches!(
             doc.get_style(dom_node_id, &StyleProperty::BorderCollapse),
             Value::Keyword(k) if lookup(k) == "collapse"

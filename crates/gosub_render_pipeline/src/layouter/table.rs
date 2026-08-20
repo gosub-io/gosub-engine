@@ -56,7 +56,7 @@ impl<'a> PipelineTableTree<'a> {
         self.doc.children(id).iter().any(|&child| {
             matches!(
                 self.doc.get_own_style(child, &StyleProperty::Display),
-                Some(Value::Display(Display::Table))
+                Some(Value::Display(Display::Table | Display::InlineTable))
             ) || self.subtree_contains_table(child)
         })
     }
@@ -75,7 +75,7 @@ impl<'a> PipelineTableTree<'a> {
             };
             let is_table = matches!(
                 self.doc.get_own_style(child.dom_node_id, &StyleProperty::Display),
-                Some(Value::Display(Display::Table))
+                Some(Value::Display(Display::Table | Display::InlineTable))
             );
             if is_table {
                 // Self-contained nested table - stop here, don't double-count its inner tables.
@@ -271,7 +271,7 @@ impl TableTree for PipelineTableTree<'_> {
     fn table_role(&self, id: DomNodeId) -> TableRole {
         match self.doc.get_own_style(id, &StyleProperty::Display) {
             Some(Value::Display(d)) => match d {
-                Display::Table => TableRole::Table,
+                Display::Table | Display::InlineTable => TableRole::Table,
                 Display::TableCaption => TableRole::Caption,
                 Display::TableColumnGroup => TableRole::ColumnGroup,
                 Display::TableColumn => TableRole::Column,
@@ -447,7 +447,7 @@ impl TableTree for PipelineTableTree<'_> {
             }
             if matches!(
                 doc.get_own_style(el.dom_node_id, &StyleProperty::Display),
-                Some(Value::Display(Display::Table))
+                Some(Value::Display(Display::Table | Display::InlineTable))
             ) {
                 return None;
             }
@@ -610,7 +610,7 @@ fn collect_collapsed_cells(layout_tree: &LayoutTree, id: LayoutElementId, out: &
                 .render_tree
                 .doc
                 .get_own_style(child.dom_node_id, &StyleProperty::Display),
-            Some(Value::Display(Display::Table))
+            Some(Value::Display(Display::Table | Display::InlineTable))
         );
         if !child_is_table {
             collect_collapsed_cells(layout_tree, child_id, out);
@@ -780,7 +780,7 @@ fn collect_tables_preorder(
 ) {
     if matches!(
         doc.get_own_style(id, &StyleProperty::Display),
-        Some(Value::Display(Display::Table))
+        Some(Value::Display(Display::Table | Display::InlineTable))
     ) {
         if let Some(&layout_id) = dom_to_layout.get(&id) {
             out.push((id, layout_id));

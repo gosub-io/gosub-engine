@@ -59,6 +59,11 @@ pub enum Display {
     Grid,
     InlineGrid,
     Table,
+    /// Table interior, but participates in its parent's inline formatting context
+    /// (CSS 2.1 §17.4). Table machinery treats it as `Table` (via `display_of`
+    /// normalization and explicit matches); only the layouter's line grouping sees
+    /// its inline-level nature (the Node carries `InlineBlock`).
+    InlineTable,
     TableCaption,
     TableCell,
     TableFooterGroup,
@@ -161,6 +166,7 @@ impl Value {
                 Display::Grid => "grid",
                 Display::InlineGrid => "inline-grid",
                 Display::Table => "table",
+                Display::InlineTable => "inline-table",
                 Display::TableCaption => "table-caption",
                 Display::TableCell => "table-cell",
                 Display::TableFooterGroup => "table-footer-group",

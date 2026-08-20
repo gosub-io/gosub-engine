@@ -49,6 +49,7 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
                 "grid" => Display::Grid,
                 "inline-grid" => Display::InlineGrid,
                 "table" => Display::Table,
+                "inline-table" => Display::InlineTable,
                 "table-caption" => Display::TableCaption,
                 "table-cell" => Display::TableCell,
                 "table-footer-group" => Display::TableFooterGroup,
@@ -1221,6 +1222,10 @@ where
     /// The node's computed `display`, if the cascade assigned one.
     fn display_of(&self, id: NodeId) -> Option<Display> {
         match self.get_own_style(id, &StyleProperty::Display) {
+            // Inline-table differs from table only in OUTER display (how it participates in
+            // its parent's formatting context); every display_of consumer asks about table
+            // structure, so normalize here and keep the inline-ness at the Node level.
+            Some(Value::Display(Display::InlineTable)) => Some(Display::Table),
             Some(Value::Display(d)) => Some(d),
             _ => None,
         }
@@ -2213,6 +2218,14 @@ where
                 // fallback, since the incomplete UA stylesheet makes get_style()'s `inline`
                 // initial value the wrong answer here.
                 let styles = self.get_own_style(id, &StyleProperty::Display).map(|display| {
+                    // Same trick as anonymous inline-context tables: the Node carries
+                    // inline-block so line grouping keeps the element in the line box,
+                    // while the cascade (display_of + explicit matches) reports table
+                    // structure to the converter, lattice, and painter.
+                    let display = match display {
+                        Value::Display(Display::InlineTable) => Value::Display(Display::InlineBlock),
+                        d => d,
+                    };
                     let mut style = NodeStyle::new();
                     style.set(StyleProperty::Display, display);
                     style

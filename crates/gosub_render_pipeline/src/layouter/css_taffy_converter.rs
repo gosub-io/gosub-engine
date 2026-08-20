@@ -110,7 +110,7 @@ impl<'a> CssTaffyConverter<'a> {
 
         // Adjust display for table and inline elements.
         match self.get_own(&StyleProperty::Display) {
-            Some(Value::Display(CssDisplay::Table)) => {
+            Some(Value::Display(CssDisplay::Table | CssDisplay::InlineTable)) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Column;
             }
