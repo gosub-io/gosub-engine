@@ -153,6 +153,7 @@ gosub_css3 = { version = "0.1.1", path = "./crates/gosub_css3", features = [], r
 anyhow = { workspace = true }
 url = { workspace = true }
 log = { workspace = true }
+serde_json = { workspace = true }
 
 # Dependencies for benchmarks and the small single-file examples only.
 [dev-dependencies]
