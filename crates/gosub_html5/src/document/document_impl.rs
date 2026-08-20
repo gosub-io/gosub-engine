@@ -32,6 +32,9 @@ pub struct DocumentImpl<C: HasDocument> {
     pub quirks_mode: QuirksMode,
     pub stylesheets: Vec<<C::CssSystem as CssSystem>::Stylesheet>,
     hovered_nodes: parking_lot::RwLock<std::collections::HashSet<NodeId>>,
+    /// The focused element, if any (drives `:focus`). Interior-mutable like hover so the
+    /// engine can update it through the shared `Arc`.
+    focused_node: parking_lot::RwLock<Option<NodeId>>,
 }
 
 impl<C: HasDocument> PartialEq for DocumentImpl<C> {
@@ -58,6 +61,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             quirks_mode: QuirksMode::NoQuirks,
             stylesheets: Vec::new(),
             hovered_nodes: parking_lot::RwLock::new(std::collections::HashSet::new()),
+            focused_node: parking_lot::RwLock::new(None),
         };
         let root = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
         doc.arena.register_node(root);
@@ -371,6 +375,10 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     fn is_hovered(&self, id: NodeId) -> bool {
         self.hovered_nodes.read().contains(&id)
     }
+
+    fn is_focused(&self, id: NodeId) -> bool {
+        *self.focused_node.read() == Some(id)
+    }
 }
 
 // ── Internal helpers (not part of Document trait) ───────────────────────────
@@ -378,6 +386,11 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
 impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// Update the set of hovered nodes to the ancestor chain of `leaf` (inclusive).
     /// Pass `None` to clear hover state. Uses interior mutability so it works through Arc.
+    /// Set (or clear) the focused element. Uses interior mutability so it works through Arc.
+    pub fn set_focused_node(&self, node: Option<NodeId>) {
+        *self.focused_node.write() = node;
+    }
+
     pub fn set_hovered_nodes(&self, leaf: Option<NodeId>) {
         let mut set = self.hovered_nodes.write();
         set.clear();

@@ -90,6 +90,27 @@ fn is_text_input<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeI
     }
 }
 
+/// True for elements that participate in keyboard focus: links, form controls,
+/// editable regions, and anything with a non-negative `tabindex`.
+fn is_focusable<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) -> bool {
+    if doc.node_type(node_id) != NodeType::ElementNode || doc.attribute(node_id, "disabled").is_some() {
+        return false;
+    }
+    if let Some(tabindex) = doc.attribute(node_id, "tabindex") {
+        return tabindex.trim().parse::<i32>().is_ok_and(|t| t >= 0);
+    }
+    match doc.tag_name(node_id) {
+        Some("a" | "area") => doc.attribute(node_id, "href").is_some(),
+        Some("input") => doc
+            .attribute(node_id, "type")
+            .is_none_or(|t| !t.eq_ignore_ascii_case("hidden")),
+        Some("textarea" | "select" | "button") => true,
+        _ => doc
+            .attribute(node_id, "contenteditable")
+            .is_some_and(|v| v.is_empty() || v.eq_ignore_ascii_case("true")),
+    }
+}
+
 /// Cached output of stages 1–6 for the whole page. Re-used on every scroll tick.
 struct PipelineCache {
     tiles: Vec<BakedTile>,
@@ -163,6 +184,9 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     hover_chain_sensitive: bool,
     /// The href of the link currently under the pointer, if any.
     pub hover_link_url: Option<String>,
+    /// The focused element (mirrors the document's interior-mutable focus, which drives
+    /// `:focus` matching; this field is the engine-side source of truth).
+    focused_node: Option<NodeId>,
     /// Cursor shape for what is under the pointer, derived from the hovered node's ancestry.
     hover_cursor: CursorShape,
 
@@ -212,6 +236,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             hover_fingerprints: None,
             hover_chain_sensitive: false,
             hover_link_url: None,
+            focused_node: None,
             hover_cursor: CursorShape::Default,
             rasterizer: None,
             raster_strategy: RasterStrategy::None,
@@ -262,6 +287,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.hover_chain_sensitive = false;
         self.hover_link_url = None;
         self.hover_cursor = CursorShape::Default;
+        self.focused_node = None;
     }
 
     /// Update the viewport SIZE. Only triggers a full re-layout when width or height changes.
@@ -698,6 +724,107 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Cursor shape for what is under the pointer, as of the last [`Self::update_hover`].
     pub fn hover_cursor(&self) -> CursorShape {
         self.hover_cursor
+    }
+
+    /// The currently focused element.
+    pub fn focused_node(&self) -> Option<NodeId> {
+        self.focused_node
+    }
+
+    /// Whether the focused element is text-editable (input/textarea/contenteditable).
+    pub fn focused_editable(&self) -> bool {
+        match (self.focused_node, self.document.as_ref()) {
+            (Some(id), Some(doc)) => is_text_input(doc, id),
+            _ => false,
+        }
+    }
+
+    /// The focused element's link target (`<a href>`), for Enter-to-activate.
+    pub fn focused_link(&self) -> Option<String> {
+        let (id, doc) = (self.focused_node?, self.document.as_ref()?);
+        if doc.tag_name(id) == Some("a") {
+            doc.attribute(id, "href").map(str::to_string)
+        } else {
+            None
+        }
+    }
+
+    /// Move focus to `node` (or clear it with `None`). Returns whether focus changed.
+    /// A change re-styles the document so `:focus` rules apply.
+    pub fn set_focus(&mut self, node: Option<NodeId>) -> bool {
+        if self.focused_node == node {
+            return false;
+        }
+        self.focused_node = node;
+        if let Some(doc) = &self.document {
+            doc.set_focused_node(node);
+        }
+        // Style-only change; the pipeline recomputes styles, layout and paint.
+        self.style_dirty = true;
+        self.invalidate_render();
+        true
+    }
+
+    /// Focus the nearest focusable ancestor of the element at viewport point `(x, y)`
+    /// (click-to-focus), blurring when the point hits nothing focusable. Returns whether
+    /// focus changed.
+    pub fn focus_at(&mut self, vp_x: f64, vp_y: f64) -> bool {
+        let target = self.active_layer_list().and_then(|layer_list| {
+            let lei = layer_list.find_element_at(vp_x, vp_y, self.scroll_x, self.scroll_y)?;
+            layer_list.layout_tree.get_node_by_id(lei).map(|el| el.dom_node_id)
+        });
+        let focusable = target.and_then(|leaf| {
+            let doc = self.document.as_ref()?;
+            let mut id = leaf;
+            loop {
+                if is_focusable(doc.as_ref(), id) {
+                    return Some(id);
+                }
+                match doc.parent(id) {
+                    Some(parent) => id = parent,
+                    None => return None,
+                }
+            }
+        });
+        self.set_focus(focusable)
+    }
+
+    /// Move focus to the next (or previous) focusable element in document order,
+    /// wrapping around; from no focus, starts at the first (or last). Returns the newly
+    /// focused element, or `None` when the document has none.
+    pub fn focus_step(&mut self, backwards: bool) -> Option<NodeId> {
+        let order = self.focusable_elements();
+        if order.is_empty() {
+            self.set_focus(None);
+            return None;
+        }
+        let next = match self.focused_node.and_then(|cur| order.iter().position(|&n| n == cur)) {
+            Some(pos) if backwards => order[(pos + order.len() - 1) % order.len()],
+            Some(pos) => order[(pos + 1) % order.len()],
+            None if backwards => *order.last()?,
+            None => order[0],
+        };
+        self.set_focus(Some(next));
+        Some(next)
+    }
+
+    /// Every focusable element, in document order.
+    fn focusable_elements(&self) -> Vec<NodeId> {
+        let Some(doc) = self.document.as_ref() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        let mut stack = vec![doc.root()];
+        while let Some(id) = stack.pop() {
+            if is_focusable(doc.as_ref(), id) {
+                out.push(id);
+            }
+            // Push children reversed so the stack yields document order.
+            for &child in doc.children(id).iter().rev() {
+                stack.push(child);
+            }
+        }
+        out
     }
 
     /// Describe what is at viewport point `(vp_x, vp_y)` for a context menu: the nearest
@@ -1552,6 +1679,78 @@ mod tests {
             // No document URL: raw attribute values pass through.
             let hit = ctx.hit_test(50.0, 150.0, None);
             assert_eq!(hit.link_url.as_deref(), Some("/target"));
+        }
+
+        /// Focus model: document-order traversal over focusable elements, wrap-around,
+        /// click-to-focus via the nearest focusable ancestor, and `:focus` visibility
+        /// through the document.
+        #[test]
+        fn focus_traversal_and_click_to_focus() {
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 500,
+            });
+            let html = r#"<html><body style="margin:0">
+                <a href="/one" style="display:block;height:50px"><span>first</span></a>
+                <div style="height:50px">not focusable</div>
+                <input style="display:block;height:30px;width:200px">
+                <a href="/two" tabindex="-1" style="display:block;height:30px">skipped</a>
+                <button style="display:block;height:30px">go</button>
+            </body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            // Tab cycles a → input → button → wraps to a. The tabindex=-1 link is skipped.
+            let a = ctx.focus_step(false).expect("first focusable");
+            assert_eq!(ctx.focused_link().as_deref(), Some("/one"));
+            let input = ctx.focus_step(false).expect("second");
+            assert!(ctx.focused_editable());
+            let button = ctx.focus_step(false).expect("third");
+            assert!(!ctx.focused_editable());
+            assert_eq!(ctx.focus_step(false), Some(a), "wraps around");
+            assert_eq!(ctx.focus_step(true), Some(button), "shift-tab goes back");
+            assert_ne!(a, input);
+
+            // The document agrees (this is what :focus matching reads).
+            let doc = ctx.document.as_ref().unwrap();
+            assert!(doc.is_focused(button));
+            assert!(!doc.is_focused(a));
+
+            // Clicking the <span> inside the link focuses the link (nearest focusable
+            // ancestor); clicking the plain div blurs.
+            assert!(ctx.focus_at(10.0, 25.0));
+            assert_eq!(ctx.focused_node(), Some(a));
+            assert!(ctx.focus_at(10.0, 75.0));
+            assert_eq!(ctx.focused_node(), None);
+        }
+
+        /// Regression: a layer whose elements sit entirely outside the page box (fixed
+        /// element pushed far off-screen - a common accessibility/hiding pattern) used to
+        /// underflow the tiler's tile-count arithmetic and panic the tab worker.
+        #[test]
+        fn offscreen_layer_does_not_panic_the_tiler() {
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 300,
+            });
+            let html = r#"<html><body style="margin:0">
+                <div style="height:200px">content</div>
+                <div style="position:fixed;left:5000px;top:8000px;width:50px;height:20px">off right+below</div>
+                <div style="position:fixed;left:-9999px;top:10px;width:50px;height:20px">off left</div>
+            </body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(ctx.page_height() > 0.0, "page laid out");
         }
 
         #[test]

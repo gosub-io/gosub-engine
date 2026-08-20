@@ -370,6 +370,7 @@ mod tests {
             cookie_store: None,
             cookie_jar: None,
             partition_policy: PartitionPolicy::None,
+            places: None,
         }
     }
 
@@ -478,6 +479,349 @@ mod tests {
     /// Session history end to end: two navigations push two entries, GoBack moves the cursor
     /// (announced immediately via HistoryChanged) and refetches the first page, GoForward
     /// returns to the second. Verifies the tree from the embedder's point of view only.
+    /// Downloads end to end: navigating to binary content emits a DownloadRequested offer
+    /// (with the Content-Disposition filename) and cancels the navigation; StartDownload
+    /// streams the bytes to the chosen path and reports progress and completion.
+    #[tokio::test]
+    async fn navigation_download_offer_and_save() {
+        use crate::events::{DownloadId, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // 700 KiB of deterministic bytes: enough for several progress reports.
+        let payload: Vec<u8> = (0..700 * 1024).map(|i| (i % 251) as u8).collect();
+        let payload_srv = payload.clone();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let payload = payload_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                         Content-Disposition: attachment; filename=\"pretty.bin\"\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        payload.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(&payload).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        // Navigating to the binary produces an offer, not an error page.
+        tab.navigate(format!("http://127.0.0.1:{port}/data/raw.bin"))
+            .await
+            .expect("navigate");
+        let offer = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match event_rx.recv().await {
+                    Ok(EngineEvent::DownloadRequested {
+                        url,
+                        suggested_filename,
+                        total_bytes,
+                        ..
+                    }) => return (url, suggested_filename, total_bytes),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for DownloadRequested");
+        assert_eq!(offer.1, "pretty.bin", "Content-Disposition filename wins");
+        assert_eq!(offer.2, Some(payload.len() as u64));
+
+        // Accept the offer into a temp dir.
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("saved.bin");
+        tab.send(TabCommand::StartDownload {
+            id: DownloadId(7),
+            url: offer.0.to_string(),
+            target_path: target.clone(),
+        })
+        .await
+        .expect("start download");
+
+        let (progress_seen, received) = tokio::time::timeout(Duration::from_secs(10), async {
+            let mut progress_seen = false;
+            loop {
+                match event_rx.recv().await {
+                    Ok(EngineEvent::DownloadProgress { id: DownloadId(7), .. }) => progress_seen = true,
+                    Ok(EngineEvent::DownloadFinished {
+                        id: DownloadId(7),
+                        received_bytes,
+                        path,
+                        ..
+                    }) => {
+                        assert_eq!(path, target);
+                        return (progress_seen, received_bytes);
+                    }
+                    Ok(EngineEvent::DownloadFailed { error, .. }) => panic!("download failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for DownloadFinished");
+        assert!(progress_seen, "expected at least one progress event");
+        assert_eq!(received, payload.len() as u64);
+        assert_eq!(std::fs::read(&target).unwrap(), payload, "file content must match");
+
+        // The failed-fetch path reports too (connection refused port).
+        tab.send(TabCommand::StartDownload {
+            id: DownloadId(8),
+            url: "http://127.0.0.1:9/off".into(),
+            target_path: dir.path().join("nope.bin"),
+        })
+        .await
+        .expect("start failing download");
+        let failed = wait_for(&mut event_rx, |ev| {
+            matches!(ev, EngineEvent::DownloadFailed { id: DownloadId(8), .. })
+        })
+        .await;
+        assert!(failed, "expected DownloadFailed for unreachable server");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// Committed http navigations are recorded into the zone's places store (visited
+    /// history), with the page title; internal pages are not.
+    #[tokio::test]
+    async fn visits_are_recorded_in_places() {
+        use crate::places::{MemoryPlaces, Places};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let body = "<html><title>A Page</title><body>hi</body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let places = Arc::new(MemoryPlaces::new());
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone_services = services();
+        zone_services.places = Some(places.clone());
+        let mut zone = engine.create_zone(None, zone_services, None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        let url = format!("http://127.0.0.1:{port}/page");
+        tab.navigate(url.clone()).await.expect("navigate");
+        let finished = wait_for(&mut event_rx, |ev| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: crate::events::NavigationEvent::Finished { .. },
+                    ..
+                }
+            )
+        })
+        .await;
+        assert!(finished);
+        let visited = places.query_visited("", 10);
+        assert_eq!(visited.len(), 1);
+        assert_eq!(visited[0].url, url);
+        assert_eq!(visited[0].title, "A Page");
+
+        // Internal pages leave no trace.
+        tab.navigate("gosub://version").await.expect("navigate internal");
+        let finished = wait_for(&mut event_rx, |ev| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: crate::events::NavigationEvent::Finished { url, .. },
+                    ..
+                } if url.scheme() == "gosub"
+            )
+        })
+        .await;
+        assert!(finished);
+        assert_eq!(places.query_visited("", 10).len(), 1);
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// Crash containment: a panicking tab worker produces a TabCrashed event (instead of
+    /// dying silently), and the tab's handle then reports closed on further commands.
+    #[tokio::test]
+    async fn worker_panic_emits_tab_crashed() {
+        use crate::events::TabCommand;
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let tab_id = tab.tab_id;
+
+        tab.send(TabCommand::CrashForTest).await.expect("send crash command");
+
+        let crashed = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match event_rx.recv().await {
+                    Ok(EngineEvent::TabCrashed {
+                        tab_id: crashed_id,
+                        error,
+                        ..
+                    }) => return (crashed_id, error),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for TabCrashed");
+        assert_eq!(crashed.0, tab_id);
+        assert!(
+            crashed.1.contains("deliberate test crash"),
+            "panic message: {}",
+            crashed.1
+        );
+
+        // The dead tab's handle fails cleanly rather than hanging.
+        assert!(tab.send(TabCommand::Reload { ignore_cache: false }).await.is_err());
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// Keyboard focus end to end: Tab focuses the first link (FocusChanged), Enter
+    /// activates it (a real navigation to its href).
+    #[tokio::test]
+    async fn keyboard_focus_and_link_activation() {
+        use crate::events::{NavigationEvent, TabCommand};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let body = "<html><title>t</title><body><a href=\"/target\">go</a></body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        tab.send(TabCommand::SetViewport {
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        })
+        .await
+        .expect("viewport");
+
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+        wait_for(&mut event_rx, |ev| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                }
+            )
+        })
+        .await;
+
+        // Tab -> the link gets focus; the engine announces it (non-editable).
+        tab.send(TabCommand::KeyDown {
+            key: "Tab".into(),
+            code: "Tab".into(),
+            modifiers: crate::engine::events::Modifiers::empty(),
+        })
+        .await
+        .expect("tab key");
+        let matched = wait_for(&mut event_rx, |ev| {
+            matches!(
+                ev,
+                EngineEvent::FocusChanged {
+                    focused: true,
+                    editable: false,
+                    ..
+                }
+            )
+        })
+        .await;
+        assert!(matched, "expected FocusChanged after Tab");
+
+        // Enter -> activates the focused link: a navigation to /target starts.
+        tab.send(TabCommand::KeyDown {
+            key: "Enter".into(),
+            code: "Enter".into(),
+            modifiers: crate::engine::events::Modifiers::empty(),
+        })
+        .await
+        .expect("enter key");
+        let matched = wait_for(&mut event_rx, |ev| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: NavigationEvent::Started { url, .. },
+                    ..
+                } if url.path() == "/target"
+            )
+        })
+        .await;
+        assert!(matched, "expected navigation to /target after Enter");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// Wait (with timeout) for an event matching `pred`; true when it arrived.
+    async fn wait_for(rx: &mut broadcast::Receiver<EngineEvent>, pred: impl Fn(&EngineEvent) -> bool) -> bool {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match rx.recv().await {
+                    Ok(ev) if pred(&ev) => return true,
+                    Ok(_) => continue,
+                    Err(_) => return false,
+                }
+            }
+        })
+        .await
+        .unwrap_or(false)
+    }
+
     #[tokio::test]
     async fn session_history_back_and_forward() {
         use crate::events::NavigationEvent;

@@ -42,6 +42,7 @@
 //!     cookie_store: None,
 //!     cookie_jar: Some(DefaultCookieJar::new().into()),
 //!     partition_policy: PartitionPolicy::None,
+//!     places: None,
 //! };
 //!
 //! let zone_cfg = ZoneConfig::default();
@@ -70,6 +71,7 @@
 //!     cookie_store: Some(store.into()),
 //!     cookie_jar: None, // engine will wrap with PersistentCookieJar per zone
 //!     partition_policy: PartitionPolicy::None,
+//!     places: None,
 //! };
 //!
 //! let zone_cfg = ZoneConfig::default();

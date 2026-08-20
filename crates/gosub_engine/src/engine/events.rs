@@ -45,6 +45,11 @@ pub enum CursorShape {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HitTestToken(pub u64);
 
+/// Identifies one download across its progress/finished/failed events. Minted by the
+/// embedder when it starts the download (like [`HitTestToken`]); the engine echoes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DownloadId(pub u64);
+
 /// What is under a point of the page - the input for a shell's native context menu.
 /// Fields are independent: a linked image yields both `link_url` and `image_url`. URLs are
 /// absolute (resolved against the document URL). Selection and editable-field details grow
@@ -162,6 +167,14 @@ pub enum TabCommand {
     GoToHistoryEntry {
         entry: HistoryEntryId,
     },
+    /// Save `url` to `target_path` through the zone's fetcher (cookies and UA apply).
+    /// Sent to accept an [`EngineEvent::DownloadRequested`] offer, or directly
+    /// (save-link-as). Progress arrives as `Download*` events carrying the same `id`.
+    StartDownload {
+        id: DownloadId,
+        url: String,
+        target_path: std::path::PathBuf,
+    },
     /// Ask what is at viewport point `(x, y)` (CSS px), e.g. on right-click, to build a native
     /// context menu. Answered with [`EngineEvent::HitTestResult`] carrying the same `token`.
     QueryHitTest {
@@ -169,6 +182,10 @@ pub enum TabCommand {
         y: f32,
         token: HitTestToken,
     },
+    /// Test-only: panic the tab worker, to exercise crash containment. Not compiled into
+    /// release builds.
+    #[cfg(test)]
+    CrashForTest,
     /// Answer a pending [`NavigationEvent::DecisionRequired`].
     SubmitDecision {
         nav_id: NavigationId,
@@ -491,11 +508,50 @@ pub enum EngineEvent {
         tab_id: TabId,
         cursor: CursorShape,
     },
+    /// Keyboard focus moved to another element (or cleared). `editable` says whether the
+    /// newly focused element accepts text input - the shell's cue for IME/OSK behaviour.
+    FocusChanged {
+        tab_id: TabId,
+        /// `true` while an element is focused; `false` after a blur.
+        focused: bool,
+        editable: bool,
+    },
     /// Answer to [`TabCommand::QueryHitTest`].
     HitTestResult {
         tab_id: TabId,
         token: HitTestToken,
         hit: HitTestResponse,
+    },
+    /// A navigation turned out to be a download (binary content or an attachment). The
+    /// navigation itself was cancelled (the page stays); the shell decides where to save
+    /// and answers with [`TabCommand::StartDownload`] - or ignores the offer.
+    DownloadRequested {
+        tab_id: TabId,
+        url: Url,
+        /// From `Content-Disposition` when present, else the URL's last path segment.
+        suggested_filename: String,
+        content_type: Option<String>,
+        total_bytes: Option<u64>,
+    },
+    /// Bytes are flowing to disk for a [`TabCommand::StartDownload`].
+    DownloadProgress {
+        tab_id: TabId,
+        id: DownloadId,
+        received_bytes: u64,
+        total_bytes: Option<u64>,
+    },
+    /// The download completed and the file is fully written.
+    DownloadFinished {
+        tab_id: TabId,
+        id: DownloadId,
+        path: std::path::PathBuf,
+        received_bytes: u64,
+    },
+    /// The download failed; a partial file may remain at the target path.
+    DownloadFailed {
+        tab_id: TabId,
+        id: DownloadId,
+        error: String,
     },
     /// Not yet emitted by the engine; emission arrives with the pending mac-app patches.
     TitleChanged {
@@ -608,10 +664,14 @@ pub enum EngineEvent {
         line: u32,
         column: u32,
     },
-    /// Not yet emitted by the engine.
+    /// The tab's worker task panicked. The tab is dead: its handle's commands will fail
+    /// from now on, and no further events arrive for it. The shell should show a
+    /// "tab crashed" page and offer reload-by-recreating the tab. `error` is the panic
+    /// message (best effort).
     TabCrashed {
         tab_id: TabId,
-        reason: String,
+        zone_id: ZoneId,
+        error: String,
     },
     // Uncategorized / generic
 }

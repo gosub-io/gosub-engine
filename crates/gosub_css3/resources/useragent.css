@@ -1133,6 +1133,14 @@ a:-webkit-any-link {
     text-decoration: underline;
     cursor: pointer;
 }
+/* Keyboard focus indication. `outline` is not painted yet, so a background tint
+   stands in until it is. */
+a:focus {
+    background-color: #cce4ff;
+}
+input:focus, textarea:focus, select:focus, button:focus {
+    background-color: #e6f0ff;
+}
 a:-webkit-any-link:active {
     color: -webkit-activelink
 }

@@ -32,6 +32,12 @@ pub enum RoutedOutcome<C: RenderConfiguration> {
 
     /// The request was blocked (with reason).
     Blocked(BlockReason),
+
+    /// A top-level navigation to non-renderable content: offer it as a download. Carries
+    /// the response metadata (final URL, headers, size); the body is dropped - the actual
+    /// download re-fetches once the embedder picks a target path. Boxed to keep the
+    /// enum's variants of comparable size.
+    DownloadOffer(Box<crate::net::types::FetchResultMeta>),
 }
 
 fn html_escape(text: &str) -> String {
@@ -213,7 +219,9 @@ pub async fn route_response_for<C: RenderConfiguration>(
                 let doc = hooks.html.parse_bytes(request, handle, meta, html.as_bytes()).await?;
                 return Ok(RoutedOutcome::MainDocument(Arc::new(doc)));
             }
-            Err(anyhow!("Cannot download main document"))
+            // Binary content or an explicit attachment: offer it to the embedder as a
+            // download instead of failing the navigation.
+            Ok(RoutedOutcome::DownloadOffer(Box::new(meta)))
         }
 
         // -------- Sub resources (no UA prompts) --------

@@ -66,6 +66,7 @@
 //!     cookie_store: None,
 //!     cookie_jar: None, // or Some(DefaultCookieJar::new().into()) for ephemeral cookies
 //!     partition_policy: PartitionPolicy::None,
+//!     places: None,
 //! };
 //!
 //! let _zone = engine_handle.create_zone(None, services, None)?;

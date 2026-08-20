@@ -31,6 +31,7 @@
 //!     cookie_store: Some(SqliteCookieStore::new("cookies.db".into())?.into()),
 //!     cookie_jar: None, // engine will attach a PersistentCookieJar that snapshots to the store
 //!     partition_policy: PartitionPolicy::None,
+//!     places: None,
 //! };
 //! let _zone = engine.create_zone(None, services, None)?;
 //! # Ok(()) }
@@ -54,6 +55,7 @@
 //!     cookie_store: None,
 //!     cookie_jar: Some(DefaultCookieJar::new().into()),
 //!     partition_policy: PartitionPolicy::None,
+//!     places: None,
 //! };
 //! let _zone = engine.create_zone(None, services, None)?;
 //! # Ok(()) }
@@ -77,6 +79,7 @@
 //!     cookie_store: Some(JsonCookieStore::new("private-cookies.json".into())?.into()),
 //!     cookie_jar: None,
 //!     partition_policy: PartitionPolicy::None,
+//!     places: None,
 //! };
 //! let _zone = engine.create_zone(None, services, None)?;
 //! # Ok(()) }

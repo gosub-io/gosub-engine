@@ -114,6 +114,7 @@ impl BrowserApp {
             cookie_store: None,
             cookie_jar: None,
             partition_policy: PartitionPolicy::None,
+            places: None,
         };
 
         let mut zone = engine
