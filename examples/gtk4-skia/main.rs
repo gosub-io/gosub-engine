@@ -5,7 +5,6 @@
 //! GTK4 is used only for windowing; Skia handles all rasterization and fonts.
 //! No gtk4::init() needed for fonts - unlike the Cairo backend, Skia is self-contained.
 
-use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabId};
@@ -54,126 +53,6 @@ struct TileDrawState {
     page_height: f32,
 }
 
-/// Map the engine's cursor kind to a named GTK cursor on the page widget.
-fn apply_cursor(area: &DrawingArea, cursor: gosub_engine::events::CursorShape) {
-    use gosub_engine::events::CursorShape;
-    let name = match cursor {
-        CursorShape::Default => "default",
-        CursorShape::Pointer => "pointer",
-        CursorShape::Text => "text",
-        CursorShape::Resize => "nwse-resize",
-    };
-    area.set_cursor_from_name(Some(name));
-}
-
-/// Ctrl+C/X/V inside the page: the engine only sees keys, the clipboard is the embedder's. Copy/cut
-/// arrive as text to store; a paste request is answered by reading the clipboard and sending it
-/// back as `TextInput`.
-fn handle_clipboard_event(
-    evt: &EngineEvent,
-    area: &DrawingArea,
-    tab: &Rc<RefCell<gosub_engine::tab::TabHandle>>,
-) -> bool {
-    let clipboard = area.display().clipboard();
-    match evt {
-        EngineEvent::ClipboardWrite { text, .. } => {
-            clipboard.set_text(text);
-            true
-        }
-        EngineEvent::PasteRequested { .. } => {
-            let tab = tab.borrow().clone();
-            clipboard.read_text_async(gtk4::gio::Cancellable::NONE, move |res| {
-                let Ok(Some(text)) = res else {
-                    return;
-                };
-                let text = text.to_string();
-                TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::TextInput { text }).await;
-                });
-            });
-            true
-        }
-        _ => false,
-    }
-}
-
-/// GDK key names mostly match DOM `KeyboardEvent.key`; translate the ones that don't. X11 gives
-/// Shift+Tab its own `ISO_Left_Tab` keysym.
-fn key_down_command(key: gtk4::gdk::Key, state: gtk4::gdk::ModifierType) -> Option<TabCommand> {
-    use gosub_engine::events::Modifiers;
-    let mut modifiers = Modifiers::empty();
-    if state.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
-        modifiers |= Modifiers::SHIFT;
-    }
-    if state.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
-        modifiers |= Modifiers::CONTROL;
-    }
-    if state.contains(gtk4::gdk::ModifierType::ALT_MASK) {
-        modifiers |= Modifiers::ALT;
-    }
-    if state.contains(gtk4::gdk::ModifierType::SUPER_MASK) {
-        modifiers |= Modifiers::META;
-    }
-    let name = key.name()?;
-    let key_name = match name.as_str() {
-        "ISO_Left_Tab" => {
-            modifiers |= Modifiers::SHIFT;
-            "Tab".to_string()
-        }
-        "Return" | "KP_Enter" => "Enter".to_string(),
-        "BackSpace" => "Backspace".to_string(),
-        "Left" => "ArrowLeft".to_string(),
-        "Right" => "ArrowRight".to_string(),
-        "Up" => "ArrowUp".to_string(),
-        "Down" => "ArrowDown".to_string(),
-        "space" => " ".to_string(),
-        _ => match key.to_unicode() {
-            Some(c) if !c.is_control() => c.to_string(),
-            _ => name.to_string(),
-        },
-    };
-    Some(TabCommand::KeyDown {
-        code: key_name.clone(),
-        key: key_name,
-        modifiers,
-    })
-}
-
-fn contains_ci(haystack: &str, needle: &str) -> bool {
-    haystack
-        .as_bytes()
-        .windows(needle.len())
-        .any(|w| w.eq_ignore_ascii_case(needle.as_bytes()))
-}
-
-fn ends_with_ci(s: &str, suffix: &str) -> bool {
-    s.len() >= suffix.len() && s.as_bytes()[s.len() - suffix.len()..].eq_ignore_ascii_case(suffix.as_bytes())
-}
-
-/// Whether to render dark: `GOSUB_COLOR_SCHEME` if set, else the desktop's preference.
-fn desktop_prefers_dark() -> bool {
-    if let Ok(v) = std::env::var("GOSUB_COLOR_SCHEME") {
-        return v.eq_ignore_ascii_case("dark");
-    }
-    // GNOME / freedesktop: org.gnome.desktop.interface color-scheme = 'prefer-dark'.
-    let gnome_dark = gtk4::gio::SettingsSchemaSource::default()
-        .and_then(|src| src.lookup("org.gnome.desktop.interface", true))
-        .filter(|schema| schema.has_key("color-scheme"))
-        .map(|_| gtk4::gio::Settings::new("org.gnome.desktop.interface").string("color-scheme"))
-        .is_some_and(|s| s == "prefer-dark");
-    if gnome_dark {
-        return true;
-    }
-    let Some(settings) = gtk4::Settings::default() else {
-        return false;
-    };
-    settings.is_gtk_application_prefer_dark_theme()
-        || settings
-            .gtk_theme_name()
-            .is_some_and(|n| contains_ci(n.as_str(), "dark"))
-        || std::env::var("GTK_THEME").is_ok_and(|t| ends_with_ci(&t, ":dark"))
-}
-
 fn main() {
     eprintln!(
         "{} v{} — GTK4 browser window, Skia (CPU) rendering",
@@ -208,9 +87,8 @@ fn main() {
 
         let backend = gosub_renderer_skia::SkiaBackend::new();
         let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
-        // Colour scheme: GOSUB_COLOR_SCHEME=dark|light wins; otherwise the desktop preference
-        // (GNOME's color-scheme GSetting, a "-dark" GTK theme, or an app-level prefer-dark flag).
-        if desktop_prefers_dark() {
+        // GOSUB_COLOR_SCHEME=dark renders pages and native controls in the dark scheme.
+        if std::env::var("GOSUB_COLOR_SCHEME").is_ok_and(|v| v.eq_ignore_ascii_case("dark")) {
             let _ = engine.settings().set(
                 "renderer.color_scheme",
                 gosub_config::settings::Setting::String("dark".into()),
@@ -221,17 +99,12 @@ fn main() {
 
         let zone_cfg = ZoneConfig::builder().do_not_track(true).build().expect("ZoneConfig");
 
-        let cookie_store: gosub_engine::cookies::CookieStoreHandle =
-            SqliteCookieStore::new(".pipeline-browser-cookies.db".into())
-                .expect("failed to open cookie store")
-                .into();
-
         let zone_services = ZoneServices {
             storage: Arc::new(StorageService::new(
-                Arc::new(SqliteLocalStore::new(".pipeline-browser-local.db").expect("local store")),
+                Arc::new(SqliteLocalStore::new(":memory:").expect("local store")),
                 Arc::new(InMemorySessionStore::new()),
             )),
-            cookie_store: Some(cookie_store),
+            cookie_store: None,
             cookie_jar: None,
             partition_policy: PartitionPolicy::None,
             places: None,
@@ -262,7 +135,6 @@ fn main() {
 
         let tab_id: TabId = tab.tab_id;
 
-        // Wrap the tab in Rc<RefCell<>> so closures can share it
         let tab = Rc::new(RefCell::new(tab));
 
         // --- Local tile/scroll state (GTK main thread only, no locking) ---
@@ -274,8 +146,6 @@ fn main() {
         // Current scroll offset in CSS px - updated synchronously in the GTK scroll
         // handler so every frame sees the very latest position without async latency.
         let local_scroll: Rc<Cell<(f32, f32)>> = Rc::new(Cell::new((0.0, 0.0)));
-        // Handle for the active kinetic-scroll glib timeout (if any).
-        let kinetic_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
 
         // --- Widgets ---
         let address_entry = Entry::new();
@@ -291,7 +161,7 @@ fn main() {
 
         // When the engine submits a new frame, check if it is a TileCache and stash it
         // in local_tiles so the draw callback can use it immediately.  Also sync the
-        // local scroll position so kinetic deceleration stays consistent.
+        // local scroll position so the synchronous scroll handler stays consistent.
         {
             let da = drawing_area.clone();
             let compositor_rx = compositor.clone();
@@ -470,19 +340,7 @@ fn main() {
         // The local scroll offset is updated synchronously here (on the GTK main thread),
         // so queue_draw() immediately sees the new position - zero async latency.
         // The engine is also notified via a Tokio task for its own state bookkeeping.
-        let scroll_ctl = gtk4::EventControllerScroll::new(
-            gtk4::EventControllerScrollFlags::BOTH_AXES | gtk4::EventControllerScrollFlags::KINETIC,
-        );
-
-        // Cancel any in-progress kinetic scroll when a new gesture starts.
-        scroll_ctl.connect_scroll_begin({
-            let kinetic_source = kinetic_source.clone();
-            move |_| {
-                if let Some(id) = kinetic_source.borrow_mut().take() {
-                    id.remove();
-                }
-            }
-        });
+        let scroll_ctl = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::BOTH_AXES);
 
         scroll_ctl.connect_scroll({
             let tab = tab.clone();
@@ -516,60 +374,6 @@ fn main() {
             }
         });
 
-        // Kinetic (momentum) scrolling: continue scrolling after the finger lifts.
-        scroll_ctl.connect_decelerate({
-            let tab = tab.clone();
-            let local_tiles = local_tiles.clone();
-            let local_scroll = local_scroll.clone();
-            let kinetic_source = kinetic_source.clone();
-            let da = drawing_area.clone();
-            move |_ctl, vel_x, vel_y| {
-                // vel_x/vel_y are in "scroll units per millisecond" - same units as the
-                // dx/dy deltas above, so multiply by 50 to get CSS px/ms.
-                let vx = Rc::new(Cell::new(vel_x as f32 * SCROLL_MULTIPLIER));
-                let vy = Rc::new(Cell::new(vel_y as f32 * SCROLL_MULTIPLIER));
-
-                let tab = tab.clone();
-                let local_tiles = local_tiles.clone();
-                let local_scroll = local_scroll.clone();
-                let kinetic_source_inner = kinetic_source.clone();
-                let da = da.clone();
-
-                // ~60 fps deceleration loop.
-                let id = glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
-                    let cur_vx = vx.get();
-                    let cur_vy = vy.get();
-                    if cur_vx.abs() < 2.0 && cur_vy.abs() < 2.0 {
-                        *kinetic_source_inner.borrow_mut() = None;
-                        return glib::ControlFlow::Break;
-                    }
-                    // Exponential friction - decelerates to ~5% in ~1 second at 60fps.
-                    let friction = 0.93_f32;
-                    vx.set(cur_vx * friction);
-                    vy.set(cur_vy * friction);
-
-                    let delta_x = cur_vx * 0.016; // velocity × 16ms frame
-                    let delta_y = cur_vy * 0.016;
-
-                    let (prev_x, prev_y) = local_scroll.get();
-                    let max_y = local_tiles
-                        .borrow()
-                        .as_ref()
-                        .map(|s| (s.page_height - s.viewport_height as f32).max(0.0))
-                        .unwrap_or(f32::MAX);
-                    local_scroll.set(((prev_x + delta_x).max(0.0), (prev_y + delta_y).clamp(0.0, max_y)));
-                    da.queue_draw();
-
-                    let tab = tab.borrow().clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab.send(TabCommand::MouseScroll { delta_x, delta_y }).await;
-                    });
-
-                    glib::ControlFlow::Continue
-                });
-                *kinetic_source.borrow_mut() = Some(id);
-            }
-        });
         drawing_area.add_controller(scroll_ctl);
 
         // Mouse motion → hover
@@ -628,29 +432,6 @@ fn main() {
         });
         drawing_area.add_controller(click_ctl);
 
-        // Clicking the page gives the area GTK focus so keys reach it; Tab is swallowed so GTK
-        // doesn't move focus to the address bar.
-        let key_ctl = gtk4::EventControllerKey::new();
-        key_ctl.connect_key_pressed({
-            let tab = tab.clone();
-            move |_, key, _code, state| {
-                let Some(cmd) = key_down_command(key, state) else {
-                    return glib::Propagation::Proceed;
-                };
-                let is_tab = matches!(&cmd, TabCommand::KeyDown { key, .. } if key == "Tab");
-                let tab = tab.borrow().clone();
-                TOKIO_RT.spawn(async move {
-                    let _ = tab.send(cmd).await;
-                });
-                if is_tab {
-                    glib::Propagation::Stop
-                } else {
-                    glib::Propagation::Proceed
-                }
-            }
-        });
-        drawing_area.add_controller(key_ctl);
-
         // Resize → set DPR first so create_surface sees the right value, then notify the engine
         drawing_area.connect_resize({
             let tab = tab.clone();
@@ -683,14 +464,8 @@ fn main() {
             let tab = tab.clone();
             let local_tiles = local_tiles.clone();
             let local_scroll = local_scroll.clone();
-            let kinetic_source = kinetic_source.clone();
             let da = drawing_area.clone();
             move |entry| {
-                // Cancel any kinetic scroll in progress.
-                if let Some(id) = kinetic_source.borrow_mut().take() {
-                    id.remove();
-                }
-
                 let mut s = entry.text().to_string();
                 if !s.starts_with("http://") && !s.starts_with("https://") {
                     s = format!("https://{s}");
@@ -738,17 +513,8 @@ fn main() {
             let address_entry = address_entry.clone();
             let local_tiles = local_tiles.clone();
             let local_scroll = local_scroll.clone();
-            let kinetic_source = kinetic_source.clone();
-            let tab = tab.clone();
             glib::spawn_future_local(async move {
                 while let Some(evt) = ui_rx.recv().await {
-                    if handle_clipboard_event(&evt, &da, &tab) {
-                        continue;
-                    }
-                    if let EngineEvent::CursorChanged { cursor, .. } = evt {
-                        apply_cursor(&da, cursor);
-                        continue;
-                    }
                     match evt {
                         EngineEvent::Redraw { .. } => da.queue_draw(),
                         EngineEvent::Navigation { tab_id: _, ref event } => {
@@ -756,9 +522,6 @@ fn main() {
                             match event {
                                 NavigationEvent::Started { .. } => {
                                     // Same reset the address-bar handler does on manual navigation.
-                                    if let Some(id) = kinetic_source.borrow_mut().take() {
-                                        id.remove();
-                                    }
                                     *local_tiles.borrow_mut() = None;
                                     local_scroll.set((0.0, 0.0));
                                     da.queue_draw();

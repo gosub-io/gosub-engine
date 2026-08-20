@@ -5,7 +5,7 @@ select dropdowns (long lists scroll), range sliders, textarea resize, submit/res
 Submissions land on `/echo`, which lists the submitted fields.
 
     python3 tests/data/forms/serve.py 8080
-    cargo run --example gtk4-cairo -- http://127.0.0.1:8080/index.html
+    cargo run --release -p gosub-mini-browser -- http://127.0.0.1:8080/index.html
 
 Headless replay of the same page (see `gosub-screenshot --help` for the `-i` steps):
 

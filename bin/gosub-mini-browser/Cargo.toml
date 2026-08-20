@@ -1,18 +1,19 @@
 [package]
-name = "example-egui-cairo"
+name = "gosub-mini-browser"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "egui-cairo"
+name = "gosub-mini-browser"
 path = "main.rs"
 
 [dependencies]
-gosub_engine = { path = "../../crates/gosub_engine" }
+gosub_engine = { path = "../../crates/gosub_engine", features = ["sqlite_cookie_store"] }
+gosub_config = { path = "../../crates/gosub_config" }
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
 gosub_renderer_cairo = { path = "../../crates/gosub_renderer_cairo" }
-eframe = { workspace = true, features = ["wgpu"] }
-egui = { workspace = true }
+# v4_12 enables GdkSurface::scale() for true fractional display-scale detection.
+gtk4 = { workspace = true, features = ["v4_12"] }
 once_cell = { workspace = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }

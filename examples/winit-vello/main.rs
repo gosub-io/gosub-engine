@@ -2,7 +2,7 @@
 //!
 //! Usage: cargo run --example winit-vello -- https://example.com
 //!
-//! Press Ctrl+L to focus the address bar (URL shown in window title while typing).
+//! The current URL is shown in the window title; pass a different URL as the first argument.
 //! No GTK/Cairo dependency - pure winit + wgpu.
 //!
 //! Architecture note: the wgpu adapter and device are created inside `resumed()`
@@ -10,7 +10,7 @@
 //! On Wayland an incompatible adapter causes `get_current_texture()` to silently fail
 //! every frame, keeping the surface un-committed and the window invisible.
 
-use gosub_engine::events::{EngineEvent, Modifiers, MouseButton, NavigationEvent, TabCommand};
+use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
@@ -23,14 +23,12 @@ use gosub_winit::{GpuPresenter, WinitWgpuContextProvider};
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
-use url::Url;
 use uuid::uuid;
 use vello::wgpu;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
-use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{WindowAttributes, WindowId};
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000007");
@@ -77,10 +75,7 @@ struct BrowserApp {
     state: Option<RuntimeState>,
 
     // UI state
-    url_input: String,
-    addr_focused: bool,
     current_url: String,
-    modifiers: ModifiersState,
     /// Cursor position in physical pixels, as winit reports it.
     cursor: PhysicalPosition<f64>,
     /// Engine viewport in *logical* (CSS) pixels - physical window size ÷ `scale`.
@@ -93,32 +88,11 @@ struct BrowserApp {
 }
 
 impl BrowserApp {
-    fn navigate(&mut self) {
-        let Some(rt) = &self.state else { return };
-        let tab = rt.tab.clone();
-        let mut s = self.url_input.clone();
-        if !s.starts_with("http://") && !s.starts_with("https://") {
-            s = format!("https://{s}");
-        }
-        let Ok(_) = Url::parse(&s) else { return };
-        self.url_input = s.clone();
-        self.addr_focused = false;
-        self.update_title();
-        TOKIO_RT.spawn(async move {
-            let _ = tab.send(TabCommand::Navigate { url: s }).await;
-            // 60fps so the per-frame smooth-scroll deltas render as a smooth glide, not ~5 steps.
-            let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
-        });
-    }
-
     fn update_title(&self) {
         let Some(rt) = &self.state else { return };
-        let title = if self.addr_focused {
-            format!("URL: {} — Gosub (Enter to navigate, Esc to cancel)", self.url_input)
-        } else {
-            format!("Gosub Browser — {}", self.current_url)
-        };
-        rt.gpu.window().set_title(&title);
+        rt.gpu
+            .window()
+            .set_title(&format!("Gosub Browser — {}", self.current_url));
     }
 
     /// Convert a physical pixel length to logical (CSS) pixels for the engine.
@@ -238,8 +212,6 @@ impl ApplicationHandler<()> for BrowserApp {
 
         // Forward navigation events → proxy → request_redraw.
         let proxy_ev = self.proxy.clone();
-        let tab_for_clipboard: Arc<std::sync::OnceLock<TabHandle>> = Arc::new(std::sync::OnceLock::new());
-        let tab_slot = tab_for_clipboard.clone();
         let mut event_rx = engine.subscribe_events();
         TOKIO_RT.spawn(async move {
             loop {
@@ -249,16 +221,6 @@ impl ApplicationHandler<()> for BrowserApp {
                         ..
                     }) => {
                         let _ = proxy_ev.send_event(());
-                    }
-                    Ok(EngineEvent::ClipboardWrite { text, .. }) => clipboard_write(&text),
-                    Ok(EngineEvent::CursorChanged { cursor, .. }) => {
-                        store_page_cursor(cursor);
-                        let _ = proxy_ev.send_event(());
-                    }
-                    Ok(EngineEvent::PasteRequested { .. }) => {
-                        if let (Some(tab), Some(text)) = (tab_slot.get(), clipboard_read()) {
-                            let _ = tab.clone().send(TabCommand::TextInput { text }).await;
-                        }
                     }
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
@@ -308,7 +270,6 @@ impl ApplicationHandler<()> for BrowserApp {
             ))
             .expect("create_tab");
 
-        let _ = tab_for_clipboard.set(tab.clone());
         let tab_id = tab.tab_id;
         self.viewport = (logical_w, logical_h);
 
@@ -335,7 +296,6 @@ impl ApplicationHandler<()> for BrowserApp {
 
     fn user_event(&mut self, _: &ActiveEventLoop, _: ()) {
         if let Some(rt) = &self.state {
-            rt.gpu.window().set_cursor(page_cursor_icon());
             rt.gpu.window().request_redraw();
         }
     }
@@ -434,7 +394,7 @@ impl ApplicationHandler<()> for BrowserApp {
                 }
             }
 
-            // Release always reaches the engine (even over the address bar) so drags end.
+            // Release always reaches the engine so drags end.
             WindowEvent::MouseInput {
                 state: ElementState::Released,
                 button: WinitMouseButton::Left,
@@ -476,147 +436,12 @@ impl ApplicationHandler<()> for BrowserApp {
                 }
             }
 
-            WindowEvent::ModifiersChanged(mods) => {
-                self.modifiers = mods.state();
-            }
-
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        logical_key,
-                        text,
-                        state: ElementState::Pressed,
-                        ..
-                    },
-                ..
-            } => {
-                if !self.addr_focused {
-                    if let (Some(rt), Some(cmd)) = (&self.state, key_down_command(&logical_key, self.modifiers)) {
-                        let tab = rt.tab.clone();
-                        TOKIO_RT.spawn(async move {
-                            let _ = tab.send(cmd).await;
-                        });
-                    }
-                }
-
-                if logical_key == Key::Character("l".into()) && self.modifiers.control_key() {
-                    self.addr_focused = true;
-                    self.url_input = self.current_url.clone();
-                    self.update_title();
-                    return;
-                }
-
-                // 't' (when not editing the address bar) dumps the full timing table to the terminal.
-                if !self.addr_focused && logical_key == Key::Character("t".into()) {
-                    gosub_shared::timing::dump(true);
-                    return;
-                }
-
-                if self.addr_focused {
-                    match &logical_key {
-                        Key::Named(NamedKey::Enter) => self.navigate(),
-                        Key::Named(NamedKey::Escape) => {
-                            self.addr_focused = false;
-                            self.url_input = self.current_url.clone();
-                            self.update_title();
-                        }
-                        Key::Named(NamedKey::Backspace) => {
-                            self.url_input.pop();
-                            self.update_title();
-                        }
-                        _ => {
-                            if let Some(t) = &text {
-                                self.url_input.push_str(t.as_str());
-                                self.update_title();
-                            }
-                        }
-                    }
-                }
-            }
-
             _ => {}
         }
     }
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
-
-/// Cursor shape requested by the engine. Engine events arrive on a tokio thread while the
-/// window lives on the event-loop thread, so the shape is parked here and applied on the next
-/// proxy wake-up.
-static PAGE_CURSOR: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-
-fn store_page_cursor(cursor: gosub_engine::events::CursorShape) {
-    use gosub_engine::events::CursorShape;
-    let v = match cursor {
-        CursorShape::Default => 0,
-        CursorShape::Pointer => 1,
-        CursorShape::Text => 2,
-        CursorShape::Resize => 3,
-    };
-    PAGE_CURSOR.store(v, std::sync::atomic::Ordering::Relaxed);
-}
-
-fn page_cursor_icon() -> winit::window::CursorIcon {
-    use winit::window::CursorIcon;
-    match PAGE_CURSOR.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => CursorIcon::Pointer,
-        2 => CursorIcon::Text,
-        3 => CursorIcon::NwseResize,
-        _ => CursorIcon::Default,
-    }
-}
-
-/// The system clipboard for Ctrl+C/X/V inside the page: the engine emits `ClipboardWrite` /
-/// `PasteRequested` and the embedder owns the OS side. One long-lived handle: on X11 the data is
-/// only served while the handle exists.
-fn clipboard() -> &'static parking_lot::Mutex<Option<arboard::Clipboard>> {
-    static CLIPBOARD: parking_lot::Mutex<Option<arboard::Clipboard>> = parking_lot::Mutex::new(None);
-    let mut guard = CLIPBOARD.lock();
-    if guard.is_none() {
-        *guard = arboard::Clipboard::new().ok();
-    }
-    drop(guard);
-    &CLIPBOARD
-}
-
-fn clipboard_write(text: &str) {
-    if let Some(cb) = clipboard().lock().as_mut() {
-        let _ = cb.set_text(text.to_string());
-    }
-}
-
-fn clipboard_read() -> Option<String> {
-    clipboard().lock().as_mut()?.get_text().ok()
-}
-
-/// Winit's `NamedKey` variant names follow DOM `KeyboardEvent.key`, so Debug gives the key name.
-fn key_down_command(logical_key: &Key, mods: ModifiersState) -> Option<TabCommand> {
-    let key = match logical_key {
-        Key::Named(NamedKey::Space) => " ".to_string(),
-        Key::Named(named) => format!("{named:?}"),
-        Key::Character(c) => c.to_string(),
-        _ => return None,
-    };
-    let mut modifiers = Modifiers::empty();
-    if mods.shift_key() {
-        modifiers |= Modifiers::SHIFT;
-    }
-    if mods.control_key() {
-        modifiers |= Modifiers::CONTROL;
-    }
-    if mods.alt_key() {
-        modifiers |= Modifiers::ALT;
-    }
-    if mods.super_key() {
-        modifiers |= Modifiers::META;
-    }
-    Some(TabCommand::KeyDown {
-        code: key.clone(),
-        key,
-        modifiers,
-    })
-}
 
 fn main() {
     eprintln!(
@@ -661,7 +486,6 @@ fn main() {
         }
     }));
 
-    let url_input = initial_url.clone();
     let current_url = initial_url.clone();
 
     let mut app = BrowserApp {
@@ -670,10 +494,7 @@ fn main() {
         proxy,
         initial_url,
         state: None,
-        url_input,
-        addr_focused: false,
         current_url,
-        modifiers: ModifiersState::empty(),
         cursor: PhysicalPosition::default(),
         viewport: (1024, 768),
         scale: 1.0,

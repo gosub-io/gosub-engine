@@ -4,9 +4,9 @@
 //!
 //! Cairo/Pango need GTK4 initialised for font rendering (no GTK window is created).
 //! On headless systems set GDK_BACKEND=offscreen.
-//! Press Ctrl+L to focus the address bar.
+//! The page URL is given as the first argument; there is no in-window chrome.
 
-use gosub_engine::events::{EngineEvent, Modifiers, MouseButton, NavigationEvent, TabCommand};
+use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
@@ -21,17 +21,14 @@ use softbuffer::Surface;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
-use url::Url;
 use uuid::uuid;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000006");
-const ADDRESS_BAR_HEIGHT: u32 = 36;
 const SCROLL_MULTIPLIER: f32 = 134.0;
 
 type AppConfig = DefaultRenderConfig<CairoBackend, PangoFontSystem>;
@@ -63,9 +60,6 @@ struct BrowserApp {
     surface_size: (u32, u32),
 
     // UI state
-    url_input: String,
-    addr_focused: bool,
-    modifiers: ModifiersState,
     cursor: PhysicalPosition<f64>,
     scroll: (f32, f32),
     page_height: f32,
@@ -80,7 +74,6 @@ impl BrowserApp {
         tab_id: TabId,
         compositor: Arc<DefaultCompositor>,
         proxy: EventLoopProxy<()>,
-        initial_url: String,
     ) -> Self {
         Self {
             engine,
@@ -92,30 +85,11 @@ impl BrowserApp {
             window: None,
             surface: None,
             surface_size: (0, 0),
-            url_input: initial_url,
-            addr_focused: false,
-            modifiers: ModifiersState::empty(),
             cursor: PhysicalPosition::default(),
             scroll: (0.0, 0.0),
             page_height: 0.0,
             viewport: (0, 0),
         }
-    }
-
-    fn navigate(&mut self) {
-        let mut s = self.url_input.clone();
-        if !s.starts_with("http://") && !s.starts_with("https://") {
-            s = format!("https://{s}");
-            self.url_input = s.clone();
-        }
-        let Ok(_) = Url::parse(&s) else { return };
-        self.scroll = (0.0, 0.0);
-        self.addr_focused = false;
-        let tab = self.tab.clone();
-        TOKIO_RT.spawn(async move {
-            let _ = tab.send(TabCommand::Navigate { url: s }).await;
-            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
-        });
     }
 
     fn redraw(&mut self) {
@@ -138,42 +112,20 @@ impl BrowserApp {
         // Fill opaque white (valid premultiplied background for source-over blending).
         buf.fill(0xFFFF_FFFF);
 
-        // Composite engine content into the content area (below address bar).
-        let content_h = win_h.saturating_sub(ADDRESS_BAR_HEIGHT);
-        if content_h > 0 {
-            if let Some(handle) = self.compositor.frame_for(self.tab_id) {
-                blit_handle_to_buffer(
-                    &mut buf,
-                    win_w,
-                    ADDRESS_BAR_HEIGHT,
-                    content_h,
-                    self.scroll,
-                    handle,
-                    &mut self.page_height,
-                );
-            }
+        if let Some(handle) = self.compositor.frame_for(self.tab_id) {
+            blit_handle_to_buffer(&mut buf, win_w, 0, win_h, self.scroll, handle, &mut self.page_height);
         }
-
-        // Draw address bar on top.
-        draw_address_bar(&mut buf, win_w, &self.url_input, self.addr_focused);
-
         buf.present().unwrap_or_default();
     }
 
     fn content_y_to_css(&self, physical_y: f64) -> f32 {
-        let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed) as f64;
-        let logical_y = physical_y / dpr - ADDRESS_BAR_HEIGHT as f64;
-        (logical_y + self.scroll.1 as f64) as f32
+        let dpr = self.window.as_ref().map(|w| w.scale_factor()).unwrap_or(1.0);
+        (physical_y / dpr) as f32
     }
 
     fn content_x_to_css(&self, physical_x: f64) -> f32 {
-        let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed) as f64;
-        (physical_x / dpr + self.scroll.0 as f64) as f32
-    }
-
-    fn is_in_address_bar(&self, physical_y: f64) -> bool {
-        let dpr = DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed) as f64;
-        physical_y < ADDRESS_BAR_HEIGHT as f64 * dpr
+        let dpr = self.window.as_ref().map(|w| w.scale_factor()).unwrap_or(1.0);
+        (physical_x / dpr) as f32
     }
 }
 
@@ -198,7 +150,7 @@ impl ApplicationHandler<()> for BrowserApp {
         let size = window.inner_size();
         self.surface_size = (size.width, size.height);
 
-        let content_h = size.height.saturating_sub(ADDRESS_BAR_HEIGHT);
+        let content_h = size.height;
         let content_w = size.width;
         self.viewport = (content_w, content_h);
 
@@ -222,7 +174,6 @@ impl ApplicationHandler<()> for BrowserApp {
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {
         // Engine produced a new frame - redraw - and/or asked for a cursor shape.
         if let Some(window) = &self.window {
-            window.set_cursor(page_cursor_icon());
             window.request_redraw();
         }
     }
@@ -241,7 +192,7 @@ impl ApplicationHandler<()> for BrowserApp {
                 let dpr = self.window.as_ref().map(|w| w.scale_factor() as u32).unwrap_or(1);
                 DEVICE_PIXEL_RATIO.store(dpr.max(1), std::sync::atomic::Ordering::Relaxed);
 
-                let content_h = height.saturating_sub(ADDRESS_BAR_HEIGHT);
+                let content_h = height;
                 self.viewport = (width, content_h);
                 self.scroll = (0.0, 0.0);
 
@@ -264,14 +215,12 @@ impl ApplicationHandler<()> for BrowserApp {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = position;
-                if !self.is_in_address_bar(position.y) {
-                    let x = self.content_x_to_css(position.x);
-                    let y = self.content_y_to_css(position.y);
-                    let tab = self.tab.clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab.send(TabCommand::MouseMove { x, y }).await;
-                    });
-                }
+                let x = self.content_x_to_css(position.x);
+                let y = self.content_y_to_css(position.y);
+                let tab = self.tab.clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab.send(TabCommand::MouseMove { x, y }).await;
+                });
             }
 
             WindowEvent::MouseInput {
@@ -280,29 +229,20 @@ impl ApplicationHandler<()> for BrowserApp {
                 ..
             } => {
                 let pos = self.cursor;
-                if self.is_in_address_bar(pos.y) {
-                    self.addr_focused = true;
-                    if let Some(window) = &self.window {
-                        window.request_redraw();
-                    }
-                } else {
-                    self.addr_focused = false;
-                    let x = self.content_x_to_css(pos.x);
-                    let y = self.content_y_to_css(pos.y);
-                    let tab = self.tab.clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab
-                            .send(TabCommand::MouseDown {
-                                x,
-                                y,
-                                button: MouseButton::Left,
-                            })
-                            .await;
-                    });
-                }
+                let x = self.content_x_to_css(pos.x);
+                let y = self.content_y_to_css(pos.y);
+                let tab = self.tab.clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseDown {
+                            x,
+                            y,
+                            button: MouseButton::Left,
+                        })
+                        .await;
+                });
             }
 
-            // Release always reaches the engine (even over the address bar) so drags end.
             WindowEvent::MouseInput {
                 state: ElementState::Released,
                 button: WinitMouseButton::Left,
@@ -346,62 +286,6 @@ impl ApplicationHandler<()> for BrowserApp {
 
                 if let Some(window) = &self.window {
                     window.request_redraw();
-                }
-            }
-
-            WindowEvent::ModifiersChanged(mods) => {
-                self.modifiers = mods.state();
-            }
-
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        logical_key,
-                        text,
-                        state: ElementState::Pressed,
-                        ..
-                    },
-                ..
-            } => {
-                if !self.addr_focused {
-                    if let Some(cmd) = key_down_command(&logical_key, self.modifiers) {
-                        let tab = self.tab.clone();
-                        TOKIO_RT.spawn(async move {
-                            let _ = tab.send(cmd).await;
-                        });
-                    }
-                }
-
-                // Ctrl+L: focus address bar
-                if logical_key == Key::Character("l".into()) {
-                    // We can't reliably detect Ctrl here without modifiers check,
-                    // but for simplicity treat any 'l' press outside addr bar as a shortcut.
-                }
-
-                if self.addr_focused {
-                    match &logical_key {
-                        Key::Named(NamedKey::Enter) => self.navigate(),
-                        Key::Named(NamedKey::Escape) => {
-                            self.addr_focused = false;
-                            if let Some(window) = &self.window {
-                                window.request_redraw();
-                            }
-                        }
-                        Key::Named(NamedKey::Backspace) => {
-                            self.url_input.pop();
-                            if let Some(window) = &self.window {
-                                window.request_redraw();
-                            }
-                        }
-                        _ => {
-                            if let Some(t) = &text {
-                                self.url_input.push_str(t.as_str());
-                                if let Some(window) = &self.window {
-                                    window.request_redraw();
-                                }
-                            }
-                        }
-                    }
                 }
             }
 
@@ -492,149 +376,6 @@ fn blit_handle_to_buffer(
     }
 }
 
-/// Draw the address bar into the top ADDRESS_BAR_HEIGHT rows of the buffer using Cairo.
-fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_w: u32, url: &str, focused: bool) {
-    let h = ADDRESS_BAR_HEIGHT as i32;
-    let w = win_w as i32;
-
-    let Ok(mut surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h) else {
-        // Fallback: fill with flat gray
-        let gray = 0x00D0D0D0u32;
-        for row in 0..ADDRESS_BAR_HEIGHT as usize {
-            for col in 0..win_w as usize {
-                buf[row * win_w as usize + col] = gray;
-            }
-        }
-        return;
-    };
-
-    {
-        let Ok(cr) = cairo::Context::new(&surface) else {
-            return;
-        };
-
-        // Background
-        cr.set_source_rgb(0.93, 0.93, 0.93);
-        cr.rectangle(0.0, 0.0, w as f64, h as f64);
-        cr.fill().unwrap_or_default();
-
-        // Input box
-        let (bg_r, bg_g, bg_b) = if focused { (1.0, 1.0, 1.0) } else { (0.97, 0.97, 0.97) };
-        cr.set_source_rgb(bg_r, bg_g, bg_b);
-        cr.rectangle(4.0, 5.0, (w - 8) as f64, (h - 10) as f64);
-        cr.fill().unwrap_or_default();
-
-        // Border
-        let (br, bg, bb) = if focused { (0.26, 0.52, 0.96) } else { (0.7, 0.7, 0.7) };
-        cr.set_source_rgb(br, bg, bb);
-        cr.set_line_width(1.0);
-        cr.rectangle(4.5, 5.5, (w - 9) as f64, (h - 11) as f64);
-        cr.stroke().unwrap_or_default();
-
-        // URL text
-        cr.set_source_rgb(0.0, 0.0, 0.0);
-        cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
-        cr.set_font_size(14.0);
-        cr.move_to(10.0, h as f64 - 10.0);
-        cr.show_text(url).unwrap_or_default();
-    }
-
-    surface.flush();
-
-    let Ok(data) = surface.data() else { return };
-
-    // Copy ARGB32 → softbuffer u32 (mask off alpha byte).
-    for row in 0..ADDRESS_BAR_HEIGHT as usize {
-        for col in 0..win_w as usize {
-            let off = row * (w * 4) as usize + col * 4;
-            if off + 3 >= data.len() {
-                break;
-            }
-            let b = data[off] as u32;
-            let g = data[off + 1] as u32;
-            let r = data[off + 2] as u32;
-            buf[row * win_w as usize + col] = (r << 16) | (g << 8) | b;
-        }
-    }
-}
-
-/// Cursor shape requested by the engine. Engine events arrive on a tokio thread while the
-/// window lives on the event-loop thread, so the shape is parked here and applied on the next
-/// proxy wake-up.
-static PAGE_CURSOR: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-
-fn store_page_cursor(cursor: gosub_engine::events::CursorShape) {
-    use gosub_engine::events::CursorShape;
-    let v = match cursor {
-        CursorShape::Default => 0,
-        CursorShape::Pointer => 1,
-        CursorShape::Text => 2,
-        CursorShape::Resize => 3,
-    };
-    PAGE_CURSOR.store(v, std::sync::atomic::Ordering::Relaxed);
-}
-
-fn page_cursor_icon() -> winit::window::CursorIcon {
-    use winit::window::CursorIcon;
-    match PAGE_CURSOR.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => CursorIcon::Pointer,
-        2 => CursorIcon::Text,
-        3 => CursorIcon::NwseResize,
-        _ => CursorIcon::Default,
-    }
-}
-
-/// The system clipboard for Ctrl+C/X/V inside the page: the engine emits `ClipboardWrite` /
-/// `PasteRequested` and the embedder owns the OS side. One long-lived handle: on X11 the data is
-/// only served while the handle exists.
-fn clipboard() -> &'static parking_lot::Mutex<Option<arboard::Clipboard>> {
-    static CLIPBOARD: parking_lot::Mutex<Option<arboard::Clipboard>> = parking_lot::Mutex::new(None);
-    let mut guard = CLIPBOARD.lock();
-    if guard.is_none() {
-        *guard = arboard::Clipboard::new().ok();
-    }
-    drop(guard);
-    &CLIPBOARD
-}
-
-fn clipboard_write(text: &str) {
-    if let Some(cb) = clipboard().lock().as_mut() {
-        let _ = cb.set_text(text.to_string());
-    }
-}
-
-fn clipboard_read() -> Option<String> {
-    clipboard().lock().as_mut()?.get_text().ok()
-}
-
-/// Winit's `NamedKey` variant names follow DOM `KeyboardEvent.key`, so Debug gives the key name.
-fn key_down_command(logical_key: &Key, mods: ModifiersState) -> Option<TabCommand> {
-    let key = match logical_key {
-        Key::Named(NamedKey::Space) => " ".to_string(),
-        Key::Named(named) => format!("{named:?}"),
-        Key::Character(c) => c.to_string(),
-        _ => return None,
-    };
-    let mut modifiers = Modifiers::empty();
-    if mods.shift_key() {
-        modifiers |= Modifiers::SHIFT;
-    }
-    if mods.control_key() {
-        modifiers |= Modifiers::CONTROL;
-    }
-    if mods.alt_key() {
-        modifiers |= Modifiers::ALT;
-    }
-    if mods.super_key() {
-        modifiers |= Modifiers::META;
-    }
-    Some(TabCommand::KeyDown {
-        code: key.clone(),
-        key,
-        modifiers,
-    })
-}
-
 fn main() {
     eprintln!(
         "{} v{} — winit browser window, Cairo (CPU) rendering",
@@ -688,8 +429,6 @@ fn main() {
 
     // Forward engine navigation events to update the window title.
     let proxy_ev = proxy.clone();
-    let tab_for_clipboard: Arc<std::sync::OnceLock<TabHandle>> = Arc::new(std::sync::OnceLock::new());
-    let tab_slot = tab_for_clipboard.clone();
     let mut event_rx = engine.subscribe_events();
     TOKIO_RT.spawn(async move {
         loop {
@@ -699,16 +438,6 @@ fn main() {
                     ..
                 }) => {
                     let _ = proxy_ev.send_event(());
-                }
-                Ok(EngineEvent::ClipboardWrite { text, .. }) => clipboard_write(&text),
-                Ok(EngineEvent::CursorChanged { cursor, .. }) => {
-                    store_page_cursor(cursor);
-                    let _ = proxy_ev.send_event(());
-                }
-                Ok(EngineEvent::PasteRequested { .. }) => {
-                    if let (Some(tab), Some(text)) = (tab_slot.get(), clipboard_read()) {
-                        let _ = tab.clone().send(TabCommand::TextInput { text }).await;
-                    }
                 }
                 Ok(_) => {}
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
@@ -744,7 +473,6 @@ fn main() {
         ))
         .expect("create_tab");
 
-    let _ = tab_for_clipboard.set(tab.clone());
     let tab_id = tab.tab_id;
     let nav_tab = tab.clone();
     let nav_url = initial_url.clone();
@@ -752,7 +480,7 @@ fn main() {
         let _ = nav_tab.send(TabCommand::Navigate { url: nav_url }).await;
     });
 
-    let mut app = BrowserApp::new(engine, zone, tab, tab_id, compositor, proxy, initial_url);
+    let mut app = BrowserApp::new(engine, zone, tab, tab_id, compositor, proxy);
 
     event_loop.run_app(&mut app).expect("event loop run");
 }

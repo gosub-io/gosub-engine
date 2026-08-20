@@ -28,6 +28,7 @@ members = [
     "examples/winit-skia",
     "examples/winit-skia-gpu",
     "examples/winit-vello",
+    "bin/gosub-mini-browser",
     "bin/gosub-screenshot",
 ]
 exclude = [

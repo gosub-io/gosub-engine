@@ -16,7 +16,7 @@ use glutin::display::GetGlDisplay;
 use glutin::prelude::{GlDisplay, GlSurface, NotCurrentGlContext as _};
 use glutin::surface::{Surface as GlSurface_, WindowSurface};
 use glutin_winit::{DisplayBuilder, GlWindow};
-use gosub_engine::events::{EngineEvent, Modifiers, MouseButton, NavigationEvent, TabCommand};
+use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
@@ -30,23 +30,20 @@ use gosub_render_pipeline::render::DefaultCompositor;
 use once_cell::sync::Lazy;
 use skia_safe::gpu::ganesh::surface_ganesh;
 use skia_safe::gpu::{self, gl::FramebufferInfo, DirectContext, SurfaceOrigin};
-use skia_safe::{Color4f, ColorType, Font, FontMgr, FontStyle, ImageInfo, Paint, Rect as SkRect, Surface};
+use skia_safe::{ColorType, ImageInfo, Rect as SkRect, Surface};
 use std::ffi::CString;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
-use url::Url;
 use uuid::uuid;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::raw_window_handle::HasWindowHandle;
 use winit::window::{Window, WindowAttributes, WindowId};
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-00000000000d");
-const ADDRESS_BAR_HEIGHT: f32 = 36.0;
 const SCROLL_MULTIPLIER: f32 = 134.0;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
@@ -110,9 +107,6 @@ struct BrowserApp {
     gl: Option<GlState>,
     surface_size: (u32, u32),
 
-    url_input: String,
-    addr_focused: bool,
-    modifiers: ModifiersState,
     cursor: PhysicalPosition<f64>,
     scroll: (f32, f32),
     page_height: f32,
@@ -120,21 +114,6 @@ struct BrowserApp {
 }
 
 impl BrowserApp {
-    fn navigate(&mut self) {
-        let mut s = self.url_input.clone();
-        if !s.contains("://") {
-            s = format!("https://{s}");
-            self.url_input = s.clone();
-        }
-        let Ok(_) = Url::parse(&s) else { return };
-        self.scroll = (0.0, 0.0);
-        let tab = self.tab.clone();
-        TOKIO_RT.spawn(async move {
-            let _ = tab.send(TabCommand::Navigate { url: s }).await;
-            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
-        });
-    }
-
     fn redraw(&mut self) {
         let Some(gl) = self.gl.as_mut() else { return };
         let (win_w, win_h) = self.surface_size;
@@ -151,41 +130,19 @@ impl BrowserApp {
         canvas.clear(skia_safe::Color4f::new(1.0, 1.0, 1.0, 1.0));
 
         // Composite page tiles
-        let content_h = win_h.saturating_sub(ADDRESS_BAR_HEIGHT as u32);
-        {
-            if let Some(handle) = self.compositor.frame_for(self.tab_id) {
-                composite_tiles(
-                    canvas,
-                    win_w,
-                    ADDRESS_BAR_HEIGHT,
-                    content_h,
-                    &handle,
-                    &mut self.page_height,
-                );
-            }
+        if let Some(handle) = self.compositor.frame_for(self.tab_id) {
+            composite_tiles(canvas, win_w, 0.0, win_h, &handle, &mut self.page_height);
         }
-
-        // Address bar (drawn on top via Skia)
-        draw_address_bar(
-            canvas,
-            win_w,
-            ADDRESS_BAR_HEIGHT as i32,
-            &self.url_input,
-            self.addr_focused,
-        );
 
         drop(skia_surface);
         gl.flush();
     }
 
-    fn is_addr_bar(&self, y: f64) -> bool {
-        y < ADDRESS_BAR_HEIGHT as f64
-    }
     fn css_x(&self, x: f64) -> f32 {
         (x + self.scroll.0 as f64) as f32
     }
     fn css_y(&self, y: f64) -> f32 {
-        (y - ADDRESS_BAR_HEIGHT as f64 + self.scroll.1 as f64) as f32
+        (y + self.scroll.1 as f64) as f32
     }
 }
 
@@ -197,7 +154,6 @@ impl ApplicationHandler<()> for BrowserApp {
 
     fn user_event(&mut self, _: &ActiveEventLoop, _: ()) {
         if let Some(w) = &self.window {
-            w.set_cursor(page_cursor_icon());
             w.request_redraw();
         }
     }
@@ -212,7 +168,7 @@ impl ApplicationHandler<()> for BrowserApp {
                     return;
                 }
                 self.surface_size = (width, height);
-                let content_h = height.saturating_sub(ADDRESS_BAR_HEIGHT as u32);
+                let content_h = height;
                 self.viewport = (width, content_h);
                 self.scroll = (0.0, 0.0);
                 if let Some(gl) = &self.gl {
@@ -240,13 +196,11 @@ impl ApplicationHandler<()> for BrowserApp {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = position;
-                if !self.is_addr_bar(position.y) {
-                    let (x, y) = (self.css_x(position.x), self.css_y(position.y));
-                    let tab = self.tab.clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab.send(TabCommand::MouseMove { x, y }).await;
-                    });
-                }
+                let (x, y) = (self.css_x(position.x), self.css_y(position.y));
+                let tab = self.tab.clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab.send(TabCommand::MouseMove { x, y }).await;
+                });
             }
 
             WindowEvent::MouseInput {
@@ -254,28 +208,20 @@ impl ApplicationHandler<()> for BrowserApp {
                 button: WinitMouseButton::Left,
                 ..
             } => {
-                if self.is_addr_bar(self.cursor.y) {
-                    self.addr_focused = true;
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                } else {
-                    self.addr_focused = false;
-                    let (x, y) = (self.css_x(self.cursor.x), self.css_y(self.cursor.y));
-                    let tab = self.tab.clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab
-                            .send(TabCommand::MouseDown {
-                                x,
-                                y,
-                                button: MouseButton::Left,
-                            })
-                            .await;
-                    });
-                }
+                let (x, y) = (self.css_x(self.cursor.x), self.css_y(self.cursor.y));
+                let tab = self.tab.clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseDown {
+                            x,
+                            y,
+                            button: MouseButton::Left,
+                        })
+                        .await;
+                });
             }
 
-            // Release always reaches the engine (even over the address bar) so drags end.
+            // Release always reaches the engine so drags end.
             WindowEvent::MouseInput {
                 state: ElementState::Released,
                 button: WinitMouseButton::Left,
@@ -316,140 +262,9 @@ impl ApplicationHandler<()> for BrowserApp {
                 }
             }
 
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        logical_key,
-                        text,
-                        state: ElementState::Pressed,
-                        ..
-                    },
-                ..
-            } if self.addr_focused => match &logical_key {
-                Key::Named(NamedKey::Enter) => self.navigate(),
-                Key::Named(NamedKey::Escape) => {
-                    self.addr_focused = false;
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                }
-                Key::Named(NamedKey::Backspace) => {
-                    self.url_input.pop();
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                }
-                _ => {
-                    if let Some(t) = &text {
-                        self.url_input.push_str(t.as_str());
-                        if let Some(w) = &self.window {
-                            w.request_redraw();
-                        }
-                    }
-                }
-            },
-
-            WindowEvent::ModifiersChanged(mods) => {
-                self.modifiers = mods.state();
-            }
-
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        logical_key,
-                        state: ElementState::Pressed,
-                        ..
-                    },
-                ..
-            } => {
-                if let Some(cmd) = key_down_command(&logical_key, self.modifiers) {
-                    let tab = self.tab.clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab.send(cmd).await;
-                    });
-                }
-            }
-
             _ => {}
         }
     }
-}
-
-/// Cursor shape requested by the engine. Engine events arrive on a tokio thread while the
-/// window lives on the event-loop thread, so the shape is parked here and applied on the next
-/// proxy wake-up.
-static PAGE_CURSOR: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-
-fn store_page_cursor(cursor: gosub_engine::events::CursorShape) {
-    use gosub_engine::events::CursorShape;
-    let v = match cursor {
-        CursorShape::Default => 0,
-        CursorShape::Pointer => 1,
-        CursorShape::Text => 2,
-        CursorShape::Resize => 3,
-    };
-    PAGE_CURSOR.store(v, std::sync::atomic::Ordering::Relaxed);
-}
-
-fn page_cursor_icon() -> winit::window::CursorIcon {
-    use winit::window::CursorIcon;
-    match PAGE_CURSOR.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => CursorIcon::Pointer,
-        2 => CursorIcon::Text,
-        3 => CursorIcon::NwseResize,
-        _ => CursorIcon::Default,
-    }
-}
-
-/// The system clipboard for Ctrl+C/X/V inside the page: the engine emits `ClipboardWrite` /
-/// `PasteRequested` and the embedder owns the OS side. One long-lived handle: on X11 the data is
-/// only served while the handle exists.
-fn clipboard() -> &'static parking_lot::Mutex<Option<arboard::Clipboard>> {
-    static CLIPBOARD: parking_lot::Mutex<Option<arboard::Clipboard>> = parking_lot::Mutex::new(None);
-    let mut guard = CLIPBOARD.lock();
-    if guard.is_none() {
-        *guard = arboard::Clipboard::new().ok();
-    }
-    drop(guard);
-    &CLIPBOARD
-}
-
-fn clipboard_write(text: &str) {
-    if let Some(cb) = clipboard().lock().as_mut() {
-        let _ = cb.set_text(text.to_string());
-    }
-}
-
-fn clipboard_read() -> Option<String> {
-    clipboard().lock().as_mut()?.get_text().ok()
-}
-
-/// Winit's `NamedKey` variant names follow DOM `KeyboardEvent.key`, so Debug gives the key name.
-fn key_down_command(logical_key: &Key, mods: ModifiersState) -> Option<TabCommand> {
-    let key = match logical_key {
-        Key::Named(NamedKey::Space) => " ".to_string(),
-        Key::Named(named) => format!("{named:?}"),
-        Key::Character(c) => c.to_string(),
-        _ => return None,
-    };
-    let mut modifiers = Modifiers::empty();
-    if mods.shift_key() {
-        modifiers |= Modifiers::SHIFT;
-    }
-    if mods.control_key() {
-        modifiers |= Modifiers::CONTROL;
-    }
-    if mods.alt_key() {
-        modifiers |= Modifiers::ALT;
-    }
-    if mods.super_key() {
-        modifiers |= Modifiers::META;
-    }
-    Some(TabCommand::KeyDown {
-        code: key.clone(),
-        key,
-        modifiers,
-    })
 }
 
 // ── GPU tile compositing ───────────────────────────────────────────────────────
@@ -536,50 +351,6 @@ fn blit_tile(canvas: &skia_safe::Canvas, tile: &CachedTile, x: f32, y: f32) {
 }
 
 // ── Address bar (drawn via Skia on the GPU canvas) ────────────────────────────
-
-fn draw_address_bar(canvas: &skia_safe::Canvas, win_w: u32, h: i32, url: &str, focused: bool) {
-    let w = win_w as f32;
-    let hf = h as f32;
-
-    let bg = if focused {
-        Color4f::new(0.98, 0.98, 0.98, 1.0)
-    } else {
-        Color4f::new(0.93, 0.93, 0.93, 1.0)
-    };
-    let mut paint = Paint::new(bg, None);
-    canvas.draw_rect(SkRect::from_xywh(0.0, 0.0, w, hf), &paint);
-
-    let field_bg = if focused {
-        Color4f::new(1.0, 1.0, 1.0, 1.0)
-    } else {
-        Color4f::new(0.97, 0.97, 0.97, 1.0)
-    };
-    paint.set_color4f(field_bg, None);
-    paint.set_anti_alias(true);
-    canvas.draw_round_rect(SkRect::from_xywh(6.0, 5.0, w - 12.0, hf - 10.0), 4.0, 4.0, &paint);
-
-    let border = if focused {
-        Color4f::new(0.26, 0.52, 0.96, 1.0)
-    } else {
-        Color4f::new(0.7, 0.7, 0.7, 1.0)
-    };
-    paint.set_color4f(border, None);
-    paint.set_style(skia_safe::PaintStyle::Stroke);
-    paint.set_stroke_width(1.0);
-    canvas.draw_round_rect(SkRect::from_xywh(6.5, 5.5, w - 13.0, hf - 11.0), 4.0, 4.0, &paint);
-
-    thread_local! { static FONT_MGR: FontMgr = FontMgr::new(); }
-    let typeface = FONT_MGR.with(|fm| {
-        fm.legacy_make_typeface(None, FontStyle::normal()).unwrap_or_else(|| {
-            fm.legacy_make_typeface("sans-serif", FontStyle::normal())
-                .expect("typeface")
-        })
-    });
-    let font = Font::new(typeface, 14.0);
-    paint.set_color4f(Color4f::new(0.0, 0.0, 0.0, 1.0), None);
-    paint.set_style(skia_safe::PaintStyle::Fill);
-    canvas.draw_str(url, (12.0f32, hf - 10.0), &font, &paint);
-}
 
 // ── main ──────────────────────────────────────────────────────────────────────
 
@@ -681,8 +452,6 @@ fn main() {
     let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
 
     let proxy_ev = proxy.clone();
-    let tab_for_clipboard: Arc<std::sync::OnceLock<TabHandle>> = Arc::new(std::sync::OnceLock::new());
-    let tab_slot = tab_for_clipboard.clone();
     let mut event_rx = engine.subscribe_events();
     TOKIO_RT.spawn(async move {
         loop {
@@ -692,16 +461,6 @@ fn main() {
                     ..
                 }) => {
                     let _ = proxy_ev.send_event(());
-                }
-                Ok(EngineEvent::ClipboardWrite { text, .. }) => clipboard_write(&text),
-                Ok(EngineEvent::CursorChanged { cursor, .. }) => {
-                    store_page_cursor(cursor);
-                    let _ = proxy_ev.send_event(());
-                }
-                Ok(EngineEvent::PasteRequested { .. }) => {
-                    if let (Some(tab), Some(text)) = (tab_slot.get(), clipboard_read()) {
-                        let _ = tab.clone().send(TabCommand::TextInput { text }).await;
-                    }
                 }
                 Ok(_) => {}
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
@@ -736,7 +495,6 @@ fn main() {
         ))
         .expect("tab");
 
-    let _ = tab_for_clipboard.set(tab.clone());
     let tab_id = tab.tab_id;
     let nav_tab = tab.clone();
     let nav_url = initial_url.clone();
@@ -745,7 +503,7 @@ fn main() {
     });
 
     let size = gl_window.inner_size();
-    let content_h = size.height.saturating_sub(ADDRESS_BAR_HEIGHT as u32);
+    let content_h = size.height;
     {
         let t = tab.clone();
         TOKIO_RT.block_on(async move {
@@ -773,9 +531,6 @@ fn main() {
         window: Some(window),
         gl: Some(gl_state),
         surface_size: (size.width, size.height),
-        url_input: initial_url,
-        addr_focused: false,
-        modifiers: ModifiersState::empty(),
         cursor: PhysicalPosition::default(),
         scroll: (0.0, 0.0),
         page_height: 0.0,

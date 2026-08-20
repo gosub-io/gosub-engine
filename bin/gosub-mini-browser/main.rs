@@ -1,11 +1,14 @@
-//! A minimal browser window that renders pages through the new gosub_render_pipeline render system.
+//! gosub-mini-browser: the full-featured reference embedder (GTK4 + Cairo). Everything the
+//! engine can do interactively is wired up here - keyboard editing, clipboard, cursor shapes,
+//! kinetic scrolling, dark scheme - which also makes it the vehicle for hand-testing those
+//! features. The `examples/` stay minimal (load a page, scroll, click links); new
+//! embedder-protocol features belong here.
 //!
-//! Usage:  cargo run --example pipeline-browser -- https://example.com
-//!
-//! The binary uses the full GosubEngine zone/tab/net API and routes rendering through the
-//! 7-stage pipeline (rendertree → layout → layering → tiling → painting → rasterize →
-//! composite) backed by Cairo.  The result is displayed in a GTK4 window.
+//! Usage:  cargo run --release -p gosub-mini-browser -- https://example.com
 
+mod shell;
+
+use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabId};
@@ -22,7 +25,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, DrawingArea, Entry, Label, Orientation};
 use once_cell::sync::Lazy;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
@@ -104,8 +107,9 @@ fn main() {
 
         let backend = gosub_renderer_cairo::CairoBackend::new();
         let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
-        // GOSUB_COLOR_SCHEME=dark renders pages and native controls in the dark scheme.
-        if std::env::var("GOSUB_COLOR_SCHEME").is_ok_and(|v| v.eq_ignore_ascii_case("dark")) {
+        // Colour scheme: GOSUB_COLOR_SCHEME=dark|light wins; otherwise the desktop preference
+        // (GNOME's color-scheme GSetting, a "-dark" GTK theme, or an app-level prefer-dark flag).
+        if shell::desktop_prefers_dark() {
             let _ = engine.settings().set(
                 "renderer.color_scheme",
                 gosub_config::settings::Setting::String("dark".into()),
@@ -116,15 +120,20 @@ fn main() {
 
         let zone_cfg = ZoneConfig::builder().do_not_track(true).build().expect("ZoneConfig");
 
+        let cookie_store: gosub_engine::cookies::CookieStoreHandle =
+            SqliteCookieStore::new(".pipeline-browser-cookies.db".into())
+                .expect("failed to open cookie store")
+                .into();
+
         let zone_services = ZoneServices {
             storage: Arc::new(StorageService::new(
-                Arc::new(SqliteLocalStore::new(":memory:").expect("local store")),
+                Arc::new(SqliteLocalStore::new(".pipeline-browser-local.db").expect("local store")),
                 Arc::new(InMemorySessionStore::new()),
             )),
-            cookie_store: None,
+            cookie_store: Some(cookie_store),
+            places: None,
             cookie_jar: None,
             partition_policy: PartitionPolicy::None,
-            places: None,
         };
 
         let zone = Rc::new(RefCell::new(
@@ -280,7 +289,22 @@ fn main() {
         // The local scroll offset is updated synchronously here (on the GTK main thread),
         // so queue_draw() immediately sees the new position - zero async latency.
         // The engine is also notified via a Tokio task for its own state bookkeeping.
-        let scroll_ctl = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::BOTH_AXES);
+        // Handle for the active kinetic-scroll glib timeout (if any).
+        let kinetic_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+
+        let scroll_ctl = gtk4::EventControllerScroll::new(
+            gtk4::EventControllerScrollFlags::BOTH_AXES | gtk4::EventControllerScrollFlags::KINETIC,
+        );
+
+        // A new gesture takes over from any momentum still playing out.
+        scroll_ctl.connect_scroll_begin({
+            let kinetic_source = kinetic_source.clone();
+            move |_| {
+                if let Some(id) = kinetic_source.borrow_mut().take() {
+                    id.remove();
+                }
+            }
+        });
 
         scroll_ctl.connect_scroll({
             let tab = tab.clone();
@@ -295,6 +319,39 @@ fn main() {
                     let _ = tab.send(TabCommand::MouseScroll { delta_x, delta_y }).await;
                 });
                 glib::Propagation::Stop
+            }
+        });
+
+        // Kinetic (momentum) scrolling: after a touchpad flick, keep feeding deltas to the
+        // engine on a ~60fps timer with exponential friction. The engine still owns the actual
+        // scroll position (clamping + smoothing) - this only extends the gesture.
+        scroll_ctl.connect_decelerate({
+            let tab = tab.clone();
+            let kinetic_source = kinetic_source.clone();
+            move |_ctl, vel_x, vel_y| {
+                // Velocities arrive in scroll units per ms - same units as connect_scroll deltas.
+                let vx = Rc::new(Cell::new(vel_x as f32 * SCROLL_MULTIPLIER));
+                let vy = Rc::new(Cell::new(vel_y as f32 * SCROLL_MULTIPLIER));
+                let tab = tab.clone();
+                let kinetic_source_inner = kinetic_source.clone();
+                let id = glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
+                    let (cur_vx, cur_vy) = (vx.get(), vy.get());
+                    if cur_vx.abs() < 2.0 && cur_vy.abs() < 2.0 {
+                        *kinetic_source_inner.borrow_mut() = None;
+                        return glib::ControlFlow::Break;
+                    }
+                    // Decelerates to ~5% in about a second at 60fps.
+                    let friction = 0.93_f32;
+                    vx.set(cur_vx * friction);
+                    vy.set(cur_vy * friction);
+                    let (delta_x, delta_y) = (cur_vx * 0.016, cur_vy * 0.016);
+                    let tab = tab.borrow().clone();
+                    TOKIO_RT.spawn(async move {
+                        let _ = tab.send(TabCommand::MouseScroll { delta_x, delta_y }).await;
+                    });
+                    glib::ControlFlow::Continue
+                });
+                *kinetic_source.borrow_mut() = Some(id);
             }
         });
         drawing_area.add_controller(scroll_ctl);
@@ -322,7 +379,12 @@ fn main() {
         click_ctl.set_button(gtk4::gdk::BUTTON_PRIMARY);
         click_ctl.connect_pressed({
             let tab = tab.clone();
+            let kinetic_source = kinetic_source.clone();
             move |gesture, _n_press, x, y| {
+                // A press anywhere stops any momentum still playing out.
+                if let Some(id) = kinetic_source.borrow_mut().take() {
+                    id.remove();
+                }
                 if let Some(w) = gesture.widget() {
                     w.grab_focus();
                 }
@@ -354,6 +416,29 @@ fn main() {
             }
         });
         drawing_area.add_controller(click_ctl);
+
+        // Clicking the page gives the area GTK focus so keys reach it; Tab is swallowed so GTK
+        // doesn't move focus to the address bar.
+        let key_ctl = gtk4::EventControllerKey::new();
+        key_ctl.connect_key_pressed({
+            let tab = tab.clone();
+            move |_, key, _code, state| {
+                let Some(cmd) = shell::key_down_command(key, state) else {
+                    return glib::Propagation::Proceed;
+                };
+                let is_tab = matches!(&cmd, TabCommand::KeyDown { key, .. } if key == "Tab");
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab.send(cmd).await;
+                });
+                if is_tab {
+                    glib::Propagation::Stop
+                } else {
+                    glib::Propagation::Proceed
+                }
+            }
+        });
+        drawing_area.add_controller(key_ctl);
 
         // Resize → set DPR first so create_surface sees the right value, then notify the engine
         drawing_area.connect_resize({
@@ -422,8 +507,12 @@ fn main() {
             let da = drawing_area.clone();
             let status_label = status_label.clone();
             let address_entry = address_entry.clone();
+            let tab = tab.clone();
             glib::spawn_future_local(async move {
                 while let Some(evt) = ui_rx.recv().await {
+                    if shell::handle_shell_event(&evt, &da, &tab.borrow()) {
+                        continue;
+                    }
                     match evt {
                         EngineEvent::Redraw { .. } => da.queue_draw(),
                         EngineEvent::Navigation { tab_id: _, ref event } => {
@@ -458,7 +547,7 @@ fn main() {
 
         let window = ApplicationWindow::builder()
             .application(app)
-            .title("Gosub Browser — GTK4 + Cairo")
+            .title("Gosub Mini Browser")
             .default_width(1024)
             .default_height(800)
             .child(&vbox)
