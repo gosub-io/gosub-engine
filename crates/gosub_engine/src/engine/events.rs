@@ -244,7 +244,8 @@ pub enum TabCommand {
         code: String,
         modifiers: Modifiers,
     },
-    /// Not yet handled: the tab worker logs and drops it.
+    /// Committed text for the focused control: IME output, or the clipboard contents in answer
+    /// to [`EngineEvent::PasteRequested`].
     TextInput {
         text: String,
     },
@@ -552,6 +553,16 @@ pub enum EngineEvent {
         tab_id: TabId,
         id: DownloadId,
         error: String,
+    },
+    /// The page copied/cut `text` (Ctrl+C / Ctrl+X in a text control): put it on the clipboard.
+    ClipboardWrite {
+        tab_id: TabId,
+        text: String,
+    },
+    /// The page wants to paste (Ctrl+V): read the clipboard and send it as
+    /// [`TabCommand::TextInput`].
+    PasteRequested {
+        tab_id: TabId,
     },
     /// Not yet emitted by the engine; emission arrives with the pending mac-app patches.
     TitleChanged {

@@ -35,12 +35,18 @@ pub fn filter_insert<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId
         && doc
             .attribute(id, "type")
             .is_some_and(|t| t.eq_ignore_ascii_case("number"));
-    if !numeric {
-        return text.to_string();
+    if numeric {
+        return text
+            .chars()
+            .filter(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'))
+            .collect();
     }
-    text.chars()
-        .filter(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'))
-        .collect()
+    // Single-line controls strip line breaks (value sanitization), so a pasted paragraph
+    // becomes one line.
+    if doc.tag_name(id) != Some("textarea") {
+        return text.chars().filter(|c| !matches!(c, '\n' | '\r')).collect();
+    }
+    text.to_string()
 }
 
 /// The markup value: the `value` attribute, or a `<textarea>`'s text content minus the one
@@ -105,30 +111,64 @@ pub fn toggle<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Ve
     }
 }
 
+/// Where a caret motion goes. Row-based moves (up/down/page) need the visual rows, so the
+/// browsing context resolves those into `Motion::To`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Motion {
+    Left,
+    Right,
+    WordLeft,
+    WordRight,
+    /// Start of the text (`Home` in a single-line field, `Ctrl+Home` anywhere).
+    Start,
+    End,
+    /// An absolute char index (mouse, row navigation).
+    To(usize),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditAction {
     Insert(String),
     Backspace,
     Delete,
-    Left,
-    Right,
-    Home,
-    End,
+    /// Delete to the previous / next word boundary (Ctrl+Backspace / Ctrl+Delete).
+    DeleteWord {
+        backwards: bool,
+    },
+    /// `extend` keeps the anchor (Shift), otherwise the selection collapses.
+    Move {
+        motion: Motion,
+        extend: bool,
+    },
+    SelectAll,
 }
 
-/// DOM `KeyboardEvent.key` → edit action. Printable keys arrive as their character; Ctrl/Meta
-/// chords are shortcuts, not text.
-pub fn action_for_key(key: &str, multiline: bool, ctrl_or_meta: bool) -> Option<EditAction> {
+/// Printable keys arrive as their character; Ctrl/Meta chords are shortcuts. Keys that need the
+/// visual rows (`ArrowUp`/`ArrowDown`/`PageUp`/`PageDown`, `Home`/`End` in a textarea) are not
+/// mapped here.
+pub fn action_for_key(key: &str, multiline: bool, ctrl_or_meta: bool, shift: bool) -> Option<EditAction> {
+    let mv = |motion| EditAction::Move { motion, extend: shift };
     if ctrl_or_meta {
-        return None;
+        return Some(match key {
+            "a" | "A" => EditAction::SelectAll,
+            "ArrowLeft" => mv(Motion::WordLeft),
+            "ArrowRight" => mv(Motion::WordRight),
+            "Home" => mv(Motion::Start),
+            "End" => mv(Motion::End),
+            "Backspace" => EditAction::DeleteWord { backwards: true },
+            "Delete" => EditAction::DeleteWord { backwards: false },
+            _ => return None,
+        });
     }
     Some(match key {
         "Backspace" => EditAction::Backspace,
         "Delete" => EditAction::Delete,
-        "ArrowLeft" => EditAction::Left,
-        "ArrowRight" => EditAction::Right,
-        "Home" => EditAction::Home,
-        "End" => EditAction::End,
+        "ArrowLeft" => mv(Motion::Left),
+        "ArrowRight" => mv(Motion::Right),
+        "Home" if !multiline => mv(Motion::Start),
+        "End" if !multiline => mv(Motion::End),
+        "ArrowUp" if !multiline => mv(Motion::Start),
+        "ArrowDown" if !multiline => mv(Motion::End),
         "Enter" if multiline => EditAction::Insert("\n".to_string()),
         k if k.chars().count() == 1 && !k.chars().next().is_some_and(char::is_control) => {
             EditAction::Insert(k.to_string())
@@ -137,60 +177,140 @@ pub fn action_for_key(key: &str, multiline: bool, ctrl_or_meta: bool) -> Option<
     })
 }
 
-/// Returns whether anything changed. The caret is a char index.
+fn byte_at(s: &str, ci: usize) -> usize {
+    s.char_indices().nth(ci).map_or(s.len(), |(b, _)| b)
+}
+
+/// Char index of the previous word start before `caret` (skip spaces, then the word).
+pub fn word_left(text: &str, caret: usize) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = caret.min(chars.len());
+    while i > 0 && chars[i - 1].is_whitespace() {
+        i -= 1;
+    }
+    while i > 0 && !chars[i - 1].is_whitespace() {
+        i -= 1;
+    }
+    i
+}
+
+/// Char index of the end of the next word after `caret` (skip spaces, then the word), the
+/// GTK/Linux convention (Windows would stop at the following word's start).
+pub fn word_right(text: &str, caret: usize) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = caret.min(chars.len());
+    while i < chars.len() && chars[i].is_whitespace() {
+        i += 1;
+    }
+    while i < chars.len() && !chars[i].is_whitespace() {
+        i += 1;
+    }
+    i
+}
+
+/// The word around char index `at`: a run of non-space chars, or the run of spaces itself.
+pub fn word_at(text: &str, at: usize) -> (usize, usize) {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.is_empty() {
+        return (0, 0);
+    }
+    let at = at.min(chars.len() - 1);
+    let space = chars[at].is_whitespace();
+    let (mut s, mut e) = (at, at + 1);
+    while s > 0 && chars[s - 1].is_whitespace() == space {
+        s -= 1;
+    }
+    while e < chars.len() && chars[e].is_whitespace() == space {
+        e += 1;
+    }
+    (s, e)
+}
+
+/// Replace the selection (or `[caret, caret)`) with `text`. Returns whether anything changed.
+fn replace_selection(state: &mut ControlEditState, text: &str) -> bool {
+    let (start, end) = state.selection().unwrap_or((state.caret, state.caret));
+    if start == end && text.is_empty() {
+        return false;
+    }
+    let (bs, be) = (byte_at(&state.value, start), byte_at(&state.value, end));
+    state.value.replace_range(bs..be, text);
+    state.caret = start + text.chars().count();
+    state.anchor = None;
+    true
+}
+
+/// Returns whether anything changed. Indices are clamped to the value first.
 pub fn apply(state: &mut ControlEditState, action: &EditAction) -> bool {
     let len = state.value.chars().count();
     state.caret = state.caret.min(len);
-    let byte_at = |s: &str, ci: usize| s.char_indices().nth(ci).map_or(s.len(), |(b, _)| b);
+    state.anchor = state.anchor.map(|a| a.min(len)).filter(|a| *a != state.caret);
     match action {
-        EditAction::Insert(text) => {
-            let at = byte_at(&state.value, state.caret);
-            state.value.insert_str(at, text);
-            state.caret += text.chars().count();
-            true
-        }
+        EditAction::Insert(text) => replace_selection(state, text),
         EditAction::Backspace => {
-            if state.caret == 0 {
-                return false;
+            if state.selection().is_none() {
+                if state.caret == 0 {
+                    return false;
+                }
+                state.anchor = Some(state.caret - 1);
             }
-            let start = byte_at(&state.value, state.caret - 1);
-            let end = byte_at(&state.value, state.caret);
-            state.value.replace_range(start..end, "");
-            state.caret -= 1;
-            true
+            replace_selection(state, "")
         }
         EditAction::Delete => {
-            if state.caret >= len {
-                return false;
+            if state.selection().is_none() {
+                if state.caret >= len {
+                    return false;
+                }
+                state.anchor = Some(state.caret + 1);
             }
-            let start = byte_at(&state.value, state.caret);
-            let end = byte_at(&state.value, state.caret + 1);
-            state.value.replace_range(start..end, "");
-            true
+            replace_selection(state, "")
         }
-        EditAction::Left => {
-            if state.caret == 0 {
-                return false;
+        EditAction::DeleteWord { backwards } => {
+            if state.selection().is_none() {
+                let to = if *backwards {
+                    word_left(&state.value, state.caret)
+                } else {
+                    word_right(&state.value, state.caret)
+                };
+                if to == state.caret {
+                    return false;
+                }
+                state.anchor = Some(to);
             }
-            state.caret -= 1;
-            true
+            replace_selection(state, "")
         }
-        EditAction::Right => {
-            if state.caret >= len {
-                return false;
+        EditAction::Move { motion, extend } => {
+            let before = (state.caret, state.selection());
+            let sel = state.selection();
+            let target = match motion {
+                // Without Shift, Left/Right on a selection collapse it to its edge.
+                Motion::Left => match sel {
+                    Some((s, _)) if !extend => s,
+                    _ => state.caret.saturating_sub(1),
+                },
+                Motion::Right => match sel {
+                    Some((_, e)) if !extend => e,
+                    _ => (state.caret + 1).min(len),
+                },
+                Motion::WordLeft => word_left(&state.value, state.caret),
+                Motion::WordRight => word_right(&state.value, state.caret),
+                Motion::Start => 0,
+                Motion::End => len,
+                Motion::To(i) => (*i).min(len),
+            };
+            if *extend {
+                state.anchor = state.anchor.or(Some(state.caret));
+            } else {
+                state.anchor = None;
             }
-            state.caret += 1;
-            true
+            state.caret = target;
+            state.anchor = state.anchor.filter(|a| *a != state.caret);
+            (state.caret, state.selection()) != before
         }
-        EditAction::Home => {
-            let changed = state.caret != 0;
-            state.caret = 0;
-            changed
-        }
-        EditAction::End => {
-            let changed = state.caret != len;
+        EditAction::SelectAll => {
+            let before = (state.caret, state.anchor);
+            state.anchor = (len > 0).then_some(0);
             state.caret = len;
-            changed
+            (state.caret, state.anchor) != before
         }
     }
 }
@@ -265,10 +385,18 @@ mod tests {
     use super::*;
 
     fn st(v: &str, caret: usize) -> ControlEditState {
+        ControlEditState::new(v.to_string(), caret)
+    }
+
+    fn sel(v: &str, anchor: usize, caret: usize) -> ControlEditState {
         ControlEditState {
-            value: v.to_string(),
-            caret,
+            anchor: Some(anchor),
+            ..st(v, caret)
         }
+    }
+
+    fn mv(motion: Motion, extend: bool) -> EditAction {
+        EditAction::Move { motion, extend }
     }
 
     #[test]
@@ -282,32 +410,96 @@ mod tests {
         assert_eq!(s, st("hllo", 1));
         assert!(apply(&mut s, &EditAction::Delete));
         assert_eq!(s, st("hlo", 1));
-        assert!(!apply(&mut s, &EditAction::Left) || s.caret == 0);
     }
 
     #[test]
     fn caret_movement_clamps() {
         let mut s = st("ab", 0);
-        assert!(!apply(&mut s, &EditAction::Left));
-        assert!(apply(&mut s, &EditAction::End));
+        assert!(!apply(&mut s, &mv(Motion::Left, false)));
+        assert!(apply(&mut s, &mv(Motion::End, false)));
         assert_eq!(s.caret, 2);
-        assert!(!apply(&mut s, &EditAction::Right));
+        assert!(!apply(&mut s, &mv(Motion::Right, false)));
         assert!(!apply(&mut s, &EditAction::Delete));
-        assert!(apply(&mut s, &EditAction::Home));
+        assert!(apply(&mut s, &mv(Motion::Start, false)));
         assert_eq!(s.caret, 0);
     }
 
     #[test]
+    fn shift_extends_and_plain_moves_collapse() {
+        let mut s = st("hello world", 5);
+        assert!(apply(&mut s, &mv(Motion::Left, true)));
+        assert!(apply(&mut s, &mv(Motion::Left, true)));
+        assert_eq!(s.selection(), Some((3, 5)));
+        assert_eq!(s.caret, 3);
+        // Plain Right collapses to the selection's end, not caret+1.
+        assert!(apply(&mut s, &mv(Motion::Right, false)));
+        assert_eq!((s.caret, s.selection()), (5, None));
+        assert!(apply(&mut s, &mv(Motion::WordRight, true)));
+        assert_eq!(s.selection(), Some((5, 11)));
+        // Extending back across the anchor flips the selection side.
+        assert!(apply(&mut s, &mv(Motion::Start, true)));
+        assert_eq!(s.selection(), Some((0, 5)));
+    }
+
+    #[test]
+    fn typing_replaces_the_selection() {
+        let mut s = sel("hello world", 0, 5);
+        assert!(apply(&mut s, &EditAction::Insert("bye".into())));
+        assert_eq!(s, st("bye world", 3));
+        let mut s = sel("hello world", 11, 6);
+        assert!(apply(&mut s, &EditAction::Backspace));
+        assert_eq!(s, st("hello ", 6));
+        let mut s = sel("abc", 1, 2);
+        assert!(apply(&mut s, &EditAction::Delete));
+        assert_eq!(s, st("ac", 1));
+    }
+
+    #[test]
+    fn select_all_and_word_deletes() {
+        let mut s = st("one two  three", 14);
+        assert!(apply(&mut s, &EditAction::SelectAll));
+        assert_eq!(s.selection(), Some((0, 14)));
+        let mut s = st("one two  three", 14);
+        assert!(apply(&mut s, &EditAction::DeleteWord { backwards: true }));
+        assert_eq!(s, st("one two  ", 9));
+        assert!(apply(&mut s, &EditAction::DeleteWord { backwards: true }));
+        assert_eq!(s, st("one ", 4));
+        let mut s = st("one two", 0);
+        assert!(apply(&mut s, &EditAction::DeleteWord { backwards: false }));
+        assert_eq!(s, st(" two", 0));
+        assert!(apply(&mut s, &EditAction::DeleteWord { backwards: false }));
+        assert_eq!(s, st("", 0));
+        assert_eq!(word_at("hello big world", 7), (6, 9));
+        assert_eq!(word_at("a  b", 1), (1, 3));
+    }
+
+    #[test]
     fn key_mapping() {
-        assert_eq!(action_for_key("a", false, false), Some(EditAction::Insert("a".into())));
-        assert_eq!(action_for_key(" ", false, false), Some(EditAction::Insert(" ".into())));
-        assert_eq!(action_for_key("Enter", false, false), None);
         assert_eq!(
-            action_for_key("Enter", true, false),
+            action_for_key("a", false, false, false),
+            Some(EditAction::Insert("a".into()))
+        );
+        assert_eq!(
+            action_for_key(" ", false, false, false),
+            Some(EditAction::Insert(" ".into()))
+        );
+        assert_eq!(action_for_key("Enter", false, false, false), None);
+        assert_eq!(
+            action_for_key("Enter", true, false, false),
             Some(EditAction::Insert("\n".into()))
         );
-        assert_eq!(action_for_key("a", false, true), None);
-        assert_eq!(action_for_key("Shift", false, false), None);
-        assert_eq!(action_for_key("Backspace", false, false), Some(EditAction::Backspace));
+        assert_eq!(action_for_key("a", false, true, false), Some(EditAction::SelectAll));
+        assert_eq!(action_for_key("v", false, true, false), None);
+        assert_eq!(action_for_key("Shift", false, false, false), None);
+        assert_eq!(
+            action_for_key("ArrowLeft", false, true, true),
+            Some(mv(Motion::WordLeft, true))
+        );
+        // Home/End/Up/Down in a textarea are row-based and resolved by the context.
+        assert_eq!(action_for_key("Home", true, false, false), None);
+        assert_eq!(
+            action_for_key("Home", false, false, false),
+            Some(mv(Motion::Start, false))
+        );
     }
 }

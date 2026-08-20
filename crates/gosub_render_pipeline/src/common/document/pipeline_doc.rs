@@ -730,8 +730,8 @@ pub trait PipelineDocument: Send + Sync {
         false
     }
 
-    /// Typed value + caret (char index) of a text control; `None` = untouched.
-    fn control_edit_state(&self, _id: NodeId) -> Option<(String, usize)> {
+    /// Typed value, caret and selection of a text control; `None` = untouched.
+    fn control_edit_state(&self, _id: NodeId) -> Option<gosub_interface::document::ControlEditState> {
         None
     }
 
@@ -1265,8 +1265,8 @@ where
         self.doc.is_focused(id)
     }
 
-    fn control_edit_state(&self, id: NodeId) -> Option<(String, usize)> {
-        self.doc.control_edit_state(id).map(|s| (s.value, s.caret))
+    fn control_edit_state(&self, id: NodeId) -> Option<gosub_interface::document::ControlEditState> {
+        self.doc.control_edit_state(id)
     }
 
     fn is_checked(&self, id: NodeId) -> bool {

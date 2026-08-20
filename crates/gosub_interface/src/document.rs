@@ -196,10 +196,34 @@ pub struct OpenSelect {
     pub viewport: (f64, f64),
 }
 
-/// The DOM value of a text control (as opposed to its `value` attribute) plus the caret as a
-/// char index into it.
+/// The DOM value of a text control (as opposed to its `value` attribute) plus its editing state.
+/// Indices are char indices into `value`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControlEditState {
     pub value: String,
     pub caret: usize,
+    /// Other end of the selection; `None` (or equal to `caret`) = nothing selected.
+    pub anchor: Option<usize>,
+    /// First visual row a `<textarea>` shows (the engine keeps the caret inside the view).
+    pub scroll: usize,
+}
+
+impl ControlEditState {
+    pub fn new(value: String, caret: usize) -> Self {
+        ControlEditState {
+            value,
+            caret,
+            anchor: None,
+            scroll: 0,
+        }
+    }
+
+    /// The selected char range `[start, end)`, if anything is selected.
+    pub fn selection(&self) -> Option<(usize, usize)> {
+        let a = self.anchor?;
+        if a == self.caret {
+            return None;
+        }
+        Some((a.min(self.caret), a.max(self.caret)))
+    }
 }

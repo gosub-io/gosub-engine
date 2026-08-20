@@ -54,6 +54,37 @@ struct TileDrawState {
     dpr: u32,
 }
 
+/// Ctrl+C/X/V inside the page: the engine only sees keys, the clipboard is the embedder's. Copy/cut
+/// arrive as text to store; a paste request is answered by reading the clipboard and sending it
+/// back as `TextInput`.
+fn handle_clipboard_event(
+    evt: &EngineEvent,
+    area: &DrawingArea,
+    tab: &Rc<RefCell<gosub_engine::tab::TabHandle>>,
+) -> bool {
+    let clipboard = area.display().clipboard();
+    match evt {
+        EngineEvent::ClipboardWrite { text, .. } => {
+            clipboard.set_text(text);
+            true
+        }
+        EngineEvent::PasteRequested { .. } => {
+            let tab = tab.borrow().clone();
+            clipboard.read_text_async(gtk4::gio::Cancellable::NONE, move |res| {
+                let Ok(Some(text)) = res else {
+                    return;
+                };
+                let text = text.to_string();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab.send(TabCommand::TextInput { text }).await;
+                });
+            });
+            true
+        }
+        _ => false,
+    }
+}
+
 /// GDK key names mostly match DOM `KeyboardEvent.key`; translate the ones that don't. X11 gives
 /// Shift+Tab its own `ISO_Left_Tab` keysym.
 fn key_down_command(key: gtk4::gdk::Key, state: gtk4::gdk::ModifierType) -> Option<TabCommand> {
@@ -530,8 +561,12 @@ fn main() {
             let da = drawing_area.clone();
             let status_label = status_label.clone();
             let address_entry = address_entry.clone();
+            let tab = tab.clone();
             glib::spawn_future_local(async move {
                 while let Some(evt) = ui_rx.recv().await {
+                    if handle_clipboard_event(&evt, &da, &tab) {
+                        continue;
+                    }
                     match evt {
                         EngineEvent::Redraw { .. } => da.queue_draw(),
                         EngineEvent::Navigation { tab_id: _, ref event } => {

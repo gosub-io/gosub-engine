@@ -2207,6 +2207,7 @@ name = "example-winit-cairo"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "cairo-rs",
  "gosub_config",
  "gosub_engine",
@@ -2228,6 +2229,7 @@ name = "example-winit-skia"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "gosub_config",
  "gosub_engine",
  "gosub_render_pipeline",
@@ -2249,6 +2251,7 @@ name = "example-winit-skia-gpu"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "glutin",
  "glutin-winit",
  "gosub_config",
@@ -2273,6 +2276,7 @@ name = "example-winit-vello"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "gosub_config",
  "gosub_engine",
  "gosub_render_pipeline",

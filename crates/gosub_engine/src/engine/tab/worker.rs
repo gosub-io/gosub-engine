@@ -860,12 +860,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
         if key != "Tab" {
             let chord = modifiers.intersects(Modifiers::CONTROL | Modifiers::META);
             let alt = modifiers.contains(Modifiers::ALT);
-            if self.context.edit_key(key, chord, alt) {
+            let shift = modifiers.contains(Modifiers::SHIFT);
+            if self.context.edit_key(key, chord, alt, shift) {
                 self.runtime.dirty = true;
                 self.runtime.render_now = true;
                 self.run_pending_submission();
+                self.run_clipboard_traffic();
                 return ControlFlow::Continue;
             }
+            // A clipboard chord can ask for a paste without consuming the key visibly.
+            self.run_clipboard_traffic();
         }
         match key {
             // Focus traversal.
@@ -1152,9 +1156,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             TabCommand::MouseScroll { delta_x, delta_y } => {
-                // An open dropdown under the pointer takes the wheel.
+                // An open dropdown, or a scrolling textarea, under the pointer takes the wheel.
                 if let Some((px, py)) = self.context.pointer() {
-                    if self.context.popup_scroll(px, py, delta_y as f64) {
+                    if self.context.popup_scroll(px, py, delta_y as f64)
+                        || self.context.area_scroll(px, py, delta_y as f64)
+                    {
                         self.runtime.dirty = true;
                         self.runtime.render_now = true;
                         return ControlFlow::Continue;
@@ -1172,10 +1178,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     });
                 }
                 self.report_cursor(self.context.hover_cursor());
-                if visual_dirty
-                    || self.context.popup_hover_at(x as f64, y as f64)
-                    || self.context.drag_move(x as f64, y as f64)
-                {
+                // Each of these must run: a drag doesn't get to skip a move because hover changed.
+                let popup_dirty = self.context.popup_hover_at(x as f64, y as f64);
+                let drag_dirty = self.context.drag_move(x as f64, y as f64);
+                if visual_dirty || popup_dirty || drag_dirty {
                     self.runtime.dirty = true;
                     // A resize re-layouts the page; let the frame tick pace it so a burst of
                     // pointer events collapses into one render instead of one each.
@@ -1297,6 +1303,21 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // back/forward buttons track the traversal, not the eventual load.
         self.emit_history_changed();
     }
+
+    /// Forward Ctrl+C/X text to the embedder and relay a Ctrl+V as a paste request; the
+    /// embedder answers the latter with `TabCommand::TextInput`.
+    fn run_clipboard_traffic(&mut self) {
+        if let Some(text) = self.context.take_clipboard_write() {
+            self.send_event(EngineEvent::ClipboardWrite {
+                tab_id: self.tab_id,
+                text,
+            });
+        }
+        if self.context.take_paste_request() {
+            self.send_event(EngineEvent::PasteRequested { tab_id: self.tab_id });
+        }
+    }
+
     /// Run a form submission the browsing context queued for the last click/key. Pushes a
     /// history entry like any fresh navigation.
     fn run_pending_submission(&mut self) {

@@ -23,3 +23,5 @@ uuid = { workspace = true, features = ["v4", "macro-diagnostics"] }
 anyhow = { workspace = true }
 log = { workspace = true }
 simple_logger = { workspace = true }
+# Clipboard for Ctrl+C/X/V in text fields (X11; no extra lockfile entries).
+arboard = { version = "3", default-features = false }

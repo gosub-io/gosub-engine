@@ -46,6 +46,7 @@ use std::any::Any;
 use url::Url;
 
 mod select_ui;
+mod text_ui;
 
 #[cfg(test)]
 mod forms_tests;
@@ -198,6 +199,15 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     pointer: Option<(f64, f64)>,
     /// Dropdown scrollbar thumb being dragged: pointer y and `first_row` at the press.
     drag_popup_thumb: Option<(f64, usize)>,
+    /// Selection being dragged out in a text control.
+    drag_select: Option<(NodeId, LayoutElementId)>,
+    /// Textarea scrollbar thumb being dragged: pointer y and scroll row at the press.
+    drag_area_thumb: Option<(NodeId, LayoutElementId, f64, usize)>,
+    /// Last press (time, position, click count) for double/triple-click detection.
+    last_press: Option<(std::time::Instant, f64, f64, u8)>,
+    /// Clipboard traffic towards the embedder; see `text_ui`.
+    clipboard_write: Option<String>,
+    paste_requested: bool,
     /// Dropdown type-ahead: the letters typed so far and when the last one arrived.
     typeahead: Option<(String, std::time::Instant)>,
     /// Font system for caret placement when the rasterizer doesn't share one (tests, null
@@ -257,6 +267,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             drag_resize: None,
             pointer: None,
             drag_popup_thumb: None,
+            drag_select: None,
+            drag_area_thumb: None,
+            last_press: None,
+            clipboard_write: None,
+            paste_requested: false,
             typeahead: None,
             fallback_font_system: std::sync::OnceLock::new(),
             rasterizer: None,
@@ -906,81 +921,6 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         changed || placed
     }
 
-    /// Put the caret of text control `node` at the character nearest to the click, mirroring the
-    /// painter's text window (insets, horizontal scroll, textarea line window). Paint-only.
-    fn place_caret(&mut self, node: NodeId, lei: LayoutElementId, vp_x: f64, vp_y: f64) -> bool {
-        use gosub_render_pipeline::layouter::{ElementContext, FormControl};
-        use gosub_render_pipeline::painter::text_field;
-        let Some(doc) = self.document.clone() else {
-            return false;
-        };
-        let Some(multiline) = edit::text_entry_kind(&doc, node) else {
-            return false;
-        };
-        let (font_info, masked, content) = {
-            let Some(ll) = self.active_layer_list() else {
-                return false;
-            };
-            let Some(el) = ll.layout_tree.get_node_by_id(lei) else {
-                return false;
-            };
-            let ElementContext::FormControl(fc) = &el.context else {
-                return false;
-            };
-            let FormControl::TextField { masked, .. } = &fc.control else {
-                return false;
-            };
-            (fc.font_info.clone(), *masked, el.box_model.content_box)
-        };
-
-        let mut state = doc.control_edit_state(node).unwrap_or_else(|| {
-            let value = edit::initial_value(&doc, node);
-            let caret = value.chars().count();
-            gosub_interface::document::ControlEditState { value, caret }
-        });
-        if state.value.is_empty() {
-            return false;
-        }
-        let shown = if masked {
-            "\u{2022}".repeat(state.value.chars().count())
-        } else {
-            state.value.clone()
-        };
-        let inset = text_field::inset_x(content.width);
-        let (x, y) = (
-            vp_x + self.scroll_x - content.x - inset,
-            vp_y + self.scroll_y - content.y,
-        );
-        let width = (content.width - inset * 2.0).max(1.0);
-        let line_h = font_info.line_height.max(font_info.size);
-
-        let fs = self.font_system();
-        let mut fs = fs.lock();
-        let caret = if multiline {
-            let rows = text_field::layout_rows(&mut *fs, &shown, &font_info, width);
-            let rows_fit = (((content.height + 0.5) / line_h).floor() as usize).max(1);
-            let caret_row = text_field::row_of_caret(&rows, state.caret);
-            let first = text_field::first_visible_row(rows.len(), caret_row, rows_fit);
-            let row_idx = (first + (y / line_h).floor().max(0.0) as usize).min(rows.len() - 1);
-            let row = &rows[row_idx];
-            let rt = text_field::row_text(&shown, row);
-            row.start + text_field::index_at_x(&mut *fs, &rt, &font_info, x).min(row.end - row.start)
-        } else {
-            let (start, end) = text_field::single_line_window(&mut *fs, &shown, Some(state.caret), &font_info, width);
-            let visible: String = shown.chars().skip(start).take(end - start).collect();
-            start + text_field::index_at_x(&mut *fs, &visible, &font_info, x)
-        };
-        drop(fs);
-
-        if caret == state.caret && doc.control_edit_state(node).is_some() {
-            return false;
-        }
-        state.caret = caret;
-        doc.set_control_edit_state(node, Some(state));
-        self.request_repaint(node);
-        true
-    }
-
     /// The font system text measurements use: the rasterizer's, else a shared default.
     fn font_system(&self) -> Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>> {
         if let Some(fs) = self.rasterizer.as_ref().and_then(|r| r.font_system()) {
@@ -1020,6 +960,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 return true;
             }
         }
+        // Pressing a text control's own box: scrollbar, multi-click selection, drag start.
+        if leaf == Some(target) {
+            if let Some(lei) = lei.filter(|_| edit::text_entry_kind(&doc, target).is_some()) {
+                return self.text_press(target, lei, vp_x, vp_y);
+            }
+        }
         match form::button_kind(&doc, target) {
             Some(false) => return self.submit(target, Some(target)),
             Some(true) => return self.reset_form(target),
@@ -1039,6 +985,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
         if let Some((start_y, start_first)) = self.drag_popup_thumb {
             return self.popup_thumb_drag_to(start_y, start_first, vp_y);
+        }
+        if self.drag_select.is_some() {
+            return self.drag_select_to(vp_x, vp_y);
+        }
+        if self.drag_area_thumb.is_some() {
+            return self.area_thumb_drag_to(vp_y);
         }
         let (Some(drag), Some(doc)) = (self.drag_resize, &self.document) else {
             return false;
@@ -1062,6 +1014,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.drag_range = None;
         self.drag_resize = None;
         self.drag_popup_thumb = None;
+        self.drag_select = None;
+        self.drag_area_thumb = None;
     }
 
     pub fn is_resizing(&self) -> bool {
@@ -1133,10 +1087,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
         doc.set_control_edit_state(
             node,
-            Some(gosub_interface::document::ControlEditState {
-                value: edit::format_number(value),
-                caret: 0,
-            }),
+            Some(gosub_interface::document::ControlEditState::new(
+                edit::format_number(value),
+                0,
+            )),
         );
         self.request_repaint(node);
         true
@@ -1236,7 +1190,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     /// Key press for the focused control: text editing, or Space toggling a checkbox/radio.
     /// Returns whether the key was consumed. Ctrl/Meta chords are left alone.
-    pub fn edit_key(&mut self, key: &str, ctrl_or_meta: bool, alt: bool) -> bool {
+    pub fn edit_key(&mut self, key: &str, ctrl_or_meta: bool, alt: bool, shift: bool) -> bool {
         let Some(doc) = self.document.clone() else {
             return false;
         };
@@ -1265,11 +1219,22 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if key == "Enter" && !multiline && !ctrl_or_meta {
             return self.implicit_submit(node);
         }
-        let Some(action) = edit::action_for_key(key, multiline, ctrl_or_meta) else {
+        if ctrl_or_meta {
+            let masked = doc
+                .attribute(node, "type")
+                .is_some_and(|t| t.eq_ignore_ascii_case("password"));
+            if let Some(handled) = self.clipboard_key(node, key, masked) {
+                return handled;
+            }
+        } else if multiline {
+            if let Some(handled) = self.row_key(node, key, shift) {
+                return handled;
+            }
+        }
+        let Some(action) = edit::action_for_key(key, multiline, ctrl_or_meta, shift) else {
             return false;
         };
-        self.apply_edit(node, &action);
-        true
+        self.apply_edit(node, &action)
     }
 
     /// Committed text (IME / `TextInput`) into the focused text control.
@@ -1283,48 +1248,37 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if edit::text_entry_kind(&doc, node).is_none() || text.is_empty() {
             return false;
         }
-        self.apply_edit(node, &edit::EditAction::Insert(text.to_string()));
-        true
+        self.apply_edit(node, &edit::EditAction::Insert(text.to_string()))
     }
 
-    fn apply_edit(&mut self, node: NodeId, action: &edit::EditAction) {
-        let Some(doc) = &self.document else {
-            return;
+    /// Returns whether the control changed. The box doesn't depend on the value and the painter
+    /// reads it live, so this is paint-only.
+    fn apply_edit(&mut self, node: NodeId, action: &edit::EditAction) -> bool {
+        let Some(doc) = self.document.clone() else {
+            return false;
         };
         let filtered;
         let action = match action {
             edit::EditAction::Insert(text) => {
-                filtered = edit::EditAction::Insert(edit::filter_insert(doc, node, text));
+                filtered = edit::EditAction::Insert(edit::filter_insert(&doc, node, text));
                 if matches!(&filtered, edit::EditAction::Insert(t) if t.is_empty()) {
-                    return;
+                    return false;
                 }
                 &filtered
             }
             other => other,
         };
-        let mut state = doc.control_edit_state(node).unwrap_or_else(|| {
-            let value = edit::initial_value(doc, node);
-            let caret = value.chars().count();
-            gosub_interface::document::ControlEditState { value, caret }
-        });
+        let mut state = self.edit_state(node);
         if !edit::apply(&mut state, action) {
-            return;
+            return false;
         }
-        doc.set_control_edit_state(node, Some(state));
-        // The box doesn't depend on the value and the painter reads it live: paint-only.
-        self.request_repaint(node);
+        self.commit_edit_state(node, state);
+        true
     }
 
     /// Repaint the tiles under `node` only; full render if it has no layout element yet.
     fn request_repaint(&mut self, node: NodeId) {
-        let lei = self.active_layer_list().and_then(|ll| {
-            ll.layout_tree
-                .arena
-                .iter()
-                .find(|(_, el)| el.dom_node_id == node)
-                .map(|(id, _)| *id)
-        });
-        match lei {
+        match self.layout_element_of(node) {
             Some(lei) => self.paint_dirty_leis.push(lei),
             None => self.invalidate_render(),
         }
@@ -1353,7 +1307,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             (None, false) => 0,
             (None, true) => order.len() - 1,
         };
-        self.set_focus(Some(order[next]), true)
+        let changed = self.set_focus(Some(order[next]), true);
+        if changed {
+            self.select_all_on_focus(order[next]);
+        }
+        changed
     }
 
     /// Hit-test at viewport coordinates `(vp_x, vp_y)` and update hover state.

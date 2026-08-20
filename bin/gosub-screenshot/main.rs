@@ -66,9 +66,11 @@ struct Args {
     /// decode and repaint before the capture
     #[arg(long, default_value = "0")]
     settle: u64,
-    /// Interactions to replay after the first render, before capturing: `click:X,Y`, `move:X,Y`,
-    /// `press:X,Y` / `release:X,Y` (drags; page px), `tab`, `shift-tab`, `key:NAME` (e.g.
-    /// `key:Backspace`), `type:TEXT`, `scroll:DX,DY` (wheel) or `wait:MS`. Repeatable.
+    /// Interactions to replay after the first render, before capturing: `click:X,Y`,
+    /// `dblclick:X,Y`, `move:X,Y`, `press:X,Y` / `release:X,Y` (drags; page px), `tab`,
+    /// `shift-tab`, `key:NAME` (e.g. `key:Backspace`, `key:ctrl+shift+ArrowLeft`), `type:TEXT`,
+    /// `scroll:DX,DY` (wheel) or `wait:MS`. Repeatable. Ctrl+C/X/V use a clipboard local to
+    /// this run.
     #[arg(short = 'i', long = "interact")]
     interact: Vec<String>,
     /// Print the engine's timing table on exit
@@ -79,6 +81,7 @@ struct Args {
     dark: bool,
 }
 
+#[derive(Clone)]
 enum Step {
     Send(TabCommand),
     Wait(Duration),
@@ -95,7 +98,26 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
     match spec.split_once(':') {
         None if spec.eq_ignore_ascii_case("tab") => vec![key("Tab", Modifiers::empty())],
         None if spec.eq_ignore_ascii_case("shift-tab") => vec![key("Tab", Modifiers::SHIFT)],
-        Some((kind, rest)) if kind.eq_ignore_ascii_case("key") => vec![key(rest, Modifiers::empty())],
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("key") => {
+            // `ctrl+shift+ArrowLeft`: modifier prefixes, the key name last.
+            let mut modifiers = Modifiers::empty();
+            let mut name = rest;
+            while let Some((m, tail)) = name.split_once('+').filter(|(_, t)| !t.is_empty()) {
+                modifiers |= if m.eq_ignore_ascii_case("ctrl") || m.eq_ignore_ascii_case("control") {
+                    Modifiers::CONTROL
+                } else if m.eq_ignore_ascii_case("shift") {
+                    Modifiers::SHIFT
+                } else if m.eq_ignore_ascii_case("alt") {
+                    Modifiers::ALT
+                } else if ["meta", "cmd", "super"].iter().any(|k| m.eq_ignore_ascii_case(k)) {
+                    Modifiers::META
+                } else {
+                    break;
+                };
+                name = tail;
+            }
+            vec![key(name, modifiers)]
+        }
         Some((kind, rest)) if kind.eq_ignore_ascii_case("type") => {
             rest.chars().map(|c| key(&c.to_string(), Modifiers::empty())).collect()
         }
@@ -117,7 +139,7 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
             }
         },
         Some((kind, rest))
-            if ["click", "move", "press", "release"]
+            if ["click", "dblclick", "move", "press", "release"]
                 .iter()
                 .any(|k| kind.eq_ignore_ascii_case(k)) =>
         {
@@ -143,6 +165,8 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
             let mut steps = vec![Step::Send(TabCommand::MouseMove { x, y })];
             if kind.eq_ignore_ascii_case("click") {
                 steps.extend([down, up]);
+            } else if kind.eq_ignore_ascii_case("dblclick") {
+                steps.extend([down.clone(), up.clone(), down, up]);
             } else if kind.eq_ignore_ascii_case("press") {
                 steps.push(down);
             } else if kind.eq_ignore_ascii_case("release") {
@@ -152,7 +176,7 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
         }
         _ => {
             eprintln!(
-                "Unknown interaction '{spec}' (expected click:X,Y | move:X,Y | press:X,Y | release:X,Y | scroll:DX,DY | tab | shift-tab | key:NAME | type:TEXT | wait:MS)"
+                "Unknown interaction '{spec}' (expected click:X,Y | dblclick:X,Y | move:X,Y | press:X,Y | release:X,Y | scroll:DX,DY | tab | shift-tab | key:NAME | type:TEXT | wait:MS)"
             );
             std::process::exit(2);
         }
@@ -331,6 +355,8 @@ fn main() {
     if !args.interact.is_empty() {
         let steps: Vec<Step> = args.interact.iter().flat_map(|s| parse_interaction(s)).collect();
         eprintln!("Replaying {} interaction(s)…", args.interact.len());
+        // Ctrl+C/X/V in the page go through the embedder; here that is a string.
+        let mut clipboard = String::new();
         for step in steps {
             let cmd = match step {
                 Step::Wait(d) => {
@@ -345,6 +371,20 @@ fn main() {
                 TabCommand::MouseDown { .. } | TabCommand::KeyDown { .. } | TabCommand::MouseScroll { .. }
             );
             let is_move = matches!(cmd, TabCommand::MouseMove { .. });
+            // Ctrl+C/X/V: wait for the clipboard event (not a possibly stale repaint) first.
+            let clip_chord = match &cmd {
+                TabCommand::KeyDown { key, modifiers, .. }
+                    if modifiers.intersects(Modifiers::CONTROL | Modifiers::META) =>
+                {
+                    match key.as_str() {
+                        "c" | "C" => Some("c"),
+                        "x" | "X" => Some("x"),
+                        "v" | "V" => Some("v"),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
             let tab_i = tab.clone();
             TOKIO_RT.block_on(async move {
                 let _ = tab_i.send(cmd).await;
@@ -360,7 +400,34 @@ fn main() {
             }
             let deadline = Instant::now() + Duration::from_secs(5);
             let mut repainted = false;
+            let mut clip_pending = clip_chord.is_some();
             while Instant::now() < deadline {
+                while let Ok(ev) = event_rx.try_recv() {
+                    match ev {
+                        EngineEvent::ClipboardWrite { text, .. } => {
+                            clipboard = text;
+                            clip_pending = false;
+                        }
+                        EngineEvent::PasteRequested { .. } => {
+                            let tab_i = tab.clone();
+                            let text = clipboard.clone();
+                            TOKIO_RT.block_on(async move {
+                                let _ = tab_i.send(TabCommand::TextInput { text }).await;
+                            });
+                            clip_pending = false;
+                        }
+                        _ => {}
+                    }
+                }
+                if clip_pending {
+                    std::thread::sleep(Duration::from_millis(20));
+                    continue;
+                }
+                // A copy changes nothing on screen; cut/paste repaint.
+                if clip_chord == Some("c") {
+                    repainted = true;
+                    break;
+                }
                 if rx_redraw.try_recv().is_ok() {
                     repainted = true;
                     std::thread::sleep(Duration::from_millis(100));

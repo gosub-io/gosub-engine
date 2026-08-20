@@ -22,6 +22,7 @@ use crate::painter::commands::text::Text;
 use crate::painter::commands::PaintCommand;
 use crate::render::backend::TileAnchor;
 use crate::tiler::TiledLayoutElement;
+use gosub_interface::document::ControlEditState;
 use gosub_interface::font::FontStyle;
 use gosub_interface::font_system::{FontStretch, FontSystem, FontWeight, ShapedText, TextAlign, TextStyle};
 use parking_lot::Mutex;
@@ -777,16 +778,16 @@ impl Painter {
                         Rectangle::new(Rect::new(pb.x + pb.width - g - 1.0, pb.y + pb.height - g - 1.0, g, g)),
                     ));
                 }
-                // The typed value/caret are read here, not at layout, so typing is paint-only.
+                // The typed value/caret/selection are read here, not at layout, so typing is
+                // paint-only.
                 let doc = &self.layer_list.layout_tree.render_tree.doc;
                 let focused = doc.is_focused(dom_node_id);
-                let (value, caret) = match doc.control_edit_state(dom_node_id) {
-                    Some((v, c)) => (v, focused.then_some(c)),
-                    None => {
-                        let n = initial_value.chars().count();
-                        (initial_value.clone(), focused.then_some(n))
-                    }
-                };
+                let state = doc
+                    .control_edit_state(dom_node_id)
+                    .unwrap_or_else(|| ControlEditState::new(initial_value.clone(), initial_value.chars().count()));
+                let value = state.value.clone();
+                let caret = focused.then_some(state.caret);
+                let selection = if focused { state.selection() } else { None };
                 let is_placeholder = value.is_empty();
                 let mut text = if is_placeholder {
                     placeholder.clone()
@@ -800,8 +801,10 @@ impl Painter {
                 } else {
                     css_text_brush()
                 };
+                let theme = crate::common::theme::select_theme();
+                let selection_brush = Brush::solid(theme.selection_bg.clone());
                 let inset_x = text_field::inset_x(content_box.width);
-                let rect = if *multiline {
+                let mut rect = if *multiline {
                     Rect::new(
                         content_box.x + inset_x,
                         content_box.y,
@@ -819,25 +822,47 @@ impl Painter {
                 // Paint commands can't clip, so cut the text to what fits (see `text_field`).
                 let mut caret_pos: Option<(f64, f64)> = None;
                 let mut rows_to_draw: Vec<(String, f64)> = Vec::new();
+                let mut highlights: Vec<Rect> = Vec::new();
                 if let Some(fs) = &self.font_system {
                     let mut fs = fs.lock();
                     if *multiline {
-                        // Visual rows (greedy wrap) drawn one by one; the window follows the caret.
-                        let rows = text_field::layout_rows(&mut *fs, &text, &fc.font_info, rect.width);
-                        let rows_fit = (((rect.height + 0.5) / line_h).floor() as usize).max(1);
-                        let caret_row = caret.map_or(0, |c| text_field::row_of_caret(&rows, c));
-                        let first = text_field::first_visible_row(rows.len(), caret_row, rows_fit);
-                        for (i, row) in rows.iter().enumerate().skip(first).take(rows_fit) {
+                        // Visual rows (greedy wrap) drawn one by one; the window is the stored
+                        // scroll row, nudged so the caret stays in view.
+                        let area = text_field::area_layout(&mut *fs, &text, &fc.font_info, content_box);
+                        rect = area.text;
+                        let caret_row = caret.map(|c| text_field::row_of_caret(&area.rows, c));
+                        let first = match caret_row {
+                            Some(r) => area.first_showing(state.scroll, r),
+                            None => area.clamp_first(state.scroll),
+                        };
+                        for (i, row) in area.rows.iter().enumerate().skip(first).take(area.rows_fit) {
+                            let dy = (i - first) as f64 * line_h;
                             let rt = text_field::row_text(&text, row);
+                            if let Some((x0, x1)) = selection
+                                .and_then(|sel| text_field::selection_in_row(&mut *fs, &text, row, sel, &fc.font_info))
+                            {
+                                let x1 = x1.min(rect.width);
+                                highlights.push(Rect::new(rect.x + x0, rect.y + dy, (x1 - x0).max(0.0), line_h));
+                            }
                             if !rt.is_empty() {
-                                rows_to_draw.push((rt, (i - first) as f64 * line_h));
+                                rows_to_draw.push((rt, dy));
                             }
                         }
-                        if let Some(c) = caret {
-                            let row = &rows[caret_row];
+                        if let (Some(c), Some(caret_row)) = (caret, caret_row) {
+                            let row = &area.rows[caret_row];
                             let rt = text_field::row_text(&text, row);
                             let x = text_field::x_in_row(&mut *fs, &rt, c - row.start, &fc.font_info);
                             caret_pos = Some((x.min(rect.width), (caret_row - first) as f64 * line_h));
+                        }
+                        if let (Some(track), Some(thumb)) = (area.track, area.thumb(first)) {
+                            commands.push(PaintCommand::rectangle(
+                                Rectangle::new(track).with_background(Brush::solid(theme.scrollbar_track.clone())),
+                            ));
+                            commands.push(PaintCommand::rectangle(
+                                Rectangle::new(thumb)
+                                    .with_background(Brush::solid(theme.scrollbar_thumb.clone()))
+                                    .with_radius(Radius::new(3.0)),
+                            ));
                         }
                         text.clear();
                     } else {
@@ -845,9 +870,41 @@ impl Painter {
                             text_field::single_line_window(&mut *fs, &text, caret, &fc.font_info, rect.width);
                         text = text.chars().skip(start).take(end - start).collect();
                         caret = caret.map(|c| c.saturating_sub(start).min(text.chars().count()));
+                        if let Some((s, e)) = selection {
+                            let row = text_field::Row {
+                                start,
+                                end,
+                                hard_end: true,
+                            };
+                            let shown = text.chars().count();
+                            let sel = (s.clamp(start, start + shown), e.clamp(start, start + shown));
+                            // The window's text is `text` itself (already cut), so index it from 0.
+                            let local = text_field::Row {
+                                start: 0,
+                                end: shown,
+                                hard_end: row.hard_end,
+                            };
+                            if let Some((x0, x1)) = text_field::selection_in_row(
+                                &mut *fs,
+                                &text,
+                                &local,
+                                (sel.0 - start, sel.1 - start),
+                                &fc.font_info,
+                            ) {
+                                let x1 = x1.min(rect.width);
+                                highlights.push(Rect::new(rect.x + x0, rect.y, (x1 - x0).max(0.0), line_h));
+                            }
+                        }
                         if let Some(c) = caret {
                             caret_pos = Some(text_field::caret_offset(&mut *fs, &text, c, &fc.font_info, avail));
                         }
+                    }
+                }
+                for hl in highlights {
+                    if hl.width > 0.0 {
+                        commands.push(PaintCommand::rectangle(
+                            Rectangle::new(hl).with_background(selection_brush.clone()),
+                        ));
                     }
                 }
                 for (row_text, dy) in rows_to_draw {
@@ -949,7 +1006,7 @@ impl Painter {
                     .render_tree
                     .doc
                     .control_edit_state(dom_node_id)
-                    .and_then(|(v, _)| v.trim().parse::<f64>().ok())
+                    .and_then(|s| s.value.trim().parse::<f64>().ok())
                     .filter(|_| max > min)
                     .map(|v| ((v - min) / (max - min)).clamp(0.0, 1.0));
                 let fraction = &live.unwrap_or(*fraction);

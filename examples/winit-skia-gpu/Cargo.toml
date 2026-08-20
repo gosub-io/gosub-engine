@@ -29,3 +29,5 @@ simple_logger = { workspace = true }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 skia-safe = { workspace = true, features = ["egl"] }
+# Clipboard for Ctrl+C/X/V in text fields (X11; no extra lockfile entries).
+arboard = { version = "3", default-features = false }

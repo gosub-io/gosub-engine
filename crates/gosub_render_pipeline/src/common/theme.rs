@@ -27,6 +27,8 @@ pub struct SelectTheme {
     pub disabled_text: Color,
     pub scrollbar_track: Color,
     pub scrollbar_thumb: Color,
+    /// Text-selection highlight behind the selected characters (text keeps its own colour).
+    pub selection_bg: Color,
     /// Shadow alpha; dark surfaces need a heavier one to read at all.
     pub shadow_alpha: f64,
     /// Chevron / checkmark ink, and the muted variant for a disabled control.
@@ -48,6 +50,7 @@ pub fn select_theme() -> SelectTheme {
             disabled_text: Color::from_rgb8(0x6f, 0x6f, 0x6f),
             scrollbar_track: Color::from_rgb8(0x33, 0x33, 0x33),
             scrollbar_thumb: Color::from_rgb8(0x6a, 0x6a, 0x6a),
+            selection_bg: Color::from_rgba8(0x3a, 0x7a, 0xfe, 0x80),
             shadow_alpha: 0.45,
             icon: "#cfcfcf",
             icon_muted: "#666666",
@@ -65,6 +68,7 @@ pub fn select_theme() -> SelectTheme {
             disabled_text: Color::from_rgb8(0x88, 0x88, 0x88),
             scrollbar_track: Color::from_rgb8(0xf0, 0xf0, 0xf0),
             scrollbar_thumb: Color::from_rgb8(0xb8, 0xb8, 0xb8),
+            selection_bg: Color::from_rgba8(0x33, 0x90, 0xff, 0x66),
             shadow_alpha: 0.12,
             icon: "#4a4a4a",
             icon_muted: "#bbbbbb",

@@ -10,6 +10,7 @@ use gosub_render_pipeline::common::media::MediaStore;
 use gosub_render_pipeline::common::texture::TextureId;
 use gosub_render_pipeline::common::texture_store::TextureStore;
 use gosub_render_pipeline::layouter::ElementContext;
+use gosub_render_pipeline::painter::text_field;
 use gosub_render_pipeline::render::backend::PixelFormat;
 use gosub_render_pipeline::tiler::Tile;
 
@@ -99,14 +100,27 @@ fn click(ctx: &mut Ctx, id: &str) {
 }
 
 fn key(ctx: &mut Ctx, k: &str) {
+    chord(ctx, k, false, false);
+}
+
+/// A key with Ctrl (`ctrl`) and/or Shift held.
+fn chord(ctx: &mut Ctx, k: &str, ctrl: bool, shift: bool) {
     if k == "Tab" {
-        ctx.focus_step(false);
+        ctx.focus_step(shift);
     } else if k == "ShiftTab" {
         ctx.focus_step(true);
     } else {
-        ctx.edit_key(k, false, false);
+        ctx.edit_key(k, ctrl, false, shift);
     }
     render(ctx);
+}
+
+fn selection(ctx: &Ctx, id: &str) -> Option<(usize, usize)> {
+    doc(ctx).control_edit_state(by_id(ctx, id)).and_then(|s| s.selection())
+}
+
+fn caret(ctx: &Ctx, id: &str) -> Option<usize> {
+    doc(ctx).control_edit_state(by_id(ctx, id)).map(|s| s.caret)
 }
 
 fn type_text(ctx: &mut Ctx, text: &str) {
@@ -528,7 +542,6 @@ ef</textarea>"#,
 
 #[test]
 fn click_places_the_caret_on_a_soft_wrapped_row() {
-    use gosub_render_pipeline::painter::text_field;
     let mut ctx = page(
         r#"<textarea id="ta" rows="5" cols="20">The quick brown fox jumps over the lazy dog and keeps on running</textarea>"#,
     );
@@ -553,4 +566,198 @@ fn click_places_the_caret_on_a_soft_wrapped_row() {
     type_text(&mut ctx, "|");
     let v = value(&ctx, "ta");
     assert_eq!(&v[rows[1].start..=rows[1].start], "|");
+}
+
+// ── selection / clipboard / textarea navigation ───────────────────────────────
+
+#[test]
+fn shift_arrows_select_and_typing_replaces() {
+    let mut ctx = page(r#"<input id="t" value="hello world">"#);
+    click(&mut ctx, "t");
+    key(&mut ctx, "End");
+    chord(&mut ctx, "ArrowLeft", true, true); // Ctrl+Shift+Left: select "world"
+    assert_eq!(selection(&ctx, "t"), Some((6, 11)));
+    type_text(&mut ctx, "there");
+    assert_eq!(value(&ctx, "t"), "hello there");
+    assert_eq!(selection(&ctx, "t"), None);
+    chord(&mut ctx, "a", true, false);
+    assert_eq!(selection(&ctx, "t"), Some((0, 11)));
+    key(&mut ctx, "Backspace");
+    assert_eq!(value(&ctx, "t"), "");
+    // Plain arrows collapse a selection to its edge instead of moving by one.
+    type_text(&mut ctx, "abc");
+    chord(&mut ctx, "Home", false, true);
+    assert_eq!(selection(&ctx, "t"), Some((0, 3)));
+    key(&mut ctx, "ArrowRight");
+    assert_eq!((caret(&ctx, "t"), selection(&ctx, "t")), (Some(3), None));
+}
+
+#[test]
+fn clipboard_goes_through_the_embedder() {
+    let mut ctx = page(r#"<input id="t" value="copy me"><input id="p" type="password" value="secret">"#);
+    click(&mut ctx, "t");
+    chord(&mut ctx, "a", true, false);
+    chord(&mut ctx, "c", true, false);
+    assert_eq!(ctx.take_clipboard_write().as_deref(), Some("copy me"));
+    assert_eq!(ctx.take_clipboard_write(), None);
+    chord(&mut ctx, "x", true, false);
+    assert_eq!(ctx.take_clipboard_write().as_deref(), Some("copy me"));
+    assert_eq!(value(&ctx, "t"), "");
+    chord(&mut ctx, "v", true, false);
+    assert!(ctx.take_paste_request());
+    assert!(!ctx.take_paste_request());
+    // The embedder answers with the clipboard text; line breaks don't survive a single-line field.
+    ctx.insert_text("pasted\nline");
+    assert_eq!(value(&ctx, "t"), "pastedline");
+    // Password fields never hand out their text.
+    click(&mut ctx, "p");
+    chord(&mut ctx, "a", true, false);
+    chord(&mut ctx, "c", true, false);
+    assert_eq!(ctx.take_clipboard_write(), None);
+}
+
+#[test]
+fn tab_into_a_text_field_selects_its_text() {
+    let mut ctx = page(r#"<input id="a" value="first"><input id="b" value="second"><textarea id="c">body</textarea>"#);
+    key(&mut ctx, "Tab");
+    assert_eq!(selection(&ctx, "a"), Some((0, 5)));
+    key(&mut ctx, "Tab");
+    assert_eq!(selection(&ctx, "b"), Some((0, 6)));
+    type_text(&mut ctx, "x");
+    assert_eq!(value(&ctx, "b"), "x");
+    // Textareas keep their caret (at the top) instead.
+    key(&mut ctx, "Tab");
+    assert_eq!(selection(&ctx, "c"), None);
+    type_text(&mut ctx, ">");
+    assert_eq!(value(&ctx, "c"), ">body");
+}
+
+#[test]
+fn mouse_drag_and_double_click_select() {
+    let mut ctx = page(r#"<input id="t" size="30" value="alpha beta gamma">"#);
+    let node = by_id(&ctx, "t");
+    let (content, font) = text_box(&ctx, node);
+    let x_of = |ctx: &Ctx, chars: usize| {
+        let fs = ctx.font_system();
+        let mut fs = fs.lock();
+        let prefix: String = "alpha beta gamma".chars().take(chars).collect();
+        content.x + text_field::inset_x(content.width) + text_field::width(&mut *fs, &prefix, &font)
+    };
+    let y = content.y + content.height / 2.0;
+    // Press at "beta", drag to the end of "gamma".
+    let (x0, x1) = (x_of(&ctx, 6), x_of(&ctx, 16));
+    ctx.focus_at(x0, y);
+    ctx.activate_at(x0, y);
+    ctx.drag_move(x1 + 2.0, y);
+    ctx.end_drag();
+    assert_eq!(selection(&ctx, "t"), Some((6, 16)));
+    // Two quick presses on "alpha" select the word.
+    let xa = x_of(&ctx, 2);
+    for _ in 0..2 {
+        ctx.focus_at(xa, y);
+        ctx.activate_at(xa, y);
+        ctx.end_drag();
+    }
+    assert_eq!(selection(&ctx, "t"), Some((0, 5)));
+}
+
+#[test]
+fn textarea_row_keys_and_scrolling() {
+    let lines: Vec<String> = (1..=12).map(|i| format!("line {i}")).collect();
+    let text = lines.join("\n");
+    let mut ctx = page(&format!(r#"<textarea id="ta" rows="4" cols="20">{text}</textarea>"#));
+    let node = by_id(&ctx, "ta");
+    let (content, font) = text_box(&ctx, node);
+    click_at(&mut ctx, content.x + 1.0, content.y + 1.0);
+    assert_eq!(caret(&ctx, "ta"), Some(0));
+    key(&mut ctx, "ArrowDown");
+    key(&mut ctx, "ArrowDown");
+    assert_eq!(caret(&ctx, "ta"), Some(text.find("line 3").unwrap_or(0)));
+    key(&mut ctx, "End");
+    assert_eq!(caret(&ctx, "ta"), Some(text.find("line 3").unwrap_or(0) + 6));
+    chord(&mut ctx, "ArrowUp", false, true);
+    assert_eq!(
+        selection(&ctx, "ta"),
+        Some((
+            text.find("line 2").unwrap_or(0) + 6,
+            text.find("line 3").unwrap_or(0) + 6
+        ))
+    );
+    // Moving below the four visible rows scrolls the view to keep the caret inside.
+    for _ in 0..5 {
+        key(&mut ctx, "ArrowDown");
+    }
+    let scroll = doc(&ctx).control_edit_state(node).map(|s| s.scroll);
+    assert_eq!(scroll, Some(3), "the caret is on row 6 (0-based); 4 rows fit");
+    // The wheel scrolls independently of the caret; typing brings the caret back into view.
+    let (cx, cy) = (content.x + 5.0, content.y + 5.0);
+    ctx.update_hover(cx, cy);
+    assert!(ctx.area_scroll(cx, cy, -200.0));
+    assert_eq!(doc(&ctx).control_edit_state(node).map(|s| s.scroll), Some(0));
+    type_text(&mut ctx, "!");
+    assert_eq!(doc(&ctx).control_edit_state(node).map(|s| s.scroll), Some(3));
+    // The scrollbar is there: the text block is narrower than the content box.
+    let area = {
+        let fs = ctx.font_system();
+        let mut fs = fs.lock();
+        text_field::area_layout(&mut *fs, &value(&ctx, "ta"), &font, content)
+    };
+    assert!(area.track.is_some());
+    assert!(area.text.width < content.width - 8.0);
+}
+
+#[test]
+fn shift_up_across_a_soft_wrap_keeps_going() {
+    let text = "line 1 the first\nline 2\nline 3\nline 4\nline 5 has a few more words so it wraps around\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12 the last";
+    let mut ctx = page(&format!(r#"<textarea id="ta" rows="4" cols="40">{text}</textarea>"#));
+    let node = by_id(&ctx, "ta");
+    let (content, font) = text_box(&ctx, node);
+    let rows = {
+        let fs = ctx.font_system();
+        let mut fs = fs.lock();
+        text_field::area_layout(&mut *fs, text, &font, content).rows
+    };
+    // Line 5 wraps once: rows 4 (soft) and 5 (hard), then "line 6" is row 6.
+    assert!(!rows[4].hard_end && rows[5].hard_end && rows.len() == 13, "{rows:?}");
+    let (cx, cy) = (content.x + 5.0, content.y + 5.0);
+    ctx.update_hover(cx, cy);
+    assert!(ctx.area_scroll(cx, cy, 200.0));
+    assert_eq!(doc(&ctx).control_edit_state(node).map(|s| s.scroll), Some(5));
+    // Third visible row is row 7 ("line 7"); click past its end.
+    click_at(&mut ctx, content.x + 100.0, content.y + 2.5 * 18.0);
+    assert_eq!(caret(&ctx, "ta"), Some(rows[7].end));
+    key(&mut ctx, "ArrowUp");
+    assert_eq!(caret(&ctx, "ta"), Some(rows[6].end));
+    // Up onto the wrapped tail keeps the column (6 chars in on both rows); the anchor stays.
+    chord(&mut ctx, "ArrowUp", false, true);
+    assert_eq!(
+        caret(&ctx, "ta"),
+        Some(rows[5].start + 6.min(rows[5].end - rows[5].start))
+    );
+    chord(&mut ctx, "ArrowUp", false, true);
+    assert_eq!(caret(&ctx, "ta"), Some(rows[4].start + 6));
+    assert_eq!(doc(&ctx).control_edit_state(node).map(|s| s.scroll), Some(4));
+    chord(&mut ctx, "End", false, true);
+    // End of a soft-wrapped row is the wrap point.
+    assert_eq!(caret(&ctx, "ta"), Some(rows[4].end));
+    assert_eq!(selection(&ctx, "ta"), Some((rows[4].end, rows[6].end)));
+}
+
+#[test]
+fn caret_after_a_space_sits_past_the_full_space() {
+    let ctx = page(r#"<input id="t" size="30" value="hello   world">"#);
+    let node = by_id(&ctx, "t");
+    let (_, font) = text_box(&ctx, node);
+    let fs = ctx.font_system();
+    let mut fs = fs.lock();
+    let space = text_field::space_advance(&mut *fs, &font);
+    assert!(space > font.size * 0.15, "a real space advance, got {space}");
+    // Caret x after "hello " = width("hello") + one real space, not a 0.3em guess.
+    let w5 = text_field::width(&mut *fs, "hello", &font);
+    let x6 = text_field::x_in_row(&mut *fs, "hello   world", 6, &font);
+    assert!((x6 - (w5 + space)).abs() < 0.5, "x6={x6} w5={w5} space={space}");
+    // Each boundary inside the space run gets its own x, and clicks map back to it.
+    let x7 = text_field::x_in_row(&mut *fs, "hello   world", 7, &font);
+    assert!((x7 - x6 - space).abs() < 0.5);
+    assert_eq!(text_field::index_at_x(&mut *fs, "hello   world", &font, x7 + 1.0), 7);
 }

@@ -374,6 +374,29 @@ impl ApplicationHandler<()> for BrowserApp {
     }
 }
 
+/// The system clipboard for Ctrl+C/X/V inside the page: the engine emits `ClipboardWrite` /
+/// `PasteRequested` and the embedder owns the OS side. One long-lived handle: on X11 the data is
+/// only served while the handle exists.
+fn clipboard() -> &'static parking_lot::Mutex<Option<arboard::Clipboard>> {
+    static CLIPBOARD: parking_lot::Mutex<Option<arboard::Clipboard>> = parking_lot::Mutex::new(None);
+    let mut guard = CLIPBOARD.lock();
+    if guard.is_none() {
+        *guard = arboard::Clipboard::new().ok();
+    }
+    drop(guard);
+    &CLIPBOARD
+}
+
+fn clipboard_write(text: &str) {
+    if let Some(cb) = clipboard().lock().as_mut() {
+        let _ = cb.set_text(text.to_string());
+    }
+}
+
+fn clipboard_read() -> Option<String> {
+    clipboard().lock().as_mut()?.get_text().ok()
+}
+
 /// Winit's `NamedKey` variant names follow DOM `KeyboardEvent.key`, so Debug gives the key name.
 fn key_down_command(logical_key: &Key, mods: ModifiersState) -> Option<TabCommand> {
     let key = match logical_key {
@@ -631,6 +654,8 @@ fn main() {
     let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
 
     let proxy_ev = proxy.clone();
+    let tab_for_clipboard: Arc<std::sync::OnceLock<TabHandle>> = Arc::new(std::sync::OnceLock::new());
+    let tab_slot = tab_for_clipboard.clone();
     let mut event_rx = engine.subscribe_events();
     TOKIO_RT.spawn(async move {
         loop {
@@ -640,6 +665,12 @@ fn main() {
                     ..
                 }) => {
                     let _ = proxy_ev.send_event(());
+                }
+                Ok(EngineEvent::ClipboardWrite { text, .. }) => clipboard_write(&text),
+                Ok(EngineEvent::PasteRequested { .. }) => {
+                    if let (Some(tab), Some(text)) = (tab_slot.get(), clipboard_read()) {
+                        let _ = tab.clone().send(TabCommand::TextInput { text }).await;
+                    }
                 }
                 Ok(_) => {}
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
@@ -674,6 +705,7 @@ fn main() {
         ))
         .expect("tab");
 
+    let _ = tab_for_clipboard.set(tab.clone());
     let tab_id = tab.tab_id;
     let nav_tab = tab.clone();
     let nav_url = initial_url.clone();
