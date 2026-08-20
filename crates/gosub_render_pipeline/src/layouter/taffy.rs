@@ -330,7 +330,10 @@ impl TaffyLayouter {
         let font_system = Arc::clone(&self.font_system);
         let mut measure_cache: HashMap<MeasureKey, Size<f32>> = std::mem::take(&mut self.measure_cache);
         let mut results = [0.0_f32; 2];
-        for (i, avail) in [AvailableSpace::MinContent, AvailableSpace::MaxContent].into_iter().enumerate() {
+        for (i, avail) in [AvailableSpace::MinContent, AvailableSpace::MaxContent]
+            .into_iter()
+            .enumerate()
+        {
             let size = Size {
                 width: avail,
                 height: AvailableSpace::MaxContent,
@@ -367,7 +370,11 @@ impl TaffyLayouter {
         style.border.bottom = LengthPercentage::length(borders.bottom);
         style.border.left = LengthPercentage::length(borders.left);
         if let Err(e) = self.tree.set_style(taffy_id, style) {
-            log::warn!("lattice: failed to set collapsed borders for {:?}: {:?}", cell_layout_id, e);
+            log::warn!(
+                "lattice: failed to set collapsed borders for {:?}: {:?}",
+                cell_layout_id,
+                e
+            );
         }
     }
 
@@ -1259,7 +1266,7 @@ impl TaffyLayouter {
                 let mut text: String = if preserve_spaces {
                     // Spaces are significant; substitute NBSP so Pango never elides them at
                     // line-box edges (same advance width as a regular space).
-                    text.replace(' ', "\u{00A0}")
+                    text.cow_replace(' ', "\u{00A0}").into_owned()
                 } else {
                     // Preserve one leading/trailing inter-element gap as NBSP (non-breaking) so
                     // pango does not wrap at the boundary space, while still rendering a visible
@@ -1424,7 +1431,11 @@ fn to_element_context(taffy_context: Option<&TaffyContext>) -> ElementContext {
 /// drops whitespace at line-box edges; a single gap survives BETWEEN inline content).
 /// Ascends through inline ancestors while the text sits at their edge: the space at the
 /// end of `<span>a </span><span>b</span>` separates the SPANS.
-fn text_has_inline_neighbor(doc: &Arc<dyn crate::common::document::pipeline_doc::PipelineDocument>, id: gosub_shared::node::NodeId, forward: bool) -> bool {
+fn text_has_inline_neighbor(
+    doc: &Arc<dyn crate::common::document::pipeline_doc::PipelineDocument>,
+    id: gosub_shared::node::NodeId,
+    forward: bool,
+) -> bool {
     // The same classification the tree build uses, so anonymous inline-tables (marked
     // inline-block on their synthetic Node) keep the whitespace next to them.
     let inline_level = |n: &Node| n.is_inline_element() || n.is_inline_block_element();
@@ -1505,7 +1516,10 @@ fn measure_node(
                 text_ctx.font_info.family.clone(),
                 (text_ctx.font_info.size as f32).to_bits(),
                 // `normal` (None) hashes as a bit pattern no real px value produces.
-                text_ctx.font_info.line_height.map_or(u32::MAX, |v| (v as f32).to_bits()),
+                text_ctx
+                    .font_info
+                    .line_height
+                    .map_or(u32::MAX, |v| (v as f32).to_bits()),
                 text_ctx.font_info.weight,
                 (max_width as f32).to_bits(),
                 (text_ctx.font_info.letter_spacing as f32).to_bits(),

@@ -159,7 +159,18 @@ fn apply_recursive(
                         translate_box_model(&mut element.box_model, offset);
                     }
                 }
-                apply_recursive(doc, child_id, parent_abs, offset, pending, edge_owners, relaid, border_corrected, dom_to_layout, arena);
+                apply_recursive(
+                    doc,
+                    child_id,
+                    parent_abs,
+                    offset,
+                    pending,
+                    edge_owners,
+                    relaid,
+                    border_corrected,
+                    dom_to_layout,
+                    arena,
+                );
             }
             Some(cell_layout) => {
                 let abs = Coordinate::new(
@@ -216,7 +227,18 @@ fn apply_recursive(
                     abs.x - old_abs.x + border_delta.x,
                     abs.y - old_abs.y + valign_shift + border_delta.y,
                 );
-                apply_recursive(doc, child_id, abs, child_offset, pending, edge_owners, relaid, border_corrected, dom_to_layout, arena);
+                apply_recursive(
+                    doc,
+                    child_id,
+                    abs,
+                    child_offset,
+                    pending,
+                    edge_owners,
+                    relaid,
+                    border_corrected,
+                    dom_to_layout,
+                    arena,
+                );
             }
         }
     }
@@ -385,7 +407,9 @@ impl TableTree for PipelineTableTree<'_> {
             .arena
             .get(&layout_id)
             .map(|el| {
-                (el.box_model.border.left + el.box_model.border.right + el.box_model.padding.left
+                (el.box_model.border.left
+                    + el.box_model.border.right
+                    + el.box_model.padding.left
                     + el.box_model.padding.right) as f32
             })
             .unwrap_or(0.0);
@@ -419,9 +443,7 @@ impl TableTree for PipelineTableTree<'_> {
                     "bottom" => return VerticalAlign::Bottom,
                     // CSS 2 §17.5.3: cell values other than top/middle/bottom behave
                     // as baseline.
-                    "baseline" | "text-top" | "text-bottom" | "sub" | "super" => {
-                        return VerticalAlign::Baseline
-                    }
+                    "baseline" | "text-top" | "text-bottom" | "sub" | "super" => return VerticalAlign::Baseline,
                     // "inherit" (or anything unrecognised): keep walking.
                     _ => {}
                 }
@@ -601,7 +623,9 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
 fn collect_collapsed_cells(layout_tree: &LayoutTree, id: LayoutElementId, out: &mut Vec<LayoutElementId>) {
     let Some(el) = layout_tree.arena.get(&id) else { return };
     for &child_id in &el.children {
-        let Some(child) = layout_tree.arena.get(&child_id) else { continue };
+        let Some(child) = layout_tree.arena.get(&child_id) else {
+            continue;
+        };
         if child.collapsed_borders.is_some() {
             out.push(child_id);
         }
@@ -765,7 +789,11 @@ fn collect_subtree(layout_tree: &LayoutTree, id: LayoutElementId, out: &mut Hash
     if !out.insert(id) {
         return;
     }
-    let children = layout_tree.arena.get(&id).map(|e| e.children.clone()).unwrap_or_default();
+    let children = layout_tree
+        .arena
+        .get(&id)
+        .map(|e| e.children.clone())
+        .unwrap_or_default();
     for child in children {
         collect_subtree(layout_tree, child, out);
     }

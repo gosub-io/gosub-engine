@@ -506,7 +506,11 @@ mod layout_tests {
 
         let cells = tree.nodes_with_role(TableRole::Cell);
         assert_approx!(tree.layout(cells[0]).expect("rank").size.width, 20.0, "max-content col");
-        assert_approx!(tree.layout(cells[1]).expect("story").size.width, 100.0, "max-content col");
+        assert_approx!(
+            tree.layout(cells[1]).expect("story").size.width,
+            100.0,
+            "max-content col"
+        );
         assert_approx!(table_w, 120.0, "table shrinks to content");
     }
 
@@ -528,7 +532,11 @@ mod layout_tests {
         // Extra = 210 - 105, split 5:100 over the two columns.
         let cells = tree.nodes_with_role(TableRole::Cell);
         assert_approx!(tree.layout(cells[0]).expect("dot").size.width, 10.0, "5 + 105 * 5/105");
-        assert_approx!(tree.layout(cells[1]).expect("text").size.width, 200.0, "100 + 105 * 100/105");
+        assert_approx!(
+            tree.layout(cells[1]).expect("text").size.width,
+            200.0,
+            "100 + 105 * 100/105"
+        );
     }
 
     // 20. An explicit CSS width cannot shrink a column below its content's
@@ -706,7 +714,11 @@ mod layout_tests {
         let (table_w, _) = compute_table_layout(&mut tree, root, 200.0, None).expect("layout");
 
         let cells = tree.nodes_with_role(TableRole::Cell);
-        assert_approx!(tree.layout(cells[0]).expect("cell").size.width, 80.0, "min-content floor");
+        assert_approx!(
+            tree.layout(cells[0]).expect("cell").size.width,
+            80.0,
+            "min-content floor"
+        );
         assert_approx!(table_w, 80.0, "table overflows its specified 50px");
     }
 
@@ -716,7 +728,10 @@ mod layout_tests {
         let (mut tree, root) = MockTable::new(300.0)
             .width(300.0)
             .spacing(0.0, 0.0)
-            .body_row(vec![cell("a").height(10.0).padding(0.0), cell("b").height(10.0).padding(0.0)])
+            .body_row(vec![
+                cell("a").height(10.0).padding(0.0),
+                cell("b").height(10.0).padding(0.0),
+            ])
             .body_row(vec![
                 cell("c").width(120.0).height(10.0).padding(0.0),
                 cell("d").height(10.0).padding(0.0),
@@ -726,8 +741,16 @@ mod layout_tests {
         compute_table_layout(&mut tree, root, 300.0, None).expect("layout");
 
         let cells = tree.nodes_with_role(TableRole::Cell);
-        assert_approx!(tree.layout(cells[0]).expect("a").size.width, 120.0, "row-2 width wins the column");
-        assert_approx!(tree.layout(cells[1]).expect("b").size.width, 180.0, "auto col gets the rest");
+        assert_approx!(
+            tree.layout(cells[0]).expect("a").size.width,
+            120.0,
+            "row-2 width wins the column"
+        );
+        assert_approx!(
+            tree.layout(cells[1]).expect("b").size.width,
+            180.0,
+            "auto col gets the rest"
+        );
     }
 
     // A colspan cell's min-content requirement distributes over its columns,
@@ -753,8 +776,16 @@ mod layout_tests {
 
         // Deficit 100 splits 10:30 -> col mins 25/75; extra follows the same weights.
         let cells = tree.nodes_with_role(TableRole::Cell);
-        assert_approx!(tree.layout(cells[1]).expect("a").size.width, 50.0, "col 0 = 25 + extra share");
-        assert_approx!(tree.layout(cells[2]).expect("b").size.width, 150.0, "col 1 = 75 + extra share");
+        assert_approx!(
+            tree.layout(cells[1]).expect("a").size.width,
+            50.0,
+            "col 0 = 25 + extra share"
+        );
+        assert_approx!(
+            tree.layout(cells[2]).expect("b").size.width,
+            150.0,
+            "col 1 = 75 + extra share"
+        );
     }
 
     // Fixed layout: widths come from the first row only; later rows are ignored.
@@ -779,8 +810,16 @@ mod layout_tests {
 
         let cells = tree.nodes_with_role(TableRole::Cell);
         assert_approx!(tree.layout(cells[0]).unwrap().size.width, 150.0, "explicit col");
-        assert_approx!(tree.layout(cells[1]).unwrap().size.width, 225.0, "auto col = (600-150)/2");
-        assert_approx!(tree.layout(cells[2]).unwrap().size.width, 225.0, "auto col = (600-150)/2");
+        assert_approx!(
+            tree.layout(cells[1]).unwrap().size.width,
+            225.0,
+            "auto col = (600-150)/2"
+        );
+        assert_approx!(
+            tree.layout(cells[2]).unwrap().size.width,
+            225.0,
+            "auto col = (600-150)/2"
+        );
         assert_approx!(tree.layout(cells[4]).unwrap().size.width, 225.0, "row-2 width ignored");
     }
 
@@ -816,10 +855,7 @@ mod layout_tests {
             .width(220.0)
             .spacing(10.0, 0.0)
             .fixed()
-            .body_row(vec![
-                cell("a").width_pct(40.0).padding(0.0),
-                cell("b").padding(0.0),
-            ])
+            .body_row(vec![cell("a").width_pct(40.0).padding(0.0), cell("b").padding(0.0)])
             .into_tree();
 
         compute_table_layout(&mut tree, root, 220.0, None).expect("layout");
@@ -851,8 +887,16 @@ mod layout_tests {
 
         let cells = tree.nodes_with_role(TableRole::Cell);
         assert_approx!(tree.layout(cells[0]).unwrap().size.width, 100.0, "col-element width");
-        assert_approx!(tree.layout(cells[1]).unwrap().size.width, 250.0, "auto col = (600-100)/2");
-        assert_approx!(tree.layout(cells[2]).unwrap().size.width, 250.0, "auto col = (600-100)/2");
+        assert_approx!(
+            tree.layout(cells[1]).unwrap().size.width,
+            250.0,
+            "auto col = (600-100)/2"
+        );
+        assert_approx!(
+            tree.layout(cells[2]).unwrap().size.width,
+            250.0,
+            "auto col = (600-100)/2"
+        );
     }
 
     // Fixed layout: a colspan cell's width divides evenly over its columns.
@@ -861,7 +905,10 @@ mod layout_tests {
         let (mut tree, root) = MockTable::new(400.0)
             .spacing(0.0, 0.0)
             .fixed()
-            .body_row(vec![cell("ab").width(200.0).colspan(2).padding(0.0), cell("c").padding(0.0)])
+            .body_row(vec![
+                cell("ab").width(200.0).colspan(2).padding(0.0),
+                cell("c").padding(0.0),
+            ])
             .body_row(vec![
                 cell("d").padding(0.0),
                 cell("e").padding(0.0),
@@ -872,8 +919,16 @@ mod layout_tests {
         compute_table_layout(&mut tree, root, 400.0, None).expect("layout");
 
         let cells = tree.nodes_with_role(TableRole::Cell);
-        assert_approx!(tree.layout(cells[0]).unwrap().size.width, 200.0, "colspan cell keeps its width");
-        assert_approx!(tree.layout(cells[1]).unwrap().size.width, 200.0, "third col gets remainder");
+        assert_approx!(
+            tree.layout(cells[0]).unwrap().size.width,
+            200.0,
+            "colspan cell keeps its width"
+        );
+        assert_approx!(
+            tree.layout(cells[1]).unwrap().size.width,
+            200.0,
+            "third col gets remainder"
+        );
         assert_approx!(tree.layout(cells[2]).unwrap().size.width, 100.0, "spanned col = 200/2");
         assert_approx!(tree.layout(cells[3]).unwrap().size.width, 100.0, "spanned col = 200/2");
     }
@@ -897,8 +952,16 @@ mod layout_tests {
 
         let cells = tree.nodes_with_role(TableRole::Cell);
         assert_approx!(tree.layout(cells[0]).unwrap().size.height, 50.0, "spanner height");
-        assert_approx!(tree.layout(cells[1]).unwrap().size.height, 25.0, "row 0 grew by half the deficit");
-        assert_approx!(tree.layout(cells[2]).unwrap().size.height, 25.0, "row 1 grew by half the deficit");
+        assert_approx!(
+            tree.layout(cells[1]).unwrap().size.height,
+            25.0,
+            "row 0 grew by half the deficit"
+        );
+        assert_approx!(
+            tree.layout(cells[2]).unwrap().size.height,
+            25.0,
+            "row 1 grew by half the deficit"
+        );
     }
 
     // Rowspan distribution counts the border-spacing gutter the spanner covers.
@@ -920,7 +983,11 @@ mod layout_tests {
         let cells = tree.nodes_with_role(TableRole::Cell);
         assert_approx!(tree.layout(cells[1]).unwrap().size.height, 10.0, "row 0 unchanged");
         assert_approx!(tree.layout(cells[2]).unwrap().size.height, 10.0, "row 1 unchanged");
-        assert_approx!(tree.layout(cells[0]).unwrap().size.height, 30.0, "spanner = 10 + 10 + 10 gutter");
+        assert_approx!(
+            tree.layout(cells[0]).unwrap().size.height,
+            30.0,
+            "spanner = 10 + 10 + 10 gutter"
+        );
     }
 
     // vertical-align: middle and bottom shift the cell's children within the
@@ -935,8 +1002,14 @@ mod layout_tests {
             .body_row(vec![
                 cell("tall").content_height(40.0).padding(0.0),
                 cell("top").content_height(10.0).padding(0.0),
-                cell("mid").content_height(10.0).valign(VerticalAlign::Middle).padding(0.0),
-                cell("bot").content_height(10.0).valign(VerticalAlign::Bottom).padding(0.0),
+                cell("mid")
+                    .content_height(10.0)
+                    .valign(VerticalAlign::Middle)
+                    .padding(0.0),
+                cell("bot")
+                    .content_height(10.0)
+                    .valign(VerticalAlign::Bottom)
+                    .padding(0.0),
             ])
             .into_tree();
 
@@ -944,9 +1017,17 @@ mod layout_tests {
 
         let cells = tree.nodes_with_role(TableRole::Cell);
         assert_approx!(tree.layout(cells[1]).unwrap().content_offset_y, 0.0, "top offset");
-        assert_approx!(tree.layout(cells[2]).unwrap().content_offset_y, 15.0, "middle = (40-10)/2");
+        assert_approx!(
+            tree.layout(cells[2]).unwrap().content_offset_y,
+            15.0,
+            "middle = (40-10)/2"
+        );
         assert_approx!(tree.layout(cells[3]).unwrap().content_offset_y, 30.0, "bottom = 40-10");
-        assert_approx!(tree.layout(cells[0]).unwrap().content_offset_y, 0.0, "row driver has no free space");
+        assert_approx!(
+            tree.layout(cells[0]).unwrap().content_offset_y,
+            0.0,
+            "row driver has no free space"
+        );
     }
 
     // vertical-align accounts for the cell's own padding: free space is
@@ -961,14 +1042,21 @@ mod layout_tests {
             .spacing(0.0, 0.0)
             .body_row(vec![
                 cell("tall").content_height(40.0).padding(5.0),
-                cell("bot").content_height(10.0).valign(VerticalAlign::Bottom).padding(5.0),
+                cell("bot")
+                    .content_height(10.0)
+                    .valign(VerticalAlign::Bottom)
+                    .padding(5.0),
             ])
             .into_tree();
 
         compute_table_layout(&mut tree, root, 300.0, None).expect("layout");
 
         let cells = tree.nodes_with_role(TableRole::Cell);
-        assert_approx!(tree.layout(cells[1]).unwrap().content_offset_y, 30.0, "bottom offset inside padding");
+        assert_approx!(
+            tree.layout(cells[1]).unwrap().content_offset_y,
+            30.0,
+            "bottom offset inside padding"
+        );
     }
 
     // Caption on top: full table width, grid shifted down below it.
@@ -993,7 +1081,11 @@ mod layout_tests {
         assert_approx!(cap_layout.size.height, 20.0, "caption height from content");
 
         let group = tree.nodes_with_role(TableRole::RowGroup)[0];
-        assert_approx!(tree.layout(group).expect("group").position.y, 20.0, "grid below caption");
+        assert_approx!(
+            tree.layout(group).expect("group").position.y,
+            20.0,
+            "grid below caption"
+        );
         assert_approx!(total_h, 30.0, "caption + one 10px row");
     }
 
@@ -1016,7 +1108,11 @@ mod layout_tests {
         assert_approx!(tree.layout(group).expect("group").position.y, 0.0, "grid at the top");
 
         let caption = tree.nodes_with_role(TableRole::Caption)[0];
-        assert_approx!(tree.layout(caption).expect("caption").position.y, 10.0, "caption below grid");
+        assert_approx!(
+            tree.layout(caption).expect("caption").position.y,
+            10.0,
+            "caption below grid"
+        );
         assert_approx!(total_h, 30.0, "row + caption");
     }
 
@@ -1049,14 +1145,22 @@ mod layout_tests {
             0.5,
             "col 0 starts after the left perimeter half (no gutter)"
         );
-        assert_approx!(tree.layout(cells[1]).expect("b").position.x, 50.5, "col 1 flush against col 0");
+        assert_approx!(
+            tree.layout(cells[1]).expect("b").position.x,
+            50.5,
+            "col 1 flush against col 0"
+        );
 
         // Collapsed borders are centered on the grid lines: each cell's layout
         // reserves half the resolved 1px boundary, so both rows are 0.5+10+0.5 = 11px.
         // Row positions are group-relative; the group itself sits below the top
         // perimeter half.
         let rows = tree.nodes_with_role(TableRole::Row);
-        assert_approx!(tree.layout(rows[1]).expect("row 1").position.y, 11.0, "row 1 flush below row 0");
+        assert_approx!(
+            tree.layout(rows[1]).expect("row 1").position.y,
+            11.0,
+            "row 1 flush below row 0"
+        );
         let groups = tree.nodes_with_role(TableRole::RowGroup);
         assert_approx!(
             tree.layout(groups[0]).expect("group").position.y,
@@ -1184,7 +1288,16 @@ mod layout_tests {
 
         let mut tree = MockTree::new(0.0, 0.0);
         let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
-        let cap = tree.alloc(TableRole::Caption, Some("cap".into()), 1, 1, Some(100.0), None, 0.0, 0.0);
+        let cap = tree.alloc(
+            TableRole::Caption,
+            Some("cap".into()),
+            1,
+            1,
+            Some(100.0),
+            None,
+            0.0,
+            0.0,
+        );
         tree.add_child(root, cap);
         let row = tree.alloc(TableRole::Row, None, 1, 1, None, None, 0.0, 0.0);
         tree.add_child(root, row);
@@ -1208,8 +1321,16 @@ mod layout_tests {
         let (mut tree, root) = MockTable::new(300.0)
             .spacing(0.0, 0.0)
             .body_row(vec![
-                cell("deep").height(30.0).padding(0.0).valign(VerticalAlign::Baseline).baseline(25.0),
-                cell("shallow").height(30.0).padding(0.0).valign(VerticalAlign::Baseline).baseline(10.0),
+                cell("deep")
+                    .height(30.0)
+                    .padding(0.0)
+                    .valign(VerticalAlign::Baseline)
+                    .baseline(25.0),
+                cell("shallow")
+                    .height(30.0)
+                    .padding(0.0)
+                    .valign(VerticalAlign::Baseline)
+                    .baseline(10.0),
                 cell("top").height(30.0).padding(0.0),
             ])
             .into_tree();
@@ -1244,7 +1365,15 @@ mod layout_tests {
 
         let cells = tree.nodes_with_role(TableRole::Cell);
         assert_approx!(tree.layout(cells[0]).unwrap().size.width, 80.0, "col-element width");
-        assert_approx!(tree.layout(cells[1]).unwrap().size.width, 110.0, "auto col = (300-80)/2");
-        assert_approx!(tree.layout(cells[2]).unwrap().size.width, 110.0, "auto col = (300-80)/2");
+        assert_approx!(
+            tree.layout(cells[1]).unwrap().size.width,
+            110.0,
+            "auto col = (300-80)/2"
+        );
+        assert_approx!(
+            tree.layout(cells[2]).unwrap().size.width,
+            110.0,
+            "auto col = (300-80)/2"
+        );
     }
 }

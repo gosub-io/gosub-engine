@@ -575,10 +575,9 @@ fn resolve_border_conflicts<T: TableTree>(
     for grid in grids {
         for cell in grid.cells() {
             borders.entry(cell.node).or_insert_with(|| read_border(tree, cell.node));
+            let col_end = (cell.col + cell.colspan).min(n_cols);
             for r in cell.row..(cell.row + cell.rowspan).min(grid.n_rows) {
-                for c in cell.col..(cell.col + cell.colspan).min(n_cols) {
-                    slots[row_offset + r][c] = Some(cell.node);
-                }
+                slots[row_offset + r][cell.col..col_end].fill(Some(cell.node));
             }
         }
         row_offset += grid.n_rows;
@@ -686,7 +685,12 @@ fn resolve_border_conflicts<T: TableTree>(
     // half the resolved boundary in the layout, half painted as outset up to the
     // table's border-box edge.
     let table_border = read_border(tree, table_node);
-    let table_edge = [table_border.top, table_border.right, table_border.bottom, table_border.left];
+    let table_edge = [
+        table_border.top,
+        table_border.right,
+        table_border.bottom,
+        table_border.left,
+    ];
     let mut collapsed_map = HashMap::new();
     let mut owners_map = HashMap::new();
     for (&node, raw) in &borders {

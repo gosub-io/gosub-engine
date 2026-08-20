@@ -971,7 +971,10 @@ fn needs_table_parent(child: &Display, parent: Option<&Display>) -> bool {
             parent,
             Some(Table | TableRow | TableRowGroup | TableHeaderGroup | TableFooterGroup)
         ),
-        TableRow => !matches!(parent, Some(Table | TableRowGroup | TableHeaderGroup | TableFooterGroup)),
+        TableRow => !matches!(
+            parent,
+            Some(Table | TableRowGroup | TableHeaderGroup | TableFooterGroup)
+        ),
         TableRowGroup | TableHeaderGroup | TableFooterGroup | TableCaption | TableColumnGroup => {
             !matches!(parent, Some(Table))
         }
@@ -1283,11 +1286,15 @@ where
         !self.run_skippable(id) && !matches!(self.display_of(id), Some(Display::TableCell))
     }
 
-
     /// Generic run-collapser: replace each run of consecutive `needy` children with one
     /// synthetic id (`encode` of the first member). Skippable children (whitespace text,
     /// comments, display:none) BETWEEN run members are absorbed into the run and dropped.
-    fn collapse_runs(&self, kids: Vec<NodeId>, needy: impl Fn(NodeId) -> bool, encode: fn(NodeId) -> NodeId) -> Vec<NodeId> {
+    fn collapse_runs(
+        &self,
+        kids: Vec<NodeId>,
+        needy: impl Fn(NodeId) -> bool,
+        encode: fn(NodeId) -> NodeId,
+    ) -> Vec<NodeId> {
         if !kids.iter().any(|&k| needy(k)) {
             return kids;
         }
@@ -1395,7 +1402,10 @@ where
         }
         self.collapse_runs(
             kids,
-            |id| self.display_of(id).is_some_and(|d| needs_table_parent(&d, parent_display)),
+            |id| {
+                self.display_of(id)
+                    .is_some_and(|d| needs_table_parent(&d, parent_display))
+            },
             encode_anon_table,
         )
     }
@@ -1474,8 +1484,10 @@ where
         }
 
         // No table context at all: table-internal children live inside an anonymous table.
-        let table_needy =
-            |c: NodeId| self.display_of(c).is_some_and(|dd| needs_table_parent(&dd, parent_display.as_ref()));
+        let table_needy = |c: NodeId| {
+            self.display_of(c)
+                .is_some_and(|dd| needs_table_parent(&dd, parent_display.as_ref()))
+        };
         if !table_needy(id) {
             return None;
         }
@@ -1528,8 +1540,10 @@ where
                 .unwrap_or(id);
             return self.run_members(rstart, |c| self.needy_for_row(c, &pd));
         }
-        let table_needy =
-            |c: NodeId| self.display_of(c).is_some_and(|d| needs_table_parent(&d, parent_display.as_ref()));
+        let table_needy = |c: NodeId| {
+            self.display_of(c)
+                .is_some_and(|d| needs_table_parent(&d, parent_display.as_ref()))
+        };
         let tstart = self.run_start_containing(parent, id, table_needy).unwrap_or(id);
         let tmembers = self.run_members(tstart, table_needy);
         let rstart = self.sub_run_start(&tmembers, id, |c| self.needy_for_row(c, &Display::Table));
@@ -1548,7 +1562,8 @@ where
 
         if is_anon_table_id(raw) {
             return self.run_members(first, |id| {
-                self.display_of(id).is_some_and(|d| needs_table_parent(&d, parent_display.as_ref()))
+                self.display_of(id)
+                    .is_some_and(|d| needs_table_parent(&d, parent_display.as_ref()))
             });
         }
 
@@ -2145,9 +2160,7 @@ where
                 let parent_inline = self.parent(id).is_some_and(|p| {
                     matches!(
                         self.display_of(p),
-                        None | Some(
-                            Display::Inline | Display::InlineBlock | Display::InlineFlex | Display::InlineGrid
-                        )
+                        None | Some(Display::Inline | Display::InlineBlock | Display::InlineFlex | Display::InlineGrid)
                     ) && !matches!(self.doc.node_type(p), GosubNodeType::DocumentNode)
                 });
                 if parent_inline {
