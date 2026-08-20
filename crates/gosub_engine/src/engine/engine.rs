@@ -595,6 +595,77 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// Committed http navigations are recorded into the zone's places store (visited
+    /// history), with the page title; internal pages are not.
+    #[tokio::test]
+    async fn visits_are_recorded_in_places() {
+        use crate::places::{MemoryPlaces, Places};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let body = "<html><title>A Page</title><body>hi</body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let places = Arc::new(MemoryPlaces::new());
+        let mut engine = engine_with_max_zones(1);
+        let mut event_rx = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone_services = services();
+        zone_services.places = Some(places.clone());
+        let mut zone = engine.create_zone(None, zone_services, None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        let url = format!("http://127.0.0.1:{port}/page");
+        tab.navigate(url.clone()).await.expect("navigate");
+        let finished = wait_for(&mut event_rx, |ev| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: crate::events::NavigationEvent::Finished { .. },
+                    ..
+                }
+            )
+        })
+        .await;
+        assert!(finished);
+        let visited = places.query_visited("", 10);
+        assert_eq!(visited.len(), 1);
+        assert_eq!(visited[0].url, url);
+        assert_eq!(visited[0].title, "A Page");
+
+        // Internal pages leave no trace.
+        tab.navigate("gosub://version").await.expect("navigate internal");
+        let finished = wait_for(&mut event_rx, |ev| {
+            matches!(
+                ev,
+                EngineEvent::Navigation {
+                    event: crate::events::NavigationEvent::Finished { url, .. },
+                    ..
+                } if url.scheme() == "gosub"
+            )
+        })
+        .await;
+        assert!(finished);
+        assert_eq!(places.query_visited("", 10).len(), 1);
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     /// Crash containment: a panicking tab worker produces a TabCrashed event (instead of
     /// dying silently), and the tab's handle then reports closed on further commands.
     #[tokio::test]

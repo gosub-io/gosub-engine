@@ -788,6 +788,14 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         .map(|f| PendingScroll::Fragment(f.to_string())),
                 };
 
+                // Global visited history (URL-bar completion, gosub://history). Only real
+                // web pages: internal pages and LoadHtml stand-ins are not "places".
+                if let Some(places) = &self.services.places {
+                    if matches!(final_url.scheme(), "http" | "https") {
+                        places.record_visit(final_url.as_str(), &self.title);
+                    }
+                }
+
                 self.send_event(EngineEvent::Navigation {
                     tab_id: self.tab_id,
                     event: NavigationEvent::Finished { nav_id, url: final_url },
