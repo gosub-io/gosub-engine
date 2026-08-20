@@ -95,6 +95,7 @@ async fn main() -> Result<(), EngineError> {
         cookie_store: None,
         cookie_jar: Some(DefaultCookieJar::new().into()),
         partition_policy: PartitionPolicy::None,
+        places: None,
     };
 
     // Create the zone. Note that we can define our own zone ID to keep zones deterministic

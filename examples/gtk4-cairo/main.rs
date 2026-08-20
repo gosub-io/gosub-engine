@@ -123,6 +123,7 @@ fn main() {
             cookie_store: Some(cookie_store),
             cookie_jar: None,
             partition_policy: PartitionPolicy::None,
+            places: None,
         };
 
         let zone = Rc::new(RefCell::new(

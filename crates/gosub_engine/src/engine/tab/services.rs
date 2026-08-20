@@ -13,6 +13,8 @@ pub struct EffectiveTabServices {
     pub cookie_jar: CookieJarHandle,
     /// `Accept-Language` header value for this tab's requests, if configured.
     pub accept_language: Option<String>,
+    /// Zone places store; the worker records committed http(s) visits into it.
+    pub places: Option<crate::engine::places::PlacesHandle>,
 }
 
 /// Resolve the effective services for a tab based on the zone services/config and tab overrides.
@@ -61,7 +63,10 @@ pub fn resolve_tab_services(
         .clone()
         .or_else(|| zone_config.accept_languages.clone());
 
+    let places = services.places.clone();
+
     EffectiveTabServices {
+        places,
         partition_key,
         partition_policy,
         storage,

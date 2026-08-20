@@ -52,6 +52,7 @@
 //!         cookie_store: None,
 //!         cookie_jar: Some(DefaultCookieJar::new().into()),
 //!         partition_policy: PartitionPolicy::None,
+//!         places: None,
 //!     };
 //!
 //!     // 3) Create a zone (ZoneHandle)

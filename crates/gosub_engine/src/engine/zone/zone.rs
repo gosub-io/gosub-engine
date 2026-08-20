@@ -84,6 +84,8 @@ pub struct ZoneServices {
     pub cookie_jar: Option<CookieJarHandle>,
     /// Policy for partitioning storage (cookies, localStorage, etc.)
     pub partition_policy: PartitionPolicy,
+    /// Bookmarks + visited history for this zone (None = nothing recorded, e.g. private).
+    pub places: Option<crate::places::PlacesHandle>,
 }
 
 /// Zone context we can share downwards to tabs

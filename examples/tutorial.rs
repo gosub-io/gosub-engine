@@ -59,6 +59,7 @@ async fn main() -> Result<(), EngineError> {
         cookie_store: None,
         cookie_jar: Some(DefaultCookieJar::new().into()),
         partition_policy: PartitionPolicy::None,
+        places: None,
     };
     let mut zone = engine.create_zone(None, services, None)?;
 

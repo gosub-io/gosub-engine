@@ -370,6 +370,7 @@ mod tests {
             cookie_store: None,
             cookie_jar: None,
             partition_policy: PartitionPolicy::None,
+            places: None,
         }
     }
 
