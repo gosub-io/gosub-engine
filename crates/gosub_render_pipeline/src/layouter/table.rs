@@ -79,7 +79,9 @@ impl<'a> PipelineTableTree<'a> {
             );
             if is_table {
                 // Self-contained nested table - stop here, don't double-count its inner tables.
-                total += child.box_model.border_box.height as f32;
+                // MARGIN box: the table's margins are part of the content extent it occupies
+                // in the cell (negative margins can collapse it out entirely).
+                total += child.box_model.margin_box.height.max(0.0) as f32;
             } else {
                 // The table may be wrapped (e.g. in an anonymous box); keep descending.
                 total += self.nested_table_height(child_id);
@@ -90,7 +92,7 @@ impl<'a> PipelineTableTree<'a> {
 
     /// Convert pending relative positions to absolute `BoxModel`s in the arena.
     /// Must be called after `compute_table_layout` returns.
-    pub fn apply_positions(&mut self, table_dom_id: DomNodeId) {
+    pub fn apply_positions(&mut self, table_dom_id: DomNodeId, border_corrected: &mut HashSet<DomNodeId>) {
         // Under border-collapse the grid (incl. the perimeter border halves) starts at
         // the table's BORDER box origin - the table's own border joined the conflict
         // inside lattice and no longer insets the content. The box model read here is
@@ -122,6 +124,7 @@ impl<'a> PipelineTableTree<'a> {
             &pending,
             &self.edge_owners,
             &self.relaid,
+            border_corrected,
             self.dom_to_layout,
             &mut self.layout_tree.arena,
         );
@@ -140,6 +143,9 @@ fn apply_recursive(
     pending: &HashMap<DomNodeId, CellLayout>,
     edge_owners: &HashMap<DomNodeId, [Option<DomNodeId>; 4]>,
     relaid: &HashSet<DomNodeId>,
+    // Cells whose skipped-relayout subtree already received the raw-vs-collapsed border
+    // shift; the correction is a one-time conversion, not a per-pass translation.
+    border_corrected: &mut HashSet<DomNodeId>,
     dom_to_layout: &HashMap<DomNodeId, LayoutElementId>,
     arena: &mut HashMap<LayoutElementId, LayoutElementNode>,
 ) {
@@ -153,7 +159,7 @@ fn apply_recursive(
                         translate_box_model(&mut element.box_model, offset);
                     }
                 }
-                apply_recursive(doc, child_id, parent_abs, offset, pending, edge_owners, relaid, dom_to_layout, arena);
+                apply_recursive(doc, child_id, parent_abs, offset, pending, edge_owners, relaid, border_corrected, dom_to_layout, arena);
             }
             Some(cell_layout) => {
                 let abs = Coordinate::new(
@@ -189,8 +195,28 @@ fn apply_recursive(
                 } else {
                     0.0
                 };
-                let child_offset = Coordinate::new(abs.x - old_abs.x, abs.y - old_abs.y + valign_shift);
-                apply_recursive(doc, child_id, abs, child_offset, pending, edge_owners, relaid, dom_to_layout, arena);
+                // Skipped-relayout collapsed cells (nested-table guard): their children were
+                // positioned by the FIRST taffy pass with the raw CSS border widths, but the
+                // collapse geometry replaced those with half the resolved boundary. Shift the
+                // subtree by the difference so content sits at the collapsed content origin.
+                let border_delta = if !relaid.contains(&child_id) && border_corrected.insert(child_id) {
+                    let raw_left = doc.get_style_f32(child_id, &StyleProperty::BorderLeftWidth) as f64;
+                    let raw_top = doc.get_style_f32(child_id, &StyleProperty::BorderTopWidth) as f64;
+                    let dl = cell_layout.border.left as f64 - raw_left;
+                    let dt = cell_layout.border.top as f64 - raw_top;
+                    if dl != 0.0 || dt != 0.0 {
+                        Coordinate::new(dl, dt)
+                    } else {
+                        Coordinate::ZERO
+                    }
+                } else {
+                    Coordinate::ZERO
+                };
+                let child_offset = Coordinate::new(
+                    abs.x - old_abs.x + border_delta.x,
+                    abs.y - old_abs.y + valign_shift + border_delta.y,
+                );
+                apply_recursive(doc, child_id, abs, child_offset, pending, edge_owners, relaid, border_corrected, dom_to_layout, arena);
             }
         }
     }
@@ -492,6 +518,9 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
     // A nested table's surrounding geometry is owned by its outer table, so
     // only top-level tables push the document flow around when they resize.
     let table_dom_ids: HashSet<DomNodeId> = table_nodes.iter().map(|&(d, _)| d).collect();
+    // One-time raw-vs-collapsed border corrections for skipped-relayout cells,
+    // persistent across both passes (see apply_recursive).
+    let mut border_corrected: HashSet<DomNodeId> = HashSet::new();
     let is_nested = |dom_id: DomNodeId| -> bool {
         let mut cur = doc.parent(dom_id);
         while let Some(p) = cur {
@@ -519,6 +548,7 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
                 table_dom_id,
                 table_layout_id,
                 nested.contains(&table_dom_id),
+                &mut border_corrected,
             );
         }
     }
@@ -599,6 +629,7 @@ fn lay_out_one_table(
     table_dom_id: DomNodeId,
     table_layout_id: LayoutElementId,
     is_nested: bool,
+    border_corrected: &mut HashSet<DomNodeId>,
 ) {
     // Use the parent element's content width as available_width. For nested
     // tables the parent is a table cell whose box model was already updated
@@ -635,7 +666,7 @@ fn lay_out_one_table(
 
     match gosub_lattice::compute_table_layout(&mut tree, table_dom_id, available_width, None) {
         Ok((table_width, table_height)) => {
-            tree.apply_positions(table_dom_id);
+            tree.apply_positions(table_dom_id, border_corrected);
             // Write back both dimensions so deeply-nested tables can read the
             // correct width from this table's box model via their parent lookup.
             // Lattice returns the GRID extents (content box); the table's own border
