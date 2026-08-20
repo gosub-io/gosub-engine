@@ -220,8 +220,9 @@ impl ApplicationHandler<()> for BrowserApp {
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {
-        // Engine produced a new frame - redraw.
+        // Engine produced a new frame - redraw - and/or asked for a cursor shape.
         if let Some(window) = &self.window {
+            window.set_cursor(page_cursor_icon());
             window.request_redraw();
         }
     }
@@ -557,6 +558,32 @@ fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_
     }
 }
 
+/// Cursor shape requested by the engine. Engine events arrive on a tokio thread while the
+/// window lives on the event-loop thread, so the shape is parked here and applied on the next
+/// proxy wake-up.
+static PAGE_CURSOR: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+fn store_page_cursor(cursor: gosub_engine::events::CursorShape) {
+    use gosub_engine::events::CursorShape;
+    let v = match cursor {
+        CursorShape::Default => 0,
+        CursorShape::Pointer => 1,
+        CursorShape::Text => 2,
+        CursorShape::Resize => 3,
+    };
+    PAGE_CURSOR.store(v, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn page_cursor_icon() -> winit::window::CursorIcon {
+    use winit::window::CursorIcon;
+    match PAGE_CURSOR.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => CursorIcon::Pointer,
+        2 => CursorIcon::Text,
+        3 => CursorIcon::NwseResize,
+        _ => CursorIcon::Default,
+    }
+}
+
 /// The system clipboard for Ctrl+C/X/V inside the page: the engine emits `ClipboardWrite` /
 /// `PasteRequested` and the embedder owns the OS side. One long-lived handle: on X11 the data is
 /// only served while the handle exists.
@@ -674,6 +701,10 @@ fn main() {
                     let _ = proxy_ev.send_event(());
                 }
                 Ok(EngineEvent::ClipboardWrite { text, .. }) => clipboard_write(&text),
+                Ok(EngineEvent::CursorChanged { cursor, .. }) => {
+                    store_page_cursor(cursor);
+                    let _ = proxy_ev.send_event(());
+                }
                 Ok(EngineEvent::PasteRequested { .. }) => {
                     if let (Some(tab), Some(text)) = (tab_slot.get(), clipboard_read()) {
                         let _ = tab.clone().send(TabCommand::TextInput { text }).await;

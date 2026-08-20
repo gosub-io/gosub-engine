@@ -69,6 +69,18 @@ fn get_bound_fbo() -> u32 {
 
 // ── Application ───────────────────────────────────────────────────────────────
 
+/// Map the engine's cursor kind to a named GTK cursor on the page widget.
+fn apply_cursor(area: &GLArea, cursor: gosub_engine::events::CursorShape) {
+    use gosub_engine::events::CursorShape;
+    let name = match cursor {
+        CursorShape::Default => "default",
+        CursorShape::Pointer => "pointer",
+        CursorShape::Text => "text",
+        CursorShape::Resize => "nwse-resize",
+    };
+    area.set_cursor_from_name(Some(name));
+}
+
 /// Ctrl+C/X/V inside the page: the engine only sees keys, the clipboard is the embedder's. Copy/cut
 /// arrive as text to store; a paste request is answered by reading the clipboard and sending it
 /// back as `TextInput`.
@@ -601,6 +613,10 @@ fn main() {
             async move {
                 while let Some(evt) = ui_rx.recv().await {
                     if handle_clipboard_event(&evt, &da, &tab) {
+                        continue;
+                    }
+                    if let EngineEvent::CursorChanged { cursor, .. } = evt {
+                        apply_cursor(&da, cursor);
                         continue;
                     }
                     match evt {

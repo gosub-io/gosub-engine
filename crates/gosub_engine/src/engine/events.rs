@@ -38,6 +38,8 @@ pub enum CursorShape {
     Pointer,
     /// I-beam: over selectable text or an editable field.
     Text,
+    /// Diagonal resize arrows: over a textarea's resize grip.
+    Resize,
 }
 
 /// Correlates a [`TabCommand::QueryHitTest`] with its [`EngineEvent::HitTestResult`]. Chosen

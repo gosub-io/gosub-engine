@@ -230,6 +230,7 @@ pub struct TabWorker<C: RenderConfiguration> {
     scroll: ScrollState,
     /// Timestamp of the last scroll-animation step, for computing `dt`. `None` when not animating.
     scroll_anim_last: Option<std::time::Instant>,
+    /// Last cursor shape sent to the embedder, so moves only emit on change.
     /// Keeps track of the tab worker runtime data
     pub(crate) runtime: TabRuntime,
     /// Current in-flight navigation (if any)
@@ -238,7 +239,6 @@ pub struct TabWorker<C: RenderConfiguration> {
     active_nav: Option<ActiveNav>,
     /// Session history (tree). Fresh navigations push, back/forward move the cursor.
     history: History,
-    /// Last cursor shape reported to the embedder (CursorChanged is emitted on change only).
     reported_cursor: CursorShape,
     /// Scroll to apply once the just-committed document has laid out (positions and page
     /// height are only known then, and `set_scroll` clamps against the latter). Set by
@@ -1177,10 +1177,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         url: link_url,
                     });
                 }
-                self.report_cursor(self.context.hover_cursor());
                 // Each of these must run: a drag doesn't get to skip a move because hover changed.
                 let popup_dirty = self.context.popup_hover_at(x as f64, y as f64);
                 let drag_dirty = self.context.drag_move(x as f64, y as f64);
+                let cursor = self.context.cursor_at(x as f64, y as f64);
+                self.report_cursor(cursor);
                 if visual_dirty || popup_dirty || drag_dirty {
                     self.runtime.dirty = true;
                     // A resize re-layouts the page; let the frame tick pace it so a burst of

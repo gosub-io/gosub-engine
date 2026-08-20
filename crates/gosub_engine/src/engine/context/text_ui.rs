@@ -437,6 +437,44 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         std::mem::take(&mut self.paste_requested)
     }
 
+    /// What the mouse cursor should be at a viewport point: I-beam over editable text (but not
+    /// its scrollbar), resize arrows over a textarea's grip, a pointing hand over links, default
+    /// elsewhere. An active drag keeps its cursor even when the pointer strays off the control.
+    pub fn cursor_at(&self, vp_x: f64, vp_y: f64) -> crate::engine::events::CursorShape {
+        use crate::engine::events::CursorShape as CursorKind;
+        if self.drag_resize.is_some() {
+            return CursorKind::Resize;
+        }
+        if self.drag_select.is_some() {
+            return CursorKind::Text;
+        }
+        let Some(doc) = self.document.clone() else {
+            return CursorKind::Default;
+        };
+        let (leaf, lei) = self.hit_at(vp_x, vp_y);
+        // Popup rows are picked with a plain arrow.
+        if doc.open_select().is_some() && self.popup_lei() == lei {
+            return CursorKind::Default;
+        }
+        if self.hover_link_url.is_some() {
+            return CursorKind::Pointer;
+        }
+        let (Some(leaf), Some(lei)) = (leaf, lei) else {
+            return CursorKind::Default;
+        };
+        if edit::text_entry_kind(&doc, leaf).is_none() {
+            return CursorKind::Default;
+        }
+        if self.resize_grip_hit(leaf, lei, vp_x, vp_y).is_some() {
+            return CursorKind::Resize;
+        }
+        // The scrollbar strip of an overflowing textarea is not text.
+        if self.caret_index_at(leaf, lei, vp_x, vp_y).is_none() {
+            return CursorKind::Default;
+        }
+        CursorKind::Text
+    }
+
     /// Keyboard focus landing on a single-line text field selects its text (Tab behaviour).
     pub(super) fn select_all_on_focus(&mut self, node: NodeId) {
         let Some(doc) = self.document.clone() else {

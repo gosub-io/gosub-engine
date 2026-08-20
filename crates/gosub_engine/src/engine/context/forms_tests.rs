@@ -761,3 +761,38 @@ fn caret_after_a_space_sits_past_the_full_space() {
     assert!((x7 - x6 - space).abs() < 0.5);
     assert_eq!(text_field::index_at_x(&mut *fs, "hello   world", &font, x7 + 1.0), 7);
 }
+
+// ── cursor shape ──────────────────────────────────────────────────────────────
+
+#[test]
+fn cursor_kind_follows_whats_under_the_pointer() {
+    use crate::engine::events::CursorShape as CursorKind;
+    let lines: Vec<String> = (1..=9).map(|i| format!("row {i}")).collect();
+    let mut ctx = page(&format!(
+        r#"<input id="t" value="x"> <button id="b">Go</button> <a id="l" href="/x">link</a>
+           <textarea id="ta" rows="3" cols="20">{}</textarea>
+           <input id="d" disabled value="y">"#,
+        lines.join("\n")
+    ));
+    let probe = |ctx: &mut Ctx, id: &str| {
+        let (x, y) = center(ctx, by_id(ctx, id));
+        ctx.update_hover(x, y);
+        ctx.cursor_at(x, y)
+    };
+    assert_eq!(probe(&mut ctx, "t"), CursorKind::Text);
+    assert_eq!(probe(&mut ctx, "b"), CursorKind::Default);
+    assert_eq!(probe(&mut ctx, "l"), CursorKind::Pointer);
+    assert_eq!(probe(&mut ctx, "ta"), CursorKind::Text);
+    // A disabled field doesn't invite typing.
+    assert_eq!(probe(&mut ctx, "d"), CursorKind::Default);
+    // The textarea's grip corner resizes; its scrollbar strip is not text.
+    let ta = by_id(&ctx, "ta");
+    let bb = border_box(&ctx, ta);
+    let (gx, gy) = (bb.x + bb.width - 4.0, bb.y + bb.height - 4.0);
+    ctx.update_hover(gx, gy);
+    assert_eq!(ctx.cursor_at(gx, gy), CursorKind::Resize);
+    let (content, _) = text_box(&ctx, ta);
+    let (sx, sy) = (content.x + content.width - 3.0, content.y + 3.0);
+    ctx.update_hover(sx, sy);
+    assert_eq!(ctx.cursor_at(sx, sy), CursorKind::Default);
+}

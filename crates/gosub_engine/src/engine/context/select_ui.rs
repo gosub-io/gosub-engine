@@ -28,7 +28,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
     }
 
-    fn popup_lei(&self) -> Option<LayoutElementId> {
+    pub(super) fn popup_lei(&self) -> Option<LayoutElementId> {
         self.active_layer_list().and_then(|ll| ll.layout_tree.popup)
     }
 
