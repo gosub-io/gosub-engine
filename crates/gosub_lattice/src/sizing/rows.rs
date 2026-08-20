@@ -19,6 +19,7 @@ use crate::TableTree;
 ///
 /// Every measured content height is recorded in `content_heights`, keyed by
 /// cell node - `place_cell` uses it to resolve `vertical-align`.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_row_heights<T: TableTree>(
     tree: &mut T,
     grid: &SectionGrid<T::NodeId>,
@@ -82,8 +83,7 @@ pub fn compute_row_heights<T: TableTree>(
         if n_rows == 0 {
             continue;
         }
-        let current: f32 =
-            heights[span.clone()].iter().sum::<f32>() + spacing_y * n_rows.saturating_sub(1) as f32;
+        let current: f32 = heights[span.clone()].iter().sum::<f32>() + spacing_y * n_rows.saturating_sub(1) as f32;
         if cell_h > current {
             let add = (cell_h - current) / n_rows as f32;
             for h in &mut heights[span] {

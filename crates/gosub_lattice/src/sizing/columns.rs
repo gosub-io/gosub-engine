@@ -15,12 +15,12 @@ pub fn column_specs<T: TableTree>(tree: &T, model: &TableModel<T::NodeId>) -> Ve
         if group.columns.is_empty() {
             let span = tree.attr_usize(group.node, "span").unwrap_or(1).max(1);
             let w = tree.css_length(group.node, CssProp::Width);
-            specs.extend(std::iter::repeat(w).take(span));
+            specs.extend(std::iter::repeat_n(w, span));
         } else {
             for &col in &group.columns {
                 let span = tree.attr_usize(col, "span").unwrap_or(1).max(1);
                 let w = tree.css_length(col, CssProp::Width);
-                specs.extend(std::iter::repeat(w).take(span));
+                specs.extend(std::iter::repeat_n(w, span));
             }
         }
     }
@@ -146,8 +146,7 @@ pub fn compute_column_widths<T: TableTree>(
     // stub: a measuring implementor's all-zero result means genuinely empty cells,
     // which DO shrink to fit (an empty auto table is CAPMIN/spacing wide, CSS 2
     // §17.5.2.2).
-    let has_intrinsic =
-        tree.measures_intrinsics() || max.iter().any(|&m| m > 0.0) || min.iter().any(|&m| m > 0.0);
+    let has_intrinsic = tree.measures_intrinsics() || max.iter().any(|&m| m > 0.0) || min.iter().any(|&m| m > 0.0);
 
     let used_width = match explicit_table_width {
         Some(w) => w.max(cmin + spacing_total),
@@ -257,10 +256,9 @@ fn fixed_column_widths<T: TableTree>(
                 let padding = read_padding(tree, cell.node);
                 let outer = w + padding.left + padding.right + border.left + border.right;
                 let share = outer / cell.colspan as f32;
-                for c in cell.col..(cell.col + cell.colspan).min(n_cols) {
-                    if explicit[c].is_none() {
-                        explicit[c] = Some(share);
-                    }
+                let end = (cell.col + cell.colspan).min(n_cols);
+                for slot in &mut explicit[cell.col..end] {
+                    slot.get_or_insert(share);
                 }
             }
             if found_any {

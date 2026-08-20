@@ -436,9 +436,11 @@ impl Painter {
                     let bg_r = Rectangle::new(border_box)
                         .with_background(bg_brush)
                         .with_blend_mode(blend);
-                    commands.push(PaintCommand::rectangle(
-                        self.decorate_with_border_and_radius(dom_node_id, None, bg_r),
-                    ));
+                    commands.push(PaintCommand::rectangle(self.decorate_with_border_and_radius(
+                        dom_node_id,
+                        None,
+                        bg_r,
+                    )));
                 }
 
                 let brush = Brush::image(image_ctx.media_id);

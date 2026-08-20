@@ -63,7 +63,14 @@ mod rendertree_from_engine {
         let rt = parse_to_rendertree(html);
         let doc = rt.doc.clone();
         let mut l = TaffyLayouter::new();
-        let tree = l.layout(rt, Some(Dimension { width: 800.0, height: 600.0 }), 1.0);
+        let tree = l.layout(
+            rt,
+            Some(Dimension {
+                width: 800.0,
+                height: 600.0,
+            }),
+            1.0,
+        );
 
         let overlay = tree
             .arena
@@ -103,26 +110,27 @@ mod rendertree_from_engine {
         let rt = parse_to_rendertree(html);
         let doc = rt.doc.clone();
         let mut l = TaffyLayouter::new();
-        let tree = l.layout(rt, Some(Dimension { width: 800.0, height: 600.0 }), 1.0);
+        let tree = l.layout(
+            rt,
+            Some(Dimension {
+                width: 800.0,
+                height: 600.0,
+            }),
+            1.0,
+        );
 
         let cell_boxes: Vec<_> = tree
             .arena
             .values()
             .filter(|el| {
-                doc.get_node_by_id(el.dom_node_id).is_some_and(|n|
-
-                    matches!(n.node_type, NodeType::Element(ref d) if d.tag_name == "span"))
+                doc.get_node_by_id(el.dom_node_id)
+                    .is_some_and(|n| matches!(n.node_type, NodeType::Element(ref d) if d.tag_name == "span"))
             })
             .map(|el| el.box_model.border_box)
             .collect();
         assert_eq!(cell_boxes.len(), 2, "both cells reach the layout tree");
         let (a, b) = (&cell_boxes[0], &cell_boxes[1]);
-        assert!(
-            (a.y - b.y).abs() < 0.5,
-            "cells share a table row: y {} vs {}",
-            a.y,
-            b.y
-        );
+        assert!((a.y - b.y).abs() < 0.5, "cells share a table row: y {} vs {}", a.y, b.y);
         assert!(
             (a.x - b.x).abs() > 10.0,
             "cells occupy adjacent columns: x {} vs {}",

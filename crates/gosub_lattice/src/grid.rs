@@ -215,11 +215,7 @@ mod tests {
     #[test]
     fn rowspan_zero_spans_rest_of_section() {
         // HTML rowspan=0: the cell spans all remaining rows of the row group.
-        let rows = vec![
-            make_row(&[(1, 0), (1, 1)]),
-            make_row(&[(1, 1)]),
-            make_row(&[(1, 1)]),
-        ];
+        let rows = vec![make_row(&[(1, 0), (1, 1)]), make_row(&[(1, 1)]), make_row(&[(1, 1)])];
         let grid = build_section_grid(&rows);
         let spanning = grid.cells_in_row(0).next().expect("first cell");
         assert_eq!(spanning.rowspan, 3, "rowspan=0 covers every remaining section row");

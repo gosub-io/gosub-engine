@@ -274,7 +274,9 @@ impl LayerList {
                 let Some(l) = layers.get(id) else { continue };
                 eprintln!("layer {} order={}", id, l.order);
                 for &eid in &l.elements {
-                    let Some(el) = self.layout_tree.get_node_by_id(eid) else { continue };
+                    let Some(el) = self.layout_tree.get_node_by_id(eid) else {
+                        continue;
+                    };
                     let doc = &self.layout_tree.render_tree.doc;
                     let tag = doc.tag_name(el.dom_node_id).unwrap_or_default();
                     let b = el.box_model.border_box;
@@ -318,7 +320,10 @@ impl LayerList {
         // shares the table's DOM node, so style-driven promotion (position/opacity/fixed) would
         // re-promote it into a layer of its own - painting it out of order with respect to its
         // table. It always joins the enclosing layer.
-        if matches!(layout_element.context, crate::layouter::ElementContext::TableBorderOverlay(_)) {
+        if matches!(
+            layout_element.context,
+            crate::layouter::ElementContext::TableBorderOverlay(_)
+        ) {
             self.add_to_layer(layer_id, layout_element.id);
             return;
         }

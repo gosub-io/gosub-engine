@@ -185,13 +185,31 @@ fn setup_inset_path(cr: &Context, rect: &Rectangle, inset: f64) {
     cr.arc(x + width - r_tr, y + r_tr, r_tr, -0.5 * std::f64::consts::PI, 0.0);
 
     cr.line_to(x + width, y + height - r_br);
-    cr.arc(x + width - r_br, y + height - r_br, r_br, 0.0, 0.5 * std::f64::consts::PI);
+    cr.arc(
+        x + width - r_br,
+        y + height - r_br,
+        r_br,
+        0.0,
+        0.5 * std::f64::consts::PI,
+    );
 
     cr.line_to(x + r_bl, y + height);
-    cr.arc(x + r_bl, y + height - r_bl, r_bl, 0.5 * std::f64::consts::PI, std::f64::consts::PI);
+    cr.arc(
+        x + r_bl,
+        y + height - r_bl,
+        r_bl,
+        0.5 * std::f64::consts::PI,
+        std::f64::consts::PI,
+    );
 
     cr.line_to(x, y + r_tl);
-    cr.arc(x + r_tl, y + r_tl, r_tl, std::f64::consts::PI, 1.5 * std::f64::consts::PI);
+    cr.arc(
+        x + r_tl,
+        y + r_tl,
+        r_tl,
+        std::f64::consts::PI,
+        1.5 * std::f64::consts::PI,
+    );
 
     cr.close_path();
 }

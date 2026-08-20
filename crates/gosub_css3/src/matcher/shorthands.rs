@@ -609,7 +609,8 @@ impl CssDefinitions {
         if let Some(component) = syntax.components.first() {
             for m in component.multipliers() {
                 match m {
-                    SyntaxComponentMultiplier::Between(_, b) | SyntaxComponentMultiplier::CommaSeparatedRepeat(_, b)
+                    SyntaxComponentMultiplier::Between(_, b)
+                    | SyntaxComponentMultiplier::CommaSeparatedRepeat(_, b)
                         if *b == computed.len() =>
                     {
                         // QuadMulti's value->side mapping assumes the longhand list order
@@ -823,25 +824,49 @@ mod tests {
     #[test]
     fn font_shorthand_expands_size_line_height_family() {
         let expanded = expand_font("1.25em/1.2 serif");
-        assert_eq!(value_of(&expanded, "font-size"), Some(&CssValue::Unit(1.25, "em".into())));
+        assert_eq!(
+            value_of(&expanded, "font-size"),
+            Some(&CssValue::Unit(1.25, "em".into()))
+        );
         assert_eq!(value_of(&expanded, "line-height"), Some(&CssValue::Number(1.2)));
-        assert_eq!(value_of(&expanded, "font-family"), Some(&CssValue::String("serif".into())));
+        assert_eq!(
+            value_of(&expanded, "font-family"),
+            Some(&CssValue::String("serif".into()))
+        );
     }
 
     #[test]
     fn font_shorthand_expands_prelude_and_px_line_height() {
         let expanded = expand_font("italic bold 12px/18px serif");
-        assert_eq!(value_of(&expanded, "font-style"), Some(&CssValue::String("italic".into())));
-        assert_eq!(value_of(&expanded, "font-weight"), Some(&CssValue::String("bold".into())));
-        assert_eq!(value_of(&expanded, "font-size"), Some(&CssValue::Unit(12.0, "px".into())));
-        assert_eq!(value_of(&expanded, "line-height"), Some(&CssValue::Unit(18.0, "px".into())));
-        assert_eq!(value_of(&expanded, "font-family"), Some(&CssValue::String("serif".into())));
+        assert_eq!(
+            value_of(&expanded, "font-style"),
+            Some(&CssValue::String("italic".into()))
+        );
+        assert_eq!(
+            value_of(&expanded, "font-weight"),
+            Some(&CssValue::String("bold".into()))
+        );
+        assert_eq!(
+            value_of(&expanded, "font-size"),
+            Some(&CssValue::Unit(12.0, "px".into()))
+        );
+        assert_eq!(
+            value_of(&expanded, "line-height"),
+            Some(&CssValue::Unit(18.0, "px".into()))
+        );
+        assert_eq!(
+            value_of(&expanded, "font-family"),
+            Some(&CssValue::String("serif".into()))
+        );
     }
 
     #[test]
     fn font_shorthand_without_line_height() {
         let expanded = expand_font("12px sans-serif");
-        assert_eq!(value_of(&expanded, "font-size"), Some(&CssValue::Unit(12.0, "px".into())));
+        assert_eq!(
+            value_of(&expanded, "font-size"),
+            Some(&CssValue::Unit(12.0, "px".into()))
+        );
         assert_eq!(value_of(&expanded, "line-height"), None);
         assert_eq!(
             value_of(&expanded, "font-family"),
