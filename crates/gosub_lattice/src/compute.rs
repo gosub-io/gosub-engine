@@ -3,7 +3,7 @@ use anyhow::Result;
 
 use crate::grid::{build_section_grid, PlacedCell, SectionGrid};
 use crate::model::{build_model, RowGroup};
-use crate::sizing::columns::compute_column_widths;
+use crate::sizing::columns::{compute_column_widths, intrinsic_table_width};
 use crate::sizing::rows::{compute_row_heights, read_border, read_padding};
 use crate::types::{CellLayout, CssLength, CssProp};
 use crate::TableTree;
@@ -55,19 +55,28 @@ pub fn compute_table_layout<T: TableTree>(
         return Ok((0.0, 0.0));
     }
 
-    // Resolve table width
-    let table_width = match tree.css_length(model.node, CssProp::Width) {
-        CssLength::Px(w) => w,
-        CssLength::Percent(p) => p / 100.0 * available_width,
-        _ => available_width,
-    };
-
-    // Column widths
     let all_grids: Vec<&SectionGrid<T::NodeId>> = header_grids
         .iter()
         .chain(body_grids.iter())
         .chain(footer_grids.iter())
         .collect();
+
+    // Resolve table width. An auto-width table shrinks to its content (its max-content width),
+    // capped by the containing block - it does not stretch to fill it.
+    let table_width = match tree.css_length(model.node, CssProp::Width) {
+        CssLength::Px(w) => w,
+        CssLength::Percent(p) => p / 100.0 * available_width,
+        _ => {
+            // Shrink-to-fit, capped by the containing block. A tree that measures no content at
+            // all (intrinsic 0, e.g. structural mocks) keeps the legacy stretch behaviour.
+            let intrinsic = intrinsic_table_width(tree, n_cols, spacing_x, &all_grids);
+            if intrinsic > 0.0 {
+                available_width.min(intrinsic)
+            } else {
+                available_width
+            }
+        }
+    };
 
     let col_widths = compute_column_widths(tree, n_cols, table_width, spacing_x, &all_grids);
 

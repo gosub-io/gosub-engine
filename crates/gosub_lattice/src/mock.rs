@@ -92,6 +92,7 @@ pub fn cell(label: impl Into<String>) -> MockCell {
 #[derive(Default)]
 pub struct MockTable {
     available_width: f32,
+    table_width: Option<f32>,
     border_spacing_x: f32,
     border_spacing_y: f32,
     header_rows: Vec<Vec<MockCell>>,
@@ -107,6 +108,12 @@ impl MockTable {
             border_spacing_y: 0.0,
             ..Default::default()
         }
+    }
+
+    /// Give the table an explicit CSS width (auto tables shrink to their content).
+    pub fn width(mut self, w: f32) -> Self {
+        self.table_width = Some(w);
+        self
     }
 
     pub fn spacing(mut self, x: f32, y: f32) -> Self {
@@ -141,7 +148,7 @@ impl MockTable {
     /// Convert into a raw [`MockTree`] (root NodeId is returned alongside).
     pub fn into_tree(self) -> (MockTree, u32) {
         let mut tree = MockTree::new(self.border_spacing_x, self.border_spacing_y);
-        let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
+        let root = tree.alloc(TableRole::Table, None, 1, 1, self.table_width, None, 0.0, 0.0);
 
         if !self.header_rows.is_empty() {
             let hg = tree.alloc(TableRole::HeaderGroup, None, 1, 1, None, None, 0.0, 0.0);

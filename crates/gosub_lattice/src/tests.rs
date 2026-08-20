@@ -89,6 +89,7 @@ mod layout_tests {
         // 3 gutters for 2 columns → 12px consumed. 100-12 = 88 for content → 44px each.
         // col_x[0] = 4, col_x[1] = 4+44+4 = 52.
         let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
             .spacing(4.0, 0.0)
             .body_row(vec![
                 cell("L").height(10.0).padding(0.0),
@@ -115,6 +116,7 @@ mod layout_tests {
         // Second column: auto → gets (100 - 30) = 70px.
         // spacing = 0.
         let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
             .spacing(0.0, 0.0)
             .body_row(vec![
                 cell("Narrow").width(30.0).height(10.0).padding(0.0),
@@ -301,6 +303,7 @@ mod layout_tests {
     fn colspan_covers_gutter() {
         // spacing_x=4 → available = 100 - 3*4 = 88 → two 44px columns.
         let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
             .spacing(4.0, 0.0)
             .body_row(vec![
                 cell("A").height(10.0).padding(0.0),
@@ -455,6 +458,7 @@ mod layout_tests {
     #[test]
     fn narrow_column_keeps_natural_width() {
         let (mut tree, root) = MockTable::new(200.0)
+            .width(200.0)
             .spacing(0.0, 0.0)
             .body_row(vec![
                 cell("rank").content_width(20.0).height(10.0).padding(0.0),
@@ -481,6 +485,7 @@ mod layout_tests {
     #[test]
     fn narrow_column_floor() {
         let (mut tree, root) = MockTable::new(200.0)
+            .width(200.0)
             .spacing(0.0, 0.0)
             .body_row(vec![
                 cell("dot").content_width(5.0).height(10.0).padding(0.0),
@@ -495,11 +500,36 @@ mod layout_tests {
         assert_approx!(tree.layout(cells[1]).expect("text").size.width, 186.0, "200 - 14");
     }
 
+    // 19b. An auto-width table shrinks to its content instead of stretching to the
+    //      containing block; the columns then sit at their natural widths.
+    #[test]
+    fn auto_table_shrinks_to_content() {
+        let (mut tree, root) = MockTable::new(500.0)
+            .spacing(0.0, 0.0)
+            .body_row(vec![
+                cell("key").content_width(60.0).height(10.0).padding(0.0),
+                cell("value").content_width(100.0).height(10.0).padding(0.0),
+            ])
+            .into_tree();
+
+        let (w, _) = compute_table_layout(&mut tree, root, 500.0, None).expect("layout");
+        assert_approx!(w, 160.0, "table hugs its content");
+
+        let cells = tree.nodes_with_role(TableRole::Cell);
+        assert_approx!(tree.layout(cells[0]).expect("key").size.width, 60.0, "natural key col");
+        assert_approx!(
+            tree.layout(cells[1]).expect("value").size.width,
+            100.0,
+            "natural value col"
+        );
+    }
+
     // 20. An explicit CSS width cannot shrink a column below its content's
     //     natural width (used width = max(specified, min-content)).
     #[test]
     fn explicit_width_clamped_to_content() {
         let (mut tree, root) = MockTable::new(100.0)
+            .width(100.0)
             .spacing(0.0, 0.0)
             .body_row(vec![
                 cell("img").width(18.0).content_width(20.0).height(10.0).padding(0.0),
