@@ -123,6 +123,18 @@ async fn stream_to_file(
     Ok(())
 }
 
+/// Minimal scope guard: runs `f` on drop. Used where a task must clean up on every exit
+/// path without pulling in a dependency.
+fn scopeguard<F: FnMut()>(f: F) -> impl Drop {
+    struct Guard<F: FnMut()>(F);
+    impl<F: FnMut()> Drop for Guard<F> {
+        fn drop(&mut self) {
+            (self.0)();
+        }
+    }
+    Guard(f)
+}
+
 /// Fallback URL used when a navigation has no usable URL.
 fn about_blank() -> Url {
     #[allow(clippy::unwrap_used)] // PANIC-SAFE: literal URL
@@ -934,8 +946,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Other, Initiator::Other);
+        // A Download reference routes the transport's per-chunk progress to the shell as
+        // DownloadProgress events while the (buffered) fetch is still receiving.
+        let reference = RequestReference::Download(id.0);
+        self.zone_context
+            .request_reference_map
+            .write()
+            .insert(reference, self.tab_id);
         let req = FetchRequest::builder(Method::GET, url.clone())
             .with_req_id(req_id)
+            .with_reference(REF_REGISTRY.to_net(reference))
             .with_priority(Priority::Low)
             .with_kind(ResourceKind::Other.to_net())
             .with_initiator(Initiator::Other.to_net())
@@ -947,7 +967,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let zone_id = self.zone_id;
         let io_tx = self.zone_context.io_tx.clone();
         let event_tx = self.zone_context.event_tx.clone();
+        let reference_map = self.zone_context.request_reference_map.clone();
         spawn_named("tab-download", async move {
+            // Remove the routing entry however the download ends.
+            let _cleanup = scopeguard(move || {
+                reference_map.write().remove(&reference);
+            });
+
             let fail = |error: String| {
                 let _ = event_tx.send(EngineEvent::DownloadFailed { tab_id, id, error });
             };

@@ -31,6 +31,8 @@ pub enum RequestReference {
     Document(DocumentId),
     /// Background prefetches
     Prefetch(PrefetchId),
+    /// A user-initiated download (the inner value is the embedder-minted `DownloadId`)
+    Download(u64),
     /// Misc/system
     Background(TaskId),
 }
@@ -42,6 +44,7 @@ impl Display for RequestReference {
             RequestReference::Document(id) => write!(f, "Doc({})", id),
             RequestReference::Prefetch(id) => write!(f, "Prefetch({})", id),
             RequestReference::Background(id) => write!(f, "BG({})", id),
+            RequestReference::Download(id) => write!(f, "DL({})", id),
         }
     }
 }
