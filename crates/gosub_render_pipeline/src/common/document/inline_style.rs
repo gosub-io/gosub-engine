@@ -419,6 +419,7 @@ fn parse_display(value: &str) -> Value {
         "grid" => Value::Display(Display::Grid),
         "inline-grid" => Value::Display(Display::InlineGrid),
         "table" => Value::Display(Display::Table),
+        "inline-table" => Value::Display(Display::InlineTable),
         "table-caption" => Value::Display(Display::TableCaption),
         "table-cell" => Value::Display(Display::TableCell),
         "table-footer-group" => Value::Display(Display::TableFooterGroup),

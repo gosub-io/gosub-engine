@@ -385,7 +385,16 @@ impl LayerList {
         // achieves this: the stable sort keeps creation order, so it composites after the
         // enclosing layer, which holds both earlier and later in-flow siblings. Inside a
         // promoted group the split would break group compositing, so the subtree stays put.
-        if is_positioned && z_index.is_none() && !in_promoted_group {
+        //
+        // Inline-tables get the same treatment for a related reason: as atomic inline-level
+        // content they paint in Appendix E step 7, after in-flow block borders (step 4) -
+        // including an enclosing table's collapsed borders (w3c/csswg-drafts#11570). Painting
+        // strictly in DOM order would put a following block sibling's border on top of them.
+        let is_inline_table = matches!(
+            doc.get_own_style(layout_element.dom_node_id, &StyleProperty::Display),
+            Some(Value::Display(crate::common::document::style::Display::InlineTable))
+        );
+        if (is_positioned && z_index.is_none() || is_inline_table) && !in_promoted_group {
             let positioned_layer_id = self.new_layer(order);
             self.add_to_layer(positioned_layer_id, layout_element.id);
             for &child_id in &layout_element.children {

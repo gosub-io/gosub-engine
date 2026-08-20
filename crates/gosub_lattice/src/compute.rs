@@ -56,7 +56,19 @@ pub fn compute_table_layout<T: TableTree>(
         .unwrap_or(0);
 
     if n_cols == 0 {
-        return Ok((0.0, 0.0));
+        // No grid, but the element's specified size still applies (§17.5.2/3: the used
+        // size is the greater of the specified size and the grid extent - zero here).
+        // Extents are content-box; the caller wraps border and padding around them.
+        let w = match tree.css_length(table_node, CssProp::Width) {
+            CssLength::Px(w) => w.max(0.0),
+            CssLength::Percent(p) => (p / 100.0 * available_width).max(0.0),
+            _ => 0.0,
+        };
+        let h = match tree.css_length(table_node, CssProp::Height) {
+            CssLength::Px(h) => h.max(0.0),
+            _ => 0.0,
+        };
+        return Ok((w, h));
     }
 
     // Explicit widths from <colgroup>/<col> elements. Under fixed layout the
