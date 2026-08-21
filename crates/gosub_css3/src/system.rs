@@ -1,3 +1,4 @@
+use crate::colors::RgbColor;
 use crate::functions::attr::resolve_attr;
 use crate::functions::math::resolve_math;
 use crate::functions::var::resolve_var;
@@ -112,6 +113,9 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 
     for sheet in sheets {
         for rule in &sheet.rules {
+            if rule.media.as_ref().is_some_and(|m| !m.holds()) {
+                continue;
+            }
             for selector in rule.selectors() {
                 let (matched, specificity) = match_selector::<C>(doc, id, selector, pseudo);
 
@@ -237,6 +241,25 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                             } else {
                                 value
                             };
+
+                            // Also emit the color as a `background-color` longhand: the consumer
+                            // reads the longhand key first, so a UA `background-color: ButtonFace`
+                            // would otherwise beat an author `background: #c22`. No color = reset
+                            // to transparent.
+                            if declaration.property == "background" {
+                                let color_value = find_background_color(&value)
+                                    .unwrap_or(CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 0.0)));
+                                add_property_to_map(
+                                    &mut css_map_entry,
+                                    sheet,
+                                    specificity,
+                                    &CssDeclaration {
+                                        property: "background-color".to_string(),
+                                        value: color_value,
+                                        important: declaration.important,
+                                    },
+                                );
+                            }
 
                             add_property_to_map(
                                 &mut css_map_entry,
@@ -477,6 +500,12 @@ pub fn resolve_functions<C: HasDocument>(
                     "clamp" | "min" | "max" => {
                         resolve_math(func, values).map_or_else(|| vec![val.clone()], |v| vec![v])
                     }
+                    // Unresolved, the whole declaration fails validation - the UA sheet uses it
+                    // on form controls.
+                    "light-dark" | "-internal-light-dark" => values
+                        .split(|v| matches!(v, CssValue::Comma))
+                        .nth(usize::from(crate::stylesheet::prefers_dark()))
+                        .map_or_else(Vec::new, <[CssValue]>::to_vec),
                     _ => vec![val.clone()],
                 };
 

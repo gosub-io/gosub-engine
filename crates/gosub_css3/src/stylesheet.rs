@@ -33,6 +33,18 @@ fn layout_viewport() -> (f32, f32) {
     LAYOUT_VIEWPORT.with(Cell::get)
 }
 
+static PREFERS_DARK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set the user's colour-scheme preference, consumed by `light-dark()` and by rules under
+/// `@media (prefers-color-scheme: …)`. Process-wide, like the rest of the UA preferences.
+pub fn set_prefers_dark(dark: bool) {
+    PREFERS_DARK.store(dark, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn prefers_dark() -> bool {
+    PREFERS_DARK.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Severity of a CSS error
 #[derive(Debug, PartialEq)]
 pub enum Severity {
@@ -175,6 +187,23 @@ pub struct CssRule {
     pub selectors: Vec<CssSelector>,
     /// Actual declarations that will be applied if the selectors match
     pub declarations: Vec<CssDeclaration>,
+    /// The enclosing `@media` condition, evaluated at match time. `None` = unconditional.
+    pub media: Option<MediaCondition>,
+}
+
+/// The subset of media queries rules can be gated on. Anything else is dropped at parse time.
+#[derive(Debug, PartialEq, Clone)]
+pub enum MediaCondition {
+    /// `(prefers-color-scheme: dark)` / `light`.
+    PrefersColorScheme(bool),
+}
+
+impl MediaCondition {
+    pub fn holds(&self) -> bool {
+        match self {
+            MediaCondition::PrefersColorScheme(dark) => *dark == prefers_dark(),
+        }
+    }
 }
 
 impl CssRule {
@@ -360,13 +389,15 @@ impl From<&[CssSelectorPart]> for Specificity {
                 CssSelectorPart::Id(_) => {
                     id_count += 1;
                 }
-                CssSelectorPart::Class(_) => {
+                // Selectors §17: attributes and pseudo-classes count as classes, pseudo-elements
+                // as types.
+                CssSelectorPart::Class(_) | CssSelectorPart::Attribute(_) | CssSelectorPart::PseudoClass(_) => {
                     class_count += 1;
                 }
-                CssSelectorPart::Type(_) => {
+                CssSelectorPart::Type(_) | CssSelectorPart::PseudoElement(_) => {
                     element_count += 1;
                 }
-                _ => {}
+                CssSelectorPart::Universal | CssSelectorPart::Combinator(_) => {}
             }
         }
         Specificity::new(id_count, class_count, element_count)
@@ -928,6 +959,7 @@ mod test {
     #[test]
     fn test_css_rule() {
         let rule = CssRule {
+            media: None,
             selectors: vec![CssSelector {
                 parts: vec![vec![CssSelectorPart::Type("h1".to_string())]],
             }],

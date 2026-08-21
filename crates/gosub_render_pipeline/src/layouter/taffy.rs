@@ -1,7 +1,7 @@
 use cow_utils::CowUtils;
 
 use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
-use crate::common::document::pipeline_doc::BgSize;
+use crate::common::document::pipeline_doc::{BgSize, PipelineDocument};
 use crate::common::document::style::{lookup, FontWeight, StyleProperty, TextAlign, Unit, Value};
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo;
@@ -9,12 +9,14 @@ use crate::common::geo::Coordinate;
 use crate::common::media::MediaStore;
 use crate::common::media::{Media, MediaId, MediaRequest, MediaType};
 use crate::layouter::box_model::Edges;
+use crate::layouter::control_icons;
 use crate::layouter::css_taffy_converter::CssTaffyConverter;
 use crate::layouter::table::post_process_tables;
 use crate::layouter::text::get_text_layout;
 use crate::layouter::{
-    box_model, BackgroundMedia, CanLayout, ElementContext, ElementContextImage, ElementContextSvg, ElementContextText,
-    LayoutElementId, LayoutElementNode, LayoutTree,
+    box_model, BackgroundMedia, CanLayout, ElementContext, ElementContextFormControl, ElementContextImage,
+    ElementContextSelectPopup, ElementContextSvg, ElementContextText, FormControl, LayoutElementId, LayoutElementNode,
+    LayoutTree, MeterLevel, PopupRow, Resize, SELECT_POPUP_ROW_HEIGHT, SELECT_POPUP_SHADOW,
 };
 use crate::rendertree_builder::{RenderNodeId, RenderTree};
 use gosub_fontmanager::ParleyFontSystem;
@@ -127,6 +129,7 @@ pub enum TaffyContext {
     Text(ElementContextText),
     Image(ElementContextImage),
     Svg(ElementContextSvg),
+    FormControl(ElementContextFormControl),
 }
 
 impl TaffyContext {
@@ -242,6 +245,7 @@ impl CanLayout for TaffyLayouter {
                 root_id: LayoutElementId::new(0),
                 next_node_id: Arc::new(RwLock::new(LayoutElementId::new(0))),
                 root_dimension: geo::Dimension::ZERO,
+                popup: None,
             };
         };
         // let root_id = RenderNodeId::new(2);
@@ -342,6 +346,11 @@ impl CanLayout for TaffyLayouter {
                     // SVG-backed <img> elements carry their intrinsic size the same way.
                     // Without this arm they measured as 0×0 and collapsed (e.g. the HN logo).
                     Some(TaffyContext::Svg(svg_ctx)) => measure_replaced(v_kd, svg_ctx.dimension),
+                    // No aspect ratio: `width: 100%` on an input must not scale its height.
+                    Some(TaffyContext::FormControl(fc)) => Size {
+                        width: v_kd.width.unwrap_or(fc.dimension.width as f32),
+                        height: v_kd.height.unwrap_or(fc.dimension.height as f32),
+                    },
                     _ => Size::ZERO,
                 }
             })
@@ -366,7 +375,162 @@ impl CanLayout for TaffyLayouter {
             layout_tree.root_dimension = geo::Dimension::new(w as f64, h as f64);
         }
 
+        apply_translations(&mut layout_tree);
+        self.attach_select_popup(&mut layout_tree);
+
         layout_tree
+    }
+}
+
+/// CSS `transform: translate*()`: shift the element and its whole subtree after layout. A
+/// translation never affects flow, so moving the boxes is equivalent to a paint-time offset (and
+/// keeps hit-testing right). Percentages are of the element's own border box.
+fn apply_translations(layout_tree: &mut LayoutTree) {
+    let doc = Arc::clone(&layout_tree.render_tree.doc);
+    let ids: Vec<LayoutElementId> = layout_tree.arena.keys().copied().collect();
+    for id in ids {
+        let Some(el) = layout_tree.arena.get(&id) else {
+            continue;
+        };
+        let Some((tx, ty)) = doc.transform_translate(el.dom_node_id) else {
+            continue;
+        };
+        let bb = el.box_model.border_box;
+        let px = |v: &Value, len: f64| match v {
+            Value::Unit(n, Unit::Percent) => len * (*n as f64) / 100.0,
+            Value::Unit(n, _) => *n as f64,
+            _ => 0.0,
+        };
+        let (dx, dy) = (px(&tx, bb.width), px(&ty, bb.height));
+        if dx == 0.0 && dy == 0.0 {
+            continue;
+        }
+        let mut stack = vec![id];
+        while let Some(cur) = stack.pop() {
+            let Some(el) = layout_tree.arena.get_mut(&cur) else {
+                continue;
+            };
+            for r in [
+                &mut el.box_model.content_box,
+                &mut el.box_model.padding_box,
+                &mut el.box_model.border_box,
+                &mut el.box_model.margin_box,
+            ] {
+                r.x += dx;
+                r.y += dy;
+            }
+            stack.extend(el.children.iter().copied());
+        }
+    }
+}
+
+impl TaffyLayouter {
+    /// If a `<select>` is open, add its dropdown as a detached element under the select's box
+    /// (above it when there is no room below), sized to the widest option.
+    fn attach_select_popup(&self, layout_tree: &mut LayoutTree) {
+        let doc = Arc::clone(&layout_tree.render_tree.doc);
+        let Some(open) = doc.open_select() else {
+            return;
+        };
+        let select_id = open.select;
+        let Some(select_lei) = self.dom_to_layout_mapping.get(&select_id).copied() else {
+            return;
+        };
+        let Some(select_el) = layout_tree.get_node_by_id(select_lei) else {
+            return;
+        };
+        let anchor = select_el.box_model.border_box;
+        let render_node_id = select_el.render_node_id;
+        let Some(select_node) = doc.get_node_by_id(select_id) else {
+            return;
+        };
+
+        let font_info = control_font_info(&*doc, select_id);
+        let rows = collect_rows(&*doc, &select_node);
+        if rows.is_empty() {
+            return;
+        }
+        let row_height = SELECT_POPUP_ROW_HEIGHT;
+        let pad_y = crate::layouter::SELECT_POPUP_PAD_Y;
+        let widest = rows
+            .iter()
+            .map(|r| {
+                let label = match r {
+                    PopupRow::Option { label, .. } | PopupRow::Group { label } => label,
+                };
+                self.measure_control_text(label, &font_info).width
+            })
+            .fold(0.0, f64::max);
+
+        let (sx, st, sb) = SELECT_POPUP_SHADOW;
+        let chrome = pad_y * 2.0 + 2.0;
+        let (open_above, visible_rows) =
+            crate::layouter::popup_placement(anchor, (open.viewport_top, open.viewport_height), rows.len());
+        let scrolls = rows.len() > visible_rows;
+        // Text inset 10px each side, room for the checkmark and the scrollbar.
+        let width = anchor
+            .width
+            .max(widest + 20.0 + 24.0 + if scrolls { 10.0 } else { 0.0 });
+        let height = row_height * visible_rows as f64 + chrome;
+        let y = if open_above {
+            anchor.y - height - 2.0
+        } else {
+            anchor.y + anchor.height + 2.0
+        };
+        let shadow = control_icons::drop_shadow(&self.media_store, width, height, 6.0);
+        let check = control_icons::check(&self.media_store, false);
+
+        let id = layout_tree.next_node_id();
+        let edge = |v: f64| Edges {
+            top: v,
+            right: v,
+            bottom: v,
+            left: v,
+        };
+        layout_tree.arena.insert(
+            id,
+            LayoutElementNode {
+                id,
+                dom_node_id: select_id,
+                render_node_id,
+                parent: None,
+                children: Vec::new(),
+                // The shadow lives in the margin area so tiling and hit-testing cover it.
+                box_model: box_model::BoxModel::new(
+                    geo::Rect::new(anchor.x, y, width, height),
+                    Edges {
+                        top: pad_y,
+                        right: 0.0,
+                        bottom: pad_y,
+                        left: 0.0,
+                    },
+                    edge(1.0),
+                    Edges {
+                        top: st,
+                        right: sx,
+                        bottom: sb,
+                        left: sx,
+                    },
+                ),
+                context: ElementContext::SelectPopup(ElementContextSelectPopup {
+                    select: select_id,
+                    rows,
+                    font_info,
+                    row_height,
+                    visible_rows,
+                    shadow,
+                    check,
+                    pad_y,
+                }),
+                background_media: None,
+            },
+        );
+        layout_tree.popup = Some(id);
+        // Tiling covers the page box only; a popup hanging below a short page must be inside it.
+        let bottom = y + height + sb;
+        if bottom > layout_tree.root_dimension.height {
+            layout_tree.root_dimension.height = bottom;
+        }
     }
 }
 
@@ -460,6 +624,7 @@ impl TaffyLayouter {
             root_id: LayoutElementId::new(0), // Will be filled in later
             next_node_id: Arc::new(RwLock::new(LayoutElementId::new(0))),
             root_dimension: geo::Dimension::ZERO,
+            popup: None,
         };
 
         let Some((layout_element_root_id, taffy_root_id)) = self.generate_taffy_element(&mut layout_tree, root_id)
@@ -1066,6 +1231,22 @@ impl TaffyLayouter {
                     }
                 }
 
+                if taffy_context.is_none() {
+                    if let Some(fc) = self.extract_form_control(layout_tree, dom_node, data) {
+                        taffy_context = Some(TaffyContext::FormControl(fc));
+                        // A drag-resized control keeps the size the user gave it (border box).
+                        if let Some((w, h)) = layout_tree.render_tree.doc.control_size(dom_node.node_id) {
+                            taffy_style.box_sizing = taffy::BoxSizing::BorderBox;
+                            taffy_style.size = Size {
+                                width: Dimension::from_length(w as f32),
+                                height: Dimension::from_length(h as f32),
+                            };
+                            taffy_style.min_size = Size::auto();
+                            taffy_style.max_size = Size::auto();
+                        }
+                    }
+                }
+
                 if data.tag_name.eq_ignore_ascii_case("svg") {
                     let inner_html = layout_tree.render_tree.doc.inner_html(dom_node.node_id);
                     match self
@@ -1250,6 +1431,359 @@ impl TaffyLayouter {
     }
 }
 
+impl TaffyLayouter {
+    /// Single-line measure at unbounded width; crude per-char estimate if shaping fails.
+    fn measure_control_text(&self, text: &str, font_info: &FontInfo) -> geo::Dimension {
+        let measured = {
+            let mut fs = self.font_system.lock();
+            get_text_layout(text, font_info, 1_000_000_000.0, &mut *fs)
+        };
+        match measured {
+            Ok(d) => geo::Dimension::new(d.width.ceil(), d.height.ceil()),
+            Err(_) => geo::Dimension::new(
+                text.chars().count() as f64 * font_info.size * 0.5,
+                font_info.line_height.max(font_info.size),
+            ),
+        }
+    }
+
+    /// The form-control context for input/textarea/select/progress/meter, `None` for anything else.
+    fn extract_form_control(
+        &self,
+        layout_tree: &LayoutTree,
+        dom_node: &Node,
+        data: &crate::common::document::node::ElementData,
+    ) -> Option<ElementContextFormControl> {
+        let doc = &layout_tree.render_tree.doc;
+        let node_id = dom_node.node_id;
+        let tag = data.tag_name.cow_to_ascii_lowercase();
+        if !matches!(tag.as_ref(), "input" | "textarea" | "select" | "progress" | "meter") {
+            return None;
+        }
+
+        let font_info = control_font_info(&**doc, node_id);
+        let disabled = data.get_attribute("disabled").is_some();
+        let attr = |name: &str| data.get_attribute(name).map(|s| s.trim().to_string());
+        let attr_f64 = |name: &str| attr(name).and_then(|s| s.parse::<f64>().ok());
+
+        let (control, dimension) = match tag.as_ref() {
+            "input" => {
+                let ty = attr("type")
+                    .map(|t| t.cow_to_ascii_lowercase().into_owned())
+                    .unwrap_or_else(|| "text".to_string());
+                match ty.as_str() {
+                    "hidden" => return None,
+                    "checkbox" => (
+                        FormControl::Checkbox(control_icons::load(&self.media_store, false)?),
+                        geo::Dimension::new(14.0, 14.0),
+                    ),
+                    "radio" => (
+                        FormControl::Radio(control_icons::load(&self.media_store, true)?),
+                        geo::Dimension::new(14.0, 14.0),
+                    ),
+                    "button" | "submit" | "reset" | "file" => {
+                        let label = attr("value").filter(|s| !s.is_empty()).unwrap_or_else(|| {
+                            match ty.as_str() {
+                                "submit" => "Submit",
+                                "reset" => "Reset",
+                                "file" => "Choose file",
+                                _ => "",
+                            }
+                            .to_string()
+                        });
+                        let d = self.measure_control_text(if label.is_empty() { " " } else { &label }, &font_info);
+                        (FormControl::Button { label }, d)
+                    }
+                    "range" => {
+                        let min = attr_f64("min").unwrap_or(0.0);
+                        let max = attr_f64("max").unwrap_or(100.0).max(min);
+                        let value = attr_f64("value").unwrap_or((min + max) / 2.0).clamp(min, max);
+                        let fraction = if max > min { (value - min) / (max - min) } else { 0.0 };
+                        (
+                            FormControl::Range { min, max, fraction },
+                            geo::Dimension::new(129.0, 21.0),
+                        )
+                    }
+                    "color" => {
+                        let value = attr("value")
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or_else(|| "#000000".to_string());
+                        (FormControl::ColorSwatch { value }, geo::Dimension::new(44.0, 21.0))
+                    }
+                    // Text-entry types.
+                    _ => {
+                        let value = attr("value").unwrap_or_default();
+                        let placeholder = attr("placeholder").unwrap_or_else(|| {
+                            // Date/time pickers show their edit format when empty.
+                            match ty.as_str() {
+                                "date" => "dd-mm-yyyy",
+                                "time" => "--:--",
+                                "datetime-local" => "dd-mm-yyyy --:--",
+                                "month" => "--------- ----",
+                                "week" => "Week --, ----",
+                                _ => "",
+                            }
+                            .to_string()
+                        });
+                        let size = attr("size")
+                            .and_then(|s| s.parse::<usize>().ok())
+                            .filter(|n| *n > 0)
+                            .unwrap_or(20);
+                        // Chromium: `size` (default 20) average-char advances plus edge insets.
+                        let proto = "0".repeat(size);
+                        let d = self.measure_control_text(&proto, &font_info);
+                        let d = geo::Dimension::new(d.width + 4.0, d.height);
+                        (
+                            FormControl::TextField {
+                                value,
+                                placeholder,
+                                masked: ty == "password",
+                                multiline: false,
+                                resize: Resize::None,
+                                grip: None,
+                            },
+                            d,
+                        )
+                    }
+                }
+            }
+            "textarea" => {
+                let value = text_content(&**doc, dom_node);
+                let placeholder = attr("placeholder").unwrap_or_default();
+                let cols = attr("cols")
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .filter(|n| *n > 0)
+                    .unwrap_or(20);
+                let rows = attr("rows")
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .filter(|n| *n > 0)
+                    .unwrap_or(2);
+                let cell = self.measure_control_text("0", &font_info);
+                // Rows are `line-height` apart in the painter; size the box in the same units.
+                let row_h = font_info.line_height.max(font_info.size);
+                let d = geo::Dimension::new(cell.width * cols as f64 + 4.0, row_h * rows as f64);
+                let resize = match doc.get_style(node_id, &StyleProperty::Resize) {
+                    Value::Keyword(k) => Resize::from_keyword(&lookup(k)),
+                    _ => Resize::None,
+                };
+                let grip = (resize != Resize::None)
+                    .then(|| control_icons::resize_grip(&self.media_store))
+                    .flatten();
+                (
+                    FormControl::TextField {
+                        value,
+                        placeholder,
+                        masked: false,
+                        multiline: true,
+                        resize,
+                        grip,
+                    },
+                    d,
+                )
+            }
+            "select" => {
+                let options = collect_options(&**doc, dom_node);
+                let chosen = doc.selected_option(node_id);
+                let label = options
+                    .iter()
+                    .find(|o| Some(o.node_id) == chosen)
+                    .or_else(|| options.iter().find(|o| o.selected))
+                    .or_else(|| options.first())
+                    .map(|o| o.label.clone())
+                    .unwrap_or_default();
+                let mut widest = self.measure_control_text(if label.is_empty() { " " } else { &label }, &font_info);
+                for o in &options {
+                    let d = self.measure_control_text(&o.label, &font_info);
+                    if d.width > widest.width {
+                        widest = geo::Dimension::new(d.width, widest.height);
+                    }
+                }
+                // Content area + the 28px arrow area (padding supplies the insets).
+                let d = geo::Dimension::new(widest.width + 4.0, widest.height.max(font_info.line_height));
+                let chevron = control_icons::chevron(&self.media_store, disabled);
+                (FormControl::Select { label, chevron }, d)
+            }
+            "progress" => {
+                let max = attr_f64("max").filter(|m| *m > 0.0).unwrap_or(1.0);
+                let fraction = attr_f64("value").map(|v| (v / max).clamp(0.0, 1.0));
+                (FormControl::Progress { fraction }, geo::Dimension::new(160.0, 16.0))
+            }
+            "meter" => {
+                let min = attr_f64("min").unwrap_or(0.0);
+                let max = attr_f64("max").unwrap_or(1.0).max(min);
+                let span = (max - min).max(f64::EPSILON);
+                let low = attr_f64("low").unwrap_or(min).clamp(min, max);
+                let high = attr_f64("high").unwrap_or(max).clamp(low, max);
+                let optimum = attr_f64("optimum").unwrap_or((min + max) / 2.0).clamp(min, max);
+                let value = attr_f64("value").unwrap_or(min).clamp(min, max);
+                let fraction = (value - min) / span;
+                // Green when the value shares the optimum's band (below-low / between /
+                // above-high), yellow one band away, red two away.
+                let band = |v: f64| -> u8 {
+                    if v < low {
+                        0
+                    } else if v > high {
+                        2
+                    } else {
+                        1
+                    }
+                };
+                let level = match band(value).abs_diff(band(optimum)) {
+                    0 => MeterLevel::Optimum,
+                    1 => MeterLevel::Suboptimum,
+                    _ => MeterLevel::Critical,
+                };
+                (FormControl::Meter { fraction, level }, geo::Dimension::new(80.0, 16.0))
+            }
+            _ => return None,
+        };
+
+        Some(ElementContextFormControl {
+            node_id,
+            control,
+            font_info,
+            dimension,
+            disabled,
+        })
+    }
+}
+
+/// Concatenated direct text children (a `<textarea>` value, an `<option>` label).
+fn text_content(doc: &dyn PipelineDocument, node: &Node) -> String {
+    let mut out = String::new();
+    for child_id in &node.children {
+        if let Some(child) = doc.get_node_by_id(*child_id) {
+            if let NodeType::Text(t) = &child.node_type {
+                out.push_str(t);
+            }
+        }
+    }
+    out.trim().to_string()
+}
+
+/// Popup rows: options in order, with a label row before each `<optgroup>`'s options.
+fn collect_rows(doc: &dyn PipelineDocument, select: &Node) -> Vec<PopupRow> {
+    let to_row = |o: MarkupOption| PopupRow::Option {
+        node_id: o.node_id,
+        label: o.label,
+        disabled: o.disabled,
+    };
+    let mut out = Vec::new();
+    for child_id in &select.children {
+        let Some(child) = doc.get_node_by_id(*child_id) else {
+            continue;
+        };
+        let NodeType::Element(data) = &child.node_type else {
+            continue;
+        };
+        if data.tag_name.eq_ignore_ascii_case("optgroup") {
+            out.push(PopupRow::Group {
+                label: data.get_attribute("label").cloned().unwrap_or_default(),
+            });
+            out.extend(collect_options(doc, &child).into_iter().map(to_row));
+        } else if data.tag_name.eq_ignore_ascii_case("option") {
+            out.extend(option_of(doc, &child).map(to_row));
+        }
+    }
+    out
+}
+
+/// One `<option>` node.
+fn option_of(doc: &dyn PipelineDocument, option: &Node) -> Option<MarkupOption> {
+    let NodeType::Element(data) = &option.node_type else {
+        return None;
+    };
+    let label = data
+        .get_attribute("label")
+        .cloned()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| text_content(doc, option));
+    Some(MarkupOption {
+        node_id: option.node_id,
+        label,
+        selected: data.get_attribute("selected").is_some(),
+        disabled: data.get_attribute("disabled").is_some(),
+    })
+}
+
+/// A `<select>`'s options in order, through `<optgroup>`s.
+fn collect_options(doc: &dyn PipelineDocument, select: &Node) -> Vec<MarkupOption> {
+    fn walk(doc: &dyn PipelineDocument, node: &Node, out: &mut Vec<MarkupOption>) {
+        for child_id in &node.children {
+            let Some(child) = doc.get_node_by_id(*child_id) else {
+                continue;
+            };
+            let NodeType::Element(data) = &child.node_type else {
+                continue;
+            };
+            if data.tag_name.eq_ignore_ascii_case("optgroup") {
+                walk(doc, &child, out);
+            } else if data.tag_name.eq_ignore_ascii_case("option") {
+                let label = data
+                    .get_attribute("label")
+                    .cloned()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| text_content(doc, &child));
+                out.push(MarkupOption {
+                    node_id: child.node_id,
+                    label,
+                    selected: data.get_attribute("selected").is_some(),
+                    disabled: data.get_attribute("disabled").is_some(),
+                });
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(doc, select, &mut out);
+    out
+}
+
+/// An `<option>` as written in the markup.
+struct MarkupOption {
+    node_id: DomNodeId,
+    label: String,
+    selected: bool,
+    disabled: bool,
+}
+
+/// The control's own computed font (it has no text children to derive one from).
+fn control_font_info(doc: &dyn PipelineDocument, node_id: DomNodeId) -> FontInfo {
+    let mut font_size = DEFAULT_FONT_SIZE;
+    let mut font_family = DEFAULT_FONT_FAMILY.to_string();
+    if let Value::Unit(value, Unit::Px) = doc.get_style(node_id, &StyleProperty::FontSize) {
+        font_size = value as f64;
+    }
+    if let Value::Keyword(id) = doc.get_style(node_id, &StyleProperty::FontFamily) {
+        font_family = lookup(id);
+    }
+    let font_weight = match doc.get_style(node_id, &StyleProperty::FontWeight) {
+        Value::FontWeight(weight) => match weight {
+            FontWeight::Normal => 400.0,
+            FontWeight::Bold | FontWeight::Bolder => 700.0,
+            FontWeight::Number(value) => value as f64,
+            FontWeight::Lighter => 300.0,
+        },
+        _ => 400.0,
+    };
+    let line_height = match doc.get_style(node_id, &StyleProperty::LineHeight) {
+        Value::Unit(value, Unit::Px) => value as f64,
+        Value::Number(ratio) => font_size * ratio as f64,
+        _ => font_size * 1.4,
+    };
+    FontInfo {
+        family: font_family,
+        size: font_size,
+        weight: font_weight as i32,
+        width: 100,
+        slant: 0,
+        line_height,
+        letter_spacing: 0.0,
+        alignment: FontAlignment::Start,
+        underline: false,
+        line_through: false,
+    }
+}
+
 // Convert a URI to an absolute URL based on the base URL if this is needed
 fn to_absolute_url(uri: &str, base_uri: &str) -> String {
     // Already-absolute references (http(s)://, file://, data:, blob:, …) are returned as-is.
@@ -1316,6 +1850,7 @@ fn to_element_context(taffy_context: Option<&TaffyContext>) -> ElementContext {
             svg_ctx.dimension,
             svg_ctx.node_id,
         ),
+        Some(TaffyContext::FormControl(fc)) => ElementContext::FormControl(fc.clone()),
         None => ElementContext::None,
     }
 }

@@ -7,7 +7,7 @@
 //! GPU texture-size limit and pages of any height can be captured.
 
 use clap::Parser;
-use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+use gosub_engine::events::{EngineEvent, Modifiers, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
@@ -66,6 +66,121 @@ struct Args {
     /// decode and repaint before the capture
     #[arg(long, default_value = "0")]
     settle: u64,
+    /// Interactions to replay after the first render, before capturing: `click:X,Y`,
+    /// `dblclick:X,Y`, `move:X,Y`, `press:X,Y` / `release:X,Y` (drags; page px), `tab`,
+    /// `shift-tab`, `key:NAME` (e.g. `key:Backspace`, `key:ctrl+shift+ArrowLeft`), `type:TEXT`,
+    /// `scroll:DX,DY` (wheel) or `wait:MS`. Repeatable. Ctrl+C/X/V use a clipboard local to
+    /// this run.
+    #[arg(short = 'i', long = "interact")]
+    interact: Vec<String>,
+    /// Print the engine's timing table on exit
+    #[arg(long)]
+    timings: bool,
+    /// Render with the dark colour scheme (prefers-color-scheme: dark, dark native controls)
+    #[arg(long)]
+    dark: bool,
+}
+
+#[derive(Clone)]
+enum Step {
+    Send(TabCommand),
+    Wait(Duration),
+}
+
+fn parse_interaction(spec: &str) -> Vec<Step> {
+    let key = |k: &str, modifiers: Modifiers| {
+        Step::Send(TabCommand::KeyDown {
+            key: k.to_string(),
+            code: k.to_string(),
+            modifiers,
+        })
+    };
+    match spec.split_once(':') {
+        None if spec.eq_ignore_ascii_case("tab") => vec![key("Tab", Modifiers::empty())],
+        None if spec.eq_ignore_ascii_case("shift-tab") => vec![key("Tab", Modifiers::SHIFT)],
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("key") => {
+            // `ctrl+shift+ArrowLeft`: modifier prefixes, the key name last.
+            let mut modifiers = Modifiers::empty();
+            let mut name = rest;
+            while let Some((m, tail)) = name.split_once('+').filter(|(_, t)| !t.is_empty()) {
+                modifiers |= if m.eq_ignore_ascii_case("ctrl") || m.eq_ignore_ascii_case("control") {
+                    Modifiers::CONTROL
+                } else if m.eq_ignore_ascii_case("shift") {
+                    Modifiers::SHIFT
+                } else if m.eq_ignore_ascii_case("alt") {
+                    Modifiers::ALT
+                } else if ["meta", "cmd", "super"].iter().any(|k| m.eq_ignore_ascii_case(k)) {
+                    Modifiers::META
+                } else {
+                    break;
+                };
+                name = tail;
+            }
+            vec![key(name, modifiers)]
+        }
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("type") => {
+            rest.chars().map(|c| key(&c.to_string(), Modifiers::empty())).collect()
+        }
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("scroll") => {
+            let parsed = rest
+                .split_once(',')
+                .and_then(|(x, y)| Some((x.trim().parse::<f32>().ok()?, y.trim().parse::<f32>().ok()?)));
+            let Some((delta_x, delta_y)) = parsed else {
+                eprintln!("Bad scroll spec '{spec}': expected scroll:DX,DY");
+                std::process::exit(2);
+            };
+            vec![Step::Send(TabCommand::MouseScroll { delta_x, delta_y })]
+        }
+        Some((kind, rest)) if kind.eq_ignore_ascii_case("wait") => match rest.trim().parse::<u64>() {
+            Ok(ms) => vec![Step::Wait(Duration::from_millis(ms))],
+            Err(_) => {
+                eprintln!("Bad wait spec '{spec}': expected wait:MILLISECONDS");
+                std::process::exit(2);
+            }
+        },
+        Some((kind, rest))
+            if ["click", "dblclick", "move", "press", "release"]
+                .iter()
+                .any(|k| kind.eq_ignore_ascii_case(k)) =>
+        {
+            let Some((x, y)) = rest.split_once(',') else {
+                eprintln!("Bad spec '{spec}': expected {kind}:X,Y");
+                std::process::exit(2);
+            };
+            let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>()) else {
+                eprintln!("Bad coordinates in '{spec}'");
+                std::process::exit(2);
+            };
+            let down = Step::Send(TabCommand::MouseDown {
+                x,
+                y,
+                button: MouseButton::Left,
+            });
+            let up = Step::Send(TabCommand::MouseUp {
+                x,
+                y,
+                button: MouseButton::Left,
+            });
+            // Hover first: link activation piggybacks on hover state.
+            let mut steps = vec![Step::Send(TabCommand::MouseMove { x, y })];
+            if kind.eq_ignore_ascii_case("click") {
+                steps.extend([down, up]);
+            } else if kind.eq_ignore_ascii_case("dblclick") {
+                steps.extend([down.clone(), up.clone(), down, up]);
+            } else if kind.eq_ignore_ascii_case("press") {
+                steps.push(down);
+            } else if kind.eq_ignore_ascii_case("release") {
+                steps.push(up);
+            }
+            steps
+        }
+        _ => {
+            eprintln!(
+                "Unknown interaction '{spec}' (expected click:X,Y | dblclick:X,Y | move:X,Y | press:X,Y | release:X,Y | scroll:DX,DY | tab | shift-tab | key:NAME | type:TEXT | wait:MS)"
+            );
+            std::process::exit(2);
+        }
+    }
 }
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
@@ -120,6 +235,12 @@ fn main() {
     }));
 
     let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
+    if args.dark {
+        let _ = engine.settings().set(
+            "renderer.color_scheme",
+            gosub_config::settings::Setting::String("dark".into()),
+        );
+    }
     let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
     let mut event_rx = engine.subscribe_events();
 
@@ -228,6 +349,97 @@ fn main() {
     if args.settle > 0 {
         std::thread::sleep(Duration::from_secs(args.settle));
         while rx_redraw.try_recv().is_ok() {}
+    }
+
+    // ── Phase 1b: replay interactions, waiting for each repaint ──────────────
+    if !args.interact.is_empty() {
+        let steps: Vec<Step> = args.interact.iter().flat_map(|s| parse_interaction(s)).collect();
+        eprintln!("Replaying {} interaction(s)…", args.interact.len());
+        // Ctrl+C/X/V in the page go through the embedder; here that is a string.
+        let mut clipboard = String::new();
+        for step in steps {
+            let cmd = match step {
+                Step::Wait(d) => {
+                    std::thread::sleep(d);
+                    while rx_redraw.try_recv().is_ok() {}
+                    continue;
+                }
+                Step::Send(cmd) => cmd,
+            };
+            let is_input = matches!(
+                cmd,
+                TabCommand::MouseDown { .. } | TabCommand::KeyDown { .. } | TabCommand::MouseScroll { .. }
+            );
+            let is_move = matches!(cmd, TabCommand::MouseMove { .. });
+            // Ctrl+C/X/V: wait for the clipboard event (not a possibly stale repaint) first.
+            let clip_chord = match &cmd {
+                TabCommand::KeyDown { key, modifiers, .. }
+                    if modifiers.intersects(Modifiers::CONTROL | Modifiers::META) =>
+                {
+                    match key.as_str() {
+                        "c" | "C" => Some("c"),
+                        "x" | "X" => Some("x"),
+                        "v" | "V" => Some("v"),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            let tab_i = tab.clone();
+            TOKIO_RT.block_on(async move {
+                let _ = tab_i.send(cmd).await;
+            });
+            if is_move {
+                // Swallow the hover repaint so it isn't mistaken for the click's.
+                std::thread::sleep(Duration::from_millis(200));
+                while rx_redraw.try_recv().is_ok() {}
+                continue;
+            }
+            if !is_input {
+                continue;
+            }
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut repainted = false;
+            let mut clip_pending = clip_chord.is_some();
+            while Instant::now() < deadline {
+                while let Ok(ev) = event_rx.try_recv() {
+                    match ev {
+                        EngineEvent::ClipboardWrite { text, .. } => {
+                            clipboard = text;
+                            clip_pending = false;
+                        }
+                        EngineEvent::PasteRequested { .. } => {
+                            let tab_i = tab.clone();
+                            let text = clipboard.clone();
+                            TOKIO_RT.block_on(async move {
+                                let _ = tab_i.send(TabCommand::TextInput { text }).await;
+                            });
+                            clip_pending = false;
+                        }
+                        _ => {}
+                    }
+                }
+                if clip_pending {
+                    std::thread::sleep(Duration::from_millis(20));
+                    continue;
+                }
+                // A copy changes nothing on screen; cut/paste repaint.
+                if clip_chord == Some("c") {
+                    repainted = true;
+                    break;
+                }
+                if rx_redraw.try_recv().is_ok() {
+                    repainted = true;
+                    std::thread::sleep(Duration::from_millis(100));
+                    while rx_redraw.try_recv().is_ok() {}
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if !repainted {
+                eprintln!("(no repaint observed after interaction - focus state may be unchanged)");
+            }
+        }
     }
 
     let phase1_handle = compositor.frame_for(tab_id);
@@ -339,4 +551,7 @@ fn main() {
 
     image::save_buffer(&output, &pixels, page_w, page_h, ColorType::Rgba8).expect("save PNG");
     eprintln!("Saved {output} ({}×{})", page_w, page_h);
+    if args.timings {
+        gosub_shared::timing::dump(false);
+    }
 }

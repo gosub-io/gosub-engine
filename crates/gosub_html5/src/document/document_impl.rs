@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 use gosub_interface::css3::CssSystem;
-use gosub_interface::document::{Document, DocumentType};
+use gosub_interface::document::{ControlEditState, Document, DocumentType, OpenSelect};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
@@ -32,9 +32,25 @@ pub struct DocumentImpl<C: HasDocument> {
     pub quirks_mode: QuirksMode,
     pub stylesheets: Vec<<C::CssSystem as CssSystem>::Stylesheet>,
     hovered_nodes: parking_lot::RwLock<std::collections::HashSet<NodeId>>,
-    /// The focused element, if any (drives `:focus`). Interior-mutable like hover so the
-    /// engine can update it through the shared `Arc`.
-    focused_node: parking_lot::RwLock<Option<NodeId>>,
+    focus: parking_lot::RwLock<FocusState>,
+    /// Text controls the user has typed into; absent = still showing the markup value.
+    edits: parking_lot::RwLock<HashMap<NodeId, ControlEditState>>,
+    /// Checkboxes/radios the user has toggled; absent = the `checked` attribute.
+    checked: parking_lot::RwLock<HashMap<NodeId, bool>>,
+    /// `<select>` → option the user picked; absent = the `selected` attribute.
+    selected: parking_lot::RwLock<HashMap<NodeId, NodeId>>,
+    open_select: parking_lot::RwLock<Option<OpenSelect>>,
+    /// Controls the user resized, with their border-box size.
+    sizes: parking_lot::RwLock<HashMap<NodeId, (f64, f64)>>,
+}
+
+#[derive(Debug, Default)]
+struct FocusState {
+    node: Option<NodeId>,
+    /// `node` and its ancestors, for `:focus-within`.
+    chain: std::collections::HashSet<NodeId>,
+    /// Whether the focus ring shows (`:focus-visible`).
+    visible: bool,
 }
 
 impl<C: HasDocument> PartialEq for DocumentImpl<C> {
@@ -61,7 +77,12 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
             quirks_mode: QuirksMode::NoQuirks,
             stylesheets: Vec::new(),
             hovered_nodes: parking_lot::RwLock::new(std::collections::HashSet::new()),
-            focused_node: parking_lot::RwLock::new(None),
+            focus: parking_lot::RwLock::new(FocusState::default()),
+            edits: parking_lot::RwLock::new(HashMap::new()),
+            checked: parking_lot::RwLock::new(HashMap::new()),
+            selected: parking_lot::RwLock::new(HashMap::new()),
+            open_select: parking_lot::RwLock::new(None),
+            sizes: parking_lot::RwLock::new(HashMap::new()),
         };
         let root = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
         doc.arena.register_node(root);
@@ -377,20 +398,78 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn is_focused(&self, id: NodeId) -> bool {
-        *self.focused_node.read() == Some(id)
+        self.focus.read().node == Some(id)
+    }
+
+    fn is_focus_visible(&self, id: NodeId) -> bool {
+        let f = self.focus.read();
+        f.visible && f.node == Some(id)
+    }
+
+    fn is_focus_within(&self, id: NodeId) -> bool {
+        self.focus.read().chain.contains(&id)
+    }
+
+    fn focused_node(&self) -> Option<NodeId> {
+        self.focus.read().node
+    }
+
+    fn control_edit_state(&self, id: NodeId) -> Option<ControlEditState> {
+        self.edits.read().get(&id).cloned()
+    }
+
+    fn is_checked(&self, id: NodeId) -> bool {
+        // `option:checked` = the select's chosen option.
+        if self.tag_name(id) == Some("option") {
+            let mut cur = self.parent(id);
+            while let Some(p) = cur {
+                if self.tag_name(p) == Some("select") {
+                    return self.selected_option(p) == Some(id);
+                }
+                cur = self.parent(p);
+            }
+            return false;
+        }
+        match self.checked.read().get(&id) {
+            Some(c) => *c,
+            None => self.attribute(id, "checked").is_some(),
+        }
+    }
+
+    fn selected_option(&self, select: NodeId) -> Option<NodeId> {
+        if let Some(opt) = self.selected.read().get(&select) {
+            return Some(*opt);
+        }
+        // Default: the `selected` attribute, else the first option.
+        let mut first = None;
+        let mut stack: Vec<NodeId> = self.children(select).iter().rev().copied().collect();
+        while let Some(id) = stack.pop() {
+            match self.tag_name(id) {
+                Some("option") => {
+                    if self.attribute(id, "selected").is_some() {
+                        return Some(id);
+                    }
+                    first.get_or_insert(id);
+                }
+                Some("optgroup") => stack.extend(self.children(id).iter().rev()),
+                _ => {}
+            }
+        }
+        first
+    }
+
+    fn open_select(&self) -> Option<OpenSelect> {
+        *self.open_select.read()
+    }
+
+    fn control_size(&self, id: NodeId) -> Option<(f64, f64)> {
+        self.sizes.read().get(&id).copied()
     }
 }
 
 // ── Internal helpers (not part of Document trait) ───────────────────────────
 
 impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
-    /// Update the set of hovered nodes to the ancestor chain of `leaf` (inclusive).
-    /// Pass `None` to clear hover state. Uses interior mutability so it works through Arc.
-    /// Set (or clear) the focused element. Uses interior mutability so it works through Arc.
-    pub fn set_focused_node(&self, node: Option<NodeId>) {
-        *self.focused_node.write() = node;
-    }
-
     pub fn set_hovered_nodes(&self, leaf: Option<NodeId>) {
         let mut set = self.hovered_nodes.write();
         set.clear();
@@ -401,6 +480,79 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                     Some(parent) => id = parent,
                     None => break,
                 }
+            }
+        }
+    }
+
+    /// Move focus to `node` (`None` blurs); `visible` = show the focus ring.
+    pub fn set_focused_node(&self, node: Option<NodeId>, visible: bool) {
+        let mut f = self.focus.write();
+        f.node = node;
+        f.visible = visible;
+        f.chain.clear();
+        if let Some(mut id) = node {
+            loop {
+                f.chain.insert(id);
+                match self.arena.node_ref(id).and_then(|n| n.parent) {
+                    Some(parent) => id = parent,
+                    None => break,
+                }
+            }
+        }
+    }
+
+    /// `None` reverts to the `selected` attribute.
+    pub fn set_selected_option(&self, select: NodeId, option: Option<NodeId>) {
+        let mut map = self.selected.write();
+        match option {
+            Some(o) => {
+                map.insert(select, o);
+            }
+            None => {
+                map.remove(&select);
+            }
+        }
+    }
+
+    /// `None` reverts to the stylesheet size.
+    pub fn set_control_size(&self, id: NodeId, size: Option<(f64, f64)>) {
+        let mut map = self.sizes.write();
+        match size {
+            Some(s) => {
+                map.insert(id, s);
+            }
+            None => {
+                map.remove(&id);
+            }
+        }
+    }
+
+    pub fn set_open_select(&self, state: Option<OpenSelect>) {
+        *self.open_select.write() = state;
+    }
+
+    /// `None` reverts to the `checked` attribute.
+    pub fn set_checked(&self, id: NodeId, checked: Option<bool>) {
+        let mut map = self.checked.write();
+        match checked {
+            Some(c) => {
+                map.insert(id, c);
+            }
+            None => {
+                map.remove(&id);
+            }
+        }
+    }
+
+    /// `None` reverts to the markup value.
+    pub fn set_control_edit_state(&self, id: NodeId, state: Option<ControlEditState>) {
+        let mut edits = self.edits.write();
+        match state {
+            Some(s) => {
+                edits.insert(id, s);
+            }
+            None => {
+                edits.remove(&id);
             }
         }
     }

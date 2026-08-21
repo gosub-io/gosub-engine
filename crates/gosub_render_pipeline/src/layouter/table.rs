@@ -183,7 +183,10 @@ fn intrinsic_content_width(el: &LayoutElementNode, arena: &HashMap<LayoutElement
         // Replaced elements: use the laid-out border-box width so the column is wide enough for
         // the image *including its own CSS border* (the bare `dimension` omits it). Images are
         // never stretched to the cell width, so the border box is the true intrinsic width.
-        ElementContext::Image(_) | ElementContext::Svg(_) => el.box_model.border_box.width as f32,
+        ElementContext::Image(_)
+        | ElementContext::Svg(_)
+        | ElementContext::FormControl(_)
+        | ElementContext::SelectPopup(_) => el.box_model.border_box.width as f32,
         ElementContext::None => el
             .children
             .iter()

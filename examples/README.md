@@ -78,7 +78,18 @@ These open a real window. Each is its own package with a single binary, so they 
 `cargo run -p example-<name>`, and all accept a URL as the first argument. They require system
 graphics libraries — see the [installation instructions](../README.md#running-the-examples) in
 the root README. The full toolkit × backend matrix (winit / GTK4 / egui × Cairo / Skia /
-Skia-GPU / Vello) is documented in [`docs/examples.md`](../docs/examples.md):
+Skia-GPU / Vello) is documented in [`docs/examples.md`](../docs/examples.md).
+
+The GUI examples deliberately stay simple: load the URL given on the command line, scroll,
+hover, click links. No persistence (in-memory cookies/storage), no hand-drawn window chrome;
+the GTK/egui ones keep a toolkit-native address bar. The full interactive
+embedder (keyboard editing in forms, clipboard, cursor shapes, kinetic scrolling, dark scheme,
+persistent cookies) is [`bin/gosub-mini-browser`](../bin/gosub-mini-browser):
+
+```bash
+cargo run --release -p gosub-mini-browser -- https://example.com
+```
+
 
 ```bash
 cargo run -p example-winit-vello    # winit window, Vello/wgpu GPU rendering

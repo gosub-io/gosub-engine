@@ -25,8 +25,20 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
         | StyleProperty::BorderTopColor
         | StyleProperty::BorderRightColor
         | StyleProperty::BorderBottomColor
-        | StyleProperty::BorderLeftColor => {
+        | StyleProperty::BorderLeftColor
+        | StyleProperty::OutlineColor => {
             if let Some(s) = p.as_string() {
+                if s.eq_ignore_ascii_case("transparent") {
+                    return Some(Value::Color(0, 0, 0, 0));
+                }
+                // CSS-wide keywords: unset the declaration so the property's initial value applies
+                // (the colour parser would otherwise read them as black).
+                if matches!(
+                    s.cow_to_ascii_lowercase().as_ref(),
+                    "initial" | "unset" | "revert" | "revert-layer" | "inherit"
+                ) {
+                    return None;
+                }
                 if let Some((r, g, b, a)) = css_system_color(s) {
                     return Some(Value::Color(r, g, b, a));
                 }
@@ -118,6 +130,15 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
         | StyleProperty::BorderLeftStyle => {
             let s = p.as_string()?;
             Some(Value::BorderStyle(str_to_border_style(s)))
+        }
+        // `auto` (the UA focus ring) paints as solid.
+        StyleProperty::OutlineStyle => {
+            let s = p.as_string()?;
+            Some(Value::BorderStyle(if s.eq_ignore_ascii_case("auto") {
+                BorderStyle::Solid
+            } else {
+                str_to_border_style(s)
+            }))
         }
 
         // ── Numeric properties ─────────────────────────────────────────────
@@ -661,6 +682,17 @@ impl Default for BgImageLayout {
     }
 }
 
+/// The open `<select>` dropdown as the pipeline sees it (mirrors the engine's state).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OpenPopup {
+    pub select: NodeId,
+    pub hover: Option<usize>,
+    pub active: Option<usize>,
+    pub first_row: usize,
+    pub viewport_top: f64,
+    pub viewport_height: f64,
+}
+
 // ── PipelineDocument trait ────────────────────────────────────────────────────
 
 pub trait PipelineDocument: Send + Sync {
@@ -692,6 +724,39 @@ pub trait PipelineDocument: Send + Sync {
     /// the longhands. Defaults to "repeat both axes, intrinsic size, no offset".
     fn background_image_layout(&self, _id: NodeId) -> BgImageLayout {
         BgImageLayout::default()
+    }
+
+    fn is_focused(&self, _id: NodeId) -> bool {
+        false
+    }
+
+    /// Typed value, caret and selection of a text control; `None` = untouched.
+    fn control_edit_state(&self, _id: NodeId) -> Option<gosub_interface::document::ControlEditState> {
+        None
+    }
+
+    fn is_checked(&self, _id: NodeId) -> bool {
+        false
+    }
+
+    fn selected_option(&self, _select: NodeId) -> Option<NodeId> {
+        None
+    }
+
+    /// The open `<select>` dropdown, if any.
+    fn open_select(&self) -> Option<OpenPopup> {
+        None
+    }
+
+    /// Border-box size the user resized a control to.
+    fn control_size(&self, _id: NodeId) -> Option<(f64, f64)> {
+        None
+    }
+
+    /// The translation part of CSS `transform` (`translate`/`translateX`/`translateY`), each axis
+    /// in px or a percentage of the element's own box. Other transform functions are ignored.
+    fn transform_translate(&self, _id: NodeId) -> Option<(Value, Value)> {
+        None
     }
 
     /// Forces the next `get_own_style` to re-evaluate CSS selectors (including `:hover`) from
@@ -780,6 +845,11 @@ const ROLE_BEFORE_ELEM: u64 = 0; // the ::before pseudo-element box
 const ROLE_AFTER_ELEM: u64 = 1; // the ::after pseudo-element box
 const ROLE_BEFORE_TEXT: u64 = 2; // generated text child of ::before
 const ROLE_AFTER_TEXT: u64 = 3; // generated text child of ::after
+
+/// The element that generated a synthetic `::before`/`::after` node id; `None` for real nodes.
+pub fn pseudo_owner(id: NodeId) -> Option<NodeId> {
+    is_pseudo_id(u64::from(id)).then(|| decode_pseudo(id).0)
+}
 
 const fn is_pseudo_id(id_val: u64) -> bool {
     id_val & PSEUDO_FLAG != 0
@@ -1063,9 +1133,14 @@ where
                 | StyleProperty::BorderRightColor
                 | StyleProperty::BorderBottomColor
                 | StyleProperty::BorderLeftColor
+                | StyleProperty::OutlineColor
         ) {
             if let Some(p) = <_ as CssPropertyMap<C::CssSystem>>::get(map, css_name) {
-                if p.as_string().is_some_and(|s| s.eq_ignore_ascii_case("currentcolor")) {
+                // `outline-color: auto` (the initial value) follows the text color too.
+                if p.as_string().is_some_and(|s| {
+                    s.eq_ignore_ascii_case("currentcolor")
+                        || (matches!(prop, StyleProperty::OutlineColor) && s.eq_ignore_ascii_case("auto"))
+                }) {
                     return Some(self.get_style(id, &StyleProperty::Color));
                 }
             }
@@ -1184,6 +1259,51 @@ where
             return None;
         }
         self.doc.tag_name(id).map(|s| s.to_string())
+    }
+
+    fn is_focused(&self, id: NodeId) -> bool {
+        self.doc.is_focused(id)
+    }
+
+    fn control_edit_state(&self, id: NodeId) -> Option<gosub_interface::document::ControlEditState> {
+        self.doc.control_edit_state(id)
+    }
+
+    fn is_checked(&self, id: NodeId) -> bool {
+        self.doc.is_checked(id)
+    }
+
+    fn selected_option(&self, select: NodeId) -> Option<NodeId> {
+        self.doc.selected_option(select)
+    }
+
+    fn open_select(&self) -> Option<OpenPopup> {
+        self.doc.open_select().map(|o| OpenPopup {
+            select: o.select,
+            hover: o.hover,
+            active: o.active,
+            first_row: o.first_row,
+            viewport_top: o.viewport.0,
+            viewport_height: o.viewport.1,
+        })
+    }
+
+    fn control_size(&self, id: NodeId) -> Option<(f64, f64)> {
+        self.doc.control_size(id)
+    }
+
+    fn transform_translate(&self, id: NodeId) -> Option<(Value, Value)> {
+        let arc = if is_pseudo_id(u64::from(id)) {
+            let (owner, role) = decode_pseudo(id);
+            if role_is_text(role) {
+                return None;
+            }
+            self.pseudo_box(owner, role_is_after(role))?.styles.clone()
+        } else {
+            self.cached_styles(id)
+        };
+        let p = <_ as CssPropertyMap<C::CssSystem>>::get(arc.as_ref(), "transform")?;
+        translate_of::<C::CssSystem>(p)
     }
 
     fn is_display_none(&self, id: NodeId) -> bool {
@@ -1496,6 +1616,7 @@ fn border_width_peer_style(prop: &StyleProperty) -> Option<StyleProperty> {
         StyleProperty::BorderRightWidth => StyleProperty::BorderRightStyle,
         StyleProperty::BorderBottomWidth => StyleProperty::BorderBottomStyle,
         StyleProperty::BorderLeftWidth => StyleProperty::BorderLeftStyle,
+        StyleProperty::OutlineWidth => StyleProperty::OutlineStyle,
         _ => return None,
     })
 }
@@ -1515,6 +1636,55 @@ fn str_to_border_style(s: &str) -> BorderStyle {
     }
 }
 
+/// Sum the translate functions of a `transform` list; `None` when there is no translation.
+fn translate_of<S: CssSystem>(p: &S::Property) -> Option<(Value, Value)> {
+    fn length<S: CssSystem>(v: &S::Value) -> Option<Value> {
+        if let Some(pct) = v.as_percentage() {
+            return Some(Value::Unit(pct, Unit::Percent));
+        }
+        if v.as_unit().is_some() {
+            return Some(Value::Unit(v.unit_to_px(), Unit::Px));
+        }
+        v.as_number().map(|n| Value::Unit(n, Unit::Px))
+    }
+    fn add(a: Value, b: Value) -> Value {
+        match (a, b) {
+            (Value::Unit(x, ux), Value::Unit(y, uy)) if ux == uy => Value::Unit(x + y, ux),
+            // Mixed px/% can't be summed without the box; keep the later one.
+            (_, b) => b,
+        }
+    }
+    let funcs: Vec<(&str, &[S::Value])> = match p.as_function() {
+        Some(f) => vec![f],
+        None => p.as_list()?.iter().filter_map(|v| v.as_function()).collect(),
+    };
+    let mut out: Option<(Value, Value)> = None;
+    for (name, args) in funcs {
+        let args: Vec<&S::Value> = args.iter().filter(|a| !a.is_comma()).collect();
+        let zero = Value::Unit(0.0, Unit::Px);
+        let (dx, dy) = match name.cow_to_ascii_lowercase().as_ref() {
+            "translate" => (
+                args.first().and_then(|a| length::<S>(a)).unwrap_or(zero.clone()),
+                args.get(1).and_then(|a| length::<S>(a)).unwrap_or(zero.clone()),
+            ),
+            "translatex" => (
+                args.first().and_then(|a| length::<S>(a)).unwrap_or(zero.clone()),
+                zero.clone(),
+            ),
+            "translatey" => (
+                zero.clone(),
+                args.first().and_then(|a| length::<S>(a)).unwrap_or(zero.clone()),
+            ),
+            _ => continue,
+        };
+        out = Some(match out {
+            None => (dx, dy),
+            Some((x, y)) => (add(x, dx), add(y, dy)),
+        });
+    }
+    out
+}
+
 /// Intercepts system color keywords before the normal parse path, since `RgbColor::from` returns
 /// black for any string it doesn't recognise.
 fn css_system_color(name: &str) -> Option<(u8, u8, u8, u8)> {
@@ -1527,6 +1697,8 @@ fn css_system_color(name: &str) -> Option<(u8, u8, u8, u8)> {
         "fieldtext" | "canvastext" | "buttontext" | "graytext" => Some((0, 0, 0, 255)),
         "buttonface" | "threedface" => Some((240, 240, 240, 255)),
         "buttonborder" | "threedlightshadow" | "threedhighlight" => Some((160, 160, 160, 255)),
+        // Gosub blue; the cascade strips the vendor prefix before we see it.
+        "-webkit-focus-ring-color" | "focus-ring-color" => Some((0x23, 0x82, 0xeb, 255)),
         // Selection / highlights
         "highlight" | "selecteditem" | "activecaption" => Some((0, 120, 215, 255)),
         "highlighttext" | "selecteditemtext" | "captiontext" => Some((255, 255, 255, 255)),
