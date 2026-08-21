@@ -89,6 +89,11 @@ pub enum ElementContext {
     Text(ElementContextText),
     Image(ElementContextImage),
     Svg(ElementContextSvg),
+    /// Synthetic overlay appended as a collapsed table's LAST child: paints every listed
+    /// cell's collapsed border AFTER the table's content, per the css-tables resolution
+    /// that collapsed borders paint in front of all table descendants
+    /// (w3c/csswg-drafts#11570). Carries the cells (in paint order) whose borders it owns.
+    TableBorderOverlay(Vec<LayoutElementId>),
 }
 
 impl ElementContext {
@@ -152,6 +157,30 @@ pub struct LayoutElementNode {
     pub context: ElementContext,
     /// Resolved CSS `background-image`, loaded into the media store during layout.
     pub background_media: Option<BackgroundMedia>,
+    /// `Some` for cells of a `border-collapse` table: how the painter must
+    /// draw this cell's borders instead of reading the CSS border properties.
+    pub collapsed_borders: Option<CollapsedCellBorders>,
+}
+
+/// Paint instructions for one collapsed table cell's borders, produced by the
+/// table layouter. Collapsed borders are centered on the grid lines and each
+/// cell paints its own half of every boundary, so the rendered table doesn't
+/// depend on the order cells are painted in (a later cell's opaque background
+/// can never cover an earlier cell's border). Edge order everywhere:
+/// `[top, right, bottom, left]`.
+#[derive(Debug, Clone, Copy)]
+pub struct CollapsedCellBorders {
+    /// Width to paint per edge - the cell's layout border, i.e. half the
+    /// resolved boundary width.
+    pub widths: [f32; 4],
+    /// Extra distance the painted edge extends outside the border box. Only
+    /// non-zero on table-perimeter edges, where the other half of the border
+    /// sticks out of the table box (nothing paints over it there).
+    pub outsets: [f32; 4],
+    /// Node whose CSS border color/style paints each edge: `None` for the
+    /// cell's own border, `Some(winner)` when this edge lost its conflict and
+    /// must render in the adjacent winner's style.
+    pub owners: [Option<DomNodeId>; 4],
 }
 
 /// A resolved CSS `background-image` and its media kind. The painter finalizes tile geometry once

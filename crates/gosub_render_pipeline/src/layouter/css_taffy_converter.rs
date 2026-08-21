@@ -110,7 +110,7 @@ impl<'a> CssTaffyConverter<'a> {
 
         // Adjust display for table and inline elements.
         match self.get_own(&StyleProperty::Display) {
-            Some(Value::Display(CssDisplay::Table)) => {
+            Some(Value::Display(CssDisplay::Table | CssDisplay::InlineTable)) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Column;
             }
@@ -119,7 +119,9 @@ impl<'a> CssTaffyConverter<'a> {
                 ts.flex_direction = FlexDirection::Row;
             }
             Some(Value::Display(CssDisplay::TableCell)) => {
-                ts.display = Display::Flex;
+                // Block inner layout so child blocks stack vertically; flex_grow
+                // still applies to the cell as an item of its flex-row row.
+                ts.display = Display::Block;
                 ts.flex_grow = 1.0;
             }
             Some(Value::Display(CssDisplay::TableFooterGroup)) => {
@@ -133,6 +135,11 @@ impl<'a> CssTaffyConverter<'a> {
             Some(Value::Display(CssDisplay::TableRowGroup)) => {
                 ts.display = Display::Flex;
                 ts.flex_direction = FlexDirection::Column;
+            }
+            // <col>/<colgroup> generate no boxes; lattice reads their widths
+            // straight from the DOM.
+            Some(Value::Display(CssDisplay::TableColumn | CssDisplay::TableColumnGroup)) => {
+                ts.display = Display::None;
             }
             Some(Value::Display(CssDisplay::InlineBlock)) => {
                 ts.display = Display::Flex;
@@ -155,6 +162,21 @@ impl<'a> CssTaffyConverter<'a> {
                 ts.display = Display::Grid;
             }
             _ => {}
+        }
+
+        // CSS 2 §10.3.7: an absolutely-positioned box with `width: auto` shrinks to fit but
+        // never beyond its containing block. Taffy sizes such children to raw fit-content
+        // (an abs-positioned wide table would overflow the viewport), so cap the BORDER box
+        // at 100%. Flipping box-sizing is safe here: it only reinterprets non-auto sizes,
+        // and every size except the cap itself is auto in this branch.
+        if ts.position == Position::Absolute
+            && ts.size.width.is_auto()
+            && ts.size.height.is_auto()
+            && ts.max_size.width.is_auto()
+            && ts.min_size.width.is_auto()
+        {
+            ts.box_sizing = BoxSizing::BorderBox;
+            ts.max_size.width = Dimension::percent(1.0);
         }
 
         ts

@@ -130,6 +130,11 @@ pub trait CssProperty<S: CssSystem>: Debug + Display + Sized + From<S::Value> {
     fn as_function(&self) -> Option<(&str, &[S::Value])>;
 
     fn is_none(&self) -> bool;
+
+    /// Origin of the cascade-winning declaration for this property, if any was declared.
+    /// Lets consumers slot HTML presentational hints (`cellspacing`, `cellpadding`, ...)
+    /// between user-agent and author styles.
+    fn winning_origin(&self) -> Option<CssOrigin>;
 }
 
 pub trait CssValue: Sized {

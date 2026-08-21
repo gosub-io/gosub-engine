@@ -109,6 +109,20 @@ impl BoxEdges {
     }
 }
 
+/// `vertical-align` on a table cell - the subset that applies to cell boxes.
+/// `baseline` (the CSS initial) is approximated as `Top` until real first-line
+/// baseline metrics are available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VerticalAlign {
+    #[default]
+    Top,
+    Middle,
+    Bottom,
+    /// Align the cell's first in-flow line baseline with the row baseline
+    /// (CSS 2 §17.5.3). Cells without a line box fall back to Top.
+    Baseline,
+}
+
 /// The computed layout written back to the tree for each table-internal node.
 #[derive(Debug, Clone)]
 pub struct CellLayout {
@@ -118,6 +132,21 @@ pub struct CellLayout {
     pub size: Size,
     pub border: BoxEdges,
     pub padding: BoxEdges,
+    /// Vertical offset the host should add to the cell's *children* (relative
+    /// to the content-box top) to realize `vertical-align` when the cell is
+    /// taller than its content. Always 0 for non-cell nodes.
+    pub content_offset_y: f32,
+    /// Border edges the host should NOT paint, as `[top, right, bottom, left]`.
+    /// Under `border-collapse` every shared boundary is painted by exactly one
+    /// of the two adjacent cells (the wider border wins; ties go to the
+    /// left/top cell) - the losing cell gets its edge flagged here.
+    pub suppressed_borders: [bool; 4],
+    /// How far outside the border box each painted edge extends, as
+    /// `[top, right, bottom, left]` px. Collapsed borders are centered on the
+    /// grid line: the cell's layout only reserves half the border (in
+    /// `border`), and the winning cell paints its full border shifted outward
+    /// by the other half. Zero everywhere for separate-border tables.
+    pub border_outsets: [f32; 4],
 }
 
 impl Default for CellLayout {
@@ -127,6 +156,9 @@ impl Default for CellLayout {
             size: Size::new(0.0, 0.0),
             border: BoxEdges::default(),
             padding: BoxEdges::default(),
+            content_offset_y: 0.0,
+            suppressed_borders: [false; 4],
+            border_outsets: [0.0; 4],
         }
     }
 }
@@ -139,6 +171,21 @@ pub enum TableSizing {
     Auto,
     /// `table-layout: fixed` - column widths from first row / `<col>` elements.
     Fixed,
+}
+
+/// Per-cell result of border-collapse conflict resolution.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CollapsedBorders {
+    /// The layout border: HALF the resolved boundary width on every edge
+    /// (collapsed borders are centered on the grid lines, so each adjacent
+    /// cell's geometry carries half; outer table edges carry half too, the
+    /// other half sticking out of the table box like in browsers).
+    pub layout: BoxEdges,
+    /// Edges this cell lost - it paints nothing there.
+    pub suppressed: [bool; 4],
+    /// Paint outset per edge (`[top, right, bottom, left]`): the winning cell
+    /// paints its full CSS border shifted outward by half its width.
+    pub outsets: [f32; 4],
 }
 
 /// `border-collapse` property.

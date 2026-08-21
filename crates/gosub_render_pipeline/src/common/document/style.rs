@@ -59,12 +59,21 @@ pub enum Display {
     Grid,
     InlineGrid,
     Table,
+    /// Table interior, but participates in its parent's inline formatting context
+    /// (CSS 2.1 §17.4). Table machinery treats it as `Table` (via `display_of`
+    /// normalization and explicit matches); only the layouter's line grouping sees
+    /// its inline-level nature (the Node carries `InlineBlock`).
+    InlineTable,
     TableCaption,
     TableCell,
     TableFooterGroup,
     TableHeaderGroup,
     TableRow,
     TableRowGroup,
+    /// `<col>` - defines column properties, generates no box of its own.
+    TableColumn,
+    /// `<colgroup>` - groups `<col>` elements, generates no box of its own.
+    TableColumnGroup,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -157,12 +166,15 @@ impl Value {
                 Display::Grid => "grid",
                 Display::InlineGrid => "inline-grid",
                 Display::Table => "table",
+                Display::InlineTable => "inline-table",
                 Display::TableCaption => "table-caption",
                 Display::TableCell => "table-cell",
                 Display::TableFooterGroup => "table-footer-group",
                 Display::TableHeaderGroup => "table-header-group",
                 Display::TableRow => "table-row",
                 Display::TableRowGroup => "table-row-group",
+                Display::TableColumn => "table-column",
+                Display::TableColumnGroup => "table-column-group",
             }
             .to_string(),
             Value::FontWeight(fw) => match fw {
@@ -299,6 +311,19 @@ pub enum StyleProperty {
     ZIndex,
     LetterSpacing,
     MixBlendMode,
+    /// Horizontal component of `border-spacing` (both variants read the same
+    /// declaration; X takes the first length, Y the second, per CSS 2 §17.6.1).
+    BorderSpacingX,
+    /// Vertical component of `border-spacing`.
+    BorderSpacingY,
+    /// `table-layout`: `auto` | `fixed`.
+    TableLayout,
+    /// `vertical-align` (keyword form; only cell alignment is consumed so far).
+    VerticalAlign,
+    /// `border-collapse`: `separate` | `collapse`.
+    BorderCollapse,
+    /// `caption-side`: `top` | `bottom`.
+    CaptionSide,
 }
 
 impl StyleProperty {
@@ -383,6 +408,12 @@ impl StyleProperty {
             StyleProperty::ZIndex => 75,
             StyleProperty::LetterSpacing => 76,
             StyleProperty::MixBlendMode => 77,
+            StyleProperty::BorderSpacingX => 78,
+            StyleProperty::BorderSpacingY => 79,
+            StyleProperty::TableLayout => 80,
+            StyleProperty::VerticalAlign => 81,
+            StyleProperty::BorderCollapse => 82,
+            StyleProperty::CaptionSide => 83,
         }
     }
 
@@ -917,6 +948,43 @@ static PROPERTIES: &[PropertyMeta] = &[
         inherited: false,
         initial_kind: InitialKind::Keyword("normal"),
     },
+    // 78/79 border-spacing - inherited; initial = 0. Two internal longhands share the
+    // one CSS declaration: the value bridge picks the first length for X, second for Y.
+    PropertyMeta {
+        name: "border-spacing",
+        inherited: true,
+        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+    },
+    PropertyMeta {
+        name: "border-spacing",
+        inherited: true,
+        initial_kind: InitialKind::Unit(0.0, Unit::Px),
+    },
+    // 80 table-layout
+    PropertyMeta {
+        name: "table-layout",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("auto"),
+    },
+    // 81 vertical-align - not inherited per CSS; the HTML rendering spec puts
+    // `vertical-align: inherit` on cells, which consumers resolve by walking up.
+    PropertyMeta {
+        name: "vertical-align",
+        inherited: false,
+        initial_kind: InitialKind::Keyword("baseline"),
+    },
+    // 82 border-collapse
+    PropertyMeta {
+        name: "border-collapse",
+        inherited: true,
+        initial_kind: InitialKind::Keyword("separate"),
+    },
+    // 83 caption-side
+    PropertyMeta {
+        name: "caption-side",
+        inherited: true,
+        initial_kind: InitialKind::Keyword("top"),
+    },
 ];
 
 // ── NodeStyle - replaces StylePropertyList ────────────────────────────────────
@@ -1056,6 +1124,12 @@ fn from_id(id: u8) -> Option<StyleProperty> {
         75 => Some(StyleProperty::ZIndex),
         76 => Some(StyleProperty::LetterSpacing),
         77 => Some(StyleProperty::MixBlendMode),
+        78 => Some(StyleProperty::BorderSpacingX),
+        79 => Some(StyleProperty::BorderSpacingY),
+        80 => Some(StyleProperty::TableLayout),
+        81 => Some(StyleProperty::VerticalAlign),
+        82 => Some(StyleProperty::BorderCollapse),
+        83 => Some(StyleProperty::CaptionSide),
         _ => None,
     }
 }

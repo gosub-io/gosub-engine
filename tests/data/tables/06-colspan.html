@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>06 - colspan</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; }
+  td { border: 1px solid #999; padding: 6px; background-color: #e8f0fe; }
+  .span { background-color: #ffd9b3; }
+</style>
+</head>
+<body>
+<h3>Colspan - spans of 2, 3, full width, and overflowing</h3>
+<p>Expected: orange cells span the stated columns; the width of a spanning
+cell equals the sum of its columns plus the gutters between them. The last
+row's colspan=9 exceeds the 4-column grid and must not widen the table.</p>
+<table>
+  <tr><td>c1</td><td>c2</td><td>c3</td><td>c4</td></tr>
+  <tr><td class="span" colspan="2">span 2</td><td>c3</td><td>c4</td></tr>
+  <tr><td>c1</td><td class="span" colspan="3">span 3</td></tr>
+  <tr><td class="span" colspan="4">span all 4</td></tr>
+  <tr><td class="span" colspan="9">colspan 9 (clamped)</td></tr>
+</table>
+</body>
+</html>

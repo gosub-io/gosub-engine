@@ -8,7 +8,7 @@ use crate::common::font::{FontAlignment, FontInfo};
 use crate::common::geo::Rect;
 use crate::common::media::MediaStore;
 use crate::layering::layer::LayerList;
-use crate::layouter::{BackgroundMedia, ElementContext, LayoutElementId, LayoutElementNode};
+use crate::layouter::{BackgroundMedia, CollapsedCellBorders, ElementContext, LayoutElementId, LayoutElementNode};
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::color::Color;
@@ -59,7 +59,7 @@ fn paint_text_style(font_info: &FontInfo, rect_width: f64, available_width: f64)
             FontStyle::Normal
         },
         stretch: FontStretch::NORMAL,
-        line_height: Some(font_info.line_height as f32),
+        line_height: font_info.line_height.map(|v| v as f32),
         letter_spacing: font_info.letter_spacing as f32,
         max_width: Some(max_width),
         align,
@@ -273,7 +273,7 @@ impl Painter {
             weight: 400,
             width: 100,
             slant: 0,
-            line_height: size * 1.4,
+            line_height: None,
             letter_spacing: 0.0,
             alignment: FontAlignment::Start,
             underline: false,
@@ -334,7 +334,7 @@ impl Painter {
     ) -> Vec<PaintCommand> {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
         let color = match doc.get_own_style(dom_node_id, &StyleProperty::Display) {
-            Some(Value::Display(Display::Table)) => Color::from_rgb8(255, 0, 0),
+            Some(Value::Display(Display::Table | Display::InlineTable)) => Color::from_rgb8(255, 0, 0),
             Some(Value::Display(Display::TableCell)) => Color::from_rgb8(0, 180, 0),
             Some(Value::Display(Display::TableRow)) => Color::from_rgb8(0, 0, 255),
             Some(Value::Display(Display::TableRowGroup))
@@ -379,7 +379,7 @@ impl Painter {
                 let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));
-                let r = self.decorate_with_border_and_radius(dom_node_id, r);
+                let r = self.decorate_with_border_and_radius(dom_node_id, None, r);
                 vec![PaintCommand::rectangle(r)]
             }
             BackgroundMedia::Svg(media_id) => vec![PaintCommand::svg(media_id, Rectangle::new(border_box))],
@@ -421,7 +421,7 @@ impl Painter {
                 // separate border-only rectangle painted on top of the icon (e.g. the HN logo's
                 // `border:1px white solid`).
                 if self.has_border(dom_node_id) {
-                    let r = self.decorate_with_border_and_radius(dom_node_id, Rectangle::new(border_box));
+                    let r = self.decorate_with_border_and_radius(dom_node_id, None, Rectangle::new(border_box));
                     commands.push(PaintCommand::rectangle(r));
                 }
             }
@@ -436,9 +436,11 @@ impl Painter {
                     let bg_r = Rectangle::new(border_box)
                         .with_background(bg_brush)
                         .with_blend_mode(blend);
-                    commands.push(PaintCommand::rectangle(
-                        self.decorate_with_border_and_radius(dom_node_id, bg_r),
-                    ));
+                    commands.push(PaintCommand::rectangle(self.decorate_with_border_and_radius(
+                        dom_node_id,
+                        None,
+                        bg_r,
+                    )));
                 }
 
                 let brush = Brush::image(image_ctx.media_id);
@@ -454,7 +456,7 @@ impl Painter {
                 let r = Rectangle::new(draw_box).with_background(brush).with_blend_mode(blend);
                 // The border/radius belongs to the element box, not the shrunk icon rect.
                 let border_target = if image_ctx.placeholder { border_box } else { draw_box };
-                let border_r = self.decorate_with_border_and_radius(dom_node_id, Rectangle::new(border_target));
+                let border_r = self.decorate_with_border_and_radius(dom_node_id, None, Rectangle::new(border_target));
                 if image_ctx.placeholder {
                     commands.push(PaintCommand::rectangle(r));
                     // Emit the element border separately so it frames the full reserved box.
@@ -462,7 +464,7 @@ impl Painter {
                         commands.push(PaintCommand::rectangle(border_r));
                     }
                 } else {
-                    let r = self.decorate_with_border_and_radius(dom_node_id, r);
+                    let r = self.decorate_with_border_and_radius(dom_node_id, None, r);
                     commands.push(PaintCommand::rectangle(r));
                 }
 
@@ -481,7 +483,13 @@ impl Painter {
                 let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));
-                let r = self.decorate_with_border_and_radius(dom_node_id, r);
+                // A collapsed cell paints only its background here; its border strips are
+                // painted by the table's TableBorderOverlay AFTER all table content.
+                let r = if layout_element.collapsed_borders.is_some() {
+                    r
+                } else {
+                    self.decorate_with_border_and_radius(dom_node_id, None, r)
+                };
                 commands.push(PaintCommand::rectangle(r));
 
                 // background-image paints on top of the background-color.
@@ -500,6 +508,19 @@ impl Painter {
                     commands.push(PaintCommand::rectangle(r));
                 }
             }
+            // Collapsed borders of a whole table, painted in front of its content: one
+            // border-only rectangle per collapsed cell, in cell paint order.
+            ElementContext::TableBorderOverlay(cells) => {
+                for &cell_id in cells {
+                    let Some(cell) = self.layer_list.layout_tree.get_node_by_id(cell_id) else {
+                        continue;
+                    };
+                    let Some(ref cb) = cell.collapsed_borders else { continue };
+                    let r = Rectangle::new(cell.box_model.border_box);
+                    let r = self.decorate_with_border_and_radius(cell.dom_node_id, Some(cb), r);
+                    commands.push(PaintCommand::rectangle(r));
+                }
+            }
         }
 
         commands
@@ -515,8 +536,118 @@ impl Painter {
 
     /// Apply the element's computed CSS border and border-radius to `r`. Shared by block,
     /// image and SVG elements so replaced elements (`<img>`) get their borders too.
-    fn decorate_with_border_and_radius(&self, dom_node_id: NodeId, mut r: Rectangle) -> Rectangle {
+    /// `suppressed` edges (`[top, right, bottom, left]`, from `border-collapse`
+    /// conflict resolution) are painted at zero width - the neighbouring cell
+    /// paints the shared border instead.
+    fn decorate_with_border_and_radius(
+        &self,
+        dom_node_id: NodeId,
+        collapsed: Option<&CollapsedCellBorders>,
+        mut r: Rectangle,
+    ) -> Rectangle {
         let doc = &self.layer_list.layout_tree.render_tree.doc;
+
+        // Table cells under border-collapse paint the collapse geometry, not
+        // their CSS borders: each edge at its layout width (half the resolved
+        // boundary - the adjacent cell paints the other half, so the result is
+        // independent of cell paint order), lost edges in the winning
+        // neighbour's style, and perimeter edges extended outward by the
+        // outset (the border covers the background bleed on those strips).
+        // border-radius does not apply to collapsed cells.
+        if let Some(cb) = collapsed {
+            if (0..4).all(|e| cb.widths[e] + cb.outsets[e] <= 0.0) {
+                return r;
+            }
+            let own_color = [
+                StyleProperty::BorderTopColor,
+                StyleProperty::BorderRightColor,
+                StyleProperty::BorderBottomColor,
+                StyleProperty::BorderLeftColor,
+            ];
+            let own_style = [
+                StyleProperty::BorderTopStyle,
+                StyleProperty::BorderRightStyle,
+                StyleProperty::BorderBottomStyle,
+                StyleProperty::BorderLeftStyle,
+            ];
+            // A lost edge renders the winning neighbour's FACING edge: our top
+            // is its bottom, our right is its left, and vice versa. When the winner
+            // is the TABLE itself (a perimeter boundary the table's border won),
+            // the same side applies - the table's left border faces the same way
+            // as the cell's left border.
+            let facing_color = [
+                StyleProperty::BorderBottomColor,
+                StyleProperty::BorderLeftColor,
+                StyleProperty::BorderTopColor,
+                StyleProperty::BorderRightColor,
+            ];
+            let facing_style = [
+                StyleProperty::BorderBottomStyle,
+                StyleProperty::BorderLeftStyle,
+                StyleProperty::BorderTopStyle,
+                StyleProperty::BorderRightStyle,
+            ];
+            let owner_is_table = |owner: NodeId| {
+                matches!(
+                    doc.get_own_style(owner, &StyleProperty::Display),
+                    Some(Value::Display(Display::Table | Display::InlineTable))
+                )
+            };
+
+            let brushes: [Brush; 4] = std::array::from_fn(|e| match cb.owners[e] {
+                Some(owner) if owner_is_table(owner) => {
+                    self.get_brush(owner, &own_color[e], Brush::solid(Color::BLACK))
+                }
+                Some(owner) => self.get_brush(owner, &facing_color[e], Brush::solid(Color::BLACK)),
+                None => self.get_brush(dom_node_id, &own_color[e], Brush::solid(Color::BLACK)),
+            });
+            let styles: [BorderStyle; 4] = std::array::from_fn(|e| {
+                let (node, prop) = match cb.owners[e] {
+                    Some(owner) if owner_is_table(owner) => (owner, &own_style[e]),
+                    Some(owner) => (owner, &facing_style[e]),
+                    None => (dom_node_id, &own_style[e]),
+                };
+                match doc.get_style(node, prop) {
+                    Value::BorderStyle(s) => css_border_style_to_paint(&s),
+                    _ => BorderStyle::Solid,
+                }
+            });
+            // Snap the box and the strip ends to whole device pixels. The two
+            // cells of a boundary compute their strip ends from the SAME edge
+            // coordinate, so they snap identically and the half-strips abut
+            // without a double-AA seam - and thin borders land on whole
+            // pixels (a fractional 0.5+0.5 split would render as two
+            // half-alpha rows instead of one crisp line).
+            let rect = r.rect();
+            let (x0, y0) = (rect.x, rect.y);
+            let (x1, y1) = (rect.x + rect.width, rect.y + rect.height);
+            let top = (y0 - cb.outsets[0] as f64).round();
+            let right = (x1 + cb.outsets[1] as f64).round();
+            let bottom = (y1 + cb.outsets[2] as f64).round();
+            let left = (x0 - cb.outsets[3] as f64).round();
+            let widths = [
+                ((y0 + cb.widths[0] as f64).round() - top) as f32,
+                (right - (x1 - cb.widths[1] as f64).round()) as f32,
+                (bottom - (y1 - cb.widths[2] as f64).round()) as f32,
+                ((x0 + cb.widths[3] as f64).round() - left) as f32,
+            ];
+            return r
+                .with_rect(Rect::new(left, top, right - left, bottom - top))
+                .with_border(Border::new_per_side(widths, styles, brushes));
+        }
+
+        // A collapsed table's boundary is painted entirely by its perimeter cells
+        // (their halves + outsets, in whatever style won the conflict); painting the
+        // table's own CSS border as well would double-draw the losing style on top.
+        if matches!(
+            doc.get_own_style(dom_node_id, &StyleProperty::Display),
+            Some(Value::Display(Display::Table | Display::InlineTable))
+        ) && matches!(
+            doc.get_style(dom_node_id, &StyleProperty::BorderCollapse),
+            Value::Keyword(k) if lookup(k) == "collapse"
+        ) {
+            return r;
+        }
 
         let border_top_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderTopWidth);
         let border_right_width = doc.get_style_f32(dom_node_id, &StyleProperty::BorderRightWidth);

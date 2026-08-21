@@ -83,13 +83,18 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_
         paint.set_blend_mode(to_skia_blend_mode(cmd.blend_mode()));
         paint.set_stroke_width(border.width());
         paint.set_style(skia_safe::paint::Style::Stroke);
+        // Skia centers a stroke on the path; inset by half the border width so
+        // the whole border lies inside the border box (a centered stroke bleeds
+        // into the neighbouring element and gets painted over - visibly halving
+        // collapsed table borders).
+        let half = border.width() / 2.0;
         draw_rect_or_rounded(
             canvas,
             cmd,
-            r.x as f32,
-            r.y as f32,
-            r.width as f32,
-            r.height as f32,
+            r.x as f32 + half,
+            r.y as f32 + half,
+            (r.width as f32 - border.width()).max(0.0),
+            (r.height as f32 - border.width()).max(0.0),
             &paint,
         );
     }

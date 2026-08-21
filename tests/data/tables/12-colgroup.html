@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>12 - colgroup and col widths</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  table { border-spacing: 2px; width: 600px; }
+  td { border: 1px solid #999; padding: 6px; background-color: #e8f0fe; }
+  .c1 { width: 80px; background-color: #ffe9d9; }
+  .c2 { width: 40%; background-color: #e2ffd9; }
+</style>
+</head>
+<body>
+<h3>&lt;colgroup&gt;/&lt;col&gt; widths - 80px, 40%, auto in a 600px table</h3>
+<p>Expected: column 1 is 80px, column 2 is 40% of 600px = 240px, column 3
+takes the rest. No cell carries a width - everything comes from the col
+elements. (Col background colors are a bonus check; width is the real
+test.)</p>
+<table>
+  <colgroup>
+    <col class="c1">
+    <col class="c2">
+    <col>
+  </colgroup>
+  <tr><td>a</td><td>b</td><td>c</td></tr>
+  <tr><td>d</td><td>e</td><td>f</td></tr>
+</table>
+</body>
+</html>

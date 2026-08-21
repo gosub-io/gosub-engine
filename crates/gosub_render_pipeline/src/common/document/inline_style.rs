@@ -258,6 +258,27 @@ fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
 
         "border" => apply_border_shorthand(style, value),
 
+        "vertical-align" => style.set(StyleProperty::VerticalAlign, parse_style_str(value)),
+        "border-collapse" => style.set(StyleProperty::BorderCollapse, parse_style_str(value)),
+        "caption-side" => style.set(StyleProperty::CaptionSide, parse_style_str(value)),
+
+        // One length applies to both axes; two are horizontal then vertical.
+        "border-spacing" => {
+            let parts: Vec<&str> = value.split_whitespace().collect();
+            match parts.as_slice() {
+                [both] => {
+                    let v = parse_style_value(both);
+                    style.set(StyleProperty::BorderSpacingX, v.clone());
+                    style.set(StyleProperty::BorderSpacingY, v);
+                }
+                [x, y, ..] => {
+                    style.set(StyleProperty::BorderSpacingX, parse_style_value(x));
+                    style.set(StyleProperty::BorderSpacingY, parse_style_value(y));
+                }
+                [] => {}
+            }
+        }
+
         "color" => style.set(StyleProperty::Color, parse_named_color(value)),
         "background-color" => style.set(StyleProperty::BackgroundColor, parse_named_color(value)),
         "background" => {
@@ -373,7 +394,7 @@ fn parse_text_align(val: &str) -> Value {
         "right" => Value::TextAlign(TextAlign::End),
         "start" => Value::TextAlign(TextAlign::Start),
         "end" => Value::TextAlign(TextAlign::End),
-        "center" => Value::TextAlign(TextAlign::Center),
+        "center" | "-webkit-center" => Value::TextAlign(TextAlign::Center),
         "justify" => Value::TextAlign(TextAlign::Justify),
         _ => Value::TextAlign(TextAlign::Start),
     }
@@ -398,12 +419,15 @@ fn parse_display(value: &str) -> Value {
         "grid" => Value::Display(Display::Grid),
         "inline-grid" => Value::Display(Display::InlineGrid),
         "table" => Value::Display(Display::Table),
+        "inline-table" => Value::Display(Display::InlineTable),
         "table-caption" => Value::Display(Display::TableCaption),
         "table-cell" => Value::Display(Display::TableCell),
         "table-footer-group" => Value::Display(Display::TableFooterGroup),
         "table-header-group" => Value::Display(Display::TableHeaderGroup),
         "table-row" => Value::Display(Display::TableRow),
         "table-row-group" => Value::Display(Display::TableRowGroup),
+        "table-column" => Value::Display(Display::TableColumn),
+        "table-column-group" => Value::Display(Display::TableColumnGroup),
         _ => Value::Keyword(intern(value)),
     }
 }

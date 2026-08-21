@@ -60,7 +60,9 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
         return;
     }
 
-    setup_rectangle_path(cr, rectangle);
+    // Stroke a path inset by half the border width so the whole border lies
+    // inside the border box (see setup_inset_path).
+    setup_inset_path(cr, rectangle, rectangle.border().width() as f64 / 2.0);
 
     cr.set_line_width(rectangle.border().width() as f64);
     set_brush(cr, &rectangle.border().brush(), rectangle.rect(), media_store);
@@ -152,49 +154,58 @@ fn paint_per_side_border(cr: &Context, rectangle: &Rectangle, media_store: &Medi
 }
 
 fn setup_rectangle_path(cr: &Context, rect: &Rectangle) {
+    setup_inset_path(cr, rect, 0.0);
+}
+
+/// Builds the rectangle path inset by `inset` on every side. Cairo centers a
+/// stroke's pen on the path, so a border of width `w` must stroke a path inset
+/// by `w / 2` to stay entirely inside the border box (CSS borders never paint
+/// outside it - a centered stroke bleeds into the neighbouring element and
+/// gets painted over, which visibly halved collapsed table borders).
+fn setup_inset_path(cr: &Context, rect: &Rectangle, inset: f64) {
     let (r_tl, r_tr, r_br, r_bl) = rect.radius_x();
 
+    let x = rect.rect().x + inset;
+    let y = rect.rect().y + inset;
+    let width = (rect.rect().width - 2.0 * inset).max(0.0);
+    let height = (rect.rect().height - 2.0 * inset).max(0.0);
+    let r_tl = (r_tl - inset).max(0.0);
+    let r_tr = (r_tr - inset).max(0.0);
+    let r_br = (r_br - inset).max(0.0);
+    let r_bl = (r_bl - inset).max(0.0);
+
     if r_tl == 0.0 && r_tr == 0.0 && r_br == 0.0 && r_bl == 0.0 {
-        cr.rectangle(rect.rect().x, rect.rect().y, rect.rect().width, rect.rect().height);
+        cr.rectangle(x, y, width, height);
         return;
     }
 
-    cr.move_to(rect.rect().x + r_tl, rect.rect().y);
+    cr.move_to(x + r_tl, y);
 
-    cr.line_to(rect.rect().x + rect.rect().width - r_tr, rect.rect().y);
-    cr.arc(
-        rect.rect().x + rect.rect().width - r_tr,
-        rect.rect().y + r_tr,
-        r_tr,
-        -0.5 * std::f64::consts::PI,
-        0.0,
-    );
+    cr.line_to(x + width - r_tr, y);
+    cr.arc(x + width - r_tr, y + r_tr, r_tr, -0.5 * std::f64::consts::PI, 0.0);
 
-    cr.line_to(
-        rect.rect().x + rect.rect().width,
-        rect.rect().y + rect.rect().height - r_br,
-    );
+    cr.line_to(x + width, y + height - r_br);
     cr.arc(
-        rect.rect().x + rect.rect().width - r_br,
-        rect.rect().y + rect.rect().height - r_br,
+        x + width - r_br,
+        y + height - r_br,
         r_br,
         0.0,
         0.5 * std::f64::consts::PI,
     );
 
-    cr.line_to(rect.rect().x + r_bl, rect.rect().y + rect.rect().height);
+    cr.line_to(x + r_bl, y + height);
     cr.arc(
-        rect.rect().x + r_bl,
-        rect.rect().y + rect.rect().height - r_bl,
+        x + r_bl,
+        y + height - r_bl,
         r_bl,
         0.5 * std::f64::consts::PI,
         std::f64::consts::PI,
     );
 
-    cr.line_to(rect.rect().x, rect.rect().y + r_tl);
+    cr.line_to(x, y + r_tl);
     cr.arc(
-        rect.rect().x + r_tl,
-        rect.rect().y + r_tl,
+        x + r_tl,
+        y + r_tl,
         r_tl,
         std::f64::consts::PI,
         1.5 * std::f64::consts::PI,
