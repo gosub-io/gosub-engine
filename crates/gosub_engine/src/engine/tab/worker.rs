@@ -1395,9 +1395,21 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
         // gosub:// and about: pages are served by the engine's page registry, never fetched.
         if InternalPages::handles(&url) {
+            let (tile_count, tile_bytes) = self.context.tile_stats();
             let tab_view = TabView {
                 history: self.history.snapshot(),
                 render_backend: self.zone_context.render_backend.name(),
+                stats: crate::engine::internal_pages::TabStats {
+                    viewport_width: self.desired_viewport.width,
+                    viewport_height: self.desired_viewport.height,
+                    scroll_x: self.scroll_x as f64,
+                    scroll_y: self.scroll_y as f64,
+                    page_height: self.context.page_height(),
+                    tile_count,
+                    tile_bytes,
+                    scene_epoch: self.context.scene_epoch(),
+                    raster_dpr: self.zone_context.render_backend.device_pixel_ratio(),
+                },
             };
             let page = self
                 .zone_context
