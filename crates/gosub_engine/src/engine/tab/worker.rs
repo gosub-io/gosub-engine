@@ -633,12 +633,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
         if let Ok(val) = ResourceKind::Image.accept_header().parse() {
             headers.insert(http::header::ACCEPT, val);
         }
+        // The referrer marks the requesting document; it lets file:// pages load their
+        // own icons (the file loader gates subresources on it).
         let req = FetchRequest::builder(Method::GET, icon_url.clone())
             .with_req_id(req_id)
             .with_headers(headers)
             .with_priority(Priority::Low)
             .with_kind(ResourceKind::Image.to_net())
             .with_initiator(Initiator::Other.to_net())
+            .with_referrer(base_url.clone())
             .with_streaming(false)
             .with_auto_decode(true)
             .build();

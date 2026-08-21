@@ -92,16 +92,39 @@ pub struct IoRouter {
     /// Pending UA decisions (render/download/...) keyed by decision token.
     /// Tokens are process-wide unique, so one hub serves all zones.
     decision_hub: Arc<DecisionHub>,
+    /// Observer factory for requests the engine serves itself (the `file://` scheme),
+    /// so they emit the same resource events a gosub-sonar fetch would.
+    local_ctx: EngineNetContext,
 }
 
 impl IoRouter {
     pub fn new(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Self {
+        let local_ctx = EngineNetContext {
+            event_tx: engine_ctx.event_tx.clone(),
+            request_reference_map: engine_ctx.request_reference_map.clone(),
+            request_ref_tracker: Arc::new(RequestRefTracker::new()),
+        };
         Self {
             zones: DashMap::new(),
             cfg,
             engine_ctx,
             decision_hub: Arc::new(DecisionHub::new()),
+            local_ctx,
         }
+    }
+
+    /// Serve a `file://` request from disk on its own task (never through gosub-sonar,
+    /// which only speaks http(s)). Policy lives in [`crate::net::file_loader`].
+    fn serve_file_request(&self, req: FetchRequest, reply_tx: oneshot::Sender<crate::net::types::FetchResult>) {
+        use gosub_sonar::net::fetcher_context::FetcherContext;
+        let enabled = self.engine_ctx.config_store.get_bool("net.file.enabled");
+        let observer = self
+            .local_ctx
+            .observer_for(req.reference, req.req_id, req.kind, req.initiator);
+        spawn_named("file-loader", async move {
+            let result = crate::net::file_loader::serve(&req, enabled, observer).await;
+            let _ = reply_tx.send(result);
+        });
     }
 
     pub fn get_or_spawn_zone_fetcher(&self, zone_id: ZoneId) -> Result<Arc<Fetcher>, EngineError> {
@@ -231,6 +254,12 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                 maybe_req = rx_submit.recv() => {
                     match maybe_req {
                         Some(IoCommand::Fetch { zone_id, req, handle, reply_tx }) => {
+                            // The engine serves file:// itself; everything else goes to the
+                            // zone's gosub-sonar fetcher.
+                            if crate::net::file_loader::handles(&req) {
+                                router.serve_file_request(req, reply_tx);
+                                continue;
+                            }
                             // The I/O thread must keep running; drop the request on fetcher failure.
                             match router.get_or_spawn_zone_fetcher(zone_id) {
                                 Ok(fetcher) => fetcher.submit(req, handle.cancel.clone(), reply_tx).await,
