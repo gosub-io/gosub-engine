@@ -12,6 +12,10 @@
 //! selects an adapter that is compatible with the window's surface (see its docs for the Wayland
 //! trap) and a non-sRGB swap-chain format, so the embedder just creates a window and calls it.
 
+// wgpu's deeply nested generic types push auto-trait (`Send`/`Sync`) solving past the default
+// limit of 128; nightly's `recursion_depth_exceeding_limit` lint makes that a hard error.
+#![recursion_limit = "256"]
+
 use gosub_renderer_vello::WgpuContextProvider;
 use parking_lot::RwLock;
 use std::collections::HashMap;

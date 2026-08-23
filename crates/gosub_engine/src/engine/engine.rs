@@ -522,14 +522,20 @@ mod tests {
             .await
             .expect("navigate");
         let offer = tokio::time::timeout(Duration::from_secs(10), async {
+            let mut nav_progress = false;
             loop {
                 match event_rx.recv().await {
+                    // The document fetch of the navigation reports load progress.
+                    Ok(EngineEvent::Navigation {
+                        event: crate::events::NavigationEvent::Progress { .. },
+                        ..
+                    }) => nav_progress = true,
                     Ok(EngineEvent::DownloadRequested {
                         url,
                         suggested_filename,
                         total_bytes,
                         ..
-                    }) => return (url, suggested_filename, total_bytes),
+                    }) => return (url, suggested_filename, total_bytes, nav_progress),
                     Ok(_) => continue,
                     Err(e) => panic!("event stream closed: {e}"),
                 }
@@ -537,6 +543,7 @@ mod tests {
         })
         .await
         .expect("timed out waiting for DownloadRequested");
+        assert!(offer.3, "expected NavigationEvent::Progress during the document fetch");
         assert_eq!(offer.1, "pretty.bin", "Content-Disposition filename wins");
         assert_eq!(offer.2, Some(payload.len() as u64));
 
@@ -551,11 +558,24 @@ mod tests {
         .await
         .expect("start download");
 
-        let (progress_seen, received) = tokio::time::timeout(Duration::from_secs(10), async {
+        let (progress_seen, partial_seen, received) = tokio::time::timeout(Duration::from_secs(10), async {
             let mut progress_seen = false;
+            let mut partial_seen = false;
             loop {
                 match event_rx.recv().await {
-                    Ok(EngineEvent::DownloadProgress { id: DownloadId(7), .. }) => progress_seen = true,
+                    Ok(EngineEvent::DownloadProgress {
+                        id: DownloadId(7),
+                        received_bytes,
+                        total_bytes,
+                        ..
+                    }) => {
+                        progress_seen = true;
+                        // Granular progress: at least one event mid-transfer, not only the
+                        // final full-size report.
+                        if total_bytes.is_some_and(|t| received_bytes < t) {
+                            partial_seen = true;
+                        }
+                    }
                     Ok(EngineEvent::DownloadFinished {
                         id: DownloadId(7),
                         received_bytes,
@@ -563,7 +583,7 @@ mod tests {
                         ..
                     }) => {
                         assert_eq!(path, target);
-                        return (progress_seen, received_bytes);
+                        return (progress_seen, partial_seen, received_bytes);
                     }
                     Ok(EngineEvent::DownloadFailed { error, .. }) => panic!("download failed: {error}"),
                     Ok(_) => continue,
@@ -574,6 +594,10 @@ mod tests {
         .await
         .expect("timed out waiting for DownloadFinished");
         assert!(progress_seen, "expected at least one progress event");
+        assert!(
+            partial_seen,
+            "expected granular mid-transfer progress, not only the final report"
+        );
         assert_eq!(received, payload.len() as u64);
         assert_eq!(std::fs::read(&target).unwrap(), payload, "file content must match");
 

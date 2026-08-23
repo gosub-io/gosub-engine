@@ -39,6 +39,22 @@ pub struct TabView {
     pub history: HistorySnapshot,
     /// Name of the active render backend (`RenderBackend::name`).
     pub render_backend: &'static str,
+    /// Rendering diagnostics (drives `gosub://stats`).
+    pub stats: TabStats,
+}
+
+/// Rendering/layout diagnostics for one tab, as of the moment the page was requested.
+#[derive(Debug, Clone, Default)]
+pub struct TabStats {
+    pub viewport_width: u32,
+    pub viewport_height: u32,
+    pub scroll_x: f64,
+    pub scroll_y: f64,
+    pub page_height: f64,
+    pub tile_count: usize,
+    pub tile_bytes: usize,
+    pub scene_epoch: u64,
+    pub raster_dpr: u32,
 }
 
 /// A rendered internal page. Only HTML for now; a `content_type` field is the obvious
@@ -158,6 +174,7 @@ pub mod builtins {
             ("help", Arc::new(|r| Some(help(r)))),
             ("version", Arc::new(|r| Some(version(r)))),
             ("history", Arc::new(|r| Some(history(r)))),
+            ("stats", Arc::new(|r| Some(stats(r)))),
             ("config", Arc::new(|r| Some(config(r)))),
         ]
     }
@@ -183,13 +200,30 @@ pub mod builtins {
              body{{margin:0;padding:32px 40px;font-family:sans-serif;font-size:14px;color:#1c2333;background:#ffffff}}\
              h1{{font-size:24px;margin:0 0 4px 0}} h2{{font-size:16px;margin:24px 0 8px 0}}\
              .sub{{color:#5c6675;margin:0 0 20px 0}}\
-             table{{border-collapse:collapse}} td,th{{text-align:left;padding:3px 14px 3px 0;vertical-align:top}}\
-             th{{color:#5c6675;font-weight:normal}} code{{font-family:monospace;font-size:13px}}\
+             .gr span{{display:inline-block;padding:3px 14px 3px 0;vertical-align:top;overflow:hidden}}\
+             .hd span,.k{{color:#5c6675}} code{{font-family:monospace;font-size:13px}}\
              a{{color:#1d5fd1}} .muted{{color:#8a94a6}} .cur{{font-weight:bold}}\
              </style></head><body>{}</body></html>",
             escape(title),
             body
         ))
+    }
+
+    /// One row of tabular data. `<table>` markup is avoided for now: the
+    /// current auto table layout misplaces columns (tables are being reworked
+    /// on the lattice branch), so rows are fixed-width inline-block cells
+    /// instead. A width of 0 gives the cell its natural size.
+    fn grid_row(cls: &str, cells: &[(u32, String)]) -> String {
+        let mut row = format!("<div class=\"gr{cls}\">");
+        for (w, html) in cells {
+            if *w == 0 {
+                row.push_str(&format!("<span>{html}</span>"));
+            } else {
+                row.push_str(&format!("<span style=\"width:{w}px\">{html}</span>"));
+            }
+        }
+        row.push_str("</div>");
+        row
     }
 
     const BLANK: &str =
@@ -209,17 +243,24 @@ pub mod builtins {
             ("help", "This page"),
             ("version", "Engine build, render backend, settings of note"),
             ("history", "This tab's session history tree"),
+            ("stats", "Rendering diagnostics and engine timings"),
             ("config", "Engine settings (read-only dump)"),
         ];
         let mut body = String::from(
-            "<h1>Internal pages</h1><p class=\"sub\">Also reachable as <code>about:&lt;name&gt;</code>.</p><table>",
+            "<h1>Internal pages</h1><p class=\"sub\">Also reachable as <code>about:&lt;name&gt;</code>.</p>",
         );
         for (name, desc) in items {
-            body.push_str(&format!(
-                "<tr><td><a href=\"gosub://{name}\"><code>gosub://{name}</code></a></td><td>{desc}</td></tr>"
+            body.push_str(&grid_row(
+                "",
+                &[
+                    (
+                        170,
+                        format!("<a href=\"gosub://{name}\"><code>gosub://{name}</code></a>"),
+                    ),
+                    (0, desc.to_string()),
+                ],
             ));
         }
-        body.push_str("</table>");
         let _ = r;
         page("Help", &body)
     }
@@ -234,15 +275,16 @@ pub mod builtins {
                 format!("{} / {}", std::env::consts::OS, std::env::consts::ARCH),
             ),
         ];
-        let mut body = String::from("<h1>Version</h1><table>");
+        let mut body = String::from("<h1>Version</h1>");
         for (k, v) in rows {
-            body.push_str(&format!(
-                "<tr><th>{}</th><td><code>{}</code></td></tr>",
-                escape(k),
-                escape(&v)
+            body.push_str(&grid_row(
+                "",
+                &[
+                    (150, format!("<span class=\"k\">{}</span>", escape(k))),
+                    (0, format!("<code>{}</code>", escape(&v))),
+                ],
             ));
         }
-        body.push_str("</table>");
         page("Version", &body)
     }
 
@@ -252,28 +294,122 @@ pub mod builtins {
         if h.entries.is_empty() {
             body.push_str("<p class=\"muted\">No entries yet.</p>");
         } else {
-            body.push_str("<table><tr><th>#</th><th>Parent</th><th>Title</th><th>URL</th></tr>");
+            body.push_str(&grid_row(
+                " hd",
+                &[
+                    (40, "#".into()),
+                    (70, "Parent".into()),
+                    (280, "Title".into()),
+                    (0, "URL".into()),
+                ],
+            ));
             for e in &h.entries {
-                let cls = if Some(e.id) == h.current { " class=\"cur\"" } else { "" };
+                let cls = if Some(e.id) == h.current { " cur" } else { "" };
                 let title = e.title.as_deref().unwrap_or("");
                 let parent = e.parent.map(|p| p.0.to_string()).unwrap_or_else(|| "–".to_string());
-                body.push_str(&format!(
-                    "<tr{cls}><td>{}</td><td>{parent}</td><td>{}</td><td><a href=\"{}\"><code>{}</code></a></td></tr>",
-                    e.id.0,
-                    escape(title),
-                    escape(e.url.as_str()),
-                    escape(e.url.as_str()),
+                body.push_str(&grid_row(
+                    cls,
+                    &[
+                        (40, e.id.0.to_string()),
+                        (70, parent),
+                        (280, escape(title)),
+                        (
+                            0,
+                            format!(
+                                "<a href=\"{}\"><code>{}</code></a>",
+                                escape(e.url.as_str()),
+                                escape(e.url.as_str())
+                            ),
+                        ),
+                    ],
                 ));
             }
-            body.push_str("</table>");
         }
         page("Session history", &body)
+    }
+
+    fn stats(r: &PageRequest<'_>) -> PageResponse {
+        let s = &r.tab.stats;
+        let mut body = String::from("<h1>Stats</h1><p class=\"sub\">This tab's rendering state, and process-wide engine timings since start.</p>");
+
+        body.push_str("<h2>Tab</h2>");
+        for (k, v) in [
+            (
+                "Viewport",
+                format!("{} × {} CSS px", s.viewport_width, s.viewport_height),
+            ),
+            ("Scroll", format!("{:.0}, {:.0}", s.scroll_x, s.scroll_y)),
+            ("Page height", format!("{:.0} px", s.page_height)),
+            ("Raster DPR", format!("{}", s.raster_dpr)),
+            (
+                "Tile cache",
+                format!(
+                    "{} tiles, {:.1} MiB",
+                    s.tile_count,
+                    s.tile_bytes as f64 / (1024.0 * 1024.0)
+                ),
+            ),
+            ("Scene epoch", format!("{}", s.scene_epoch)),
+            ("Render backend", r.tab.render_backend.to_string()),
+        ] {
+            body.push_str(&grid_row(
+                "",
+                &[
+                    (150, format!("<span class=\"k\">{}</span>", escape(k))),
+                    (0, escape(&v)),
+                ],
+            ));
+        }
+
+        let mut timings = gosub_shared::timing::snapshot_stats();
+        timings.sort_by_key(|t| std::cmp::Reverse(t.total_us));
+        timings.truncate(30);
+        body.push_str("<h2>Timings</h2>");
+        if timings.is_empty() {
+            body.push_str("<p class=\"muted\">No timing data collected.</p>");
+        } else {
+            body.push_str(&grid_row(
+                " hd",
+                &[
+                    (340, "Namespace".into()),
+                    (70, "Count".into()),
+                    (90, "Avg".into()),
+                    (90, "p95".into()),
+                    (90, "Max".into()),
+                    (0, "Total".into()),
+                ],
+            ));
+            let ms = |us: u64| format!("{:.2} ms", us as f64 / 1000.0);
+            for t in timings {
+                body.push_str(&grid_row(
+                    "",
+                    &[
+                        (340, format!("<code>{}</code>", escape(&t.namespace))),
+                        (70, t.count.to_string()),
+                        (90, ms(t.avg_us)),
+                        (90, ms(t.p95_us)),
+                        (90, ms(t.max_us)),
+                        (0, ms(t.total_us)),
+                    ],
+                ));
+            }
+        }
+        page("Stats", &body)
     }
 
     fn config(r: &PageRequest<'_>) -> PageResponse {
         let mut keys = r.settings.find("*");
         keys.sort();
-        let mut body = String::from("<h1>Engine settings</h1><p class=\"sub\">Read-only dump of the settings store; bold rows differ from their default.</p><table><tr><th>Key</th><th>Value</th><th>Default</th><th>Description</th></tr>");
+        let mut body = String::from("<h1>Engine settings</h1><p class=\"sub\">Read-only dump of the settings store; bold rows differ from their default.</p>");
+        body.push_str(&grid_row(
+            " hd",
+            &[
+                (260, "Key".into()),
+                (150, "Value".into()),
+                (150, "Default".into()),
+                (0, "Description".into()),
+            ],
+        ));
         for key in keys {
             let Some(info) = r.settings.get_info(&key) else {
                 continue;
@@ -284,16 +420,23 @@ pub mod builtins {
                 .ok()
                 .flatten()
                 .unwrap_or_else(|| info.default.clone());
-            let cls = if current != info.default { " class=\"cur\"" } else { "" };
-            body.push_str(&format!(
-                "<tr{cls}><td><code>{}</code></td><td><code>{}</code></td><td class=\"muted\"><code>{}</code></td><td>{}</td></tr>",
-                escape(&key),
-                escape(&current.value_string()),
-                escape(&info.default.value_string()),
-                escape(&info.description),
+            let cls = if current != info.default { " cur" } else { "" };
+            body.push_str(&grid_row(
+                cls,
+                &[
+                    (260, format!("<code>{}</code>", escape(&key))),
+                    (150, format!("<code>{}</code>", escape(&current.value_string()))),
+                    (
+                        150,
+                        format!(
+                            "<span class=\"muted\"><code>{}</code></span>",
+                            escape(&info.default.value_string())
+                        ),
+                    ),
+                    (0, escape(&info.description)),
+                ],
             ));
         }
-        body.push_str("</table>");
         page("Engine settings", &body)
     }
 
@@ -371,6 +514,7 @@ mod tests {
         let tab = TabView {
             history: h.snapshot(),
             render_backend: "test",
+            ..Default::default()
         };
         let pages = InternalPages::with_builtins();
         let html = pages
@@ -383,6 +527,34 @@ mod tests {
         assert!(html.contains("https://a.example/"));
         assert!(html.contains("https://b.example/"));
         assert!(html.contains(">A<"));
+    }
+
+    #[test]
+    fn stats_page_renders_tab_diagnostics() {
+        let tab = TabView {
+            render_backend: "test-backend",
+            stats: TabStats {
+                viewport_width: 1024,
+                viewport_height: 768,
+                page_height: 4321.0,
+                tile_count: 12,
+                tile_bytes: 3 * 1024 * 1024,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let pages = InternalPages::with_builtins();
+        let html = pages
+            .resolve(
+                &Url::parse("gosub://stats").unwrap(),
+                &settings_store::default_config(),
+                &tab,
+            )
+            .html;
+        assert!(html.contains("1024 × 768"));
+        assert!(html.contains("4321 px"));
+        assert!(html.contains("12 tiles, 3.0 MiB"));
+        assert!(html.contains("test-backend"));
     }
 
     #[test]

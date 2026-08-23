@@ -123,6 +123,18 @@ async fn stream_to_file(
     Ok(())
 }
 
+/// Minimal scope guard: runs `f` on drop. Used where a task must clean up on every exit
+/// path without pulling in a dependency.
+fn scopeguard<F: FnMut()>(f: F) -> impl Drop {
+    struct Guard<F: FnMut()>(F);
+    impl<F: FnMut()> Drop for Guard<F> {
+        fn drop(&mut self) {
+            (self.0)();
+        }
+    }
+    Guard(f)
+}
+
 /// Fallback URL used when a navigation has no usable URL.
 fn about_blank() -> Url {
     #[allow(clippy::unwrap_used)] // PANIC-SAFE: literal URL
@@ -621,12 +633,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
         if let Ok(val) = ResourceKind::Image.accept_header().parse() {
             headers.insert(http::header::ACCEPT, val);
         }
+        // The referrer marks the requesting document; it lets file:// pages load their
+        // own icons (the file loader gates subresources on it).
         let req = FetchRequest::builder(Method::GET, icon_url.clone())
             .with_req_id(req_id)
             .with_headers(headers)
             .with_priority(Priority::Low)
             .with_kind(ResourceKind::Image.to_net())
             .with_initiator(Initiator::Other.to_net())
+            .with_referrer(base_url.clone())
             .with_streaming(false)
             .with_auto_decode(true)
             .build();
@@ -934,8 +949,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Other, Initiator::Other);
+        // A Download reference routes the transport's per-chunk progress to the shell as
+        // DownloadProgress events while the (buffered) fetch is still receiving.
+        let reference = RequestReference::Download(id.0);
+        self.zone_context
+            .request_reference_map
+            .write()
+            .insert(reference, self.tab_id);
         let req = FetchRequest::builder(Method::GET, url.clone())
             .with_req_id(req_id)
+            .with_reference(REF_REGISTRY.to_net(reference))
             .with_priority(Priority::Low)
             .with_kind(ResourceKind::Other.to_net())
             .with_initiator(Initiator::Other.to_net())
@@ -947,7 +970,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let zone_id = self.zone_id;
         let io_tx = self.zone_context.io_tx.clone();
         let event_tx = self.zone_context.event_tx.clone();
+        let reference_map = self.zone_context.request_reference_map.clone();
         spawn_named("tab-download", async move {
+            // Remove the routing entry however the download ends.
+            let _cleanup = scopeguard(move || {
+                reference_map.write().remove(&reference);
+            });
+
             let fail = |error: String| {
                 let _ = event_tx.send(EngineEvent::DownloadFailed { tab_id, id, error });
             };
@@ -1369,9 +1398,21 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
         // gosub:// and about: pages are served by the engine's page registry, never fetched.
         if InternalPages::handles(&url) {
+            let (tile_count, tile_bytes) = self.context.tile_stats();
             let tab_view = TabView {
                 history: self.history.snapshot(),
                 render_backend: self.zone_context.render_backend.name(),
+                stats: crate::engine::internal_pages::TabStats {
+                    viewport_width: self.desired_viewport.width,
+                    viewport_height: self.desired_viewport.height,
+                    scroll_x: self.scroll_x as f64,
+                    scroll_y: self.scroll_y as f64,
+                    page_height: self.context.page_height(),
+                    tile_count,
+                    tile_bytes,
+                    scene_epoch: self.context.scene_epoch(),
+                    raster_dpr: self.zone_context.render_backend.device_pixel_ratio(),
+                },
             };
             let page = self
                 .zone_context
