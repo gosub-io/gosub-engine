@@ -141,7 +141,7 @@ impl PageTile {
             PageTile::Reused { header, kept } => (header, kept.width, kept.height, kept.format, kept.pixels),
         };
         // Alpha is the 4th byte in both supported formats ([B,G,R,A] / [R,G,B,A]).
-        let opaque = pixels.chunks_exact(4).all(|px| px[3] == 0xFF);
+        let opaque = pixels.as_chunks::<4>().0.iter().all(|px| px[3] == 0xFF);
         gosub_interface::render::backend::CachedTile {
             page_x: header.page_x as f32,
             page_y: header.page_y as f32,
