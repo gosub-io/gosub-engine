@@ -207,13 +207,15 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 Confinement::Full => {}
                 Confinement::FontPathsReadable => {
                     log::info!(
-                        "renderer isolation active in exec-per-render mode                          (the configured font system reads font files while operating)"
+                        "renderer isolation active in exec-per-render mode \
+                         (the configured font system reads font files while operating)"
                     );
                     return;
                 }
                 Confinement::Unsupported(reason) => {
                     log::warn!(
-                        "security.renderer_process is on, but the configured font system cannot run                          isolated ({reason}); rendering stays in-process"
+                        "security.renderer_process is on, but the configured font system cannot run \
+                         isolated ({reason}); rendering stays in-process"
                     );
                     return;
                 }

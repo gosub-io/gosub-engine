@@ -13,6 +13,11 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+/// How long a shutdown drain waits for in-flight requests before giving up.
+/// Shorter than the broker's `SHUTDOWN_GRACE`, so a draining child exits on
+/// its own rather than being killed mid-drain.
+const DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// Run as the network process until the broker disconnects or says to stop.
 pub fn serve(link: Endpoint) -> i32 {
     // Built before lockdown: spawning threads is not on the allowlist, so a
@@ -69,9 +74,11 @@ pub fn serve(link: Endpoint) -> i32 {
     let (link_tx, mut link_rx) = link.split();
     let link_tx = Arc::new(Mutex::new(link_tx));
     let cancels: Arc<Mutex<HashMap<RequestTag, CancellationToken>>> = Arc::new(Mutex::new(HashMap::new()));
+    let tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>> = Arc::new(Mutex::new(Vec::new()));
 
     // A read error ends the loop: it means the broker went away, which is a
     // normal end - the network process exists only to serve it.
+    let mut drain = false;
     while let Ok(msg) = link_rx.recv::<ToNet>() {
         match msg {
             ToNet::Ping => {
@@ -79,7 +86,10 @@ pub fn serve(link: Endpoint) -> i32 {
                     break;
                 }
             }
-            ToNet::Shutdown => break,
+            ToNet::Shutdown => {
+                drain = true;
+                break;
+            }
             ToNet::Cancel(tag) => {
                 if let Some(token) = cancels.lock().remove(&tag) {
                     token.cancel();
@@ -92,15 +102,28 @@ pub fn serve(link: Endpoint) -> i32 {
                 let fetcher = fetcher.clone();
                 let link_tx = link_tx.clone();
                 let cancels = cancels.clone();
-                runtime.spawn(async move {
+                let handle = runtime.spawn(async move {
                     let outcome = perform(&fetcher, fetch, token).await;
                     cancels.lock().remove(&tag);
                     // A write error means the broker went away; the recv loop
                     // notices the same and ends the process.
                     let _ = link_tx.lock().send(&FromNet::Reply { tag, outcome });
                 });
+                let mut tasks = tasks.lock();
+                tasks.retain(|h| !h.is_finished());
+                tasks.push(handle);
             }
         }
+    }
+
+    // Shutdown promises to finish in-flight work (see `ToNet::Shutdown`): stop
+    // reading (done - the loop ended), then flush what is still running so its
+    // replies reach the broker. Bounded: the broker kills a child that lingers.
+    if drain {
+        let pending: Vec<_> = std::mem::take(&mut *tasks.lock());
+        runtime.block_on(async {
+            let _ = tokio::time::timeout(DRAIN_GRACE, futures_util::future::join_all(pending)).await;
+        });
     }
 
     shutdown.cancel();

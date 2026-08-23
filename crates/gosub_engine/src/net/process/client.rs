@@ -26,6 +26,11 @@ const MAX_INFLIGHT: usize = 16;
 /// doing any work, so anything slower means it is not a network process at all.
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long shutdown waits for the child to finish in-flight work and exit on
+/// its own before killing it. A little longer than the child's own drain grace,
+/// so a well-behaved child is never killed mid-drain.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
 /// A running network process and the link to it.
 pub struct NetProcess {
     tx: Arc<Mutex<EndpointTx>>,
@@ -192,8 +197,7 @@ impl NetProcess {
         tokio::select! {
             _ = cancel.cancelled() => {
                 self.pending.lock().remove(&tag);
-                // Best-effort: a child that already replied simply finds no waiter.
-                let _ = self.tx.lock().send(&ToNet::Cancel(tag));
+                self.send_cancel(tag);
                 FetchOutcome::Error("cancelled".into())
             }
             reply = tokio::time::timeout(REPLY_TIMEOUT, reply_rx) => match reply {
@@ -201,19 +205,44 @@ impl NetProcess {
                 Ok(Err(_)) => FetchOutcome::Error("the network process exited".into()),
                 Err(_) => {
                     self.pending.lock().remove(&tag);
+                    // Without this the child would keep working the request (and
+                    // holding its resources) long after anyone cared.
+                    self.send_cancel(tag);
                     FetchOutcome::Error("the network process did not answer".into())
                 }
             },
         }
     }
 
-    /// Ask the process to stop, then make sure it has.
+    /// Tell the child to drop a request nobody is waiting for anymore.
+    /// Best-effort, on a blocking thread: the pipe write may block, and there
+    /// is no reply to wait for - a child that already answered simply finds no
+    /// waiter.
+    fn send_cancel(&self, tag: RequestTag) {
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || {
+            let _ = tx.lock().send(&ToNet::Cancel(tag));
+        });
+    }
+
+    /// Ask the process to stop, then make sure it has. The child drains its
+    /// in-flight requests before exiting (see [`ToNet::Shutdown`]), so give it
+    /// [`SHUTDOWN_GRACE`] to do that; kill only one that fails to.
     pub fn shutdown(&self) {
         let _ = self.tx.lock().send(&ToNet::Shutdown);
 
         let Some(mut child) = self.child.lock().take() else {
             return;
         };
+        let deadline = std::time::Instant::now() + SHUTDOWN_GRACE;
+        while std::time::Instant::now() < deadline {
+            match child.try_wait() {
+                Ok(true) => return,
+                Ok(false) => std::thread::sleep(Duration::from_millis(50)),
+                // The child cannot be observed; fall through to the kill.
+                Err(_) => break,
+            }
+        }
         let _ = child.kill();
         let _ = child.wait();
     }

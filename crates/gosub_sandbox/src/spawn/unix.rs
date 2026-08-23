@@ -31,6 +31,11 @@ impl Child {
         self.0.id()
     }
 
+    /// Whether the child has exited, without blocking. `Ok(true)` reaps it.
+    pub fn try_wait(&mut self) -> io::Result<bool> {
+        self.0.try_wait().map(|status| status.is_some())
+    }
+
     /// Best-effort SIGKILL - used to abandon a child that has wedged (e.g. a
     /// decoder that stopped answering), so `wait` does not block forever.
     pub fn kill(&mut self) -> io::Result<()> {

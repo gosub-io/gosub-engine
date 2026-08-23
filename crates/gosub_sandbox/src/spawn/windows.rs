@@ -3,7 +3,7 @@
 use std::ffi::c_void;
 use std::io;
 
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows_sys::Win32::Security::{SECURITY_CAPABILITIES, SID_AND_ATTRIBUTES};
 use windows_sys::Win32::System::SystemServices::SE_GROUP_ENABLED;
 use windows_sys::Win32::System::Threading::{
@@ -47,6 +47,16 @@ impl Child {
     /// The raw process handle, for the parent-side confinement hook.
     pub fn raw_handle(&self) -> HANDLE {
         self.process
+    }
+
+    /// Whether the child has exited, without blocking.
+    pub fn try_wait(&mut self) -> io::Result<bool> {
+        // SAFETY: `process` is a valid handle owned by this struct.
+        match unsafe { WaitForSingleObject(self.process, 0) } {
+            WAIT_OBJECT_0 => Ok(true),
+            WAIT_TIMEOUT => Ok(false),
+            _ => Err(io::Error::last_os_error()),
+        }
     }
 
     /// Best-effort terminate - used to abandon a child that has wedged (e.g. a
