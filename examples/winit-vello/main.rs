@@ -10,6 +10,10 @@
 //! On Wayland an incompatible adapter causes `get_current_texture()` to silently fail
 //! every frame, keeping the surface un-committed and the window invisible.
 
+// wgpu's deeply nested generic types push auto-trait (`Send`/`Sync`) solving past the default
+// limit of 128; nightly's `recursion_depth_exceeding_limit` lint makes that a hard error.
+#![recursion_limit = "256"]
+
 use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
 use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
