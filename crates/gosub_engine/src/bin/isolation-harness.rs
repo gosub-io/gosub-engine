@@ -624,6 +624,7 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                     cookie_store: None,
                     cookie_jar: None,
                     partition_policy: PartitionPolicy::None,
+                    places: None,
                 };
                 let Ok(mut zone) = engine.create_zone(None, services, None) else {
                     eprintln!("could not create a zone");
@@ -1425,6 +1426,7 @@ fn engine() -> i32 {
             cookie_store: None,
             cookie_jar: None,
             partition_policy: PartitionPolicy::None,
+            places: None,
         };
         let Ok(mut zone) = engine.create_zone(None, services, None) else {
             eprintln!("could not create a zone");

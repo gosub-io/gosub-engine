@@ -499,8 +499,25 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             page_height,
             tile_pixel_cache,
             tiles,
-            ..
+            cached_tiles,
+            hit_regions,
         } = old_cache;
+
+        // A remotely rendered page has no local layer list to re-tile from, and its tiles
+        // already cover the page, so there is no window to extend (see
+        // `PipelineCache::layer_list`). Put the cache back untouched.
+        let Some(layer_list) = layer_list else {
+            self.pipeline_cache = Some(PipelineCache {
+                tiles,
+                page_height,
+                cached_tiles,
+                layer_list: None,
+                hit_regions,
+                tile_pixel_cache,
+            });
+            self.raster_dirty = false;
+            return;
+        };
 
         self.pipeline_cache = Some(pipeline_extend_raster(
             layer_list,
@@ -1563,7 +1580,8 @@ fn pipeline_extend_raster(
         tiles: all_baked_tiles,
         page_height,
         cached_tiles,
-        layer_list,
+        layer_list: Some(layer_list),
+        hit_regions: Vec::new(),
         tile_pixel_cache: merged_tile_cache,
     }
 }
@@ -1883,7 +1901,10 @@ mod tests {
         /// Lays out a page with an `id` target and an `<a name>` target at known offsets and
         /// resolves fragments against it.
         fn context_with_targets() -> BrowsingContext<DefaultRenderConfig> {
-            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
+                settings_store::default_config(),
+                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+            );
             ctx.set_viewport(Viewport {
                 x: 0,
                 y: 0,
@@ -1899,7 +1920,7 @@ mod tests {
             </body></html>"#;
             let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
             doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
-            ctx.set_document(Arc::new(doc));
+            ctx.set_document(Arc::new(doc), None);
             ctx.rebuild_pipeline_cache_if_needed();
             ctx
         }
@@ -1922,7 +1943,10 @@ mod tests {
         /// text and inputs, arrow elsewhere.
         #[test]
         fn hover_cursor_follows_content() {
-            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
+                settings_store::default_config(),
+                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+            );
             ctx.set_viewport(Viewport {
                 x: 0,
                 y: 0,
@@ -1937,7 +1961,7 @@ mod tests {
             </body></html>"#;
             let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
             doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
-            ctx.set_document(Arc::new(doc));
+            ctx.set_document(Arc::new(doc), None);
             ctx.rebuild_pipeline_cache_if_needed();
 
             // Empty div: arrow.
@@ -1958,7 +1982,10 @@ mod tests {
         /// point, URLs come back absolute.
         #[test]
         fn hit_test_describes_point() {
-            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
+                settings_store::default_config(),
+                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+            );
             ctx.set_viewport(Viewport {
                 x: 0,
                 y: 0,
@@ -1973,7 +2000,7 @@ mod tests {
             </body></html>"#;
             let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
             doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
-            ctx.set_document(Arc::new(doc));
+            ctx.set_document(Arc::new(doc), None);
             ctx.rebuild_pipeline_cache_if_needed();
             let base = Url::parse("https://example.com/dir/page.html").unwrap();
 
@@ -2001,7 +2028,10 @@ mod tests {
         /// through the document.
         #[test]
         fn focus_traversal_and_click_to_focus() {
-            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
+                settings_store::default_config(),
+                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+            );
             ctx.set_viewport(Viewport {
                 x: 0,
                 y: 0,
@@ -2017,7 +2047,7 @@ mod tests {
             </body></html>"#;
             let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
             doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
-            ctx.set_document(Arc::new(doc));
+            ctx.set_document(Arc::new(doc), None);
             ctx.rebuild_pipeline_cache_if_needed();
 
             // Tab cycles a → input → button → wraps to a. The tabindex=-1 link is skipped.
@@ -2049,7 +2079,10 @@ mod tests {
         /// underflow the tiler's tile-count arithmetic and panic the tab worker.
         #[test]
         fn offscreen_layer_does_not_panic_the_tiler() {
-            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
+                settings_store::default_config(),
+                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+            );
             ctx.set_viewport(Viewport {
                 x: 0,
                 y: 0,
@@ -2063,14 +2096,17 @@ mod tests {
             </body></html>"#;
             let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
             doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
-            ctx.set_document(Arc::new(doc));
+            ctx.set_document(Arc::new(doc), None);
             ctx.rebuild_pipeline_cache_if_needed();
             assert!(ctx.page_height() > 0.0, "page laid out");
         }
 
         #[test]
         fn unknown_before_layout() {
-            let ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(settings_store::default_config());
+            let ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(
+                settings_store::default_config(),
+                Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+            );
             assert_eq!(ctx.fragment_target_y("section-2"), None);
             // Top-of-document needs no layout.
             assert_eq!(ctx.fragment_target_y(""), Some(0.0));

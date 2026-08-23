@@ -162,6 +162,7 @@ async fn run(urls: Vec<String>) {
         cookie_store: None,
         cookie_jar: None,
         partition_policy: PartitionPolicy::None,
+        places: None,
     };
     let mut zone = engine.create_zone(None, services, None).expect("create zone");
 

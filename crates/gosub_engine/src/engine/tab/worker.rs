@@ -538,7 +538,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let event_tx = self.zone_context.event_tx.clone();
         let cancel = nav_cancel.child_token();
         spawn_named("tab-favicon", async move {
-            let Ok((handle, rx)) = submit_to_io(zone_id, req, io_tx, Some(cancel.clone())).await else {
+            let Ok((handle, rx)) = submit_to_io(zone_id, Some(tab_id), req, io_tx, Some(cancel.clone())).await else {
                 return;
             };
             let result = tokio::select! {
@@ -856,7 +856,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 let _ = event_tx.send(EngineEvent::DownloadFailed { tab_id, id, error });
             };
 
-            let result = match submit_to_io(zone_id, req, io_tx, None).await {
+            let result = match submit_to_io(zone_id, Some(tab_id), req, io_tx, None).await {
                 Ok((_handle, rx)) => match rx.await {
                     Ok(result) => result,
                     Err(_) => return fail("fetch channel closed".into()),
