@@ -11,12 +11,12 @@ use url::Url;
 pub(crate) type RegisterFont<'a> = &'a mut dyn FnMut(Vec<u8>, &str) -> Result<(), FontError>;
 
 /// Fetch and register any `@font-face` web fonts declared in the document's
-/// stylesheets, so the first layout/paint can use them. Deduplicates by
-/// resolved font URL; fetches are synchronous through `loader` (in the tab
-/// worker that briefly blocks the worker during initial load; in a forked
-/// renderer, blocking on the broker is the intended shape). Each face is
-/// handed to `register` under its CSS family so the font system selects the
-/// right weight/style from the font's own metadata.
+/// stylesheets. Deduplicates by resolved font URL; fetches are synchronous
+/// through `loader`, so the caller decides where the blocking happens (the tab
+/// worker runs this walk on a blocking thread; in a forked renderer, blocking
+/// on the broker is the intended shape). Each face is handed to `register`
+/// under its CSS family so the font system selects the right weight/style from
+/// the font's own metadata.
 pub(crate) fn load_web_fonts<C: RenderConfiguration>(
     doc: &C::Document,
     base_url: &Url,

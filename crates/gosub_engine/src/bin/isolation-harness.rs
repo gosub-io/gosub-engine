@@ -1343,12 +1343,20 @@ fn direct() -> i32 {
         }
     };
 
-    let outcome = net.fetch(
+    // `fetch` is async (the broker awaits it on its I/O runtime); the harness
+    // has no runtime of its own, so give it a small one.
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        eprintln!("could not start a runtime");
+        return 1;
+    };
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let outcome = runtime.block_on(net.fetch(
         format!("http://127.0.0.1:{port}/"),
         "GET".into(),
         vec![("accept".into(), "text/html".into())],
         None,
-    );
+        &cancel,
+    ));
     net.shutdown();
     drop(server);
 

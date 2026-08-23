@@ -256,44 +256,67 @@ fn start_net_process(engine_ctx: &Arc<EngineContext>) -> Option<Arc<crate::net::
 }
 
 /// Hand a request to the network process and answer the caller when it replies.
+/// The wait runs as a task, not a thread, and follows `cancel`: an abandoned
+/// navigation frees its slot and tells the child to drop the request.
 #[cfg(feature = "process-isolation")]
 fn dispatch_to_net_process(
     net: Arc<crate::net::process::client::NetProcess>,
     req: FetchRequest,
+    cancel: tokio_util::sync::CancellationToken,
     reply_tx: oneshot::Sender<FetchResult>,
 ) {
+    use crate::net::process::client::net_error;
     use crate::net::process::protocol::FetchOutcome;
 
     let url = req.url.to_string();
     let method = req.method.as_str().to_string();
-    let headers = req
+    let mut headers: Vec<(String, String)> = req
         .headers
         .iter()
         .filter_map(|(n, v)| v.to_str().ok().map(|v| (n.as_str().to_string(), v.to_string())))
         .collect();
 
-    let spawned = std::thread::Builder::new()
-        .name("net-process-request".into())
-        .spawn(move || {
-            let outcome = net.fetch(url, method, headers, None);
-            let _ = reply_tx.send(match outcome {
-                FetchOutcome::Ok { .. } => match crate::net::process::client::outcome_to_result(outcome) {
-                    Ok(result) => result,
-                    Err(e) => FetchResult::Error(e),
-                },
-                FetchOutcome::Error(e) => FetchResult::Error(crate::net::process::client::net_error(e)),
-            });
-        });
+    // The body crosses the link as plain bytes. Its Content-Type is folded into
+    // the headers here, mirroring what gosub-sonar would inject at send time.
+    let body = match req.body.as_ref() {
+        None => None,
+        Some(body) => match body.as_bytes() {
+            Some(bytes) => {
+                if !req.headers.contains_key(http::header::CONTENT_TYPE) {
+                    if let Some(ct) = &body.content_type {
+                        headers.push((http::header::CONTENT_TYPE.as_str().to_string(), ct.clone()));
+                    }
+                }
+                Some(bytes.to_vec())
+            }
+            // A streaming body cannot cross the link; refuse rather than send
+            // the request without it.
+            None => {
+                let _ = reply_tx.send(FetchResult::Error(net_error(format!(
+                    "cannot send a streaming request body to the network process ({url})"
+                ))));
+                return;
+            }
+        },
+    };
 
-    if let Err(e) = spawned {
-        log::error!("could not dispatch to the network process: {e}");
-    }
+    spawn_named("net-process-request", async move {
+        let outcome = net.fetch(url, method, headers, body, &cancel).await;
+        let _ = reply_tx.send(match outcome {
+            FetchOutcome::Ok { .. } => match crate::net::process::client::outcome_to_result(outcome) {
+                Ok(result) => result,
+                Err(e) => FetchResult::Error(e),
+            },
+            FetchOutcome::Error(e) => FetchResult::Error(net_error(e)),
+        });
+    });
 }
 
 #[cfg(not(feature = "process-isolation"))]
 fn dispatch_to_net_process(
     _net: std::convert::Infallible,
     _req: FetchRequest,
+    _cancel: tokio_util::sync::CancellationToken,
     _reply_tx: oneshot::Sender<FetchResult>,
 ) {
 }
@@ -319,12 +342,18 @@ fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIdentity>
 }
 
 /// Classify a request against the document that caused it, so `SameSite`
-/// cookies are withheld from genuinely cross-site loads.
+/// cookies are withheld from genuinely cross-site loads. "Site" is the
+/// registrable domain (eTLD+1), not the exact host: `api.example.com` under a
+/// `example.com` document is same-site, per the jar's own matching.
 fn same_site_context(top_level: Option<&url::Url>, url: &url::Url) -> SameSiteContext {
+    let hosts_same_site = |top: &url::Url| match (top.host_str(), url.host_str()) {
+        (Some(a), Some(b)) => crate::engine::cookies::same_site(a, b),
+        _ => false,
+    };
     match top_level {
         // A request with no document behind it is the document load itself.
         None => SameSiteContext::SameSite,
-        Some(top) if top.host_str() == url.host_str() && top.scheme() == url.scheme() => SameSiteContext::SameSite,
+        Some(top) if top.scheme() == url.scheme() && hosts_same_site(top) => SameSiteContext::SameSite,
         Some(_) => SameSiteContext::CrossSite,
     }
 }
@@ -430,7 +459,7 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                             // Out of process where isolation is on, in-process otherwise;
                             // identity and cookies were attached above either way.
                             match router.net_process() {
-                                Some(net) => dispatch_to_net_process(net, req, reply_tx),
+                                Some(net) => dispatch_to_net_process(net, req, handle.cancel.clone(), reply_tx),
                                 // The I/O thread must keep running; drop the request on fetcher failure.
                                 None => match router.get_or_spawn_zone_fetcher(zone_id) {
                                     Ok(fetcher) => fetcher.submit(req, handle.cancel.clone(), reply_tx).await,
@@ -565,6 +594,19 @@ mod tests {
             );
             // The document load itself has no document behind it.
             assert_eq!(same_site_context(None, &page), SameSiteContext::SameSite);
+            // A subdomain shares the page's registrable domain: still same-site.
+            assert_eq!(
+                same_site_context(Some(&page), &Url::parse("https://api.example.com/x").unwrap()),
+                SameSiteContext::SameSite
+            );
+            // A shared eTLD is not a shared site.
+            assert_eq!(
+                same_site_context(
+                    Some(&Url::parse("https://a.github.io/").unwrap()),
+                    &Url::parse("https://b.github.io/x").unwrap()
+                ),
+                SameSiteContext::CrossSite
+            );
         }
     }
 

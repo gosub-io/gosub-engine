@@ -1,18 +1,20 @@
 //! The network process: the only part of the engine that may open a socket.
 
 use crate::net::fetcher::{Fetcher, FetcherConfig};
-use crate::net::process::protocol::{FetchOutcome, FromNet, NetFetch, ToNet};
-use crate::net::types::{FetchRequest, FetchResult};
+use crate::net::process::protocol::{FetchOutcome, FromNet, NetFetch, RequestTag, ToNet};
+use crate::net::types::{FetchRequest, FetchResult, RequestBody};
 use gosub_ipc::Endpoint;
 use gosub_sonar::net::fetcher_context::NullContext;
 use http::Method;
+use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
 /// Run as the network process until the broker disconnects or says to stop.
-pub fn serve(mut link: Endpoint) -> i32 {
+pub fn serve(link: Endpoint) -> i32 {
     // Built before lockdown: spawning threads is not on the allowlist, so a
     // runtime created afterwards could not start its workers.
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
@@ -61,22 +63,42 @@ pub fn serve(mut link: Endpoint) -> i32 {
     let cancel = shutdown.clone();
     runtime.spawn(async move { fetcher_run.run(cancel).await });
 
+    // Requests run concurrently: each Fetch is spawned onto the runtime and
+    // replies through the shared writer, tagged, so a slow response never
+    // holds up the ones behind it. The broker bounds how many are in flight.
+    let (link_tx, mut link_rx) = link.split();
+    let link_tx = Arc::new(Mutex::new(link_tx));
+    let cancels: Arc<Mutex<HashMap<RequestTag, CancellationToken>>> = Arc::new(Mutex::new(HashMap::new()));
+
     // A read error ends the loop: it means the broker went away, which is a
     // normal end - the network process exists only to serve it.
-    while let Ok(msg) = link.recv::<ToNet>() {
+    while let Ok(msg) = link_rx.recv::<ToNet>() {
         match msg {
             ToNet::Ping => {
-                if link.send(&FromNet::Pong).is_err() {
+                if link_tx.lock().send(&FromNet::Pong).is_err() {
                     break;
                 }
             }
             ToNet::Shutdown => break,
+            ToNet::Cancel(tag) => {
+                if let Some(token) = cancels.lock().remove(&tag) {
+                    token.cancel();
+                }
+            }
             ToNet::Fetch(fetch) => {
                 let tag = fetch.tag;
-                let outcome = runtime.block_on(perform(&fetcher, fetch));
-                if link.send(&FromNet::Reply { tag, outcome }).is_err() {
-                    break;
-                }
+                let token = CancellationToken::new();
+                cancels.lock().insert(tag, token.clone());
+                let fetcher = fetcher.clone();
+                let link_tx = link_tx.clone();
+                let cancels = cancels.clone();
+                runtime.spawn(async move {
+                    let outcome = perform(&fetcher, fetch, token).await;
+                    cancels.lock().remove(&tag);
+                    // A write error means the broker went away; the recv loop
+                    // notices the same and ends the process.
+                    let _ = link_tx.lock().send(&FromNet::Reply { tag, outcome });
+                });
             }
         }
     }
@@ -86,7 +108,7 @@ pub fn serve(mut link: Endpoint) -> i32 {
 }
 
 /// Perform one request and flatten the result to something that can travel.
-async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch) -> FetchOutcome {
+async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationToken) -> FetchOutcome {
     let url = match Url::parse(&fetch.url) {
         Ok(u) => u,
         Err(e) => return FetchOutcome::Error(format!("bad url {}: {e}", fetch.url)),
@@ -104,19 +126,25 @@ async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch) -> FetchOutcome {
         }
     }
 
-    let req = FetchRequest::builder(method, url)
+    let mut builder = FetchRequest::builder(method, url)
         .with_headers(headers)
         // Buffered: a streamed body cannot cross the link (see `protocol`).
         .with_streaming(false)
-        .with_auto_decode(true)
-        .build();
+        .with_auto_decode(true);
+    if let Some(body) = fetch.body {
+        // Plain bytes: the Content-Type already travelled in the headers.
+        builder = builder.with_body(RequestBody::bytes(body));
+    }
+    let req = builder.build();
 
-    // Nothing cancels a brokered fetch from this side; the broker's deadline does.
-    let cancel = CancellationToken::new();
     let (tx, rx) = tokio::sync::oneshot::channel::<FetchResult>();
-    fetcher.submit(req, cancel, tx).await;
+    fetcher.submit(req, cancel.clone(), tx).await;
 
-    match rx.await {
+    let result = tokio::select! {
+        _ = cancel.cancelled() => return FetchOutcome::Error("cancelled by the broker".into()),
+        r = rx => r,
+    };
+    match result {
         Ok(FetchResult::Buffered { meta, body }) => FetchOutcome::Ok {
             status: meta.status,
             status_text: meta.status_text,

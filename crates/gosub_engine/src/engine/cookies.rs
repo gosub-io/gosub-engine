@@ -76,6 +76,7 @@ pub use cookies::Cookie;
 pub use cookies::CookieJarHandle;
 pub use cookies::CookieStoreHandle;
 
+pub(crate) use cookie_jar::same_site;
 pub use cookie_jar::CookieJar;
 pub use cookie_jar::DefaultCookieJar;
 pub use cookie_jar::SameSiteContext;

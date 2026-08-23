@@ -259,6 +259,10 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// height are only known then, and `set_scroll` clamps against the latter). Set by
     /// `on_nav_result`, consumed by `tick_draw`.
     pending_scroll: Option<PendingScroll>,
+    /// Set by the background web-font task each time a face registers, consumed
+    /// by `tick_draw` to re-run layout with the newly available font (the same
+    /// shape as `poll_media_completed` for images).
+    web_fonts_fresh: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Deferred scroll for a freshly committed document.
@@ -340,6 +344,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             history: History::default(),
             reported_cursor: CursorShape::Default,
             pending_scroll: None,
+            web_fonts_fresh: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -578,14 +583,37 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// Fetch and register the document's `@font-face` web fonts into the
     /// engine's font system, via the shared walk in [`crate::html::web_fonts`]
     /// (the forked renderer runs the same walk with its own loader and fonts).
-    fn load_web_fonts(&self, doc: &C::Document, base_url: &Url) {
+    ///
+    /// Runs in the background: the loader blocks on the broker for each face,
+    /// and that wait belongs on a blocking thread, not in the worker loop (on a
+    /// current-thread runtime it would starve the very I/O task that produces
+    /// the reply). First paint may therefore use fallback fonts; each face that
+    /// lands flips `web_fonts_fresh`, and `tick_draw` re-renders with it.
+    fn load_web_fonts(&self, doc: &Arc<C::Document>, base_url: &Url) {
         use gosub_interface::font_system::FontSystem as _;
 
         // Brokered rather than fetched here: this code is renderer-side in
-        // spirit, and must hold no network capability of its own.
+        // spirit, and must hold no network capability of its own. The loader is
+        // tied to the navigation's cancel token, so an abandoned page stops
+        // downloading its fonts.
         let loader = self.resource_loader();
-        crate::html::web_fonts::load_web_fonts::<C>(doc, base_url, loader.as_ref(), &mut |bytes, family| {
-            self.zone_context.font_system.lock().register_font(bytes, Some(family))
+        let doc = Arc::clone(doc);
+        let base_url = base_url.clone();
+        let font_system = Arc::clone(&self.zone_context.font_system);
+        let fresh = Arc::clone(&self.web_fonts_fresh);
+        spawn_named("tab-web-fonts", async move {
+            let walk = tokio::task::spawn_blocking(move || {
+                crate::html::web_fonts::load_web_fonts::<C>(&doc, &base_url, loader.as_ref(), &mut |bytes, family| {
+                    let registered = font_system.lock().register_font(bytes, Some(family));
+                    if registered.is_ok() {
+                        fresh.store(true, std::sync::atomic::Ordering::Release);
+                    }
+                    registered
+                });
+            });
+            if let Err(e) = walk.await {
+                log::warn!("web font loading failed: {e}");
+            }
         });
     }
 
@@ -1737,6 +1765,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // must wake the render loop even when nothing else changed, so the now-available image is
         // laid out and painted. This marks the render dirty under the hood.
         if self.context.poll_media_completed() {
+            self.runtime.dirty = true;
+        }
+
+        // Likewise a web font registered by the background font task: text was
+        // measured and painted with a fallback, so layout must run again.
+        if self.web_fonts_fresh.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            self.context.invalidate_render();
             self.runtime.dirty = true;
         }
 

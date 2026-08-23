@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 /// The argv role name the broker re-execs itself with.
 pub const NET_ROLE: &str = "net";
@@ -16,16 +17,23 @@ pub const NET_ROLE: &str = "net";
 /// How long a caller waits for a reply before giving up on the network process.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// How many requests may be in flight in the network process at once. Callers
+/// past this bound wait for a slot rather than being refused: subresource
+/// bursts are the normal case, and backpressure degrades better than errors.
+const MAX_INFLIGHT: usize = 16;
+
 /// How long to wait for the child to identify itself. Short: it answers before
 /// doing any work, so anything slower means it is not a network process at all.
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A running network process and the link to it.
 pub struct NetProcess {
-    tx: Mutex<EndpointTx>,
-    pending: Arc<Mutex<HashMap<RequestTag, std::sync::mpsc::SyncSender<FetchOutcome>>>>,
+    tx: Arc<Mutex<EndpointTx>>,
+    pending: Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<FetchOutcome>>>>,
     next_tag: AtomicU64,
     child: Mutex<Option<gosub_sandbox::spawn::Child>>,
+    /// Bounds concurrent requests (see [`MAX_INFLIGHT`]).
+    inflight: Arc<tokio::sync::Semaphore>,
 }
 
 impl std::fmt::Debug for NetProcess {
@@ -74,7 +82,7 @@ impl NetProcess {
         let endpoint = Endpoint::from_channel(ours)?;
         let (tx, mut rx) = endpoint.split();
 
-        let pending: Arc<Mutex<HashMap<RequestTag, std::sync::mpsc::SyncSender<FetchOutcome>>>> =
+        let pending: Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<FetchOutcome>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
 
@@ -103,10 +111,11 @@ impl NetProcess {
             })?;
 
         let net = Self {
-            tx: Mutex::new(tx),
+            tx: Arc::new(Mutex::new(tx)),
             pending,
             next_tag: AtomicU64::new(1),
             child: Mutex::new(Some(child)),
+            inflight: Arc::new(tokio::sync::Semaphore::new(MAX_INFLIGHT)),
         };
 
         // Confirm the child really is a network process before returning it as
@@ -134,16 +143,27 @@ impl NetProcess {
         Ok(net)
     }
 
-    /// Send a request and block until the network process answers.
-    pub fn fetch(
+    /// Send a request and wait for the network process to answer. Bounded by
+    /// [`MAX_INFLIGHT`]; a caller past the bound waits for a slot. Cancelling
+    /// `cancel` abandons the wait and tells the child to drop the request.
+    pub async fn fetch(
         &self,
         url: String,
         method: String,
         headers: Vec<(String, String)>,
         body: Option<Vec<u8>>,
+        cancel: &CancellationToken,
     ) -> FetchOutcome {
+        let permit = tokio::select! {
+            _ = cancel.cancelled() => return FetchOutcome::Error("cancelled".into()),
+            p = self.inflight.clone().acquire_owned() => p,
+        };
+        let Ok(_permit) = permit else {
+            return FetchOutcome::Error("the network process is shutting down".into());
+        };
+
         let tag = self.next_tag.fetch_add(1, Ordering::Relaxed);
-        let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<FetchOutcome>(1);
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<FetchOutcome>();
         self.pending.lock().insert(tag, reply_tx);
 
         let msg = ToNet::Fetch(NetFetch {
@@ -153,20 +173,37 @@ impl NetProcess {
             headers,
             body,
         });
-        if let Err(e) = self.tx.lock().send(&msg) {
-            self.pending.lock().remove(&tag);
-            return FetchOutcome::Error(format!("could not reach the network process: {e}"));
+        // The link write can block on a full pipe (bodies can be large), so it
+        // runs on a blocking thread rather than a runtime worker.
+        let tx = self.tx.clone();
+        let sent = tokio::task::spawn_blocking(move || tx.lock().send(&msg)).await;
+        match sent {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                self.pending.lock().remove(&tag);
+                return FetchOutcome::Error(format!("could not reach the network process: {e}"));
+            }
+            Err(e) => {
+                self.pending.lock().remove(&tag);
+                return FetchOutcome::Error(format!("could not dispatch to the network process: {e}"));
+            }
         }
 
-        match reply_rx.recv_timeout(REPLY_TIMEOUT) {
-            Ok(outcome) => outcome,
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                FetchOutcome::Error("the network process exited".into())
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+        tokio::select! {
+            _ = cancel.cancelled() => {
                 self.pending.lock().remove(&tag);
-                FetchOutcome::Error("the network process did not answer".into())
+                // Best-effort: a child that already replied simply finds no waiter.
+                let _ = self.tx.lock().send(&ToNet::Cancel(tag));
+                FetchOutcome::Error("cancelled".into())
             }
+            reply = tokio::time::timeout(REPLY_TIMEOUT, reply_rx) => match reply {
+                Ok(Ok(outcome)) => outcome,
+                Ok(Err(_)) => FetchOutcome::Error("the network process exited".into()),
+                Err(_) => {
+                    self.pending.lock().remove(&tag);
+                    FetchOutcome::Error("the network process did not answer".into())
+                }
+            },
         }
     }
 

@@ -13,6 +13,9 @@ pub enum ToNet {
     /// Prove the child is a network process before anything is entrusted to it.
     Ping,
     Fetch(NetFetch),
+    /// Abandon the request with this tag: the navigation that wanted it is gone.
+    /// Best-effort - a reply already in flight simply finds no waiter.
+    Cancel(RequestTag),
     /// Finish in-flight work and exit. The broker still waits for the process to
     /// go away and kills it if it does not.
     Shutdown,
