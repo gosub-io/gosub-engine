@@ -123,6 +123,8 @@ fn main() {
         "render-under-lockdown" => with_font_backend!(render_under_lockdown),
         "engine-renderer-process" => with_font_backend!(engine_renderer_process),
         "exec-renderer" => with_font_backend!(exec_renderer_roundtrip),
+        "render-file" => with_font_backend!(render_file),
+        "render-file-locked" => with_font_backend!(render_file_locked),
         other => {
             eprintln!("unknown scenario {other:?}; expected 'direct' or 'engine'");
             2
@@ -156,18 +158,36 @@ fn decode() -> i32 {
                 eprintln!("pixels did not survive the boundary: {:?}", image.rgba.as_ref());
                 return 1;
             }
-            0
         }
         Ok(BrokeredDecode::Vector) => {
             eprintln!("a PNG should not decode as a vector");
-            1
+            return 1;
         }
         Err(e) => {
             eprintln!("decode in a separate process failed: {e}");
+            return 1;
+        }
+    }
+
+    // SVG is the format whose decoder discovers system fonts on first use -
+    // a filesystem walk the decoder sandbox forbids, so it has to happen
+    // before the lockdown. A logo-sized SVG (with text, to make the fontdb
+    // matter) must come back as a vector, not as a dead decoder.
+    match ProcessImageDecoder.decode(Some("image/svg+xml"), SAMPLE_SVG) {
+        Ok(BrokeredDecode::Vector) => 0,
+        Ok(BrokeredDecode::Raster(_)) => {
+            eprintln!("an SVG should decode as a vector, not a raster");
+            1
+        }
+        Err(e) => {
+            eprintln!("SVG decode in a separate process failed: {e}");
             1
         }
     }
 }
+
+/// A small SVG with a `<text>` element, so decoding it consults the fontdb.
+const SAMPLE_SVG: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"><rect width="18" height="18" fill="#f60"/><text x="4" y="13" font-family="serif" font-size="10">Y</text></svg>"##;
 
 /// The open question for a renderer process: can text be laid out by a process
 /// confined the way a renderer must be?
@@ -219,6 +239,26 @@ fn fonts_under_lockdown<F: FontSystem + Default>() -> i32 {
         return 1;
     }
     println!("shaped {cold_w:.1}x{cold_h:.1} under the renderer lockdown");
+
+    // A real page runs hundreds of layouts before it first needs some face.
+    // Parley prunes its source cache every layout (entries idle for 128
+    // layouts go), so a warm-up that merely *loaded* every face is undone by
+    // the time a long page reaches a face it has not used yet - and the
+    // reload is a file read. Churn past that window, then ask for a face
+    // nothing above has touched.
+    let churn_style = TextStyle::new("sans-serif", 13.0);
+    for i in 0..300 {
+        let _ = fonts.measure(&format!("layout {i}"), &churn_style);
+    }
+    let mut late_style = TextStyle::new("serif", 27.0);
+    late_style.weight = gosub_interface::font_system::FontWeight(700);
+    late_style.style = gosub_interface::font::FontStyle::Italic;
+    let (late_w, late_h) = fonts.measure("Bold italic serif, first used after 300 layouts", &late_style);
+    if late_w <= 0.0 || late_h <= 0.0 {
+        eprintln!("shaping a late face under lockdown produced an empty box ({late_w}x{late_h})");
+        return 1;
+    }
+    println!("shaped a never-before-used face after 300 layouts under lockdown ({late_w:.1}x{late_h:.1})");
     0
 }
 
@@ -350,9 +390,9 @@ fn render_under_lockdown<F: FontSystem + Default>() -> i32 {
             }
         }
 
-        // Constructing the media store decodes the placeholder SVG, whose
-        // decoder loads a system fontdb from disk - so it must precede the
-        // lockdown, exactly as it does in the fork server.
+        // SVG text goes through a system fontdb that loads face files lazily;
+        // pin them before the lockdown, exactly as the fork server does.
+        gosub_render_pipeline::common::media::SvgDecoder::pin_system_fonts();
         let media_store = std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
 
         gosub_sandbox::lock_down_renderer();
@@ -451,6 +491,7 @@ fn exec_renderer_roundtrip<F: FontSystem + Default>() -> i32 {
         match gosub_engine::render_process::client::render_page(
             html,
             "http://harness.invalid/index.html",
+            "exec-harness-tab",
             (1280.0, 720.0),
             &loader,
             &Default::default(),
@@ -559,6 +600,7 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                     let outcome = server.lock().render_page(
                         "<html><body><p>Rendered through the engine's fork server.</p></body></html>",
                         "http://harness.invalid/",
+                        "fork-harness-tab",
                         (1280.0, 720.0),
                         &gosub_interface::resource_loader::NoResourceLoader,
                         &Default::default(),
@@ -915,6 +957,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
         match server.render_page(
             html,
             "http://harness.invalid/index.html",
+            "fork-harness-tab",
             (1280.0, 720.0),
             &loader,
             &memory,
@@ -1043,6 +1086,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
             match server.render_page(
                 html,
                 "http://harness.invalid/index.html",
+                "fork-harness-tab",
                 (1280.0, 720.0),
                 &loader,
                 &memory,
@@ -1084,6 +1128,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
                 let Ok(page) = server.render_page(
                     html,
                     "http://harness.invalid/index.html",
+                    "fork-harness-tab",
                     (1280.0, 720.0),
                     &loader,
                     &memory,
@@ -1122,6 +1167,7 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
             match server.render_page(
                 tall,
                 "http://harness.invalid/tall.html",
+                "fork-harness-tab",
                 (1280.0, 720.0),
                 &loader,
                 &Default::default(),
@@ -1154,6 +1200,155 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
     #[cfg(not(target_os = "linux"))]
     {
         eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// Debugging aid, not a test: render an arbitrary HTML file (argv[3], with an
+/// optional base url in argv[4]) through the fork server, so a real-world page
+/// that kills a forked renderer can be replayed headlessly. Subresources are
+/// refused (`NoResourceLoader`), which real pages tolerate - the interesting
+/// failures live in parse/style/layout/shaping/raster, not in the fetches.
+fn render_file<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::ForkServer;
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+
+        let Some(path) = std::env::args().nth(3) else {
+            eprintln!("usage: isolation-harness render-file <font-backend> <page.html> [base-url]");
+            return 2;
+        };
+        let html = match std::fs::read_to_string(&path) {
+            Ok(html) => html,
+            Err(e) => {
+                eprintln!("could not read {path}: {e}");
+                return 2;
+            }
+        };
+        let base_url = std::env::args()
+            .nth(4)
+            .unwrap_or_else(|| "http://harness.invalid/".into());
+
+        let mut server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        println!("fork server ready, tier: {:?}", server.confinement());
+        if !matches!(server.confinement(), ConfinementTier::Full) {
+            eprintln!("render-file needs the Full tier");
+            server.shutdown();
+            return 2;
+        }
+
+        let outcome = server.render_page(
+            &html,
+            &base_url,
+            "render-file-tab",
+            (1280.0, 720.0),
+            &gosub_interface::resource_loader::NoResourceLoader,
+            &Default::default(),
+            None,
+        );
+        server.shutdown();
+        match outcome {
+            Ok(page) => {
+                println!(
+                    "forked renderer rendered {path}: {:.0}x{:.0}, {} tiles, {} paint commands",
+                    page.summary.page_width,
+                    page.summary.page_height,
+                    page.tiles.len(),
+                    page.summary.paint_commands
+                );
+                0
+            }
+            Err(e) => {
+                eprintln!("forked render of {path} failed: {e}");
+                1
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// `render-file` without the fork: the same pipeline over argv[3] in *this*
+/// process under the renderer lockdown, so a SIGSYS can be caught by a
+/// debugger with a full backtrace (`gdb --args isolation-harness
+/// render-file-locked parley page.html`).
+fn render_file_locked<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::renderer;
+
+        let Some(path) = std::env::args().nth(3) else {
+            eprintln!("usage: isolation-harness render-file-locked <font-backend> <page.html> [base-url]");
+            return 2;
+        };
+        let html = match std::fs::read_to_string(&path) {
+            Ok(html) => html,
+            Err(e) => {
+                eprintln!("could not read {path}: {e}");
+                return 2;
+            }
+        };
+        let base_url = std::env::args()
+            .nth(4)
+            .unwrap_or_else(|| "http://harness.invalid/".into());
+
+        let mut fonts = F::default();
+        let _ = fonts.families();
+        match fonts.prepare_for_confinement() {
+            Confinement::Full => {}
+            other => {
+                eprintln!("this scenario needs a fully-confinable font system, got {other:?}");
+                return 2;
+            }
+        }
+        // As in the fork server: fonts for SVG text pinned pre-lockdown, and
+        // single-threaded fetches, since a confined renderer cannot create
+        // threads.
+        gosub_render_pipeline::common::media::SvgDecoder::pin_system_fonts();
+        let media_store = std::sync::Arc::new(gosub_render_pipeline::common::media::MediaStore::new());
+        media_store.set_synchronous_fetch(true);
+
+        gosub_sandbox::lock_down_renderer();
+
+        let shared: std::sync::Arc<parking_lot::Mutex<dyn FontSystem>> =
+            std::sync::Arc::new(parking_lot::Mutex::new(fonts));
+        let (summary, baked, _) = renderer::render_page::<TileConfig<F>>(
+            renderer::PageRequest {
+                html: &html,
+                page_url: &base_url,
+                viewport_width: 1280.0,
+                viewport_height: 720.0,
+                known_tiles: &Default::default(),
+                hovered_node: None,
+            },
+            shared,
+            media_store,
+            std::sync::Arc::new(gosub_interface::resource_loader::NoResourceLoader),
+        );
+        println!(
+            "rendered {path} under the renderer lockdown: {:.0}x{:.0}, {} tiles, {} paint commands",
+            summary.page_width,
+            summary.page_height,
+            baked.len(),
+            summary.paint_commands
+        );
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer lockdown exists only on Linux");
         2
     }
 }

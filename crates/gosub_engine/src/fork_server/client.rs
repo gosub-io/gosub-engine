@@ -281,10 +281,12 @@ impl ForkServer {
     /// inherited fonts. Returns the measured summary plus the rasterized
     /// tiles, whose pixels arrive as sealed memfds and are mapped - never
     /// copied - into this process.
+    #[allow(clippy::too_many_arguments)] // one wire message, spelled out
     pub fn render_page(
         &mut self,
         html: &str,
         url: &str,
+        tab: &str,
         viewport: (f64, f64),
         loader: &dyn gosub_interface::resource_loader::ResourceLoader,
         known_tiles: &TileMemory,
@@ -293,6 +295,7 @@ impl ForkServer {
         self.link.send(&ToForkServer::RenderPage {
             html: html.to_string(),
             url: url.to_string(),
+            tab: tab.to_string(),
             viewport_width: viewport.0,
             viewport_height: viewport.1,
             known_tiles: known_tiles.hashes(),

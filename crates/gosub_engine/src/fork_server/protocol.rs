@@ -44,6 +44,10 @@ pub enum ToForkServer {
         /// The page's URL - the base against which the renderer resolves
         /// relative subresource URLs (stylesheets, images, fonts).
         url: String,
+        /// The tab this render is for. Display only: it names the renderer
+        /// process in `ps`/`pstree` (`render-<first 8 chars>`), nothing else
+        /// keys on it. Empty when the caller has no tab (tests, harnesses).
+        tab: String,
         viewport_width: f64,
         viewport_height: f64,
         /// Content hashes of tiles the broker still holds from a previous

@@ -58,6 +58,10 @@ impl ResourceLoader for DirectBrokeredLoader {
 /// and render happen confined, reading only font paths and the private
 /// scratch, fetching everything else through the broker.
 pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
+    // Before the lockdown (it reads /proc), so the rename on the incoming
+    // request can rewrite the cmdline too.
+    gosub_sandbox::capture_process_title_region();
+
     let mut fonts = C::FontSystem::default();
     let _ = fonts.families();
     let answer = fonts.prepare_for_confinement();
@@ -101,6 +105,7 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
     let ToForkServer::RenderPage {
         html,
         url,
+        tab,
         viewport_width,
         viewport_height,
         known_tiles,
@@ -112,6 +117,17 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
         ));
         return 1;
     };
+
+    // Display only, like the forked path: name the process after its tab.
+    // PR_SET_NAME is on this filter's allowlist; the cmdline rewrite is
+    // plain memory writes into the region captured above.
+    let short: String = tab.chars().take(8).collect();
+    let comm = if short.is_empty() {
+        "render".to_string()
+    } else {
+        format!("render-{short}")
+    };
+    gosub_sandbox::set_process_title(&comm, &format!("gosub: renderer {url}"));
 
     let shared: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(fonts));
     let (summary, tiles, hit_regions) = renderer::render_page::<C>(

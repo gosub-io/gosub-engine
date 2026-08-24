@@ -2209,6 +2209,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-mini-browser"
+version = "0.1.0"
+dependencies = [
+ "cairo-rs",
+ "gosub_config",
+ "gosub_css3",
+ "gosub_engine",
+ "gosub_fontmanager",
+ "gosub_html5",
+ "gosub_interface",
+ "gosub_render_pipeline",
+ "gosub_renderer_cairo",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "simple_logger",
+ "softbuffer",
+ "tokio",
+ "url",
+ "winit",
+]
+
+[[package]]
 name = "example-winit-cairo"
 version = "0.1.0"
 dependencies = [

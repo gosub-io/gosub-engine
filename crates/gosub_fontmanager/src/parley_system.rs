@@ -4,7 +4,7 @@ use gosub_interface::font_system::{
     Confinement, FontQuery, FontStretch, FontSystem, FontWeight, ResolvedFont, RunMetrics, ShapedGlyph, ShapedRun,
     ShapedText, TextAlign, TextStyle,
 };
-use parley::fontique::{Attributes, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache};
+use parley::fontique::{Attributes, Blob, FontWidth, GenericFamily, QueryFamily, QueryStatus, SourceCache};
 use parley::style::{FontStyle as ParleyStyle, FontWeight as ParleyWeight};
 use parley::{Alignment, AlignmentOptions, FontContext, LayoutContext, PositionedLayoutItem};
 
@@ -15,7 +15,14 @@ use parley::{Alignment, AlignmentOptions, FontContext, LayoutContext, Positioned
 pub struct ParleyFontSystem {
     font_cx: FontContext,
     layout_cx: LayoutContext<()>,
+    /// Shares one backing store with `font_cx.source_cache`: Parley prunes that
+    /// one every layout (entries idle for 128 layouts are dropped), and a miss
+    /// there falls through to the shared store's weak handle rather than to disk
+    /// - as long as something still holds the blob strongly (`pinned`).
     source_cache: SourceCache,
+    /// Strong handles to every face [`FontSystem::prepare_for_confinement`]
+    /// loaded, so pruning can never turn a warmed face back into a file read.
+    pinned: Vec<Blob<u8>>,
 }
 
 impl std::fmt::Debug for ParleyFontSystem {
@@ -41,10 +48,15 @@ impl ParleyFontSystem {
             .collection
             .register_fonts(gosub_shared::ROBOTO_FONT.to_vec().into(), None);
 
+        // Clones of a shared cache share its backing store; see the field docs.
+        let source_cache = SourceCache::new_shared();
+        font_cx.source_cache = source_cache.clone();
+
         Self {
             font_cx,
             layout_cx: LayoutContext::new(),
-            source_cache: SourceCache::new_shared(),
+            source_cache,
+            pinned: Vec::new(),
         }
     }
 }
@@ -112,7 +124,7 @@ impl FontSystem for ParleyFontSystem {
         out
     }
 
-    /// Load every face of every family into both source caches.
+    /// Load every face of every family into the shared source store and pin it.
     fn prepare_for_confinement(&mut self) -> Confinement {
         let names: Vec<String> = self.font_cx.collection.family_names().map(str::to_string).collect();
         for name in names {
@@ -120,8 +132,9 @@ impl FontSystem for ParleyFontSystem {
                 continue;
             };
             for font in family.fonts() {
-                let _ = font.load(Some(&mut self.font_cx.source_cache));
-                let _ = font.load(Some(&mut self.source_cache));
+                if let Some(blob) = font.load(Some(&mut self.source_cache)) {
+                    self.pinned.push(blob);
+                }
             }
         }
         Confinement::Full

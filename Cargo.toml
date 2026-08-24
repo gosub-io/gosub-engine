@@ -24,6 +24,7 @@ members = [
     "examples/gtk4-cairo",
     "examples/gtk4-skia",
     "examples/gtk4-skia-gpu",
+    "examples/mini-browser",
     "examples/winit-cairo",
     "examples/winit-skia",
     "examples/winit-skia-gpu",

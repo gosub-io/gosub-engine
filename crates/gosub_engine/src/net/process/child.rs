@@ -20,6 +20,9 @@ const DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Run as the network process until the broker disconnects or says to stop.
 pub fn serve(link: Endpoint) -> i32 {
+    gosub_sandbox::capture_process_title_region();
+    gosub_sandbox::set_process_title("gosub-net", "gosub: network process");
+
     // Built before lockdown: spawning threads is not on the allowlist, so a
     // runtime created afterwards could not start its workers.
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {

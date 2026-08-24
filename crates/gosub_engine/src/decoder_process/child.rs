@@ -2,21 +2,32 @@
 
 use crate::decoder_process::protocol::{FromDecoder, ToDecoder, CHUNK_BYTES};
 use gosub_ipc::Endpoint;
-use gosub_render_pipeline::common::media::{DecodedMedia, MediaDecoderRegistry};
+use gosub_render_pipeline::common::media::{DecodedMedia, MediaDecoderRegistry, RasterDecoder, SvgDecoder};
 
 /// Decode one image for the broker, then return the process exit code.
 pub fn serve(mut link: Endpoint) -> i32 {
-    // Nothing below opens a file, a socket or a program, so the tightest profile
-    // applies. Installed before the untrusted bytes are so much as read.
-    gosub_sandbox::lock_down_renderer();
+    // Renamed before the lockdown takes /proc away; there is no per-image
+    // identity to show - this process decodes exactly one and exits.
+    gosub_sandbox::capture_process_title_region();
+    gosub_sandbox::set_process_title("gosub-decoder", "gosub: image decoder");
+
+    // The default set, minus system fonts for SVG: discovering and lazily
+    // loading them walks the filesystem, which the lockdown below forbids -
+    // and a font-less parse is all this process owes the broker (see
+    // `FromDecoder::Vector`). Nothing here opens a file, a socket or a
+    // program, so the tightest profile applies, installed before the
+    // untrusted bytes are so much as read.
+    let mut registry = MediaDecoderRegistry::new();
+    registry.register(Box::new(SvgDecoder::without_system_fonts()));
+    registry.register(Box::new(RasterDecoder));
+
+    gosub_sandbox::lock_down_decoder();
 
     let ToDecoder::Decode { mime, bytes } = match link.recv::<ToDecoder>() {
         Ok(msg) => msg,
         // The broker went away before asking for anything; nothing to do.
         Err(_) => return 0,
     };
-
-    let registry = MediaDecoderRegistry::with_defaults();
     let reply = match registry.decode(mime.as_deref(), &bytes) {
         // Already normalised to RGBA8 by the decoder, so this is the layout the
         // broker expects and no conversion is needed here.

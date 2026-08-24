@@ -53,6 +53,13 @@ pub fn lock_down_renderer() {
     enforce("renderer", RENDERER_PROFILE);
 }
 
+/// The image decoder: the renderer's profile under its own banner name.
+#[cfg(feature = "multi-process")]
+pub fn lock_down_decoder() {
+    deny_debugger_attach();
+    enforce("decoder", RENDERER_PROFILE);
+}
+
 /// Cap the net component: like the renderer, but the network stays open.
 #[cfg(feature = "multi-process")]
 pub fn lock_down_net(_fs_allow: &[(&std::path::Path, bool)]) {

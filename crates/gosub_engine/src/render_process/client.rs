@@ -21,6 +21,7 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 pub fn render_page(
     html: &str,
     url: &str,
+    tab: &str,
     viewport: (f64, f64),
     loader: &dyn gosub_interface::resource_loader::ResourceLoader,
     known_tiles: &TileMemory,
@@ -63,6 +64,7 @@ pub fn render_page(
         link.send(&ToForkServer::RenderPage {
             html: html.to_string(),
             url: url.to_string(),
+            tab: tab.to_string(),
             viewport_width: viewport.0,
             viewport_height: viewport.1,
             known_tiles: known_tiles.hashes(),

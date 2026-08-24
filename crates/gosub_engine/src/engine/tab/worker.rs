@@ -302,12 +302,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             match C::FontSystem::confinement() {
                 Confinement::Full => {
                     if let Some(server) = zone_context.engine_context.renderer_process.get() {
-                        context.set_remote_renderer(RemoteRenderer::ForkServer(Arc::clone(server)));
+                        context.set_remote_renderer(RemoteRenderer::ForkServer(Arc::clone(server)), tab_id.to_string());
                     }
                 }
                 Confinement::FontPathsReadable => {
                     if config_store.get_bool("security.renderer_process") {
-                        context.set_remote_renderer(RemoteRenderer::ExecPerRender);
+                        context.set_remote_renderer(RemoteRenderer::ExecPerRender, tab_id.to_string());
                     }
                 }
                 Confinement::Unsupported(_) => {}

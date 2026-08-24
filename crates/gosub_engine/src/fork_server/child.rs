@@ -18,6 +18,12 @@ use std::sync::Arc;
 
 /// Run the fork server for the embedder's configuration `C`.
 pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
+    // Before any lockdown (the capture reads /proc): the anchor and every
+    // forked renderer inherit the capture and can then rename themselves in
+    // `ps`; this process itself reads as the fork server on both paths below.
+    gosub_sandbox::capture_process_title_region();
+    gosub_sandbox::set_process_title("gosub-forksrv", "gosub: renderer fork server");
+
     match C::FontSystem::confinement() {
         Confinement::Full => serve_warmed::<C>(link),
         other => decline(link, &other),
@@ -38,10 +44,13 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
     let tier = ConfinementTier::from(&answer);
 
     // The media store is the pipeline's other piece of lazily-file-loading
-    // state: constructing one decodes the placeholder SVG, whose decoder
-    // loads a system fontdb from disk. Built once here, pre-lockdown, and
-    // inherited copy-on-write by every forked renderer - the same move as
-    // the font warm-up, for the same reason.
+    // state: SVG `<text>` goes through a system fontdb that discovers fonts
+    // on first use and opens each face's file on first *use of that face*.
+    // Pinned here, pre-lockdown, and inherited copy-on-write by every forked
+    // renderer - the same move as the font warm-up, for the same reason.
+    if !gosub_render_pipeline::common::media::SvgDecoder::pin_system_fonts() {
+        eprintln!("[fork-server] system fontdb was built before it could be pinned; SVG text may fail confined");
+    }
     let forked_loader = ForkedResourceLoader::disconnected();
     let media_store = Arc::new(gosub_render_pipeline::common::media::MediaStore::with_loader(
         Arc::clone(&forked_loader) as Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
@@ -97,6 +106,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
             ToForkServer::RenderPage {
                 html,
                 url,
+                tab,
                 viewport_width,
                 viewport_height,
                 known_tiles,
@@ -117,6 +127,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                         font_access,
                         &html,
                         &url,
+                        &tab,
                         viewport_width,
                         viewport_height,
                         &known_tiles.iter().copied().collect(),
@@ -296,6 +307,7 @@ fn fork_and_render<C: RenderConfiguration>(
     font_access: bool,
     html: &str,
     page_url: &str,
+    tab: &str,
     viewport_width: f64,
     viewport_height: f64,
     known_tiles: &std::collections::HashSet<u64>,
@@ -310,6 +322,15 @@ fn fork_and_render<C: RenderConfiguration>(
         Err(e) => Err(format!("fork failed: {e}")),
         Ok(gosub_sandbox::Forked::Child) => {
             drop(ours);
+            // Fork keeps the parent's name; say who this really is. The tab
+            // id is display-only here - `ps` legibility, nothing keys on it.
+            let short: String = tab.chars().take(8).collect();
+            let comm = if short.is_empty() {
+                "render".to_string()
+            } else {
+                format!("render-{short}")
+            };
+            gosub_sandbox::set_process_title(&comm, &format!("gosub: renderer {page_url}"));
             let Ok(link) = Endpoint::from_channel(theirs) else {
                 gosub_sandbox::exit_now(1);
             };

@@ -233,6 +233,12 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// (`FontPathsReadable`).
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_renderer: Option<RemoteRenderer>,
+
+    /// The tab this context renders for, as a display string - sent with each
+    /// remote render so the renderer process can name itself after the tab in
+    /// `ps`/`pstree`. Empty until a remote renderer is installed.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_tab: String,
 }
 
 /// The two ways a tab's renders leave this process - which one applies is the
@@ -297,14 +303,17 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             remote_tile_memory: Default::default(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_renderer: None,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_tab: String::new(),
         }
     }
 
     /// Route this tab's full renders out-of-process. Installed once by the
     /// tab worker; see [`Self::remote_render_active`] for when it engages.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    pub fn set_remote_renderer(&mut self, renderer: RemoteRenderer) {
+    pub fn set_remote_renderer(&mut self, renderer: RemoteRenderer, tab: String) {
         self.remote_renderer = Some(renderer);
+        self.remote_tab = tab;
     }
 
     /// Whether full renders go out-of-process: a remote renderer is installed
@@ -594,10 +603,16 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 .unwrap_or_else(|| "about:blank".to_string())
         };
         let viewport = (self.viewport.width as f64, self.viewport.height as f64);
-        let result = match remote {
+        // The whole exchange blocks on the renderer's socket (and, relaying its
+        // subresource requests, on the I/O runtime). Blocking a runtime worker
+        // while holding its scheduler core can trap tasks woken into this
+        // worker's unstealable LIFO slot - the brokered loader's reply path
+        // among them - so hand the core to another thread for the duration.
+        let run = || match remote {
             RemoteRenderer::ForkServer(server) => server.lock().render_page(
                 source,
                 &page_url,
+                &self.remote_tab,
                 viewport,
                 self.loader.as_ref(),
                 &self.remote_tile_memory,
@@ -606,11 +621,18 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             RemoteRenderer::ExecPerRender => crate::render_process::client::render_page(
                 source,
                 &page_url,
+                &self.remote_tab,
                 viewport,
                 self.loader.as_ref(),
                 &self.remote_tile_memory,
                 self.hover_leaf.map(|id| id.into()),
             ),
+        };
+        let result = match tokio::runtime::Handle::try_current() {
+            Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(run)
+            }
+            _ => run(),
         };
         match result {
             Ok(page) => {

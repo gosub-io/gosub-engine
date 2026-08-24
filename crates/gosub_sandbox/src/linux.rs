@@ -378,6 +378,70 @@ pub fn exit_now(code: i32) -> ! {
     unsafe { libc::_exit(code) }
 }
 
+/// The argv area of this process (`arg_start`..`arg_end` from
+/// `/proc/self/stat`), captured before any lockdown so [`set_process_title`]
+/// can rewrite it without a syscall. Forked children inherit the capture.
+#[cfg(feature = "multi-process")]
+static PROCESS_TITLE_REGION: std::sync::OnceLock<(usize, usize)> = std::sync::OnceLock::new();
+
+/// Record where this process's argv lives. Reads `/proc`, so it must run
+/// before any filter or Landlock ruleset takes file opens away; after
+/// lockdown it quietly captures nothing and [`set_process_title`] falls back
+/// to renaming the comm only.
+#[cfg(feature = "multi-process")]
+pub fn capture_process_title_region() {
+    if PROCESS_TITLE_REGION.get().is_some() {
+        return;
+    }
+    let Ok(stat) = std::fs::read_to_string("/proc/self/stat") else {
+        return;
+    };
+    // Fields are positional after the parenthesized comm (which may contain
+    // spaces): the slice after ')' starts at field 3, so arg_start/arg_end
+    // (fields 48/49, proc(5)) sit at indices 45/46.
+    let Some(close) = stat.rfind(')') else { return };
+    let fields: Vec<&str> = stat[close + 1..].split_whitespace().collect();
+    let (Some(start), Some(end)) = (
+        fields.get(45).and_then(|s| s.parse::<usize>().ok()),
+        fields.get(46).and_then(|s| s.parse::<usize>().ok()),
+    ) else {
+        return;
+    };
+    if start == 0 || end <= start {
+        return;
+    }
+    let _ = PROCESS_TITLE_REGION.set((start, end));
+}
+
+/// Rename this process in `ps`/`pstree`: `comm` (at most 15 bytes, what
+/// `pstree` prints by default) via `prctl(PR_SET_NAME)`, and the cmdline by
+/// overwriting the captured argv area in place - plain memory writes, so it
+/// works under every filter here (`PR_SET_NAME` is on each allowlist too).
+/// Built for the fork-without-exec children, which otherwise show their
+/// parent's cmdline.
+#[cfg(feature = "multi-process")]
+pub fn set_process_title(comm: &str, cmdline: &str) {
+    let mut name = [0u8; 16];
+    let n = comm.len().min(15);
+    name[..n].copy_from_slice(&comm.as_bytes()[..n]);
+    // SAFETY: PR_SET_NAME reads a NUL-terminated buffer of at most 16 bytes.
+    unsafe { libc::prctl(libc::PR_SET_NAME, name.as_ptr()) };
+
+    let Some(&(start, end)) = PROCESS_TITLE_REGION.get() else {
+        return;
+    };
+    let len = end - start;
+    let bytes = cmdline.as_bytes();
+    let n = bytes.len().min(len.saturating_sub(1));
+    // SAFETY: arg_start..arg_end is this process's own writable argv memory
+    // (initial stack); writing within it is the standard setproctitle move.
+    // The remainder is zeroed so readers see exactly the new title.
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), start as *mut u8, n);
+        std::ptr::write_bytes((start + n) as *mut u8, 0, len - n);
+    }
+}
+
 /// The write end of the pipe the PID-namespace anchor blocks on. Dropping it
 /// (or exiting) is what releases the anchor: the read gets EOF and PID 1
 /// exits, tearing the namespace down with the fork server.
@@ -409,6 +473,7 @@ pub fn hold_pid_namespace_anchor() -> std::io::Result<PidNamespaceAnchor> {
         Forked::Child => {
             // SAFETY: closing the inherited copy of the parent's end.
             unsafe { libc::close(write_fd) };
+            set_process_title("pidns-anchor", "gosub: pid-namespace anchor");
             // Confine quietly (no lockdown banner - this is plumbing, not a
             // component); an install failure leaves an idle read loop, which
             // is not worth killing the namespace over.
@@ -439,6 +504,14 @@ pub fn hold_pid_namespace_anchor() -> std::io::Result<PidNamespaceAnchor> {
 pub fn lock_down_renderer() {
     deny_debugger_attach();
     enforce("renderer", install(BASELINE.to_vec()));
+}
+
+/// The image decoder's confinement: the renderer's pixels-only baseline -
+/// it needs exactly as little - under its own banner name.
+#[cfg(feature = "multi-process")]
+pub fn lock_down_decoder() {
+    deny_debugger_attach();
+    enforce("decoder", install(BASELINE.to_vec()));
 }
 
 /// What a fontconfig-backed font stack does at match time, beyond opening the
@@ -1453,10 +1526,93 @@ fn install_sigsys_reporter() {
     }
 }
 
-/// SIGSYS handler for `SECCOMP_RET_TRAP`: name the blocked syscall, then
-/// terminate with SIGSYS exactly as `KillProcess` would have.
+/// Which argument of the blocked syscall is a pathname pointer, if any - so
+/// the SIGSYS report can name the file, not just the call. Numbers are
+/// per-arch (the same numbers the seccomp filter matched on).
 #[cfg(feature = "multi-process")]
-extern "C" fn sigsys_handler(_sig: libc::c_int, info: *mut libc::siginfo_t, _ctx: *mut libc::c_void) {
+fn path_arg_index(nr: i32) -> Option<usize> {
+    #[cfg(target_arch = "x86_64")]
+    match nr as i64 {
+        libc::SYS_open
+        | libc::SYS_stat
+        | libc::SYS_lstat
+        | libc::SYS_access
+        | libc::SYS_readlink
+        | libc::SYS_statfs
+        | libc::SYS_truncate
+        | libc::SYS_unlink
+        | libc::SYS_chmod
+        | libc::SYS_chown => Some(0),
+        libc::SYS_openat
+        | libc::SYS_openat2
+        | libc::SYS_newfstatat
+        | libc::SYS_readlinkat
+        | libc::SYS_faccessat
+        | libc::SYS_faccessat2
+        | libc::SYS_unlinkat
+        | libc::SYS_statx => Some(1),
+        _ => None,
+    }
+    #[cfg(target_arch = "aarch64")]
+    match nr as i64 {
+        libc::SYS_openat
+        | libc::SYS_openat2
+        | libc::SYS_newfstatat
+        | libc::SYS_readlinkat
+        | libc::SYS_faccessat
+        | libc::SYS_faccessat2
+        | libc::SYS_unlinkat
+        | libc::SYS_statx => Some(1),
+        _ => None,
+    }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        let _ = nr;
+        None
+    }
+}
+
+/// The `arg_index`-th syscall argument at the trap site, read from the signal
+/// ucontext. `None` where the register layout is unknown.
+#[cfg(feature = "multi-process")]
+fn syscall_arg(ctx: *mut libc::c_void, arg_index: usize) -> Option<u64> {
+    if ctx.is_null() {
+        return None;
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        // SAFETY: on a SIGSYS delivered with SA_SIGINFO the third handler
+        // argument points at a kernel-filled ucontext_t.
+        let uc = unsafe { &*(ctx as *const libc::ucontext_t) };
+        let reg = match arg_index {
+            0 => libc::REG_RDI,
+            1 => libc::REG_RSI,
+            2 => libc::REG_RDX,
+            _ => return None,
+        };
+        Some(uc.uc_mcontext.gregs[reg as usize] as u64)
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        // SAFETY: as above; aarch64 keeps syscall args in x0..x5.
+        let uc = unsafe { &*(ctx as *const libc::ucontext_t) };
+        if arg_index > 5 {
+            return None;
+        }
+        Some(uc.uc_mcontext.regs[arg_index])
+    }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        let _ = arg_index;
+        None
+    }
+}
+
+/// SIGSYS handler for `SECCOMP_RET_TRAP`: name the blocked syscall (and, for
+/// path-taking calls, the path it was given), then terminate with SIGSYS
+/// exactly as `KillProcess` would have.
+#[cfg(feature = "multi-process")]
+extern "C" fn sigsys_handler(_sig: libc::c_int, info: *mut libc::siginfo_t, ctx: *mut libc::c_void) {
     // `si_syscall` sits at byte offset 24 of `siginfo_t` on LP64 Linux - after
     // {si_signo, si_errno, si_code, pad} (16 bytes) and the `_call_addr`
     // pointer (8). Same layout on x86_64 and aarch64, the two arches this
@@ -1470,13 +1626,42 @@ extern "C" fn sigsys_handler(_sig: libc::c_int, info: *mut libc::siginfo_t, _ctx
         unsafe { std::ptr::read_unaligned((info as *const u8).add(24).cast::<i32>()) }
     };
 
-    let mut buf = [0u8; 80];
+    let mut buf = [0u8; 256];
     let mut len = 0usize;
     for &b in b"[sandbox] SIGSYS: blocked syscall #" {
         buf[len] = b;
         len += 1;
     }
     len += write_i32(&mut buf[len..], nr);
+
+    // For a path-taking call, read the path the caller passed - the process is
+    // dying anyway, and the pointer is the caller's own argument, so a plain
+    // read is as safe as it gets in a handler. Bounded and sanitized.
+    if let Some(ptr) = path_arg_index(nr).and_then(|idx| syscall_arg(ctx, idx)) {
+        if ptr != 0 {
+            for &b in b" (path \"" {
+                buf[len] = b;
+                len += 1;
+            }
+            let mut off = 0usize;
+            while len < buf.len() - 20 && off < 160 {
+                // SAFETY: reads the NUL-terminated string the trapped syscall
+                // was about to consume, one byte at a time, bounded above.
+                let byte = unsafe { std::ptr::read_volatile((ptr as *const u8).add(off)) };
+                if byte == 0 {
+                    break;
+                }
+                buf[len] = if (0x20..0x7f).contains(&byte) { byte } else { b'?' };
+                len += 1;
+                off += 1;
+            }
+            for &b in b"\")" {
+                buf[len] = b;
+                len += 1;
+            }
+        }
+    }
+
     for &b in b" \xe2\x80\x94 terminating\n" {
         buf[len] = b;
         len += 1;

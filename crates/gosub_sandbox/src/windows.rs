@@ -132,6 +132,13 @@ pub fn lock_down_renderer() {
     lock_down("renderer");
 }
 
+/// The image decoder: the renderer's confinement under its own banner name.
+#[cfg(feature = "multi-process")]
+pub fn lock_down_decoder() {
+    deny_debugger_attach();
+    lock_down("decoder");
+}
+
 /// Cap the net component.
 #[cfg(feature = "multi-process")]
 pub fn lock_down_service(name: &str, _filesystem: bool, _device: bool, _fs_allow: &[(&std::path::Path, bool)]) {

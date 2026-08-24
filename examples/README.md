@@ -93,6 +93,16 @@ cargo run -p example-egui-skia      # egui window, Skia CPU rendering
 cargo run -p example-egui-cairo     # egui window, Cairo CPU rendering
 ```
 
+One GUI example is different in kind rather than toolkit: `mini-browser` runs with every
+process-isolation setting on — sandboxed network process, throwaway image decoders, and pages
+rendered by forked renderer processes whose tiles arrive over sealed shared memory. It exists
+to *watch* the process model work: multiple tabs, an address bar, and Ctrl+P to print the live
+process tree (or `pstree -ap <broker pid>` from outside):
+
+```bash
+cargo run -p example-mini-browser -- https://example.com https://gosub.io
+```
+
 
 ## Choosing a configuration
 

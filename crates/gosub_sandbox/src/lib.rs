@@ -88,6 +88,15 @@ pub fn lock_down_renderer() {
     imp::lock_down_renderer();
 }
 
+/// Confine the image decoder: the renderer's pixels-only profile - no network,
+/// no files, no new programs - reported under its own name, so the lockdown
+/// banner says which component actually confined itself. Called once the IPC
+/// link is connected. Fail-closed.
+#[cfg(feature = "multi-process")]
+pub fn lock_down_decoder() {
+    imp::lock_down_decoder();
+}
+
 /// Confine the net component: the renderer's restrictions minus the network,
 /// which is the one privilege this role keeps. Called once the IPC link is
 /// connected. Fail-closed.
@@ -332,6 +341,28 @@ pub fn reap_child(pid: i32) -> std::io::Result<i32> {
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn exit_now(code: i32) -> ! {
     imp::exit_now(code)
+}
+
+/// Record where this process's argv lives, so [`set_process_title`] can
+/// rewrite it later without a syscall. Must run before lockdown (it reads
+/// `/proc`); forked children inherit the capture. A no-op off Linux, so
+/// cross-platform child roles can call it unconditionally.
+pub fn capture_process_title_region() {
+    #[cfg(all(feature = "multi-process", target_os = "linux"))]
+    imp::capture_process_title_region();
+}
+
+/// Rename this process in `ps`/`pstree`: the comm (15 bytes, pstree's default
+/// display) plus the cmdline, when its region was captured pre-lockdown. Safe
+/// under every filter here (`PR_SET_NAME` is on each allowlist). Names the
+/// fork-without-exec children, which otherwise show their parent's identity,
+/// and gives the exec'd roles a title that says what they are. A no-op off
+/// Linux (other platforms show the executable name).
+pub fn set_process_title(comm: &str, cmdline: &str) {
+    #[cfg(all(feature = "multi-process", target_os = "linux"))]
+    imp::set_process_title(comm, cmdline);
+    #[cfg(not(all(feature = "multi-process", target_os = "linux")))]
+    let _ = (comm, cmdline);
 }
 
 /// Keeps the fork server's PID namespace alive; see [`hold_pid_namespace_anchor`].
