@@ -77,6 +77,7 @@ impl NetProcess {
                 name: "gosub-net",
                 internet: true,
                 fs_grant: None,
+                data_limit: None,
             },
         )?;
 

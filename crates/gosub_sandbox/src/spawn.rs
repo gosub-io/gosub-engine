@@ -16,6 +16,10 @@ pub struct ContainerProfile<'a> {
     pub internet: bool,
     /// A path this role's container may reach, with a writable flag.
     pub fs_grant: Option<(&'a std::path::Path, bool)>,
+    /// Committed-memory ceiling for this role, in bytes; `None` is
+    /// [`DEFAULT_CHILD_DATA_LIMIT`](crate::DEFAULT_CHILD_DATA_LIMIT). The
+    /// renderer family is the one role that legitimately holds a lot.
+    pub data_limit: Option<u64>,
 }
 
 #[cfg(unix)]

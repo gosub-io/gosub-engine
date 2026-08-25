@@ -118,6 +118,8 @@ fn build_renderers_json(context: &EngineContext) -> String {
                         "zone": r.key.zone.to_string(),
                         "site": r.key.site,
                         "tabs": r.tabs,
+                        "rss_kb": r.rss_kb,
+                        "data_kb": r.data_kb,
                     })
                 })
                 .collect()

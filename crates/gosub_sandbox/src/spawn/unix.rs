@@ -53,7 +53,7 @@ pub fn spawn(
 ) -> io::Result<Child> {
     use std::os::unix::process::CommandExt;
 
-    let _ = container;
+    let data_limit = container.data_limit.unwrap_or(crate::DEFAULT_CHILD_DATA_LIMIT);
     let mut cmd = std::process::Command::new(exe);
     cmd.args(args).arg(child_end.to_argv());
 
@@ -76,7 +76,7 @@ pub fn spawn(
     // async-signal-safe operations (setrlimit, setpriority, unshare, fcntl).
     unsafe {
         cmd.pre_exec(move || {
-            crate::apply_child_rlimits()?;
+            crate::apply_child_rlimits_with(data_limit)?;
             // Fail-closed, matching the seccomp precedent: a child that was
             // meant to be network-isolated and silently isn't is worse than an
             // honest refusal to start.

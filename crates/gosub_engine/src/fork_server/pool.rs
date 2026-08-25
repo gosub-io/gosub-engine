@@ -25,6 +25,22 @@ pub struct RendererStatus {
     pub key: RendererKey,
     pub pid: i32,
     pub tabs: usize,
+    /// Resident set and data segment in KiB, from `/proc`, when readable.
+    pub rss_kb: Option<u64>,
+    pub data_kb: Option<u64>,
+}
+
+/// `VmRSS` and `VmData` of a process in KiB, from `/proc/<pid>/status`.
+pub fn memory_of(pid: i32) -> Option<(u64, u64)> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    let field = |name: &str| -> Option<u64> {
+        status
+            .lines()
+            .find(|l| l.starts_with(name))
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|v| v.parse().ok())
+    };
+    Some((field("VmRSS:")?, field("VmData:")?))
 }
 
 pub struct RendererPool {
@@ -32,6 +48,8 @@ pub struct RendererPool {
     state: Mutex<State>,
     /// When [`Self::sweep_dead`] last looked; it is called per frame per tab.
     last_sweep: Mutex<Option<std::time::Instant>>,
+    /// When memory was last reported to the firehose.
+    last_memory_report: Mutex<Option<std::time::Instant>>,
     /// Where a crash is announced (`EngineEvent::RendererCrashed`), if the
     /// pool belongs to an engine.
     events: Option<crate::engine::types::EventChannel>,
@@ -40,9 +58,21 @@ pub struct RendererPool {
 #[derive(Default)]
 struct State {
     renderers: HashMap<RendererKey, Arc<Mutex<ResidentRenderer>>>,
+    /// Each renderer's pid, kept here so listing the pool never waits on a
+    /// renderer that is mid-exchange.
+    pids: HashMap<RendererKey, i32>,
+    /// Each renderer's dead flag, readable without its lock: a renderer that
+    /// died mid-exchange must never be handed to the next tab.
+    dead_flags: HashMap<RendererKey, Arc<std::sync::atomic::AtomicBool>>,
     tabs: HashMap<RendererKey, HashSet<TabId>>,
     /// Where each tab currently lives.
     placement: HashMap<TabId, RendererKey>,
+    /// `OpenTab`s / `CloseTab`s not yet delivered: the renderer was busy when
+    /// the tab arrived or left, and the pool never waits on a renderer.
+    pending_opens: HashMap<RendererKey, Vec<TabId>>,
+    pending_closes: HashMap<RendererKey, Vec<TabId>>,
+    /// A renderer was let go of while busy; its exit needs collecting later.
+    needs_reap: bool,
 }
 
 impl std::fmt::Debug for RendererPool {
@@ -59,6 +89,7 @@ impl RendererPool {
             fork_server,
             state: Mutex::new(State::default()),
             last_sweep: Mutex::new(None),
+            last_memory_report: Mutex::new(None),
             events,
         }
     }
@@ -83,7 +114,14 @@ impl RendererPool {
                 self.detach(&mut state, &old, tab);
             }
         }
-        if state.renderers.get(&key).is_some_and(|r| r.lock().is_dead()) {
+        // Lock-free on purpose: the pool lock is held, and a renderer that
+        // died mid-exchange is exactly one whose lock is still taken by the
+        // failing exchange - it must be replaced now, not handed out again.
+        if state
+            .dead_flags
+            .get(&key)
+            .is_some_and(|dead| dead.load(std::sync::atomic::Ordering::Acquire))
+        {
             self.bury(&mut state, &key);
         }
 
@@ -92,16 +130,23 @@ impl RendererPool {
             None => {
                 // The `ps` name wants the host, not the scheme.
                 let label = site.rsplit("://").next().unwrap_or(site);
-                let renderer = Arc::new(Mutex::new(self.fork_server.lock().spawn_renderer(label)?));
+                let spawned = self.fork_server.lock().spawn_renderer(label)?;
+                state.pids.insert(key.clone(), spawned.pid());
+                state.dead_flags.insert(key.clone(), spawned.dead_flag());
+                let renderer = Arc::new(Mutex::new(spawned));
                 state.renderers.insert(key.clone(), Arc::clone(&renderer));
                 renderer
             }
         };
         if state.placement.get(&tab) != Some(&key) {
-            renderer.lock().open_tab(&tab.to_string())?;
             state.tabs.entry(key.clone()).or_default().insert(tab);
-            state.placement.insert(tab, key);
+            state.placement.insert(tab, key.clone());
+            // Announced when the caller's own lock on the renderer is taken:
+            // the pool must not wait for a renderer mid-exchange for another tab.
+            state.pending_opens.entry(key).or_default().push(tab);
         }
+        drop(state);
+        self.flush_pending(&renderer);
         Ok(renderer)
     }
 
@@ -139,7 +184,44 @@ impl RendererPool {
         for key in &dead {
             self.bury(&mut state, key);
         }
+        if std::mem::take(&mut state.needs_reap) {
+            self.fork_server.lock().reap_exited();
+        }
+        let idle: Vec<Arc<Mutex<ResidentRenderer>>> = state.renderers.values().map(Arc::clone).collect();
+        drop(state);
+        for renderer in idle {
+            self.flush_pending(&renderer);
+        }
+        self.report_memory();
         dead.len()
+    }
+
+    /// Every renderer's memory onto the firehose, every couple of seconds -
+    /// what a long session does to a long-lived process.
+    fn report_memory(&self) {
+        const INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+        if !crate::telemetry::enabled() {
+            return;
+        }
+        {
+            let mut last = self.last_memory_report.lock();
+            if last.is_some_and(|t| t.elapsed() < INTERVAL) {
+                return;
+            }
+            *last = Some(std::time::Instant::now());
+        }
+        for status in self.snapshot() {
+            crate::telemetry::emit(
+                "renderer.memory",
+                serde_json::json!({
+                    "pid": status.pid,
+                    "site": status.key.site,
+                    "tabs": status.tabs,
+                    "rss_kb": status.rss_kb,
+                    "data_kb": status.data_kb,
+                }),
+            );
+        }
     }
 
     /// A renderer found dead: drop it, reap it, and say so.
@@ -186,11 +268,17 @@ impl RendererPool {
         let state = self.state.lock();
         let mut out: Vec<RendererStatus> = state
             .renderers
-            .iter()
-            .map(|(key, renderer)| RendererStatus {
-                key: key.clone(),
-                pid: renderer.lock().pid(),
-                tabs: state.tabs.get(key).map_or(0, HashSet::len),
+            .keys()
+            .map(|key| {
+                let pid = state.pids.get(key).copied().unwrap_or(0);
+                let memory = memory_of(pid);
+                RendererStatus {
+                    key: key.clone(),
+                    pid,
+                    tabs: state.tabs.get(key).map_or(0, HashSet::len),
+                    rss_kb: memory.map(|m| m.0),
+                    data_kb: memory.map(|m| m.1),
+                }
             })
             .collect();
         out.sort_by(|a, b| a.key.site.cmp(&b.key.site));
@@ -207,6 +295,53 @@ impl RendererPool {
         state.placement.clear();
     }
 
+    /// Deliver what a renderer could not be told while it was busy. Called
+    /// with no pool lock held, by whoever is about to use the renderer. Lock
+    /// order is strictly pool → renderer (try), never the reverse: the
+    /// pending messages are collected first, and pushed back if the renderer
+    /// turns out to be mid-exchange.
+    fn flush_pending(&self, renderer: &Arc<Mutex<ResidentRenderer>>) {
+        let (key, opens, closes) = {
+            let mut state = self.state.lock();
+            let key = state
+                .renderers
+                .iter()
+                .find(|(_, r)| Arc::ptr_eq(r, renderer))
+                .map(|(k, _)| k.clone());
+            let Some(key) = key else {
+                return;
+            };
+            let opens = state.pending_opens.remove(&key).unwrap_or_default();
+            let closes = state.pending_closes.remove(&key).unwrap_or_default();
+            (key, opens, closes)
+        };
+        if opens.is_empty() && closes.is_empty() {
+            return;
+        }
+        match renderer.try_lock() {
+            Some(mut guard) => {
+                for tab in &opens {
+                    let _ = guard.open_tab(&tab.to_string());
+                }
+                for tab in &closes {
+                    let _ = guard.close_tab(&tab.to_string());
+                }
+            }
+            None => {
+                // Mid-exchange: put them back for the next opportunity.
+                let mut state = self.state.lock();
+                let front = state.pending_opens.entry(key.clone()).or_default();
+                for (i, tab) in opens.into_iter().enumerate() {
+                    front.insert(i, tab);
+                }
+                let front = state.pending_closes.entry(key).or_default();
+                for (i, tab) in closes.into_iter().enumerate() {
+                    front.insert(i, tab);
+                }
+            }
+        }
+    }
+
     fn detach(&self, state: &mut State, key: &RendererKey, tab: TabId) {
         state.placement.remove(&tab);
         let last = {
@@ -214,8 +349,15 @@ impl RendererPool {
             tabs.remove(&tab);
             tabs.is_empty()
         };
+        // Told now if the renderer is free, later if it is mid-exchange -
+        // the pool never waits on a renderer.
         if let Some(renderer) = state.renderers.get(key) {
-            let _ = renderer.lock().close_tab(&tab.to_string());
+            match renderer.try_lock() {
+                Some(mut guard) => {
+                    let _ = guard.close_tab(&tab.to_string());
+                }
+                None => state.pending_closes.entry(key.clone()).or_default().push(tab),
+            }
         }
         if last {
             self.discard(state, key);
@@ -224,8 +366,21 @@ impl RendererPool {
 
     fn discard(&self, state: &mut State, key: &RendererKey) {
         state.tabs.remove(key);
+        state.pids.remove(key);
+        state.dead_flags.remove(key);
+        state.pending_opens.remove(key);
+        state.pending_closes.remove(key);
         if let Some(renderer) = state.renderers.remove(key) {
-            renderer.lock().shutdown();
+            match renderer.try_lock() {
+                Some(mut guard) => guard.shutdown(),
+                // Busy with an exchange: the thread running it holds the last
+                // handle; when that drops, the link closes and the process
+                // exits on end-of-file. Its exit is collected by the sweep.
+                None => {
+                    state.needs_reap = true;
+                    return;
+                }
+            }
         }
         self.fork_server.lock().reap_exited();
     }

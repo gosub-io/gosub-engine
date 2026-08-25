@@ -135,6 +135,9 @@ fn main() {
         "renderer-crash" => with_font_backend!(renderer_crash),
         "engine-renderer-crash" => with_font_backend!(engine_renderer_crash),
         "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
+        "renderer-soak" => with_font_backend!(renderer_soak),
+        "engine-soak" => with_font_backend!(engine_soak),
+        "engine-stress" => with_font_backend!(engine_stress),
         "render-file" => with_font_backend!(render_file),
         "render-file-locked" => with_font_backend!(render_file_locked),
         other => {
@@ -2191,6 +2194,812 @@ fn engine_renderer_slow_image<F: FontSystem + Default>() -> i32 {
                 return 1;
             }
             0
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer process exists only on Linux");
+        2
+    }
+}
+
+/// Standard base64 (RFC 4648, padded); enough for a `data:` URI in a test.
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |acc, (i, &b)| acc | (u32::from(b) << (16 - 8 * i)));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// A long session in one resident renderer: many navigations with fresh
+/// images each, many scroll passes, many tabs opened and closed. Memory must
+/// level off rather than grow with every page, and the process must not
+/// leave zombies behind when its tabs go.
+fn renderer_soak<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::{ForkServer, PageTile};
+        use gosub_engine::fork_server::pool::{memory_of, RendererPool};
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+        use gosub_engine::tab::TabId;
+        use gosub_engine::zone::ZoneId;
+
+        let rounds: usize = std::env::args().nth(3).and_then(|a| a.parse().ok()).unwrap_or(120);
+        // Image edge in px per round (argv[4]); tiny images make the media
+        // cache negligible, so any growth left is the pipeline's own.
+        let image_px: usize = std::env::args().nth(4).and_then(|a| a.parse().ok()).unwrap_or(200);
+        let server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        if !matches!(server.confinement(), ConfinementTier::Full) {
+            eprintln!("renderer-soak needs the Full tier, got {:?}", server.confinement());
+            return 2;
+        }
+        let fork_server_pid = server.pid().unwrap_or(0);
+        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)), None);
+        let (zone, tab) = (ZoneId::new(), TabId::new());
+        let loader = gosub_interface::resource_loader::NoResourceLoader;
+        let site = "https://soak.test";
+        let tab_name = tab.to_string();
+
+        // A page with a unique inline image per round, so nothing is served
+        // from a cache: every navigation decodes new pixels. 200x200 RGBA.
+        let page_for = |round: usize| -> String {
+            let mut png = Vec::new();
+            {
+                use image::ImageEncoder;
+                let pixels: Vec<u8> = (0..image_px * image_px)
+                    .flat_map(|i| [((i + round) % 251) as u8, (round % 200) as u8, (i % 7) as u8, 255])
+                    .collect();
+                let encoder = image::codecs::png::PngEncoder::new(&mut png);
+                let _ = encoder.write_image(
+                    &pixels,
+                    image_px as u32,
+                    image_px as u32,
+                    image::ExtendedColorType::Rgba8,
+                );
+            }
+            let data = base64(&png);
+            format!(
+                "<html><body style=\"margin:0\"><h1>round {round}</h1><img src=\"data:image/png;base64,{data}\" width=\"200\" height=\"200\">\
+                 <div style=\"height:4000px;background:#eee\">{}</div></body></html>",
+                "lorem ipsum ".repeat(round % 40 + 1)
+            )
+        };
+
+        let mut pid = 0;
+        let mut rss_after_warmup = 0u64;
+        let warmup = (rounds / 5).max(5);
+        for round in 0..rounds {
+            let renderer = match pool.renderer_for(zone, site, tab) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("round {round}: no renderer: {e}");
+                    return 1;
+                }
+            };
+            let mut renderer = renderer.lock();
+            if pid != 0 && renderer.pid() != pid {
+                eprintln!(
+                    "round {round}: the renderer was replaced (pid {pid} -> {})",
+                    renderer.pid()
+                );
+                return 1;
+            }
+            pid = renderer.pid();
+            let html = page_for(round);
+            let mut memory = gosub_engine::fork_server::client::TileMemory::default();
+            let page = match renderer.navigate(
+                &html,
+                &format!("{site}/{round}"),
+                &tab_name,
+                (1280.0, 720.0),
+                0.0,
+                &loader,
+                &memory,
+                None,
+            ) {
+                Ok(page) => page,
+                Err(e) => {
+                    eprintln!("round {round}: navigate failed: {e}");
+                    return 1;
+                }
+            };
+            memory.replace_with(page.tiles.iter().map(PageTile::keep));
+            // Scroll down and back: passes, evictions, re-ships.
+            for y in [1500.0, 3000.0, 0.0] {
+                match renderer.scroll(&tab_name, y, &loader, &memory) {
+                    Ok(page) => memory.apply_pass(&page.evicted, page.tiles.iter().map(PageTile::keep)),
+                    Err(e) => {
+                        eprintln!("round {round}: scroll failed: {e}");
+                        return 1;
+                    }
+                }
+            }
+            if round + 1 == warmup {
+                rss_after_warmup = memory_of(pid).map(|m| m.0).unwrap_or(0);
+                println!(
+                    "after {warmup} rounds: renderer pid {pid} rss {} MiB",
+                    rss_after_warmup / 1024
+                );
+            } else if (round + 1) % 50 == 0 {
+                let (rss, data) = memory_of(pid).unwrap_or((0, 0));
+                println!(
+                    "round {:>4}: rss {:>4} MiB  data {:>4} MiB",
+                    round + 1,
+                    rss / 1024,
+                    data / 1024
+                );
+            }
+        }
+        let (rss_end, data_end) = memory_of(pid).unwrap_or((0, 0));
+        println!(
+            "after {rounds} rounds: rss {} MiB, data {} MiB (grew {} MiB since round {warmup})",
+            rss_end / 1024,
+            data_end / 1024,
+            rss_end.saturating_sub(rss_after_warmup) / 1024
+        );
+        // Every round decodes a fresh 160 KB image and lays out a new page;
+        // retained state must be replaced, not accumulated. 64 MiB of slack
+        // covers allocator fragmentation and the tile cache.
+        const MAX_GROWTH_KB: u64 = 64 * 1024;
+        if rss_end.saturating_sub(rss_after_warmup) > MAX_GROWTH_KB {
+            eprintln!(
+                "renderer memory keeps growing: {} MiB -> {} MiB over {} rounds",
+                rss_after_warmup / 1024,
+                rss_end / 1024,
+                rounds - warmup
+            );
+            return 1;
+        }
+
+        // Many tabs on one site, opened and closed: the process is shared,
+        // survives, and is gone - reaped, not a zombie - once the last leaves.
+        let extra: Vec<TabId> = (0..30).map(|_| TabId::new()).collect();
+        for t in &extra {
+            let renderer = match pool.renderer_for(zone, site, *t) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("could not add a tab: {e}");
+                    return 1;
+                }
+            };
+            let mut renderer = renderer.lock();
+            if renderer
+                .navigate(
+                    "<p>tab</p>",
+                    &format!("{site}/tab"),
+                    &t.to_string(),
+                    (640.0, 480.0),
+                    0.0,
+                    &loader,
+                    &Default::default(),
+                    None,
+                )
+                .is_err()
+            {
+                eprintln!("a tab's render failed");
+                return 1;
+            }
+        }
+        if pool.snapshot().first().map(|r| r.tabs) != Some(31) {
+            eprintln!("expected 31 tabs on one renderer, got {:?}", pool.snapshot());
+            return 1;
+        }
+        for t in &extra {
+            pool.release(*t);
+        }
+        pool.release(tab);
+        if !pool.snapshot().is_empty() {
+            eprintln!("renderer should be gone after its last tab: {:?}", pool.snapshot());
+            return 1;
+        }
+        // Give the exit a moment, then look for zombies among the fork
+        // server's children (the pid-namespace anchor is a live child; fine).
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        pool.fork_server().lock().reap_exited();
+        let children = std::fs::read_to_string(format!("/proc/{fork_server_pid}/task/{fork_server_pid}/children"))
+            .unwrap_or_default();
+        let zombies: Vec<&str> = children
+            .split_whitespace()
+            .filter(|child| {
+                std::fs::read_to_string(format!("/proc/{child}/stat"))
+                    .ok()
+                    .and_then(|stat| stat.rsplit(')').next().map(|rest| rest.trim_start().starts_with('Z')))
+                    .unwrap_or(false)
+            })
+            .collect();
+        if !zombies.is_empty() {
+            eprintln!("zombie renderers under the fork server: {zombies:?}");
+            return 1;
+        }
+        println!("30 tabs came and went on one renderer; no zombies under fork server {fork_server_pid}");
+
+        pool.shutdown_all();
+        pool.fork_server().lock().shutdown();
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// Not a test - a tool: the whole engine with every isolation setting on,
+/// one tab navigating real sites (argv[3..], or a built-in image-heavy set)
+/// in turn, reporting per site what it cost and what it took to render, and
+/// at the end what the renderer processes hold. Exit 1 only if a renderer
+/// crashed or a page could not be rendered out of process.
+fn engine_soak<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backend::ExternalHandle;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        let mut urls: Vec<String> = std::env::args().skip(3).collect();
+        if urls.is_empty() {
+            urls = [
+                "https://en.wikipedia.org/wiki/Main_Page",
+                "https://www.bbc.com/news",
+                "https://www.theverge.com",
+                "https://www.nasa.gov",
+                "https://commons.wikimedia.org/wiki/Main_Page",
+                "https://news.ycombinator.com",
+                "https://www.reddit.com/r/pics/",
+                "https://unsplash.com",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        }
+
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            for key in [
+                "security.network_process",
+                "security.image_decoder_process",
+                "security.renderer_process",
+            ] {
+                if let Err(e) = engine.settings().set(key, Setting::Bool(true)) {
+                    eprintln!("could not enable {key}: {e}");
+                    return 1;
+                }
+            }
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            let Some(pool) = engine.renderer_pool().cloned() else {
+                eprintln!("renderer isolation did not start (font system tier?)");
+                return 1;
+            };
+            let mut firehose = gosub_engine::telemetry::subscribe();
+            let mut events = engine.subscribe_events();
+
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 1280,
+                    height: 720,
+                })
+                .await;
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+
+            println!(
+                "{:<44} {:>7} {:>7} {:>5} {:>6} {:>8} {:>7} {:>7}  notes",
+                "site", "nav ms", "frame", "tiles", "loads", "KiB", "rndr ms", "rss MiB"
+            );
+            let mut crashes = 0usize;
+            let mut unrendered = 0usize;
+            for url in &urls {
+                let started = tokio::time::Instant::now();
+                let mut notes: Vec<String> = Vec::new();
+                if tab.navigate(url.clone()).await.is_err() {
+                    println!("{url:<44} navigate refused");
+                    continue;
+                }
+                // The navigation, on a clock.
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(40);
+                let mut nav_ms: Option<u128> = None;
+                loop {
+                    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    if remaining.is_zero() {
+                        notes.push("navigation timed out".into());
+                        break;
+                    }
+                    match tokio::time::timeout(remaining, events.recv()).await {
+                        Ok(Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Finished { .. },
+                            ..
+                        })) => {
+                            nav_ms = Some(started.elapsed().as_millis());
+                            break;
+                        }
+                        Ok(Ok(EngineEvent::Navigation {
+                            event: NavigationEvent::Failed { error, .. },
+                            ..
+                        })) => {
+                            notes.push(format!("navigation failed: {error}"));
+                            break;
+                        }
+                        Ok(Ok(EngineEvent::RendererCrashed { site, error, .. })) => {
+                            crashes += 1;
+                            notes.push(format!("RENDERER CRASHED ({site}: {error})"));
+                        }
+                        Ok(Ok(_)) => continue,
+                        _ => break,
+                    }
+                }
+                // The first frame, then a grace period for deferred images and
+                // the re-render they cause.
+                let frame_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+                let mut frame_ms: Option<u128> = None;
+                let mut tiles = 0usize;
+                if nav_ms.is_some() {
+                    loop {
+                        if tokio::time::Instant::now() >= frame_deadline {
+                            notes.push("no frame".into());
+                            break;
+                        }
+                        if let Some(ExternalHandle::TileCache { tiles: t, .. }) = compositor.frame_for(tab.tab_id) {
+                            frame_ms = Some(started.elapsed().as_millis());
+                            tiles = t.len();
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                // Drain the engine events that arrived meanwhile (crashes).
+                while let Ok(event) = events.try_recv() {
+                    if let EngineEvent::RendererCrashed { site, error, .. } = event {
+                        crashes += 1;
+                        notes.push(format!("RENDERER CRASHED ({site}: {error})"));
+                    }
+                }
+                // What the firehose saw for this page.
+                let (mut loads, mut bytes, mut renderer_us, mut navigates) = (0usize, 0usize, 0u64, 0usize);
+                while let Ok(event) = firehose.try_recv() {
+                    match event.kind.as_str() {
+                        "net.load" => {
+                            loads += 1;
+                            bytes += event.data["bytes"].as_u64().unwrap_or(0) as usize;
+                        }
+                        "remote.navigate" => {
+                            navigates += 1;
+                            if let Some(map) = event.data["renderer_us"].as_object() {
+                                renderer_us += map.values().filter_map(|v| v.as_u64()).sum::<u64>();
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if let Some(ExternalHandle::TileCache { tiles: t, .. }) = compositor.frame_for(tab.tab_id) {
+                    tiles = t.len();
+                }
+                if nav_ms.is_some() && navigates == 0 {
+                    unrendered += 1;
+                    notes.push("NOT RENDERED OUT OF PROCESS".into());
+                } else if navigates > 1 {
+                    notes.push(format!("{navigates} renders"));
+                }
+                let rss = pool
+                    .snapshot()
+                    .into_iter()
+                    .filter_map(|r| r.rss_kb)
+                    .max()
+                    .map(|kb| (kb / 1024).to_string())
+                    .unwrap_or_else(|| "-".into());
+                let short = if url.len() > 43 {
+                    format!("{}…", &url[..42])
+                } else {
+                    url.clone()
+                };
+                println!(
+                    "{short:<44} {:>7} {:>7} {tiles:>5} {loads:>6} {:>8} {:>7} {rss:>7}  {}",
+                    nav_ms.map_or("-".into(), |v| v.to_string()),
+                    frame_ms.map_or("-".into(), |v| v.to_string()),
+                    bytes / 1024,
+                    renderer_us / 1000,
+                    notes.join("; ")
+                );
+            }
+
+            println!();
+            println!("renderers at the end:");
+            for r in pool.snapshot() {
+                println!(
+                    "  pid {:>7}  {:<40} {} tab(s)  rss {} MiB  data {} MiB",
+                    r.pid,
+                    r.key.site,
+                    r.tabs,
+                    r.rss_kb.map_or(0, |kb| kb / 1024),
+                    r.data_kb.map_or(0, |kb| kb / 1024)
+                );
+            }
+            println!("crashes: {crashes}, pages not rendered out of process: {unrendered}");
+
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            i32::from(crashes > 0 || unrendered > 0)
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer process exists only on Linux");
+        2
+    }
+}
+
+/// Not a test - a tool: several tabs at once over real sites (the same site in
+/// more than one tab on purpose), continuously navigating, scrolling, hovering,
+/// closing and reopening for `argv[3]` seconds (default 120), logging every
+/// action and every engine event as it happens, with a status line every few
+/// seconds. `argv[4..]` replaces the built-in site list. Exit 1 on crashes.
+fn engine_stress<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::tab::{TabHandle, TabId};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+        use std::collections::HashMap;
+
+        let seconds: u64 = std::env::args().nth(3).and_then(|a| a.parse().ok()).unwrap_or(120);
+        let mut sites: Vec<String> = std::env::args().skip(4).collect();
+        if sites.is_empty() {
+            sites = [
+                "https://en.wikipedia.org/wiki/Main_Page",
+                "https://www.bbc.com/news",
+                "https://www.theverge.com",
+                "https://www.nasa.gov",
+                "https://commons.wikimedia.org/wiki/Main_Page",
+                "https://news.ycombinator.com",
+                "https://en.wikipedia.org/wiki/Cat",
+                "https://www.bbc.com/sport",
+                "https://en.wikipedia.org/wiki/Rust_(programming_language)",
+                "https://www.rust-lang.org",
+                "https://developer.mozilla.org/en-US/",
+                "https://archive.org",
+                "https://www.openstreetmap.org/about",
+                "https://www.gnu.org",
+                "https://lwn.net",
+                "https://www.kernel.org",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        }
+        // Knobs beyond the positional args: how many tabs at once, and how
+        // fast actions fire (the base of the 1x-3.4x random pause).
+        let tabs_wanted: usize = std::env::var("GOSUB_STRESS_TABS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(6)
+            .max(1);
+        let pace_ms: u64 = std::env::var("GOSUB_STRESS_PACE_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(250)
+            .max(10);
+
+        // Deterministic per run, seedable; no need for a crate.
+        let mut rng_state: u64 = std::env::var("GOSUB_STRESS_SEED")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0x9E37_79B9_7F4A_7C15);
+        let mut rng = move || {
+            rng_state ^= rng_state << 13;
+            rng_state ^= rng_state >> 7;
+            rng_state ^= rng_state << 17;
+            rng_state
+        };
+
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let started = tokio::time::Instant::now();
+            let stamp = move || format!("[{:>7.2}s]", started.elapsed().as_secs_f64());
+
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            for key in ["security.network_process", "security.image_decoder_process", "security.renderer_process"] {
+                if let Err(e) = engine.settings().set(key, Setting::Bool(true)) {
+                    eprintln!("could not enable {key}: {e}");
+                    return 1;
+                }
+            }
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            let Some(pool) = engine.renderer_pool().cloned() else {
+                eprintln!("renderer isolation did not start");
+                return 1;
+            };
+            let mut firehose = gosub_engine::telemetry::subscribe();
+            let mut events = engine.subscribe_events();
+            println!(
+                "{} engine up: {tabs_wanted} tabs over {} sites for {seconds}s (pace {pace_ms} ms; GOSUB_STRESS_TABS / GOSUB_STRESS_PACE_MS / GOSUB_STRESS_SEED to change); viewer: http://127.0.0.1:9090",
+                stamp(),
+                sites.len()
+            );
+
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+
+            // Tabs by slot number, so the log can say "tab 3" rather than a uuid.
+            let mut tabs: Vec<(usize, TabHandle)> = Vec::new();
+            let mut names: HashMap<TabId, usize> = HashMap::new();
+            let mut next_slot = 1usize;
+            for _ in 0..tabs_wanted {
+                let Ok(handle) = zone.create_tab(Default::default(), None).await else {
+                    eprintln!("could not create a tab");
+                    return 1;
+                };
+                let slot = next_slot;
+                next_slot += 1;
+                let _ = handle
+                    .send(TabCommand::SetViewport {
+                        x: 0,
+                        y: 0,
+                        width: 1280,
+                        height: 720,
+                    })
+                    .await;
+                let _ = handle.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+                let site = sites[(rng() as usize) % sites.len()].clone();
+                println!("{} tab {slot}: navigate {site}", stamp());
+                let _ = handle.navigate(site).await;
+                names.insert(handle.tab_id, slot);
+                tabs.push((slot, handle));
+            }
+
+            let mut crashes = 0usize;
+            let mut nav_ok = 0usize;
+            let mut nav_failed = 0usize;
+            let (mut loads, mut bytes, mut passes) = (0usize, 0usize, 0usize);
+            let mut last_status = tokio::time::Instant::now();
+            let deadline = started + std::time::Duration::from_secs(seconds);
+
+            while tokio::time::Instant::now() < deadline {
+                // One action on a random tab.
+                let pick = (rng() as usize) % tabs.len();
+                let (slot, handle) = (tabs[pick].0, tabs[pick].1.clone());
+                let action = rng() % 100;
+                match action {
+                    0..=49 => {
+                        let dy = ((rng() % 1200) as f32) - 300.0;
+                        println!("{} tab {slot}: scroll {dy:+.0}", stamp());
+                        let _ = handle.send(TabCommand::MouseScroll { delta_x: 0.0, delta_y: dy }).await;
+                    }
+                    50..=74 => {
+                        let (x, y) = ((rng() % 1280) as f32, (rng() % 720) as f32);
+                        println!("{} tab {slot}: hover ({x:.0},{y:.0})", stamp());
+                        let _ = handle.send(TabCommand::MouseMove { x, y }).await;
+                    }
+                    75..=89 => {
+                        let site = sites[(rng() as usize) % sites.len()].clone();
+                        println!("{} tab {slot}: navigate {site}", stamp());
+                        let _ = handle.navigate(site).await;
+                    }
+                    90..=94 => {
+                        println!("{} tab {slot}: reload", stamp());
+                        let _ = handle.send(TabCommand::Reload { ignore_cache: false }).await;
+                    }
+                    _ => {
+                        println!("{} tab {slot}: close", stamp());
+                        let id = handle.tab_id;
+                        zone.close_tab(id).await;
+                        names.remove(&id);
+                        tabs.remove(pick);
+                        if let Ok(handle) = zone.create_tab(Default::default(), None).await {
+                            let slot = next_slot;
+                            next_slot += 1;
+                            let _ = handle
+                                .send(TabCommand::SetViewport {
+                                    x: 0,
+                                    y: 0,
+                                    width: 1280,
+                                    height: 720,
+                                })
+                                .await;
+                            let _ = handle.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+                            let site = sites[(rng() as usize) % sites.len()].clone();
+                            println!("{} tab {slot}: open + navigate {site}", stamp());
+                            let _ = handle.navigate(site).await;
+                            names.insert(handle.tab_id, slot);
+                            tabs.push((slot, handle));
+                        }
+                    }
+                }
+
+                // Let things happen, draining what the engine and the firehose say.
+                let pause = std::time::Duration::from_millis(pace_ms + rng() % (pace_ms.saturating_mul(12) / 5).max(1));
+                let until = tokio::time::Instant::now() + pause;
+                loop {
+                    let remaining = until.saturating_duration_since(tokio::time::Instant::now());
+                    if remaining.is_zero() {
+                        break;
+                    }
+                    tokio::select! {
+                        event = events.recv() => match event {
+                            Ok(EngineEvent::Navigation { tab_id, event: NavigationEvent::Finished { .. } }) => {
+                                nav_ok += 1;
+                                println!("{} tab {}: navigation finished", stamp(), names.get(&tab_id).copied().unwrap_or(0));
+                            }
+                            Ok(EngineEvent::Navigation { tab_id, event: NavigationEvent::Failed { error, .. } }) => {
+                                nav_failed += 1;
+                                println!("{} tab {}: navigation FAILED: {error}", stamp(), names.get(&tab_id).copied().unwrap_or(0));
+                            }
+                            Ok(EngineEvent::RendererCrashed { site, tabs: affected, error, .. }) => {
+                                crashes += 1;
+                                let slots: Vec<usize> = affected.iter().filter_map(|t| names.get(t).copied()).collect();
+                                println!("{} !!! RENDERER CRASHED for {site} (tabs {slots:?}): {error}", stamp());
+                            }
+                            Ok(_) => {}
+                            Err(_) => {}
+                        },
+                        event = firehose.recv() => if let Ok(event) = event {
+                            match event.kind.as_str() {
+                                "net.load" => {
+                                    loads += 1;
+                                    bytes += event.data["bytes"].as_u64().unwrap_or(0) as usize;
+                                    let outcome = event.data["outcome"].as_str().unwrap_or("");
+                                    let ms = event.data["duration_us"].as_u64().unwrap_or(0) / 1000;
+                                    if outcome != "ok" || ms > 2000 {
+                                        println!(
+                                            "{}   load {} ms {}: {} {}",
+                                            stamp(),
+                                            ms,
+                                            event.data["url"].as_str().unwrap_or(""),
+                                            outcome,
+                                            event.data["error"].as_str().unwrap_or("")
+                                        );
+                                    }
+                                }
+                                "remote.navigate" | "remote.scroll" | "remote.hover" => {
+                                    passes += 1;
+                                    let ms = event.data["exchange_us"].as_u64().unwrap_or(0) / 1000;
+                                    if ms > 1000 {
+                                        let stages = event.data["renderer_us"]
+                                            .as_object()
+                                            .map(|m| {
+                                                let mut parts: Vec<String> = m
+                                                    .iter()
+                                                    .map(|(k, v)| format!("{k} {}", v.as_u64().unwrap_or(0) / 1000))
+                                                    .collect();
+                                                parts.sort();
+                                                parts.join(", ")
+                                            })
+                                            .unwrap_or_default();
+                                        println!(
+                                            "{}   slow {}: {ms} ms total ({stages}) ms, {} fresh tiles - {}",
+                                            stamp(),
+                                            event.kind,
+                                            event.data["tiles_fresh"],
+                                            event.data["url"].as_str().unwrap_or("")
+                                        );
+                                    }
+                                }
+                                _ => {}
+                            }
+                        },
+                        _ = tokio::time::sleep(remaining) => break,
+                    }
+                }
+
+                if last_status.elapsed() >= std::time::Duration::from_secs(5) {
+                    last_status = tokio::time::Instant::now();
+                    let renderers = pool.snapshot();
+                    let rss_max = renderers.iter().filter_map(|r| r.rss_kb).max().unwrap_or(0) / 1024;
+                    let rss_sum: u64 = renderers.iter().filter_map(|r| r.rss_kb).sum::<u64>() / 1024;
+                    println!(
+                        "{} === tabs {} | renderers {} (rss max {rss_max} MiB, total {rss_sum} MiB) | navs ok {nav_ok} failed {nav_failed} | loads {loads} ({} MiB) | passes {passes} | crashes {crashes}",
+                        stamp(),
+                        tabs.len(),
+                        renderers.len(),
+                        bytes / (1024 * 1024)
+                    );
+                    for r in &renderers {
+                        println!(
+                            "{}     pid {:>7} {:<38} {} tab(s) rss {} MiB",
+                            stamp(),
+                            r.pid,
+                            r.key.site,
+                            r.tabs,
+                            r.rss_kb.map_or(0, |kb| kb / 1024)
+                        );
+                    }
+                }
+            }
+
+            println!(
+                "{} done: navs ok {nav_ok} failed {nav_failed} | loads {loads} ({} MiB) | passes {passes} | crashes {crashes}",
+                stamp(),
+                bytes / (1024 * 1024)
+            );
+            engine.close_zone(zone).await;
+            let _ = engine.shutdown().await;
+            i32::from(crashes > 0)
         })
     }
     #[cfg(not(target_os = "linux"))]

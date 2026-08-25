@@ -16,6 +16,17 @@ use std::collections::{HashMap, HashSet};
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
 
+/// Decoded media a resident renderer keeps between pages. Above this, a new
+/// page starts with an empty media cache; the broker still holds the bytes.
+const MEDIA_CACHE_BUDGET: usize = 64 * 1024 * 1024;
+
+/// Retained pages one renderer holds at once. A heavy site with many tabs
+/// would otherwise stack a laid-out page per tab until the process's memory
+/// limit kills it; past the cap the least recently used tab's page is let go
+/// of, and its next scroll comes back empty - which makes the broker render
+/// it afresh.
+const MAX_RETAINED_PAGES: usize = 3;
+
 /// One incremental request, bound to run against a tab's retained page.
 type PagePass = Box<dyn FnOnce(&mut RetainedPage) -> renderer::RenderPass>;
 
@@ -48,6 +59,12 @@ pub fn serve<C: RenderConfiguration>(
     let comm = comm_for(label);
 
     let mut pages: HashMap<String, RetainedPage> = HashMap::new();
+    // Tab names, most recently used last; parallel to `pages`.
+    let mut recent: Vec<String> = Vec::new();
+    let touch = |recent: &mut Vec<String>, tab: &str| {
+        recent.retain(|t| t != tab);
+        recent.push(tab.to_string());
+    };
     loop {
         let request = link.lock().recv::<ToRenderer>();
         let request = match request {
@@ -59,6 +76,7 @@ pub fn serve<C: RenderConfiguration>(
             ToRenderer::OpenTab { .. } => {}
             ToRenderer::CloseTab { tab } => {
                 pages.remove(&tab);
+                recent.retain(|t| t != &tab);
             }
             ToRenderer::Shutdown => gosub_sandbox::exit_now(0),
             ToRenderer::CrashForTest => gosub_sandbox::exit_now(139),
@@ -73,6 +91,9 @@ pub fn serve<C: RenderConfiguration>(
                 hovered_node,
             } => {
                 gosub_sandbox::set_process_title(&comm, &format!("gosub: renderer {url}"));
+                // A new page: what earlier pages decoded is dead weight past
+                // the budget, and this process lives as long as the site's tabs.
+                media_store.trim(MEDIA_CACHE_BUDGET);
                 let known_tiles: HashSet<u64> = known_tiles.into_iter().collect();
                 let mut page = RetainedPage::build::<C>(
                     renderer::PageRequest {
@@ -89,7 +110,15 @@ pub fn serve<C: RenderConfiguration>(
                 );
                 let pass = page.render(Some(scroll_y), &known_tiles);
                 let hit_regions = page.hit_regions.clone();
+                touch(&mut recent, &tab);
                 pages.insert(tab, page);
+                while pages.len() > MAX_RETAINED_PAGES {
+                    let Some(oldest) = recent.first().cloned() else {
+                        break;
+                    };
+                    recent.remove(0);
+                    pages.remove(&oldest);
+                }
                 if !stream_rendered(&mut link.lock(), &pass.tiles, &pass.evicted, pass.summary, hit_regions) {
                     gosub_sandbox::exit_now(1);
                 }
@@ -106,6 +135,7 @@ pub fn serve<C: RenderConfiguration>(
                 // gets an empty pass, so the exchange still completes.
                 let (pass, hit_regions) = match pages.get_mut(&tab) {
                     Some(page) => {
+                        touch(&mut recent, &tab);
                         let pass = run(page);
                         (pass, page.hit_regions.clone())
                     }

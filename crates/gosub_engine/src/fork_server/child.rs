@@ -56,6 +56,9 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
         forked_loader.deferred() as Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
     ));
     media_store.set_synchronous_fetch(true);
+    // A renderer lives under a fixed data limit and a page may carry dozens
+    // of photographs: keep this much decoded, re-decode the rest on use.
+    media_store.set_decoded_budget(96 * 1024 * 1024);
 
     // First fork, deliberately: this process sits in a lazily-unshared PID
     // namespace, whose PID 1 is whatever forks first - and must then outlive

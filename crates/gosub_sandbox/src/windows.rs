@@ -153,6 +153,12 @@ pub fn lock_down_net(_fs_allow: &[(&std::path::Path, bool)]) {
 }
 
 /// Resource ceilings are imposed by [`confine_spawned_child`] instead.
+/// The committed-memory ceiling has no per-process form here; see [`apply_child_rlimits`].
+#[cfg(feature = "multi-process")]
+pub fn apply_child_rlimits_with(_data_limit: u64) -> std::io::Result<()> {
+    apply_child_rlimits()
+}
+
 #[cfg(feature = "multi-process")]
 pub fn apply_child_rlimits() -> std::io::Result<()> {
     Ok(())

@@ -27,6 +27,12 @@ pub fn lock_down_service(name: &str, _filesystem: bool, _device: bool, _fs_allow
 /// rlimits are POSIX, but this fallback keeps the whole backend as no-ops so a
 /// port is an all-or-nothing, clearly-visible piece of work rather than a
 /// partial illusion of confinement.
+/// The committed-memory ceiling has no per-process form here; see [`apply_child_rlimits`].
+#[cfg(feature = "multi-process")]
+pub fn apply_child_rlimits_with(_data_limit: u64) -> std::io::Result<()> {
+    apply_child_rlimits()
+}
+
 #[cfg(feature = "multi-process")]
 pub fn apply_child_rlimits() -> std::io::Result<()> {
     Ok(())

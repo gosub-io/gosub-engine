@@ -51,6 +51,7 @@ pub fn render_page(
             name: "gosub-renderer",
             internet: false,
             fs_grant: None,
+            data_limit: None,
         },
     )?;
     if let Err(e) = gosub_sandbox::confine_spawned_child(&child) {

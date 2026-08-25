@@ -12,6 +12,9 @@ use std::time::Duration;
 /// The argv role name the broker re-execs itself with.
 pub const FORK_SERVER_ROLE: &str = "fork-server";
 
+/// Committed memory a renderer process may hold (`RLIMIT_DATA`).
+pub const RENDERER_DATA_LIMIT: u64 = 1024 * 1024 * 1024;
+
 /// How long to wait for `Ready`. Spawn plus font warm-up: the slowest measured
 /// preparation (full warm-up on a font-heavy host) is well under a second, so
 /// tens of seconds means a process that is not a fork server.
@@ -19,6 +22,13 @@ const READY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How long any later request may take. A fork plus one shape is milliseconds.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long a resident renderer may take to answer one request. Unlike the
+/// fork server's control replies this covers whole renders, and a heavy
+/// page's layout alone runs two-digit seconds today - the timeout is for a
+/// *wedged* renderer, and declaring a merely slow one dead kills it for
+/// nothing (the abandoned link reads as EOF in the child).
+const RESIDENT_REPLY_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// What answers a renderer's subresource requests during an exchange: the
 /// broker's loader, plus - for a tab - a cache that lets an image request be
@@ -469,6 +479,10 @@ impl ForkServer {
                 name: "gosub-fork-server",
                 internet: false,
                 fs_grant: None,
+                // Inherited by every renderer forked from it. A renderer holds
+                // a laid-out page, its tiles, and a bounded decoded-image cache,
+                // and still needs room for one large image decode on top.
+                data_limit: Some(RENDERER_DATA_LIMIT),
             },
         )?;
         if let Err(e) = gosub_sandbox::confine_spawned_child(&child) {
@@ -497,6 +511,11 @@ impl ForkServer {
     /// whether renderer isolation is offered at all, and under which sandbox.
     pub fn confinement(&self) -> &ConfinementTier {
         &self.tier
+    }
+
+    /// The fork server's pid, as this process sees it; `None` once shut down.
+    pub fn pid(&self) -> Option<u32> {
+        self.child.as_ref().map(|c| c.id())
     }
 
     /// Fork a renderer, have it shape under its tier sandbox with the
@@ -554,8 +573,12 @@ impl ForkServer {
         let channel = gosub_ipc::channel::Channel::from_stream(std::os::unix::net::UnixStream::from(fd));
         let mut link = Endpoint::from_channel(channel)?;
         let _ = link.tx.set_write_timeout(Some(REPLY_TIMEOUT));
-        let _ = link.rx.set_read_timeout(Some(REPLY_TIMEOUT));
-        Ok(ResidentRenderer { link, pid, dead: false })
+        let _ = link.rx.set_read_timeout(Some(RESIDENT_REPLY_TIMEOUT));
+        Ok(ResidentRenderer {
+            link,
+            pid,
+            dead: Default::default(),
+        })
     }
 
     /// Have the fork server collect resident renderers that have exited.
@@ -585,14 +608,16 @@ pub struct ResidentRenderer {
     pid: i32,
     /// Set once the link failed: nothing sent afterwards can be trusted to
     /// arrive, and the pool replaces the process on the next request.
-    dead: bool,
+    /// Shared and atomic so the pool can read it without taking the lock a
+    /// failing exchange may be holding.
+    dead: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl std::fmt::Debug for ResidentRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ResidentRenderer")
             .field("pid", &self.pid)
-            .field("dead", &self.dead)
+            .field("dead", &self.is_dead())
             .finish_non_exhaustive()
     }
 }
@@ -607,15 +632,24 @@ impl ResidentRenderer {
     }
 
     pub fn is_dead(&self) -> bool {
-        self.dead
+        self.dead.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// A handle to the dead flag, readable without this renderer's lock.
+    pub fn dead_flag(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+        std::sync::Arc::clone(&self.dead)
+    }
+
+    fn mark_dead(&self) {
+        self.dead.store(true, std::sync::atomic::Ordering::Release);
     }
 
     fn send(&mut self, msg: &ToRenderer) -> anyhow::Result<()> {
-        if self.dead {
+        if self.is_dead() {
             anyhow::bail!("renderer process is gone");
         }
         if let Err(e) = self.link.send(msg) {
-            self.dead = true;
+            self.mark_dead();
             anyhow::bail!("renderer link failed: {e}");
         }
         Ok(())
@@ -693,7 +727,7 @@ impl ResidentRenderer {
     fn exchange(&mut self, loader: &dyn RenderResources, known_tiles: &TileMemory) -> anyhow::Result<RenderedPage> {
         let result = drive_render_exchange::<FromRenderer>(&mut self.link, loader, known_tiles);
         if result.is_err() {
-            self.dead = true;
+            self.mark_dead();
         }
         result
     }
@@ -702,12 +736,12 @@ impl ResidentRenderer {
     /// link reads as end-of-file. Only meaningful between exchanges (the
     /// caller holds the lock, so none is in flight).
     pub fn check_alive(&mut self) -> bool {
-        if self.dead {
+        if self.is_dead() {
             return false;
         }
         let alive = self.link.rx.peer_alive();
         if !alive {
-            self.dead = true;
+            self.mark_dead();
         }
         alive
     }
@@ -721,7 +755,7 @@ impl ResidentRenderer {
     /// reaped there (see [`ForkServer::reap_exited`]).
     pub fn shutdown(&mut self) {
         let _ = self.send(&ToRenderer::Shutdown);
-        self.dead = true;
+        self.mark_dead();
     }
 }
 

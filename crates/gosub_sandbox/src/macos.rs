@@ -165,6 +165,12 @@ fn enforce(role: &str, profile: &str) {
 /// advisorily - the address-space cap is simply unavailable here. The fd,
 /// core-dump, and priority caps are real. Called pre-exec, so async-signal-
 /// safe: only `setrlimit`/`setpriority` syscalls.
+/// The committed-memory ceiling has no per-process form here; see [`apply_child_rlimits`].
+#[cfg(feature = "multi-process")]
+pub fn apply_child_rlimits_with(_data_limit: u64) -> std::io::Result<()> {
+    apply_child_rlimits()
+}
+
 #[cfg(feature = "multi-process")]
 pub fn apply_child_rlimits() -> std::io::Result<()> {
     // No RLIMIT_AS on macOS (see above), and no other self-imposable

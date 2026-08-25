@@ -369,6 +369,24 @@ fn a_remote_render_does_not_wait_for_images() {
     );
 }
 
+/// A resident renderer over a long session: memory levels off across many
+/// navigations, and tabs coming and going leave no zombies.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_resident_renderer_survives_a_long_session_without_growing() {
+    let out = run("renderer-soak");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the renderer soak failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// The render pipeline - parse, style, layout, layering, tiling, paint -
 /// under the strictest renderer sandbox, in-process (no fork machinery), so a
 /// pipeline-vs-sandbox regression is directly attributable.

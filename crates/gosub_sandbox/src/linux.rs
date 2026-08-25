@@ -1889,7 +1889,7 @@ fn write_i32(out: &mut [u8], v: i32) -> usize {
 /// compromised child cannot exhaust host memory or fd tables. rlimits can only
 /// ever be lowered, never raised, so the child cannot undo them.
 #[cfg(feature = "multi-process")]
-pub fn apply_child_rlimits() -> std::io::Result<()> {
+pub fn apply_child_rlimits_with(data_limit: u64) -> std::io::Result<()> {
     // Bound the heap, not the address space: `RLIMIT_DATA` caps committed
     // writable anonymous memory (brk + writable mmap) and since Linux 4.7 does
     // not count PROT_NONE reservations, so V8's ~4 GiB virtual cage still
@@ -1897,7 +1897,7 @@ pub fn apply_child_rlimits() -> std::io::Result<()> {
     // would kill V8 at init for reserving space it never commits. A cgroup
     // `memory.max` bounds true RSS; this rlimit is the cheap approximation
     // (see the architecture doc).
-    set_rlimit(libc::RLIMIT_DATA, 512 * 1024 * 1024)?;
+    set_rlimit(libc::RLIMIT_DATA, data_limit as libc::rlim_t)?;
     // A generous virtual ceiling on top: high enough to clear a JIT's cage,
     // low enough to catch a runaway reserving absurd address space.
     set_rlimit(libc::RLIMIT_AS, 16 * 1024 * 1024 * 1024)?;

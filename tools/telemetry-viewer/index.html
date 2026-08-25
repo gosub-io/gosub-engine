@@ -114,7 +114,7 @@
   <section class="card half">
     <h2>Resident renderers</h2>
     <div class="hint">From <code>/renderers</code>, every 2 s.</div>
-    <div class="scroll"><table id="renderers"><thead><tr><th>site</th><th>pid</th><th>tabs</th><th>zone</th></tr></thead><tbody></tbody></table></div>
+    <div class="scroll"><table id="renderers"><thead><tr><th>site</th><th>pid</th><th>tabs</th><th>RSS MiB</th><th>data MiB</th><th>zone</th></tr></thead><tbody></tbody></table></div>
   </section>
 
   <section class="card half">
@@ -235,7 +235,7 @@
       $('t-renderers').textContent = rows.length;
       $('t-renderers-sub').textContent = rows.reduce((n, r) => n + (r.tabs || 0), 0) + ' tab(s) hosted';
       $('renderers').querySelector('tbody').innerHTML = rows.map(r =>
-        `<tr><td class="l">${esc(r.site)}</td><td>${r.pid}</td><td>${r.tabs}</td><td class="l">${esc(String(r.zone)).slice(0, 8)}</td></tr>`).join('');
+        `<tr><td class="l">${esc(r.site)}</td><td>${r.pid}</td><td>${r.tabs}</td><td>${r.rss_kb == null ? '–' : (r.rss_kb / 1024).toFixed(0)}</td><td>${r.data_kb == null ? '–' : (r.data_kb / 1024).toFixed(0)}</td><td class="l">${esc(String(r.zone)).slice(0, 8)}</td></tr>`).join('');
     } catch (e) {
       $('t-renderers').textContent = '–';
       $('t-renderers-sub').textContent = 'unreachable';

@@ -49,7 +49,16 @@ pub fn deny_debugger_attach() {
 /// child cannot undo them.
 #[cfg(feature = "multi-process")]
 pub fn apply_child_rlimits() -> std::io::Result<()> {
-    imp::apply_child_rlimits()
+    imp::apply_child_rlimits_with(DEFAULT_CHILD_DATA_LIMIT)
+}
+
+/// Committed-memory ceiling a child gets unless its profile says otherwise.
+pub const DEFAULT_CHILD_DATA_LIMIT: u64 = 512 * 1024 * 1024;
+
+/// [`apply_child_rlimits`] with a role-specific committed-memory ceiling.
+#[cfg(feature = "multi-process")]
+pub fn apply_child_rlimits_with(data_limit: u64) -> std::io::Result<()> {
+    imp::apply_child_rlimits_with(data_limit)
 }
 
 /// Which namespaces a child is dropped into at spawn.
