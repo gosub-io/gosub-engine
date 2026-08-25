@@ -80,8 +80,7 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | `KeyDown` / `KeyUp { key, code, modifiers }` | `key` is a `String`; see [Rough edges](#rough-edges). |
 | `QueryHitTest { x, y, token }` | `token` is minted by you and echoed back in `HitTestResult`. The input for a native context menu. |
 | **Not yet implemented** | |
-| `TextInput` · gated · | Text editing lands with M1. |
-| `CharInput` · gated · | Legacy; `TextInput` is the model that will survive. |
+| `TextInput` · gated · | Committed text for the focused control: IME output, or clipboard contents on paste. The only text-input path; there is no per-character command. Editing lands with M1. |
 | `SetCookie` / `ClearCookies` · gated · | Cookies are reachable through the zone's jar today. |
 | `SetStorageItem` / `RemoveStorageItem` / `ClearStorage` · gated · | |
 | `ExecuteScript` · gated · | Awaiting JS integration, see [javascript.md](javascript.md). |
@@ -218,7 +217,7 @@ Subscribe to events instead when you need the moment something changes, or detai
 ## Rough edges
 
 -   **One bus for everything.** `ResourceEvent::Progress` arrives at network rate and `Redraw` at frame rate, on the same fixed-capacity channel as `TabCrashed` and `DownloadRequested`. A UA that does anything slow on the receive side will drop events on a busy page. Keep the receive loop tight: forward to your own queue and return. Splitting a low-volume control bus from an opt-in high-volume stream is the intended fix.
--   **The input model is thin.** `KeyDown.key` is a `String` rather than a typed key, and there is no IME composition, touch, or pointer id. `TextInput` and `CharInput` both exist and neither is handled; `TextInput` is the one that will survive. `FocusChanged { editable }` is the hook for an on-screen keyboard, waiting on the other half.
+-   **The input model is thin.** `KeyDown.key` is a `String` rather than a typed key, and there is no IME composition, touch, or pointer id. `TextInput` is declared but not yet handled, so text editing does not work at all. `FocusChanged { editable }` is the hook for an on-screen keyboard, waiting on the other half.
 -   **Public fields that are not really API.** `TabHandle::cmd_tx` and `::sink` are `pub`, so `tab.cmd_tx.send(...)` compiles. Prefer `tab.send(...)`. Same for `EngineContext`'s fields.
 -   **Leaky types.** `TabCommand` carries a `Cookie`, `NavigationEvent::DecisionRequired` carries the network layer's `FetchResultMeta`, and errors in events are `Arc<anyhow::Error>`, so error handling means string matching. None of these are shapes a stable release would commit to.
 -   **`create_zone(Option<ZoneConfig>, ZoneServices, Option<ZoneId>)`** is builder territory that has not been built.

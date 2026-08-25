@@ -269,15 +269,13 @@ pub enum TabCommand {
         modifiers: Modifiers,
     },
     #[cfg(feature = "unstable-api")]
-    /// Declared but not handled: the tab worker logs and drops it.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Committed text for the focused control: IME output, or clipboard contents on paste.
+    /// This is the only text-input path - there is no per-character command.
+    ///
+    /// Declared but not handled: the tab worker logs and drops it. Behind the `unstable-api`
+    /// feature until the editing model lands.
     TextInput {
         text: String,
-    },
-    #[cfg(feature = "unstable-api")]
-    /// @TODO: needed since we have TextInput?
-    CharInput {
-        ch: char,
     },
 
     // ****************************************
