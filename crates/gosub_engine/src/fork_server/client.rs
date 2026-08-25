@@ -28,6 +28,7 @@ pub(crate) enum RenderEvent {
         summary: PageSummary,
         hit_regions: Vec<HitRegion>,
     },
+    Evict(Vec<u64>),
     Refused(String),
 }
 
@@ -64,6 +65,7 @@ impl RenderStream for FromRenderer {
             FromRenderer::Tile(header) => RenderEvent::Tile(header),
             FromRenderer::TileUnchanged(header) => RenderEvent::TileUnchanged(header),
             FromRenderer::Rendered { summary, hit_regions } => RenderEvent::Rendered { summary, hit_regions },
+            FromRenderer::Evict { hashes } => RenderEvent::Evict(hashes),
         })
     }
 
@@ -84,8 +86,10 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
     known_tiles: &TileMemory,
 ) -> anyhow::Result<RenderedPage> {
     let mut received = Vec::new();
+    let mut evicted = Vec::new();
     loop {
         match link.recv::<M>()?.into_event()? {
+            RenderEvent::Evict(hashes) => evicted.extend(hashes),
             RenderEvent::NeedResource(url) => {
                 let reply = match url::Url::parse(&url) {
                     Ok(parsed) => match loader.load(&parsed) {
@@ -120,6 +124,7 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
                     summary,
                     tiles: received,
                     hit_regions,
+                    evicted,
                 })
             }
             RenderEvent::Refused(reason) => anyhow::bail!("{reason}"),
@@ -135,6 +140,9 @@ pub struct RenderedPage {
     pub summary: crate::fork_server::protocol::PageSummary,
     pub tiles: Vec<PageTile>,
     pub hit_regions: Vec<crate::fork_server::protocol::HitRegion>,
+    /// Content hashes of tiles the renderer let go of (retained pages only);
+    /// the broker drops them from its memory.
+    pub evicted: Vec<u64>,
 }
 
 /// A tile of a rendered page: either pixels that just crossed, or pixels the
@@ -158,12 +166,7 @@ impl PageTile {
         let (header, kept) = match self {
             PageTile::Fresh { header, mapping } => (
                 header,
-                KeptTile {
-                    width: header.width,
-                    height: header.height,
-                    format: header.format,
-                    pixels: bytes::Bytes::copy_from_slice(mapping.as_slice()),
-                },
+                KeptTile::from_header(header, bytes::Bytes::copy_from_slice(mapping.as_slice())),
             ),
             PageTile::Reused { header, kept } => (header, kept.clone()),
         };
@@ -213,10 +216,47 @@ impl PageTile {
 /// mapped pages from an earlier render - still zero-copy, still sealed.
 #[derive(Debug, Clone)]
 pub struct KeptTile {
+    pub page_x: f64,
+    pub page_y: f64,
+    pub layer_id: u64,
     pub width: u32,
     pub height: u32,
     pub format: crate::fork_server::protocol::TileWireFormat,
+    pub opacity: f32,
+    pub anchor: crate::fork_server::protocol::TileWireAnchor,
     pub pixels: bytes::Bytes,
+}
+
+impl KeptTile {
+    /// A fresh tile's header plus its (mapped or copied) pixels.
+    pub fn from_header(header: &crate::fork_server::protocol::TileHeader, pixels: bytes::Bytes) -> Self {
+        Self {
+            page_x: header.page_x,
+            page_y: header.page_y,
+            layer_id: header.layer_id,
+            width: header.width,
+            height: header.height,
+            format: header.format,
+            opacity: header.opacity,
+            anchor: header.anchor,
+            pixels,
+        }
+    }
+
+    /// This tile as the compositor's input.
+    pub fn to_baked(&self) -> gosub_render_pipeline::rasterizer::BakedTile {
+        gosub_render_pipeline::rasterizer::BakedTile {
+            page_x: self.page_x,
+            page_y: self.page_y,
+            layer_id: self.layer_id,
+            width: self.width,
+            height: self.height,
+            format: self.format.into(),
+            opacity: self.opacity,
+            anchor: self.anchor.into(),
+            pixels: gosub_render_pipeline::common::texture::TilePixels::Cpu(self.pixels.clone()),
+        }
+    }
 }
 
 /// What the broker remembers of a tab's last remote render, keyed by content
@@ -241,6 +281,31 @@ impl TileMemory {
     /// without bound.
     pub fn replace_with(&mut self, tiles: impl IntoIterator<Item = (u64, KeptTile)>) {
         self.tiles = tiles.into_iter().collect();
+    }
+
+    /// Merge one pass of a retained page: what the renderer let go of leaves,
+    /// what it shipped arrives.
+    pub fn apply_pass(&mut self, evicted: &[u64], tiles: impl IntoIterator<Item = (u64, KeptTile)>) {
+        for hash in evicted {
+            self.tiles.remove(hash);
+        }
+        self.tiles.extend(tiles);
+    }
+
+    /// Every kept tile as compositor input, back to front: `layer_order` is
+    /// the renderer's (a layer it does not name sorts last), then top-down
+    /// within a layer - tiles of one layer never overlap, so that order is
+    /// only for determinism.
+    pub fn baked_tiles(&self, layer_order: &[u64]) -> Vec<gosub_render_pipeline::rasterizer::BakedTile> {
+        let rank = |layer: u64| layer_order.iter().position(|&l| l == layer).unwrap_or(usize::MAX);
+        let mut tiles: Vec<&KeptTile> = self.tiles.values().collect();
+        tiles.sort_by(|a, b| {
+            rank(a.layer_id)
+                .cmp(&rank(b.layer_id))
+                .then(a.page_y.total_cmp(&b.page_y))
+                .then(a.page_x.total_cmp(&b.page_x))
+        });
+        tiles.into_iter().map(KeptTile::to_baked).collect()
     }
 }
 
@@ -446,10 +511,11 @@ impl ResidentRenderer {
         self.send(&ToRenderer::CloseTab { tab: tab.to_string() })
     }
 
-    /// Render `html` for `tab`: the same exchange as [`ForkServer::render_page`],
-    /// against a process that stays around afterwards. Any failure marks the
-    /// renderer dead: the exchange strictly alternates, so a broken one
-    /// leaves the link in no state a later request could rely on.
+    /// Render `html` for `tab` - the raster window around `scroll_y` of it -
+    /// and have the renderer retain the page for later [`Self::scroll`]s.
+    /// Any failure marks the renderer dead: the exchange strictly alternates,
+    /// so a broken one leaves the link in no state a later request could
+    /// rely on.
     #[allow(clippy::too_many_arguments)] // one wire message, spelled out
     pub fn navigate(
         &mut self,
@@ -457,6 +523,7 @@ impl ResidentRenderer {
         url: &str,
         tab: &str,
         viewport: (f64, f64),
+        scroll_y: f64,
         loader: &dyn gosub_interface::resource_loader::ResourceLoader,
         known_tiles: &TileMemory,
         hovered_node: Option<u64>,
@@ -467,9 +534,49 @@ impl ResidentRenderer {
             url: url.to_string(),
             viewport_width: viewport.0,
             viewport_height: viewport.1,
+            scroll_y,
             known_tiles: known_tiles.hashes(),
             hovered_node,
         })?;
+        self.exchange(loader, known_tiles)
+    }
+
+    /// The viewport of `tab`'s retained page moved: collect what came into
+    /// the raster window (and what the renderer let go of).
+    pub fn scroll(
+        &mut self,
+        tab: &str,
+        scroll_y: f64,
+        loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+        known_tiles: &TileMemory,
+    ) -> anyhow::Result<RenderedPage> {
+        self.send(&ToRenderer::Scroll {
+            tab: tab.to_string(),
+            scroll_y,
+        })?;
+        self.exchange(loader, known_tiles)
+    }
+
+    /// The pointer moved on `tab`'s retained page: collect the repainted tiles.
+    pub fn hover(
+        &mut self,
+        tab: &str,
+        node: Option<u64>,
+        loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+        known_tiles: &TileMemory,
+    ) -> anyhow::Result<RenderedPage> {
+        self.send(&ToRenderer::Hover {
+            tab: tab.to_string(),
+            node,
+        })?;
+        self.exchange(loader, known_tiles)
+    }
+
+    fn exchange(
+        &mut self,
+        loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+        known_tiles: &TileMemory,
+    ) -> anyhow::Result<RenderedPage> {
         let result = drive_render_exchange::<FromRenderer>(&mut self.link, loader, known_tiles);
         if result.is_err() {
             self.dead = true;

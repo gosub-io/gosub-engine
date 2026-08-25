@@ -1,20 +1,23 @@
 //! The resident renderer: a forked, confined child that stays alive and
 //! renders for every tab of one (zone, site) until its last tab closes.
 //!
-//! Same pipeline as the one-shot renderer (`renderer::render_page`), run in a
-//! loop instead of once - the step from "a process per render" to "a process
-//! per site", with nothing retained between renders yet.
+//! Each tab's page is retained after `Navigate` (see
+//! [`renderer::RetainedPage`]), so a `Scroll` only tiles, paints and
+//! rasterizes what came into the raster window - no parse, no layout.
 
 use crate::fork_server::loader::ForkedResourceLoader;
 use crate::fork_server::protocol::{FromRenderer, HitRegion, PageSummary, TileHeader, ToRenderer};
-use crate::fork_server::renderer::{self, RenderedTile};
+use crate::fork_server::renderer::{self, RenderedTile, RetainedPage};
 use crate::html::RenderConfiguration;
 use gosub_interface::font_system::FontSystem;
 use gosub_ipc::Endpoint;
 use parking_lot::Mutex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
+
+/// One incremental request, bound to run against a tab's retained page.
+type PagePass = Box<dyn FnOnce(&mut RetainedPage) -> renderer::RenderPass>;
 
 /// The `comm` (15-byte `ps` name) for a renderer labelled `label`.
 pub(super) fn comm_for(label: &str) -> String {
@@ -44,7 +47,7 @@ pub fn serve<C: RenderConfiguration>(
     let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(fonts));
     let comm = comm_for(label);
 
-    let mut tabs: HashSet<String> = HashSet::new();
+    let mut pages: HashMap<String, RetainedPage> = HashMap::new();
     loop {
         let request = link.lock().recv::<ToRenderer>();
         let request = match request {
@@ -53,25 +56,24 @@ pub fn serve<C: RenderConfiguration>(
             Err(_) => gosub_sandbox::exit_now(0),
         };
         match request {
-            ToRenderer::OpenTab { tab } => {
-                tabs.insert(tab);
-            }
+            ToRenderer::OpenTab { .. } => {}
             ToRenderer::CloseTab { tab } => {
-                tabs.remove(&tab);
+                pages.remove(&tab);
             }
             ToRenderer::Shutdown => gosub_sandbox::exit_now(0),
             ToRenderer::Navigate {
-                tab: _,
+                tab,
                 html,
                 url,
                 viewport_width,
                 viewport_height,
+                scroll_y,
                 known_tiles,
                 hovered_node,
             } => {
                 gosub_sandbox::set_process_title(&comm, &format!("gosub: renderer {url}"));
                 let known_tiles: HashSet<u64> = known_tiles.into_iter().collect();
-                let (summary, tiles, hit_regions) = renderer::render_page::<C>(
+                let mut page = RetainedPage::build::<C>(
                     renderer::PageRequest {
                         html: &html,
                         page_url: &url,
@@ -84,7 +86,38 @@ pub fn serve<C: RenderConfiguration>(
                     Arc::clone(&media_store),
                     Arc::clone(&forked_loader) as Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
                 );
-                if !stream_rendered(&mut link.lock(), &tiles, summary, hit_regions) {
+                let pass = page.render(Some(scroll_y), &known_tiles);
+                let hit_regions = page.hit_regions.clone();
+                pages.insert(tab, page);
+                if !stream_rendered(&mut link.lock(), &pass.tiles, &pass.evicted, pass.summary, hit_regions) {
+                    gosub_sandbox::exit_now(1);
+                }
+            }
+            ToRenderer::Scroll { .. } | ToRenderer::Hover { .. } => {
+                let (tab, run): (String, PagePass) = match request {
+                    ToRenderer::Scroll { tab, scroll_y } => {
+                        (tab, Box::new(move |page| page.render(Some(scroll_y), &HashSet::new())))
+                    }
+                    ToRenderer::Hover { tab, node } => (tab, Box::new(move |page| page.hover(node))),
+                    _ => unreachable!("matched above"),
+                };
+                // A tab with no retained page (never navigated, or closed)
+                // gets an empty pass, so the exchange still completes.
+                let (pass, hit_regions) = match pages.get_mut(&tab) {
+                    Some(page) => {
+                        let pass = run(page);
+                        (pass, page.hit_regions.clone())
+                    }
+                    None => (
+                        renderer::RenderPass {
+                            summary: PageSummary::default(),
+                            tiles: Vec::new(),
+                            evicted: Vec::new(),
+                        },
+                        Vec::new(),
+                    ),
+                };
+                if !stream_rendered(&mut link.lock(), &pass.tiles, &pass.evicted, pass.summary, hit_regions) {
                     gosub_sandbox::exit_now(1);
                 }
             }
@@ -92,18 +125,28 @@ pub fn serve<C: RenderConfiguration>(
     }
 }
 
-/// Stream a rendered page out over `link`: every CPU tile sealed into an
-/// immutable memfd and sent as header + fd, one at a time (so this process
-/// never holds more than one tile fd regardless of page height), then the
-/// summary. All of it - memfd_create, ftruncate, mmap, the seals - is in the
-/// renderer baseline precisely so a confined renderer can hand off pixels.
-/// `false` means the link is gone and the caller should exit.
+/// Stream a render pass out over `link`: evictions first, then every CPU tile
+/// sealed into an immutable memfd and sent as header + fd, one at a time (so
+/// this process never holds more than one tile fd regardless of page height),
+/// then the summary. All of it - memfd_create, ftruncate, mmap, the seals -
+/// is in the renderer baseline precisely so a confined renderer can hand off
+/// pixels. `false` means the link is gone and the caller should exit.
 pub(super) fn stream_rendered(
     link: &mut Endpoint,
     tiles: &[RenderedTile],
+    evicted: &[u64],
     summary: PageSummary,
     hit_regions: Vec<HitRegion>,
 ) -> bool {
+    if !evicted.is_empty()
+        && link
+            .send(&FromRenderer::Evict {
+                hashes: evicted.to_vec(),
+            })
+            .is_err()
+    {
+        return false;
+    }
     for tile in tiles {
         let sent = match tile {
             RenderedTile::Unchanged {

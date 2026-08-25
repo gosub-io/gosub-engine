@@ -108,9 +108,22 @@ pub enum ToRenderer {
         url: String,
         viewport_width: f64,
         viewport_height: f64,
+        /// Where the viewport is: only the raster window around it is
+        /// rasterized and shipped (see [`ToRenderer::Scroll`]).
+        scroll_y: f64,
         known_tiles: Vec<u64>,
         hovered_node: Option<u64>,
     },
+    /// The viewport moved on a page this renderer retains: rasterize what
+    /// came into the raster window and ship it, and announce
+    /// ([`FromRenderer::Evict`]) tiles that drifted too far to keep. Answered
+    /// with the same streamed sequence as `Navigate`; the summary's tile
+    /// counts cover this pass only.
+    Scroll { tab: String, scroll_y: f64 },
+    /// The pointer moved to `node` (a DOM node id the broker hit-tested, or
+    /// nothing) on a page this renderer retains: restyle the hover chains and
+    /// repaint just the tiles they cover. Same streamed answer as `Scroll`.
+    Hover { tab: String, node: Option<u64> },
     /// Exit cleanly. The broker sends this when the renderer's last tab
     /// closes; a closed link means the same.
     Shutdown,
@@ -175,13 +188,21 @@ pub struct ProofReply {
 /// sealed memfds - but enough on their own for the broker to assert the
 /// pipeline really ran (a dead font system collapses heights to zero; a dead
 /// painter produces no commands).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PageSummary {
     pub page_width: f64,
     pub page_height: f64,
     pub layer_count: u64,
     pub painted_tiles: u64,
     pub paint_commands: u64,
+    /// Layer ids back to front. A broker holding tiles from several passes
+    /// (a retained page scrolled about) composites them in this order; the
+    /// renderer's tile list is the only thing that knows it.
+    pub layer_order: Vec<u64>,
+    /// What the renderer spent on this pass, per stage, in microseconds. It
+    /// has no way to report anywhere itself; the broker relays these to the
+    /// telemetry firehose on its behalf.
+    pub timings_us: Vec<(String, u64)>,
 }
 
 /// One hit-testable box of the page, in page space, in hit-test order:
@@ -345,6 +366,11 @@ pub enum FromRenderer {
     Tile(TileHeader),
     /// A tile the broker already holds - no fd, no rasterization.
     TileUnchanged(TileHeader),
+    /// Tiles the broker holds that the renderer will no longer account for:
+    /// they drifted too far from the viewport of a retained page. The broker
+    /// drops them; scrolling back there ships them afresh. Only a resident
+    /// renderer sends this.
+    Evict { hashes: Vec<u64> },
     /// The final message: the render is complete, with the page's hit-test
     /// geometry.
     Rendered {

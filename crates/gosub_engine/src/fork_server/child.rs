@@ -401,7 +401,7 @@ fn fork_and_render<C: RenderConfiguration>(
                 Arc::clone(forked_loader) as Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
             );
 
-            let ok = resident::stream_rendered(&mut link.lock(), &tiles, summary, hit_regions);
+            let ok = resident::stream_rendered(&mut link.lock(), &tiles, &[], summary, hit_regions);
             gosub_sandbox::exit_now(if ok { 0 } else { 1 });
         }
         Ok(gosub_sandbox::Forked::Parent { pid }) => {
@@ -452,6 +452,11 @@ fn fork_and_render<C: RenderConfiguration>(
                                 .send(&FromForkServer::PageRendered { summary, hit_regions })
                                 .map_err(|e| std::io::Error::other(format!("broker unreachable: {e}")))?;
                             return Ok(());
+                        }
+                        // A one-shot renderer retains nothing and so never
+                        // lets go of anything.
+                        FromRenderer::Evict { .. } => {
+                            return Err(std::io::Error::other("a one-shot renderer sent an eviction"));
                         }
                     }
                 }

@@ -279,6 +279,42 @@ fn resident_renderers_are_keyed_by_site_and_live_with_their_tabs() {
     );
 }
 
+/// A resident renderer rasterizes around the viewport, extends on scroll and
+/// evicts what falls far behind - the tile budget, out of process.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_resident_renderer_rasterizes_a_viewport_window_and_extends_on_scroll() {
+    let out = run("renderer-scroll-window");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the resident renderer's scroll window failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Hover on a retained page repaints the hovered element's tiles without a
+/// parse or layout, and does nothing when the pointer stays put.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_resident_renderer_repaints_hover_without_relayout() {
+    let out = run("renderer-hover");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the resident renderer's hover repaint failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// The render pipeline - parse, style, layout, layering, tiling, paint -
 /// under the strictest renderer sandbox, in-process (no fork machinery), so a
 /// pipeline-vs-sandbox regression is directly attributable.

@@ -124,6 +124,8 @@ fn main() {
         "engine-renderer-process" => with_font_backend!(engine_renderer_process),
         "exec-renderer" => with_font_backend!(exec_renderer_roundtrip),
         "renderer-lifecycle" => with_font_backend!(renderer_lifecycle),
+        "renderer-scroll-window" => with_font_backend!(renderer_scroll_window),
+        "renderer-hover" => with_font_backend!(renderer_hover),
         "render-file" => with_font_backend!(render_file),
         "render-file-locked" => with_font_backend!(render_file_locked),
         other => {
@@ -1245,6 +1247,7 @@ fn renderer_lifecycle<F: FontSystem + Default>() -> i32 {
                     &format!("{site}/"),
                     &tab.to_string(),
                     (1280.0, 720.0),
+                    0.0,
                     &loader,
                     &memory,
                     None,
@@ -1338,6 +1341,312 @@ fn renderer_lifecycle<F: FontSystem + Default>() -> i32 {
             }
         }
 
+        pool.shutdown_all();
+        pool.fork_server().lock().shutdown();
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// A resident renderer retains the page and rasterizes only around the
+/// viewport: a tall page's first render ships a window of tiles rather than
+/// the whole page, scrolling ships what came into the window, tiles left far
+/// behind are evicted, and scrolling back ships them afresh.
+fn renderer_scroll_window<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::{ForkServer, PageTile};
+        use gosub_engine::fork_server::pool::RendererPool;
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+        use gosub_engine::tab::TabId;
+        use gosub_engine::zone::ZoneId;
+
+        if !cfg!(feature = "cairo-tiles") {
+            eprintln!("renderer-scroll-window needs a rasterizer (feature cairo-tiles)");
+            return 2;
+        }
+        let server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        if !matches!(server.confinement(), ConfinementTier::Full) {
+            eprintln!(
+                "renderer-scroll-window needs the Full tier, got {:?}",
+                server.confinement()
+            );
+            return 2;
+        }
+        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)));
+        let (zone, tab) = (ZoneId::new(), TabId::new());
+        let loader = gosub_interface::resource_loader::NoResourceLoader;
+        let mut memory = gosub_engine::fork_server::client::TileMemory::default();
+        const PAGE: f64 = 12_000.0;
+        const VP: (f64, f64) = (1280.0, 720.0);
+        let tall =
+            r#"<html><body style="margin:0"><div style="height: 12000px; background: #ddd">tall</div></body></html>"#;
+
+        let renderer = match pool.renderer_for(zone, "https://tall.test", tab) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("could not get a renderer: {e}");
+                return 1;
+            }
+        };
+        let mut renderer = renderer.lock();
+        let tab_name = tab.to_string();
+
+        // First render, at the top: a window's worth of tiles, not the page's.
+        let page = match renderer.navigate(tall, "https://tall.test/", &tab_name, VP, 0.0, &loader, &memory, None) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("navigate failed: {e}");
+                return 1;
+            }
+        };
+        if page.summary.page_height < PAGE {
+            eprintln!("expected a {PAGE}px page, got {:?}", page.summary);
+            return 1;
+        }
+        let first = page.tiles.len();
+        let rows_on_page = (PAGE / 256.0).ceil() as usize;
+        if first == 0 || first >= rows_on_page * 3 {
+            eprintln!("first render should ship a viewport window, not the page: {first} tiles");
+            return 1;
+        }
+        let max_y = page
+            .tiles
+            .iter()
+            .map(|t| match t {
+                PageTile::Fresh { header, .. } | PageTile::Reused { header, .. } => header.page_y,
+            })
+            .fold(0.0, f64::max);
+        if max_y > 3.0 * VP.1 {
+            eprintln!("first render shipped a tile at y={max_y}, far outside the window");
+            return 1;
+        }
+        memory.replace_with(page.tiles.iter().map(PageTile::keep));
+        println!("first render shipped {first} tiles for a {PAGE}px page (lowest at y={max_y})");
+
+        // Scroll to the middle: new tiles arrive, the top ones are evicted.
+        let page = match renderer.scroll(&tab_name, 6000.0, &loader, &memory) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("scroll failed: {e}");
+                return 1;
+            }
+        };
+        let fresh = page
+            .tiles
+            .iter()
+            .filter(|t| matches!(t, PageTile::Fresh { .. }))
+            .count();
+        if fresh == 0 {
+            eprintln!("scrolling into unrendered page must ship tiles");
+            return 1;
+        }
+        if page.evicted.is_empty() {
+            eprintln!("tiles three viewports behind must be evicted");
+            return 1;
+        }
+        memory.apply_pass(&page.evicted, page.tiles.iter().map(PageTile::keep));
+        println!("scroll to 6000: {fresh} tiles shipped, {} evicted", page.evicted.len());
+
+        // Staying put ships nothing.
+        let page = match renderer.scroll(&tab_name, 6000.0, &loader, &memory) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("repeat scroll failed: {e}");
+                return 1;
+            }
+        };
+        if !page.tiles.is_empty() || !page.evicted.is_empty() {
+            eprintln!(
+                "a scroll that moved nowhere shipped {} tiles and evicted {}",
+                page.tiles.len(),
+                page.evicted.len()
+            );
+            return 1;
+        }
+
+        // Back to the top: the evicted tiles come back as fresh pixels.
+        let page = match renderer.scroll(&tab_name, 0.0, &loader, &memory) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("scroll back failed: {e}");
+                return 1;
+            }
+        };
+        let fresh = page
+            .tiles
+            .iter()
+            .filter(|t| matches!(t, PageTile::Fresh { .. }))
+            .count();
+        if fresh == 0 {
+            eprintln!("scrolling back over evicted tiles must ship them again");
+            return 1;
+        }
+        println!(
+            "scroll back to 0: {fresh} tiles re-shipped, {} evicted",
+            page.evicted.len()
+        );
+
+        drop(renderer);
+        pool.shutdown_all();
+        pool.fork_server().lock().shutdown();
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// Hover on a retained page is a repaint, not a re-render: the renderer
+/// restyles the hover chains and ships only the tiles the hovered element
+/// covers - no parse, no layout - and nothing at all when the pointer stays.
+fn renderer_hover<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::{ForkServer, PageTile};
+        use gosub_engine::fork_server::pool::RendererPool;
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+        use gosub_engine::tab::TabId;
+        use gosub_engine::zone::ZoneId;
+
+        if !cfg!(feature = "cairo-tiles") {
+            eprintln!("renderer-hover needs a rasterizer (feature cairo-tiles)");
+            return 2;
+        }
+        let server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        if !matches!(server.confinement(), ConfinementTier::Full) {
+            eprintln!("renderer-hover needs the Full tier, got {:?}", server.confinement());
+            return 2;
+        }
+        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)));
+        let (zone, tab) = (ZoneId::new(), TabId::new());
+        let loader = gosub_interface::resource_loader::NoResourceLoader;
+        let mut memory = gosub_engine::fork_server::client::TileMemory::default();
+        let html = r#"<html><head><style>
+            body { margin: 0; } p { height: 300px; }
+            a { display: block; width: 200px; height: 40px; background: #ddd; }
+            a:hover { background: #f00; }
+        </style></head><body>
+            <p>above</p><a href="/x">hover me</a><p>below</p><p>more</p><p>and more</p>
+        </body></html>"#;
+
+        let renderer = match pool.renderer_for(zone, "https://hover.test", tab) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("could not get a renderer: {e}");
+                return 1;
+            }
+        };
+        let mut renderer = renderer.lock();
+        let tab_name = tab.to_string();
+        let page = match renderer.navigate(
+            html,
+            "https://hover.test/",
+            &tab_name,
+            (1280.0, 720.0),
+            0.0,
+            &loader,
+            &memory,
+            None,
+        ) {
+            Ok(page) => page,
+            Err(e) => {
+                eprintln!("navigate failed: {e}");
+                return 1;
+            }
+        };
+        let first = page.tiles.len();
+        // The link is the only 40px-tall box on the page.
+        let Some(link) = page.hit_regions.iter().find(|r| (r.height - 40.0).abs() < 1.0) else {
+            eprintln!("no hit region for the 40px link among {:?}", page.hit_regions);
+            return 1;
+        };
+        let link_node = link.node_id;
+        memory.replace_with(page.tiles.iter().map(PageTile::keep));
+        println!("page rendered: {first} tiles, link is node {link_node}");
+
+        let hover = |renderer: &mut gosub_engine::fork_server::client::ResidentRenderer,
+                     memory: &mut gosub_engine::fork_server::client::TileMemory,
+                     node: Option<u64>|
+         -> Result<(usize, Vec<(String, u64)>), String> {
+            let page = renderer
+                .hover(&tab_name, node, &loader, memory)
+                .map_err(|e| e.to_string())?;
+            let fresh = page
+                .tiles
+                .iter()
+                .filter(|t| matches!(t, PageTile::Fresh { .. }))
+                .count();
+            let timings = page.summary.timings_us.clone();
+            memory.apply_pass(&page.evicted, page.tiles.iter().map(PageTile::keep));
+            Ok((fresh, timings))
+        };
+
+        // Hovering the link repaints the tiles it covers, and nothing was laid out.
+        let (fresh, timings) = match hover(&mut renderer, &mut memory, Some(link_node)) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("hover failed: {e}");
+                return 1;
+            }
+        };
+        if fresh == 0 || fresh >= first {
+            eprintln!("hovering the link should repaint a few tiles, got {fresh} of {first}");
+            return 1;
+        }
+        if timings.iter().any(|(name, _)| name.starts_with("build.")) {
+            eprintln!("a hover must not parse or lay out again: {timings:?}");
+            return 1;
+        }
+        println!("hover on the link repainted {fresh} tile(s) with no layout");
+
+        // Same node again: nothing to do.
+        match hover(&mut renderer, &mut memory, Some(link_node)) {
+            Ok((0, _)) => {}
+            Ok((n, _)) => {
+                eprintln!("hovering the same node again shipped {n} tiles");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("repeat hover failed: {e}");
+                return 1;
+            }
+        }
+
+        // Leaving it repaints the same tiles back.
+        match hover(&mut renderer, &mut memory, None) {
+            Ok((n, _)) if n > 0 => println!("leaving the link repainted {n} tile(s)"),
+            Ok(_) => {
+                eprintln!("leaving the link should repaint it un-hovered");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("un-hover failed: {e}");
+                return 1;
+            }
+        }
+
+        drop(renderer);
         pool.shutdown_all();
         pool.fork_server().lock().shutdown();
         0
