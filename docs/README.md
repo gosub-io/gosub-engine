@@ -36,6 +36,9 @@ descriptions say what they should cover so we can decide what to write next.
   contents by the host engine).
 - [JavaScript stack](javascript.md) — the five scripting crates (`webexecutor` abstraction,
   V8 bindings, proc-macro glue, web APIs, event loop) and their built-but-not-wired status.
+- [Web-platform-tests](wpt.md) — running WPT `testharness.js` suites against the engine's
+  DOM through the test-only `gosub_domjs` bindings: what is bound, what is not, and why the
+  bindings must stay logic-free.
 - [Fonts](fonts.md) — the two font backend families: *font systems* (measure text for
   layout) vs *text rasterizers* (draw glyphs), and how one shared font collection keeps
   them consistent.

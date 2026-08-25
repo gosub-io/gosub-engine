@@ -15,10 +15,11 @@ one-line banner (name, version, purpose) on stderr when it starts.
 | 8 | `gosub-screenshot` | `cargo run -p gosub-screenshot` | Headless full-page screenshot: load a URL through the complete engine + render pipeline and write a PNG. CPU rasterization only — no GPU, no window. See [headless.md](headless.md). |
 | 9 | `table_console` | `cargo run -p gosub_lattice --bin table_console` | Console demos of the lattice table layout engine (colspan/rowspan/section clamping) rendered as ASCII tables; mirrors the integration tests in `gosub_lattice/src/tests.rs`. |
 | 10 | `generate_definitions` | `cargo run -p generate_definitions` | Regenerate the CSS property/value definition JSON embedded in `gosub_css3` (`resources/definitions/`) by merging webref spec grammars with MDN metadata. |
-| 11–20 | GUI example apps | `cargo run -p example-<name>` | Ten browser-shell binaries (`egui`/`gtk4`/`winit` × `cairo`/`skia`/`skia-gpu`/`vello`) that open a window and drive `GosubEngine` with the named backend. See [examples.md](examples.md). |
-| 21 | `css3_parser` (fuzz) | `cargo +nightly fuzz run css3_parser` (from `crates/gosub_css3/fuzz`) | libFuzzer target feeding arbitrary bytes to the CSS3 parser. No startup banner — libFuzzer owns `main`. |
-| 22 | `html5_parser` (fuzz) | `cargo +nightly fuzz run html5_parser` (from `crates/gosub_html5/fuzz`) | libFuzzer target for the HTML5 tree-construction parser. |
-| 23 | `tokenizer` (fuzz) | `cargo +nightly fuzz run tokenizer` (from `crates/gosub_html5/fuzz`) | libFuzzer target for the HTML5 tokenizer. |
+| 11 | `gosub-wpt` | `cargo run -p gosub-wpt -- <wpt-root> <test.html>…` | Run web-platform-tests `testharness.js` tests against the gosub DOM through the test-only JavaScript bindings in `gosub_domjs`. Reports per-subtest pass/fail. See [wpt.md](wpt.md). |
+| 12–21 | GUI example apps | `cargo run -p example-<name>` | Ten browser-shell binaries (`egui`/`gtk4`/`winit` × `cairo`/`skia`/`skia-gpu`/`vello`) that open a window and drive `GosubEngine` with the named backend. See [examples.md](examples.md). |
+| 22 | `css3_parser` (fuzz) | `cargo +nightly fuzz run css3_parser` (from `crates/gosub_css3/fuzz`) | libFuzzer target feeding arbitrary bytes to the CSS3 parser. No startup banner — libFuzzer owns `main`. |
+| 23 | `html5_parser` (fuzz) | `cargo +nightly fuzz run html5_parser` (from `crates/gosub_html5/fuzz`) | libFuzzer target for the HTML5 tree-construction parser. |
+| 24 | `tokenizer` (fuzz) | `cargo +nightly fuzz run tokenizer` (from `crates/gosub_html5/fuzz`) | libFuzzer target for the HTML5 tokenizer. |
 
 Besides these, the workspace ships `cargo run --example …` targets (hello-world,
 multi-tab, tutorial, config-store, …); see [examples.md](examples.md).
@@ -131,6 +132,26 @@ a
 $ cargo run -r --bin run-js tests/example1.js
 Got Value: 4
 ```
+
+## gosub-wpt
+
+Runs the web-platform-tests `testharness.js` suites against the engine's DOM, using the
+test-only JavaScript bindings in `gosub_domjs` (QuickJS via `rquickjs`). Needs a
+web-platform-tests checkout; `resources/` plus the test directories is enough.
+
+```bash
+$ git clone --depth 1 --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git
+$ cd wpt && git sparse-checkout set resources html/semantics/forms && cd ..
+
+$ cargo run -p gosub-wpt -- ./wpt html/semantics/forms/the-option-element/option-value.html -v
+  PASS No children, no value
+  ...
+option-value.html: 12 passed, 0 failed
+```
+
+This is not a browser: there is no event loop, no navigation and no layout, and the page is
+parsed in full before any `<script>` runs. See [wpt.md](wpt.md) for what is bound and what
+is not.
 
 ## table_console
 

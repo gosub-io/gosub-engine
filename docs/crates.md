@@ -96,6 +96,12 @@ Proc-macro crate. Provides macros for easily exposing Rust functions as JavaScri
 
 Implementations of browser Web APIs (console, fetch, DOM, etc.) that are callable from JavaScript inside the engine.
 
+### gosub_domjs
+
+Test-only DOM bindings over a small JavaScript engine (QuickJS via `rquickjs`), so that
+web-platform-tests can drive the engine's DOM before real scripting lands. Holds no DOM
+logic of its own --- see [`wpt.md`](wpt.md).
+
 ------------------------------------------------------------------------
 
 ## Infrastructure

@@ -1,0 +1,25 @@
+[package]
+name = "gosub-wpt"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Runs web-platform-tests testharness.js tests against the gosub DOM"
+publish = false
+
+[[bin]]
+name = "gosub-wpt"
+path = "main.rs"
+
+[dependencies]
+gosub_domjs = { path = "../../crates/gosub_domjs" }
+gosub_html5 = { path = "../../crates/gosub_html5" }
+gosub_interface = { path = "../../crates/gosub_interface" }
+gosub_shared = { path = "../../crates/gosub_shared" }
+rquickjs = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

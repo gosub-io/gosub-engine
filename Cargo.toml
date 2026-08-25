@@ -29,6 +29,7 @@ members = [
     "examples/winit-skia-gpu",
     "examples/winit-vello",
     "bin/gosub-screenshot",
+    "bin/gosub-wpt",
 ]
 exclude = [
     "crates/gosub_storage",
@@ -81,6 +82,7 @@ parley = {version = "0.11.0", default-features = false}
 pollster = "1.0.1"
 rand = "0.10.1"
 regex = "1.12.3"
+rquickjs = { version = "0.12.2", features = ["classes", "properties", "macro"] }
 reqwest = {version = "0.13.3", default-features = false}
 resvg = "0.47.0"
 serde = "1.0.228"
