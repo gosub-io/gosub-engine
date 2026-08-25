@@ -415,7 +415,10 @@ impl std::fmt::Debug for ResidentRenderer {
 }
 
 impl ResidentRenderer {
-    /// The renderer's pid as the fork server's PID namespace numbers it.
+    /// The renderer's pid as this (the broker's) pid namespace numbers it:
+    /// `fork` in the fork server returns the number its own namespace sees,
+    /// which is the broker's too. Inside the renderers' own namespace the
+    /// process has a different, small number (`NSpid` in /proc shows both).
     pub fn pid(&self) -> i32 {
         self.pid
     }

@@ -780,14 +780,28 @@ impl BrowserApp {
             println!("resident renderers ({}), one per (zone, site):", running.len());
             for r in running {
                 println!(
-                    "  pid {} (in the fork server's pid namespace)  {}  {} tab(s)",
-                    r.pid, r.key.site, r.tabs
+                    "  pid {} (inside the renderer pid namespace: {})  {}  {} tab(s)",
+                    r.pid,
+                    ns_pid(r.pid as u32).unwrap_or_else(|| "?".into()),
+                    r.key.site,
+                    r.tabs
                 );
             }
             return;
         }
         println!("no resident renderer pool (renderer isolation is off or unavailable)");
     }
+}
+
+/// The pid a process has inside its innermost pid namespace, from the
+/// kernel's own translation (`NSpid:` in `/proc/<pid>/status`, outermost
+/// first). The fork server's children live in a namespace where the anchor
+/// is PID 1 and renderers count up from there.
+#[cfg(target_os = "linux")]
+fn ns_pid(host_pid: u32) -> Option<String> {
+    let status = std::fs::read_to_string(format!("/proc/{host_pid}/status")).ok()?;
+    let line = status.lines().find(|l| l.starts_with("NSpid:"))?;
+    line.split_whitespace().last().map(str::to_string)
 }
 
 #[cfg(not(target_os = "linux"))]

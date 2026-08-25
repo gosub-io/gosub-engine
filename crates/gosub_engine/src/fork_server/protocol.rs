@@ -147,8 +147,8 @@ pub enum FromForkServer {
         hit_regions: Vec<HitRegion>,
     },
     /// A resident renderer was forked; the broker's end of its link follows
-    /// immediately as a file descriptor. `pid` is as the fork server's PID
-    /// namespace numbers it - for logs, not for signalling from outside.
+    /// immediately as a file descriptor. `pid` is the number the fork
+    /// server's own namespace - and so the broker's - sees.
     RendererSpawned { pid: i32 },
     /// The request could not be served; the string says why (e.g. forking is
     /// refused under `Unsupported`, or the forked child died).
