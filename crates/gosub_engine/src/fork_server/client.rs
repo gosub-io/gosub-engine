@@ -1,7 +1,10 @@
 //! The broker's side of the fork server: spawn it, learn its confinement
 //! tier, ask it to fork.
 
-use crate::fork_server::protocol::{ConfinementTier, FromForkServer, ToForkServer};
+use crate::fork_server::protocol::{
+    ConfinementTier, FromForkServer, FromRenderer, HitRegion, PageSummary, ResourceReply, TileHeader, ToForkServer,
+    ToRenderer,
+};
 use gosub_ipc::Endpoint;
 use std::time::Duration;
 
@@ -16,24 +19,74 @@ const READY_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long any later request may take. A fork plus one shape is milliseconds.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Drive the broker's half of a render exchange, whoever the renderer is -
-/// the fork server's forked child or a fresh exec'd renderer speak the same
-/// dialect. Tiles stream in one at a time (each fd mapped and released before
-/// the next message), the summary closes the exchange, and a `Refused`
+/// One step of a render exchange, whichever peer is speaking.
+pub(crate) enum RenderEvent {
+    NeedResource(String),
+    Tile(TileHeader),
+    TileUnchanged(TileHeader),
+    Rendered {
+        summary: PageSummary,
+        hit_regions: Vec<HitRegion>,
+    },
+    Refused(String),
+}
+
+/// A peer's render-exchange dialect: the fork server relays its forked
+/// child's stream wrapped in [`FromForkServer`] and wants resources wrapped
+/// back; a resident renderer (and an exec'd one) speaks [`FromRenderer`]
+/// directly and its loader reads a bare [`ResourceReply`].
+pub(crate) trait RenderStream: serde::de::DeserializeOwned + std::fmt::Debug {
+    fn into_event(self) -> anyhow::Result<RenderEvent>;
+    fn send_resource(link: &mut Endpoint, reply: ResourceReply) -> std::io::Result<()>;
+}
+
+impl RenderStream for FromForkServer {
+    fn into_event(self) -> anyhow::Result<RenderEvent> {
+        Ok(match self {
+            FromForkServer::NeedResource { url } => RenderEvent::NeedResource(url),
+            FromForkServer::Tile(header) => RenderEvent::Tile(header),
+            FromForkServer::TileUnchanged(header) => RenderEvent::TileUnchanged(header),
+            FromForkServer::PageRendered { summary, hit_regions } => RenderEvent::Rendered { summary, hit_regions },
+            FromForkServer::Refused(reason) => RenderEvent::Refused(reason),
+            other => anyhow::bail!("unexpected render-exchange message: {other:?}"),
+        })
+    }
+
+    fn send_resource(link: &mut Endpoint, reply: ResourceReply) -> std::io::Result<()> {
+        link.send(&ToForkServer::Resource(reply))
+    }
+}
+
+impl RenderStream for FromRenderer {
+    fn into_event(self) -> anyhow::Result<RenderEvent> {
+        Ok(match self {
+            FromRenderer::NeedResource { url } => RenderEvent::NeedResource(url),
+            FromRenderer::Tile(header) => RenderEvent::Tile(header),
+            FromRenderer::TileUnchanged(header) => RenderEvent::TileUnchanged(header),
+            FromRenderer::Rendered { summary, hit_regions } => RenderEvent::Rendered { summary, hit_regions },
+        })
+    }
+
+    fn send_resource(link: &mut Endpoint, reply: ResourceReply) -> std::io::Result<()> {
+        link.send(&reply)
+    }
+}
+
+/// Drive the broker's half of a render exchange, whoever the renderer is.
+/// Tiles stream in one at a time (each fd mapped and released before the
+/// next message), the summary closes the exchange, and a `Refused`
 /// mid-stream discards everything collected - atomicity lives here, not in
 /// transport buffering. `loader` answers the renderer's subresource requests
 /// inline, where identity and cookies live.
-pub(crate) fn drive_render_exchange(
+pub(crate) fn drive_render_exchange<M: RenderStream>(
     link: &mut Endpoint,
     loader: &dyn gosub_interface::resource_loader::ResourceLoader,
     known_tiles: &TileMemory,
 ) -> anyhow::Result<RenderedPage> {
-    use crate::fork_server::protocol::ResourceReply;
-
     let mut received = Vec::new();
     loop {
-        match link.recv::<FromForkServer>()? {
-            FromForkServer::NeedResource { url } => {
+        match link.recv::<M>()?.into_event()? {
+            RenderEvent::NeedResource(url) => {
                 let reply = match url::Url::parse(&url) {
                     Ok(parsed) => match loader.load(&parsed) {
                         Ok(resource) => ResourceReply::Ok {
@@ -45,9 +98,9 @@ pub(crate) fn drive_render_exchange(
                     },
                     Err(e) => ResourceReply::Failed(format!("renderer asked for an unparseable url: {e}")),
                 };
-                link.send(&ToForkServer::Resource(reply))?;
+                M::send_resource(link, reply)?;
             }
-            FromForkServer::Tile(header) => {
+            RenderEvent::Tile(header) => {
                 let fd = link.rx.recv_fd()?;
                 let mapping = gosub_ipc::shm::map_sealed_tile(fd, header.width, header.height)?;
                 received.push(PageTile::Fresh { header, mapping });
@@ -56,21 +109,20 @@ pub(crate) fn drive_render_exchange(
             // do not, our memory and its `known_tiles` disagree - a bug, not
             // a page problem, so fail the render rather than paper over a
             // hole in the page.
-            FromForkServer::TileUnchanged(header) => {
+            RenderEvent::TileUnchanged(header) => {
                 let Some(kept) = known_tiles.get(header.content_hash) else {
                     anyhow::bail!("renderer skipped a tile we do not have (hash {})", header.content_hash);
                 };
                 received.push(PageTile::Reused { header, kept });
             }
-            FromForkServer::PageRendered { summary, hit_regions } => {
+            RenderEvent::Rendered { summary, hit_regions } => {
                 return Ok(RenderedPage {
                     summary,
                     tiles: received,
                     hit_regions,
                 })
             }
-            FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
-            other => anyhow::bail!("unexpected render-exchange message: {other:?}"),
+            RenderEvent::Refused(reason) => anyhow::bail!("{reason}"),
         }
     }
 }
@@ -301,7 +353,33 @@ impl ForkServer {
             known_tiles: known_tiles.hashes(),
             hovered_node,
         })?;
-        drive_render_exchange(&mut self.link, loader, known_tiles)
+        drive_render_exchange::<FromForkServer>(&mut self.link, loader, known_tiles)
+    }
+
+    /// Fork a resident renderer and take over its link: from here on the
+    /// broker talks to it directly. `label` only names it in `ps`.
+    pub fn spawn_renderer(&mut self, label: &str) -> anyhow::Result<ResidentRenderer> {
+        self.link.send(&ToForkServer::SpawnRenderer {
+            label: label.to_string(),
+        })?;
+        let pid = match self.link.recv::<FromForkServer>()? {
+            FromForkServer::RendererSpawned { pid } => pid,
+            FromForkServer::Refused(reason) => anyhow::bail!("{reason}"),
+            other => anyhow::bail!("unexpected reply to SpawnRenderer: {other:?}"),
+        };
+        let fd = self.link.rx.recv_fd()?;
+        let channel = gosub_ipc::channel::Channel::from_stream(std::os::unix::net::UnixStream::from(fd));
+        let mut link = Endpoint::from_channel(channel)?;
+        let _ = link.tx.set_write_timeout(Some(REPLY_TIMEOUT));
+        let _ = link.rx.set_read_timeout(Some(REPLY_TIMEOUT));
+        Ok(ResidentRenderer { link, pid, dead: false })
+    }
+
+    /// Have the fork server collect resident renderers that have exited.
+    pub fn reap_exited(&mut self) {
+        if self.link.send(&ToForkServer::ReapExited).is_ok() {
+            let _ = self.link.recv::<FromForkServer>();
+        }
     }
 
     /// Ask for a clean exit, then make sure of it. `&mut self` rather than
@@ -313,6 +391,94 @@ impl ForkServer {
         if let Some(mut child) = self.child.take() {
             let _ = child.wait();
         }
+    }
+}
+
+/// The broker's link to one resident renderer (see `fork_server::resident`):
+/// a forked, confined child that outlives its renders. Request/reply is
+/// strictly serial, so a handle is used from behind a lock.
+pub struct ResidentRenderer {
+    link: Endpoint,
+    pid: i32,
+    /// Set once the link failed: nothing sent afterwards can be trusted to
+    /// arrive, and the pool replaces the process on the next request.
+    dead: bool,
+}
+
+impl std::fmt::Debug for ResidentRenderer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResidentRenderer")
+            .field("pid", &self.pid)
+            .field("dead", &self.dead)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ResidentRenderer {
+    /// The renderer's pid as the fork server's PID namespace numbers it.
+    pub fn pid(&self) -> i32 {
+        self.pid
+    }
+
+    pub fn is_dead(&self) -> bool {
+        self.dead
+    }
+
+    fn send(&mut self, msg: &ToRenderer) -> anyhow::Result<()> {
+        if self.dead {
+            anyhow::bail!("renderer process is gone");
+        }
+        if let Err(e) = self.link.send(msg) {
+            self.dead = true;
+            anyhow::bail!("renderer link failed: {e}");
+        }
+        Ok(())
+    }
+
+    pub fn open_tab(&mut self, tab: &str) -> anyhow::Result<()> {
+        self.send(&ToRenderer::OpenTab { tab: tab.to_string() })
+    }
+
+    pub fn close_tab(&mut self, tab: &str) -> anyhow::Result<()> {
+        self.send(&ToRenderer::CloseTab { tab: tab.to_string() })
+    }
+
+    /// Render `html` for `tab`: the same exchange as [`ForkServer::render_page`],
+    /// against a process that stays around afterwards. Any failure marks the
+    /// renderer dead: the exchange strictly alternates, so a broken one
+    /// leaves the link in no state a later request could rely on.
+    #[allow(clippy::too_many_arguments)] // one wire message, spelled out
+    pub fn navigate(
+        &mut self,
+        html: &str,
+        url: &str,
+        tab: &str,
+        viewport: (f64, f64),
+        loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+        known_tiles: &TileMemory,
+        hovered_node: Option<u64>,
+    ) -> anyhow::Result<RenderedPage> {
+        self.send(&ToRenderer::Navigate {
+            tab: tab.to_string(),
+            html: html.to_string(),
+            url: url.to_string(),
+            viewport_width: viewport.0,
+            viewport_height: viewport.1,
+            known_tiles: known_tiles.hashes(),
+            hovered_node,
+        })?;
+        let result = drive_render_exchange::<FromRenderer>(&mut self.link, loader, known_tiles);
+        if result.is_err() {
+            self.dead = true;
+        }
+        result
+    }
+
+    /// Ask for a clean exit. The process is the fork server's child; it is
+    /// reaped there (see [`ForkServer::reap_exited`]).
+    pub fn shutdown(&mut self) {
+        let _ = self.send(&ToRenderer::Shutdown);
+        self.dead = true;
     }
 }
 

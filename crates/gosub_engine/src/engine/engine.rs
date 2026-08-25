@@ -83,6 +83,10 @@ pub struct EngineContext {
     /// protocol is strictly serial.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub renderer_process: OnceLock<Arc<Mutex<crate::fork_server::client::ForkServer>>>,
+    /// The resident renderers forked from it, one per (zone, site); set
+    /// together with `renderer_process`. Tabs render through this.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub renderer_pool: OnceLock<Arc<crate::fork_server::pool::RendererPool>>,
 }
 
 impl Default for EngineContext {
@@ -97,6 +101,8 @@ impl Default for EngineContext {
             tab_identities: Arc::new(TabIdentityRegistry::new()),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             renderer_process: OnceLock::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            renderer_pool: OnceLock::new(),
         }
     }
 }
@@ -139,6 +145,8 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 tab_identities: Arc::new(TabIdentityRegistry::new()),
                 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
                 renderer_process: OnceLock::new(),
+                #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                renderer_pool: OnceLock::new(),
             }),
             render_backend: backend,
             compositor,
@@ -236,7 +244,14 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                     tier => {
                         log::info!("renderer fork server ready (confinement tier: {tier:?})");
                         // Set once, like `io_tx`; `start()` refuses to run twice.
-                        let _ = self.context.renderer_process.set(Arc::new(Mutex::new(server)));
+                        let server = Arc::new(Mutex::new(server));
+                        let _ = self
+                            .context
+                            .renderer_pool
+                            .set(Arc::new(crate::fork_server::pool::RendererPool::new(Arc::clone(
+                                &server,
+                            ))));
+                        let _ = self.context.renderer_process.set(server);
                     }
                 }
             }
@@ -256,6 +271,14 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub fn renderer_process(&self) -> Option<&Arc<Mutex<crate::fork_server::client::ForkServer>>> {
         self.context.renderer_process.get()
+    }
+
+    /// The pool of resident renderers, when `security.renderer_process` is on
+    /// and the fork server started: one process per (zone, site), listable
+    /// for diagnostics.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn renderer_pool(&self) -> Option<&Arc<crate::fork_server::pool::RendererPool>> {
+        self.context.renderer_pool.get()
     }
 
     /// The confinement tier the renderer fork server announced, when one is
@@ -338,9 +361,15 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Ask the fork server for a clean exit (it kills-and-reaps on drop
         // regardless, but a Shutdown lets it leave without a SIGKILL).
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        if let Some(server) = self.context.renderer_process.get() {
-            log::trace!("signal: shutting down the renderer fork server");
-            server.lock().shutdown();
+        {
+            if let Some(pool) = self.context.renderer_pool.get() {
+                log::trace!("signal: shutting down the resident renderers");
+                pool.shutdown_all();
+            }
+            if let Some(server) = self.context.renderer_process.get() {
+                log::trace!("signal: shutting down the renderer fork server");
+                server.lock().shutdown();
+            }
         }
 
         // Shutdown I/O thread

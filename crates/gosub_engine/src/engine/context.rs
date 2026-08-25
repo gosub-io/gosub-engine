@@ -245,7 +245,15 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
 /// configured font system's confinement tier, decided statically.
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
 pub enum RemoteRenderer {
-    /// Fork from the engine's warmed fork server (tier `Full`).
+    /// A resident renderer from the engine's pool, one per (zone, site),
+    /// forked from the warmed fork server (tier `Full`).
+    Resident {
+        pool: std::sync::Arc<crate::fork_server::pool::RendererPool>,
+        zone: crate::zone::ZoneId,
+        tab: crate::tab::TabId,
+    },
+    /// Fork a throwaway renderer per render from the engine's warmed fork
+    /// server (tier `Full`, no pool).
     ForkServer(std::sync::Arc<parking_lot::Mutex<crate::fork_server::client::ForkServer>>),
     /// Spawn a throwaway exec'd renderer per render (tier `FontPathsReadable`:
     /// warming buys nothing when font files stay reachable, and the stack may
@@ -314,6 +322,14 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     pub fn set_remote_renderer(&mut self, renderer: RemoteRenderer, tab: String) {
         self.remote_renderer = Some(renderer);
         self.remote_tab = tab;
+    }
+
+    /// This tab is closing: let go of whatever renderer process hosts it.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn release_remote_renderer(&mut self) {
+        if let Some(RemoteRenderer::Resident { pool, tab, .. }) = self.remote_renderer.take() {
+            pool.release(tab);
+        }
     }
 
     /// Whether full renders go out-of-process: a remote renderer is installed
@@ -609,6 +625,22 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // worker's unstealable LIFO slot - the brokered loader's reply path
         // among them - so hand the core to another thread for the duration.
         let run = || match remote {
+            RemoteRenderer::Resident { pool, zone, tab } => {
+                let site = url::Url::parse(&page_url)
+                    .map(|u| crate::fork_server::site::site_of(&u))
+                    .unwrap_or_else(|_| "about:".to_string());
+                let renderer = pool.renderer_for(*zone, &site, *tab)?;
+                let mut renderer = renderer.lock();
+                renderer.navigate(
+                    source,
+                    &page_url,
+                    &self.remote_tab,
+                    viewport,
+                    self.loader.as_ref(),
+                    &self.remote_tile_memory,
+                    self.hover_leaf.map(|id| id.into()),
+                )
+            }
             RemoteRenderer::ForkServer(server) => server.lock().render_page(
                 source,
                 &page_url,

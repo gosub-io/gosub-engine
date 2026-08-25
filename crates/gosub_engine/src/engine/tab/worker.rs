@@ -301,7 +301,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
             use gosub_interface::font_system::{Confinement, FontSystem as _};
             match C::FontSystem::confinement() {
                 Confinement::Full => {
-                    if let Some(server) = zone_context.engine_context.renderer_process.get() {
+                    if let Some(pool) = zone_context.engine_context.renderer_pool.get() {
+                        context.set_remote_renderer(
+                            RemoteRenderer::Resident {
+                                pool: Arc::clone(pool),
+                                zone: zone_id,
+                                tab: tab_id,
+                            },
+                            tab_id.to_string(),
+                        );
+                    } else if let Some(server) = zone_context.engine_context.renderer_process.get() {
                         context.set_remote_renderer(RemoteRenderer::ForkServer(Arc::clone(server)), tab_id.to_string());
                     }
                 }
@@ -461,6 +470,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // Drop the jar reference before announcing closure: a fetch that outlives
         // the tab then goes out without cookies rather than against a stale jar.
         self.zone_context.tab_identities.remove(self.tab_id);
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.context.release_remote_renderer();
 
         // Receiver may already be gone at shutdown; that is expected.
         let _ = self.zone_context.event_tx.send(EngineEvent::TabClosed {

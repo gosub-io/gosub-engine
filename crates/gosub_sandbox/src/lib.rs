@@ -336,6 +336,14 @@ pub fn reap_child(pid: i32) -> std::io::Result<i32> {
     imp::reap_child(pid)
 }
 
+/// Reap every forked child that has already exited, without blocking. For a
+/// parent whose children live indefinitely (resident renderers) and die on
+/// their own schedule. Linux only.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn reap_exited_children() -> Vec<(i32, i32)> {
+    imp::reap_exited_children()
+}
+
 /// Exit immediately without running destructors or `atexit` handlers - the only
 /// correct way out of a forked child. Linux only.
 #[cfg(all(feature = "multi-process", target_os = "linux"))]

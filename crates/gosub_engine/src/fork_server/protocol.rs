@@ -64,12 +64,56 @@ pub enum ToForkServer {
         /// whose painted content actually changed.
         hovered_node: Option<u64>,
     },
+    /// Fork a *resident* renderer - one that stays alive and serves
+    /// [`ToRenderer`] requests until told to stop - confine it to the announced
+    /// tier, and hand its end of a private link to the broker: the reply is
+    /// [`FromForkServer::RendererSpawned`] followed immediately by the link's
+    /// file descriptor. From then on the broker and that renderer talk
+    /// directly; the fork server is out of the loop.
+    SpawnRenderer {
+        /// Names the process in `ps`/`pstree` (`render-<first 8 chars>`).
+        /// Display only.
+        label: String,
+    },
+    /// Collect any resident renderers that have exited (they are this
+    /// process's children, so only it can reap them). The broker sends this
+    /// after it observed a renderer's link close.
+    ReapExited,
     /// Exit cleanly.
     Shutdown,
     /// The broker's answer to [`FromForkServer::NeedResource`], relayed on to
     /// the renderer that is blocked waiting for it. Only ever sent while a
     /// [`RenderPage`](ToForkServer::RenderPage) exchange is in flight.
     Resource(ResourceReply),
+}
+
+/// Broker → resident renderer, over the private link
+/// [`ToForkServer::SpawnRenderer`] handed over. One renderer hosts every tab
+/// of one (zone, site), so requests name their tab.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ToRenderer {
+    /// A tab now lives in this renderer.
+    OpenTab { tab: String },
+    /// The tab left (closed, or moved to another site's renderer).
+    CloseTab { tab: String },
+    /// Render this tab's page: the same one-shot pipeline as
+    /// [`ToForkServer::RenderPage`], answered with the same streamed
+    /// [`FromRenderer`] sequence ending in [`FromRenderer::Rendered`]. A
+    /// [`FromRenderer::NeedResource`] mid-render is answered with a bare
+    /// [`ResourceReply`] frame (the renderer's loader reads exactly that),
+    /// so the link strictly alternates for the whole exchange.
+    Navigate {
+        tab: String,
+        html: String,
+        url: String,
+        viewport_width: f64,
+        viewport_height: f64,
+        known_tiles: Vec<u64>,
+        hovered_node: Option<u64>,
+    },
+    /// Exit cleanly. The broker sends this when the renderer's last tab
+    /// closes; a closed link means the same.
+    Shutdown,
 }
 
 /// Fork server → broker.
@@ -102,6 +146,10 @@ pub enum FromForkServer {
         summary: PageSummary,
         hit_regions: Vec<HitRegion>,
     },
+    /// A resident renderer was forked; the broker's end of its link follows
+    /// immediately as a file descriptor. `pid` is as the fork server's PID
+    /// namespace numbers it - for logs, not for signalling from outside.
+    RendererSpawned { pid: i32 },
     /// The request could not be served; the string says why (e.g. forking is
     /// refused under `Unsupported`, or the forked child died).
     Refused(String),
@@ -284,7 +332,8 @@ impl From<TileWireAnchor> for gosub_interface::render::backend::TileAnchor {
     }
 }
 
-/// Everything a renderer can say to its parent over their private pair.
+/// Everything a renderer can say over its private link - to the fork server
+/// (one-shot renderers) or straight to the broker (resident ones).
 #[derive(Debug, Serialize, Deserialize)]
 pub enum FromRenderer {
     /// Mid-render: fetch this for me. The parent relays it to the broker and

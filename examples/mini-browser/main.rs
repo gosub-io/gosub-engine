@@ -2,9 +2,10 @@
 //!
 //! Every isolation setting is on: the network stack runs in its own sandboxed
 //! process, each image decodes in a throwaway process, and every page is
-//! rendered by a renderer forked from the fork server — parse, style, layout,
-//! paint and rasterization all happen out of process, and the tiles come back
-//! as sealed shared memory. What this window composites was never produced in
+//! rendered by a resident renderer (one per site, forked from the fork server
+//! and shared by that site's tabs) — parse, style, layout, paint and
+//! rasterization all happen out of process, and the tiles come back as sealed
+//! shared memory. What this window composites was never produced in
 //! this process.
 //!
 //! Run it:
@@ -14,8 +15,8 @@
 //! ```
 //!
 //! Keys: Ctrl+T new tab, Ctrl+W close tab (middle-click a tab also closes it),
-//! Ctrl+L focus the address bar, F5/Ctrl+R reload, Ctrl+P print the live
-//! process tree to the terminal. Or watch from outside:
+//! Ctrl+L focus the address bar, F5/Ctrl+R reload, Ctrl+P print the renderer
+//! pool and the live process tree to the terminal. Or watch from outside:
 //!
 //! ```sh
 //! pstree -ap <broker pid>    # printed at startup
@@ -154,7 +155,6 @@ fn host_of(url: &str) -> Option<String> {
 // ── The application ──────────────────────────────────────────────────────────
 
 struct BrowserApp {
-    #[allow(dead_code)]
     engine: GosubEngine<MiniConfig>,
     zone: Zone<MiniConfig>,
     compositor: Arc<DefaultCompositor>,
@@ -563,7 +563,10 @@ impl ApplicationHandler<UiEvent> for BrowserApp {
                             self.request_redraw();
                         }
                         Key::Character(c) if c == "r" => self.reload(),
-                        Key::Character(c) if c == "p" => print_process_tree(),
+                        Key::Character(c) if c == "p" => {
+                            self.print_renderers();
+                            print_process_tree();
+                        }
                         _ => {}
                     }
                     return;
@@ -763,8 +766,28 @@ fn print_process_tree() {
     println!("process tree — broker {me} (tabs, DOM, cookies, storage live here):");
     println!("{me}  broker");
     print_children(&procs, me, 1);
-    println!("(renderers are forked per render: navigate or scroll to see them appear)");
     println!();
+}
+
+impl BrowserApp {
+    /// The engine's own view: which resident renderer serves which site, and
+    /// how many tabs each hosts.
+    fn print_renderers(&self) {
+        println!();
+        #[cfg(target_os = "linux")]
+        if let Some(pool) = self.engine.renderer_pool() {
+            let running = pool.snapshot();
+            println!("resident renderers ({}), one per (zone, site):", running.len());
+            for r in running {
+                println!(
+                    "  pid {} (in the fork server's pid namespace)  {}  {} tab(s)",
+                    r.pid, r.key.site, r.tabs
+                );
+            }
+            return;
+        }
+        println!("no resident renderer pool (renderer isolation is off or unavailable)");
+    }
 }
 
 #[cfg(not(target_os = "linux"))]

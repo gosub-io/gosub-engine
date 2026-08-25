@@ -260,6 +260,25 @@ fn the_fork_server_forks_a_confined_renderer_with_cosmic_text() {
     );
 }
 
+/// Resident renderers: one process per (zone, site) shared by its tabs, a
+/// cross-site navigation moving a tab to another process, and the last tab
+/// leaving shutting the process down.
+#[cfg(target_os = "linux")]
+#[test]
+fn resident_renderers_are_keyed_by_site_and_live_with_their_tabs() {
+    let out = run("renderer-lifecycle");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "the resident renderer lifecycle failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// The render pipeline - parse, style, layout, layering, tiling, paint -
 /// under the strictest renderer sandbox, in-process (no fork machinery), so a
 /// pipeline-vs-sandbox regression is directly attributable.

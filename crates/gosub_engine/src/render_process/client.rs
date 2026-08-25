@@ -70,7 +70,7 @@ pub fn render_page(
             known_tiles: known_tiles.hashes(),
             hovered_node,
         })?;
-        drive_render_exchange(&mut link, loader, known_tiles)
+        drive_render_exchange::<crate::fork_server::protocol::FromForkServer>(&mut link, loader, known_tiles)
     })();
 
     // Kill before reaping, on every path: a renderer that will not exit -

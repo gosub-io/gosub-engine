@@ -123,6 +123,7 @@ fn main() {
         "render-under-lockdown" => with_font_backend!(render_under_lockdown),
         "engine-renderer-process" => with_font_backend!(engine_renderer_process),
         "exec-renderer" => with_font_backend!(exec_renderer_roundtrip),
+        "renderer-lifecycle" => with_font_backend!(renderer_lifecycle),
         "render-file" => with_font_backend!(render_file),
         "render-file-locked" => with_font_backend!(render_file_locked),
         other => {
@@ -1195,6 +1196,150 @@ fn fork_server_roundtrip<F: FontSystem + Default>() -> i32 {
             }
         }
         server.shutdown();
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// Resident renderers, driven through the pool the engine uses: one process
+/// per (zone, site) shared by that site's tabs, a cross-site navigation
+/// moving a tab to another process, and the last tab leaving shutting the
+/// process down.
+fn renderer_lifecycle<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::ForkServer;
+        use gosub_engine::fork_server::pool::RendererPool;
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+        use gosub_engine::tab::TabId;
+        use gosub_engine::zone::ZoneId;
+
+        let server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        if !matches!(server.confinement(), ConfinementTier::Full) {
+            eprintln!("renderer-lifecycle needs the Full tier, got {:?}", server.confinement());
+            return 2;
+        }
+        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)));
+        let zone = ZoneId::new();
+        let (tab_a, tab_b) = (TabId::new(), TabId::new());
+        let loader = gosub_interface::resource_loader::NoResourceLoader;
+        let memory = Default::default();
+
+        let render = |site: &str, tab: TabId, html: &str| -> Result<i32, String> {
+            let renderer = pool.renderer_for(zone, site, tab).map_err(|e| e.to_string())?;
+            let mut renderer = renderer.lock();
+            let page = renderer
+                .navigate(
+                    html,
+                    &format!("{site}/"),
+                    &tab.to_string(),
+                    (1280.0, 720.0),
+                    &loader,
+                    &memory,
+                    None,
+                )
+                .map_err(|e| e.to_string())?;
+            if page.summary.page_height <= 0.0 || page.summary.paint_commands == 0 {
+                return Err(format!("implausible page: {:?}", page.summary));
+            }
+            Ok(renderer.pid())
+        };
+
+        // Two tabs, one site: one process, and it survives both renders.
+        let pid_a = match render("https://one.test", tab_a, "<p>tab a, render 1</p>") {
+            Ok(pid) => pid,
+            Err(e) => {
+                eprintln!("first render failed: {e}");
+                return 1;
+            }
+        };
+        let pid_b = match render("https://one.test", tab_b, "<p>tab b</p>") {
+            Ok(pid) => pid,
+            Err(e) => {
+                eprintln!("second tab's render failed: {e}");
+                return 1;
+            }
+        };
+        let pid_a2 = match render("https://one.test", tab_a, "<p>tab a, render 2</p>") {
+            Ok(pid) => pid,
+            Err(e) => {
+                eprintln!("re-render in the resident renderer failed: {e}");
+                return 1;
+            }
+        };
+        if pid_a != pid_b || pid_a != pid_a2 {
+            eprintln!("same-site tabs should share one renderer: {pid_a} / {pid_b} / {pid_a2}");
+            return 1;
+        }
+        let running = pool.snapshot();
+        if running.len() != 1 || running[0].tabs != 2 {
+            eprintln!("expected one renderer hosting two tabs, got {running:?}");
+            return 1;
+        }
+        println!("two tabs on https://one.test share renderer pid {pid_a} (survived 3 renders)");
+
+        // Tab A goes cross-site: a second process, while B keeps the first.
+        let pid_other = match render("https://two.test", tab_a, "<p>tab a, elsewhere</p>") {
+            Ok(pid) => pid,
+            Err(e) => {
+                eprintln!("cross-site render failed: {e}");
+                return 1;
+            }
+        };
+        if pid_other == pid_a {
+            eprintln!("a cross-site navigation must land in a different renderer");
+            return 1;
+        }
+        let running = pool.snapshot();
+        if running.len() != 2 || running.iter().any(|r| r.tabs != 1) {
+            eprintln!("expected two renderers with one tab each, got {running:?}");
+            return 1;
+        }
+        println!("tab a moved to https://two.test: renderer pid {pid_other}; b still on {pid_b}");
+
+        // The last tab leaving a site shuts its renderer down.
+        pool.release(tab_b);
+        let running = pool.snapshot();
+        if running.len() != 1 || running[0].key.site != "https://two.test" {
+            eprintln!("releasing the last tab should have shut https://one.test down, got {running:?}");
+            return 1;
+        }
+        pool.release(tab_a);
+        if !pool.snapshot().is_empty() {
+            eprintln!(
+                "releasing every tab should leave no renderer, got {:?}",
+                pool.snapshot()
+            );
+            return 1;
+        }
+        println!("last tabs released: every renderer shut down");
+
+        // A tab that returns after its renderer went away gets a new one.
+        match render("https://one.test", tab_b, "<p>tab b is back</p>") {
+            Ok(pid) if pid != pid_a => println!("returning tab got a fresh renderer, pid {pid}"),
+            Ok(pid) => {
+                eprintln!("a shut-down renderer's pid came back: {pid}");
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("render after shutdown failed: {e}");
+                return 1;
+            }
+        }
+
+        pool.shutdown_all();
+        pool.fork_server().lock().shutdown();
         0
     }
     #[cfg(not(target_os = "linux"))]

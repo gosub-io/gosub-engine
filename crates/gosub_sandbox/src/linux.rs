@@ -371,6 +371,22 @@ pub fn reap_child(pid: i32) -> std::io::Result<i32> {
     Ok(status)
 }
 
+/// Reap every forked child that has already exited, without blocking; returns
+/// `(pid, raw wait status)` per child collected.
+#[cfg(feature = "multi-process")]
+pub fn reap_exited_children() -> Vec<(i32, i32)> {
+    let mut reaped = Vec::new();
+    loop {
+        let mut status: libc::c_int = 0;
+        // SAFETY: `status` is a valid out-parameter; WNOHANG never blocks.
+        let pid = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
+        if pid <= 0 {
+            return reaped;
+        }
+        reaped.push((pid, status));
+    }
+}
+
 /// Exit immediately, without running destructors or `atexit` handlers.
 #[cfg(feature = "multi-process")]
 pub fn exit_now(code: i32) -> ! {
