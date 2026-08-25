@@ -674,6 +674,19 @@ pub enum EngineEvent {
         zone_id: ZoneId,
         error: String,
     },
+    /// A renderer process died (or could not be started). `tabs` are the
+    /// tabs it hosted; the engine replaces the process on their next render,
+    /// so most recover on their own - an embedder may still want to show
+    /// something meanwhile. When `tabs` has one entry and the error names
+    /// the fork server, that tab could not be rendered at all: page content
+    /// is never rendered in-process once isolation is on.
+    RendererCrashed {
+        zone_id: ZoneId,
+        /// The (scheme + eTLD+1) site the process served.
+        site: String,
+        tabs: Vec<TabId>,
+        error: String,
+    },
     // Uncategorized / generic
 }
 

@@ -61,6 +61,7 @@ pub fn serve<C: RenderConfiguration>(
                 pages.remove(&tab);
             }
             ToRenderer::Shutdown => gosub_sandbox::exit_now(0),
+            ToRenderer::CrashForTest => gosub_sandbox::exit_now(139),
             ToRenderer::Navigate {
                 tab,
                 html,

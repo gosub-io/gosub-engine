@@ -30,6 +30,11 @@ pub struct RendererStatus {
 pub struct RendererPool {
     fork_server: Arc<Mutex<ForkServer>>,
     state: Mutex<State>,
+    /// When [`Self::sweep_dead`] last looked; it is called per frame per tab.
+    last_sweep: Mutex<Option<std::time::Instant>>,
+    /// Where a crash is announced (`EngineEvent::RendererCrashed`), if the
+    /// pool belongs to an engine.
+    events: Option<crate::engine::types::EventChannel>,
 }
 
 #[derive(Default)]
@@ -49,10 +54,12 @@ impl std::fmt::Debug for RendererPool {
 }
 
 impl RendererPool {
-    pub fn new(fork_server: Arc<Mutex<ForkServer>>) -> Self {
+    pub fn new(fork_server: Arc<Mutex<ForkServer>>, events: Option<crate::engine::types::EventChannel>) -> Self {
         Self {
             fork_server,
             state: Mutex::new(State::default()),
+            last_sweep: Mutex::new(None),
+            events,
         }
     }
 
@@ -77,8 +84,7 @@ impl RendererPool {
             }
         }
         if state.renderers.get(&key).is_some_and(|r| r.lock().is_dead()) {
-            log::warn!("renderer for {} in zone {:?} died; replacing it", key.site, key.zone);
-            self.discard(&mut state, &key);
+            self.bury(&mut state, &key);
         }
 
         let renderer = match state.renderers.get(&key) {
@@ -106,6 +112,73 @@ impl RendererPool {
         if let Some(key) = state.placement.get(&tab).cloned() {
             self.detach(&mut state, &key, tab);
         }
+    }
+
+    /// Notice renderers that died since the last look - a closed link, seen
+    /// without sending anything - and replace them on their tabs' next
+    /// request, announcing each now rather than then. Cheap enough to call
+    /// per frame: it actually looks at most every quarter second, and skips
+    /// a renderer that is busy with an exchange (one that dies mid-exchange
+    /// is found by the exchange). Returns how many were found dead.
+    pub fn sweep_dead(&self) -> usize {
+        const INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+        {
+            let mut last = self.last_sweep.lock();
+            if last.is_some_and(|t| t.elapsed() < INTERVAL) {
+                return 0;
+            }
+            *last = Some(std::time::Instant::now());
+        }
+        let mut state = self.state.lock();
+        let dead: Vec<RendererKey> = state
+            .renderers
+            .iter()
+            .filter(|(_, renderer)| renderer.try_lock().is_some_and(|mut r| !r.check_alive()))
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in &dead {
+            self.bury(&mut state, key);
+        }
+        dead.len()
+    }
+
+    /// A renderer found dead: drop it, reap it, and say so.
+    fn bury(&self, state: &mut State, key: &RendererKey) {
+        log::warn!(
+            "renderer for {} in zone {:?} died; its tabs get a fresh one",
+            key.site,
+            key.zone
+        );
+        let tabs: Vec<TabId> = state
+            .tabs
+            .get(key)
+            .map(|t| t.iter().copied().collect())
+            .unwrap_or_default();
+        self.discard(state, key);
+        if let Some(events) = &self.events {
+            let _ = events.send(crate::engine::events::EngineEvent::RendererCrashed {
+                zone_id: key.zone,
+                site: key.site.clone(),
+                tabs,
+                error: "renderer process died".into(),
+            });
+        }
+    }
+
+    /// Kill every renderer serving `site`, in any zone, the way a crash
+    /// would; returns how many were told to die. Their tabs recover on their
+    /// next render. For tests.
+    pub fn crash_renderers_for_test(&self, site: &str) -> usize {
+        let state = self.state.lock();
+        let mut count = 0;
+        for (key, renderer) in &state.renderers {
+            if key.site != site {
+                continue;
+            }
+            renderer.lock().crash_for_test();
+            count += 1;
+        }
+        count
     }
 
     /// Every running renderer and how many tabs it hosts.

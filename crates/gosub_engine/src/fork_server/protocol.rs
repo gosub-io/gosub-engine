@@ -124,6 +124,10 @@ pub enum ToRenderer {
     /// nothing) on a page this renderer retains: restyle the hover chains and
     /// repaint just the tiles they cover. Same streamed answer as `Scroll`.
     Hover { tab: String, node: Option<u64> },
+    /// Die without replying, the way a crashing renderer would. For tests
+    /// of the broker's recovery; a renderer that obeys it was going to be
+    /// trusted with nothing anyway.
+    CrashForTest,
     /// Exit cleanly. The broker sends this when the renderer's last tab
     /// closes; a closed link means the same.
     Shutdown,

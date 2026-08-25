@@ -248,9 +248,10 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                         let _ = self
                             .context
                             .renderer_pool
-                            .set(Arc::new(crate::fork_server::pool::RendererPool::new(Arc::clone(
-                                &server,
-                            ))));
+                            .set(Arc::new(crate::fork_server::pool::RendererPool::new(
+                                Arc::clone(&server),
+                                Some(self.context.event_tx.clone()),
+                            )));
                         let _ = self.context.renderer_process.set(server);
                     }
                 }

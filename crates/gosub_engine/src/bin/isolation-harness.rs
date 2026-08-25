@@ -132,6 +132,8 @@ fn main() {
         "renderer-lifecycle" => with_font_backend!(renderer_lifecycle),
         "renderer-scroll-window" => with_font_backend!(renderer_scroll_window),
         "renderer-hover" => with_font_backend!(renderer_hover),
+        "renderer-crash" => with_font_backend!(renderer_crash),
+        "engine-renderer-crash" => with_font_backend!(engine_renderer_crash),
         "render-file" => with_font_backend!(render_file),
         "render-file-locked" => with_font_backend!(render_file_locked),
         other => {
@@ -1277,7 +1279,7 @@ fn renderer_lifecycle<F: FontSystem + Default>() -> i32 {
             eprintln!("renderer-lifecycle needs the Full tier, got {:?}", server.confinement());
             return 2;
         }
-        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)));
+        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)), None);
         let zone = ZoneId::new();
         let (tab_a, tab_b) = (TabId::new(), TabId::new());
         let loader = gosub_interface::resource_loader::NoResourceLoader;
@@ -1429,7 +1431,7 @@ fn renderer_scroll_window<F: FontSystem + Default>() -> i32 {
             );
             return 2;
         }
-        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)));
+        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)), None);
         let (zone, tab) = (ZoneId::new(), TabId::new());
         let loader = gosub_interface::resource_loader::NoResourceLoader;
         let mut memory = gosub_engine::fork_server::client::TileMemory::default();
@@ -1583,7 +1585,7 @@ fn renderer_hover<F: FontSystem + Default>() -> i32 {
             eprintln!("renderer-hover needs the Full tier, got {:?}", server.confinement());
             return 2;
         }
-        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)));
+        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)), None);
         let (zone, tab) = (ZoneId::new(), TabId::new());
         let loader = gosub_interface::resource_loader::NoResourceLoader;
         let mut memory = gosub_engine::fork_server::client::TileMemory::default();
@@ -1699,6 +1701,327 @@ fn renderer_hover<F: FontSystem + Default>() -> i32 {
     #[cfg(not(target_os = "linux"))]
     {
         eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// A resident renderer that dies is noticed on the next request and replaced:
+/// the failed exchange marks it dead, the pool spawns a fresh one, and the
+/// tab renders there.
+fn renderer_crash<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::fork_server::client::ForkServer;
+        use gosub_engine::fork_server::pool::RendererPool;
+        use gosub_engine::fork_server::protocol::ConfinementTier;
+        use gosub_engine::tab::TabId;
+        use gosub_engine::zone::ZoneId;
+
+        let server = match ForkServer::spawn() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("could not spawn the fork server: {e}");
+                return 1;
+            }
+        };
+        if !matches!(server.confinement(), ConfinementTier::Full) {
+            eprintln!("renderer-crash needs the Full tier, got {:?}", server.confinement());
+            return 2;
+        }
+        let pool = RendererPool::new(Arc::new(parking_lot::Mutex::new(server)), None);
+        let (zone, tab) = (ZoneId::new(), TabId::new());
+        let loader = gosub_interface::resource_loader::NoResourceLoader;
+        let memory = gosub_engine::fork_server::client::TileMemory::default();
+        let html = "<html><body><p>a page that will lose its renderer</p></body></html>";
+        let tab_name = tab.to_string();
+
+        let first_pid = {
+            let renderer = match pool.renderer_for(zone, "https://crash.test", tab) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("could not get a renderer: {e}");
+                    return 1;
+                }
+            };
+            let mut renderer = renderer.lock();
+            if let Err(e) = renderer.navigate(
+                html,
+                "https://crash.test/",
+                &tab_name,
+                (1280.0, 720.0),
+                0.0,
+                &loader,
+                &memory,
+                None,
+            ) {
+                eprintln!("navigate failed: {e}");
+                return 1;
+            }
+            renderer.pid()
+        };
+        println!("page rendered in renderer pid {first_pid}");
+
+        if pool.crash_renderers_for_test("https://crash.test") != 1 {
+            eprintln!("expected to crash exactly one renderer");
+            return 1;
+        }
+
+        // The next exchange fails and marks the renderer dead ...
+        {
+            let renderer = match pool.renderer_for(zone, "https://crash.test", tab) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("renderer_for after the crash failed: {e}");
+                    return 1;
+                }
+            };
+            let mut renderer = renderer.lock();
+            match renderer.scroll(&tab_name, 100.0, &loader, &memory) {
+                Ok(_) => {
+                    eprintln!("an exchange with a dead renderer should fail");
+                    return 1;
+                }
+                Err(e) => println!("exchange with the dead renderer failed as expected: {e}"),
+            }
+            if !renderer.is_dead() {
+                eprintln!("a failed exchange must mark the renderer dead");
+                return 1;
+            }
+        }
+
+        // ... and the request after that gets a fresh process that renders.
+        let renderer = match pool.renderer_for(zone, "https://crash.test", tab) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("could not get a replacement renderer: {e}");
+                return 1;
+            }
+        };
+        let mut renderer = renderer.lock();
+        if renderer.pid() == first_pid || renderer.is_dead() {
+            eprintln!(
+                "expected a fresh renderer, got pid {} (dead: {})",
+                renderer.pid(),
+                renderer.is_dead()
+            );
+            return 1;
+        }
+        match renderer.navigate(
+            html,
+            "https://crash.test/",
+            &tab_name,
+            (1280.0, 720.0),
+            0.0,
+            &loader,
+            &memory,
+            None,
+        ) {
+            Ok(page) if page.summary.paint_commands > 0 => {
+                println!("replacement renderer pid {} rendered the page again", renderer.pid());
+            }
+            Ok(page) => {
+                eprintln!("replacement rendered an implausible page: {:?}", page.summary);
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("render in the replacement renderer failed: {e}");
+                return 1;
+            }
+        }
+        drop(renderer);
+        pool.shutdown_all();
+        pool.fork_server().lock().shutdown();
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the fork server exists only on Linux");
+        2
+    }
+}
+
+/// The same crash through the engine: the tab's renderer dies, the embedder
+/// hears `RendererCrashed`, and the tab comes back in a fresh process on its
+/// next render - never in-process.
+fn engine_renderer_crash<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_interface::font_system::Confinement;
+        use gosub_render_pipeline::render::backend::ExternalHandle;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        if !matches!(F::confinement(), Confinement::Full) {
+            eprintln!("engine-renderer-crash needs a Full-tier font system");
+            return 2;
+        }
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
+                eprintln!("could not enable the renderer process: {e}");
+                return 1;
+            }
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            let Some(pool) = engine.renderer_pool().cloned() else {
+                eprintln!("the engine did not start a renderer pool");
+                return 1;
+            };
+
+            let Ok((port, _server)) = serve_once_with(TALL_BODY) else {
+                eprintln!("could not start the test server");
+                return 1;
+            };
+            let mut events = engine.subscribe_events();
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 1280,
+                    height: 720,
+                })
+                .await;
+            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+            loop {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, events.recv()).await {
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    })) => break,
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    })) => {
+                        eprintln!("navigation failed: {error}");
+                        return 1;
+                    }
+                    Ok(Ok(_)) => continue,
+                    _ => {
+                        eprintln!("timed out waiting for the navigation");
+                        return 1;
+                    }
+                }
+            }
+            loop {
+                if tokio::time::Instant::now() >= deadline {
+                    eprintln!("timed out waiting for the first frame");
+                    return 1;
+                }
+                if matches!(compositor.frame_for(tab.tab_id), Some(ExternalHandle::TileCache { .. })) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            let site = "http://127.0.0.1";
+            let Some(before) = pool.snapshot().into_iter().find(|r| r.key.site == site) else {
+                eprintln!("no renderer for {site} in the pool: {:?}", pool.snapshot());
+                return 1;
+            };
+            println!("tab rendered in renderer pid {}", before.pid);
+
+            // Kill it, then give the tab a reason to talk to it.
+            if pool.crash_renderers_for_test(site) != 1 {
+                eprintln!("expected to crash one renderer");
+                return 1;
+            }
+            let _ = tab
+                .send(TabCommand::MouseScroll {
+                    delta_x: 0.0,
+                    delta_y: 6000.0,
+                })
+                .await;
+
+            let crash_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+            loop {
+                let remaining = crash_deadline.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, events.recv()).await {
+                    Ok(Ok(EngineEvent::RendererCrashed {
+                        site: crashed, tabs, ..
+                    })) => {
+                        if crashed != site || !tabs.contains(&tab.tab_id) {
+                            eprintln!("RendererCrashed named the wrong site/tabs: {crashed} {tabs:?}");
+                            return 1;
+                        }
+                        println!("embedder heard RendererCrashed for {crashed} ({} tab)", tabs.len());
+                        break;
+                    }
+                    Ok(Ok(_)) => continue,
+                    _ => {
+                        eprintln!("no RendererCrashed event after killing the renderer");
+                        return 1;
+                    }
+                }
+            }
+
+            // Recovery: a fresh process for the site, and the tab rendering in it.
+            let recover_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+            let after = loop {
+                if tokio::time::Instant::now() >= recover_deadline {
+                    eprintln!("the tab never got a replacement renderer: {:?}", pool.snapshot());
+                    return 1;
+                }
+                match pool.snapshot().into_iter().find(|r| r.key.site == site) {
+                    Some(r) if r.pid != before.pid => break r,
+                    _ => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+                }
+            };
+            println!("tab recovered in replacement renderer pid {}", after.pid);
+
+            engine.close_zone(zone).await;
+            if engine.shutdown().await.is_err() {
+                eprintln!("engine shutdown failed");
+                return 1;
+            }
+            0
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer process exists only on Linux");
         2
     }
 }

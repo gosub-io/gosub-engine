@@ -11,8 +11,10 @@ use std::io::{Read, Write};
 // descriptor, so this stays Linux-gated.
 #[cfg(feature = "multi-process")]
 use crate::channel;
+#[cfg(all(feature = "multi-process", unix))]
+use std::os::fd::AsRawFd;
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 use std::sync::mpsc::{self, Receiver, Sender};
 
 /// A corrupted (or malicious) length prefix must not make the peer allocate
@@ -105,6 +107,40 @@ impl EndpointRx {
                 io::ErrorKind::Unsupported,
                 "no fd passing on local channels",
             )),
+        }
+    }
+
+    /// Whether the peer is still there, without consuming anything: a Unix
+    /// socket whose peer closed reads as end-of-file. `true` for a local
+    /// channel (its peer is this process) and when the answer is unknown.
+    #[cfg(all(feature = "multi-process", unix))]
+    pub fn peer_alive(&self) -> bool {
+        match self {
+            EndpointRx::Socket(stream) => {
+                let mut probe = [0u8; 1];
+                // SAFETY: the stream is a valid open descriptor and `probe`
+                // is a valid 1-byte buffer; MSG_PEEK leaves the data in place,
+                // MSG_DONTWAIT makes the call non-blocking.
+                let n = unsafe {
+                    libc::recv(
+                        stream.as_raw_fd(),
+                        probe.as_mut_ptr().cast(),
+                        1,
+                        libc::MSG_PEEK | libc::MSG_DONTWAIT,
+                    )
+                };
+                if n > 0 {
+                    return true;
+                }
+                if n == 0 {
+                    return false;
+                }
+                matches!(
+                    io::Error::last_os_error().kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                )
+            }
+            EndpointRx::Local(_) => true,
         }
     }
 
@@ -409,6 +445,27 @@ mod tests {
             fds.len(),
         );
         assert!(libc::sendmsg(sock_fd, &msg, 0) >= 0, "{}", io::Error::last_os_error());
+    }
+
+    #[cfg(all(feature = "multi-process", unix))]
+    #[test]
+    fn peer_alive_sees_a_closed_peer_without_consuming() {
+        let (mine, peer) = UnixStream::pair().unwrap();
+        let ep = Endpoint::from_channel(channel::Channel::from_stream(mine)).unwrap();
+        let (_tx, mut rx) = ep.split();
+        assert!(rx.peer_alive(), "a silent live peer is alive");
+
+        let mut peer_ep = Endpoint::from_channel(channel::Channel::from_stream(peer)).unwrap();
+        peer_ep.send(&TestMsg::Shutdown).unwrap();
+        assert!(rx.peer_alive(), "a peer with a frame pending is alive");
+        assert_eq!(
+            rx.recv::<TestMsg>().unwrap(),
+            TestMsg::Shutdown,
+            "the probe consumed nothing"
+        );
+
+        drop(peer_ep);
+        assert!(!rx.peer_alive(), "a closed peer is dead");
     }
 
     #[cfg(all(feature = "multi-process", target_os = "linux"))]

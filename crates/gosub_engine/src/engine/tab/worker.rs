@@ -1842,9 +1842,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
         {
             let dpr = render_backend.device_pixel_ratio();
             let frame_started = std::time::Instant::now();
-            // Tiles a resident renderer finished meanwhile join this frame.
+            // Tiles a resident renderer finished meanwhile join this frame;
+            // a renderer that died meanwhile is noticed now, not on the next
+            // request for it.
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-            self.context.poll_remote_passes();
+            {
+                if let Some(pool) = self.zone_context.engine_context.renderer_pool.get() {
+                    pool.sweep_dead();
+                }
+                self.context.poll_remote_passes();
+            }
 
             // Scroll-only fast path: tiles are still valid, only the offset changed.
             if let Some(handle) = self.context.take_scroll_handle(dpr) {
@@ -1857,6 +1864,20 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // Full render: rebuild stages 1-6 only (no display list), then submit TileCache.
             self.context.set_viewport(self.desired_viewport);
             self.context.rebuild_pipeline_cache_if_needed();
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            if let Some(error) = self.context.take_remote_failure() {
+                let site = self
+                    .current_url
+                    .as_ref()
+                    .map(crate::fork_server::site::site_of)
+                    .unwrap_or_default();
+                self.send_event(EngineEvent::RendererCrashed {
+                    zone_id: self.zone_id,
+                    site,
+                    tabs: vec![self.tab_id],
+                    error,
+                });
+            }
             let scene_epoch = self.context.scene_epoch();
             if let Some(handle) = self.context.tile_cache_handle(dpr) {
                 self.runtime.committed_scene_epoch = scene_epoch;

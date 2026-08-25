@@ -584,6 +584,25 @@ impl ResidentRenderer {
         result
     }
 
+    /// Whether the process is still there, without sending anything: a closed
+    /// link reads as end-of-file. Only meaningful between exchanges (the
+    /// caller holds the lock, so none is in flight).
+    pub fn check_alive(&mut self) -> bool {
+        if self.dead {
+            return false;
+        }
+        let alive = self.link.rx.peer_alive();
+        if !alive {
+            self.dead = true;
+        }
+        alive
+    }
+
+    /// Make the renderer die mid-life, for tests of what the broker does then.
+    pub fn crash_for_test(&mut self) {
+        let _ = self.send(&ToRenderer::CrashForTest);
+    }
+
     /// Ask for a clean exit. The process is the fork server's child; it is
     /// reaped there (see [`ForkServer::reap_exited`]).
     pub fn shutdown(&mut self) {

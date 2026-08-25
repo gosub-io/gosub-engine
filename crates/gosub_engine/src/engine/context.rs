@@ -255,6 +255,11 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// The hover changed while a pass was in flight; re-raise it once done.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_hover_pending: bool,
+    /// Why the last out-of-process render could not happen at all - page
+    /// content is never rendered in-process instead; the tab worker takes
+    /// this and tells the embedder.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_failure: Option<String>,
 }
 
 /// A scroll or hover exchange the tab is waiting on.
@@ -351,6 +356,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             remote_generation: 0,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_hover_pending: false,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_failure: None,
         }
     }
 
@@ -511,20 +518,43 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// [`Self::rebuild_render_list_if_needed`].
     fn rebuild_full_pipeline(&mut self) {
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        if self.remote_render_active() && self.try_remote_pipeline() {
-            // Every tile is live again; an earlier in-process render may have evicted some.
-            // Remote pages are otherwise unbudgeted: their pixels are shared with the
-            // tile memory that makes re-renders incremental, so evicting here frees nothing.
-            self.tile_budget.note_full_raster();
-            // A resident renderer rasterized only the window around the
-            // viewport; scrolling past it asks for more (`try_remote_scroll`).
-            self.note_rastered_window();
-            self.render_dirty = false;
-            self.hover_dirty = false;
-            self.dom_dirty = false;
-            self.style_dirty = false;
-            self.layout_dirty = false;
-            return;
+        if self.remote_render_active() {
+            match self.try_remote_pipeline() {
+                Ok(()) => {
+                    // Every tile is live again; an earlier in-process render may have evicted some.
+                    // Remote pages are otherwise unbudgeted: their pixels are shared with the
+                    // tile memory that makes re-renders incremental, so evicting here frees nothing.
+                    self.tile_budget.note_full_raster();
+                    // A resident renderer rasterized only the window around the
+                    // viewport; scrolling past it asks for more (`try_remote_scroll`).
+                    self.note_rastered_window();
+                    self.render_dirty = false;
+                    self.hover_dirty = false;
+                    self.dom_dirty = false;
+                    self.style_dirty = false;
+                    self.layout_dirty = false;
+                    return;
+                }
+                // Isolation is on: page content does not get to run in this
+                // process just because the process meant for it is gone. The
+                // tab shows nothing until a render succeeds again; the worker
+                // reports the failure. Internal pages are the engine's own and
+                // may still render here.
+                Err(error) if !self.is_internal_page() => {
+                    log::error!("out-of-process render failed ({error}); not rendering this page in-process");
+                    self.pipeline_cache = None;
+                    self.remote_failure = Some(error);
+                    self.render_dirty = false;
+                    self.hover_dirty = false;
+                    self.dom_dirty = false;
+                    self.style_dirty = false;
+                    self.layout_dirty = false;
+                    return;
+                }
+                Err(error) => {
+                    log::warn!("out-of-process render of an internal page failed ({error}); rendering it in-process");
+                }
+            }
         }
         if let Some(doc) = &self.document {
             let prev_tile_cache = self
@@ -642,12 +672,30 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
     }
 
-    /// Render the current document in a forked renderer process and adopt the
-    /// result as this tab's pipeline cache.
+    /// Whether the current document is one of the engine's own pages.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    fn try_remote_pipeline(&mut self) -> bool {
+    fn is_internal_page(&self) -> bool {
+        use gosub_interface::document::Document as _;
+        self.document
+            .as_ref()
+            .and_then(|doc| doc.url())
+            .is_some_and(|url| matches!(url.scheme(), "gosub" | "about"))
+    }
+
+    /// The reason the last out-of-process render could not happen, once.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn take_remote_failure(&mut self) -> Option<String> {
+        self.remote_failure.take()
+    }
+
+    /// Render the current document in a renderer process and adopt the result
+    /// as this tab's pipeline cache. A resident renderer that turns out to be
+    /// dead is replaced and the render tried once more; the error is what
+    /// stopped the last attempt.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn try_remote_pipeline(&mut self) -> Result<(), String> {
         let (Some(remote), Some(source)) = (&self.remote_renderer, &self.document_source) else {
-            return false;
+            return Err("no remote renderer or no document source".into());
         };
 
         // The document's own URL is the renderer's base for relative
@@ -704,12 +752,20 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 self.hover_leaf.map(|id| id.into()),
             ),
         };
-        let result = match tokio::runtime::Handle::try_current() {
-            Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(run)
+        let blocking = |f: &dyn Fn() -> anyhow::Result<crate::fork_server::client::RenderedPage>| {
+            match tokio::runtime::Handle::try_current() {
+                Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+                    tokio::task::block_in_place(f)
+                }
+                _ => f(),
             }
-            _ => run(),
         };
+        let mut result = blocking(&run);
+        if let (Err(e), RemoteRenderer::Resident { .. }) = (&result, remote) {
+            // The pool replaces a renderer it finds dead on the next request.
+            log::warn!("out-of-process render failed ({e}); retrying in a fresh renderer");
+            result = blocking(&run);
+        }
         match result {
             Ok(page) => {
                 report_remote_pass(
@@ -739,12 +795,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     hit_regions: page.hit_regions,
                     tile_pixel_cache: Default::default(),
                 });
-                true
+                Ok(())
             }
-            Err(e) => {
-                log::warn!("out-of-process render failed ({e}); rendering this page in-process");
-                false
-            }
+            Err(e) => Err(e.to_string()),
         }
     }
 

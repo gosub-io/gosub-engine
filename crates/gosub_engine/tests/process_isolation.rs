@@ -315,6 +315,42 @@ fn a_resident_renderer_repaints_hover_without_relayout() {
     );
 }
 
+/// A resident renderer that dies is replaced on the next request, and the
+/// tab renders again in the replacement.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_dead_resident_renderer_is_replaced() {
+    let out = run("renderer-crash");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "renderer crash recovery failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Through the engine: a renderer crash reaches the embedder as
+/// `RendererCrashed`, and the tab comes back in a fresh process.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_renderer_crash_is_announced_and_the_tab_recovers() {
+    let out = run("engine-renderer-crash");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "engine-level renderer crash handling failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// The render pipeline - parse, style, layout, layering, tiling, paint -
 /// under the strictest renderer sandbox, in-process (no fork machinery), so a
 /// pipeline-vs-sandbox regression is directly attributable.
