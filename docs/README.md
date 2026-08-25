@@ -6,6 +6,9 @@ descriptions say what they should cover so we can decide what to write next.
 ## Getting started
 
 - [Tutorial](tutorial.md) — engine / zone / tab concepts and a step-by-step first integration.
+- [Embedder API](embedder-api.md) — the reference for building a user agent: the `TabCommand`
+  and `EngineEvent` vocabularies (and which parts are real), the frame and scroll contracts,
+  reading tab state, and the ordering rules the types don't enforce.
 - [Configuration](configuration.md) — choosing your components: render backend, font system,
   `DefaultRenderConfig`, and going fully custom.
 - [Running the examples](examples.md) — headless engine examples and the GUI toolkit examples

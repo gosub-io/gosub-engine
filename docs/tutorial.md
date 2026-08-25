@@ -2,6 +2,8 @@
 
 This tutorial walks you through the core lifecycle of the Gosub engine. By the end you will have a working program that starts the engine, opens a tab, navigates to a URL, and reacts to events - the same pattern used by every embedding that builds on Gosub.
 
+For the surface itself rather than a walkthrough --- the full command and event vocabularies, the frame and scroll contracts, and the ordering rules --- see [embedder-api.md](embedder-api.md).
+
 The companion runnable example lives at [`examples/tutorial.rs`](../examples/tutorial.rs). Run it directly with:
 
 ``` bash

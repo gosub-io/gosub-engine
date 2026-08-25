@@ -1,6 +1,6 @@
 # Zones and tabs
 
-How the engine organizes running state: one `GosubEngine`, containing isolated **zones**, each containing **tabs** that run as independent tasks. This is the architecture view; for a hands-on walkthrough see [tutorial.md](tutorial.md).
+How the engine organizes running state: one `GosubEngine`, containing isolated **zones**, each containing **tabs** that run as independent tasks. This is the architecture view; for a hands-on walkthrough see [tutorial.md](tutorial.md), and for the API surface itself see [embedder-api.md](embedder-api.md).
 
 ``` text
 GosubEngine<C>                        (owns backend, compositor, font system, event bus)

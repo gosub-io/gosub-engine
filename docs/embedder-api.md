@@ -1,0 +1,235 @@
+# Embedder API
+
+The surface a user agent programs against: what you can send, what you can receive, what works today, and the ordering rules the type system does not enforce.
+
+See [tutorial.md](tutorial.md) for a walkthrough that gets one page on screen, and [zones-and-tabs.md](zones-and-tabs.md) for why the runtime is shaped this way.
+
+``` text
+             commands (mpsc, down)                      events (broadcast, up)
+   UA ─────────────────────────────► Engine ─► Zone ─► Tab ─────────────────────────► UA
+    ▲                                                   │
+    │                     frames (ExternalHandle)       │
+    └────────────── CompositorSink ◄────────────────────┘
+```
+
+Commands travel down over per-object mpsc channels. Events travel up onto a single broadcast bus, tagged with `tab_id`/`zone_id`. Frames do not use the event bus: they go to a `CompositorSink` that you own and read from directly (see [Frames](#frames)).
+
+------------------------------------------------------------------------
+
+## The `unstable-api` feature
+
+Everything reachable in a default build is wired up. Every `EngineEvent` variant you can name is emitted somewhere; every `TabCommand` variant you can name reaches a handler.
+
+Variants that are declared but never emitted, or accepted and dropped with a log line, sit behind the non-default `unstable-api` feature on `gosub_engine`. Matching one without the feature is a compile error rather than a runtime no-op.
+
+``` toml
+# For work on the engine itself, or to code against where it is going. Those
+# events still never arrive and those commands are still dropped.
+gosub_engine = { version = "0.1", features = ["unstable-api"] }
+```
+
+Gated entries are marked **· gated ·** in the tables below.
+
+------------------------------------------------------------------------
+
+## Lifecycle and ordering
+
+Several of these steps only work in one order, and the signatures do not say so.
+
+1.  `GosubEngine::new(config, backend, compositor)`. See [configuration.md](configuration.md) for choosing `C`.
+
+2.  Override settings and register internal pages **before** `start()`. `settings()` reaches the settings store and `internal_pages()` the `gosub://` registry, but the I/O runtime reads network settings once, when `start()` builds it. A `net.user_agent` override applied afterwards has no effect.
+
+3.  Call `subscribe_events()` **before** `start()`. It is a `tokio::sync::broadcast` channel, so a receiver only sees messages sent after it subscribed, and `EngineStarted` is emitted synchronously inside `start()`. The same applies to `TabCreated` and `create_tab`.
+
+4.  `start()` returns a future for you to drive; it does not spawn one. You `spawn`, `await`, or `select!` it, which keeps the engine from imposing a threading model on a GTK or winit main loop. A second call returns `EngineError::AlreadyRunning`.
+
+5.  `create_zone(config, services, zone_id)`. `ZoneServices` is the isolation boundary and is required; `config` and `zone_id` are optional (`None` means the engine default and a fresh UUID). Pass a fixed `ZoneId` to restore a persisted profile.
+
+6.  `zone.create_tab(TabDefaults, overrides)` returns a `TabHandle`.
+
+7.  Send `ResumeDrawing { fps }`. A fresh tab has `drawing_enabled: false`, so without it no frame is rasterized and no `Redraw` fires however much you navigate. This keeps a backgrounded tab free, and it is the usual reason a first integration renders a blank window.
+
+8.  `engine.shutdown()` drains in-flight requests and flushes cookie and storage state.
+
+------------------------------------------------------------------------
+
+## Commands in: `TabCommand`
+
+Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, `set_title`, `set_viewport`, `set_scroll`, `go_back`, `go_forward`). All are fire-and-forget: the return value says the worker accepted the message, not what it did with it.
+
+| Command | Notes |
+|---|---|
+| **Navigation and lifecycle** | |
+| `Navigate { url }` | A fragment-only change of the current document does not refetch. |
+| `LoadHtml { html, base_url }` | Bypasses the network; `base_url` resolves relative subresources. |
+| `Reload { ignore_cache }` | Always refetches, fragment or not. |
+| `CancelNavigation` | |
+| `GoBack` / `GoForward { entry }` / `GoToHistoryEntry { entry }` | History is a tree rather than a stack. `GoForward { None }` takes the most recently visited child. Entry ids come from `NavigationEvent::HistoryChanged`. |
+| `SubmitDecision { nav_id, decision_token, action }` | Answers `DecisionRequired`; required, see [Contracts](#contracts). |
+| `StartDownload { id, url, target_path }` | `id` is minted by you. |
+| `CloseTab` | |
+| **Rendering control** | |
+| `ResumeDrawing { fps }` / `SuspendDrawing` | Nothing paints before the first `ResumeDrawing`. |
+| `SetViewport { x, y, width, height }` | CSS px. |
+| `SetScroll { x, y }` | Absolute; cancels any scroll animation. See [Scrolling](#scrolling). |
+| `SetTitle { title }` | A UA-set title, e.g. for a `LoadHtml` page with no `<title>`. |
+| **Input** | |
+| `MouseMove` / `MouseDown` / `MouseUp { x, y, button }` | CSS px, viewport-relative. `MouseDown` drives click-to-focus and link activation. |
+| `MouseScroll { delta_x, delta_y }` | A delta; the engine decides where it lands and may animate. |
+| `KeyDown` / `KeyUp { key, code, modifiers }` | `key` is a `String`; see [Rough edges](#rough-edges). |
+| `QueryHitTest { x, y, token }` | `token` is minted by you and echoed back in `HitTestResult`. The input for a native context menu. |
+| **Not yet implemented** | |
+| `TextInput` · gated · | Text editing lands with M1. |
+| `CharInput` · gated · | Legacy; `TextInput` is the model that will survive. |
+| `SetCookie` / `ClearCookies` · gated · | Cookies are reachable through the zone's jar today. |
+| `SetStorageItem` / `RemoveStorageItem` / `ClearStorage` · gated · | |
+| `ExecuteScript` · gated · | Awaiting JS integration, see [javascript.md](javascript.md). |
+| `PlayMedia` / `PauseMedia` · gated · | |
+| `DumpDomTree` · gated · | |
+
+------------------------------------------------------------------------
+
+## Events out: `EngineEvent`
+
+One broadcast bus carries everything, from `Redraw` at frame rate to `TabCrashed` once in a process lifetime. `subscribe_events()` gives each listener its own receiver.
+
+| Event | Notes |
+|---|---|
+| **Engine and zone lifecycle** | |
+| `EngineStarted` | Emitted inside `start()`; subscribe first. |
+| `ZoneCreated` / `ZoneClosed { zone_id }` | |
+| **Rendering** | |
+| `Redraw { tab_id }` | Carries no frame data. See [Frames](#frames). |
+| **Navigation and resources** | |
+| `Navigation { tab_id, event }` | Wraps `NavigationEvent`, below. |
+| `Resource { tab_id, event }` | Wraps `ResourceEvent`, below. High volume. |
+| **Tab state** | |
+| `HoverUrl { url }` | `None` when the pointer leaves a link. |
+| `CursorChanged { cursor }` | Change-only; resets on navigation. Map to your native cursor. |
+| `FocusChanged { focused, editable }` | `editable` is the cue for an on-screen keyboard or IME. |
+| `HitTestResult { token, hit }` | Answers `QueryHitTest` with the same token. |
+| `FavIconChanged { favicon }` | Raw bytes as served (ICO/PNG/SVG); decode them yourself. Emitted once per committed navigation, and not at all when there is no reachable icon, so keep your placeholder. |
+| **Downloads** | |
+| `DownloadRequested { url, suggested_filename, ... }` | The navigation was cancelled and the page stayed. Answer with `StartDownload` or ignore the offer. |
+| `DownloadProgress` / `DownloadFinished` / `DownloadFailed { id, ... }` | Correlated by the `DownloadId` you minted. `DownloadFailed` may leave a partial file. |
+| **Tab lifecycle** | |
+| `TabCreated` / `TabClosed { tab_id, zone_id }` | |
+| `TabCrashed { tab_id, zone_id, error }` | The worker panicked. The tab is dead: its handle's commands now fail and no further events arrive for it. Show a crash page and offer reload by recreating the tab. |
+| **Storage** | |
+| `StorageChanged { key, value, scope, origin, ... }` | `value: None` means the key was removed. An empty `key` means the whole area was cleared, not that a key named `""` changed: the underlying `StorageEvent.key: Option<String>` is flattened with `unwrap_or_default()` on the way out. |
+| **Not yet implemented** | |
+| `TitleChanged` · gated · | Emission arrives with the pending mac-app patches. Until then read `tab.title()`. |
+| `LocationChanged` · gated · | Likewise; until then use `NavigationEvent::Finished` or read `tab.url()`. |
+| `FrameComplete` · gated · | |
+| `TabResized` · gated · | You told the engine the size; it has nothing to add yet. |
+| `Warning` / `EngineShutdown` / `BackendChanged` · gated · | |
+| `ConnectionEstablished` / `NetworkError` · gated · | Network failures surface as `NavigationEvent::Failed` and `ResourceEvent::Failed`. |
+| `CookieAdded` · gated · | |
+| `MediaStarted` / `MediaPaused` / `ScriptResult` / `JavaScriptError` · gated · | Awaiting media and JS integration. |
+
+### `NavigationEvent`
+
+Events for the main document. Every event in one navigation carries the same `NavigationId`.
+
+| Variant | Notes |
+|---|---|
+| `Started { url }` | |
+| `Finished { url }` | The final URL after redirects. |
+| `Failed { url, error }` | The fetch failed. |
+| `FailedUrl { url, error }` | The URL string did not parse, as opposed to `Failed`. |
+| `Cancelled { url, reason }` | `CancelReason` distinguishes new navigation, tab close, timeout, and explicit cancel. |
+| `DecisionRequired { nav_id, meta, decision_token }` | The navigation blocks until you answer. |
+| `HistoryChanged { history }` | The whole `HistorySnapshot`, emitted after the corresponding `Finished`, so shells can drive back/forward menus without querying. |
+| `Committed` · gated · | There is no separate commit point yet; a load goes `Started` → `Finished`. |
+| `Progress { received_bytes, expected_length, elapsed, .. }` | Load progress of the main document, throttled. |
+
+### `ResourceEvent`
+
+Events for everything else the page loads. Each carries a `RequestId` and a `RequestReference` saying what the resource belongs to. This is the high-volume stream: one `Progress` per chunk per subresource, on the same bus as `TabCrashed`. See [Rough edges](#rough-edges).
+
+`Started`, `Redirected`, `Headers`, `Progress`, `Finished`, `Failed` and `Cancelled` are live. `Queued` · gated ·: requests currently go straight to `Started`.
+
+------------------------------------------------------------------------
+
+## Frames
+
+Two things arrive per frame, and only one of them is the frame.
+
+When a tab finishes rendering, the worker calls `CompositorSink::submit_frame(tab_id, handle)` with the backend's `ExternalHandle` (CPU pixels, a tile cache, or a GPU texture id, depending on the backend), then emits `EngineEvent::Redraw { tab_id }`.
+
+The sink is the data channel. You constructed it, passed it to `GosubEngine::new`, and read the current frame out of it when you paint. The event is only the wakeup: it carries a `TabId` and nothing else, and maps onto your toolkit's invalidate call.
+
+``` rust
+// GTK4: the event invalidates, the draw handler reads the sink.
+EngineEvent::Redraw { .. } => drawing_area.queue_draw(),
+```
+
+Present from the sink, not from the event. The bus drops messages for slow consumers, and a dropped wakeup costs one coalesced repaint because the next one still finds the newest frame in the sink. A dropped frame would cost the frame.
+
+------------------------------------------------------------------------
+
+## Scrolling
+
+Both sides track the offset. The engine is authoritative: it clamps to the real page height, restores the saved offset when you traverse to a history entry, and runs the smooth-scroll animation. A shell will usually also keep its own offset so it can shift already-rasterized tiles at input rate without a round trip through the tab worker.
+
+The two converge through the frame. The tile cache handed to the sink carries the offset it was composited at, so a shell drawing at its own local offset is corrected as frames arrive.
+
+Which command you send says who is deciding:
+
+| | `MouseScroll { delta_x, delta_y }` | `SetScroll { x, y }` |
+|---|---|---|
+| Carries | A delta | An absolute offset |
+| Engine may animate | Yes | No; cancels any animation in flight |
+| Use for | Raw wheel and trackpad input | Scrollbar drag, UA-side kinetic scrolling, restored session |
+
+Do not mix the two within one gesture. An absolute set landing mid-animation will fight the animator.
+
+------------------------------------------------------------------------
+
+## Reading tab state
+
+Read it off the handle when you need an answer now, such as painting a tab strip, saving a session, or enabling a Back button:
+
+``` rust
+tab.url()             // Option<Url>, None before the first commit
+tab.title()           // String, empty until the document supplies one
+tab.can_go_back()     // bool
+tab.can_go_forward()  // bool
+```
+
+These are synchronous and never block on the worker. They read a snapshot the worker republishes as it commits navigations, so during an in-flight navigation they still describe the previous document, which is what an address bar should show.
+
+Subscribe to events instead when you need the moment something changes, or detail the accessors do not carry: the full history tree (`HistoryChanged`), per-resource progress, download lifecycle, crashes.
+
+------------------------------------------------------------------------
+
+## Contracts
+
+-   **`DecisionRequired` must be answered.** When a response is not obviously a renderable page (content-type or `Content-Disposition` says download, or the type is unknown) the engine stops and asks. Reply with `SubmitDecision` carrying `Action::Render`, `Action::Download { dest }`, or `Action::Cancel`. Ignore it and the navigation stalls, with no error and no timeout. The engine does not decide this on its own.
+-   **`ResumeDrawing` before anything paints.** See [Lifecycle](#lifecycle-and-ordering) step 7.
+-   **Tokens are yours to mint.** `HitTestToken` and `DownloadId` are chosen by the embedder and echoed back. Uniqueness is your responsibility; the engine does not check.
+-   **`TabCrashed` means the tab is gone.** Stop sending to that handle and recreate the tab.
+-   **Handle `Lagged`.** `broadcast::Receiver::recv` returns `Err(Lagged(n))` when your consumer fell behind and `n` messages were dropped. Continue the loop; treating it as `Closed` and breaking kills your event handling on the first busy page.
+-   **Zone services are the isolation boundary.** Two zones sharing a `StorageService` or cookie jar are not isolated, whatever their `ZoneId`s say.
+
+------------------------------------------------------------------------
+
+## Rough edges
+
+-   **One bus for everything.** `ResourceEvent::Progress` arrives at network rate and `Redraw` at frame rate, on the same fixed-capacity channel as `TabCrashed` and `DownloadRequested`. A UA that does anything slow on the receive side will drop events on a busy page. Keep the receive loop tight: forward to your own queue and return. Splitting a low-volume control bus from an opt-in high-volume stream is the intended fix.
+-   **The input model is thin.** `KeyDown.key` is a `String` rather than a typed key, and there is no IME composition, touch, or pointer id. `TextInput` and `CharInput` both exist and neither is handled; `TextInput` is the one that will survive. `FocusChanged { editable }` is the hook for an on-screen keyboard, waiting on the other half.
+-   **Public fields that are not really API.** `TabHandle::cmd_tx` and `::sink` are `pub`, so `tab.cmd_tx.send(...)` compiles. Prefer `tab.send(...)`. Same for `EngineContext`'s fields.
+-   **Leaky types.** `TabCommand` carries a `Cookie`, `NavigationEvent::DecisionRequired` carries the network layer's `FetchResultMeta`, and errors in events are `Arc<anyhow::Error>`, so error handling means string matching. None of these are shapes a stable release would commit to.
+-   **`create_zone(Option<ZoneConfig>, ZoneServices, Option<ZoneId>)`** is builder territory that has not been built.
+-   **`#![deny(missing_docs)]` is commented out** at the top of `lib.rs`. Some of what is public is public by accident.
+
+------------------------------------------------------------------------
+
+## See also
+
+-   [tutorial.md](tutorial.md) — the same material as a walkthrough, with a runnable `examples/tutorial.rs`.
+-   [zones-and-tabs.md](zones-and-tabs.md) — why zones and tab workers are shaped this way.
+-   [configuration.md](configuration.md) — choosing the render backend, font system, and the rest of `C`.
+-   [examples.md](examples.md) — the GTK4, winit and egui shells.
+-   [headless.md](headless.md) — driving the same API with no window.
