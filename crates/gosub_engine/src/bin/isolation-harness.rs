@@ -10,6 +10,12 @@ const BODY: &str = "<html><head><title>through the net process</title></head>\
 <body style=\"margin:0\"><a href=\"https://example.test/target\" \
 style=\"display:block;width:400px;height:200px\">a link to hover</a></body></html>";
 
+/// [`BODY`] with a long tail, for scrolling a remotely rendered page.
+const TALL_BODY: &str = "<html><head><title>through the net process</title></head>\
+<body style=\"margin:0\"><a href=\"https://example.test/target\" \
+style=\"display:block;width:400px;height:200px\">a link to hover</a>\
+<div style=\"height:12000px;background:#ddd\">tall</div></body></html>";
+
 /// The harness's render configuration: null backend and compositor (nothing
 /// composites here), the scenario-selected font system - and, behind the
 /// `cairo-tiles` feature, the Cairo CPU rasterizer for forked renderers.
@@ -656,7 +662,7 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                 use gosub_engine::zone::ZoneServices;
                 use gosub_render_pipeline::render::backend::ExternalHandle;
 
-                let Ok((port, _server)) = serve_once() else {
+                let Ok((port, _server)) = serve_once_with(TALL_BODY) else {
                     eprintln!("could not start the test server");
                     return 1;
                 };
@@ -779,6 +785,45 @@ fn engine_renderer_process<F: FontSystem + Default>() -> i32 {
                         eprintln!("no HoverUrl for a remotely rendered page: hit testing is not working");
                         return 1;
                     }
+                }
+
+                // Scrolling a remotely rendered page: the first frame carried
+                // only a window of the tall page; scrolling far past it must
+                // bring more tiles, delivered by a pass that ran while frames
+                // kept flowing - so a later frame has to hold more tiles.
+                let _ = tab
+                    .send(TabCommand::MouseScroll {
+                        delta_x: 0.0,
+                        delta_y: 6000.0,
+                    })
+                    .await;
+                let scroll_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+                let grown = loop {
+                    if tokio::time::Instant::now() >= scroll_deadline {
+                        break None;
+                    }
+                    match compositor.frame_for(tab.tab_id) {
+                        Some(ExternalHandle::TileCache {
+                            tiles: now, scroll_y, ..
+                        }) if now.len() > tiles.len() => {
+                            break Some((now.len(), scroll_y));
+                        }
+                        _ => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+                    }
+                };
+                match grown {
+                    Some((count, scroll_y)) if cfg!(feature = "cairo-tiles") => {
+                        println!(
+                            "scrolled to {scroll_y:.0}: frame grew from {} to {count} tiles via an async pass",
+                            tiles.len()
+                        );
+                    }
+                    Some(_) => {}
+                    None if cfg!(feature = "cairo-tiles") => {
+                        eprintln!("no frame with more tiles arrived after scrolling a tall remote page");
+                        return 1;
+                    }
+                    None => {}
                 }
 
                 engine.close_zone(zone).await;
@@ -1952,8 +1997,13 @@ fn guard() -> i32 {
     }
 }
 
-/// A one-shot HTTP server on an ephemeral port.
+/// A one-shot HTTP server on an ephemeral port, serving [`BODY`].
 fn serve_once() -> std::io::Result<(u16, std::thread::JoinHandle<()>)> {
+    serve_once_with(BODY)
+}
+
+/// A one-shot HTTP server on an ephemeral port, serving `body`.
+fn serve_once_with(body: &'static str) -> std::io::Result<(u16, std::thread::JoinHandle<()>)> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
 
@@ -1964,8 +2014,8 @@ fn serve_once() -> std::io::Result<(u16, std::thread::JoinHandle<()>)> {
         let mut buf = [0u8; 4096];
         let _ = stream.read(&mut buf);
         let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{BODY}",
-            BODY.len()
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
         );
         let _ = stream.write_all(response.as_bytes());
     });

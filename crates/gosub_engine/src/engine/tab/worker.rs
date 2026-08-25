@@ -1842,6 +1842,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
         {
             let dpr = render_backend.device_pixel_ratio();
             let frame_started = std::time::Instant::now();
+            // Tiles a resident renderer finished meanwhile join this frame.
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            self.context.poll_remote_passes();
 
             // Scroll-only fast path: tiles are still valid, only the offset changed.
             if let Some(handle) = self.context.take_scroll_handle(dpr) {

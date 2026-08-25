@@ -243,6 +243,32 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// orders tiles gathered over several passes for the compositor.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_layer_order: Vec<u64>,
+    /// An incremental exchange (scroll, hover) running on its own thread, so
+    /// frames keep compositing the tiles already held; merged by
+    /// [`Self::poll_remote_passes`].
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_inflight: Option<InflightPass>,
+    /// Bumped per remote page render; a pass finishing for an older page is
+    /// dropped rather than merged into the new one.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_generation: u64,
+    /// The hover changed while a pass was in flight; re-raise it once done.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_hover_pending: bool,
+}
+
+/// A scroll or hover exchange the tab is waiting on.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+struct InflightPass {
+    what: RemotePass,
+    generation: u64,
+    /// The scroll position the pass was asked for: what its window covers.
+    scroll_y: f64,
+    page_url: String,
+    rx: std::sync::mpsc::Receiver<(
+        anyhow::Result<crate::fork_server::client::RenderedPage>,
+        std::time::Duration,
+    )>,
 }
 
 /// The two ways a tab's renders leave this process - which one applies is the
@@ -319,6 +345,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             remote_tab: String::new(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_layer_order: Vec::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_inflight: None,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_generation: 0,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_hover_pending: false,
         }
     }
 
@@ -550,11 +582,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 hit_regions,
                 tile_pixel_cache,
             });
+            // The window is noted when the pass lands (`poll_remote_passes`).
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-            if self.try_remote_scroll() {
-                self.note_rastered_window();
-                self.tile_budget.note_full_raster();
-            }
+            self.try_remote_scroll();
             self.raster_dirty = false;
             return;
         };
@@ -688,8 +718,12 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     &page_url,
                     self.scroll_y,
                     &page,
-                    started,
+                    started.elapsed(),
                 );
+                // A pass still in flight belongs to the page this replaces.
+                self.remote_generation = self.remote_generation.wrapping_add(1);
+                self.remote_inflight = None;
+                self.remote_hover_pending = false;
                 // This page's tiles are exactly what came back: what an
                 // earlier page of this tab kept cannot help it.
                 self.remote_tile_memory
@@ -728,66 +762,158 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.try_remote_pass(RemotePass::Hover)
     }
 
-    /// One incremental exchange with the resident renderer, merged into this
-    /// tab's tiles. False when this tab has no such renderer or the exchange
-    /// failed (the tiles already held stay as they are).
+    /// Start one incremental exchange with the resident renderer on its own
+    /// thread, so this tab keeps compositing what it holds meanwhile; the
+    /// result is merged by [`Self::poll_remote_passes`]. One pass at a time:
+    /// a hover arriving mid-flight is remembered and issued afterwards, a
+    /// scroll is re-checked against the window the pass delivers. False when
+    /// this tab has no resident renderer.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     fn try_remote_pass(&mut self, what: RemotePass) -> bool {
         let Some(RemoteRenderer::Resident { pool, zone, tab }) = &self.remote_renderer else {
             return false;
         };
+        if self.remote_inflight.is_some() {
+            if matches!(what, RemotePass::Hover) {
+                self.remote_hover_pending = true;
+            }
+            return true;
+        }
         let Some(page_url) = self.document.as_ref().and_then(|doc| {
             use gosub_interface::document::Document as _;
             doc.url().map(|url| url.to_string())
         }) else {
             return false;
         };
-        let started = std::time::Instant::now();
-        let run = || -> anyhow::Result<crate::fork_server::client::RenderedPage> {
-            let site = url::Url::parse(&page_url)
-                .map(|u| crate::fork_server::site::site_of(&u))
-                .unwrap_or_else(|_| "about:".to_string());
-            let renderer = pool.renderer_for(*zone, &site, *tab)?;
-            let mut renderer = renderer.lock();
-            match what {
-                RemotePass::Scroll => renderer.scroll(
-                    &self.remote_tab,
-                    self.scroll_y,
-                    self.loader.as_ref(),
-                    &self.remote_tile_memory,
-                ),
-                RemotePass::Hover => renderer.hover(
-                    &self.remote_tab,
-                    self.hover_leaf.map(|id| id.into()),
-                    self.loader.as_ref(),
-                    &self.remote_tile_memory,
-                ),
-            }
+
+        let (pool, zone, tab) = (Arc::clone(pool), *zone, *tab);
+        let remote_tab = self.remote_tab.clone();
+        let loader = Arc::clone(&self.loader);
+        let scroll_y = self.scroll_y;
+        let hovered = self.hover_leaf.map(|id| id.into());
+        let url = page_url.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let spawned = std::thread::Builder::new()
+            .name("gosub-remote-pass".into())
+            .spawn(move || {
+                let started = std::time::Instant::now();
+                let result = (|| {
+                    let site = url::Url::parse(&url)
+                        .map(|u| crate::fork_server::site::site_of(&u))
+                        .unwrap_or_else(|_| "about:".to_string());
+                    let renderer = pool.renderer_for(zone, &site, tab)?;
+                    let mut renderer = renderer.lock();
+                    // Incremental passes never answer `TileUnchanged`, so
+                    // there is nothing for the exchange to look up.
+                    let known = crate::fork_server::client::TileMemory::default();
+                    match what {
+                        RemotePass::Scroll => renderer.scroll(&remote_tab, scroll_y, loader.as_ref(), &known),
+                        RemotePass::Hover => renderer.hover(&remote_tab, hovered, loader.as_ref(), &known),
+                    }
+                })();
+                let _ = tx.send((result, started.elapsed()));
+            });
+        if let Err(e) = spawned {
+            log::warn!("could not start a remote {} pass: {e}", what.event_kind());
+            return false;
+        }
+        self.remote_inflight = Some(InflightPass {
+            what,
+            generation: self.remote_generation,
+            scroll_y,
+            page_url,
+            rx,
+        });
+        true
+    }
+
+    /// Merge a finished remote pass, if any. Called every frame by the tab
+    /// worker; cheap when nothing is in flight or nothing has landed.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn poll_remote_passes(&mut self) {
+        use std::sync::mpsc::TryRecvError;
+
+        let Some(inflight) = self.remote_inflight.as_ref() else {
+            return;
         };
-        let result = match tokio::runtime::Handle::try_current() {
-            Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(run)
-            }
-            _ => run(),
+        let (result, exchange) = match inflight.rx.try_recv() {
+            Ok(landed) => landed,
+            Err(TryRecvError::Empty) => return,
+            // The thread died without answering: treat it as a failed pass.
+            Err(TryRecvError::Disconnected) => (
+                Err(anyhow::anyhow!("the remote pass thread ended silently")),
+                std::time::Duration::ZERO,
+            ),
         };
-        let page = match result {
-            Ok(page) => page,
+        let Some(inflight) = self.remote_inflight.take() else {
+            return;
+        };
+        let stale = inflight.generation != self.remote_generation;
+
+        match result {
+            Ok(page) if !stale => {
+                // A scroll answered with nothing at all means the renderer no
+                // longer has this page (it was replaced after a crash): only
+                // a full render gets the tiles back.
+                if matches!(inflight.what, RemotePass::Scroll)
+                    && page.summary.page_height <= 0.0
+                    && page.tiles.is_empty()
+                    && page.evicted.is_empty()
+                {
+                    log::warn!("resident renderer has no retained page for this tab; rendering it again");
+                    self.render_dirty = true;
+                } else {
+                    report_remote_pass(
+                        inflight.what.event_kind(),
+                        &self.remote_tab,
+                        &inflight.page_url,
+                        inflight.scroll_y,
+                        &page,
+                        exchange,
+                    );
+                    self.merge_remote_pass(page);
+                    if matches!(inflight.what, RemotePass::Scroll) {
+                        if let Some(cache) = self.pipeline_cache.as_ref() {
+                            self.tile_budget.note_rastered_window(
+                                inflight.scroll_y,
+                                self.viewport.height as f64,
+                                cache.page_height,
+                            );
+                        }
+                        self.tile_budget.note_full_raster();
+                        // The viewport may have moved on while this pass ran.
+                        let page_height = self.active_page_height().unwrap_or(0.0);
+                        if self
+                            .tile_budget
+                            .needs_rerender(self.scroll_y, self.viewport.height as f64, page_height)
+                        {
+                            self.raster_dirty = true;
+                        }
+                    }
+                    // A frame with the merged tiles, even if the view is still.
+                    self.scroll_dirty = true;
+                }
+            }
+            Ok(_) => {}
             Err(e) => {
                 log::warn!(
-                    "out-of-process {} render failed ({e}); keeping the tiles already held",
-                    what.event_kind()
+                    "out-of-process {} render failed ({e}); rendering this page again",
+                    inflight.what.event_kind()
                 );
-                return false;
+                if !stale {
+                    self.render_dirty = true;
+                }
             }
-        };
-        report_remote_pass(
-            what.event_kind(),
-            &self.remote_tab,
-            &page_url,
-            self.scroll_y,
-            &page,
-            started,
-        );
+        }
+        if self.remote_hover_pending {
+            self.remote_hover_pending = false;
+            self.hover_dirty = true;
+        }
+    }
+
+    /// Fold one pass's tiles and evictions into this tab's remote tile set.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn merge_remote_pass(&mut self, page: crate::fork_server::client::RenderedPage) {
         self.remote_tile_memory
             .apply_pass(&page.evicted, page.tiles.into_iter().map(kept_tile));
         if !page.summary.layer_order.is_empty() {
@@ -795,11 +921,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
         let baked = self.remote_tile_memory.baked_tiles(&self.remote_layer_order);
         let Some(cache) = self.pipeline_cache.as_mut() else {
-            return false;
+            return;
         };
         cache.cached_tiles = Arc::new(gosub_render_pipeline::rasterizer::cpu_cached_tiles(&baked));
         cache.tiles = baked;
-        true
     }
 
     /// Rebuild stages 1-6 (pipeline cache) if content has changed, without building a display
@@ -1752,7 +1877,7 @@ fn report_remote_pass(
     url: &str,
     scroll_y: f64,
     page: &crate::fork_server::client::RenderedPage,
-    started: std::time::Instant,
+    exchange: std::time::Duration,
 ) {
     use crate::fork_server::client::PageTile;
     if !crate::telemetry::enabled() {
@@ -1783,7 +1908,7 @@ fn report_remote_pass(
             "tab": tab,
             "url": url,
             "scroll_y": scroll_y,
-            "exchange_us": started.elapsed().as_micros() as u64,
+            "exchange_us": exchange.as_micros() as u64,
             "tiles_fresh": fresh,
             "tiles_reused": page.tiles.len() - fresh,
             "tiles_evicted": page.evicted.len(),
