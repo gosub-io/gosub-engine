@@ -390,6 +390,23 @@ impl<C: RenderConfiguration> TabWorker<C> {
         Ok(join_handle)
     }
 
+    /// One frame onto the telemetry firehose: how it was produced and what it
+    /// cost, so a viewer can see stalls as they happen.
+    fn report_frame(&self, path: &str, started: std::time::Instant) {
+        if !crate::telemetry::enabled() {
+            return;
+        }
+        crate::telemetry::emit(
+            "tab.frame",
+            serde_json::json!({
+                "tab": self.tab_id.to_string(),
+                "path": path,
+                "frame_us": started.elapsed().as_micros() as u64,
+                "scroll_y": self.context.scroll_xy().1,
+            }),
+        );
+    }
+
     // Main loop of the tab worker
     async fn run_worker(mut self) {
         self.sink.set_worker_started_now();
@@ -1824,11 +1841,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
             || (render_backend.raster_strategy() != RasterStrategy::None && !render_backend.renders_to_gpu_texture())
         {
             let dpr = render_backend.device_pixel_ratio();
+            let frame_started = std::time::Instant::now();
 
             // Scroll-only fast path: tiles are still valid, only the offset changed.
             if let Some(handle) = self.context.take_scroll_handle(dpr) {
                 self.runtime.committed_scene_epoch = self.context.scene_epoch();
                 self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                self.report_frame("scroll", frame_started);
                 return Ok(());
             }
 
@@ -1841,6 +1860,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.zone_context.compositor.submit_frame(self.tab_id, handle);
             }
             self.sink.inc_frame();
+            self.report_frame("rebuild", frame_started);
             return Ok(());
         }
 

@@ -165,6 +165,9 @@ pub mod net;
 
 pub mod util;
 
+/// The engine's event firehose for external tooling; see the module docs.
+pub mod telemetry;
+
 pub mod html;
 
 #[cfg(feature = "metrics")]

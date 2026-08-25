@@ -936,6 +936,8 @@ fn main() {
     println!(
         "Ctrl+T new tab · Ctrl+W close tab (middle-click too) · Ctrl+L address bar (Enter to go) · F5/Ctrl+R reload"
     );
+    println!("firehose: curl -N localhost:9090/events   (NDJSON)   stats: localhost:9090/metrics   pool: localhost:9090/renderers");
+    println!("viewer:   open tools/telemetry-viewer/index.html in a browser");
     println!();
 
     event_loop.run_app(&mut app).expect("event loop run");

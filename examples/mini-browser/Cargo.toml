@@ -8,7 +8,7 @@ name = "mini-browser"
 path = "main.rs"
 
 [dependencies]
-gosub_engine = { path = "../../crates/gosub_engine" }
+gosub_engine = { path = "../../crates/gosub_engine", features = ["metrics"] }
 gosub_config = { path = "../../crates/gosub_config" }
 gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
 # The forked renderers rasterize with Cairo; no GTK/Pango — text is shaped by Parley.

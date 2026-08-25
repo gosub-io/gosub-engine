@@ -181,7 +181,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
         // Start metrics HTTP server (GET http://127.0.0.1:9090/metrics)
         #[cfg(feature = "metrics")]
-        crate::metrics::start(9090);
+        crate::metrics::start(9090, Arc::clone(&self.context));
 
         // Spawn the renderer fork server if asked to. Blocks briefly (spawn
         // plus font warm-up, ~200 ms typical) - acceptable at startup, and
