@@ -62,6 +62,35 @@ impl BrokeredLoader {
 
 impl ResourceLoader for BrokeredLoader {
     fn load(&self, url: &Url) -> Result<LoadedResource, LoadError> {
+        let started = std::time::Instant::now();
+        let result = self.load_inner(url);
+        if crate::telemetry::enabled() {
+            let (outcome, status, bytes) = match &result {
+                Ok(resource) => ("ok", Some(resource.status), resource.body.len()),
+                Err(LoadError::UnsupportedUrl(_)) => ("refused-scheme", None, 0),
+                Err(LoadError::TimedOut) => ("timeout", None, 0),
+                Err(LoadError::Pending) => ("pending", None, 0),
+                Err(LoadError::Failed(_)) => ("failed", None, 0),
+            };
+            crate::telemetry::emit(
+                "net.load",
+                serde_json::json!({
+                    "url": url.as_str(),
+                    "tab": self.tab_id.map(|t| t.to_string()),
+                    "outcome": outcome,
+                    "status": status,
+                    "bytes": bytes,
+                    "duration_us": started.elapsed().as_micros() as u64,
+                    "error": result.as_ref().err().map(|e| e.to_string()),
+                }),
+            );
+        }
+        result
+    }
+}
+
+impl BrokeredLoader {
+    fn load_inner(&self, url: &Url) -> Result<LoadedResource, LoadError> {
         if !matches!(url.scheme(), "http" | "https") {
             return Err(LoadError::UnsupportedUrl(url.to_string()));
         }

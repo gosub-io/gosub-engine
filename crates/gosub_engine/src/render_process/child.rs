@@ -28,8 +28,11 @@ impl std::fmt::Debug for DirectBrokeredLoader {
 impl ResourceLoader for DirectBrokeredLoader {
     fn load(&self, url: &Url) -> Result<LoadedResource, LoadError> {
         let mut link = self.link.lock();
-        link.send(&FromForkServer::NeedResource { url: url.to_string() })
-            .map_err(|e| LoadError::Failed(format!("could not reach the broker: {e}")))?;
+        link.send(&FromForkServer::NeedResource {
+            url: url.to_string(),
+            deferred: false,
+        })
+        .map_err(|e| LoadError::Failed(format!("could not reach the broker: {e}")))?;
         match link
             .recv::<ToForkServer>()
             .map_err(|e| LoadError::Failed(format!("the broker never answered: {e}")))?
@@ -43,6 +46,7 @@ impl ResourceLoader for DirectBrokeredLoader {
                 content_type,
                 body: bytes::Bytes::from(body),
             }),
+            ToForkServer::Resource(ResourceReply::Pending) => Err(LoadError::Pending),
             ToForkServer::Resource(ResourceReply::Failed(reason)) => Err(LoadError::Failed(reason)),
             other => Err(LoadError::Failed(format!("expected a resource, got {other:?}"))),
         }

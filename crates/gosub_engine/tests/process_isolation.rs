@@ -351,6 +351,24 @@ fn a_renderer_crash_is_announced_and_the_tab_recovers() {
     );
 }
 
+/// A remote render never waits for an image download: the page paints without
+/// it and paints again once it has arrived.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_remote_render_does_not_wait_for_images() {
+    let out = run("engine-renderer-slow-image");
+
+    if out.status.code() == Some(2) {
+        eprintln!("skipping: {}", String::from_utf8_lossy(&out.stderr).trim());
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "deferred image loading failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// The render pipeline - parse, style, layout, layering, tiling, paint -
 /// under the strictest renderer sandbox, in-process (no fork machinery), so a
 /// pipeline-vs-sandbox regression is directly attributable.

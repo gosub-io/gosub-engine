@@ -260,6 +260,10 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// this and tells the embedder.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     remote_failure: Option<String>,
+    /// Images fetched for the resident renderer in the background; a render
+    /// proceeds without them and runs again when they land.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_media: std::sync::Arc<crate::fork_server::client::RemoteMediaCache>,
 }
 
 /// A scroll or hover exchange the tab is waiting on.
@@ -358,6 +362,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             remote_hover_pending: false,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_failure: None,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_media: Default::default(),
         }
     }
 
@@ -416,7 +422,22 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
     /// `source` is the text the document was parsed from, kept when an
     /// out-of-process renderer will need to re-parse it.
+    /// Say on the firehose why a full render is about to happen.
+    fn note_invalidate(&self, reason: &str) {
+        if !crate::telemetry::enabled() {
+            return;
+        }
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        let tab = self.remote_tab.as_str();
+        #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+        let tab = "";
+        crate::telemetry::emit("tab.invalidate", serde_json::json!({ "tab": tab, "reason": reason }));
+    }
+
     pub fn set_document(&mut self, doc: Arc<EngineDocument<C>>, source: Option<std::sync::Arc<str>>) {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.remote_media.clear();
+        self.note_invalidate("document");
         self.document = Some(doc);
         self.document_source = source;
         self.dom_dirty = true;
@@ -446,6 +467,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         self.viewport.width = vp.width;
         self.viewport.height = vp.height;
         self.layout_dirty = true;
+        self.note_invalidate("viewport");
         self.invalidate_render();
         self.pipeline_cache = None;
         self.scene_cache = None;
@@ -505,6 +527,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// is consumed (cleared) by this call.
     pub fn poll_media_completed(&mut self) -> bool {
         if self.media_store.take_completed() {
+            self.note_invalidate("media");
             self.render_dirty = true;
             true
         } else {
@@ -710,6 +733,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         };
         let viewport = (self.viewport.width as f64, self.viewport.height as f64);
         let started = std::time::Instant::now();
+        let resources = crate::fork_server::client::TabResources {
+            loader: Arc::clone(&self.loader),
+            media: Arc::clone(&self.remote_media),
+        };
         // The whole exchange blocks on the renderer's socket (and, relaying its
         // subresource requests, on the I/O runtime). Blocking a runtime worker
         // while holding its scheduler core can trap tasks woken into this
@@ -728,7 +755,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     &self.remote_tab,
                     viewport,
                     self.scroll_y,
-                    self.loader.as_ref(),
+                    &resources,
                     &self.remote_tile_memory,
                     self.hover_leaf.map(|id| id.into()),
                 )
@@ -738,7 +765,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 &page_url,
                 &self.remote_tab,
                 viewport,
-                self.loader.as_ref(),
+                &resources,
                 &self.remote_tile_memory,
                 self.hover_leaf.map(|id| id.into()),
             ),
@@ -747,7 +774,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 &page_url,
                 &self.remote_tab,
                 viewport,
-                self.loader.as_ref(),
+                &resources,
                 &self.remote_tile_memory,
                 self.hover_leaf.map(|id| id.into()),
             ),
@@ -841,7 +868,10 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
         let (pool, zone, tab) = (Arc::clone(pool), *zone, *tab);
         let remote_tab = self.remote_tab.clone();
-        let loader = Arc::clone(&self.loader);
+        let resources = crate::fork_server::client::TabResources {
+            loader: Arc::clone(&self.loader),
+            media: Arc::clone(&self.remote_media),
+        };
         let scroll_y = self.scroll_y;
         let hovered = self.hover_leaf.map(|id| id.into());
         let url = page_url.clone();
@@ -860,8 +890,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     // there is nothing for the exchange to look up.
                     let known = crate::fork_server::client::TileMemory::default();
                     match what {
-                        RemotePass::Scroll => renderer.scroll(&remote_tab, scroll_y, loader.as_ref(), &known),
-                        RemotePass::Hover => renderer.hover(&remote_tab, hovered, loader.as_ref(), &known),
+                        RemotePass::Scroll => renderer.scroll(&remote_tab, scroll_y, &resources, &known),
+                        RemotePass::Hover => renderer.hover(&remote_tab, hovered, &resources, &known),
                     }
                 })();
                 let _ = tx.send((result, started.elapsed()));
@@ -880,18 +910,28 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         true
     }
 
-    /// Merge a finished remote pass, if any. Called every frame by the tab
-    /// worker; cheap when nothing is in flight or nothing has landed.
+    /// Take in whatever out-of-process work landed: an image the renderer
+    /// went without, a finished scroll or hover pass. Called every tick by
+    /// the tab worker (cheap when nothing is pending); true when a frame
+    /// should follow.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-    pub fn poll_remote_passes(&mut self) {
+    pub fn poll_remote_passes(&mut self) -> bool {
         use std::sync::mpsc::TryRecvError;
 
+        let mut changed = false;
+        // An image the renderer went without has arrived: render again.
+        if self.remote_media.take_completed() {
+            self.note_invalidate("remote-media");
+            self.render_dirty = true;
+            changed = true;
+        }
+
         let Some(inflight) = self.remote_inflight.as_ref() else {
-            return;
+            return changed;
         };
         let (result, exchange) = match inflight.rx.try_recv() {
             Ok(landed) => landed,
-            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Empty) => return changed,
             // The thread died without answering: treat it as a failed pass.
             Err(TryRecvError::Disconnected) => (
                 Err(anyhow::anyhow!("the remote pass thread ended silently")),
@@ -899,7 +939,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             ),
         };
         let Some(inflight) = self.remote_inflight.take() else {
-            return;
+            return changed;
         };
         let stale = inflight.generation != self.remote_generation;
 
@@ -962,6 +1002,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             self.remote_hover_pending = false;
             self.hover_dirty = true;
         }
+        true
     }
 
     /// Fold one pass's tiles and evictions into this tab's remote tile set.
@@ -1313,6 +1354,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         }
         // Style-only change; the pipeline recomputes styles, layout and paint.
         self.style_dirty = true;
+        self.note_invalidate("focus");
         self.invalidate_render();
         true
     }

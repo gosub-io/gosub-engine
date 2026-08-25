@@ -175,7 +175,7 @@ pub enum FromForkServer {
     /// wants, the broker performs the fetch where identity and cookies live,
     /// and only bytes come back. Sent mid-[`RenderPage`](ToForkServer::RenderPage);
     /// the broker answers with [`ToForkServer::Resource`] before anything else.
-    NeedResource { url: String },
+    NeedResource { url: String, deferred: bool },
 }
 
 /// What a forked renderer sends its parent over their private pair before
@@ -363,7 +363,12 @@ impl From<TileWireAnchor> for gosub_interface::render::backend::TileAnchor {
 pub enum FromRenderer {
     /// Mid-render: fetch this for me. The parent relays it to the broker and
     /// sends the [`ResourceReply`] back; the renderer is blocked until then.
-    NeedResource { url: String },
+    /// With `deferred`, the renderer can do without it for now: the broker
+    /// answers at once - the bytes if it has them, [`ResourceReply::Pending`]
+    /// otherwise - and fetches in the background, re-rendering the tab when
+    /// they land. Images ask this way; stylesheets and fonts, which layout
+    /// cannot proceed without, do not.
+    NeedResource { url: String, deferred: bool },
     /// One rasterized tile; its sealed memfd follows immediately. The
     /// renderer seals, sends, and drops each before baking the next into a
     /// memfd, so it never holds more than one tile fd itself.
@@ -394,4 +399,6 @@ pub enum ResourceReply {
         body: Vec<u8>,
     },
     Failed(String),
+    /// A deferred request the broker is still fetching; render without it.
+    Pending,
 }

@@ -105,6 +105,12 @@
     <div class="scroll"><table id="pass-table"><thead><tr><th>time</th><th>kind</th><th>scroll y</th><th>exchange ms</th><th>fresh</th><th>reused</th><th>evicted</th><th>KiB</th><th>renderer ms</th></tr></thead><tbody></tbody></table></div>
   </section>
 
+  <section class="card">
+    <h2>Resource loads</h2>
+    <div class="hint">Every fetch the broker performed (<code>net.load</code>) and every subresource a renderer asked for mid-render (<code>remote.resource</code>), newest first. A blocking request the renderer waited long for is what stalls a navigate.</div>
+    <div class="scroll"><table id="loads"><thead><tr><th>time</th><th>kind</th><th>url</th><th>mode</th><th>outcome</th><th>status</th><th>KiB</th><th>ms</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
   <section class="card half">
     <h2>Resident renderers</h2>
     <div class="hint">From <code>/renderers</code>, every 2 s.</div>
@@ -138,6 +144,8 @@
   const frames = [];   // {us, path, tab, ts}
   const passes = [];   // {ts, kind, scroll_y, exchange_us, fresh, reused, evicted, bytes, stages:{}}
   const log = [];
+  const loads = [];   // {ts, kind, url, mode, outcome, status, bytes, us}
+  const MAX_LOADS = 200;
   let total = 0, recent = [];  // recent: timestamps for the rate
   let controller = null, paused = false, dirty = false;
 
@@ -159,6 +167,12 @@
     if (ev.kind === 'tab.frame') {
       frames.push({ us: d.frame_us || 0, path: d.path, tab: d.tab, ts: ev.ts_us, scroll_y: d.scroll_y });
       if (frames.length > MAX_FRAMES) frames.shift();
+    } else if (ev.kind === 'net.load' || ev.kind === 'remote.resource') {
+      loads.push({ ts: ev.ts_us, kind: ev.kind === 'net.load' ? 'net' : 'renderer', url: d.url || '',
+        mode: ev.kind === 'net.load' ? '' : (d.deferred ? 'deferred' : 'blocking'),
+        outcome: d.outcome || '', status: d.status ?? '', bytes: d.bytes || 0,
+        us: ev.kind === 'net.load' ? (d.duration_us || 0) : (d.renderer_waited_us || 0), error: d.error || '' });
+      if (loads.length > MAX_LOADS) loads.shift();
     } else if (ev.kind === 'remote.navigate' || ev.kind === 'remote.scroll' || ev.kind === 'remote.hover') {
       const stages = {};
       let sum = 0;
@@ -339,6 +353,14 @@
     }
   }
 
+  function renderLoads() {
+    const tbody = $('loads').querySelector('tbody');
+    tbody.innerHTML = loads.slice().reverse().slice(0, 60).map(l => {
+      const url = l.url.length > 70 ? l.url.slice(0, 67) + '…' : l.url;
+      return `<tr><td class="l">${new Date(l.ts / 1000).toLocaleTimeString()}</td><td class="l">${l.kind}</td><td class="l" title="${esc(l.url)} ${esc(l.error)}">${esc(url)}</td><td class="l">${l.mode}</td><td class="l">${esc(l.outcome)}</td><td>${l.status}</td><td>${(l.bytes / 1024).toFixed(1)}</td><td>${(l.us / 1000).toFixed(1)}</td></tr>`;
+    }).join('');
+  }
+
   function renderLog() {
     const q = $('filter').value.trim();
     const rows = log.filter(ev => !q || ev.kind.includes(q)).slice(-120).reverse();
@@ -347,7 +369,7 @@
   }
 
   function tick() {
-    if (dirty) { dirty = false; renderFrames(); renderPasses(); renderLog(); }
+    if (dirty) { dirty = false; renderFrames(); renderPasses(); renderLoads(); renderLog(); }
     renderTiles();
   }
   setInterval(tick, 200);
@@ -355,7 +377,7 @@
 
   $('connect').onclick = () => (controller ? disconnect() : connect(), $('connect').textContent = controller ? 'Disconnect' : 'Connect');
   $('pause').onchange = (e) => { paused = e.target.checked; };
-  $('clear').onclick = () => { frames.length = 0; passes.length = 0; log.length = 0; total = 0; dirty = true; };
+  $('clear').onclick = () => { frames.length = 0; passes.length = 0; loads.length = 0; log.length = 0; total = 0; dirty = true; };
   $('filter').oninput = () => { dirty = true; };
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { dirty = true; });
 

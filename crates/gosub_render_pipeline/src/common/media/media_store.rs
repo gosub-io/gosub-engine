@@ -4,7 +4,7 @@ use crate::common::media::{
 };
 use bytes::Bytes;
 use gosub_interface::media_decoder::{BrokeredDecode, ImageDecoder};
-use gosub_interface::resource_loader::{NoResourceLoader, ResourceLoader};
+use gosub_interface::resource_loader::{LoadError, NoResourceLoader, ResourceLoader};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -150,9 +150,11 @@ impl MediaStore {
         // Synchronous mode: fetch on the calling thread. `load_media` caches even
         // failures (as the placeholder), so the lookup below normally succeeds.
         if self.synchronous_fetch.load(Ordering::Relaxed) {
-            let _ = self.load_media(src);
+            let loaded = self.load_media(src);
             self.pending.write().remove(&h);
-            self.completed.store(true, Ordering::Relaxed);
+            if loaded.is_ok() {
+                self.completed.store(true, Ordering::Relaxed);
+            }
             return match self.cache.read().get(&h) {
                 Some(media_id) => MediaRequest::Ready(*media_id),
                 None => MediaRequest::Pending,
@@ -224,6 +226,9 @@ impl MediaStore {
 
         let media_id = match result {
             Ok(media_id) => media_id,
+            // Not here yet, not a failure: nothing is cached, and the loader's
+            // owner re-renders once the bytes arrive.
+            Err(e) if is_pending(&e) => return Err(e),
             Err(e) => {
                 log::warn!("Failed to load media from '{}': {}", src, e);
                 // Cache the failure as the default image placeholder so the same URL is
@@ -372,7 +377,7 @@ impl MediaStore {
     /// the decoder registry, which treats the content type as a hint only.
     fn fetch_resource(&self, src: &str) -> anyhow::Result<(Option<String>, Bytes)> {
         let url = Url::parse(src)?;
-        let response = self.loader.load(&url).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let response = self.loader.load(&url)?;
 
         if !response.is_ok() {
             anyhow::bail!("HTTP {} fetching resource", response.status);
@@ -380,6 +385,12 @@ impl MediaStore {
 
         Ok((response.content_type, response.body))
     }
+}
+
+/// Whether a load error says "not yet" rather than "no".
+fn is_pending(e: &anyhow::Error) -> bool {
+    e.chain()
+        .any(|cause| matches!(cause.downcast_ref::<LoadError>(), Some(LoadError::Pending)))
 }
 
 /// Decodes a `data:` URI body (everything after `data:`) in its `[<mime>][;base64],<data>` form.

@@ -1797,10 +1797,29 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
 
         // Likewise a web font registered by the background font task: text was
-        // measured and painted with a fallback, so layout must run again.
-        if self.web_fonts_fresh.swap(false, std::sync::atomic::Ordering::AcqRel) {
+        // measured and painted with a fallback, so layout must run again. Not
+        // for a remotely rendered page: its renderer registered the fonts
+        // itself before laying out, so nothing here was painted with a fallback.
+        if self.web_fonts_fresh.swap(false, std::sync::atomic::Ordering::AcqRel) && !self.context.remote_render_active()
+        {
+            crate::telemetry::emit(
+                "tab.invalidate",
+                serde_json::json!({ "tab": self.tab_id.to_string(), "reason": "web-fonts" }),
+            );
             self.context.invalidate_render();
             self.runtime.dirty = true;
+        }
+
+        // Out-of-process work landing - an image the renderer went without, a
+        // scroll or hover pass, a renderer that died - must wake the loop too.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        {
+            if let Some(pool) = self.zone_context.engine_context.renderer_pool.get() {
+                pool.sweep_dead();
+            }
+            if self.context.poll_remote_passes() {
+                self.runtime.dirty = true;
+            }
         }
 
         // Skip rendering when nothing has changed to avoid burning CPU at the tick rate.
@@ -1842,16 +1861,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
         {
             let dpr = render_backend.device_pixel_ratio();
             let frame_started = std::time::Instant::now();
-            // Tiles a resident renderer finished meanwhile join this frame;
-            // a renderer that died meanwhile is noticed now, not on the next
-            // request for it.
-            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-            {
-                if let Some(pool) = self.zone_context.engine_context.renderer_pool.get() {
-                    pool.sweep_dead();
-                }
-                self.context.poll_remote_passes();
-            }
 
             // Scroll-only fast path: tiles are still valid, only the offset changed.
             if let Some(handle) = self.context.take_scroll_handle(dpr) {

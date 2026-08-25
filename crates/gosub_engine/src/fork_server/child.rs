@@ -50,8 +50,10 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
         eprintln!("[fork-server] system fontdb was built before it could be pinned; SVG text may fail confined");
     }
     let forked_loader = ForkedResourceLoader::disconnected();
+    // Images load deferred: a render never waits on an image download; the
+    // broker fetches it and re-renders when it has arrived.
     let media_store = Arc::new(gosub_render_pipeline::common::media::MediaStore::with_loader(
-        Arc::clone(&forked_loader) as Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
+        forked_loader.deferred() as Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
     ));
     media_store.set_synchronous_fetch(true);
 
@@ -415,9 +417,9 @@ fn fork_and_render<C: RenderConfiguration>(
                 let mut link = Endpoint::from_channel(ours)?;
                 loop {
                     match link.recv::<FromRenderer>()? {
-                        FromRenderer::NeedResource { url } => {
+                        FromRenderer::NeedResource { url, deferred } => {
                             broker
-                                .send(&FromForkServer::NeedResource { url })
+                                .send(&FromForkServer::NeedResource { url, deferred })
                                 .map_err(|e| std::io::Error::other(format!("broker unreachable: {e}")))?;
                             match broker
                                 .recv::<ToForkServer>()

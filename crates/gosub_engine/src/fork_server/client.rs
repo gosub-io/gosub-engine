@@ -5,6 +5,7 @@ use crate::fork_server::protocol::{
     ConfinementTier, FromForkServer, FromRenderer, HitRegion, PageSummary, ResourceReply, TileHeader, ToForkServer,
     ToRenderer,
 };
+use gosub_interface::resource_loader::{LoadError, LoadedResource};
 use gosub_ipc::Endpoint;
 use std::time::Duration;
 
@@ -19,9 +20,100 @@ const READY_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long any later request may take. A fork plus one shape is milliseconds.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// What answers a renderer's subresource requests during an exchange: the
+/// broker's loader, plus - for a tab - a cache that lets an image request be
+/// answered at once and fetched in the background.
+pub trait RenderResources {
+    fn load(&self, url: &url::Url) -> Result<LoadedResource, LoadError>;
+    /// A resource the render can do without for now (an image). The default
+    /// fetches it anyway - correct, just not asynchronous.
+    fn load_deferred(&self, url: &url::Url) -> Result<LoadedResource, LoadError> {
+        self.load(url)
+    }
+}
+
+impl<T: gosub_interface::resource_loader::ResourceLoader + ?Sized> RenderResources for T {
+    fn load(&self, url: &url::Url) -> Result<LoadedResource, LoadError> {
+        gosub_interface::resource_loader::ResourceLoader::load(self, url)
+    }
+}
+
+/// Subresources fetched on a tab's behalf, images asynchronously.
+pub struct TabResources {
+    pub loader: std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
+    pub media: std::sync::Arc<RemoteMediaCache>,
+}
+
+impl RenderResources for TabResources {
+    fn load(&self, url: &url::Url) -> Result<LoadedResource, LoadError> {
+        self.loader.load(url)
+    }
+
+    fn load_deferred(&self, url: &url::Url) -> Result<LoadedResource, LoadError> {
+        self.media.lookup_or_fetch(url, std::sync::Arc::clone(&self.loader))
+    }
+}
+
+/// Images a renderer asked for on a tab's behalf: what has arrived, and what
+/// is still on its way. A miss starts the fetch on a thread and answers
+/// [`LoadError::Pending`]; when the bytes land, `completed` rises and the tab
+/// renders again, this time finding them here.
+#[derive(Default)]
+pub struct RemoteMediaCache {
+    entries: parking_lot::Mutex<std::collections::HashMap<String, Result<LoadedResource, String>>>,
+    in_flight: parking_lot::Mutex<std::collections::HashSet<String>>,
+    completed: std::sync::atomic::AtomicBool,
+}
+
+impl RemoteMediaCache {
+    pub fn lookup_or_fetch(
+        self: &std::sync::Arc<Self>,
+        url: &url::Url,
+        loader: std::sync::Arc<dyn gosub_interface::resource_loader::ResourceLoader>,
+    ) -> Result<LoadedResource, LoadError> {
+        let key = url.to_string();
+        if let Some(entry) = self.entries.lock().get(&key) {
+            return entry.clone().map_err(LoadError::Failed);
+        }
+        if self.in_flight.lock().insert(key.clone()) {
+            let cache = std::sync::Arc::clone(self);
+            let url = url.clone();
+            let spawned = std::thread::Builder::new()
+                .name("gosub-remote-media".into())
+                .spawn(move || {
+                    let fetched = loader.load(&url).map_err(|e| e.to_string());
+                    cache.entries.lock().insert(url.to_string(), fetched);
+                    cache.in_flight.lock().remove(url.as_str());
+                    cache.completed.store(true, std::sync::atomic::Ordering::Release);
+                });
+            if spawned.is_err() {
+                self.in_flight.lock().remove(&key);
+                return Err(LoadError::Failed("could not start the image fetch".into()));
+            }
+        }
+        Err(LoadError::Pending)
+    }
+
+    /// Whether an image landed since the last call - the tab should render
+    /// again to pick it up.
+    pub fn take_completed(&self) -> bool {
+        self.completed.swap(false, std::sync::atomic::Ordering::AcqRel)
+    }
+
+    /// Forget everything (a new document).
+    pub fn clear(&self) {
+        self.entries.lock().clear();
+        self.in_flight.lock().clear();
+        self.completed.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
 /// One step of a render exchange, whichever peer is speaking.
 pub(crate) enum RenderEvent {
-    NeedResource(String),
+    NeedResource {
+        url: String,
+        deferred: bool,
+    },
     Tile(TileHeader),
     TileUnchanged(TileHeader),
     Rendered {
@@ -44,7 +136,7 @@ pub(crate) trait RenderStream: serde::de::DeserializeOwned + std::fmt::Debug {
 impl RenderStream for FromForkServer {
     fn into_event(self) -> anyhow::Result<RenderEvent> {
         Ok(match self {
-            FromForkServer::NeedResource { url } => RenderEvent::NeedResource(url),
+            FromForkServer::NeedResource { url, deferred } => RenderEvent::NeedResource { url, deferred },
             FromForkServer::Tile(header) => RenderEvent::Tile(header),
             FromForkServer::TileUnchanged(header) => RenderEvent::TileUnchanged(header),
             FromForkServer::PageRendered { summary, hit_regions } => RenderEvent::Rendered { summary, hit_regions },
@@ -61,7 +153,7 @@ impl RenderStream for FromForkServer {
 impl RenderStream for FromRenderer {
     fn into_event(self) -> anyhow::Result<RenderEvent> {
         Ok(match self {
-            FromRenderer::NeedResource { url } => RenderEvent::NeedResource(url),
+            FromRenderer::NeedResource { url, deferred } => RenderEvent::NeedResource { url, deferred },
             FromRenderer::Tile(header) => RenderEvent::Tile(header),
             FromRenderer::TileUnchanged(header) => RenderEvent::TileUnchanged(header),
             FromRenderer::Rendered { summary, hit_regions } => RenderEvent::Rendered { summary, hit_regions },
@@ -82,7 +174,7 @@ impl RenderStream for FromRenderer {
 /// inline, where identity and cookies live.
 pub(crate) fn drive_render_exchange<M: RenderStream>(
     link: &mut Endpoint,
-    loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+    loader: &dyn RenderResources,
     known_tiles: &TileMemory,
 ) -> anyhow::Result<RenderedPage> {
     let mut received = Vec::new();
@@ -90,16 +182,42 @@ pub(crate) fn drive_render_exchange<M: RenderStream>(
     loop {
         match link.recv::<M>()?.into_event()? {
             RenderEvent::Evict(hashes) => evicted.extend(hashes),
-            RenderEvent::NeedResource(url) => {
+            RenderEvent::NeedResource { url, deferred } => {
+                let asked = std::time::Instant::now();
                 let reply = match url::Url::parse(&url) {
-                    Ok(parsed) => match loader.load(&parsed) {
-                        Ok(resource) => ResourceReply::Ok {
-                            status: resource.status,
-                            content_type: resource.content_type,
-                            body: resource.body.to_vec(),
-                        },
-                        Err(e) => ResourceReply::Failed(e.to_string()),
-                    },
+                    Ok(parsed) => {
+                        let loaded = if deferred {
+                            loader.load_deferred(&parsed)
+                        } else {
+                            loader.load(&parsed)
+                        };
+                        if crate::telemetry::enabled() {
+                            let (outcome, bytes) = match &loaded {
+                                Ok(resource) => ("served", resource.body.len()),
+                                Err(LoadError::Pending) => ("pending", 0),
+                                Err(_) => ("failed", 0),
+                            };
+                            crate::telemetry::emit(
+                                "remote.resource",
+                                serde_json::json!({
+                                    "url": url,
+                                    "deferred": deferred,
+                                    "outcome": outcome,
+                                    "bytes": bytes,
+                                    "renderer_waited_us": asked.elapsed().as_micros() as u64,
+                                }),
+                            );
+                        }
+                        match loaded {
+                            Ok(resource) => ResourceReply::Ok {
+                                status: resource.status,
+                                content_type: resource.content_type,
+                                body: resource.body.to_vec(),
+                            },
+                            Err(LoadError::Pending) => ResourceReply::Pending,
+                            Err(e) => ResourceReply::Failed(e.to_string()),
+                        }
+                    }
                     Err(e) => ResourceReply::Failed(format!("renderer asked for an unparseable url: {e}")),
                 };
                 M::send_resource(link, reply)?;
@@ -405,7 +523,7 @@ impl ForkServer {
         url: &str,
         tab: &str,
         viewport: (f64, f64),
-        loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+        loader: &dyn RenderResources,
         known_tiles: &TileMemory,
         hovered_node: Option<u64>,
     ) -> anyhow::Result<RenderedPage> {
@@ -524,7 +642,7 @@ impl ResidentRenderer {
         tab: &str,
         viewport: (f64, f64),
         scroll_y: f64,
-        loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+        loader: &dyn RenderResources,
         known_tiles: &TileMemory,
         hovered_node: Option<u64>,
     ) -> anyhow::Result<RenderedPage> {
@@ -547,7 +665,7 @@ impl ResidentRenderer {
         &mut self,
         tab: &str,
         scroll_y: f64,
-        loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+        loader: &dyn RenderResources,
         known_tiles: &TileMemory,
     ) -> anyhow::Result<RenderedPage> {
         self.send(&ToRenderer::Scroll {
@@ -562,7 +680,7 @@ impl ResidentRenderer {
         &mut self,
         tab: &str,
         node: Option<u64>,
-        loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+        loader: &dyn RenderResources,
         known_tiles: &TileMemory,
     ) -> anyhow::Result<RenderedPage> {
         self.send(&ToRenderer::Hover {
@@ -572,11 +690,7 @@ impl ResidentRenderer {
         self.exchange(loader, known_tiles)
     }
 
-    fn exchange(
-        &mut self,
-        loader: &dyn gosub_interface::resource_loader::ResourceLoader,
-        known_tiles: &TileMemory,
-    ) -> anyhow::Result<RenderedPage> {
+    fn exchange(&mut self, loader: &dyn RenderResources, known_tiles: &TileMemory) -> anyhow::Result<RenderedPage> {
         let result = drive_render_exchange::<FromRenderer>(&mut self.link, loader, known_tiles);
         if result.is_err() {
             self.dead = true;

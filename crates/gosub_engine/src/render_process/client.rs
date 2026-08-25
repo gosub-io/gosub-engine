@@ -23,7 +23,7 @@ pub fn render_page(
     url: &str,
     tab: &str,
     viewport: (f64, f64),
-    loader: &dyn gosub_interface::resource_loader::ResourceLoader,
+    loader: &dyn crate::fork_server::client::RenderResources,
     known_tiles: &TileMemory,
     hovered_node: Option<u64>,
 ) -> anyhow::Result<RenderedPage> {

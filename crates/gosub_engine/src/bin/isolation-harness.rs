@@ -134,6 +134,7 @@ fn main() {
         "renderer-hover" => with_font_backend!(renderer_hover),
         "renderer-crash" => with_font_backend!(renderer_crash),
         "engine-renderer-crash" => with_font_backend!(engine_renderer_crash),
+        "engine-renderer-slow-image" => with_font_backend!(engine_renderer_slow_image),
         "render-file" => with_font_backend!(render_file),
         "render-file-locked" => with_font_backend!(render_file_locked),
         other => {
@@ -2026,6 +2027,179 @@ fn engine_renderer_crash<F: FontSystem + Default>() -> i32 {
     }
 }
 
+/// A render never waits for an image: a page whose image the server holds
+/// back for seconds must still paint promptly, and paint again - without a
+/// new navigation - once the image has arrived.
+fn engine_renderer_slow_image<F: FontSystem + Default>() -> i32 {
+    println!("font backend: {}", std::any::type_name::<F>());
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_config::settings::Setting;
+        use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+        use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_interface::font_system::Confinement;
+        use gosub_render_pipeline::render::backend::ExternalHandle;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        if !matches!(F::confinement(), Confinement::Full) {
+            eprintln!("engine-renderer-slow-image needs a Full-tier font system");
+            return 2;
+        }
+        const IMAGE_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
+        let page = "<html><body style=\"margin:0\"><p>text</p><img src=\"/slow.png\" width=\"64\" height=\"64\"></body></html>";
+        let Ok(port) = serve_routes(vec![
+            ("/", "text/html", page.as_bytes().to_vec(), std::time::Duration::ZERO),
+            ("/slow.png", "image/png", SAMPLE_PNG.to_vec(), IMAGE_DELAY),
+        ]) else {
+            eprintln!("could not start the test server");
+            return 1;
+        };
+
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        runtime.block_on(async move {
+            let compositor = Arc::new(DefaultCompositor::default());
+            let mut engine: GosubEngine<TileConfig<F>> =
+                GosubEngine::new(None, Arc::new(NullBackend::new()), Arc::clone(&compositor));
+            if let Err(e) = engine.settings().set("security.renderer_process", Setting::Bool(true)) {
+                eprintln!("could not enable the renderer process: {e}");
+                return 1;
+            }
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            // The firehose says what each render was for.
+            let mut firehose = gosub_engine::telemetry::subscribe();
+
+            let mut events = engine.subscribe_events();
+            let services = ZoneServices {
+                storage: Arc::new(StorageService::new(
+                    Arc::new(InMemoryLocalStore::new()),
+                    Arc::new(InMemorySessionStore::new()),
+                )),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let Ok(mut zone) = engine.create_zone(None, services, None) else {
+                eprintln!("could not create a zone");
+                return 1;
+            };
+            let Ok(tab) = zone.create_tab(Default::default(), None).await else {
+                eprintln!("could not create a tab");
+                return 1;
+            };
+            let _ = tab
+                .send(TabCommand::SetViewport {
+                    x: 0,
+                    y: 0,
+                    width: 1280,
+                    height: 720,
+                })
+                .await;
+            let started = tokio::time::Instant::now();
+            if tab.navigate(format!("http://127.0.0.1:{port}/")).await.is_err() {
+                eprintln!("navigate failed");
+                return 1;
+            }
+            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+            loop {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, events.recv()).await {
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    })) => break,
+                    Ok(Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    })) => {
+                        eprintln!("navigation failed: {error}");
+                        return 1;
+                    }
+                    Ok(Ok(_)) => continue,
+                    _ => {
+                        eprintln!("timed out waiting for the navigation");
+                        return 1;
+                    }
+                }
+            }
+            let first_frame = loop {
+                if tokio::time::Instant::now() >= deadline {
+                    eprintln!("timed out waiting for the first frame");
+                    return 1;
+                }
+                if matches!(compositor.frame_for(tab.tab_id), Some(ExternalHandle::TileCache { .. })) {
+                    break started.elapsed();
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            };
+            if first_frame >= IMAGE_DELAY {
+                eprintln!("the first frame waited for the image: {first_frame:?} (image delay {IMAGE_DELAY:?})");
+                return 1;
+            }
+            println!("first frame after {first_frame:?}, before the image could have arrived");
+
+            // Then the image lands and the tab renders again - for that reason.
+            let again = tokio::time::Instant::now() + IMAGE_DELAY + std::time::Duration::from_secs(5);
+            let mut navigates = 0usize;
+            let mut reasons: Vec<String> = Vec::new();
+            let mut rerendered_for_media = false;
+            while tokio::time::Instant::now() < again {
+                let remaining = again.saturating_duration_since(tokio::time::Instant::now());
+                match tokio::time::timeout(remaining, firehose.recv()).await {
+                    Ok(Ok(event)) => {
+                        if event.kind == "tab.invalidate" {
+                            let reason = event.data["reason"].as_str().unwrap_or("?").to_string();
+                            if reason == "remote-media" {
+                                rerendered_for_media = true;
+                            }
+                            reasons.push(reason);
+                        }
+                        if event.kind == "remote.navigate" {
+                            navigates += 1;
+                            if rerendered_for_media {
+                                break;
+                            }
+                        }
+                    }
+                    _ => break,
+                }
+            }
+            println!("renders: {navigates} navigate(s); invalidations: {reasons:?}");
+            if !rerendered_for_media {
+                eprintln!("the tab never re-rendered for the late image (invalidations: {reasons:?})");
+                return 1;
+            }
+
+            engine.close_zone(zone).await;
+            if engine.shutdown().await.is_err() {
+                eprintln!("engine shutdown failed");
+                return 1;
+            }
+            0
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the renderer process exists only on Linux");
+        2
+    }
+}
+
 /// Debugging aid, not a test: render an arbitrary HTML file (argv[3], with an
 /// optional base url in argv[4]) through the fork server, so a real-world page
 /// that kills a forked renderer can be replayed headlessly. Subresources are
@@ -2318,6 +2492,42 @@ fn guard() -> i32 {
             }
         }
     }
+}
+
+/// One route of [`serve_routes`]: path → (content type, body, delay before answering).
+type Route = (&'static str, &'static str, Vec<u8>, std::time::Duration);
+
+/// An HTTP server on an ephemeral port answering `routes` for as long as the
+/// process lives, one connection at a time; unknown paths get a 404.
+fn serve_routes(routes: Vec<Route>) -> std::io::Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else {
+                continue;
+            };
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..n]);
+            let path = request.split_whitespace().nth(1).unwrap_or("/").to_string();
+            let route = routes.iter().find(|(p, ..)| *p == path);
+            let (status, content_type, body): (&str, &str, &[u8]) = match route {
+                Some((_, content_type, body, delay)) => {
+                    std::thread::sleep(*delay);
+                    ("200 OK", content_type, body)
+                }
+                None => ("404 Not Found", "text/plain", b"no such route"),
+            };
+            let head = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(body);
+        }
+    });
+    Ok(port)
 }
 
 /// A one-shot HTTP server on an ephemeral port, serving [`BODY`].
