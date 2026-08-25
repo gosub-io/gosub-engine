@@ -215,14 +215,7 @@ async fn on_decision_required(
     };
 
     // Send back to the engine what we like to do with this navigation
-    let _ = tab_handle
-        .cmd_tx
-        .send(TabCommand::SubmitDecision {
-            nav_id,
-            decision_token,
-            action,
-        })
-        .await;
+    let _ = tab_handle.submit_decision(nav_id, decision_token, action).await;
 }
 
 async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {

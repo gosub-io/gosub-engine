@@ -1,5 +1,6 @@
-use crate::engine::types::TabChannel;
+use crate::engine::types::{Action, NavigationId, TabChannel};
 use crate::events::TabCommand;
+use crate::net::DecisionToken;
 use crate::tab::sink::TabSink;
 use crate::tab::TabId;
 use crate::EngineError;
@@ -24,10 +25,12 @@ use url::Url;
 pub struct TabHandle {
     /// The unique identifier of the tab.
     pub tab_id: TabId,
-    /// Channel for sending commands to the tab task.
-    pub cmd_tx: TabChannel,
-    /// Shared sink for tab-specific outputs (e.g. rendering, events).
-    pub sink: Arc<TabSink>,
+    /// Channel for sending commands to the tab task. Use [`send`](Self::send) and the
+    /// helpers built on it; this is plumbing, not API.
+    pub(crate) cmd_tx: TabChannel,
+    /// Shared sink for tab-specific outputs. Read through the accessors
+    /// ([`url`](Self::url), [`title`](Self::title), ...) rather than directly.
+    pub(crate) sink: Arc<TabSink>,
 }
 
 impl std::fmt::Debug for TabHandle {
@@ -105,6 +108,23 @@ impl TabHandle {
     /// Session history: go to the preferred forward entry. See [`TabCommand::GoForward`].
     pub async fn go_forward(&self) -> Result<(), EngineError> {
         self.send(TabCommand::GoForward { entry: None }).await
+    }
+
+    /// Answer a [`NavigationEvent::DecisionRequired`](crate::events::NavigationEvent::DecisionRequired).
+    ///
+    /// The navigation stays blocked until this is sent. See [`Action`] for the choices.
+    pub async fn submit_decision(
+        &self,
+        nav_id: NavigationId,
+        decision_token: DecisionToken,
+        action: Action,
+    ) -> Result<(), EngineError> {
+        self.send(TabCommand::SubmitDecision {
+            nav_id,
+            decision_token,
+            action,
+        })
+        .await
     }
 
     /// Set the scroll offset to an absolute position in CSS px. See [`TabCommand::SetScroll`].

@@ -1,12 +1,13 @@
 use crate::cookies::SameSiteContext;
 use crate::engine::errors::NavigationError;
+use crate::engine::events::IoCommand;
 use crate::engine::events::Modifiers;
 use crate::engine::events::{CursorShape, EngineEvent, NavigationEvent};
 use crate::engine::internal_pages::{InternalPages, TabView};
 use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
-use crate::events::{IoCommand, TabCommand};
+use crate::events::TabCommand;
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{

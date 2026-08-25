@@ -1,4 +1,5 @@
-use crate::events::{EngineEvent, IoCommand, TabCommand};
+use crate::engine::events::IoCommand;
+use crate::events::{EngineEvent, TabCommand};
 
 pub use gosub_sonar::types::{PeekBuf, RequestId};
 use std::fmt::Display;

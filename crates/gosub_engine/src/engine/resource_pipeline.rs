@@ -37,7 +37,12 @@ pub struct ResourcePipelines<C: RenderConfiguration> {
 }
 
 impl<C: RenderConfiguration> ResourcePipelines<C> {
-    pub fn new(zone_id: ZoneId, io_tx: IoChannel, accept_language: Option<String>, max_document_bytes: usize) -> Self {
+    pub(crate) fn new(
+        zone_id: ZoneId,
+        io_tx: IoChannel,
+        accept_language: Option<String>,
+        max_document_bytes: usize,
+    ) -> Self {
         Self {
             html: Box::new(HtmlPipelineImpl::new(
                 zone_id,

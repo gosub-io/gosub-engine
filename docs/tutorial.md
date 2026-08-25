@@ -152,11 +152,11 @@ loop {
                         nav_id, decision_token, ..
                     } => {
                         // Always render (never download) in this example.
-                        tab.cmd_tx.send(TabCommand::SubmitDecision {
+                        tab.submit_decision(
                             nav_id,
                             decision_token,
-                            action: gosub_engine::Action::Render,
-                        }).await?;
+                            gosub_engine::Action::Render,
+                        ).await?;
                     }
                     _ => {}
                 },

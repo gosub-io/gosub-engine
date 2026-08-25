@@ -137,14 +137,7 @@ async fn handle_event(ev: EngineEvent, tab: &TabHandle) -> bool {
             } => {
                 // The engine fetched response headers and needs the UA to decide:
                 // render the page, or download the file? We always render here.
-                let _ = tab
-                    .cmd_tx
-                    .send(TabCommand::SubmitDecision {
-                        nav_id,
-                        decision_token,
-                        action: Action::Render,
-                    })
-                    .await;
+                let _ = tab.submit_decision(nav_id, decision_token, Action::Render).await;
                 false
             }
             _ => false,

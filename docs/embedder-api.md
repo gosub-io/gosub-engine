@@ -56,7 +56,7 @@ Several of these steps only work in one order, and the signatures do not say so.
 
 ## Commands in: `TabCommand`
 
-Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, `set_title`, `set_viewport`, `set_scroll`, `go_back`, `go_forward`). All are fire-and-forget: the return value says the worker accepted the message, not what it did with it.
+Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, `set_title`, `set_viewport`, `set_scroll`, `go_back`, `go_forward`, `submit_decision`). All are fire-and-forget: the return value says the worker accepted the message, not what it did with it.
 
 | Command | Notes |
 |---|---|
@@ -66,7 +66,7 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | `Reload { ignore_cache }` | Always refetches, fragment or not. |
 | `CancelNavigation` | |
 | `GoBack` / `GoForward { entry }` / `GoToHistoryEntry { entry }` | History is a tree rather than a stack. `GoForward { None }` takes the most recently visited child. Entry ids come from `NavigationEvent::HistoryChanged`. |
-| `SubmitDecision { nav_id, decision_token, action }` | Answers `DecisionRequired`; required, see [Contracts](#contracts). |
+| `SubmitDecision { nav_id, decision_token, action }` | Answers `DecisionRequired`; required, see [Contracts](#contracts). Wrapped by `tab.submit_decision(..)`. |
 | `StartDownload { id, url, target_path }` | `id` is minted by you. |
 | `CloseTab` | |
 | **Rendering control** | |
@@ -218,8 +218,8 @@ Subscribe to events instead when you need the moment something changes, or detai
 
 -   **One bus for everything.** `ResourceEvent::Progress` arrives at network rate and `Redraw` at frame rate, on the same fixed-capacity channel as `TabCrashed` and `DownloadRequested`. A UA that does anything slow on the receive side will drop events on a busy page. Keep the receive loop tight: forward to your own queue and return. Splitting a low-volume control bus from an opt-in high-volume stream is the intended fix.
 -   **The input model is thin.** `KeyDown.key` is a `String` rather than a typed key, and there is no IME composition, touch, or pointer id. `TextInput` is declared but not yet handled, so text editing does not work at all. `FocusChanged { editable }` is the hook for an on-screen keyboard, waiting on the other half.
--   **Public fields that are not really API.** `TabHandle::cmd_tx` and `::sink` are `pub`, so `tab.cmd_tx.send(...)` compiles. Prefer `tab.send(...)`. Same for `EngineContext`'s fields.
--   **Leaky types.** `TabCommand` carries a `Cookie`, `NavigationEvent::DecisionRequired` carries the network layer's `FetchResultMeta`, and errors in events are `Arc<anyhow::Error>`, so error handling means string matching. None of these are shapes a stable release would commit to.
+-   **Errors are opaque.** `NavigationEvent::Failed`, `FailedUrl` and `ResourceEvent::Failed` carry `Arc<anyhow::Error>`, so telling a DNS failure from a TLS failure from a refused connection means matching on strings. A typed error is wanted; it needs a taxonomy mapped from the network layer's `NetError`.
+-   **`DecisionRequired` carries a third-party struct.** Its `meta` is `FetchResultMeta`, which is not the engine's type at all - it is re-exported from the `gosub-sonar` crate. The engine's public API is therefore pinned to sonar's struct layout, and a sonar bump can break embedders. Note the inconsistency with `ResourceEvent::Headers`, which already avoids this by carrying `Vec<(String, String)>` rather than a `HeaderMap`.
 -   **`create_zone(Option<ZoneConfig>, ZoneServices, Option<ZoneId>)`** is builder territory that has not been built.
 -   **`#![deny(missing_docs)]` is commented out** at the top of `lib.rs`. Some of what is public is public by accident.
 

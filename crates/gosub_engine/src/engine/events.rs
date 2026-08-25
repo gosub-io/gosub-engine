@@ -125,10 +125,11 @@ impl Display for Modifiers {
     }
 }
 
-// Commands sent to the IO / network layer
+// Commands sent to the IO / network layer. Engine-internal plumbing: embedders never
+// construct one, and the types it carries are the network layer's, not the API's.
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
-pub enum IoCommand {
+pub(crate) enum IoCommand {
     Fetch {
         zone_id: ZoneId,
         req: FetchRequest,
@@ -339,8 +340,9 @@ pub enum TabCommand {
     DumpDomTree,
 }
 
+/// Engine-internal: the run loop's inbox. Embedders use [`GosubEngine::shutdown`](crate::GosubEngine::shutdown).
 #[derive(Debug)]
-pub enum EngineCommand {
+pub(crate) enum EngineCommand {
     Shutdown {
         reply: oneshot::Sender<anyhow::Result<(), EngineError>>,
     },

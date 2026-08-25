@@ -12,7 +12,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use gosub_engine::events::{EngineEvent, NavigationEvent, ResourceEvent, TabCommand};
+use gosub_engine::events::{EngineEvent, NavigationEvent, ResourceEvent};
 use gosub_engine::net::types::FetchResultMeta;
 use gosub_engine::net::DecisionToken;
 use gosub_engine::tab::{TabDefaults, TabHandle};
@@ -102,14 +102,7 @@ async fn run_server(listener: TcpListener, stop: CancellationToken) {
 async fn decide(tab: TabHandle, nav_id: NavigationId, _meta: FetchResultMeta, token: DecisionToken) {
     let action = Action::Render;
 
-    let _ = tab
-        .cmd_tx
-        .send(TabCommand::SubmitDecision {
-            nav_id,
-            decision_token: token,
-            action,
-        })
-        .await;
+    let _ = tab.submit_decision(nav_id, token, action).await;
 }
 
 // ── Test harness ─────────────────────────────────────────────────────────────

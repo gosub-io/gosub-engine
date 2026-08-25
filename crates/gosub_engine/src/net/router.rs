@@ -14,7 +14,12 @@ use bytes::Bytes;
 use std::sync::Arc;
 
 /// The outcome of routing a fetch result.
+///
+/// The subresource payloads below are produced by the router and discarded by the tab worker
+/// today - placeholders until the async resource pipeline consumes them. Dead-code analysis
+/// only sees this now that the enum is crate-private; the fix belongs to that work, not here.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum RoutedOutcome<C: RenderConfiguration> {
     /// The main document has been parsed and is ready.
     MainDocument(Arc<EngineDocument<C>>),

@@ -1,6 +1,6 @@
+use crate::engine::events::IoCommand;
 use crate::engine::types::IoChannel;
 use crate::engine::EngineContext;
-use crate::events::IoCommand;
 use crate::net::decision_hub::DecisionHub;
 use crate::net::fetcher::{EngineNetContext, Fetcher, FetcherConfig};
 use crate::net::req_ref_tracker::RequestRefTracker;
@@ -70,7 +70,7 @@ impl IoHandle {
     }
 
     /// Get a clone of the submission channel (hand to zones/tabs).
-    pub fn subscribe(&self) -> IoChannel {
+    pub(crate) fn subscribe(&self) -> IoChannel {
         self.tx_submit.clone()
     }
 }
@@ -203,7 +203,7 @@ impl IoRouter {
     }
 }
 
-pub async fn submit_to_io(
+pub(crate) async fn submit_to_io(
     zone_id: ZoneId,
     req: FetchRequest,
     io_tx: IoChannel,

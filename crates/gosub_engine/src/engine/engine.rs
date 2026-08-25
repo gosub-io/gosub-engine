@@ -65,7 +65,7 @@ pub struct EngineContext {
     /// zone at creation. A `OnceLock` rather than `Arc<RwLock<Option<..>>>`: it is set exactly once
     /// and never swapped, and `EngineContext` is already shared behind an `Arc`, so no inner lock
     /// or `Arc` is needed. Reading before `start()` yields `None` (`EngineError::IoNotStarted`).
-    pub io_tx: OnceLock<IoChannel>,
+    pub(crate) io_tx: OnceLock<IoChannel>,
     /// Map for requests to tabs
     pub request_reference_map: Arc<RwLock<RequestReferenceMap>>,
     /// `gosub://` page registry (built-ins + embedder overrides), shared with every tab.

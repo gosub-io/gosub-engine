@@ -43,8 +43,8 @@ A tab is a browsing context. `zone.create_tab(TabDefaults, overrides)` spawns a 
 ``` rust
 pub struct TabHandle {
     pub tab_id: TabId,
-    pub cmd_tx: TabChannel,   // mpsc of TabCommand into the worker
-    pub sink: Arc<TabSink>,   // tab outputs
+    pub(crate) cmd_tx: TabChannel,   // mpsc of TabCommand into the worker
+    pub(crate) sink: Arc<TabSink>,   // tab outputs, read via url()/title()/...
 }
 ```
 
