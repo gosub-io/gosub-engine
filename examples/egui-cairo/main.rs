@@ -36,9 +36,8 @@ static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
 });
 
 enum UiEvent {
-    LocationChanged { url: String },
     NavigationStarted,
-    NavigationFinished,
+    NavigationFinished { url: String },
     HoverUrl(Option<String>),
 }
 
@@ -82,15 +81,14 @@ impl BrowserApp {
                 match event_rx.recv().await {
                     Ok(ev) => {
                         let out = match ev {
-                            EngineEvent::LocationChanged { url, .. } => Some(UiEvent::LocationChanged { url }),
                             EngineEvent::Navigation {
                                 event: NavigationEvent::Started { .. },
                                 ..
                             } => Some(UiEvent::NavigationStarted),
                             EngineEvent::Navigation {
-                                event: NavigationEvent::Finished { .. } | NavigationEvent::Failed { .. },
+                                event: NavigationEvent::Finished { url, .. } | NavigationEvent::Failed { url, .. },
                                 ..
-                            } => Some(UiEvent::NavigationFinished),
+                            } => Some(UiEvent::NavigationFinished { url: url.to_string() }),
                             EngineEvent::HoverUrl { url, .. } => Some(UiEvent::HoverUrl(url)),
                             _ => None,
                         };
@@ -292,9 +290,11 @@ impl eframe::App for BrowserApp {
         // Drain engine events.
         while let Ok(ev) = self.ui_rx.try_recv() {
             match ev {
-                UiEvent::LocationChanged { url } => self.url_input = url,
                 UiEvent::NavigationStarted => self.is_loading = true,
-                UiEvent::NavigationFinished => self.is_loading = false,
+                UiEvent::NavigationFinished { url } => {
+                    self.is_loading = false;
+                    self.url_input = url;
+                }
                 UiEvent::HoverUrl(url) => self.status_url = url.unwrap_or_default(),
             }
         }

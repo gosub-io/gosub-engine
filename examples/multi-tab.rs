@@ -276,11 +276,20 @@ fn handle_event(ev: EngineEvent) {
             let mut ui = UI.lock();
             match event {
                 NavigationEvent::Started { url, .. } => ui.update(tab_id, format!("nav: → {url}")),
-                NavigationEvent::Committed { url, .. } => ui.update(tab_id, format!("nav: committed {url}")),
                 NavigationEvent::Finished { url, .. } => ui.update(tab_id, format!("nav: finished {url}")),
                 NavigationEvent::Failed { url, error, .. } => ui.update(tab_id, format!("nav: FAILED {url} ({error})")),
                 NavigationEvent::Cancelled { url, reason, .. } => {
                     ui.update(tab_id, format!("nav: cancelled {url} [{reason:?}]"))
+                }
+                NavigationEvent::FailedUrl { url, error, .. } => {
+                    ui.update(tab_id, format!("nav: failed: {} {}", url, error));
+                }
+                NavigationEvent::DecisionRequired {
+                    nav_id,
+                    meta,
+                    decision_token,
+                } => {
+                    println!("nav: decision required: {} {:?} {:?}", nav_id, meta, decision_token);
                 }
                 NavigationEvent::Progress {
                     received_bytes,
@@ -297,16 +306,6 @@ fn handle_event(ev: EngineEvent) {
                             elapsed
                         ),
                     );
-                }
-                NavigationEvent::FailedUrl { url, error, .. } => {
-                    ui.update(tab_id, format!("nav: failed: {} {}", url, error));
-                }
-                NavigationEvent::DecisionRequired {
-                    nav_id,
-                    meta,
-                    decision_token,
-                } => {
-                    println!("nav: decision required: {} {:?} {:?}", nav_id, meta, decision_token);
                 }
                 NavigationEvent::HistoryChanged { history } => {
                     ui.update(
@@ -325,9 +324,6 @@ fn handle_event(ev: EngineEvent) {
             // Build a compact one-line summary per event
             let mut ui = UI.lock();
             match event {
-                ResourceEvent::Queued { kind, priority, .. } => {
-                    ui.update(tab_id, format!("res: queued {kind:?} pri={priority}"))
-                }
                 ResourceEvent::Started { url, .. } => ui.update(tab_id, format!("res: started {url}")),
                 ResourceEvent::Redirected { from, to, status, .. } => {
                     ui.update(tab_id, format!("res: redirect {status} {from} → {to}"))

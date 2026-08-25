@@ -9,13 +9,21 @@
 //! - You control things via `EngineCommand` (engine/zone scoped) and `TabCommand` (tab scoped).
 //! - The engine owns a **render backend** (e.g., Null, Cairo, Vello) that you provide.
 //! - The engine is built around a **multi-zone** model, where each zone represents a separate profile.
-//! - A compositor(sink) is owned by the UA and receives `Redraw` events to composite into the final UI.
+//! - A compositor(sink) is owned by the UA and receives the finished frames to composite into the final UI.
 //! - Each zone can have multiple tabs (browsing contexts).
 //! - Zones own their own cookies and storage.
 //! - Tabs are controlled via a `TabHandle`.
 //! - Tabs emit events (navigation, resource loading, rendering) that you can handle in your UA.
 //! - The engine is built on **Tokio**; render backend, storage backend, and cookie store are pluggable.
 //! - The engine is still a work in progress and is not yet production-ready.
+//!
+//! ## The `unstable-api` feature
+//!
+//! Everything reachable in a default build is wired up: every [`EngineEvent`](crate::events::EngineEvent)
+//! variant is emitted somewhere, and every [`TabCommand`](crate::events::TabCommand) variant
+//! reaches a handler. Variants that are declared but never emitted, or accepted and dropped,
+//! sit behind the non-default `unstable-api` feature. Matching one without the feature is a
+//! compile error rather than a runtime no-op.
 //!
 //! ## Quick start
 //!
@@ -74,8 +82,9 @@
 //!                    println!("[{tab_id:?}] Starting loading: {url}");
 //!                }
 //!             }
-//!             EngineEvent::Redraw { tab_id, .. } => {
-//!                 // Composite `handle` into your UI
+//!             EngineEvent::Redraw { tab_id } => {
+//!                 // Doorbell only: ask your compositor sink for this tab's frame and
+//!                 // present it. See "Frames and scrolling" below.
 //!                 println!("[{tab_id:?}] Redraw requested");
 //!             }
 //!             _ => {}
@@ -88,10 +97,58 @@
 //! }
 //! ```
 //!
+//! ## Frames and scrolling
+//!
+//! ### Frames
+//!
+//! Frames leave the engine on the compositor sink; the event bus only says that one is
+//! ready. When a tab finishes a frame the worker calls
+//! [`CompositorSink::submit_frame`](gosub_render_pipeline::render::backend::CompositorSink::submit_frame)
+//! with the backend's `ExternalHandle`, then emits [`EngineEvent::Redraw`](crate::events::EngineEvent::Redraw) carrying just the
+//! `TabId`.
+//!
+//! The sink is the data channel: it holds the pixels (or the GPU texture id, or the tile
+//! cache), you passed it to [`GosubEngine::new`], and you read the current frame out of it
+//! when you paint. `Redraw` is only the wakeup - it carries no frame data, and maps onto the
+//! toolkit's invalidate call (`queue_draw`, `request_repaint`, `window.request_redraw`).
+//!
+//! Present from the sink, not from the event. The bus is a [`tokio::sync::broadcast`]
+//! channel, so a slow consumer drops messages under load. A dropped wakeup costs one
+//! coalesced repaint, because the next one still finds the newest frame in the sink; a
+//! dropped frame would cost the frame.
+//!
+//! ### Scrolling
+//!
+//! Both sides track the offset. The engine is authoritative: it clamps to the page, restores
+//! per-history-entry offsets, and runs the smooth-scroll animation. A shell may also keep its
+//! own offset so it can move already-rasterized tiles at input rate without a round trip
+//! through the tab worker.
+//!
+//! The two are reconciled through the frame: the tile cache handed to the sink carries the
+//! offset it was composited at, so a shell drawing at its own local offset converges on the
+//! engine's as frames arrive.
+//!
+//! Which command you send says who is deciding:
+//!
+//! - [`TabCommand::MouseScroll`](crate::events::TabCommand::MouseScroll) hands the engine a
+//!   delta and lets it decide where that lands, including animating toward it. Use this for
+//!   raw wheel and trackpad input.
+//! - [`TabCommand::SetScroll`](crate::events::TabCommand::SetScroll) tells the engine an
+//!   absolute offset and cancels any animation in flight. Use this when the shell is the one
+//!   that knows: a scrollbar drag, a shell-side kinetic/smooth scroll, or a restored session.
+//!
+//! Do not mix the two within one gesture; an absolute set landing mid-animation fights the
+//! animator.
+//!
 //! ## Concepts
 //! - [`GosubEngine`] - engine entry point; creates zones, owns backend and event bus.
 //! - [`Zone`](crate::zone::Zone) - per-profile/session state (cookies, storage, tabs). Owned by the caller.
 //! - [`TabHandle`](crate::tab) - a single browsing context controlled via [`TabCommand`](crate::events::TabCommand).
+//!   Commands go in asynchronously; the tab's current URL, title and back/forward
+//!   availability read back synchronously off the handle
+//!   ([`url`](crate::tab::TabHandle::url), [`title`](crate::tab::TabHandle::title),
+//!   [`can_go_back`](crate::tab::TabHandle::can_go_back)), so a shell can build a tab strip
+//!   or restore a session without replaying the event stream.
 //! - [`RenderBackend`](gosub_render_pipeline::render::backend::RenderBackend) - pluggable renderer (e.g., Null, Cairo, Vello).
 //!
 //! ## Configuration - choosing your components

@@ -240,9 +240,6 @@ async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
                 NavigationEvent::Started { url, .. } => {
                     println!("[nav ] →         [{t}] {url}");
                 }
-                NavigationEvent::Committed { url, .. } => {
-                    println!("[nav ] committed [{t}] {url}");
-                }
                 NavigationEvent::Finished { url, .. } => {
                     println!("[nav ] finished  [{t}] {url}");
                 }
@@ -254,18 +251,6 @@ async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
                 }
                 NavigationEvent::FailedUrl { url, error, .. } => {
                     println!("[nav ] failed-url [{t}] {url}  ({error:?})");
-                }
-                NavigationEvent::Progress {
-                    received_bytes,
-                    expected_length,
-                    elapsed,
-                    ..
-                } => {
-                    let kb = received_bytes / 1024;
-                    let total = expected_length
-                        .map(|n| format!("{} KB", n / 1024))
-                        .unwrap_or_else(|| "?".into());
-                    println!("[nav ] progress  [{t}] {kb} KB / {total}  ({})", fmt_elapsed(elapsed));
                 }
                 NavigationEvent::DecisionRequired {
                     nav_id,
@@ -281,6 +266,18 @@ async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
                     }
                     on_decision_required(tab_handle, nav_id, meta, decision_token).await;
                 }
+                NavigationEvent::Progress {
+                    received_bytes,
+                    expected_length,
+                    elapsed,
+                    ..
+                } => {
+                    let kb = received_bytes / 1024;
+                    let total = expected_length
+                        .map(|n| format!("{} KB", n / 1024))
+                        .unwrap_or_else(|| "?".into());
+                    println!("[nav ] progress  [{t}] {kb} KB / {total}  ({})", fmt_elapsed(elapsed));
+                }
                 NavigationEvent::HistoryChanged { history } => {
                     println!(
                         "[nav ] history   [{t}] {} entries, back={}, forward={}",
@@ -295,11 +292,6 @@ async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
         EngineEvent::Resource { tab_id, event } => {
             let t = short(&tab_id);
             match event {
-                ResourceEvent::Queued {
-                    url, kind, priority, ..
-                } => {
-                    println!("[res ] queued    [{t}] {kind:?} pri={priority}  {url}");
-                }
                 ResourceEvent::Started { url, .. } => {
                     println!("[res ] started   [{t}] {url}");
                 }

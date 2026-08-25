@@ -159,7 +159,8 @@ loop {
                     _ => {}
                 },
                 EngineEvent::Redraw { .. } => {
-                    // Composite a frame into your window here.
+                    // Wakeup only - the frame itself went to your compositor sink.
+                    // Ask the sink for this tab's current frame and present it.
                 }
                 _ => {}
             }

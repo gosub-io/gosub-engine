@@ -124,21 +124,6 @@ async fn handle_event(ev: EngineEvent, tab: &TabHandle) -> bool {
                 println!("  [nav] started:   {url}");
                 false
             }
-            NavigationEvent::Committed { url, .. } => {
-                println!("  [nav] committed: {url}");
-                false
-            }
-            NavigationEvent::Progress {
-                received_bytes,
-                expected_length,
-                ..
-            } => {
-                let total = expected_length
-                    .map(|n| format!("{} KB", n / 1024))
-                    .unwrap_or_else(|| "?".into());
-                println!("  [nav] progress:  {} KB / {total}", received_bytes / 1024);
-                false
-            }
             NavigationEvent::Finished { url, .. } => {
                 println!("  [nav] finished:  {url}");
                 true // navigation complete - stop the loop

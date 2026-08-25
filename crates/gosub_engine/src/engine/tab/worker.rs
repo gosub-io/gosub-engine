@@ -24,7 +24,9 @@ use crate::util::spawn_named;
 use crate::zone::{ZoneContext, ZoneId};
 use anyhow::{anyhow, Context};
 use gosub_render_pipeline::rasterizer::RasterStrategy;
-use gosub_render_pipeline::render::backend::{CompositorSink, ErasedSurface, PresentMode, RenderBackend, SurfaceSize};
+use gosub_render_pipeline::render::backend::{
+    CompositorSink, ErasedSurface, ExternalHandle, PresentMode, RenderBackend, SurfaceSize,
+};
 use gosub_render_pipeline::render::Viewport;
 use http::{HeaderMap, Method};
 use std::sync::Arc;
@@ -1076,7 +1078,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     let dpr = self.zone_context.render_backend.device_pixel_ratio();
                     if let Some(handle) = self.context.take_scroll_handle(dpr) {
                         self.runtime.committed_scene_epoch = self.context.scene_epoch();
-                        self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                        self.submit_frame(handle);
                         return ControlFlow::Continue;
                     }
                 }
@@ -1101,6 +1103,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             TabCommand::CloseTab => ControlFlow::Break,
             TabCommand::SetTitle { title } => {
                 self.title = title;
+                self.publish_tab_state();
                 ControlFlow::Continue
             }
             TabCommand::Navigate { url } => {
@@ -1209,9 +1212,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             TabCommand::KeyDown { key, modifiers, .. } => self.handle_key_down(&key, modifiers),
-            // Key releases and legacy char events need no handling yet; text input arrives
-            // with the editing slice of M1.
-            TabCommand::KeyUp { .. } | TabCommand::CharInput { .. } => ControlFlow::Continue,
+            // Key releases need no handling yet; text input arrives with the editing
+            // slice of M1.
+            TabCommand::KeyUp { .. } => ControlFlow::Continue,
+            TabCommand::SetScroll { x, y } => {
+                self.apply_scroll(x, y);
+                ControlFlow::Continue
+            }
             TabCommand::MouseUp { .. } => {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
@@ -1250,11 +1257,30 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 // Decisions are handled in the fetcher/io thread, so we can ignore this here
                 ControlFlow::Continue
             }
+            #[cfg(feature = "unstable-api")]
             _ => {
                 log::warn!("Tab {:?} received unhandled command: {:?}", self.tab_id, cmd);
                 ControlFlow::Continue
             }
         }
+    }
+
+    /// Hand a finished frame to the zone's compositor sink and ring the wakeup.
+    ///
+    /// The sink is the data channel (it holds the pixels); [`EngineEvent::Redraw`] is only
+    /// the wakeup. Shells present by asking the sink for the tab's current frame.
+    fn submit_frame(&self, handle: ExternalHandle) {
+        self.zone_context.compositor.submit_frame(self.tab_id, handle);
+        self.send_event(EngineEvent::Redraw { tab_id: self.tab_id });
+    }
+
+    /// Republish the tab's externally-readable state (URL, title, back/forward availability)
+    /// so [`TabHandle`](crate::tab::TabHandle) accessors answer without replaying events.
+    fn publish_tab_state(&self) {
+        self.sink.set_url(self.current_url.clone());
+        self.sink.set_title(self.title.clone());
+        self.sink
+            .set_history_flags(self.history.can_go_back(), self.history.can_go_forward());
     }
 
     /// Send an engine event upwards to the UA
@@ -1292,6 +1318,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Broadcast the current history snapshot to the embedder.
     fn emit_history_changed(&self) {
+        self.publish_tab_state();
         self.send_event(EngineEvent::Navigation {
             tab_id: self.tab_id,
             event: NavigationEvent::HistoryChanged {
@@ -1891,7 +1918,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // Scroll-only fast path: tiles are still valid, only the offset changed.
             if let Some(handle) = self.context.take_scroll_handle(dpr) {
                 self.runtime.committed_scene_epoch = self.context.scene_epoch();
-                self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                self.submit_frame(handle);
                 return Ok(());
             }
 
@@ -1901,7 +1928,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             let scene_epoch = self.context.scene_epoch();
             if let Some(handle) = self.context.tile_cache_handle(dpr) {
                 self.runtime.committed_scene_epoch = scene_epoch;
-                self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                self.submit_frame(handle);
             }
             self.sink.inc_frame();
             return Ok(());
@@ -1945,7 +1972,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         Ok(()) => match render_backend.external_handle(surf.as_mut()) {
                             Ok(handle) => {
                                 self.runtime.committed_scene_epoch = scene_epoch;
-                                self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                                self.submit_frame(handle);
                             }
                             Err(e) => log::warn!("[tick_draw] gpu-tile external_handle error: {e}"),
                         },
@@ -1968,7 +1995,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 match render_backend.external_handle(surf.as_mut()) {
                     Ok(handle) => {
                         self.runtime.committed_scene_epoch = scene_epoch;
-                        self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                        self.submit_frame(handle);
                     }
                     Err(e) => log::warn!("[tick_draw] gpu external_handle error: {e}"),
                 }
@@ -2039,7 +2066,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         }
                     );
                     self.runtime.committed_scene_epoch = scene_epoch;
-                    self.zone_context.compositor.submit_frame(self.tab_id, handle);
+                    self.submit_frame(handle);
                 }
                 Err(e) => {
                     log::warn!("[tick_draw] external_handle error: {e}");

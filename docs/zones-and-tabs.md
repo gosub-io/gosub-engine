@@ -54,15 +54,17 @@ The handle is the *entire* control surface: everything is a `TabCommand` message
 |-------|----------|
 | Navigation | `Navigate`, `Reload`, `CancelNavigation`, `SubmitDecision` |
 | Lifecycle | `CloseTab`, `SetTitle` |
-| Drawing | `ResumeDrawing { fps }`, `SuspendDrawing`, `SetViewport` |
-| Input | `MouseMove/Down/Up/Scroll`, `KeyDown/Up`, `TextInput` |
+| Drawing | `ResumeDrawing { fps }`, `SuspendDrawing`, `SetViewport`, `SetScroll` |
+| Input | `MouseMove/Down/Up/Scroll`, `KeyDown/Up` |
 
 Inside the worker:
 
 -   **Navigation is a cancellable async job.** Each navigation gets a `NavigationId` and a `CancellationToken`; the fetch/parse runs concurrently and reports back over a oneshot channel, so a new `Navigate` (or `CancelNavigation`) cleanly aborts the old one. Progress is published as `NavigationEvent`s (`Started`, `Finished`, `Failed`, ...).
 -   **`DecisionRequired`**: when a response arrives that isn't obviously a renderable page (content-type/disposition says download, unknown type, ...), the worker emits a `NavigationEvent::DecisionRequired` and waits for the UA's `SubmitDecision` --- render it, download it, or cancel. The engine never decides this on its own.
--   **Drawing is pull-based and rate-limited.** Nothing paints until the UA sends `ResumeDrawing { fps }`; the worker then runs a tick loop at that rate, driving the [render pipeline](render-pipeline/README.md) (per the backend's `RasterStrategy`) and submitting finished frames to the compositor sink, which notifies the UA (e.g. `EngineEvent::Redraw` with an `ExternalHandle`). `SuspendDrawing` stops the ticks --- a backgrounded tab costs nothing.
--   The worker owns the tab's `BrowsingContext` --- document, styles, pipeline caches, scroll state --- none of which is reachable from outside except through commands and events.
+-   **Drawing is pull-based and rate-limited.** Nothing paints until the UA sends `ResumeDrawing { fps }`; the worker then runs a tick loop at that rate, driving the [render pipeline](render-pipeline/README.md) (per the backend's `RasterStrategy`) and submitting finished frames to the compositor sink. `SuspendDrawing` stops the ticks --- a backgrounded tab costs nothing.
+-   **The sink carries frames; `Redraw` is only the wakeup.** Every `submit_frame` to the compositor sink is followed by an `EngineEvent::Redraw { tab_id }` that carries no frame data. UAs paint by reading the current frame out of the sink they own, and map `Redraw` onto their toolkit's invalidate call. The event bus is a `broadcast` channel that drops messages for slow consumers, so a lost wakeup costs one coalesced repaint while a lost frame would cost the frame.
+-   **Scroll position is tracked on both sides.** The engine is authoritative: it clamps to the page, restores per-history-entry offsets, and runs the smooth-scroll animation. A UA may keep its own offset as well, so it can shift already-rasterized tiles at input rate without a round trip through the worker; the tile cache handed to the sink carries the offset it was composited at, which is how the two converge. Send `MouseScroll` (a delta; the engine decides where it lands and may animate) for raw wheel and trackpad input, and `SetScroll` (an absolute offset, cancelling any animation) for a scrollbar drag, UA-side kinetic scrolling, or a restored session. Don't mix the two within one gesture.
+-   The worker owns the tab's `BrowsingContext` --- document, styles, pipeline caches, scroll state --- none of which is reachable from outside except through commands and events. What a shell needs synchronously is mirrored onto the tab's `TabSink` and read back through `TabHandle::{url, title, can_go_back, can_go_forward}`, so building a tab strip or restoring a session does not mean replaying the event stream.
 
 ## Why this shape
 

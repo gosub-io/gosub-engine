@@ -4,13 +4,17 @@ use crate::tab::sink::TabSink;
 use crate::tab::TabId;
 use crate::EngineError;
 use gosub_render_pipeline::render::Viewport;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use url::Url;
 
 /// A handle to a running [`Tab`](crate::tab).
 ///
 /// The `TabHandle` is returned when a new tab is created within a zone.
 /// It acts as the **control interface** for the tab:
 /// - Sending asynchronous commands (title updates, navigation, viewport changes).
+/// - Reading the tab's current state synchronously ([`url`](Self::url),
+///   [`title`](Self::title), [`can_go_back`](Self::can_go_back)).
 /// - Holding a [`TabSink`], which can be used to subscribe to tab-related outputs.
 ///
 /// Internally, commands are sent over an asynchronous [`tokio::sync::mpsc`] channel
@@ -101,5 +105,37 @@ impl TabHandle {
     /// Session history: go to the preferred forward entry. See [`TabCommand::GoForward`].
     pub async fn go_forward(&self) -> Result<(), EngineError> {
         self.send(TabCommand::GoForward { entry: None }).await
+    }
+
+    /// Set the scroll offset to an absolute position in CSS px. See [`TabCommand::SetScroll`].
+    pub async fn set_scroll(&self, x: i32, y: i32) -> Result<(), EngineError> {
+        self.send(TabCommand::SetScroll { x, y }).await
+    }
+
+    // ---- Read-side state ----
+    //
+    // These read a snapshot the tab worker publishes as it commits navigations, so a shell
+    // building a tab strip or restoring a session does not have to replay the event stream.
+    // They are synchronous and never block on the worker; the value is as of the worker's
+    // last commit, which for an in-flight navigation is still the previous document.
+
+    /// The tab's current document URL, or `None` before the first navigation commits.
+    pub fn url(&self) -> Option<Url> {
+        self.sink.url.read().clone()
+    }
+
+    /// The tab's current title. Empty until the document supplies one.
+    pub fn title(&self) -> String {
+        self.sink.title.read().clone()
+    }
+
+    /// Whether [`go_back`](Self::go_back) would move anywhere.
+    pub fn can_go_back(&self) -> bool {
+        self.sink.can_go_back.load(Ordering::Relaxed)
+    }
+
+    /// Whether [`go_forward`](Self::go_forward) would move anywhere.
+    pub fn can_go_forward(&self) -> bool {
+        self.sink.can_go_forward.load(Ordering::Relaxed)
     }
 }
