@@ -22,11 +22,13 @@ use rquickjs::{Class, Ctx, Object, Value};
 use url::Url;
 
 mod document;
+pub mod event;
 mod node;
 mod select;
 #[cfg(test)]
 mod tests;
 mod text;
+pub mod timers;
 
 pub use document::GosubDocument;
 pub use node::GosubNode;
@@ -68,8 +70,10 @@ const WRAPPER_CACHE: &str = "__gosub_node_wrappers";
 /// Call this *after* testharness.js has been evaluated: testharness picks its environment
 /// by looking for `document` on the global scope, and the window environment expects a
 /// message-passing browser we do not have. Installing afterwards leaves it in shell mode.
-pub fn install(ctx: &Ctx<'_>, doc: DocHandle) -> rquickjs::Result<()> {
+pub fn install(ctx: &Ctx<'_>, doc: DocHandle, timers: &timers::Timers) -> rquickjs::Result<()> {
     let globals = ctx.globals();
+    event::install(ctx)?;
+    timers::install(ctx, timers)?;
     globals.set(WRAPPER_CACHE, ctx.eval::<Value, _>("new Map()")?)?;
 
     let document = Class::instance(ctx.clone(), GosubDocument::new(doc))?;

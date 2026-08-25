@@ -12,7 +12,7 @@ use gosub_shared::node::NodeId;
 use rquickjs::class::Trace;
 use rquickjs::{Ctx, Exception, JsLifetime, Result, Value};
 
-use crate::{select, text, wrap, wrap_opt, DocHandle};
+use crate::{event, select, text, wrap, wrap_opt, DocHandle};
 
 #[derive(Trace, JsLifetime)]
 #[rquickjs::class(rename = "Node")]
@@ -320,6 +320,48 @@ impl GosubNode {
             .collect();
         drop(doc);
         wrap_list(&ctx, &self.doc, &found)
+    }
+
+    // ── events ─────────────────────────────────────────────────────────────
+
+    #[qjs(rename = "addEventListener")]
+    pub fn add_event_listener<'js>(
+        &self,
+        ctx: Ctx<'js>,
+        event_type: String,
+        callback: rquickjs::Function<'js>,
+        options: rquickjs::prelude::Opt<Value<'js>>,
+    ) -> Result<()> {
+        event::add(&ctx, u64::from(self.id), event_type, callback, options)
+    }
+
+    #[qjs(rename = "removeEventListener")]
+    pub fn remove_event_listener<'js>(
+        &self,
+        ctx: Ctx<'js>,
+        event_type: String,
+        callback: rquickjs::Function<'js>,
+        options: rquickjs::prelude::Opt<Value<'js>>,
+    ) -> Result<()> {
+        event::remove(&ctx, u64::from(self.id), &event_type, &callback, options)
+    }
+
+    #[qjs(rename = "dispatchEvent")]
+    pub fn dispatch_event<'js>(
+        &self,
+        ctx: Ctx<'js>,
+        event: rquickjs::Class<'js, event::DomEvent<'js>>,
+    ) -> Result<bool> {
+        event::dispatch(&ctx, &self.doc, self.id, event)
+    }
+
+    /// Fires a click event. There is no activation behaviour behind it yet - a checkbox does
+    /// not toggle and a submit button does not submit, because those live in engine code
+    /// this crate cannot reach.
+    pub fn click<'js>(&self, ctx: Ctx<'js>) -> Result<()> {
+        let event = rquickjs::Class::instance(ctx.clone(), event::DomEvent::synthetic("click", true, true))?;
+        event::dispatch(&ctx, &self.doc, self.id, event)?;
+        Ok(())
     }
 
     #[qjs(rename = "toString")]

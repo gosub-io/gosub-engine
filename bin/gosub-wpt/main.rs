@@ -2,8 +2,9 @@
 //!
 //! The page is parsed once, up front, and then every `<script>` in it is evaluated in tree
 //! order - so unlike a browser, scripts see the whole document rather than only the part
-//! parsed so far. There is no event loop and no navigation: `done()` is called by the driver
-//! once the last script has run.
+//! parsed so far. There is no navigation, and the event loop is a pumped virtual-time timer
+//! queue: `done()` is called once the last script has run, then timers are fired until the
+//! harness reports or the queue drains.
 //!
 //! Usage: `gosub-wpt <wpt-root> <test.html>...`
 
@@ -13,6 +14,7 @@ use std::process::ExitCode;
 use anyhow::{bail, Context as _};
 use clap::Parser;
 use gosub_domjs::parse_document;
+use gosub_domjs::timers::{self, TimerState, Timers};
 use gosub_interface::document::Document as _;
 use gosub_shared::node::NodeId;
 use rquickjs::{CatchResultExt, Context, Ctx, Function, Runtime};
@@ -115,6 +117,10 @@ fn resolve(wpt_root: &Path, test_dir: &Path, src: &str) -> PathBuf {
     }
 }
 
+/// How many timer callbacks one test may fire before the driver gives up: a `setInterval`
+/// that nothing clears would otherwise run forever.
+const TIMER_BUDGET: usize = 100_000;
+
 /// Run queued microtasks. testharness marks itself loaded from a promise callback, so
 /// nothing completes until these have run. Real timers are still missing - the async tests
 /// need a fake timer queue before they can pass.
@@ -163,7 +169,8 @@ fn run_test(wpt_root: &Path, test_path: &Path, verbose: bool) -> anyhow::Result<
             .catch(&ctx)
             .map_err(|e| anyhow::anyhow!("results hook: {e}"))?;
 
-        gosub_domjs::install(&ctx, doc.clone())?;
+        let timers: Timers = std::rc::Rc::new(std::cell::RefCell::new(TimerState::default()));
+        gosub_domjs::install(&ctx, doc.clone(), &timers)?;
         drain_jobs(&ctx);
 
         for script in &scripts {
@@ -186,6 +193,27 @@ fn run_test(wpt_root: &Path, test_path: &Path, verbose: bool) -> anyhow::Result<
             .catch(&ctx)
             .map_err(|e| anyhow::anyhow!("done(): {e}"))?;
         drain_jobs(&ctx);
+
+        // Async tests finish from a timer callback, so keep pumping until the harness
+        // reports or nothing is left to fire.
+        for _ in 0..TIMER_BUDGET {
+            if ctx.eval::<bool, _>("__wpt_results !== null").unwrap_or(false) {
+                break;
+            }
+            if !timers::run_next(&ctx, &timers)? {
+                break;
+            }
+        }
+
+        // An async test whose event never arrives would otherwise hang forever: the shell
+        // environment has no default timeout, so nothing marks it. Once the queue is dry the
+        // driver plays the part of the timeout the browser would have applied.
+        if !ctx.eval::<bool, _>("__wpt_results !== null").unwrap_or(false) {
+            ctx.eval::<(), _>("timeout()")
+                .catch(&ctx)
+                .map_err(|e| anyhow::anyhow!("timeout(): {e}"))?;
+            drain_jobs(&ctx);
+        }
 
         let json: Option<String> = ctx
             .eval::<Option<String>, _>("__wpt_results === null ? null : JSON.stringify(__wpt_results)")

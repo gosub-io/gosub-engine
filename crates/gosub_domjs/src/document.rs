@@ -75,6 +75,30 @@ impl GosubDocument {
         wrap_list(&ctx, &self.doc, &found)
     }
 
+    #[qjs(rename = "addEventListener")]
+    pub fn add_event_listener<'js>(
+        &self,
+        ctx: Ctx<'js>,
+        event_type: String,
+        callback: rquickjs::Function<'js>,
+        options: rquickjs::prelude::Opt<Value<'js>>,
+    ) -> Result<()> {
+        let key = u64::from(self.doc.borrow().root());
+        crate::event::add(&ctx, key, event_type, callback, options)
+    }
+
+    #[qjs(rename = "removeEventListener")]
+    pub fn remove_event_listener<'js>(
+        &self,
+        ctx: Ctx<'js>,
+        event_type: String,
+        callback: rquickjs::Function<'js>,
+        options: rquickjs::prelude::Opt<Value<'js>>,
+    ) -> Result<()> {
+        let key = u64::from(self.doc.borrow().root());
+        crate::event::remove(&ctx, key, &event_type, &callback, options)
+    }
+
     #[qjs(get)]
     pub fn body<'js>(&self, ctx: Ctx<'js>) -> Result<Value<'js>> {
         let found = self.first_tag("body");

@@ -39,12 +39,49 @@ shim that makes the test go green.
 4. Every `<script>` in the document runs in tree order (`testharness.js` and
    `testharnessreport.js` are skipped — the driver loads the first and replaces the second).
    Microtasks are drained after each one.
-5. The driver calls `done()` and reads the results out of an `add_completion_callback` hook.
+5. The driver calls `done()`, then pumps the timer queue until the harness reports or the
+   queue runs dry.
+6. If the queue drains and nothing has reported, the driver calls testharness's `timeout()`.
+   The shell environment has no default timeout, so an async test whose event never arrives
+   would otherwise hang the run forever; this turns it into a TIMEOUT result instead.
+7. Results come out of an `add_completion_callback` hook.
+
+## Timers
+
+There is no clock. `setTimeout`, `setInterval`, `requestAnimationFrame` and their cancel
+functions all feed one queue ordered by due time and then insertion order, and firing a
+callback advances a virtual "now" to that callback's due time. Nothing waits on wall-clock
+time, and a test that schedules a 10-second timeout costs nothing to run.
+
+`requestAnimationFrame` resolves one frame (16ms of virtual time) later and passes a
+timestamp. Nothing paints — it is the delay that matters, since 57 of the forms tests use
+rAF purely to wait a turn.
+
+testharness passes `null` where a delay or a timer id is expected, which is not the same as
+omitting the argument, so both are taken as raw values and coerced.
+
+## Events
+
+`addEventListener`/`removeEventListener`/`dispatchEvent` are on nodes, on `document` and on
+the global object; `Event` is constructible with `bubbles`/`cancelable`/`composed`. Dispatch
+implements capture → at-target → bubble over the **real document tree**, with
+`stopPropagation`, `stopImmediatePropagation`, `preventDefault`, the `once` and `capture`
+listener options, and the spec's dedup rule (same type + callback + capture is ignored).
+
+`element.click()` fires a click event but has **no activation behaviour**: a checkbox does
+not toggle and a submit button does not submit, because that lives in `gosub_engine`'s
+private `edit`/`form` modules. Tests that click and then wait for the resulting change now
+report TIMEOUT rather than hanging.
+
+Removed listeners are tombstoned rather than deleted, because dispatch holds indices into
+the listener list and has to observe removals made by listeners that run before them.
 
 ## What is bound
 
 `document`: `getElementById`, `createElement`, `createTextNode`, `querySelector`,
 `getElementsByTagName`, `body`, `head`, `documentElement`.
+
+`Node` also carries `addEventListener`, `removeEventListener`, `dispatchEvent` and `click`.
 
 `Node`: `nodeType`, `nodeName`, `tagName`, `localName`, `parentNode`, `parentElement`,
 `childNodes`, `children`, `firstChild`, `appendChild`, `removeChild`, `remove`,
@@ -56,9 +93,11 @@ Node wrappers are cached per node, so `a.parentNode === b` holds.
 
 ## What is not
 
-- **No event loop.** No timers, so `async_test`/`promise_test` (188 of the forms tests)
-  cannot finish. A fake timer queue is the next thing to add.
-- **No events** — `addEventListener`, `dispatchEvent`, `click()`, `focus()`.
+- **No activation behaviour** behind `click()`, and no `focus()`/`blur()`/`activeElement`
+  (288 uses in the forms corpus) — both need engine code that is not public yet.
+- **No `CustomEvent`, `MouseEvent` or `KeyboardEvent`** constructors, and no `EventTarget`
+  constructor. The forms corpus never uses the first; it uses the mouse and keyboard ones in
+  13 files.
 - **No interface hierarchy.** One `Node` class dispatches on tag name, so `instanceof`,
   `Option`, `NodeList` and prototype-chain tests fail.
 - **No layout and no navigation**, so iframes, `getBoundingClientRect` and form submission
