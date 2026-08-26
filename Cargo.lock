@@ -3070,6 +3070,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "cow-utils",
  "gosub_domjs",
  "gosub_html5",
  "gosub_interface",

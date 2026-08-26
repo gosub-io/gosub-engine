@@ -13,6 +13,7 @@ use std::process::ExitCode;
 
 use anyhow::{bail, Context as _};
 use clap::Parser;
+use cow_utils::CowUtils;
 use gosub_domjs::parse_document;
 use gosub_domjs::timers::{self, TimerState, Timers};
 use gosub_interface::document::Document as _;
@@ -50,6 +51,67 @@ struct Args {
     /// Print every subtest, not just the failures
     #[arg(short, long)]
     verbose: bool,
+    /// Expectations file: known failures count as expected, and a listed test that starts
+    /// passing is reported as an UNEXPECTED PASS so the file stays current.
+    #[arg(long)]
+    expect: Option<PathBuf>,
+    /// Run every file the expectations list covers, instead of naming them on the command line
+    #[arg(long)]
+    all: bool,
+    /// Print a fresh expectations file to stdout instead of a report. Regenerating is how the
+    /// baseline moves: run it, read the diff, commit it.
+    #[arg(long)]
+    write_expectations: bool,
+}
+
+/// What an expectations file records. Files are listed explicitly so that adding tests to a
+/// wpt checkout cannot silently change what is covered.
+#[derive(Default)]
+struct Expectations {
+    files: Vec<String>,
+    failing: std::collections::HashSet<String>,
+    erroring: std::collections::HashSet<String>,
+    /// Files whose harness itself does not finish cleanly - it timed out, or aborted on an
+    /// uncaught exception. Separate from a subtest failing.
+    unclean: std::collections::HashSet<String>,
+}
+
+impl Expectations {
+    fn load(path: &Path) -> anyhow::Result<Self> {
+        let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let mut out = Expectations::default();
+        for line in text.lines() {
+            // No trimming: a subtest name may legitimately end in a space.
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            match line.split_once(' ') {
+                Some(("FILE", rest)) => out.files.push(rest.to_string()),
+                Some(("ERROR", rest)) => {
+                    out.erroring.insert(rest.to_string());
+                    out.files.push(rest.to_string());
+                }
+                Some(("FAIL", rest)) => {
+                    out.failing.insert(rest.to_string());
+                }
+                Some(("HARNESS", rest)) => {
+                    out.unclean.insert(rest.to_string());
+                }
+                _ => bail!("unrecognised expectation line: {line:?}"),
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// Escape the control characters that would otherwise break the one-record-per-line format.
+fn escape(name: &str) -> String {
+    name.cow_replace('\\', "\\\\")
+        .cow_replace('\n', "\\n")
+        .cow_replace('\r', "\\r")
+        .cow_replace('\t', "\\t")
+        .into_owned()
 }
 
 #[derive(Deserialize)]
@@ -134,14 +196,30 @@ fn drain_jobs(ctx: &Ctx<'_>) {
 
 fn install_console(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
     let console = rquickjs::Object::new(ctx.clone())?;
-    let log = Function::new(ctx.clone(), |msg: String| println!("  [console] {msg}"))?;
+    let log = Function::new(ctx.clone(), |msg: String| eprintln!("  [console] {msg}"))?;
     console.set("log", log.clone())?;
     console.set("warn", log.clone())?;
     console.set("error", log)?;
     ctx.globals().set("console", console)
 }
 
-fn run_test(wpt_root: &Path, test_path: &Path, verbose: bool) -> anyhow::Result<bool> {
+/// The file's key in an expectations file: its path relative to the wpt root.
+fn expectation_key(wpt_root: &Path, test_path: &Path) -> String {
+    test_path
+        .strip_prefix(wpt_root)
+        .unwrap_or(test_path)
+        .to_string_lossy()
+        .cow_replace('\\', "/")
+        .into_owned()
+}
+
+fn run_test(
+    wpt_root: &Path,
+    test_path: &Path,
+    verbose: bool,
+    expect: &Expectations,
+    record: bool,
+) -> anyhow::Result<bool> {
     let source = std::fs::read_to_string(test_path).with_context(|| format!("reading {}", test_path.display()))?;
     let (doc, _parse_errors) = parse_document(&source, None)?;
     let scripts = collect_scripts(&doc.borrow());
@@ -184,7 +262,7 @@ fn run_test(wpt_root: &Path, test_path: &Path, verbose: bool) -> anyhow::Result<
                 Script::Inline(code) => ("<inline>".to_string(), code.clone()),
             };
             if let Err(e) = ctx.eval::<(), _>(code.as_bytes()).catch(&ctx) {
-                println!("  script {label} threw: {e}");
+                eprintln!("  script {label} threw: {e}");
             }
             drain_jobs(&ctx);
         }
@@ -227,38 +305,90 @@ fn run_test(wpt_root: &Path, test_path: &Path, verbose: bool) -> anyhow::Result<
         bail!("the harness never reported: no completion callback ran");
     };
 
-    let (mut passed, mut failed) = (0, 0);
-    for test in &results.tests {
-        if test.status == 0 {
-            passed += 1;
-        } else {
-            failed += 1;
+    let key = expectation_key(wpt_root, test_path);
+    if record {
+        println!("FILE {key}");
+        if results.status != 0 {
+            println!("HARNESS {key}");
         }
-        if verbose || test.status != 0 {
-            let detail = test.message.as_deref().unwrap_or("");
-            println!(
-                "  {} {}{}",
-                status_name(test.status),
-                test.name,
-                if detail.is_empty() {
-                    String::new()
-                } else {
-                    format!(" - {detail}")
-                }
-            );
+        for test in &results.tests {
+            if test.status != 0 {
+                println!("FAIL {key} :: {}", escape(&test.name));
+            }
+        }
+        return Ok(true);
+    }
+    let (mut passed, mut failed, mut expected, mut unexpected_pass) = (0, 0, 0, 0);
+    for test in &results.tests {
+        let known = expect.failing.contains(&format!("{key} :: {}", escape(&test.name)));
+        match (test.status == 0, known) {
+            (true, false) => passed += 1,
+            (true, true) => {
+                unexpected_pass += 1;
+                println!("  UNEXPECTED PASS {}", test.name);
+            }
+            (false, true) => expected += 1,
+            (false, false) => {
+                failed += 1;
+                let detail = test.message.as_deref().unwrap_or("");
+                println!(
+                    "  {} {}{}",
+                    status_name(test.status),
+                    test.name,
+                    if detail.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" - {detail}")
+                    }
+                );
+            }
+        }
+        if verbose && test.status == 0 && !known {
+            println!("  PASS {}", test.name);
         }
     }
 
-    let harness_ok = results.status == 0;
-    if !harness_ok {
+    let harness_ok = results.status == 0 || expect.unclean.contains(&key);
+    if results.status != 0 {
         println!(
             "  harness {}: {}",
             status_name(results.status),
             results.message.as_deref().unwrap_or("")
         );
     }
-    println!("{}: {passed} passed, {failed} failed", test_path.display());
-    Ok(harness_ok && failed == 0)
+    let known = if expected > 0 {
+        format!(", {expected} known")
+    } else {
+        String::new()
+    };
+    println!("{}: {passed} passed, {failed} failed{known}", test_path.display());
+    Ok(harness_ok && failed == 0 && unexpected_pass == 0)
+}
+
+/// Run one file, turning a hard error into a pass when the expectations say it cannot run.
+fn run_or_expect_error(wpt_root: &Path, path: &Path, verbose: bool, expect: &Expectations, record: bool) -> bool {
+    let key = expectation_key(wpt_root, path);
+    match run_test(wpt_root, path, verbose, expect, record) {
+        Ok(ok) => {
+            if !record && expect.erroring.contains(&key) {
+                println!("{}: UNEXPECTED RUN (listed as ERROR)", path.display());
+                return false;
+            }
+            ok
+        }
+        Err(e) => {
+            if record {
+                println!("ERROR {key}");
+                return true;
+            }
+            if expect.erroring.contains(&key) {
+                println!("{}: known ERROR ({e:#})", path.display());
+                return true;
+            }
+            println!("{}: ERROR {e:#}", path.display());
+            false
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -269,21 +399,32 @@ fn main() -> ExitCode {
     );
 
     let args = Args::parse();
-    let mut all_ok = true;
+    let expect = match args.expect.as_deref().map(Expectations::load).transpose() {
+        Ok(expect) => expect.unwrap_or_default(),
+        Err(e) => {
+            println!("could not read expectations: {e:#}");
+            return ExitCode::FAILURE;
+        }
+    };
 
-    for test in &args.tests {
+    let tests: Vec<PathBuf> = if args.all {
+        expect.files.iter().map(PathBuf::from).collect()
+    } else {
+        args.tests.clone()
+    };
+    if tests.is_empty() {
+        println!("no tests given (pass paths, or --all with --expect)");
+        return ExitCode::FAILURE;
+    }
+
+    let mut all_ok = true;
+    for test in &tests {
         let path = if test.is_absolute() || test.exists() {
             test.clone()
         } else {
             args.wpt_root.join(test)
         };
-        match run_test(&args.wpt_root, &path, args.verbose) {
-            Ok(ok) => all_ok &= ok,
-            Err(e) => {
-                println!("{}: ERROR {e:#}", path.display());
-                all_ok = false;
-            }
-        }
+        all_ok &= run_or_expect_error(&args.wpt_root, &path, args.verbose, &expect, args.write_expectations);
     }
 
     if all_ok {

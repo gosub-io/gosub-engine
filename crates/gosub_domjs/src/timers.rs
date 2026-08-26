@@ -206,7 +206,7 @@ pub fn run_next(ctx: &Ctx<'_>, timers: &Timers) -> Result<bool> {
     };
     if let Err(e) = outcome {
         // The spec reports the exception and keeps the queue running.
-        println!("  [timer] callback threw: {e}");
+        eprintln!("  [timer] callback threw: {e}");
     }
 
     while ctx.execute_pending_job() {}

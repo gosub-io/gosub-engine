@@ -18,6 +18,7 @@ gosub_shared = { path = "../../crates/gosub_shared" }
 rquickjs = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+cow-utils = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 

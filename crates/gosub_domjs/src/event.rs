@@ -362,7 +362,7 @@ fn run_listeners<'js>(
         let event_value = event.clone().into_value();
         if let Err(e) = callback.call::<_, Value<'js>>((This(entry.value.clone()), event_value)) {
             // The spec reports listener exceptions and carries on with the next listener.
-            println!("  [event] listener for {event_type:?} threw: {e}");
+            eprintln!("  [event] listener for {event_type:?} threw: {e}");
         }
 
         if event.borrow().stopped_immediately {

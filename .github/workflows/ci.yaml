@@ -47,6 +47,35 @@ jobs:
       - name: Doctests
         run: cargo test --doc --locked --all
 
+  wpt-forms:
+    runs-on: ubuntu-24.04
+    # This job checks out third-party content (web-platform-tests); keep the token
+    # read-only and out of .git/config
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: wpt-forms
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install dependencies
+        run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
+      - uses: taiki-e/install-action@nextest
+      - name: Checkout web-platform-tests (sparse, pinned)
+        run: |
+          git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git "$RUNNER_TEMP/wpt"
+          cd "$RUNNER_TEMP/wpt"
+          git sparse-checkout set resources html/semantics/forms
+          git checkout "$(cat "$GITHUB_WORKSPACE/tests/wpt/wpt-commit.txt")"
+      - name: Run the WPT forms suites
+        run: cargo nextest run --locked --release -p gosub-wpt --test wpt_conformance --no-capture
+        env:
+          WPT_ROOT: ${{ runner.temp }}/wpt
+
   clippy:
     runs-on: ubuntu-24.04
     strategy:

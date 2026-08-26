@@ -9,9 +9,14 @@ It exists to find bugs, not to run websites.
 
 ## Setup
 
+The checkout is pinned: `tests/wpt/wpt-commit.txt` holds the commit CI uses, and results are
+only comparable against that one.
+
 ```bash
-git clone --depth 1 --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git
-cd wpt && git sparse-checkout set resources html/semantics/forms
+git clone --filter=blob:none --sparse https://github.com/web-platform-tests/wpt.git
+cd wpt
+git sparse-checkout set resources html/semantics/forms
+git checkout "$(cat …/tests/wpt/wpt-commit.txt)"
 ```
 
 ```bash
@@ -20,6 +25,36 @@ cargo run -p gosub-wpt -- <wpt-root> <test.html>... [-v]
 
 Paths are taken relative to the wpt root when they are not found as given. The exit code is
 non-zero if any subtest failed.
+
+## The expectations file
+
+`tests/wpt/forms-expectations.txt` is the committed baseline: which suites are covered, and
+which subtests are known to fail. Four record types - `FILE`, `FAIL <path> :: <name>`,
+`HARNESS` (the harness itself did not finish cleanly) and `ERROR` (the suite cannot run at
+all, usually a support file outside the sparse checkout).
+
+Files are listed explicitly rather than globbed, so adding tests to a wpt checkout cannot
+silently change what is covered.
+
+```bash
+cargo run -p gosub-wpt -- <wpt-root> --all --expect tests/wpt/forms-expectations.txt
+```
+
+That is what `cargo test -p gosub-wpt --test wpt_conformance` runs when `WPT_ROOT` is set,
+and what the `wpt-forms` CI job runs at the pinned commit. Without `WPT_ROOT` the test skips,
+so an ordinary `cargo test` needs no checkout.
+
+A listed test that starts passing is an **UNEXPECTED PASS** and fails the run. That is
+deliberate: improving behaviour is supposed to make you regenerate the baseline and commit
+the diff, so the file always says what the engine actually does.
+
+```bash
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" --write-expectations $(paths...) \
+    > tests/wpt/forms-expectations.txt
+```
+
+Diagnostics (console output, listener and timer exceptions, scripts that threw) go to
+stderr; only results go to stdout, so regenerating never picks up stray lines.
 
 ## The one rule
 
