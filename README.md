@@ -43,7 +43,7 @@ The engine is under active development. What works today:
 
 - **Multi-zone / multi-tab model** — zones isolate cookies and storage; tabs are controlled via `TabCommand`
 - **Async networking** — streaming HTTP fetcher with priority queues, inflight coalescing, redirect handling, and per-zone cookie isolation
-- **Event-driven UA interface** — `EngineEvent` (navigation, resource, redraw) flows out; `TabCommand` / `EngineCommand` flow in
+- **Event-driven UA interface** — `TabCommand` flows in; `EngineEvent` (navigation, downloads, redraw, crashes) flows out on a control bus, with per-resource detail on a separate opt-in stream
 - **HTML5 and CSS3 parsing** — spec-compliant parsers for both
 - **Pluggable render backends** — Null (headless), Cairo (GTK4), Skia, Vello (wgpu)
 

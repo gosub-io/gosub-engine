@@ -39,6 +39,10 @@ Every time we read data from the network, we take care of a few things:
 
 First, we move all the IO related task away from the main thread. For this we make a new thread that will be the `I/O Thread`. This thread will be responsible for all the network related tasks, and will communicate with the main thread using channels.
 
+> Everything on this page is engine-internal. `IoCommand`, `IoHandle`, `spawn_io_thread` and
+> `submit_to_io` are `pub(crate)`: an embedder never submits network work directly, it
+> navigates a tab and watches the resource stream.
+
 The `io_runtime.rs` file contains the code for the I/O thread. It spawns a new thread and returns a handle to it. This handle can be used to send tasks to the I/O thread. It contains a channel (`io_handle.subscribe()`) that can be passed around different components to send tasks to the I/O thread.
 
 The I/O Thread works by using an `IoRouter` to route requests to per-zone `Fetcher` instances, spawning them on first use. You submit a `FetchRequest` via `IoCommand::Fetch` to the I/O thread, which routes it to the appropriate zone's fetcher. That's basically it.
