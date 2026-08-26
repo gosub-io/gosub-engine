@@ -1,5 +1,5 @@
 use crate::cookies::SameSiteContext;
-use crate::engine::errors::NavigationError;
+use crate::engine::errors::{LoadError, NavigationError};
 use crate::engine::events::IoCommand;
 use crate::engine::events::Modifiers;
 use crate::engine::events::{CursorShape, EngineEvent, NavigationEvent};
@@ -854,7 +854,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     event: NavigationEvent::Failed {
                         nav_id: Some(nav_id),
                         url,
-                        error: Arc::new(error.into()),
+                        error: error.into(),
                     },
                 });
             }
@@ -1489,7 +1489,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 event: NavigationEvent::Failed {
                     nav_id: None,
                     url: url.clone(),
-                    error: Arc::new(e),
+                    error: LoadError::Io {
+                        message: format!("{e:#}"),
+                    },
                 },
             });
             return;
@@ -1695,16 +1697,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         event: NavigationEvent::Failed {
                             nav_id: Some(nav_id),
                             url: final_url.clone(),
-                            error: Arc::new(anyhow!("Reason: {}", reason)),
+                            error: LoadError::Blocked { reason },
                         },
                     });
                 }
                 Err(e) => {
-                    let err = format!("Routing error: {e}");
-                    let _ = tx_done.send(NavigationResult::Err {
-                        nav_id,
-                        error: NavigationError::NetworkError(err),
-                    });
+                    // The router wraps a `NetError` in `anyhow` on the fetch-failure path;
+                    // recover it so the classification (blocked, timeout, cancelled, I/O)
+                    // survives instead of becoming a message string.
+                    let error = match e.downcast_ref::<NetError>() {
+                        Some(net) => NavigationError::Net(net.clone()),
+                        None => NavigationError::NetworkError(format!("Routing error: {e}")),
+                    };
+                    let _ = tx_done.send(NavigationResult::Err { nav_id, error });
                 }
             }
         });
@@ -1752,7 +1757,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 event: NavigationEvent::Failed {
                     nav_id: None,
                     url: url.clone(),
-                    error: Arc::new(e),
+                    error: LoadError::Io {
+                        message: format!("{e:#}"),
+                    },
                 },
             });
             return;
@@ -2190,7 +2197,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     event: NavigationEvent::FailedUrl {
                         nav_id: None,
                         url: unvalidated_url.to_string(),
-                        error: Arc::new(e.into()),
+                        error: LoadError::InvalidUrl { message: e.to_string() },
                     },
                 });
 
@@ -2211,7 +2218,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     event: NavigationEvent::Failed {
                         nav_id: None,
                         url: url.clone(),
-                        error: Arc::new(e),
+                        error: LoadError::Io {
+                            message: format!("{e:#}"),
+                        },
                     },
                 });
 

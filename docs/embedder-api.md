@@ -134,8 +134,8 @@ Events for the main document. Every event in one navigation carries the same `Na
 |---|---|
 | `Started { url }` | |
 | `Finished { url }` | The final URL after redirects. |
-| `Failed { url, error }` | The fetch failed. |
-| `FailedUrl { url, error }` | The URL string did not parse, as opposed to `Failed`. |
+| `Failed { url, error }` | The load failed; `error` is a typed [`LoadError`](#errors). |
+| `FailedUrl { url, error }` | The URL string did not parse, as opposed to `Failed`. `error` is `LoadError::InvalidUrl`. |
 | `Cancelled { url, reason }` | `CancelReason` distinguishes new navigation, tab close, timeout, and explicit cancel. |
 | `DecisionRequired` · gated · | Declared but never emitted: the engine decides internally and announces a download with `EngineEvent::DownloadRequested` instead. The answering half (`SubmitDecision`, `DecisionToken`) is wired; the ask is not. |
 | `HistoryChanged { history }` | The whole `HistorySnapshot`, emitted after the corresponding `Finished`, so shells can drive back/forward menus without querying. |
@@ -164,6 +164,25 @@ Events arrive on two independent broadcast channels, because they have very diff
 They were one bus, which meant a page pulling a hundred subresources could push a `TabCrashed` out of the buffer before a busy shell read it. Splitting them means a shell that does not display per-resource detail never subscribes to the second one and pays nothing for the traffic.
 
 Both are bounded, so both can still lag - see [Contracts](#contracts). Nothing is ordered *between* the two streams; a `ResourceUpdate` and a `NavigationEvent` from the same load have no defined relative order.
+
+------------------------------------------------------------------------
+
+## Errors
+
+Failures arrive as a typed [`LoadError`](https://docs.rs/gosub_engine), not an opaque error string. The discriminant is what decides which error page a shell shows, and whether retrying could help.
+
+| Variant | Means | Retry? |
+|---|---|---|
+| `Blocked { reason }` | Refused before or instead of loading. `reason` is a `BlockReason`: `Policy`, `MixedContent`, `UrlPolicy`, `UnsupportedScheme`. | No |
+| `InvalidUrl { message }` | The URL string did not parse. | No |
+| `Network { message }` | The transfer failed - DNS, connection, TLS, HTTP. | Maybe |
+| `Timeout { message }` | The request did not finish within the time limit. | Maybe |
+| `Io { message }` | A local I/O failure: writing a download, opening storage. | Maybe |
+| `Cancelled { message }` | A new navigation, the tab closing, or an explicit cancel. | n/a |
+| `Content { message }` | The bytes arrived but could not be made into a document. | No |
+| `Other { message }` | Unclassified. | Unknown |
+
+It implements `Display`, so code that only prints the error needs no change from the days when this was an `Arc<anyhow::Error>`. It is `#[non_exhaustive]`: match with a `_` arm, because variants will be added as the engine learns to tell failures apart.
 
 ------------------------------------------------------------------------
 
@@ -234,7 +253,7 @@ Subscribe to events instead when you need the moment something changes, or detai
 
 -   **`Redraw` is still on the control bus.** It fires per frame, so a shell scrolling at 60fps puts real traffic alongside `TabCrashed`. It sits there because shells overwhelmingly want it in the same loop as navigation, and because a dropped one costs a coalesced repaint. If it becomes a problem it wants a third stream, not a bigger buffer.
 -   **The input model is thin.** `KeyDown.key` is a `String` rather than a typed key, and there is no IME composition, touch, or pointer id. `TextInput` is declared but not yet handled, so text editing does not work at all. `FocusChanged { editable }` is the hook for an on-screen keyboard, waiting on the other half.
--   **Errors are opaque.** `NavigationEvent::Failed`, `FailedUrl` and `ResourceEvent::Failed` carry `Arc<anyhow::Error>`, so telling a DNS failure from a TLS failure from a refused connection means matching on strings. A typed error is wanted; it needs a taxonomy mapped from the network layer's `NetError`.
+-   **`LoadError::Network` still lumps DNS, connect and TLS together**, because the HTTP client reports them as one error type. Telling them apart means inspecting `reqwest::Error` inside the network layer. Separately, the *resource* stream is coarser than the navigation one: `ResourceEvent::Failed` can only ever be `Network`, because `NetEvent::Failed` carries a bare `anyhow::Error` where the navigation path gets a typed `NetError`. Both want a change in gosub-sonar; `LoadError` is `#[non_exhaustive]` so neither will be breaking.
 -   **The decision flow is half-built.** `DecisionRequired` is gated and never emitted, yet `SubmitDecision`, `DecisionToken` and the engine's `DecisionHub` are all wired to answer it. Either the ask gets built (it needs a `UaPolicy` flag) or the answering half should go.
 -   **`create_zone(Option<ZoneConfig>, ZoneServices, Option<ZoneId>)`** is builder territory that has not been built.
 -   **`#![deny(missing_docs)]` is commented out** at the top of `lib.rs`. Some of what is public is public by accident.

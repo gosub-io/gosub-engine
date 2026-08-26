@@ -1,12 +1,13 @@
 use crate::engine::events::{CancelReason, ResourceEvent};
 use crate::engine::types::{EventChannel, RequestId, ResourceChannel};
+use crate::engine::LoadError;
 use crate::events::{EngineEvent, ResourceUpdate};
 use crate::net::emitter::NetObserver;
 use crate::net::events::NetEvent;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{Initiator, ResourceKind};
+use crate::net::BlockReason;
 use crate::tab::TabId;
-use std::sync::Arc;
 
 /// Converts NetEvents into EngineEvents and send them over to the event_tx channel back to the UA
 pub struct EngineEventEmitter {
@@ -179,7 +180,9 @@ impl NetObserver for EngineEventEmitter {
                     request_id: self.req_id,
                     reference: self.reference,
                     url: url.to_string(),
-                    error: Arc::new(anyhow::anyhow!("blocked: {reason:?}")),
+                    error: LoadError::Blocked {
+                        reason: BlockReason::from_net(reason),
+                    },
                 });
             }
             NetEvent::Failed { url, error } => {
@@ -188,7 +191,9 @@ impl NetObserver for EngineEventEmitter {
                     request_id: self.req_id,
                     reference: self.reference,
                     url: url.to_string(),
-                    error: error.into(),
+                    error: LoadError::Network {
+                        message: format!("{error:#}"),
+                    },
                 });
             }
             NetEvent::Cancelled { url, reason } => {

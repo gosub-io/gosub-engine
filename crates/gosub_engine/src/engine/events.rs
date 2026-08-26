@@ -11,6 +11,7 @@
 
 #[cfg(feature = "unstable-api")]
 use crate::cookies::Cookie;
+use crate::engine::errors::LoadError;
 use crate::engine::types::{Action, NavigationId, RequestId};
 use crate::net::req_ref_tracker::RequestReference;
 #[cfg(feature = "unstable-api")]
@@ -26,7 +27,6 @@ use bitflags::bitflags;
 #[cfg(feature = "unstable-api")]
 use gosub_render_pipeline::render::Viewport;
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use url::Url;
@@ -385,7 +385,7 @@ pub enum NavigationEvent {
     Failed {
         nav_id: Option<NavigationId>,
         url: Url,
-        error: Arc<anyhow::Error>,
+        error: LoadError,
     },
     /// Load progress of the main document, throttled.
     Progress {
@@ -398,7 +398,7 @@ pub enum NavigationEvent {
     FailedUrl {
         nav_id: Option<NavigationId>,
         url: String,
-        error: Arc<anyhow::Error>,
+        error: LoadError,
     },
     Cancelled {
         nav_id: NavigationId,
@@ -497,7 +497,7 @@ pub enum ResourceEvent {
         request_id: RequestId,
         reference: RequestReference,
         url: String,
-        error: Arc<anyhow::Error>,
+        error: LoadError,
     },
     Cancelled {
         request_id: RequestId,

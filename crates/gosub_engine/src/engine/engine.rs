@@ -442,6 +442,87 @@ mod tests {
         }
     }
 
+    /// A failing navigation must reach the embedder classified, not as a string it has to
+    /// parse. Port 9 (discard) refuses connections, so this is a transport failure.
+    #[tokio::test(flavor = "current_thread")]
+    async fn failed_navigation_reports_a_typed_error() {
+        use crate::events::NavigationEvent;
+        use crate::LoadError;
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        tab.navigate("http://127.0.0.1:9/nope").await.expect("navigate");
+
+        let error = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => return error,
+                    Ok(_) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for NavigationEvent::Failed");
+
+        assert!(
+            matches!(error, LoadError::Network { .. }),
+            "a refused connection should classify as Network, got {error:?}"
+        );
+        // And it still prints something a shell can show.
+        assert!(!error.to_string().is_empty());
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// An unparseable URL is a different kind of failure from a transport one.
+    #[tokio::test(flavor = "current_thread")]
+    async fn unparseable_url_reports_invalid_url() {
+        use crate::events::NavigationEvent;
+        use crate::LoadError;
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        tab.navigate("not a url at all").await.expect("navigate");
+
+        let error = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::FailedUrl { error, .. },
+                        ..
+                    }) => return error,
+                    Ok(_) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for NavigationEvent::FailedUrl");
+
+        assert!(
+            matches!(error, LoadError::InvalidUrl { .. }),
+            "expected InvalidUrl, got {error:?}"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     fn engine_with_max_zones(max_zones: usize) -> GosubEngine {
         let settings = EngineConfig::builder().max_zones(max_zones).build().unwrap();
         GosubEngine::new(

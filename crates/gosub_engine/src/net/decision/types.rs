@@ -51,19 +51,45 @@ pub enum HandlingDecision {
     Download { path: PathBuf },
 }
 
-/// Reason on why the response was blocked.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Why a load was refused.
+///
+/// Covers both the engine's own decision path and the refusals the network layer reports;
+/// [`from_net`](Self::from_net) maps gosub-sonar's vocabulary into this one, following the
+/// same pattern as [`ResourceKind`](crate::net::types::ResourceKind).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BlockReason {
     /// A user agent or site policy explicitly forbids this load.
-    /// Example: mixed-content block, CSP violation, or UA rule against auto-downloads.
+    /// Example: a CSP violation, or a UA rule against auto-downloads.
     Policy,
+    /// An insecure subresource was requested by a secure document.
+    MixedContent,
+    /// Refused by the URL policy the engine gave the fetcher.
+    UrlPolicy,
+    /// The URL scheme is not `http` or `https`.
+    UnsupportedScheme,
+}
+
+impl BlockReason {
+    /// Map the network layer's refusal reason into the engine's vocabulary.
+    pub fn from_net(reason: gosub_sonar::net::types::BlockReason) -> Self {
+        match reason {
+            gosub_sonar::net::types::BlockReason::MixedContent => BlockReason::MixedContent,
+            gosub_sonar::net::types::BlockReason::UrlPolicy => BlockReason::UrlPolicy,
+            gosub_sonar::net::types::BlockReason::UnsupportedScheme => BlockReason::UnsupportedScheme,
+        }
+    }
 }
 
 impl std::fmt::Display for BlockReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BlockReason::Policy => write!(f, "policy block"),
-        }
+        let s = match self {
+            BlockReason::Policy => "blocked by policy",
+            BlockReason::MixedContent => "blocked as mixed content",
+            BlockReason::UrlPolicy => "blocked by URL policy",
+            BlockReason::UnsupportedScheme => "unsupported URL scheme",
+        };
+        f.write_str(s)
     }
 }
 
