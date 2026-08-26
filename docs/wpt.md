@@ -44,6 +44,21 @@ That is what `cargo test -p gosub-wpt --test wpt_conformance` runs when `WPT_ROO
 and what the `wpt-forms` CI job runs at the pinned commit. Without `WPT_ROOT` the test skips,
 so an ordinary `cargo test` needs no checkout.
 
+## The overview page
+
+`--report page.html` writes a coverage-report view of the whole run: the headline rate, then
+every directory with its pass/fail split and a bar, expandable to the suites underneath.
+Suites that could not run at all, or whose harness did not finish cleanly, carry a badge.
+
+```bash
+cargo run --release -p gosub-wpt -- "$WPT_ROOT" --all \
+    --expect tests/wpt/forms-expectations.txt --report wpt-forms.html
+```
+
+Rates are subtests, not files, and known failures count as failures - the page shows the
+corpus as it is, not as the expectations describe it. The template is
+`bin/gosub-wpt/report.html`; the run inlines its data, the wpt commit and the date.
+
 A listed test that starts passing is an **UNEXPECTED PASS** and fails the run. That is
 deliberate: improving behaviour is supposed to make you regenerate the baseline and commit
 the diff, so the file always says what the engine actually does.

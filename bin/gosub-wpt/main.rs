@@ -23,6 +23,9 @@ use serde::Deserialize;
 
 /// Installed after testharness.js: the shell environment completes on an explicit `done()`,
 /// and results land in a global the driver reads back out.
+/// The report page, with `__DATA__`, `__COMMIT__` and `__DATE__` filled in at write time.
+const REPORT_TEMPLATE: &str = include_str!("report.html");
+
 const RESULTS_HOOK: &str = r#"
 setup({ explicit_done: true });
 globalThis.__wpt_results = null;
@@ -58,6 +61,9 @@ struct Args {
     /// Run every file the expectations list covers, instead of naming them on the command line
     #[arg(long)]
     all: bool,
+    /// Write an HTML overview of the run - a coverage-report view of the whole corpus.
+    #[arg(long)]
+    report: Option<PathBuf>,
     /// Print a fresh expectations file to stdout instead of a report. Regenerating is how the
     /// baseline moves: run it, read the diff, commit it.
     #[arg(long)]
@@ -213,13 +219,22 @@ fn expectation_key(wpt_root: &Path, test_path: &Path) -> String {
         .into_owned()
 }
 
+/// What one suite did, in absolute terms: known failures still count as failures here, so
+/// the report shows the corpus as it is rather than as the expectations describe it.
+struct Outcome {
+    ok: bool,
+    pass: u32,
+    fail: u32,
+    harness: bool,
+}
+
 fn run_test(
     wpt_root: &Path,
     test_path: &Path,
     verbose: bool,
     expect: &Expectations,
     record: bool,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<Outcome> {
     let source = std::fs::read_to_string(test_path).with_context(|| format!("reading {}", test_path.display()))?;
     let (doc, _parse_errors) = parse_document(&source, None)?;
     let scripts = collect_scripts(&doc.borrow());
@@ -316,7 +331,12 @@ fn run_test(
                 println!("FAIL {key} :: {}", escape(&test.name));
             }
         }
-        return Ok(true);
+        return Ok(Outcome {
+            ok: true,
+            pass: results.tests.iter().filter(|t| t.status == 0).count() as u32,
+            fail: results.tests.iter().filter(|t| t.status != 0).count() as u32,
+            harness: results.status != 0,
+        });
     }
     let (mut passed, mut failed, mut expected, mut unexpected_pass) = (0, 0, 0, 0);
     for test in &results.tests {
@@ -362,31 +382,112 @@ fn run_test(
         String::new()
     };
     println!("{}: {passed} passed, {failed} failed{known}", test_path.display());
-    Ok(harness_ok && failed == 0 && unexpected_pass == 0)
+    Ok(Outcome {
+        ok: harness_ok && failed == 0 && unexpected_pass == 0,
+        pass: passed,
+        fail: failed + expected,
+        harness: results.status != 0,
+    })
+}
+
+/// One suite's line in the report.
+#[derive(serde::Serialize)]
+struct Row {
+    path: String,
+    pass: u32,
+    fail: u32,
+    harness: bool,
+    error: bool,
+}
+
+/// Write the overview page: the template with this run's rows inlined.
+fn write_report(path: &Path, rows: &[Row], wpt_root: &Path) -> anyhow::Result<()> {
+    let commit = std::fs::read_to_string(wpt_root.join(".git/HEAD"))
+        .ok()
+        .and_then(|head| {
+            let head = head.trim().to_string();
+            match head.strip_prefix("ref: ") {
+                Some(reference) => std::fs::read_to_string(wpt_root.join(".git").join(reference)).ok(),
+                None => Some(head),
+            }
+        })
+        .map(|sha| sha.trim().chars().take(10).collect::<String>())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let data = serde_json::to_string(&serde_json::json!({ "files": rows }))?;
+    let page = REPORT_TEMPLATE
+        .cow_replace("__DATA__", &data)
+        .cow_replace("__COMMIT__", &commit)
+        .cow_replace("__DATE__", &today())
+        .into_owned();
+    std::fs::write(path, page).with_context(|| format!("writing {}", path.display()))?;
+    println!("report written to {}", path.display());
+    Ok(())
+}
+
+/// The date, from the filesystem rather than a clock crate: the report only needs to say
+/// roughly when it was made.
+fn today() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = (now / 86_400) as i64;
+    let (mut year, mut remaining) = (1970, days);
+    loop {
+        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        let length = if leap { 366 } else { 365 };
+        if remaining < length {
+            break;
+        }
+        remaining -= length;
+        year += 1;
+    }
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let months = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 0;
+    while remaining >= months[month] {
+        remaining -= months[month];
+        month += 1;
+    }
+    format!("{year:04}-{:02}-{:02}", month + 1, remaining + 1)
 }
 
 /// Run one file, turning a hard error into a pass when the expectations say it cannot run.
-fn run_or_expect_error(wpt_root: &Path, path: &Path, verbose: bool, expect: &Expectations, record: bool) -> bool {
+fn run_or_expect_error(
+    wpt_root: &Path,
+    path: &Path,
+    verbose: bool,
+    expect: &Expectations,
+    record: bool,
+) -> (bool, Row) {
     let key = expectation_key(wpt_root, path);
+    let row = |pass, fail, harness, error| Row {
+        path: key.clone(),
+        pass,
+        fail,
+        harness,
+        error,
+    };
     match run_test(wpt_root, path, verbose, expect, record) {
-        Ok(ok) => {
+        Ok(outcome) => {
             if !record && expect.erroring.contains(&key) {
                 println!("{}: UNEXPECTED RUN (listed as ERROR)", path.display());
-                return false;
+                return (false, row(outcome.pass, outcome.fail, outcome.harness, false));
             }
-            ok
+            (outcome.ok, row(outcome.pass, outcome.fail, outcome.harness, false))
         }
         Err(e) => {
             if record {
                 println!("ERROR {key}");
-                return true;
+                return (true, row(0, 0, false, true));
             }
             if expect.erroring.contains(&key) {
                 println!("{}: known ERROR ({e:#})", path.display());
-                return true;
+                return (true, row(0, 0, false, true));
             }
             println!("{}: ERROR {e:#}", path.display());
-            false
+            (false, row(0, 0, false, true))
         }
     }
 }
@@ -418,13 +519,23 @@ fn main() -> ExitCode {
     }
 
     let mut all_ok = true;
+    let mut rows = Vec::with_capacity(tests.len());
     for test in &tests {
         let path = if test.is_absolute() || test.exists() {
             test.clone()
         } else {
             args.wpt_root.join(test)
         };
-        all_ok &= run_or_expect_error(&args.wpt_root, &path, args.verbose, &expect, args.write_expectations);
+        let (ok, row) = run_or_expect_error(&args.wpt_root, &path, args.verbose, &expect, args.write_expectations);
+        all_ok &= ok;
+        rows.push(row);
+    }
+
+    if let Some(report) = args.report.as_deref() {
+        if let Err(e) = write_report(report, &rows, &args.wpt_root) {
+            println!("could not write the report: {e:#}");
+            return ExitCode::FAILURE;
+        }
     }
 
     if all_ok {
