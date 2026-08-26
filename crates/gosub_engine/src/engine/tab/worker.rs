@@ -1,6 +1,5 @@
 use crate::cookies::SameSiteContext;
 use crate::engine::errors::{LoadError, NavigationError};
-use crate::engine::events::IoCommand;
 use crate::engine::events::Modifiers;
 use crate::engine::events::{CursorShape, EngineEvent, NavigationEvent};
 use crate::engine::internal_pages::{InternalPages, TabView};
@@ -943,6 +942,54 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
     }
 
+    /// Load a spooled download offer as the page. The override for a misclassified
+    /// response; see [`TabCommand::RenderDownload`].
+    fn render_download(&mut self, url: String) {
+        let Ok(parsed) = Url::parse(&url) else {
+            self.send_event(EngineEvent::Navigation {
+                tab_id: self.tab_id,
+                event: NavigationEvent::FailedUrl {
+                    nav_id: None,
+                    url,
+                    error: LoadError::InvalidUrl {
+                        message: "not a URL".into(),
+                    },
+                },
+            });
+            return;
+        };
+        let Some(spooled) = self.spooled_downloads.remove(&parsed) else {
+            self.send_event(EngineEvent::Navigation {
+                tab_id: self.tab_id,
+                event: NavigationEvent::Failed {
+                    nav_id: None,
+                    url: parsed,
+                    error: LoadError::Content {
+                        message: "no pending download offer for this URL".into(),
+                    },
+                },
+            });
+            return;
+        };
+        // The body is bytes of unknown encoding; the HTML parser's own sniffing would be
+        // better, but `load_html` takes a `String`, so decode lossily for now.
+        let html = match std::fs::read(&spooled) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(e) => {
+                self.send_event(EngineEvent::Navigation {
+                    tab_id: self.tab_id,
+                    event: NavigationEvent::Failed {
+                        nav_id: None,
+                        url: parsed,
+                        error: LoadError::Io { message: e.to_string() },
+                    },
+                });
+                return;
+            }
+        };
+        self.load_html(html, url);
+    }
+
     fn start_download(&mut self, id: crate::engine::events::DownloadId, url: String, target_path: std::path::PathBuf) {
         let Ok(url) = Url::parse(&url) else {
             self.send_event(EngineEvent::DownloadFailed {
@@ -1271,16 +1318,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
                 ControlFlow::Continue
             }
-            TabCommand::SubmitDecision {
-                decision_token, action, ..
-            } => {
-                // Proxy the submit decision to the I/O thread
-                let _ = self.zone_context.io_tx.send(IoCommand::Decision {
-                    token: decision_token,
-                    action,
-                });
-
-                // Decisions are handled in the fetcher/io thread, so we can ignore this here
+            TabCommand::RenderDownload { url } => {
+                self.render_download(url);
                 ControlFlow::Continue
             }
             #[cfg(feature = "unstable-api")]

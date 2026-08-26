@@ -233,7 +233,6 @@ pub use gosub_config::storage as config_storage;
 pub use gosub_config::Config;
 pub use gosub_config::StorageAdapter;
 
-pub use engine::types::Action;
 pub use engine::types::NavigationId;
 
 #[doc(inline)]

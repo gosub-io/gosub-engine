@@ -542,6 +542,108 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A page served as an attachment is offered as a download; `RenderDownload` overrides
+    /// that and loads the already-spooled body as the page. No second request is made.
+    #[tokio::test(flavor = "current_thread")]
+    async fn render_download_loads_a_misclassified_page() {
+        use crate::events::NavigationEvent;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let hits_srv = hits.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let hits_srv = hits_srv.clone();
+                tokio::spawn(async move {
+                    hits_srv.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let body = "<html><head><title>Actually a page</title></head><body>hi</body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                         Content-Disposition: attachment; filename=\"page.bin\"\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        tab.navigate(format!("http://127.0.0.1:{port}/page"))
+            .await
+            .expect("navigate");
+        let offered_url = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { url, .. }) => return url,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for DownloadRequested");
+        let served = hits.load(std::sync::atomic::Ordering::SeqCst);
+
+        tab.render_download(offered_url.to_string()).await.expect("render");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }) => return,
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("render failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the rendered page");
+
+        assert_eq!(tab.title(), "Actually a page");
+        assert_eq!(tab.url().map(|u| u.to_string()), Some(offered_url.to_string()));
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            served,
+            "must not re-fetch"
+        );
+
+        // The offer is consumed: a second override has nothing to render.
+        tab.render_download(offered_url.to_string()).await.expect("send");
+        let error = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Failed { error, .. },
+                    ..
+                }) = events.recv().await
+                {
+                    return error;
+                }
+            }
+        })
+        .await
+        .expect("expected a Failed for a consumed offer");
+        assert!(matches!(error, crate::LoadError::Content { .. }), "got {error:?}");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     fn engine_with_max_zones(max_zones: usize) -> GosubEngine {
         let settings = EngineConfig::builder().max_zones(max_zones).build().unwrap();
         GosubEngine::new(

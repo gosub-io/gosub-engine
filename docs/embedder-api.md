@@ -56,7 +56,7 @@ Several of these steps only work in one order, and the signatures do not say so.
 
 ## Commands in: `TabCommand`
 
-Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, `set_title`, `set_viewport`, `set_scroll`, `go_back`, `go_forward`, `submit_decision`). All are fire-and-forget: the return value says the worker accepted the message, not what it did with it.
+Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, `set_title`, `set_viewport`, `set_scroll`, `go_back`, `go_forward`, `render_download`). All are fire-and-forget: the return value says the worker accepted the message, not what it did with it.
 
 | Command | Notes |
 |---|---|
@@ -66,7 +66,7 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | `Reload { ignore_cache }` | Always refetches, fragment or not. |
 | `CancelNavigation` | |
 | `GoBack` / `GoForward { entry }` / `GoToHistoryEntry { entry }` | History is a tree rather than a stack. `GoForward { None }` takes the most recently visited child. Entry ids come from `NavigationEvent::HistoryChanged`. |
-| `SubmitDecision { nav_id, decision_token, action }` | Handled, but currently unreachable: the only source of a `DecisionToken` is the gated `DecisionRequired`. Wrapped by `tab.submit_decision(..)`. |
+| `RenderDownload { url }` | Load a pending `DownloadRequested` offer as the page instead of saving it - the override for a misclassified response. Wrapped by `tab.render_download(url)`. |
 | `StartDownload { id, url, target_path }` | `id` is minted by you. Accepting an offer moves the already-captured body into place rather than re-requesting the URL; a URL with no offer pending is fetched. |
 | `CloseTab` | |
 | **Rendering control** | |
@@ -137,7 +137,6 @@ Events for the main document. Every event in one navigation carries the same `Na
 | `Failed { url, error }` | The load failed; `error` is a typed [`LoadError`](#errors). |
 | `FailedUrl { url, error }` | The URL string did not parse, as opposed to `Failed`. `error` is `LoadError::InvalidUrl`. |
 | `Cancelled { url, reason }` | `CancelReason` distinguishes new navigation, tab close, timeout, and explicit cancel. |
-| `DecisionRequired` · gated · | Declared but never emitted: the engine decides internally and announces a download with `EngineEvent::DownloadRequested` instead. The answering half (`SubmitDecision`, `DecisionToken`) is wired; the ask is not. |
 | `HistoryChanged { history }` | The whole `HistorySnapshot`, emitted after the corresponding `Finished`, so shells can drive back/forward menus without querying. |
 | `Committed` · gated · | There is no separate commit point yet; a load goes `Started` → `Finished`. |
 | `Progress { received_bytes, expected_length, elapsed, .. }` | Load progress of the main document, throttled. |
@@ -242,7 +241,7 @@ Subscribe to events instead when you need the moment something changes, or detai
 
 ## Contracts
 
--   **Downloads arrive as an offer, not a question, and the bytes are already yours.** When a response is not a renderable page (content-type or `Content-Disposition` says download, or the type is unknown) the engine decides on its own: it cancels the navigation, leaves the page in place, and emits `EngineEvent::DownloadRequested`. Answer with `StartDownload` or ignore it. There is no blocking ask - `NavigationEvent::DecisionRequired` exists but is behind `unstable-api` and never fires. The response body is spooled to a temp file at that point, so accepting places what was already fetched instead of issuing a second request; ignoring the offer releases it.
+-   **Downloads arrive as an offer, not a question, and the bytes are already yours.** When a response is not a renderable page (content-type or `Content-Disposition` says download, or the type is unknown) the engine decides on its own: it cancels the navigation, leaves the page in place, and emits `EngineEvent::DownloadRequested`. Answer with `StartDownload` or ignore it. There is no blocking ask; the offer is the ask, and `RenderDownload` is the answer that overrides the engine's classification. The response body is spooled to a temp file at that point, so accepting places what was already fetched instead of issuing a second request; ignoring the offer releases it.
 -   **`ResumeDrawing` before anything paints.** See [Lifecycle](#lifecycle-and-ordering) step 7.
 -   **Tokens are yours to mint.** `HitTestToken` and `DownloadId` are chosen by the embedder and echoed back. Uniqueness is your responsibility; the engine does not check.
 -   **`TabCrashed` means the tab is gone.** Stop sending to that handle and recreate the tab.
@@ -256,7 +255,6 @@ Subscribe to events instead when you need the moment something changes, or detai
 -   **`Redraw` is still on the control bus.** It fires per frame, so a shell scrolling at 60fps puts real traffic alongside `TabCrashed`. It sits there because shells overwhelmingly want it in the same loop as navigation, and because a dropped one costs a coalesced repaint. If it becomes a problem it wants a third stream, not a bigger buffer.
 -   **The input model is thin.** `KeyDown.key` is a `String` rather than a typed key, and there is no IME composition, touch, or pointer id. `TextInput` is declared but not yet handled, so text editing does not work at all. `FocusChanged { editable }` is the hook for an on-screen keyboard, waiting on the other half.
 -   **`LoadError::Network` still lumps DNS, connect and TLS together**, because the HTTP client reports them as one error type. Telling them apart means inspecting `reqwest::Error` inside the network layer. Separately, the *resource* stream is coarser than the navigation one: `ResourceEvent::Failed` can only ever be `Network`, because `NetEvent::Failed` carries a bare `anyhow::Error` where the navigation path gets a typed `NetError`. Both want a change in gosub-sonar; `LoadError` is `#[non_exhaustive]` so neither will be breaking.
--   **The decision flow is half-built.** `DecisionRequired` is gated and never emitted, yet `SubmitDecision`, `DecisionToken` and the engine's `DecisionHub` are all wired to answer it. Either the ask gets built (it needs a `UaPolicy` flag) or the answering half should go.
 -   **`create_zone(Option<ZoneConfig>, ZoneServices, Option<ZoneId>)`** is builder territory that has not been built.
 -   **`#![deny(missing_docs)]` is commented out** at the top of `lib.rs`. Some of what is public is public by accident.
 

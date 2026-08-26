@@ -1,6 +1,5 @@
-use crate::engine::types::{Action, NavigationId, TabChannel};
+use crate::engine::types::TabChannel;
 use crate::events::TabCommand;
-use crate::net::DecisionToken;
 use crate::tab::sink::TabSink;
 use crate::tab::TabId;
 use crate::EngineError;
@@ -110,24 +109,9 @@ impl TabHandle {
         self.send(TabCommand::GoForward { entry: None }).await
     }
 
-    /// Answer a pending `NavigationEvent::DecisionRequired`. See [`Action`] for the choices.
-    ///
-    /// Currently unreachable in practice: nothing emits that event (it is behind the
-    /// `unstable-api` feature), so there is no way to obtain a [`DecisionToken`]. Downloads
-    /// surface as [`EngineEvent::DownloadRequested`](crate::events::EngineEvent::DownloadRequested)
-    /// instead, answered with [`TabCommand::StartDownload`].
-    pub async fn submit_decision(
-        &self,
-        nav_id: NavigationId,
-        decision_token: DecisionToken,
-        action: Action,
-    ) -> Result<(), EngineError> {
-        self.send(TabCommand::SubmitDecision {
-            nav_id,
-            decision_token,
-            action,
-        })
-        .await
+    /// Load a pending download offer as the page instead. See [`TabCommand::RenderDownload`].
+    pub async fn render_download(&self, url: impl Into<String>) -> Result<(), EngineError> {
+        self.send(TabCommand::RenderDownload { url: url.into() }).await
     }
 
     /// Set the scroll offset to an absolute position in CSS px. See [`TabCommand::SetScroll`].

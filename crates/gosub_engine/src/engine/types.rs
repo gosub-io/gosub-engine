@@ -5,17 +5,6 @@ pub use gosub_sonar::types::{PeekBuf, RequestId};
 use std::fmt::Display;
 use uuid::Uuid;
 
-/// What the engine should do with a response once the UA has decided
-#[derive(Debug, Clone, PartialEq)]
-pub enum Action {
-    /// Engine will render the stream
-    Render,
-    /// Stream will be downloaded to the specified path
-    Download { dest: std::path::PathBuf },
-    /// Stream will be cancelled
-    Cancel,
-}
-
 /// Navigation ID is the same for each complete load, including iframes, resources redirect etc
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct NavigationId(pub Uuid);

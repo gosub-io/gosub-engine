@@ -16,7 +16,7 @@
 //! - **Typed events** emitted during fetch & routing phases ([`events`]).
 //!
 //! Most of this is engine plumbing. What an embedder actually touches is [`types`]
-//! (carried by navigation and resource events) and [`DecisionToken`].
+//! (carried by navigation and resource events).
 //!
 //! ## Threading model (high level)
 //! ```text
@@ -54,7 +54,6 @@
 //! items are documented via the re-exports that follow.
 //!
 mod decision;
-mod decision_hub;
 mod emitter;
 pub mod events;
 mod fetcher;
@@ -70,9 +69,6 @@ mod utils;
 pub use decision::decide_handling;
 /// Common decision enums used across the network -> engine boundary.
 pub use decision::types::{BlockReason, DecisionOutcome, HandlingDecision, RenderTarget, RequestDestination};
-/// A **token** used to coordinate decisions across subsystems (e.g., to cancel or defer).
-pub use decision_hub::DecisionToken;
-
 /// Shared, back-pressure-aware **streamed body** used by fetcher and consumers.
 pub use shared_body::SharedBody;
 

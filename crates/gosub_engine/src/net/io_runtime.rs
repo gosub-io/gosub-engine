@@ -1,7 +1,6 @@
 use crate::engine::events::IoCommand;
 use crate::engine::types::IoChannel;
 use crate::engine::EngineContext;
-use crate::net::decision_hub::DecisionHub;
 use crate::net::fetcher::{EngineNetContext, Fetcher, FetcherConfig};
 use crate::net::req_ref_tracker::RequestRefTracker;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
@@ -89,9 +88,6 @@ pub struct IoRouter {
     cfg: FetcherConfig,
     /// Shared engine context for event broadcasting and request tracking
     engine_ctx: Arc<EngineContext>,
-    /// Pending UA decisions (render/download/...) keyed by decision token.
-    /// Tokens are process-wide unique, so one hub serves all zones.
-    decision_hub: Arc<DecisionHub>,
     /// Observer factory for requests the engine serves itself (the `file://` scheme),
     /// so they emit the same resource events a gosub-sonar fetch would.
     local_ctx: EngineNetContext,
@@ -109,7 +105,6 @@ impl IoRouter {
             zones: DashMap::new(),
             cfg,
             engine_ctx,
-            decision_hub: Arc::new(DecisionHub::new()),
             local_ctx,
         }
     }
@@ -267,11 +262,6 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                                 Ok(fetcher) => fetcher.submit(req, handle.cancel.clone(), reply_tx).await,
                                 Err(e) => log::error!("Failed to create fetcher for zone {zone_id}: {e}"),
                             }
-                        }
-                        Some(IoCommand::Decision { token, action }) => {
-                            // Decisions are engine-owned (gosub-sonar has no decision hub);
-                            // tokens are unique so a single hub covers every zone.
-                            router.decision_hub.fulfill(token, action);
                         }
                         Some(IoCommand::ShutdownZone { zone_id, reply_tx }) => {
                             let _ = router.shutdown_zone(zone_id).await;

@@ -288,7 +288,6 @@ mod tests {
                         // drop the sender to unblock the pipeline's `rx.await` without crafting a FetchResult
                         drop(reply_tx);
                     }
-                    IoCommand::Decision { .. } => { /* not used here */ }
                     IoCommand::ShutdownZone { reply_tx, .. } => {
                         let _ = reply_tx.send(());
                     }
