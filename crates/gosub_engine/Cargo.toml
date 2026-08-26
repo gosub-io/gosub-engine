@@ -58,9 +58,10 @@ mimetype-detector = "0.3.11"
 image = { workspace = true }
 async-trait = "0.1.89"
 allsorts = "0.17"
+# Download bodies are spooled to a temp file while the embedder decides (see net::router).
+tempfile = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 
 [features]
 default = ["sqlite_cookie_store"]

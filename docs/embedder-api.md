@@ -67,7 +67,7 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | `CancelNavigation` | |
 | `GoBack` / `GoForward { entry }` / `GoToHistoryEntry { entry }` | History is a tree rather than a stack. `GoForward { None }` takes the most recently visited child. Entry ids come from `NavigationEvent::HistoryChanged`. |
 | `SubmitDecision { nav_id, decision_token, action }` | Handled, but currently unreachable: the only source of a `DecisionToken` is the gated `DecisionRequired`. Wrapped by `tab.submit_decision(..)`. |
-| `StartDownload { id, url, target_path }` | `id` is minted by you. |
+| `StartDownload { id, url, target_path }` | `id` is minted by you. Accepting an offer moves the already-captured body into place rather than re-requesting the URL; a URL with no offer pending is fetched. |
 | `CloseTab` | |
 | **Rendering control** | |
 | `ResumeDrawing { fps }` / `SuspendDrawing` | Nothing paints before the first `ResumeDrawing`. |
@@ -110,8 +110,8 @@ One broadcast bus carries everything, from `Redraw` at frame rate to `TabCrashed
 | `HitTestResult { token, hit }` | Answers `QueryHitTest` with the same token. |
 | `FavIconChanged { favicon }` | Raw bytes as served (ICO/PNG/SVG); decode them yourself. Emitted once per committed navigation, and not at all when there is no reachable icon, so keep your placeholder. |
 | **Downloads** | |
-| `DownloadRequested { url, suggested_filename, ... }` | The navigation was cancelled and the page stayed. Answer with `StartDownload` or ignore the offer. |
-| `DownloadProgress` / `DownloadFinished` / `DownloadFailed { id, ... }` | Correlated by the `DownloadId` you minted. `DownloadFailed` may leave a partial file. |
+| `DownloadRequested { url, suggested_filename, ... }` | The navigation was cancelled and the page stayed. Answer with `StartDownload` or ignore the offer. The body is already transferred and spooled to a temp file, released if you never accept. |
+| `DownloadProgress` / `DownloadFinished` / `DownloadFailed { id, ... }` | Correlated by the `DownloadId` you minted. `DownloadProgress` only appears for downloads the engine had to fetch (save-link-as) - an accepted offer is already on disk and finishes at once. `DownloadFailed` may leave a partial file. |
 | **Tab lifecycle** | |
 | `TabCreated` / `TabClosed { tab_id, zone_id }` | |
 | `TabCrashed { tab_id, zone_id, error }` | The worker panicked. The tab is dead: its handle's commands now fail and no further events arrive for it. Show a crash page and offer reload by recreating the tab. |
@@ -205,7 +205,7 @@ Subscribe to events instead when you need the moment something changes, or detai
 
 ## Contracts
 
--   **Downloads arrive as an offer, not a question.** When a response is not a renderable page (content-type or `Content-Disposition` says download, or the type is unknown) the engine decides on its own: it cancels the navigation, leaves the page in place, and emits `EngineEvent::DownloadRequested`. Answer with `StartDownload` or ignore it. There is no blocking ask - `NavigationEvent::DecisionRequired` exists but is behind `unstable-api` and never fires.
+-   **Downloads arrive as an offer, not a question, and the bytes are already yours.** When a response is not a renderable page (content-type or `Content-Disposition` says download, or the type is unknown) the engine decides on its own: it cancels the navigation, leaves the page in place, and emits `EngineEvent::DownloadRequested`. Answer with `StartDownload` or ignore it. There is no blocking ask - `NavigationEvent::DecisionRequired` exists but is behind `unstable-api` and never fires. The response body is spooled to a temp file at that point, so accepting places what was already fetched instead of issuing a second request; ignoring the offer releases it.
 -   **`ResumeDrawing` before anything paints.** See [Lifecycle](#lifecycle-and-ordering) step 7.
 -   **Tokens are yours to mint.** `HitTestToken` and `DownloadId` are chosen by the embedder and echoed back. Uniqueness is your responsibility; the engine does not check.
 -   **`TabCrashed` means the tab is gone.** Stop sending to that handle and recreate the tab.

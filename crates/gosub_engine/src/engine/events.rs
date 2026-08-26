@@ -179,9 +179,18 @@ pub enum TabCommand {
     GoToHistoryEntry {
         entry: HistoryEntryId,
     },
-    /// Save `url` to `target_path` through the zone's fetcher (cookies and UA apply).
-    /// Sent to accept an [`EngineEvent::DownloadRequested`] offer, or directly
-    /// (save-link-as). Progress arrives as `Download*` events carrying the same `id`.
+    /// Save `url` to `target_path`. Sent to accept an [`EngineEvent::DownloadRequested`]
+    /// offer, or directly (save-link-as). Progress arrives as `Download*` events carrying
+    /// the same `id`.
+    ///
+    /// Accepting an offer moves the body the engine already captured during the navigation
+    /// into place - it does not request `url` again, which would be wrong when the
+    /// navigation was a POST or the URL is single-use. Such a download completes at once,
+    /// so expect [`EngineEvent::DownloadFinished`] with no intervening
+    /// [`DownloadProgress`](EngineEvent::DownloadProgress).
+    ///
+    /// A `url` with no offer pending (save-link-as) is fetched through the zone's fetcher,
+    /// cookies and UA applying, and does report progress as it streams.
     StartDownload {
         id: DownloadId,
         url: String,
@@ -598,6 +607,12 @@ pub enum EngineEvent {
     /// A navigation turned out to be a download (binary content or an attachment). The
     /// navigation itself was cancelled (the page stays); the shell decides where to save
     /// and answers with [`TabCommand::StartDownload`] - or ignores the offer.
+    ///
+    /// The body has already been transferred and spooled to a temp file by the time this
+    /// arrives, so accepting is a local move rather than a second request. The temp file is
+    /// released if the offer is never accepted or the tab closes. One consequence: the bytes
+    /// move during the *navigation*, so there is no per-download progress to report on
+    /// accept - watch the navigation's resource events if you need transfer feedback.
     DownloadRequested {
         tab_id: TabId,
         url: Url,
@@ -606,7 +621,9 @@ pub enum EngineEvent {
         content_type: Option<String>,
         total_bytes: Option<u64>,
     },
-    /// Bytes are flowing to disk for a [`TabCommand::StartDownload`].
+    /// Bytes are flowing to disk for a [`TabCommand::StartDownload`]. Only emitted for
+    /// downloads the engine had to fetch (save-link-as); an accepted offer is already on
+    /// disk and jumps straight to [`DownloadFinished`](Self::DownloadFinished).
     DownloadProgress {
         tab_id: TabId,
         id: DownloadId,

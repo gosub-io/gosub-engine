@@ -491,12 +491,19 @@ mod tests {
         let payload: Vec<u8> = (0..700 * 1024).map(|i| (i % 251) as u8).collect();
         let payload_srv = payload.clone();
 
+        // Counts requests the server actually served, so the test can prove that accepting
+        // an offer does not re-request the URL.
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let hits_srv = hits.clone();
+
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {
             while let Ok((mut stream, _)) = listener.accept().await {
                 let payload = payload_srv.clone();
+                let hits_srv = hits_srv.clone();
                 tokio::spawn(async move {
+                    hits_srv.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     let mut buf = vec![0u8; 4096];
                     let _ = stream.read(&mut buf).await;
                     let head = format!(
@@ -548,6 +555,7 @@ mod tests {
         assert_eq!(offer.2, Some(payload.len() as u64));
 
         // Accept the offer into a temp dir.
+        let served_before_accept = hits.load(std::sync::atomic::Ordering::SeqCst);
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("saved.bin");
         tab.send(TabCommand::StartDownload {
@@ -558,24 +566,11 @@ mod tests {
         .await
         .expect("start download");
 
-        let (progress_seen, partial_seen, received) = tokio::time::timeout(Duration::from_secs(10), async {
+        let (_progress_seen, received) = tokio::time::timeout(Duration::from_secs(10), async {
             let mut progress_seen = false;
-            let mut partial_seen = false;
             loop {
                 match event_rx.recv().await {
-                    Ok(EngineEvent::DownloadProgress {
-                        id: DownloadId(7),
-                        received_bytes,
-                        total_bytes,
-                        ..
-                    }) => {
-                        progress_seen = true;
-                        // Granular progress: at least one event mid-transfer, not only the
-                        // final full-size report.
-                        if total_bytes.is_some_and(|t| received_bytes < t) {
-                            partial_seen = true;
-                        }
-                    }
+                    Ok(EngineEvent::DownloadProgress { id: DownloadId(7), .. }) => progress_seen = true,
                     Ok(EngineEvent::DownloadFinished {
                         id: DownloadId(7),
                         received_bytes,
@@ -583,7 +578,7 @@ mod tests {
                         ..
                     }) => {
                         assert_eq!(path, target);
-                        return (progress_seen, partial_seen, received_bytes);
+                        return (progress_seen, received_bytes);
                     }
                     Ok(EngineEvent::DownloadFailed { error, .. }) => panic!("download failed: {error}"),
                     Ok(_) => continue,
@@ -593,13 +588,53 @@ mod tests {
         })
         .await
         .expect("timed out waiting for DownloadFinished");
-        assert!(progress_seen, "expected at least one progress event");
-        assert!(
-            partial_seen,
-            "expected granular mid-transfer progress, not only the final report"
-        );
         assert_eq!(received, payload.len() as u64);
         assert_eq!(std::fs::read(&target).unwrap(), payload, "file content must match");
+        // The point of spooling: the body captured during the navigation is what gets saved.
+        // Re-requesting would be wrong (the navigation may have been a POST, the URL may be
+        // single-use), so the server must not see a second request.
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            served_before_accept,
+            "accepting a download offer must not re-fetch the URL"
+        );
+
+        // Save-link-as has no spooled body, so that path still fetches - and still reports
+        // progress while it streams.
+        let direct = dir.path().join("direct.bin");
+        tab.send(TabCommand::StartDownload {
+            id: DownloadId(9),
+            url: format!("http://127.0.0.1:{port}/data/other.bin"),
+            target_path: direct.clone(),
+        })
+        .await
+        .expect("start save-link-as");
+        let direct_progress = tokio::time::timeout(Duration::from_secs(10), async {
+            let mut progress_seen = false;
+            loop {
+                match event_rx.recv().await {
+                    Ok(EngineEvent::DownloadProgress { id: DownloadId(9), .. }) => progress_seen = true,
+                    Ok(EngineEvent::DownloadFinished { id: DownloadId(9), .. }) => return progress_seen,
+                    Ok(EngineEvent::DownloadFailed {
+                        id: DownloadId(9),
+                        error,
+                        ..
+                    }) => {
+                        panic!("save-link-as failed: {error}")
+                    }
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for save-link-as to finish");
+        assert!(direct_progress, "a fetched download still reports progress");
+        assert_eq!(std::fs::read(&direct).unwrap(), payload);
+        assert!(
+            hits.load(std::sync::atomic::Ordering::SeqCst) > served_before_accept,
+            "save-link-as must actually fetch"
+        );
 
         // The failed-fetch path reports too (connection refused port).
         tab.send(TabCommand::StartDownload {

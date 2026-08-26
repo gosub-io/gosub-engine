@@ -39,6 +39,21 @@ use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+/// Move an accepted offer's spooled body to `target_path`, returning the bytes written.
+///
+/// `persist` renames first (same filesystem, no copy) and falls back to a copy across mount
+/// points - the common case when the temp dir and the download directory differ.
+fn place_spooled_download(spooled: tempfile::TempPath, target_path: &std::path::Path) -> anyhow::Result<u64> {
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    if let Err(e) = spooled.persist(target_path) {
+        std::fs::copy(&e.path, target_path).with_context(|| format!("copy to {}", target_path.display()))?;
+        // `e.path` is still a TempPath, so the source is removed when it drops.
+    }
+    Ok(std::fs::metadata(target_path).map(|m| m.len()).unwrap_or(0))
+}
+
 /// Stream a response body to `path`, emitting `DownloadProgress` roughly every 256 KiB
 /// and `DownloadFinished` once the file is fully written.
 async fn stream_to_file(
@@ -120,10 +135,13 @@ pub enum NavigationResult<C: RenderConfiguration> {
         error: NavigationError,
     },
     /// The response is non-renderable content: the navigation ends (page stays) and the
-    /// metadata becomes a `DownloadRequested` offer to the embedder.
+    /// metadata becomes a `DownloadRequested` offer to the embedder. `spooled` is the temp
+    /// file holding the body we already fetched, so accepting the offer does not re-request
+    /// it (`None` if spooling failed - then accepting falls back to a fresh fetch).
     Download {
         nav_id: NavigationId,
         meta: FetchResultMeta,
+        spooled: Option<tempfile::TempPath>,
     },
 }
 
@@ -222,6 +240,11 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// height are only known then, and `set_scroll` clamps against the latter). Set by
     /// `on_nav_result`, consumed by `tick_draw`.
     pending_scroll: Option<PendingScroll>,
+    /// Download offers whose body is already on disk, keyed by the URL announced in
+    /// [`EngineEvent::DownloadRequested`]. Accepting an offer moves the spooled file into
+    /// place instead of re-requesting the URL. Bounded, and drained on shutdown - see
+    /// `remember_spooled_download`.
+    spooled_downloads: std::collections::HashMap<Url, tempfile::TempPath>,
 }
 
 /// Deferred scroll for a freshly committed document.
@@ -430,6 +453,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             history: History::default(),
             reported_cursor: CursorShape::Default,
             pending_scroll: None,
+            spooled_downloads: std::collections::HashMap::new(),
         }
     }
 
@@ -785,7 +809,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 // set_document cleared hover state; the next mouse move re-derives it.
                 self.report_cursor(CursorShape::Default);
             }
-            NavigationResult::Download { nav_id, meta } => {
+            NavigationResult::Download { nav_id, meta, spooled } => {
                 // Not an error and not a page change: the tab stays on its current document
                 // and the shell gets a download offer. The Cancelled event stops spinners.
                 self.is_loading = false;
@@ -801,6 +825,9 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     },
                 });
                 let info = crate::net::types::ResponseInfo::from(&meta);
+                if let Some(path) = spooled {
+                    self.remember_spooled_download(info.final_url.clone(), path);
+                }
                 self.send_event(EngineEvent::DownloadRequested {
                     tab_id: self.tab_id,
                     suggested_filename: info.suggested_filename(),
@@ -904,7 +931,24 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// `SharedBody` replays nothing to late subscribers, so a streaming consumer that
     /// attaches after the fetch result arrives misses early chunks. True streaming-to-disk
     /// needs replay support in gosub-sonar (see the board).
-    fn start_download(&self, id: crate::engine::events::DownloadId, url: String, target_path: std::path::PathBuf) {
+    /// Hold a spooled download body until the embedder accepts or the tab goes away.
+    ///
+    /// Bounded: an embedder that ignores offers must not accumulate temp files without
+    /// limit, so the oldest is dropped (and deleted) past the cap.
+    fn remember_spooled_download(&mut self, url: Url, path: tempfile::TempPath) {
+        const MAX_PENDING: usize = 8;
+        // Dropping a `TempPath` deletes its file, so replaced and evicted entries need no
+        // explicit cleanup.
+        self.spooled_downloads.insert(url, path);
+        while self.spooled_downloads.len() > MAX_PENDING {
+            let Some(victim) = self.spooled_downloads.keys().next().cloned() else {
+                break;
+            };
+            self.spooled_downloads.remove(&victim);
+        }
+    }
+
+    fn start_download(&mut self, id: crate::engine::events::DownloadId, url: String, target_path: std::path::PathBuf) {
         let Ok(url) = Url::parse(&url) else {
             self.send_event(EngineEvent::DownloadFailed {
                 tab_id: self.tab_id,
@@ -914,6 +958,31 @@ impl<C: RenderConfiguration> TabWorker<C> {
             return;
         };
 
+        // The offer's body is already on disk: place it, never re-request the URL. A fresh
+        // GET would be wrong here - the navigation may have been a POST, the URL may be
+        // single-use, and re-issuing it can repeat a server-side side effect.
+        if let Some(spooled) = self.spooled_downloads.remove(&url) {
+            match place_spooled_download(spooled, &target_path) {
+                Ok(received_bytes) => {
+                    self.send_event(EngineEvent::DownloadFinished {
+                        tab_id: self.tab_id,
+                        id,
+                        path: target_path,
+                        received_bytes,
+                    });
+                }
+                Err(e) => {
+                    self.send_event(EngineEvent::DownloadFailed {
+                        tab_id: self.tab_id,
+                        id,
+                        error: format!("{e:#}"),
+                    });
+                }
+            }
+            return;
+        }
+
+        // No spooled body (a save-link-as, or spooling failed): fetch it now.
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Other, Initiator::Other);
         // A Download reference routes the transport's per-chunk progress to the shell as
@@ -1590,8 +1659,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         doc,
                     });
                 }
-                Ok(RoutedOutcome::DownloadOffer(meta)) => {
-                    let _ = tx_done.send(NavigationResult::Download { nav_id, meta: *meta });
+                Ok(RoutedOutcome::DownloadOffer { meta, spooled }) => {
+                    let _ = tx_done.send(NavigationResult::Download {
+                        nav_id,
+                        meta: *meta,
+                        spooled,
+                    });
                 }
                 Ok(RoutedOutcome::ViewerRendered(_doc)) => {
                     log::warn!("Tab[{:?}] viewer rendering not supported yet", tab_id);
@@ -2186,6 +2259,63 @@ impl ControlFlow {
 
 #[cfg(test)]
 mod tests {
+    /// Accepting a download offer must place the body the engine already fetched, never
+    /// re-request the URL: the navigation may have been a POST, the URL may be single-use,
+    /// and re-issuing it can repeat a server-side side effect.
+    mod spooled_downloads {
+        use super::super::place_spooled_download;
+        use std::io::Write;
+
+        fn spooled(contents: &[u8]) -> tempfile::TempPath {
+            let mut f = tempfile::NamedTempFile::new().unwrap();
+            f.write_all(contents).unwrap();
+            f.flush().unwrap();
+            f.into_temp_path()
+        }
+
+        #[test]
+        fn places_the_body_and_reports_its_size() {
+            let dir = tempfile::tempdir().unwrap();
+            let target = dir.path().join("file.bin");
+            let src = spooled(b"downloaded bytes");
+            let src_path = src.to_path_buf();
+
+            let n = place_spooled_download(src, &target).unwrap();
+
+            assert_eq!(n, 16);
+            assert_eq!(std::fs::read(&target).unwrap(), b"downloaded bytes");
+            assert!(!src_path.exists(), "spooled file should not be left behind");
+        }
+
+        #[test]
+        fn creates_missing_parent_directories() {
+            let dir = tempfile::tempdir().unwrap();
+            let target = dir.path().join("nested/deeper/file.bin");
+            place_spooled_download(spooled(b"x"), &target).unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"x");
+        }
+
+        #[test]
+        fn overwrites_an_existing_target() {
+            let dir = tempfile::tempdir().unwrap();
+            let target = dir.path().join("file.bin");
+            std::fs::write(&target, b"stale contents").unwrap();
+            place_spooled_download(spooled(b"new"), &target).unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"new");
+        }
+
+        /// The offer holds a `TempPath`, so an offer the embedder never accepts must not
+        /// leave its body in the temp directory.
+        #[test]
+        fn unaccepted_offer_deletes_its_spooled_body() {
+            let src = spooled(b"never accepted");
+            let path = src.to_path_buf();
+            assert!(path.exists());
+            drop(src);
+            assert!(!path.exists());
+        }
+    }
+
     use crate::net::SharedBody;
     use bytes::Bytes;
     use futures_util::TryStreamExt;
