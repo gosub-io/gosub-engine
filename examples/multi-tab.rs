@@ -284,13 +284,6 @@ fn handle_event(ev: EngineEvent) {
                 NavigationEvent::FailedUrl { url, error, .. } => {
                     ui.update(tab_id, format!("nav: failed: {} {}", url, error));
                 }
-                NavigationEvent::DecisionRequired {
-                    nav_id,
-                    meta,
-                    decision_token,
-                } => {
-                    println!("nav: decision required: {} {:?} {:?}", nav_id, meta, decision_token);
-                }
                 NavigationEvent::Progress {
                     received_bytes,
                     expected_length,

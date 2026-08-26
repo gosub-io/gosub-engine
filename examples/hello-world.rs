@@ -1,20 +1,16 @@
 // Example code: panicking on bad input is the desired behavior, as in any test code.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use cow_utils::CowUtils;
 use gosub_engine::events::{MouseButton, NavigationEvent, ResourceEvent, TabCommand};
-use gosub_engine::net::types::FetchResultMeta;
-use gosub_engine::net::DecisionToken;
-use gosub_engine::tab::{TabDefaults, TabHandle};
+use gosub_engine::tab::TabDefaults;
 use gosub_engine::{
     cookies::DefaultCookieJar,
     events::EngineEvent,
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::ZoneConfig,
     zone::ZoneServices,
-    Action, DefaultRenderConfig, EngineConfig, EngineError, GosubEngine, NavigationId,
+    DefaultRenderConfig, EngineConfig, EngineError, GosubEngine,
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
-use http::header;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -153,12 +149,11 @@ async fn main() -> Result<(), EngineError> {
 
     let mut seen_intervals = 0usize;
     let mut interval = tokio::time::interval(Duration::from_secs(1));
-    let tab_clone = tab.clone();
 
     loop {
         tokio::select! {
             Ok(ev) = event_rx.recv() => {
-                handle_event(ev, tab_clone.clone()).await;
+                handle_event(ev).await;
             }
             _ = tokio::signal::ctrl_c() => {
                 println!("Shutting down...");
@@ -184,41 +179,7 @@ async fn main() -> Result<(), EngineError> {
     Ok(())
 }
 
-async fn on_decision_required(
-    tab_handle: TabHandle,
-    nav_id: NavigationId,
-    meta: FetchResultMeta,
-    decision_token: DecisionToken,
-) {
-    let ct: String = meta
-        .headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/octet-stream")
-        .to_string();
-
-    let action = if let Some(disp) = meta.headers.get(http::header::CONTENT_DISPOSITION) {
-        let s = disp.to_str().unwrap_or_default().cow_to_ascii_lowercase();
-        if s.contains("attachment") {
-            Action::Download {
-                dest: std::path::PathBuf::from("/tmp/downloaded.bin"),
-            }
-        } else {
-            Action::Render
-        }
-    } else if ct.starts_with("text/html") || ct.starts_with("text/") || ct == "application/json" {
-        Action::Render
-    } else {
-        Action::Download {
-            dest: std::path::PathBuf::from("/tmp/downloaded.bin"),
-        }
-    };
-
-    // Send back to the engine what we like to do with this navigation
-    let _ = tab_handle.submit_decision(nav_id, decision_token, action).await;
-}
-
-async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
+async fn handle_event(ev: EngineEvent) {
     match ev {
         EngineEvent::ZoneCreated { zone_id } => {
             println!("[zone] created   {}", short(&zone_id));
@@ -244,20 +205,6 @@ async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
                 }
                 NavigationEvent::FailedUrl { url, error, .. } => {
                     println!("[nav ] failed-url [{t}] {url}  ({error:?})");
-                }
-                NavigationEvent::DecisionRequired {
-                    nav_id,
-                    meta,
-                    decision_token,
-                } => {
-                    // The engine fetched response headers and needs us to decide: render or download?
-                    // We inspect content-type and content-disposition and reply with Action::Render or Action::Download.
-                    println!("[nav ] decision  [{t}] {}", short(&nav_id));
-                    if tab_id != tab_handle.tab_id {
-                        eprintln!("[nav ] warning: DecisionRequired for unexpected tab {t}");
-                        return;
-                    }
-                    on_decision_required(tab_handle, nav_id, meta, decision_token).await;
                 }
                 NavigationEvent::Progress {
                     received_bytes,

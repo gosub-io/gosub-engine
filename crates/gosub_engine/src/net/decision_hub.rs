@@ -1,10 +1,16 @@
 //! Engine-side decision plumbing.
 //!
-//! When a top-level resource has loaded far enough for the UA to decide what to do with it
-//! (render, download, open externally, ...), the engine parks the fetch on a
-//! [`DecisionHub`] waiter and emits a `NavigationEvent::DecisionRequired` carrying a
-//! [`DecisionToken`]. The UA answers via the engine API, which resolves the waiter with
-//! the chosen [`Action`](crate::engine::types::Action).
+//! The intended flow: when a top-level resource has loaded far enough for the UA to decide
+//! what to do with it (render, download, open externally, ...), the engine parks the fetch
+//! on a [`DecisionHub`] waiter and emits a `NavigationEvent::DecisionRequired` carrying a
+//! [`DecisionToken`]. The UA answers via the engine API, which resolves the waiter with the
+//! chosen [`Action`](crate::engine::types::Action).
+//!
+//! **Only the answering half exists.** Nothing emits `DecisionRequired` today (it is behind
+//! the `unstable-api` feature): the engine classifies the response itself with
+//! `decide_handling` and offers a download via `EngineEvent::DownloadRequested` instead. The
+//! waiter, the token and [`DecisionHub::fulfill`] are all wired and reachable through
+//! `TabCommand::SubmitDecision` - they are simply never triggered.
 //!
 //! This used to live in the (now removed) `gosub_net` crate; the generic fetching layer
 //! moved to the external `gosub-sonar` crate, which has no notion of UA decisions, so the

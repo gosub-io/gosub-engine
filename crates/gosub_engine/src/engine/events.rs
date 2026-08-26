@@ -15,7 +15,7 @@ use crate::engine::types::{Action, NavigationId, RequestId};
 use crate::net::req_ref_tracker::RequestReference;
 #[cfg(feature = "unstable-api")]
 use crate::net::types::Priority;
-use crate::net::types::{FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, ResourceKind};
+use crate::net::types::{FetchHandle, FetchRequest, FetchResult, Initiator, ResourceKind};
 use crate::net::DecisionToken;
 use crate::storage::event::StorageScope;
 use crate::tab::history::{HistoryEntryId, HistorySnapshot};
@@ -198,7 +198,10 @@ pub enum TabCommand {
     /// release builds.
     #[cfg(test)]
     CrashForTest,
-    /// Answer a pending [`NavigationEvent::DecisionRequired`].
+    /// Answer a pending `NavigationEvent::DecisionRequired`.
+    ///
+    /// Handled, but currently unreachable: the only source of a [`DecisionToken`] is that
+    /// event, which is behind the `unstable-api` feature and never emitted.
     SubmitDecision {
         nav_id: NavigationId,
         decision_token: DecisionToken,
@@ -393,11 +396,16 @@ pub enum NavigationEvent {
         url: Url,
         reason: CancelReason,
     },
-    /// The navigation requires a decision on how to proceed (e.g., auth, certificate, block, allow);
-    /// answered via [`TabCommand::SubmitDecision`]
+    /// The navigation requires a decision on how to proceed (e.g. auth, certificate, block,
+    /// allow); answered via [`TabCommand::SubmitDecision`].
+    ///
+    /// Declared but never emitted: the engine decides internally (see `decide_handling`) and
+    /// announces a download with [`EngineEvent::DownloadRequested`] rather than asking. The
+    /// answering half is wired - the ask is not. Behind the `unstable-api` feature until it is.
+    #[cfg(feature = "unstable-api")]
     DecisionRequired {
         nav_id: NavigationId,
-        meta: FetchResultMeta,
+        meta: crate::net::types::ResponseInfo,
         decision_token: DecisionToken,
     },
     /// The tab's session history changed (entry added, back/forward moved, title learned).

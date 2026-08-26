@@ -14,9 +14,9 @@ use gosub_engine::{
     cookies::DefaultCookieJar,
     events::{EngineEvent, NavigationEvent, TabCommand},
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
-    tab::{TabDefaults, TabHandle},
+    tab::TabDefaults,
     zone::ZoneServices,
-    Action, DefaultRenderConfig, EngineConfig, EngineError, GosubEngine,
+    DefaultRenderConfig, EngineConfig, EngineError, GosubEngine,
 };
 use gosub_render_pipeline::render::{backends::null::NullBackend, DefaultCompositor, Viewport};
 use std::sync::Arc;
@@ -93,7 +93,7 @@ async fn main() -> Result<(), EngineError> {
     loop {
         tokio::select! {
             Ok(ev) = events.recv() => {
-                if handle_event(ev, &tab).await {
+                if handle_event(ev).await {
                     break;
                 }
             }
@@ -117,7 +117,7 @@ async fn main() -> Result<(), EngineError> {
 }
 
 /// Handles one engine event. Returns `true` when the event loop should stop.
-async fn handle_event(ev: EngineEvent, tab: &TabHandle) -> bool {
+async fn handle_event(ev: EngineEvent) -> bool {
     match ev {
         EngineEvent::Navigation { event, .. } => match event {
             NavigationEvent::Started { url, .. } => {
@@ -131,14 +131,6 @@ async fn handle_event(ev: EngineEvent, tab: &TabHandle) -> bool {
             NavigationEvent::Failed { url, error, .. } => {
                 println!("  [nav] FAILED:    {url}  ({error})");
                 true
-            }
-            NavigationEvent::DecisionRequired {
-                nav_id, decision_token, ..
-            } => {
-                // The engine fetched response headers and needs the UA to decide:
-                // render the page, or download the file? We always render here.
-                let _ = tab.submit_decision(nav_id, decision_token, Action::Render).await;
-                false
             }
             _ => false,
         },

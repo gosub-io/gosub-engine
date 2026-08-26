@@ -39,43 +39,6 @@ use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-/// Filename to suggest for downloading `meta`'s resource: the `Content-Disposition`
-/// `filename` parameter when present, else the final URL's last path segment, else
-/// "download". Path separators are stripped so a hostile header cannot escape the
-/// directory the embedder picks.
-fn suggested_filename(meta: &FetchResultMeta) -> String {
-    let from_disposition = meta
-        .headers
-        .get(http::header::CONTENT_DISPOSITION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| {
-            v.split(';').find_map(|part| {
-                let part = part.trim();
-                part.strip_prefix("filename=")
-                    .map(|f| f.trim_matches('"').to_string())
-                    .filter(|f| !f.is_empty())
-            })
-        });
-    let name = from_disposition.or_else(|| {
-        meta.final_url
-            .path_segments()
-            .and_then(|mut segments| segments.next_back())
-            .filter(|segment| !segment.is_empty())
-            .map(|segment| {
-                percent_encoding::percent_decode_str(segment)
-                    .decode_utf8_lossy()
-                    .into_owned()
-            })
-    });
-    let name = name.unwrap_or_default();
-    let name = name.rsplit(['/', '\\']).next().unwrap_or("").trim().to_string();
-    if name.is_empty() {
-        "download".to_string()
-    } else {
-        name
-    }
-}
-
 /// Stream a response body to `path`, emitting `DownloadProgress` roughly every 256 KiB
 /// and `DownloadFinished` once the file is fully written.
 async fn stream_to_file(
@@ -837,12 +800,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         reason: crate::engine::events::CancelReason::Custom("download".into()),
                     },
                 });
+                let info = crate::net::types::ResponseInfo::from(&meta);
                 self.send_event(EngineEvent::DownloadRequested {
                     tab_id: self.tab_id,
-                    suggested_filename: suggested_filename(&meta),
-                    content_type: meta.content_type.clone(),
-                    total_bytes: meta.content_length,
-                    url: meta.final_url,
+                    suggested_filename: info.suggested_filename(),
+                    content_type: info.content_type,
+                    total_bytes: info.content_length,
+                    url: info.final_url,
                 });
             }
             NavigationResult::Err { nav_id, error } => {

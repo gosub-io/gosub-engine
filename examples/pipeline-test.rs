@@ -13,14 +13,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gosub_engine::events::{EngineEvent, NavigationEvent, ResourceEvent};
-use gosub_engine::net::types::FetchResultMeta;
-use gosub_engine::net::DecisionToken;
-use gosub_engine::tab::{TabDefaults, TabHandle};
+use gosub_engine::tab::TabDefaults;
 use gosub_engine::{
     cookies::DefaultCookieJar,
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::{ZoneConfig, ZoneServices},
-    Action, DefaultRenderConfig, EngineConfig, EngineError, GosubEngine, NavigationId,
+    DefaultRenderConfig, EngineConfig, EngineError, GosubEngine,
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -95,14 +93,6 @@ async fn run_server(listener: TcpListener, stop: CancellationToken) {
             Ok((stream, _)) = listener.accept() => { tokio::spawn(serve(stream)); }
         }
     }
-}
-
-// ── Decision handler ─────────────────────────────────────────────────────────
-
-async fn decide(tab: TabHandle, nav_id: NavigationId, _meta: FetchResultMeta, token: DecisionToken) {
-    let action = Action::Render;
-
-    let _ = tab.submit_decision(nav_id, token, action).await;
 }
 
 // ── Test harness ─────────────────────────────────────────────────────────────
@@ -201,9 +191,6 @@ async fn main() -> Result<(), EngineError> {
                         NavigationEvent::Cancelled { reason, .. } => {
                             c.nav_error = Some(format!("cancelled: {reason:?}"));
                             break;
-                        }
-                        NavigationEvent::DecisionRequired { nav_id, meta, decision_token } => {
-                            decide(tab.clone(), nav_id, meta, decision_token).await;
                         }
                         _ => {}
                     },

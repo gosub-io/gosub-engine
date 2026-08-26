@@ -32,9 +32,9 @@ A **Tab** is a single browsing context, like a browser tab. Every tab lives insi
 
 The engine is **event-driven**. It communicates with your application by emitting `EngineEvent` values over a channel. Your application receives these events and reacts - rendering a frame, updating a progress bar, following a redirect. You never poll the engine directly; you wait for events.
 
-### DecisionRequired
+### Downloads
 
-When the engine fetches a URL it needs to know what to do with the response: render the page, or save the file? It can't decide on its own (it doesn't know your UI), so it pauses the navigation and emits a `NavigationEvent::DecisionRequired` event. Your application must reply with `TabCommand::SubmitDecision` carrying either `Action::Render` or `Action::Download`. If you do not reply, the navigation stalls indefinitely.
+When the engine fetches a URL that turns out not to be a renderable page - the content-type or `Content-Disposition` says download, or the type is unknown - it decides on its own: the navigation is cancelled, the current page stays put, and an `EngineEvent::DownloadRequested` arrives carrying a suggested filename and content type. Reply with `TabCommand::StartDownload` to accept, or ignore it. Nothing stalls if you do nothing.
 
 ------------------------------------------------------------------------
 
@@ -148,18 +148,13 @@ loop {
                         println!("failed:   {url}  ({error})");
                         break;
                     }
-                    NavigationEvent::DecisionRequired {
-                        nav_id, decision_token, ..
-                    } => {
-                        // Always render (never download) in this example.
-                        tab.submit_decision(
-                            nav_id,
-                            decision_token,
-                            gosub_engine::Action::Render,
-                        ).await?;
-                    }
                     _ => {}
                 },
+                EngineEvent::DownloadRequested { suggested_filename, .. } => {
+                    // Not a page: the engine kept the current document and is offering
+                    // the file. Answer with StartDownload, or ignore it.
+                    println!("download offered: {suggested_filename}");
+                }
                 EngineEvent::Redraw { .. } => {
                     // Wakeup only - the frame itself went to your compositor sink.
                     // Ask the sink for this tab's current frame and present it.
@@ -172,7 +167,7 @@ loop {
 }
 ```
 
-The `DecisionRequired` arm is important: without it the navigation stalls because the engine is waiting for your reply.
+`DownloadRequested` is an offer, not a question - ignoring it simply means no file is saved.
 
 ### 7. Shutdown
 

@@ -110,9 +110,12 @@ impl TabHandle {
         self.send(TabCommand::GoForward { entry: None }).await
     }
 
-    /// Answer a [`NavigationEvent::DecisionRequired`](crate::events::NavigationEvent::DecisionRequired).
+    /// Answer a pending `NavigationEvent::DecisionRequired`. See [`Action`] for the choices.
     ///
-    /// The navigation stays blocked until this is sent. See [`Action`] for the choices.
+    /// Currently unreachable in practice: nothing emits that event (it is behind the
+    /// `unstable-api` feature), so there is no way to obtain a [`DecisionToken`]. Downloads
+    /// surface as [`EngineEvent::DownloadRequested`](crate::events::EngineEvent::DownloadRequested)
+    /// instead, answered with [`TabCommand::StartDownload`].
     pub async fn submit_decision(
         &self,
         nav_id: NavigationId,

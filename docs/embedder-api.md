@@ -66,7 +66,7 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | `Reload { ignore_cache }` | Always refetches, fragment or not. |
 | `CancelNavigation` | |
 | `GoBack` / `GoForward { entry }` / `GoToHistoryEntry { entry }` | History is a tree rather than a stack. `GoForward { None }` takes the most recently visited child. Entry ids come from `NavigationEvent::HistoryChanged`. |
-| `SubmitDecision { nav_id, decision_token, action }` | Answers `DecisionRequired`; required, see [Contracts](#contracts). Wrapped by `tab.submit_decision(..)`. |
+| `SubmitDecision { nav_id, decision_token, action }` | Handled, but currently unreachable: the only source of a `DecisionToken` is the gated `DecisionRequired`. Wrapped by `tab.submit_decision(..)`. |
 | `StartDownload { id, url, target_path }` | `id` is minted by you. |
 | `CloseTab` | |
 | **Rendering control** | |
@@ -138,7 +138,7 @@ Events for the main document. Every event in one navigation carries the same `Na
 | `Failed { url, error }` | The fetch failed. |
 | `FailedUrl { url, error }` | The URL string did not parse, as opposed to `Failed`. |
 | `Cancelled { url, reason }` | `CancelReason` distinguishes new navigation, tab close, timeout, and explicit cancel. |
-| `DecisionRequired { nav_id, meta, decision_token }` | The navigation blocks until you answer. |
+| `DecisionRequired` · gated · | Declared but never emitted: the engine decides internally and announces a download with `EngineEvent::DownloadRequested` instead. The answering half (`SubmitDecision`, `DecisionToken`) is wired; the ask is not. |
 | `HistoryChanged { history }` | The whole `HistorySnapshot`, emitted after the corresponding `Finished`, so shells can drive back/forward menus without querying. |
 | `Committed` · gated · | There is no separate commit point yet; a load goes `Started` → `Finished`. |
 | `Progress { received_bytes, expected_length, elapsed, .. }` | Load progress of the main document, throttled. |
@@ -205,7 +205,7 @@ Subscribe to events instead when you need the moment something changes, or detai
 
 ## Contracts
 
--   **`DecisionRequired` must be answered.** When a response is not obviously a renderable page (content-type or `Content-Disposition` says download, or the type is unknown) the engine stops and asks. Reply with `SubmitDecision` carrying `Action::Render`, `Action::Download { dest }`, or `Action::Cancel`. Ignore it and the navigation stalls, with no error and no timeout. The engine does not decide this on its own.
+-   **Downloads arrive as an offer, not a question.** When a response is not a renderable page (content-type or `Content-Disposition` says download, or the type is unknown) the engine decides on its own: it cancels the navigation, leaves the page in place, and emits `EngineEvent::DownloadRequested`. Answer with `StartDownload` or ignore it. There is no blocking ask - `NavigationEvent::DecisionRequired` exists but is behind `unstable-api` and never fires.
 -   **`ResumeDrawing` before anything paints.** See [Lifecycle](#lifecycle-and-ordering) step 7.
 -   **Tokens are yours to mint.** `HitTestToken` and `DownloadId` are chosen by the embedder and echoed back. Uniqueness is your responsibility; the engine does not check.
 -   **`TabCrashed` means the tab is gone.** Stop sending to that handle and recreate the tab.
@@ -219,7 +219,7 @@ Subscribe to events instead when you need the moment something changes, or detai
 -   **One bus for everything.** `ResourceEvent::Progress` arrives at network rate and `Redraw` at frame rate, on the same fixed-capacity channel as `TabCrashed` and `DownloadRequested`. A UA that does anything slow on the receive side will drop events on a busy page. Keep the receive loop tight: forward to your own queue and return. Splitting a low-volume control bus from an opt-in high-volume stream is the intended fix.
 -   **The input model is thin.** `KeyDown.key` is a `String` rather than a typed key, and there is no IME composition, touch, or pointer id. `TextInput` is declared but not yet handled, so text editing does not work at all. `FocusChanged { editable }` is the hook for an on-screen keyboard, waiting on the other half.
 -   **Errors are opaque.** `NavigationEvent::Failed`, `FailedUrl` and `ResourceEvent::Failed` carry `Arc<anyhow::Error>`, so telling a DNS failure from a TLS failure from a refused connection means matching on strings. A typed error is wanted; it needs a taxonomy mapped from the network layer's `NetError`.
--   **`DecisionRequired` carries a third-party struct.** Its `meta` is `FetchResultMeta`, which is not the engine's type at all - it is re-exported from the `gosub-sonar` crate. The engine's public API is therefore pinned to sonar's struct layout, and a sonar bump can break embedders. Note the inconsistency with `ResourceEvent::Headers`, which already avoids this by carrying `Vec<(String, String)>` rather than a `HeaderMap`.
+-   **The decision flow is half-built.** `DecisionRequired` is gated and never emitted, yet `SubmitDecision`, `DecisionToken` and the engine's `DecisionHub` are all wired to answer it. Either the ask gets built (it needs a `UaPolicy` flag) or the answering half should go.
 -   **`create_zone(Option<ZoneConfig>, ZoneServices, Option<ZoneId>)`** is builder territory that has not been built.
 -   **`#![deny(missing_docs)]` is commented out** at the top of `lib.rs`. Some of what is public is public by accident.
 
