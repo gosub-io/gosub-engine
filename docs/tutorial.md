@@ -78,26 +78,18 @@ let mut events = engine.subscribe_events();
 ### 3. Create a zone
 
 ``` rust
-use gosub_engine::cookies::DefaultCookieJar;
-use gosub_engine::storage::{
-    InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService,
-};
-use gosub_engine::zone::{ZoneConfig, ZoneServices};
-
-let services = ZoneServices {
-    storage: Arc::new(StorageService::new(
-        Arc::new(InMemoryLocalStore::new()),
-        Arc::new(InMemorySessionStore::new()),
-    )),
-    cookie_store: None,
-    cookie_jar: Some(DefaultCookieJar::new().into()),
-    partition_policy: PartitionPolicy::None,
-};
-
-let mut zone = engine.create_zone(None, services, None)?;
+let mut zone = engine.zone_builder().create()?;
 ```
 
-`InMemoryLocalStore` and `InMemorySessionStore` give you ephemeral storage that disappears when the zone is dropped. For persistent cookies, pass a `CookieStore` in `ZoneServices::cookie_store` and set `cookie_jar` to `None`.
+With nothing set, the zone is an ephemeral profile: in-memory storage and cookie jar, gone when the zone is dropped. For persistent cookies, give it a `CookieStore` and no in-memory jar:
+
+``` rust
+let mut zone = engine
+    .zone_builder()
+    .cookie_store(Some(store))
+    .cookie_jar(None)
+    .create()?;
+```
 
 ### 4. Open a tab
 

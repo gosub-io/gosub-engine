@@ -151,11 +151,11 @@ async fn main() -> Result<(), EngineError> {
         partition_policy: PartitionPolicy::None,
         places: None,
     };
-    let mut zone = engine.create_zone(
-        Some(ZoneConfig::builder().max_tabs(1).build().expect("zone cfg")),
-        zone_services,
-        None,
-    )?;
+    let mut zone = engine
+        .zone_builder()
+        .config(ZoneConfig::builder().max_tabs(1).build().expect("zone cfg"))
+        .services(zone_services)
+        .create()?;
     let tab = zone
         .create_tab(
             TabDefaults {

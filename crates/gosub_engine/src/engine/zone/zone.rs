@@ -88,6 +88,23 @@ pub struct ZoneServices {
     pub places: Option<crate::places::PlacesHandle>,
 }
 
+impl Default for ZoneServices {
+    /// An ephemeral profile: in-memory storage and cookie jar, nothing persisted, nothing
+    /// partitioned, no history. The starting point for [`ZoneBuilder`](crate::ZoneBuilder).
+    fn default() -> Self {
+        Self {
+            storage: Arc::new(StorageService::new(
+                Arc::new(crate::storage::InMemoryLocalStore::new()),
+                Arc::new(crate::storage::InMemorySessionStore::new()),
+            )),
+            cookie_store: None,
+            cookie_jar: Some(crate::cookies::DefaultCookieJar::new().into()),
+            partition_policy: PartitionPolicy::None,
+            places: None,
+        }
+    }
+}
+
 /// Zone context we can share downwards to tabs
 pub struct ZoneContext<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
     /// Zone services (storage, cookies, etc)

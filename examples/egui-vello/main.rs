@@ -211,7 +211,11 @@ impl BrowserApp {
         };
 
         let mut zone = engine
-            .create_zone(Some(zone_cfg), zone_services, Some(ZoneId::from(DEFAULT_ZONE)))
+            .zone_builder()
+            .config(zone_cfg)
+            .id(ZoneId::from(DEFAULT_ZONE))
+            .services(zone_services)
+            .create()
             .expect("create_zone");
 
         let tab = TOKIO_RT

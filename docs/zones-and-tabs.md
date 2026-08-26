@@ -17,7 +17,7 @@ A zone is a **browser profile/container** (in the Firefox-containers sense): it 
 
 Isolation is the default; sharing is opt-in per data class via `SharedFlags` (autocomplete, bookmarks, passwords, cookie jar).
 
-A zone is created with:
+A zone is created through `engine.zone_builder()`, from:
 
 -   **`ZoneConfig`** --- limits and settings (e.g. maximum tabs);
 -   **`ZoneServices`** --- the isolation boundary made concrete: a `StorageService` (local + session stores --- see [datastores.md](datastores.md)), an optional cookie store/jar (see [cookies.md](cookies.md)), and a `PartitionPolicy` describing how storage is keyed (e.g. per-origin partitioning);

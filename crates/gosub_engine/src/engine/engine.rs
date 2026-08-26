@@ -298,7 +298,25 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// The returned handle contains the [`ZoneId`] and a clone of the engine’s
     /// command sender, allowing the caller to send zone commands without holding
     /// a reference to the engine.
-    pub fn create_zone(
+    /// Start building a zone. Everything is optional: the default is an ephemeral profile
+    /// with the engine's default [`ZoneConfig`] and a fresh id.
+    ///
+    /// ```rust,no_run
+    /// # use gosub_engine::GosubEngine;
+    /// # fn f(engine: &mut GosubEngine) -> Result<(), gosub_engine::EngineError> {
+    /// let zone = engine.zone_builder().create()?;
+    /// # Ok(()) }
+    /// ```
+    pub fn zone_builder(&mut self) -> ZoneBuilder<'_, C> {
+        ZoneBuilder {
+            engine: self,
+            config: None,
+            id: None,
+            services: ZoneServices::default(),
+        }
+    }
+
+    pub(crate) fn create_zone(
         &mut self,
         config: Option<ZoneConfig>,
         services: ZoneServices,
@@ -377,6 +395,72 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     }
 }
 
+/// Builds a [`Zone`]; obtained from [`GosubEngine::zone_builder`].
+///
+/// Starts from [`ZoneServices::default`] (ephemeral, in-memory). Either replace the whole
+/// services struct with [`services`](Self::services), or adjust one piece at a time.
+pub struct ZoneBuilder<'a, C: RenderConfiguration> {
+    engine: &'a mut GosubEngine<C>,
+    config: Option<ZoneConfig>,
+    id: Option<ZoneId>,
+    services: ZoneServices,
+}
+
+impl<C: RenderConfiguration> ZoneBuilder<'_, C> {
+    /// Limits and settings for the zone. Defaults to the engine's `default_zone_config`.
+    pub fn config(mut self, config: ZoneConfig) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    /// A fixed id, to restore a persisted profile across runs. Defaults to a fresh UUID.
+    pub fn id(mut self, id: ZoneId) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    /// Replace the whole services struct.
+    pub fn services(mut self, services: ZoneServices) -> Self {
+        self.services = services;
+        self
+    }
+
+    /// Local and session storage.
+    pub fn storage(mut self, storage: Arc<crate::storage::StorageService>) -> Self {
+        self.services.storage = storage;
+        self
+    }
+
+    /// The cookie jar. `None` means the zone sends and stores no cookies.
+    pub fn cookie_jar(mut self, jar: Option<crate::cookies::CookieJarHandle>) -> Self {
+        self.services.cookie_jar = jar;
+        self
+    }
+
+    /// A persistent cookie store, for cookies that survive the process.
+    pub fn cookie_store(mut self, store: Option<CookieStoreHandle>) -> Self {
+        self.services.cookie_store = store;
+        self
+    }
+
+    /// How storage is keyed (e.g. per top-level origin).
+    pub fn partition_policy(mut self, policy: crate::storage::PartitionPolicy) -> Self {
+        self.services.partition_policy = policy;
+        self
+    }
+
+    /// Bookmarks and visited history. `None` records nothing, as a private profile would.
+    pub fn places(mut self, places: Option<crate::places::PlacesHandle>) -> Self {
+        self.services.places = places;
+        self
+    }
+
+    /// Create the zone. Fails with [`EngineError::ZoneLimitExceeded`] past `max_zones`.
+    pub fn create(self) -> Result<Zone<C>, EngineError> {
+        self.engine.create_zone(self.config, self.services, self.id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,7 +528,7 @@ mod tests {
         let mut engine = engine_with_max_zones(1);
         let mut events = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
-        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
         let tab = zone.create_tab(Default::default(), None).await.expect("tab");
 
         tab.navigate("http://127.0.0.1:9/nope").await.expect("navigate");
@@ -485,7 +569,7 @@ mod tests {
         let mut engine = engine_with_max_zones(1);
         let mut events = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
-        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
         let tab = zone.create_tab(Default::default(), None).await.expect("tab");
 
         tab.navigate("not a url at all").await.expect("navigate");
@@ -519,7 +603,7 @@ mod tests {
     async fn zone_tab_looks_up_a_live_handle_by_id() {
         let mut engine = engine_with_max_zones(1);
         let _join = tokio::spawn(engine.start().expect("start"));
-        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
         let created = zone.create_tab(Default::default(), None).await.expect("tab");
 
         let looked_up = zone.tab(created.tab_id).expect("tab exists");
@@ -576,7 +660,7 @@ mod tests {
         let mut engine = engine_with_max_zones(1);
         let mut events = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
-        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
         let tab = zone.create_tab(Default::default(), None).await.expect("tab");
 
         tab.navigate(format!("http://127.0.0.1:{port}/page"))
@@ -685,7 +769,7 @@ mod tests {
             .set("net.user_agent", Setting::String("GosubTest/9.0".into()))
             .expect("set user agent");
 
-        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
         let tab = zone.create_tab(Default::default(), None).await.expect("tab");
         tab.navigate(format!("http://127.0.0.1:{port}/"))
             .await
@@ -715,6 +799,54 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// The builder with nothing set must yield a working zone: an embedder's first program
+    /// should not need to know what `ZoneServices` is.
+    #[tokio::test(flavor = "current_thread")]
+    async fn zone_builder_defaults_produce_a_usable_zone() {
+        use crate::events::{NavigationEvent, TabCommand};
+
+        let mut engine = engine_with_max_zones(2);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+
+        let mut zone = engine.zone_builder().create().expect("default zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        tab.send(TabCommand::LoadHtml {
+            html: "<html><head><title>Default</title></head><body></body></html>".into(),
+            base_url: "https://example.test/".into(),
+        })
+        .await
+        .expect("load");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                }) = events.recv().await
+                {
+                    return;
+                }
+            }
+        })
+        .await
+        .expect("navigation should finish");
+        assert_eq!(tab.title(), "Default");
+
+        // A fixed id is honoured; a per-field override replaces just that field.
+        let wanted = ZoneId::new();
+        let custom = engine
+            .zone_builder()
+            .id(wanted)
+            .cookie_jar(None)
+            .create()
+            .expect("custom zone");
+        assert_eq!(custom.id, wanted);
+
+        engine.close_zone(custom).await;
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     fn engine_with_max_zones(max_zones: usize) -> GosubEngine {
         let settings = EngineConfig::builder().max_zones(max_zones).build().unwrap();
         GosubEngine::new(
@@ -736,7 +868,7 @@ mod tests {
 
         let mut zone_services = services();
         zone_services.cookie_store = Some(store.clone());
-        let mut zone = engine.create_zone(None, zone_services, None).expect("zone");
+        let mut zone = engine.zone_builder().services(zone_services).create().expect("zone");
 
         // Tab creation resolves the persistent per-zone jar from the store.
         let _tab = zone.create_tab(Default::default(), None).await.expect("tab");
@@ -789,7 +921,12 @@ mod tests {
             .accept_languages("fr-CH, fr;q=0.9")
             .build()
             .unwrap();
-        let mut zone = engine.create_zone(Some(zone_cfg), services(), None).expect("zone");
+        let mut zone = engine
+            .zone_builder()
+            .config(zone_cfg)
+            .services(services())
+            .create()
+            .expect("zone");
         let tab = zone.create_tab(Default::default(), None).await.expect("tab");
         tab.navigate(format!("http://127.0.0.1:{port}/"))
             .await
@@ -861,7 +998,7 @@ mod tests {
         let mut engine = engine_with_max_zones(1);
         let mut event_rx = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
-        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
         let tab = zone.create_tab(Default::default(), None).await.expect("tab");
 
         // Navigating to the binary produces an offer, not an error page.
@@ -1022,7 +1159,7 @@ mod tests {
         let _join = tokio::spawn(engine.start().expect("start"));
         let mut zone_services = services();
         zone_services.places = Some(places.clone());
-        let mut zone = engine.create_zone(None, zone_services, None).expect("zone");
+        let mut zone = engine.zone_builder().services(zone_services).create().expect("zone");
         let tab = zone.create_tab(Default::default(), None).await.expect("tab");
 
         let url = format!("http://127.0.0.1:{port}/page");
@@ -1071,7 +1208,7 @@ mod tests {
         let mut engine = engine_with_max_zones(1);
         let mut event_rx = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
-        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
         let tab = zone.create_tab(Default::default(), None).await.expect("tab");
         let tab_id = tab.tab_id;
 
@@ -1133,7 +1270,7 @@ mod tests {
         let mut engine = engine_with_max_zones(1);
         let mut event_rx = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
-        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
         let tab = zone.create_tab(Default::default(), None).await.expect("tab");
         tab.send(TabCommand::SetViewport {
             x: 0,
@@ -1265,7 +1402,7 @@ mod tests {
         let mut engine = engine_with_max_zones(1);
         let mut event_rx = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
-        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
         let tab = zone.create_tab(Default::default(), None).await.expect("tab");
 
         // Collect HistoryChanged snapshots until `pred` holds (or time out).
@@ -1428,7 +1565,7 @@ mod tests {
 
         let mut zone_services = services();
         zone_services.cookie_store = Some(store.clone());
-        let mut zone = engine.create_zone(None, zone_services, None).expect("zone");
+        let mut zone = engine.zone_builder().services(zone_services).create().expect("zone");
         let zone_id = zone.id;
         let _tab = zone.create_tab(Default::default(), None).await.expect("tab");
 
@@ -1441,7 +1578,7 @@ mod tests {
 
         // The single max_zones slot is taken.
         assert!(matches!(
-            engine.create_zone(None, services(), None),
+            engine.zone_builder().services(services()).create(),
             Err(EngineError::ZoneLimitExceeded)
         ));
 
@@ -1458,7 +1595,9 @@ mod tests {
 
         // The slot is free again.
         let zone2 = engine
-            .create_zone(None, services(), None)
+            .zone_builder()
+            .services(services())
+            .create()
             .expect("slot freed after close");
 
         // The closed zone's cookies survived on disk (release, not remove).
@@ -1479,9 +1618,13 @@ mod tests {
         let _join = tokio::spawn(engine.start().expect("start"));
 
         // `None` config also exercises the default_zone_config fallback.
-        engine.create_zone(None, services(), None).expect("first zone fits");
+        engine
+            .zone_builder()
+            .services(services())
+            .create()
+            .expect("first zone fits");
 
-        let err = engine.create_zone(None, services(), None).unwrap_err();
+        let err = engine.zone_builder().services(services()).create().unwrap_err();
         assert!(matches!(err, EngineError::ZoneLimitExceeded));
 
         engine.shutdown().await.expect("shutdown");

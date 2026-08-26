@@ -65,7 +65,7 @@
 //!     };
 //!
 //!     // 3) Create a zone (ZoneHandle)
-//!     let mut zone = engine_handle.create_zone(None, services, None)?;
+//!     let mut zone = engine_handle.zone_builder().services(services).create()?;
 //!
 //!     // 4) Create a tab (TabHandle)
 //!     let tab_handle = zone.create_tab(Default::default(), None).await?;
@@ -208,7 +208,7 @@ pub mod html;
 #[cfg(feature = "metrics")]
 pub mod metrics;
 
-pub use engine::{BrowsingContext, EngineError, GosubEngine, LoadError};
+pub use engine::{BrowsingContext, EngineError, GosubEngine, LoadError, ZoneBuilder};
 
 /// The engine's ready-made config: a marker that implements both
 /// [`ModuleConfiguration`](gosub_interface::config::ModuleConfiguration) (parse/style stack) and

@@ -61,7 +61,7 @@ async fn main() -> Result<(), EngineError> {
         partition_policy: PartitionPolicy::None,
         places: None,
     };
-    let mut zone = engine.create_zone(None, services, None)?;
+    let mut zone = engine.zone_builder().services(services).create()?;
 
     // ── Step 3: Open a tab ───────────────────────────────────────────────────────
     //

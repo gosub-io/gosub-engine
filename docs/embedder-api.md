@@ -44,7 +44,7 @@ Several of these steps only work in one order, and the signatures do not say so.
 
 4.  `start()` returns a future for you to drive; it does not spawn one. You `spawn`, `await`, or `select!` it, which keeps the engine from imposing a threading model on a GTK or winit main loop. A second call returns `EngineError::AlreadyRunning`.
 
-5.  `create_zone(config, services, zone_id)`. `ZoneServices` is the isolation boundary and is required; `config` and `zone_id` are optional (`None` means the engine default and a fresh UUID). Pass a fixed `ZoneId` to restore a persisted profile.
+5.  `engine.zone_builder() … .create()`. Everything is optional: with nothing set you get an ephemeral in-memory profile under the engine's default `ZoneConfig` and a fresh id. Set `.config(..)` for limits, `.id(..)` to restore a persisted profile, and `.services(..)` (or the per-field setters: `.storage`, `.cookie_jar`, `.cookie_store`, `.partition_policy`, `.places`) for the isolation boundary.
 
 6.  `zone.create_tab(TabDefaults, overrides)` returns a `TabHandle`.
 
@@ -255,7 +255,6 @@ Subscribe to events instead when you need the moment something changes, or detai
 -   **`Redraw` is still on the control bus.** It fires per frame, so a shell scrolling at 60fps puts real traffic alongside `TabCrashed`. It sits there because shells overwhelmingly want it in the same loop as navigation, and because a dropped one costs a coalesced repaint. If it becomes a problem it wants a third stream, not a bigger buffer.
 -   **The input model is thin.** `KeyDown.key` is a `String` rather than a typed key, and there is no IME composition, touch, or pointer id. `TextInput` is declared but not yet handled, so text editing does not work at all. `FocusChanged { editable }` is the hook for an on-screen keyboard, waiting on the other half.
 -   **`LoadError::Network` still lumps DNS, connect and TLS together**, because the HTTP client reports them as one error type. Telling them apart means inspecting `reqwest::Error` inside the network layer. Separately, the *resource* stream is coarser than the navigation one: `ResourceEvent::Failed` can only ever be `Network`, because `NetEvent::Failed` carries a bare `anyhow::Error` where the navigation path gets a typed `NetError`. Both want a change in gosub-sonar; `LoadError` is `#[non_exhaustive]` so neither will be breaking.
--   **`create_zone(Option<ZoneConfig>, ZoneServices, Option<ZoneId>)`** is builder territory that has not been built.
 -   **`#![deny(missing_docs)]` is commented out** at the top of `lib.rs`. Some of what is public is public by accident.
 
 ------------------------------------------------------------------------

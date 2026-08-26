@@ -23,7 +23,7 @@ pub mod types;
 
 pub use context::BrowsingContext;
 pub use engine::EngineContext;
-pub use engine::GosubEngine;
+pub use engine::{GosubEngine, ZoneBuilder};
 pub use errors::{EngineError, LoadError};
 pub use settings_store::default_config as default_settings;
 

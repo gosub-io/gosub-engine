@@ -90,7 +90,11 @@ impl GosubBrowser {
                     partition_policy: PartitionPolicy::None,
                 };
 
-                let mut zone = engine.create_zone(None, services, None).map_err(|e| e.to_string())?;
+                let mut zone = engine
+                    .zone_builder()
+                    .services(services)
+                    .create()
+                    .map_err(|e| e.to_string())?;
 
                 let tab = zone
                     .create_tab(
