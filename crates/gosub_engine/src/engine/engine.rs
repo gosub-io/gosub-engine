@@ -2,10 +2,10 @@
 //! [`EngineCommand`]/[`EngineEvent`] bus.
 
 use crate::cookies::CookieStoreHandle;
-use crate::engine::events::{EngineCommand, EngineEvent};
+use crate::engine::events::{EngineCommand, EngineEvent, ResourceUpdate};
 use crate::engine::internal_pages::InternalPages;
-use crate::engine::types::{EventChannel, IoChannel};
-use crate::engine::DEFAULT_CHANNEL_CAPACITY;
+use crate::engine::types::{EventChannel, IoChannel, ResourceChannel};
+use crate::engine::{DEFAULT_CHANNEL_CAPACITY, RESOURCE_CHANNEL_CAPACITY};
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::net::{fetcher_config_from, spawn_io_thread, IoHandle};
@@ -54,8 +54,11 @@ pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig
 // network I/O runtime can share this context without being generic.
 #[derive(Clone)]
 pub struct EngineContext {
-    /// Event sender
+    /// Event sender for the low-volume control bus.
     pub event_tx: EventChannel,
+    /// Event sender for the high-volume resource stream, kept apart from `event_tx` so
+    /// per-chunk progress cannot evict control events.
+    pub resource_tx: ResourceChannel,
     /// Global engine configuration
     pub config: Arc<EngineConfig>,
     /// Per-engine settings store (key/value config with persistence and change subscriptions).
@@ -76,6 +79,7 @@ impl Default for EngineContext {
     fn default() -> Self {
         Self {
             event_tx: broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY).0,
+            resource_tx: broadcast::channel::<ResourceUpdate>(RESOURCE_CHANNEL_CAPACITY).0,
             config: Arc::new(EngineConfig::default()),
             config_store: crate::engine::settings_store::default_config(),
             io_tx: OnceLock::new(),
@@ -109,12 +113,15 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Command channel on which to send and receive engine commands from the UA.
         let (cmd_tx, cmd_rx) = mpsc::channel::<EngineCommand>(DEFAULT_CHANNEL_CAPACITY);
 
-        // Broadcast event bus. Subscribe to receive engine events (including zone and tab events)
+        // Two broadcast buses: a low-volume control bus, and a separate high-volume resource
+        // stream so per-chunk progress cannot evict crash/lifecycle events from the former.
         let (event_tx, _first_rx) = broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY);
+        let (resource_tx, _first_res_rx) = broadcast::channel::<ResourceUpdate>(RESOURCE_CHANNEL_CAPACITY);
 
         Self {
             context: Arc::new(EngineContext {
                 event_tx: event_tx.clone(),
+                resource_tx,
                 config: Arc::new(resolved_config),
                 config_store: crate::engine::settings_store::default_config(),
                 io_tx: OnceLock::new(),
@@ -163,8 +170,29 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     }
 
     /// Return a receiver for engine events.
+    ///
+    /// This is the control bus: navigation, tab and zone lifecycle, downloads, input
+    /// feedback, crashes. Low volume, and the events on it are the ones a shell cannot
+    /// afford to miss. Per-resource detail lives on its own stream - see
+    /// [`subscribe_resource_events`](Self::subscribe_resource_events).
+    ///
+    /// The channel is bounded, so a receiver that falls behind gets
+    /// [`RecvError::Lagged`](broadcast::error::RecvError::Lagged) and loses the oldest
+    /// events. Keep the receive loop short - hand work to your own queue and come back.
     pub fn subscribe_events(&self) -> broadcast::Receiver<EngineEvent> {
         self.context.event_tx.subscribe()
+    }
+
+    /// Return a receiver for the per-resource stream: one [`ResourceUpdate`] per fetch
+    /// lifecycle step, including a `Progress` per chunk of every subresource.
+    ///
+    /// Opt-in and separate from [`subscribe_events`](Self::subscribe_events) on purpose.
+    /// These arrive at network rate; on a shared bus a heavy page would push a
+    /// [`TabCrashed`](EngineEvent::TabCrashed) out of the buffer before a busy shell read
+    /// it. A shell that does not display per-resource detail never calls this and pays
+    /// nothing for the traffic.
+    pub fn subscribe_resource_events(&self) -> broadcast::Receiver<ResourceUpdate> {
+        self.context.resource_tx.subscribe()
     }
 
     /// The `gosub://` page registry. Register a provider to add an internal page or override
@@ -371,6 +399,46 @@ mod tests {
             cookie_jar: None,
             partition_policy: PartitionPolicy::None,
             places: None,
+        }
+    }
+
+    /// The whole point of the split: resource traffic must not be able to evict control
+    /// events. A single shared bus would drop the oldest - which can be `TabCrashed` - once
+    /// more than `DEFAULT_CHANNEL_CAPACITY` events pile up behind a busy shell.
+    #[tokio::test(flavor = "current_thread")]
+    async fn resource_flood_does_not_evict_control_events() {
+        use crate::engine::events::{ResourceEvent, ResourceUpdate};
+        use crate::net::req_ref_tracker::RequestReference;
+
+        let engine = engine_with_max_zones(1);
+        let mut control = engine.subscribe_events();
+
+        // A control event the shell must not miss, then far more resource traffic than the
+        // control bus could ever hold.
+        let tab_id = crate::tab::TabId::new();
+        let zone_id = ZoneId::new();
+        let _ = engine.context.event_tx.send(EngineEvent::TabCrashed {
+            tab_id,
+            zone_id,
+            error: "boom".into(),
+        });
+        for i in 0..(DEFAULT_CHANNEL_CAPACITY * 4) {
+            let _ = engine.context.resource_tx.send(ResourceUpdate {
+                tab_id,
+                event: ResourceEvent::Progress {
+                    request_id: crate::engine::types::RequestId::new(),
+                    reference: RequestReference::Navigation(crate::engine::types::NavigationId::new()),
+                    received_bytes: i as u64,
+                    expected_length: None,
+                    elapsed: Duration::from_millis(1),
+                },
+            });
+        }
+
+        // The crash is still there, and the receiver never lagged.
+        match control.try_recv() {
+            Ok(EngineEvent::TabCrashed { error, .. }) => assert_eq!(error, "boom"),
+            other => panic!("control event was evicted by resource traffic: {other:?}"),
         }
     }
 

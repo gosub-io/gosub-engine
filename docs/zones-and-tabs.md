@@ -32,7 +32,7 @@ Internally the zone builds a `ZoneContext` that flows down to every tab it creat
 -   the **render backend** and **compositor sink** (one instance each, per the config);
 -   the **font system** --- one instance, handed to both layout and rasterization so measurement and drawing agree (see [fonts.md](fonts.md));
 -   the **network I/O thread** --- networking runs on its own thread with an `IoChannel`; responses are routed back to the right tab via a request-reference map;
--   the **command channel** (`EngineCommand`, mpsc into the engine run loop) and the **event bus** (`EngineEvent`, a tokio broadcast channel --- `subscribe_events()` gives every listener its own receiver).
+-   the **command channel** (`EngineCommand`, mpsc into the engine run loop) and the **event bus** (`EngineEvent`, a tokio broadcast channel --- `subscribe_events()` gives every listener its own receiver), and a **separate resource stream** (`ResourceUpdate`, via `subscribe_resource_events()`) so per-chunk fetch progress cannot crowd must-not-miss events like `TabCrashed` out of the bounded control bus.
 
 The command/event flow is strictly layered: commands travel *down* (UA → engine → zone → tab, each over its own mpsc channel), events travel *up* onto the one broadcast bus, tagged with their `tab_id`/`zone_id` so the UA can demultiplex.
 

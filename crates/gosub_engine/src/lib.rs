@@ -5,7 +5,8 @@
 //!
 //! Gosub is a work-in-progress, embeddable browser engine for building your own User Agent (UA).
 //! It uses **async channels** and **handles**:
-//! - `EngineEvent` flows from the engine → UA over an event channel.
+//! - `EngineEvent` flows from the engine → UA over a control event channel; high-volume
+//!   per-resource detail has its own opt-in stream (`subscribe_resource_events`).
 //! - You control tabs via `TabCommand`; the engine itself via methods on [`GosubEngine`].
 //! - The engine owns a **render backend** (e.g., Null, Cairo, Vello) that you provide.
 //! - The engine is built around a **multi-zone** model, where each zone represents a separate profile.
@@ -263,7 +264,7 @@ pub mod events {
     pub use crate::engine::events::{
         CursorShape, DownloadId, EngineEvent, HitTestResponse, HitTestToken, Modifiers, MouseButton, TabCommand,
     };
-    pub use crate::engine::events::{NavigationEvent, ResourceEvent};
+    pub use crate::engine::events::{NavigationEvent, ResourceEvent, ResourceUpdate};
 }
 
 /// Configuration options for the Gosub engine.

@@ -425,6 +425,22 @@ pub enum NavigationEvent {
     },
 }
 
+/// One [`ResourceEvent`], tagged with the tab it belongs to.
+///
+/// Carried by its own broadcast stream
+/// ([`subscribe_resource_events`](crate::GosubEngine::subscribe_resource_events)) rather than
+/// the main event bus: these arrive at network rate - one `Progress` per chunk per
+/// subresource - and would otherwise push low-volume, must-not-miss events like
+/// [`EngineEvent::TabCrashed`] out of a bounded buffer. Subscribing is opt-in; a shell that
+/// does not want per-resource detail simply never asks for it and pays nothing.
+#[derive(Debug, Clone)]
+pub struct ResourceUpdate {
+    /// The tab whose load produced this event.
+    pub tab_id: TabId,
+    /// What happened.
+    pub event: ResourceEvent,
+}
+
 /// Events triggered by load resources for a main document. Note that resources can trigger other
 /// resources. @TODO: how do we see this?
 ///
@@ -680,11 +696,6 @@ pub enum EngineEvent {
     Navigation {
         tab_id: TabId,
         event: NavigationEvent,
-    },
-    /// Lowlevel resource events for all resources loaded
-    Resource {
-        tab_id: TabId,
-        event: ResourceEvent,
     },
 
     // /// Redirect occurred

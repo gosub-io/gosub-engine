@@ -1,6 +1,6 @@
 // Example code: panicking on bad input is the desired behavior, as in any test code.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use gosub_engine::events::{MouseButton, NavigationEvent, ResourceEvent, TabCommand};
+use gosub_engine::events::{MouseButton, NavigationEvent, ResourceEvent, ResourceUpdate, TabCommand};
 use gosub_engine::tab::TabDefaults;
 use gosub_engine::{
     cookies::DefaultCookieJar,
@@ -72,6 +72,9 @@ async fn main() -> Result<(), EngineError> {
     // Get our event channel to receive events from the engine. Note that you will only receive events
     // send from this point on.
     let mut event_rx = engine.subscribe_events();
+    // Per-resource detail is a separate, opt-in stream: it arrives at network rate and is
+    // deliberately kept off the control bus so it cannot crowd out lifecycle events.
+    let mut resource_rx = engine.subscribe_resource_events();
 
     // Configure a zone. This works the same way as the engine config, using a builder
     // pattern to set up the configuration before building it.
@@ -155,6 +158,9 @@ async fn main() -> Result<(), EngineError> {
             Ok(ev) = event_rx.recv() => {
                 handle_event(ev).await;
             }
+            Ok(update) = resource_rx.recv() => {
+                handle_resource(update);
+            }
             _ = tokio::signal::ctrl_c() => {
                 println!("Shutting down...");
                 break;
@@ -177,6 +183,62 @@ async fn main() -> Result<(), EngineError> {
 
     println!("Done. Exiting.");
     Ok(())
+}
+
+/// The opt-in resource stream: one update per fetch lifecycle step, `Progress` per chunk.
+fn handle_resource(update: ResourceUpdate) {
+    let ResourceUpdate { tab_id, event } = update;
+
+    let t = short(&tab_id);
+    match event {
+        ResourceEvent::Started { url, .. } => {
+            println!("[res ] started   [{t}] {url}");
+        }
+        ResourceEvent::Redirected { from, to, status, .. } => {
+            println!("[res ] redirect  [{t}] {status}  {from}  →  {to}");
+        }
+        ResourceEvent::Headers {
+            url,
+            status,
+            content_type,
+            content_length,
+            ..
+        } => {
+            let ct = content_type.as_deref().unwrap_or("-");
+            let cl = content_length
+                .map(|n| format!("{n} B"))
+                .unwrap_or_else(|| "unknown".into());
+            println!("[res ] headers   [{t}] {status}  {ct}  {cl}  {url}");
+        }
+        ResourceEvent::Progress {
+            received_bytes,
+            expected_length,
+            elapsed,
+            ..
+        } => {
+            let kb = received_bytes / 1024;
+            let total = expected_length
+                .map(|n| format!("{} KB", n / 1024))
+                .unwrap_or_else(|| "?".into());
+            println!("[res ] progress  [{t}] {kb} KB / {total}  ({})", fmt_elapsed(elapsed));
+        }
+        ResourceEvent::Finished {
+            url,
+            received_bytes,
+            elapsed,
+            ..
+        } => {
+            let kb = received_bytes as f64 / 1024.0;
+            let elapsed = elapsed.map(fmt_elapsed).unwrap_or_else(|| "-".into());
+            println!("[res ] finished  [{t}] {kb:.1} KB  {elapsed}  {url}");
+        }
+        ResourceEvent::Failed { url, error, .. } => {
+            println!("[res ] FAILED    [{t}] {url}  ({error})");
+        }
+        ResourceEvent::Cancelled { url, reason, .. } => {
+            println!("[res ] cancelled [{t}] {url}  ({reason:?})");
+        }
+    }
 }
 
 async fn handle_event(ev: EngineEvent) {
@@ -225,59 +287,6 @@ async fn handle_event(ev: EngineEvent) {
                         history.can_go_back,
                         history.forward.len()
                     );
-                }
-            }
-        }
-
-        EngineEvent::Resource { tab_id, event } => {
-            let t = short(&tab_id);
-            match event {
-                ResourceEvent::Started { url, .. } => {
-                    println!("[res ] started   [{t}] {url}");
-                }
-                ResourceEvent::Redirected { from, to, status, .. } => {
-                    println!("[res ] redirect  [{t}] {status}  {from}  →  {to}");
-                }
-                ResourceEvent::Headers {
-                    url,
-                    status,
-                    content_type,
-                    content_length,
-                    ..
-                } => {
-                    let ct = content_type.as_deref().unwrap_or("-");
-                    let cl = content_length
-                        .map(|n| format!("{n} B"))
-                        .unwrap_or_else(|| "unknown".into());
-                    println!("[res ] headers   [{t}] {status}  {ct}  {cl}  {url}");
-                }
-                ResourceEvent::Progress {
-                    received_bytes,
-                    expected_length,
-                    elapsed,
-                    ..
-                } => {
-                    let kb = received_bytes / 1024;
-                    let total = expected_length
-                        .map(|n| format!("{} KB", n / 1024))
-                        .unwrap_or_else(|| "?".into());
-                    println!("[res ] progress  [{t}] {kb} KB / {total}  ({})", fmt_elapsed(elapsed));
-                }
-                ResourceEvent::Finished {
-                    url,
-                    received_bytes,
-                    elapsed,
-                    ..
-                } => {
-                    let kb = received_bytes as f64 / 1024.0;
-                    let elapsed = elapsed.map(fmt_elapsed).unwrap_or_else(|| "-".into());
-                    println!("[res ] finished  [{t}] {kb:.1} KB  {elapsed}  {url}");
-                }
-                ResourceEvent::Failed { url, error, .. } => {
-                    println!("[res ] FAILED    [{t}] {url}  ({error})");
-                }
-                ResourceEvent::Cancelled { url, reason, .. } => {
-                    println!("[res ] cancelled [{t}] {url}  ({reason:?})");
                 }
             }
         }

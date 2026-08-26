@@ -31,5 +31,9 @@ pub use policy::UaPolicy;
 
 /// Default capacity for MPSC channels
 const DEFAULT_CHANNEL_CAPACITY: usize = 512;
+/// Buffer for the resource stream. Larger than the control bus because it carries one
+/// `Progress` per chunk per subresource: a heavy page can produce thousands of these while a
+/// shell is busy, and dropping them matters far less than dropping a crash notification.
+const RESOURCE_CHANNEL_CAPACITY: usize = 4096;
 
 pub mod resource_pipeline;

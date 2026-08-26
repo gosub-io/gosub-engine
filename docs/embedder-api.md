@@ -91,7 +91,7 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 
 ## Events out: `EngineEvent`
 
-One broadcast bus carries everything, from `Redraw` at frame rate to `TabCrashed` once in a process lifetime. `subscribe_events()` gives each listener its own receiver.
+`subscribe_events()` gives each listener its own receiver on the **control bus**: lifecycle, navigation, downloads, input feedback, crashes. Per-resource detail is not on it - see [Two streams](#two-streams).
 
 | Event | Notes |
 |---|---|
@@ -102,7 +102,6 @@ One broadcast bus carries everything, from `Redraw` at frame rate to `TabCrashed
 | `Redraw { tab_id }` | Carries no frame data. See [Frames](#frames). |
 | **Navigation and resources** | |
 | `Navigation { tab_id, event }` | Wraps `NavigationEvent`, below. |
-| `Resource { tab_id, event }` | Wraps `ResourceEvent`, below. High volume. |
 | **Tab state** | |
 | `HoverUrl { url }` | `None` when the pointer leaves a link. |
 | `CursorChanged { cursor }` | Change-only; resets on navigation. Map to your native cursor. |
@@ -145,9 +144,26 @@ Events for the main document. Every event in one navigation carries the same `Na
 
 ### `ResourceEvent`
 
-Events for everything else the page loads. Each carries a `RequestId` and a `RequestReference` saying what the resource belongs to. This is the high-volume stream: one `Progress` per chunk per subresource, on the same bus as `TabCrashed`. See [Rough edges](#rough-edges).
+Events for everything else the page loads, delivered as `ResourceUpdate { tab_id, event }` on the separate stream from `subscribe_resource_events()`. Each carries a `RequestId` and a `RequestReference` saying what the resource belongs to.
 
 `Started`, `Redirected`, `Headers`, `Progress`, `Finished`, `Failed` and `Cancelled` are live. `Queued` · gated ·: requests currently go straight to `Started`.
+
+------------------------------------------------------------------------
+
+## Two streams
+
+Events arrive on two independent broadcast channels, because they have very different volumes and very different consequences when dropped.
+
+| | `subscribe_events()` | `subscribe_resource_events()` |
+|---|---|---|
+| Carries | `EngineEvent` - lifecycle, navigation, downloads, input feedback, crashes | `ResourceUpdate { tab_id, event }` |
+| Volume | A handful per navigation | Network rate: one `Progress` per chunk, per subresource |
+| Buffer | 512 | 4096 |
+| Missing one | Can matter - `TabCrashed` is on here | Usually fine; it is progress detail |
+
+They were one bus, which meant a page pulling a hundred subresources could push a `TabCrashed` out of the buffer before a busy shell read it. Splitting them means a shell that does not display per-resource detail never subscribes to the second one and pays nothing for the traffic.
+
+Both are bounded, so both can still lag - see [Contracts](#contracts). Nothing is ordered *between* the two streams; a `ResourceUpdate` and a `NavigationEvent` from the same load have no defined relative order.
 
 ------------------------------------------------------------------------
 
@@ -209,14 +225,14 @@ Subscribe to events instead when you need the moment something changes, or detai
 -   **`ResumeDrawing` before anything paints.** See [Lifecycle](#lifecycle-and-ordering) step 7.
 -   **Tokens are yours to mint.** `HitTestToken` and `DownloadId` are chosen by the embedder and echoed back. Uniqueness is your responsibility; the engine does not check.
 -   **`TabCrashed` means the tab is gone.** Stop sending to that handle and recreate the tab.
--   **Handle `Lagged`.** `broadcast::Receiver::recv` returns `Err(Lagged(n))` when your consumer fell behind and `n` messages were dropped. Continue the loop; treating it as `Closed` and breaking kills your event handling on the first busy page.
+-   **Handle `Lagged`.** Both streams are bounded, so `broadcast::Receiver::recv` returns `Err(Lagged(n))` when your consumer fell behind and `n` messages were dropped. Continue the loop; treating it as `Closed` and breaking kills your event handling on the first busy page. Lagging the control bus is worth logging - it means something like a `TabCrashed` may have gone missing.
 -   **Zone services are the isolation boundary.** Two zones sharing a `StorageService` or cookie jar are not isolated, whatever their `ZoneId`s say.
 
 ------------------------------------------------------------------------
 
 ## Rough edges
 
--   **One bus for everything.** `ResourceEvent::Progress` arrives at network rate and `Redraw` at frame rate, on the same fixed-capacity channel as `TabCrashed` and `DownloadRequested`. A UA that does anything slow on the receive side will drop events on a busy page. Keep the receive loop tight: forward to your own queue and return. Splitting a low-volume control bus from an opt-in high-volume stream is the intended fix.
+-   **`Redraw` is still on the control bus.** It fires per frame, so a shell scrolling at 60fps puts real traffic alongside `TabCrashed`. It sits there because shells overwhelmingly want it in the same loop as navigation, and because a dropped one costs a coalesced repaint. If it becomes a problem it wants a third stream, not a bigger buffer.
 -   **The input model is thin.** `KeyDown.key` is a `String` rather than a typed key, and there is no IME composition, touch, or pointer id. `TextInput` is declared but not yet handled, so text editing does not work at all. `FocusChanged { editable }` is the hook for an on-screen keyboard, waiting on the other half.
 -   **Errors are opaque.** `NavigationEvent::Failed`, `FailedUrl` and `ResourceEvent::Failed` carry `Arc<anyhow::Error>`, so telling a DNS failure from a TLS failure from a refused connection means matching on strings. A typed error is wanted; it needs a taxonomy mapped from the network layer's `NetError`.
 -   **The decision flow is half-built.** `DecisionRequired` is gated and never emitted, yet `SubmitDecision`, `DecisionToken` and the engine's `DecisionHub` are all wired to answer it. Either the ask gets built (it needs a `UaPolicy` flag) or the answering half should go.

@@ -12,7 +12,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use gosub_engine::events::{EngineEvent, NavigationEvent, ResourceEvent};
+use gosub_engine::events::{EngineEvent, NavigationEvent, ResourceEvent, ResourceUpdate};
 use gosub_engine::tab::TabDefaults;
 use gosub_engine::{
     cookies::DefaultCookieJar,
@@ -138,6 +138,8 @@ async fn main() -> Result<(), EngineError> {
     );
     let engine_join = tokio::spawn(engine.start().expect("start"));
     let mut events = engine.subscribe_events();
+    // Resource detail is its own opt-in stream, off the control bus.
+    let mut resources = engine.subscribe_resource_events();
 
     let zone_services = ZoneServices {
         storage: Arc::new(StorageService::new(
@@ -175,8 +177,8 @@ async fn main() -> Result<(), EngineError> {
     loop {
         tokio::select! {
             Ok(ev) = events.recv() => {
-                match ev {
-                    EngineEvent::Navigation { event, .. } => match event {
+                if let EngineEvent::Navigation { event, .. } = ev {
+                    match event {
                         NavigationEvent::Started { .. } => {
                             c.nav_started = true;
                         }
@@ -193,12 +195,11 @@ async fn main() -> Result<(), EngineError> {
                             break;
                         }
                         _ => {}
-                    },
-                    EngineEvent::Resource { event: ResourceEvent::Started { url, .. }, .. } => {
-                        c.resources_started.push(url);
                     }
-                    _ => {}
                 }
+            }
+            Ok(ResourceUpdate { event: ResourceEvent::Started { url, .. }, .. }) = resources.recv() => {
+                c.resources_started.push(url);
             }
             _ = tokio::time::sleep_until(deadline) => {
                 c.nav_error = Some("timed out after 15s".into());
@@ -209,11 +210,11 @@ async fn main() -> Result<(), EngineError> {
 
     // Drain any remaining resource events that arrived around the same time.
     tokio::time::sleep(Duration::from_millis(500)).await;
-    while let Ok(ev) = events.try_recv() {
-        if let EngineEvent::Resource {
+    while let Ok(update) = resources.try_recv() {
+        if let ResourceUpdate {
             event: ResourceEvent::Started { url, .. },
             ..
-        } = ev
+        } = update
         {
             c.resources_started.push(url);
         }

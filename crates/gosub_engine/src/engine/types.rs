@@ -40,5 +40,8 @@ impl Display for NavigationId {
 
 // Defined channels for communication
 pub type EventChannel = tokio::sync::broadcast::Sender<EngineEvent>;
+/// Sender for the high-volume resource stream. Separate from [`EventChannel`] so per-chunk
+/// progress cannot evict control events - see [`ResourceUpdate`](crate::events::ResourceUpdate).
+pub type ResourceChannel = tokio::sync::broadcast::Sender<crate::events::ResourceUpdate>;
 pub type IoChannel = tokio::sync::mpsc::UnboundedSender<IoCommand>;
 pub type TabChannel = tokio::sync::mpsc::Sender<TabCommand>;

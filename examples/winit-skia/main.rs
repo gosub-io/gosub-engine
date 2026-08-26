@@ -477,7 +477,11 @@ fn main() {
                     let _ = proxy_ev.send_event(());
                 }
                 Ok(_) => {}
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    // The control bus is bounded; falling behind drops the oldest events,
+                    // which can include TabCrashed. Say so rather than silently continuing.
+                    log::warn!("event receiver lagged, {n} engine events dropped");
+                }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }

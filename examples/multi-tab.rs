@@ -10,7 +10,7 @@ use gosub_engine::{
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 
-use gosub_engine::events::{NavigationEvent, ResourceEvent};
+use gosub_engine::events::{NavigationEvent, ResourceEvent, ResourceUpdate};
 use gosub_engine::tab::{TabDefaults, TabId};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use once_cell::sync::Lazy;
@@ -100,6 +100,8 @@ async fn main() -> Result<(), EngineError> {
     // Get our event channel to receive events from the engine. Note that you will only receive events
     // send from this point on.
     let mut event_rx = engine.subscribe_events();
+    // Per-resource detail is a separate, opt-in stream (network rate, kept off the control bus).
+    let mut resource_rx = engine.subscribe_resource_events();
 
     // Configure a zone. This works the same way as the engine config, using a builder
     // pattern to set up the configuration before building it.
@@ -220,6 +222,9 @@ async fn main() -> Result<(), EngineError> {
                 }
                 handle_event(ev);
             }
+            Ok(update) = resource_rx.recv() => {
+                handle_resource(update);
+            }
             _ = tokio::signal::ctrl_c() => {
                 break;
             }
@@ -241,6 +246,49 @@ async fn main() -> Result<(), EngineError> {
 
     println!("Done. Exiting. Seen frames: {}", seen_frames);
     Ok(())
+}
+
+/// The opt-in resource stream: one update per fetch lifecycle step, `Progress` per chunk.
+fn handle_resource(update: ResourceUpdate) {
+    let ResourceUpdate { tab_id, event } = update;
+
+    // Build a compact one-line summary per event
+    let mut ui = UI.lock();
+    match event {
+        ResourceEvent::Started { url, .. } => ui.update(tab_id, format!("res: started {url}")),
+        ResourceEvent::Redirected { from, to, status, .. } => {
+            ui.update(tab_id, format!("res: redirect {status} {from} → {to}"))
+        }
+        ResourceEvent::Progress { received_bytes, .. } => ui.update(tab_id, format!("res: {received_bytes} bytes…")),
+        ResourceEvent::Headers {
+            status,
+            content_length,
+            content_type,
+            ..
+        } => {
+            let mut s = String::new();
+            let _ = write!(
+                s,
+                "res: headers {status} len={} type={}",
+                content_length
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "unknown".into()),
+                content_type.unwrap_or_default()
+            );
+            ui.update(tab_id, s);
+        }
+        ResourceEvent::Finished {
+            url,
+            received_bytes,
+            elapsed,
+            ..
+        } => {
+            let kb = received_bytes as f64 / 1024.0;
+            ui.update(tab_id, format!("res: finished {} {:.2}Kb ({:?})", url, kb, elapsed))
+        }
+        ResourceEvent::Failed { url, error, .. } => ui.update(tab_id, format!("res: FAILED {url} ({error})")),
+        ResourceEvent::Cancelled { url, reason, .. } => ui.update(tab_id, format!("res: cancelled {url} [{reason:?}]")),
+    }
 }
 
 fn handle_event(ev: EngineEvent) {
@@ -310,49 +358,6 @@ fn handle_event(ev: EngineEvent) {
                             history.forward.len()
                         ),
                     );
-                }
-            }
-        }
-        EngineEvent::Resource { tab_id, event } => {
-            // Build a compact one-line summary per event
-            let mut ui = UI.lock();
-            match event {
-                ResourceEvent::Started { url, .. } => ui.update(tab_id, format!("res: started {url}")),
-                ResourceEvent::Redirected { from, to, status, .. } => {
-                    ui.update(tab_id, format!("res: redirect {status} {from} → {to}"))
-                }
-                ResourceEvent::Progress { received_bytes, .. } => {
-                    ui.update(tab_id, format!("res: {received_bytes} bytes…"))
-                }
-                ResourceEvent::Headers {
-                    status,
-                    content_length,
-                    content_type,
-                    ..
-                } => {
-                    let mut s = String::new();
-                    let _ = write!(
-                        s,
-                        "res: headers {status} len={} type={}",
-                        content_length
-                            .map(|n| n.to_string())
-                            .unwrap_or_else(|| "unknown".into()),
-                        content_type.unwrap_or_default()
-                    );
-                    ui.update(tab_id, s);
-                }
-                ResourceEvent::Finished {
-                    url,
-                    received_bytes,
-                    elapsed,
-                    ..
-                } => {
-                    let kb = received_bytes as f64 / 1024.0;
-                    ui.update(tab_id, format!("res: finished {} {:.2}Kb ({:?})", url, kb, elapsed))
-                }
-                ResourceEvent::Failed { url, error, .. } => ui.update(tab_id, format!("res: FAILED {url} ({error})")),
-                ResourceEvent::Cancelled { url, reason, .. } => {
-                    ui.update(tab_id, format!("res: cancelled {url} [{reason:?}]"))
                 }
             }
         }

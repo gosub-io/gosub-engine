@@ -100,6 +100,7 @@ pub struct IoRouter {
 impl IoRouter {
     pub fn new(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Self {
         let local_ctx = EngineNetContext {
+            resource_tx: engine_ctx.resource_tx.clone(),
             event_tx: engine_ctx.event_tx.clone(),
             request_reference_map: engine_ctx.request_reference_map.clone(),
             request_ref_tracker: Arc::new(RequestRefTracker::new()),
@@ -135,6 +136,7 @@ impl IoRouter {
         let zone_shutdown = CancellationToken::new();
 
         let engine_ctx = Arc::new(EngineNetContext {
+            resource_tx: self.engine_ctx.resource_tx.clone(),
             event_tx: self.engine_ctx.event_tx.clone(),
             request_reference_map: self.engine_ctx.request_reference_map.clone(),
             request_ref_tracker: Arc::new(RequestRefTracker::new()),
