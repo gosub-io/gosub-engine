@@ -439,7 +439,7 @@
       "key": "renderer_process",
       "type": "b",
       "default": "b:false",
-      "description": "Spawn the renderer fork server at engine start: a warmed, sandboxed process that pages are rendered in, forked per render, confined to the tier the configured font system answers. Requires the embedder to call gosub_engine::child_process::dispatch_with::<AppConfig>() first thing in main() (plain dispatch() cannot run this role); the engine falls back to in-process rendering (with a warning) if the fork server cannot start or the font system cannot run isolated. Linux only."
+      "description": "Spawn the renderer fork server at engine start: a warmed, sandboxed process that resident renderers are forked from - one long-lived renderer per (zone, site), hosting that site's tabs, confined to the tier the configured font system answers. Requires the embedder to call gosub_engine::child_process::dispatch_with::<AppConfig>() first thing in main() (plain dispatch() cannot run this role). If the fork server cannot start, pages render in-process (with a warning at startup); once it runs, page content is never rendered in-process - a failed render leaves the tab blank and emits EngineEvent::RendererCrashed. See docs/process-isolation.md. Linux only."
     },
     {
       "key": "sandbox_mode",

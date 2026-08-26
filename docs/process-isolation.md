@@ -1,0 +1,214 @@
+# Process isolation
+
+How the engine splits itself into sandboxed processes, what an embedder must do to
+turn that on, and how to observe and test it. This page is the overview; the font
+side of the story is in [fonts.md](fonts.md) ("Confinement tiers"), and the render
+pipeline the isolated renderers run is described under
+[render-pipeline/](render-pipeline/README.md).
+
+Everything here is opt-in and **off by default** (see [Settings](#settings)).
+The renderer process family is **Linux only**; the network and decoder processes
+also run on macOS and Windows with platform-appropriate confinement.
+
+## Why
+
+Page content is untrusted input fed to large parsers: HTML, CSS, images, fonts.
+The engine's answer is the same as every modern browser's: run that parsing and
+rendering in processes that hold no secrets and have had almost every privilege
+removed, so a bug in a codec or layout is a crashed throwaway process, not a
+compromised browser. Three properties fall out of the design and are worth
+naming, because the code defends them everywhere:
+
+- **Renderers hold no capabilities.** No network, no filesystem, no devices, no
+  new processes. Everything a render needs either arrives over its one socket or
+  was inherited copy-on-write before lockdown.
+- **The broker never trusts the wire.** Lengths, dimensions, counts and file
+  descriptors coming from a child are claims to validate, not facts.
+- **Page content never renders in the broker.** Once renderer isolation is on, a
+  failed out-of-process render leaves the tab blank and tells the embedder
+  (`EngineEvent::RendererCrashed`) rather than quietly running the page in the
+  trusted process. Only the engine's own `gosub:`/`about:` pages are exempt.
+
+## The process model
+
+```
+broker (the embedder's process: engine, zones, tabs, DOM, cookies, storage, compositing)
+├── gosub-net           network stack; the engine's only network capability
+├── gosub-decoder       raster image decoding; one throwaway process per image
+└── gosub-forksrv       the fork server: fonts warmed once, renderers forked from it
+    ├── pidns-anchor    PID 1 of the renderers' private PID namespace
+    ├── render-<site>   resident renderer for one (zone, site), e.g. render-example.
+    └── render-<site>   … one per site with open tabs
+```
+
+Every child renames itself for `ps`/`pstree` (comm + cmdline), so the tree above
+is what you actually see on a running system.
+
+- **gosub-net** is the only process allowed to reach the network. Tabs never
+  fetch: their loads are brokered requests that the I/O runtime performs with the
+  tab's cookies attached on the way through — tab code never sees a cookie value.
+- **gosub-decoder** is spawned per image, fed bytes, and exits. Its SVG decoder
+  runs without any fonts: it only *validates* (the broker re-parses accepted SVG
+  with real fonts), so the tightest profile applies.
+- **gosub-forksrv** exists for font warm-up, not fork speed: it builds and
+  prepares the configured font system once (see fonts.md), confines itself, and
+  forks renderers that inherit the warmed state copy-on-write. It also lazily
+  unshares a PID namespace; whatever forks first becomes that namespace's PID 1
+  and must outlive every renderer, which is the anchor's whole job.
+- **render-\<site\>** processes are *resident*: one per `(zone, site)` — site
+  being scheme + eTLD+1, Chromium's definition — hosting every tab of that site
+  in that zone, alive until the site's last tab closes. They are forked from the
+  fork server on demand; the broker then talks to each renderer directly over a
+  socket handed across with `SCM_RIGHTS`.
+
+Confinement is layered per role: seccomp allowlists (default-deny, violations
+die with a SIGSYS naming the syscall and, for path-taking calls, the path),
+Landlock filesystem scoping where a role needs any files at all, namespace
+unsharing (network, IPC, UTS, and PID for the renderer family), rlimits
+(committed memory, fd count, no core dumps, lowered priority), and non-dumpable
+processes. Renderers get the strictest profile their font system permits — the
+**confinement tier** — which is the font system's own answer; fonts.md explains
+the tiers and why they exist.
+
+## The embedder contract
+
+1. **`gosub_engine::child_process::dispatch_with::<AppConfig>()` must be the
+   first statement of `main()`.** The engine spawns children by re-executing the
+   embedder's own binary with a role flag; dispatch is what routes those
+   invocations into the child role instead of the embedder's startup. Plain
+   `dispatch()` works for the net and decoder roles but cannot run the fork
+   server, which needs the concrete `RenderConfiguration` type. A child that was
+   never dispatched refuses to spawn further processes (the fork-bomb guard),
+   and the engine falls back with a log line telling you exactly this.
+2. **Flip the settings before `start()`** (they are read once at startup):
+   `security.network_process`, `security.image_decoder_process`,
+   `security.renderer_process`.
+3. **Provide a forked rasterizer.** Isolated renderers rasterize on the CPU in
+   the child; `RenderConfiguration::forked_tile_rasterizer` must return one
+   (e.g. `CairoRasterizer::with_font_system`). `DefaultRenderConfig` returns
+   `None`, in which case isolated renders produce geometry but no pixels.
+   Tip from the test embedder (`examples/mini-browser`): use the *null* backend
+   for the embedder's own rendering, so that if the isolated path ever broke and
+   fell back, tabs would go blank rather than quietly rendering unisolated.
+4. **Listen for `EngineEvent::RendererCrashed { zone_id, site, tabs, error }`.**
+   A dead renderer is replaced transparently on its tabs' next render — most
+   pages recover on their own — but the embedder may want to show something
+   meanwhile, and when the error names the fork server the tab could not be
+   rendered at all.
+
+## How a page gets rendered
+
+The tab worker (broker) captures the fetched document source and sends the
+renderer `Navigate { tab, html, url, viewport, scroll_y, known_tiles, … }`. The
+renderer parses, styles and lays out the page — fetching stylesheets, web fonts
+and images through the broker, see below — then keeps that laid-out page
+retained per tab and rasterizes **only the raster window** around the viewport
+(scroll ± one viewport height, the same policy as the in-process tile budget).
+
+- **Scroll**: `Scroll { tab, y }` re-uses the retained page — no parse, no
+  layout — rasterizes what came into the window, and announces tiles it let go
+  of (`Evict`) once they drift more than three viewports away. The broker merges
+  the result into its tile set.
+- **Hover**: `Hover { tab, node }` restyles just the old and new hover chains
+  and repaints only the tiles the hovered element covers.
+- Both run **asynchronously**: the broker starts the exchange on a helper
+  thread and keeps compositing the tiles it already holds; the result is merged
+  on a later frame. One pass in flight per tab; a navigation invalidates stale
+  results by generation.
+- Renders on one renderer are strictly serial (one socket, request/reply), so
+  same-site tabs take turns — see [Known limits](#known-limits-and-roadmap).
+
+**Pixels travel as sealed shared memory.** The renderer rasterizes a tile,
+copies it once into a `memfd`, seals it (`F_SEAL_WRITE|SHRINK|GROW`), sends the
+header plus the fd over the socket, and drops its copy; the broker validates
+size against seals and maps the pages, compositing zero-copy from then on.
+Sealing closes the time-of-check/time-of-use hole; the one-fd-at-a-time
+discipline on both sides means a page of any height streams through a 128-fd
+limit. Tiles are deduplicated by content hash: a tile the broker already holds
+is neither rasterized nor shipped again.
+
+**Subresources are brokered.** A confined renderer cannot fetch, so it sends
+`NeedResource { url, deferred }` and blocks; the broker performs the load where
+identity and cookies live and replies with bytes. Stylesheets and fonts are
+blocking (layout cannot proceed without them). Images ask **deferred**: the
+broker answers immediately — bytes if cached, `Pending` otherwise — fetches in
+the background, and re-renders the tab when the bytes land, so a render never
+waits on an image download.
+
+**Memory is bounded at three levels**: decodes are refused above hard limits
+and huge images are kept downscaled (with their true intrinsic size preserved
+for layout); the renderer's decoded-image cache holds at most ~96 MiB, evicting
+LRU pixels and re-decoding on use from kept encoded bytes; and a renderer
+retains at most 3 laid-out pages (LRU tab's page is dropped; its next scroll
+comes back empty, which makes the broker re-render it). The renderer family
+runs under a 1 GiB `RLIMIT_DATA`; other children get 512 MiB.
+
+**Crashes** are detected eagerly (a non-blocking liveness probe on every idle
+renderer, ~4×/s) and by any failing exchange; the pool replaces the process,
+emits `RendererCrashed`, and the tab re-renders in the replacement. A wedged
+renderer is bounded by the exchange timeouts (60 s for renders — heavy pages
+legitimately take double-digit seconds today — 10 s for control traffic).
+
+## Settings
+
+| Setting | Default | Effect |
+|---|---|---|
+| `security.network_process` | off | Network stack in its own sandboxed process. Falls back in-process with a warning (network code is trusted engine code; the sandbox is defense in depth). |
+| `security.image_decoder_process` | off | Raster decoding in a throwaway process per image. Falls back in-process with a warning. |
+| `security.renderer_process` | off | The fork server + resident renderer machinery described above. **No fallback for page content**: if it cannot start, pages simply render in-process from the beginning (with a warning at startup); once it *has* started, a page that cannot be rendered out of process stays blank. Linux only. |
+
+They stay off by default for now, deliberately: the mechanics are ready, but
+heavy sites are layout-bound today (double-digit seconds on the worst pages),
+which both feels broken and makes same-site tabs queue visibly. The switch to
+on-by-default is planned for after the layout-performance work, together with
+the per-platform question (the renderer tier is Linux-only).
+
+## Observing it
+
+- `ps`/`pstree` show the named processes; renderers update their cmdline with
+  the URL they last rendered. `NSpid` in `/proc/<pid>/status` shows a
+  renderer's pid inside the private PID namespace.
+- With the engine's `metrics` feature, `127.0.0.1:9090` serves `/metrics`
+  (timing aggregates), `/renderers` (the pool: site, pid, tabs, RSS), and
+  `/events` — the **telemetry firehose**, newline-delimited JSON of engine
+  events: `remote.navigate`/`remote.scroll`/`remote.hover` (exchange time,
+  tiles, per-stage renderer timings), `net.load` (every brokered fetch:
+  outcome, status, bytes, duration), `remote.resource` (every subresource a
+  renderer asked for), `tab.frame`, `tab.invalidate` (why a full render
+  happened), `renderer.memory`. `tools/telemetry-viewer/index.html` is a
+  standalone page that visualizes the stream.
+
+## Testing it
+
+- `cargo test -p gosub_engine --test process_isolation --features cairo-tiles`
+  — the end-to-end suite (net, decoder, fork server, resident renderer
+  lifecycle/scroll-window/hover/crash/soak, engine wiring), driven through the
+  `isolation-harness` binary, which dispatches child roles like a real embedder.
+- `cargo test -p gosub_sandbox` — sandbox unit tests plus enforcement probes
+  that verify each profile actually blocks what it claims to.
+- Harness tools (not tests): `render-file` replays a saved page through a
+  forked renderer (`render-file-locked` runs it in-process under the lockdown,
+  so `gdb` catches sandbox violations with a full backtrace); `engine-soak`
+  loads real sites through the whole engine and reports per-site costs;
+  `engine-stress` runs many tabs with continuous random input and a live log
+  (`GOSUB_STRESS_TABS`, `GOSUB_STRESS_PACE_MS`, `GOSUB_STRESS_SEED`);
+  `renderer-soak` hammers one renderer with hundreds of navigations and checks
+  memory stays flat.
+- `examples/mini-browser` is a minimal winit embedder with everything switched
+  on; `Ctrl+P` prints the live process tree and the renderer pool.
+
+## Known limits and roadmap
+
+- **Same-site tabs serialize** on their shared renderer: a slow render delays
+  the site's other tabs (measured, deliberate for now; the fix is request
+  interleaving, planned together with the input/JS protocol evolution).
+- **Tiles are CPU pixels.** GPU texture ids cannot cross processes and a
+  sandboxed renderer must never touch the GPU; the plan is broker-side texture
+  upload first, then out-of-process raster (the renderer ships paint command
+  lists; stage 6 runs where the GPU lives).
+- **`FontPathsReadable` font systems** (fontconfig-based: Pango, Skia) get a
+  weaker arrangement: no fork server, a throwaway renderer exec'd per render,
+  with read-only Landlock-scoped font paths. See fonts.md.
+- Net-side policy (opaque-response blocking, SSRF protection), the cookie
+  vault, and streamed bodies over the boundary are tracked as follow-ups from
+  the original PoC.
