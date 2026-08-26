@@ -429,27 +429,6 @@ fn blit_handle_to_buffer(
                 },
             );
         }
-        ExternalHandle::CpuPixelsPtr {
-            width,
-            height,
-            stride,
-            pixel_buf,
-        } => {
-            let pixels = unsafe { std::slice::from_raw_parts(pixel_buf.as_ptr(), height as usize * stride as usize) };
-            let copy_rows = height.min(content_h) as usize;
-            for row in 0..copy_rows {
-                for col in 0..(width as usize).min(win_w as usize) {
-                    let src_off = row * stride as usize + col * 4;
-                    let b = pixels[src_off] as u32;
-                    let g = pixels[src_off + 1] as u32;
-                    let r = pixels[src_off + 2] as u32;
-                    let dst_idx = (addr_h as usize + row) * win_w as usize + col;
-                    if dst_idx < buf.len() {
-                        buf[dst_idx] = (r << 16) | (g << 8) | b;
-                    }
-                }
-            }
-        }
         _ => {}
     }
 }

@@ -192,17 +192,6 @@ impl BrowserApp {
                 let rgba = argb32_to_rgba8(&pixels, width as usize, height as usize, stride as usize);
                 (width as usize, height as usize, rgba)
             }
-            ExternalHandle::CpuPixelsPtr {
-                width,
-                height,
-                stride,
-                pixel_buf,
-            } => {
-                let bytes =
-                    unsafe { std::slice::from_raw_parts(pixel_buf.as_ptr(), height as usize * stride as usize) };
-                let rgba = argb32_to_rgba8(bytes, width as usize, height as usize, stride as usize);
-                (width as usize, height as usize, rgba)
-            }
             ExternalHandle::TileCache {
                 tiles,
                 dpr,

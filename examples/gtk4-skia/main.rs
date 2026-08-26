@@ -200,7 +200,7 @@ fn main() {
         //
         // Priority order:
         //   1. Local TileCache (zero-copy, uses up-to-date local scroll offset)
-        //   2. Compositor frame (CpuPixelsOwned / CpuPixelsPtr - initial page render fallback)
+        //   2. Compositor frame (CpuPixelsOwned - initial page render fallback)
         let compositor_draw = compositor.clone();
         let local_tiles_draw = local_tiles.clone();
         let local_scroll_draw = local_scroll.clone();
@@ -232,46 +232,6 @@ fn main() {
                     draw_placeholder(cr, w, h);
                 }
                 Some(handle) => match handle {
-                    ExternalHandle::CpuPixelsPtr {
-                        width,
-                        height,
-                        stride,
-                        pixel_buf,
-                    } => {
-                        log::debug!(
-                            "[draw] CpuPixelsPtr {}x{} stride={} widget={}x{}",
-                            width,
-                            height,
-                            stride,
-                            w,
-                            h
-                        );
-                        let frame_scale = (width as f64 / w as f64).round() as i32;
-                        let owned = unsafe {
-                            std::slice::from_raw_parts(pixel_buf.as_ptr(), (height as usize) * (stride as usize))
-                        }
-                        .to_vec();
-                        match gtk4::cairo::ImageSurface::create_for_data(
-                            owned,
-                            gtk4::cairo::Format::ARgb32,
-                            width as i32,
-                            height as i32,
-                            stride as i32,
-                        ) {
-                            Ok(surface) => {
-                                surface.flush();
-                                if frame_scale > 1 {
-                                    surface.set_device_scale(frame_scale as f64, frame_scale as f64);
-                                }
-                                cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
-                                cr.paint().unwrap_or_default();
-                            }
-                            Err(e) => {
-                                log::warn!("[draw] surface failed: {:?}", e);
-                                draw_placeholder(cr, w, h);
-                            }
-                        }
-                    }
                     ExternalHandle::CpuPixelsOwned {
                         width,
                         height,

@@ -2093,12 +2093,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
                                 stride,
                                 pixels.len()
                             ),
-                            gosub_render_pipeline::render::backend::ExternalHandle::CpuPixelsPtr {
-                                width,
-                                height,
-                                stride,
-                                ..
-                            } => format!("CpuPixelsPtr({}x{} stride={})", width, height, stride),
                             _ => "Other".to_string(),
                         }
                     );

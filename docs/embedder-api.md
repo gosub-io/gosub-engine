@@ -232,6 +232,8 @@ tab.can_go_back()     // bool
 tab.can_go_forward()  // bool
 ```
 
+Every event carries a `TabId`; `zone.tab(id)` turns one back into a `TabHandle`, so a shell does not need its own id-to-handle map.
+
 These are synchronous and never block on the worker. They read a snapshot the worker republishes as it commits navigations, so during an in-flight navigation they still describe the previous document, which is what an address bar should show.
 
 Subscribe to events instead when you need the moment something changes, or detail the accessors do not carry: the full history tree (`HistoryChanged`), per-resource progress, download lifecycle, crashes.

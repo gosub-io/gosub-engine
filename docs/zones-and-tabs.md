@@ -48,7 +48,7 @@ pub struct TabHandle {
 }
 ```
 
-The handle is the *entire* control surface: everything is a `TabCommand` message (convenience methods like `navigate()` / `set_viewport()` wrap `send()`). The command set falls into four groups:
+`zone.tab(id)` returns a fresh handle for any live tab, so the `TabId` on an event is enough to act on it. The handle is the *entire* control surface: everything is a `TabCommand` message (convenience methods like `navigate()` / `set_viewport()` wrap `send()`). The command set falls into four groups:
 
 | Group | Commands |
 |-------|----------|

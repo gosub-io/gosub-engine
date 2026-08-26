@@ -336,10 +336,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             self.cookie_stores.insert(zone_id, store);
         }
 
-        self.context
-            .event_tx
-            .send(EngineEvent::ZoneCreated { zone_id })
-            .map_err(|e| EngineError::Internal(e.into()))?;
+        // A broadcast send only fails when nobody is subscribed, which is not an error:
+        // a headless embedder may never listen for events at all.
+        let _ = self.context.event_tx.send(EngineEvent::ZoneCreated { zone_id });
 
         Ok(zone)
     }
@@ -511,6 +510,33 @@ mod tests {
             matches!(error, LoadError::InvalidUrl { .. }),
             "expected InvalidUrl, got {error:?}"
         );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn zone_tab_looks_up_a_live_handle_by_id() {
+        let mut engine = engine_with_max_zones(1);
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let created = zone.create_tab(Default::default(), None).await.expect("tab");
+
+        let looked_up = zone.tab(created.tab_id).expect("tab exists");
+        assert_eq!(looked_up.tab_id, created.tab_id);
+        // Same sink, so state read through either handle agrees.
+        looked_up.set_title("via lookup").await.expect("send");
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while created.title() != "via lookup" {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("title should propagate");
+
+        assert!(zone.tab(crate::tab::TabId::new()).is_none(), "unknown id yields None");
+        assert!(zone.close_tab(created.tab_id).await);
+        assert!(zone.tab(created.tab_id).is_none(), "closed tab is gone");
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");
@@ -1276,8 +1302,6 @@ mod tests {
     #[tokio::test]
     async fn create_zone_enforces_max_zones() {
         let mut engine = engine_with_max_zones(1);
-        // Keep a receiver alive: create_zone emits ZoneCreated on the broadcast bus.
-        let _event_rx = engine.subscribe_events();
         // Zones need the I/O runtime.
         let _join = tokio::spawn(engine.start().expect("start"));
 

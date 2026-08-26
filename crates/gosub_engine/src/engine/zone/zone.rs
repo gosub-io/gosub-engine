@@ -167,7 +167,6 @@ struct TabInfo {
     cmd_tx: TabChannel,
     /// Worker join handle, awaited when the tab is closed.
     join_handle: tokio::task::JoinHandle<()>,
-    #[allow(unused)]
     sink: Arc<TabSink>,
 }
 
@@ -416,6 +415,16 @@ impl<C: RenderConfiguration> Zone<C> {
     /// Lists all tab IDs in this zone.
     pub fn list_tabs(&self) -> Vec<TabId> {
         self.tabs.keys().cloned().collect()
+    }
+
+    /// A handle to one of this zone's tabs, by id. Every event carries a `TabId`; this is
+    /// how a shell gets from one back to something it can command or query.
+    pub fn tab(&self, tab_id: TabId) -> Option<TabHandle> {
+        self.tabs.get(&tab_id).map(|info| TabHandle {
+            tab_id,
+            cmd_tx: info.cmd_tx.clone(),
+            sink: info.sink.clone(),
+        })
     }
 }
 
