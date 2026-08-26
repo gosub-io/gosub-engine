@@ -185,7 +185,7 @@ pub struct SharedFlags {
 
 impl<C: RenderConfiguration> Zone<C> {
     /// Creates a new zone with a specific zone ID
-    pub fn new_with_id(
+    pub(crate) fn new_with_id(
         // Unique ID for the zone
         zone_id: ZoneId,
         // Configuration for the zone
@@ -253,7 +253,7 @@ impl<C: RenderConfiguration> Zone<C> {
     }
 
     /// Creates a new zone with a random ID and the provided configuration
-    pub fn new(
+    pub(crate) fn new(
         config: ZoneConfig,
         services: ZoneServices,
         engine_context: Arc<EngineContext>,

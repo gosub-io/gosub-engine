@@ -1,7 +1,7 @@
 use crate::engine::events::IoCommand;
 use crate::engine::types::IoChannel;
 use crate::engine::EngineContext;
-use crate::net::fetcher::{EngineNetContext, Fetcher, FetcherConfig};
+use crate::net::fetcher::{fetcher_config_from, EngineNetContext, Fetcher};
 use crate::net::req_ref_tracker::RequestRefTracker;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
 use crate::util::spawn_named;
@@ -84,8 +84,6 @@ pub struct ZoneEntry {
 pub struct IoRouter {
     /// Map of zone ID to zone entries
     zones: DashMap<ZoneId, ZoneEntry>,
-    /// Default fetcher config to use when spawning new fetchers
-    cfg: FetcherConfig,
     /// Shared engine context for event broadcasting and request tracking
     engine_ctx: Arc<EngineContext>,
     /// Observer factory for requests the engine serves itself (the `file://` scheme),
@@ -94,7 +92,7 @@ pub struct IoRouter {
 }
 
 impl IoRouter {
-    pub fn new(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Self {
+    pub fn new(engine_ctx: Arc<EngineContext>) -> Self {
         let local_ctx = EngineNetContext {
             resource_tx: engine_ctx.resource_tx.clone(),
             event_tx: engine_ctx.event_tx.clone(),
@@ -103,7 +101,6 @@ impl IoRouter {
         };
         Self {
             zones: DashMap::new(),
-            cfg,
             engine_ctx,
             local_ctx,
         }
@@ -136,8 +133,10 @@ impl IoRouter {
             request_reference_map: self.engine_ctx.request_reference_map.clone(),
             request_ref_tracker: Arc::new(RequestRefTracker::new()),
         });
-        let f =
-            Arc::new(Fetcher::new(self.cfg.clone(), engine_ctx).map_err(|e| EngineError::NetworkError(e.to_string()))?);
+        // Read the settings store now rather than at engine start, so `net.*` overrides made
+        // after `start()` apply to every zone that fetches from then on.
+        let cfg = fetcher_config_from(&self.engine_ctx.config_store);
+        let f = Arc::new(Fetcher::new(cfg, engine_ctx).map_err(|e| EngineError::NetworkError(e.to_string()))?);
 
         let f_run = f.clone();
         let cancel = zone_shutdown.clone();
@@ -233,13 +232,13 @@ pub(crate) async fn submit_to_io(
 /// Spawns the IO thread and runs a single fetcher on top. If needed, we can expand this system to
 /// run multiple fetchers on different OS threads for instance, but most likely the fetching itself
 /// isn't the biggest bottleneck.
-pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> IoHandle {
+pub fn spawn_io_thread(engine_ctx: Arc<EngineContext>) -> IoHandle {
     let (tx_submit, mut rx_submit) = mpsc::unbounded_channel::<IoCommand>();
     let shutdown_token = CancellationToken::new();
     let cancel = shutdown_token.clone();
 
     let join_handle = spawn_named("I/O Thread", async move {
-        let router = IoRouter::new(cfg, engine_ctx);
+        let router = IoRouter::new(engine_ctx);
 
         loop {
             tokio::select! {
@@ -290,19 +289,6 @@ mod tests {
     use std::time::Duration;
     use tokio::time::{sleep, timeout};
 
-    fn test_cfg() -> FetcherConfig {
-        FetcherConfig {
-            global_slots: 2,
-            h1_per_origin: 2,
-            h2_per_origin: 2,
-            connect_timeout: Duration::from_millis(50),
-            req_timeout: Duration::from_millis(100),
-            read_idle_timeout: Duration::from_millis(100),
-            total_body_timeout: Some(Duration::from_millis(150)),
-            ..FetcherConfig::default()
-        }
-    }
-
     /// Helper to make a minimal EngineContext for tests.
     fn test_engine_ctx() -> Arc<EngineContext> {
         let (tx, _rx) = tokio::sync::broadcast::channel(16);
@@ -318,7 +304,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn io_driver_starts_and_global_shutdown_is_clean() {
         let ctx = test_engine_ctx();
-        let handle = spawn_io_thread(test_cfg(), ctx);
+        let handle = spawn_io_thread(ctx);
 
         // Let the driver spin up
         sleep(Duration::from_millis(10)).await;
@@ -333,7 +319,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn io_shutdown_zone_ack_without_prior_fetcher() {
         let ctx = test_engine_ctx();
-        let handle = spawn_io_thread(test_cfg(), ctx);
+        let handle = spawn_io_thread(ctx);
 
         let z = ZoneId::new();
         // Should ACK even if the zone was never created
@@ -353,10 +339,9 @@ mod tests {
     /// Spawns a per-zone fetcher on first use and shuts it down cleanly.
     #[tokio::test(flavor = "current_thread")]
     async fn router_spawns_and_shuts_down_zone() {
-        let cfg = test_cfg();
         let ctx = test_engine_ctx();
 
-        let router = IoRouter::new(cfg, ctx);
+        let router = IoRouter::new(ctx);
         let z = ZoneId::new();
 
         // Lazily create fetcher for zone z
@@ -371,10 +356,9 @@ mod tests {
     /// Shutting down one zone must not affect others; the other zone's fetcher should keep running.
     #[tokio::test(flavor = "current_thread")]
     async fn router_isolates_zones() {
-        let cfg = test_cfg();
         let ctx = test_engine_ctx();
 
-        let router = IoRouter::new(cfg, ctx);
+        let router = IoRouter::new(ctx);
         let z1 = ZoneId::new();
         let z2 = ZoneId::new();
 
@@ -397,10 +381,9 @@ mod tests {
     /// Shutting down an unknown zone is a no-op (returns false).
     #[tokio::test(flavor = "current_thread")]
     async fn router_shutdown_unknown_zone_is_noop() {
-        let cfg = test_cfg();
         let ctx = test_engine_ctx();
 
-        let router = IoRouter::new(cfg, ctx);
+        let router = IoRouter::new(ctx);
 
         let z_never_spawned = ZoneId::new();
         let stopped = router.shutdown_zone(z_never_spawned).await;

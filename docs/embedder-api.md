@@ -38,7 +38,7 @@ Several of these steps only work in one order, and the signatures do not say so.
 
 1.  `GosubEngine::new(config, backend, compositor)`. See [configuration.md](configuration.md) for choosing `C`.
 
-2.  Override settings and register internal pages **before** `start()`. `settings()` reaches the settings store and `internal_pages()` the `gosub://` registry, but the I/O runtime reads network settings once, when `start()` builds it. A `net.user_agent` override applied afterwards has no effect.
+2.  `settings()` and `internal_pages()` work before or after `start()`. Internal pages resolve when navigated to, so register them whenever. `net.*` settings are read when a zone makes its first request: set `net.user_agent` before that zone fetches and it applies; a zone already fetching keeps the values it started with.
 
 3.  Call `subscribe_events()` **before** `start()`. It is a `tokio::sync::broadcast` channel, so a receiver only sees messages sent after it subscribed, and `EngineStarted` is emitted synchronously inside `start()`. The same applies to `TabCreated` and `create_tab`.
 

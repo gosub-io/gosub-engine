@@ -8,7 +8,7 @@ use crate::engine::types::{EventChannel, IoChannel, ResourceChannel};
 use crate::engine::{DEFAULT_CHANNEL_CAPACITY, RESOURCE_CHANNEL_CAPACITY};
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
-use crate::net::{fetcher_config_from, spawn_io_thread, IoHandle};
+use crate::net::{spawn_io_thread, IoHandle};
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineConfig, EngineError};
 use anyhow::Result;
@@ -150,9 +150,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             return Err(EngineError::AlreadyRunning);
         }
 
-        // Start I/O thread, building the fetcher config from the settings store.
-        let io_cfg = fetcher_config_from(&self.context.config_store);
-        let io_handle = spawn_io_thread(io_cfg, self.context.clone());
+        let io_handle = spawn_io_thread(self.context.clone());
         // Set once; `start()` already refuses to run twice, so this never races or overwrites.
         let _ = self.context.io_tx.set(io_handle.subscribe());
         self.io_handle = Some(io_handle);
@@ -192,14 +190,16 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     }
 
     /// The `gosub://` page registry. Register a provider to add an internal page or override
-    /// a built-in one (e.g. a branded `home`); see [`InternalPages`].
+    /// a built-in one (e.g. a branded `home`); see [`InternalPages`]. Registration works at
+    /// any time - pages are resolved when navigated to.
     pub fn internal_pages(&self) -> &InternalPages {
         &self.context.internal_pages
     }
 
     /// The engine's settings store, for reading or overriding settings (e.g.
-    /// `net.user_agent`). Network settings are read once when [`start`](Self::start)
-    /// builds the I/O runtime, so overrides must land before then.
+    /// `net.user_agent`). Usable before or after [`start`](Self::start). `net.*` settings
+    /// are read when a zone makes its first request, so an override applies to zones that
+    /// start fetching after it; zones already fetching keep the values they were built with.
     pub fn settings(&self) -> &Config {
         &self.context.config_store
     }
@@ -639,6 +639,77 @@ mod tests {
         .await
         .expect("expected a Failed for a consumed offer");
         assert!(matches!(error, crate::LoadError::Content { .. }), "got {error:?}");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// `net.*` settings are read when a zone first fetches, so an override made after
+    /// `start()` must reach the wire for a zone created afterwards.
+    #[tokio::test(flavor = "current_thread")]
+    async fn user_agent_set_after_start_is_used_by_new_zones() {
+        use crate::events::NavigationEvent;
+        use crate::Setting;
+        use cow_utils::CowUtils;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let seen = std::sync::Arc::new(parking_lot::Mutex::new(String::new()));
+        let seen_srv = seen.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let seen_srv = seen_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    *seen_srv.lock() = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    let body = "<html><body>ok</body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+
+        // After start, before any zone exists.
+        engine
+            .settings()
+            .set("net.user_agent", Setting::String("GosubTest/9.0".into()))
+            .expect("set user agent");
+
+        let mut zone = engine.create_zone(None, services(), None).expect("zone");
+        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. } | NavigationEvent::Failed { .. },
+                        ..
+                    }) => return,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for navigation");
+
+        let request = seen.lock().clone();
+        assert!(
+            request.cow_to_ascii_lowercase().contains("user-agent: gosubtest/9.0"),
+            "override did not reach the wire; request was:\n{request}"
+        );
 
         engine.close_zone(zone).await;
         engine.shutdown().await.expect("shutdown");
