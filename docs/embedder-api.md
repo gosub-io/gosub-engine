@@ -152,7 +152,7 @@ Events for everything else the page loads, delivered as `ResourceUpdate { tab_id
 
 ## Two streams
 
-Events arrive on two independent broadcast channels, because they have very different volumes and very different consequences when dropped.
+Events arrive on two independent broadcast channels. They differ in volume, and in what it costs to miss one.
 
 | | `subscribe_events()` | `subscribe_resource_events()` |
 |---|---|---|
@@ -161,7 +161,7 @@ Events arrive on two independent broadcast channels, because they have very diff
 | Buffer | 512 | 4096 |
 | Missing one | Can matter - `TabCrashed` is on here | Usually fine; it is progress detail |
 
-They were one bus, which meant a page pulling a hundred subresources could push a `TabCrashed` out of the buffer before a busy shell read it. Splitting them means a shell that does not display per-resource detail never subscribes to the second one and pays nothing for the traffic.
+On a shared bus, a page pulling a hundred subresources can push a `TabCrashed` out of the buffer before a busy shell reads it. Keeping them apart also means a shell that shows no per-resource detail never subscribes to the second channel.
 
 Both are bounded, so both can still lag - see [Contracts](#contracts). Nothing is ordered *between* the two streams; a `ResourceUpdate` and a `NavigationEvent` from the same load have no defined relative order.
 

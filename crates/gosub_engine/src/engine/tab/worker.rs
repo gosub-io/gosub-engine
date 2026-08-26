@@ -135,9 +135,8 @@ pub enum NavigationResult<C: RenderConfiguration> {
         error: NavigationError,
     },
     /// The response is non-renderable content: the navigation ends (page stays) and the
-    /// metadata becomes a `DownloadRequested` offer to the embedder. `spooled` is the temp
-    /// file holding the body we already fetched, so accepting the offer does not re-request
-    /// it (`None` if spooling failed - then accepting falls back to a fresh fetch).
+    /// metadata becomes a `DownloadRequested` offer to the embedder. `spooled` holds the body
+    /// already fetched (`None` if spooling failed - accepting then re-fetches).
     Download {
         nav_id: NavigationId,
         meta: FetchResultMeta,
@@ -240,10 +239,8 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// height are only known then, and `set_scroll` clamps against the latter). Set by
     /// `on_nav_result`, consumed by `tick_draw`.
     pending_scroll: Option<PendingScroll>,
-    /// Download offers whose body is already on disk, keyed by the URL announced in
-    /// [`EngineEvent::DownloadRequested`]. Accepting an offer moves the spooled file into
-    /// place instead of re-requesting the URL. Bounded, and drained on shutdown - see
-    /// `remember_spooled_download`.
+    /// Bodies of download offers awaiting acceptance, keyed by the URL announced in
+    /// [`EngineEvent::DownloadRequested`].
     spooled_downloads: std::collections::HashMap<Url, tempfile::TempPath>,
 }
 
@@ -931,10 +928,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// `SharedBody` replays nothing to late subscribers, so a streaming consumer that
     /// attaches after the fetch result arrives misses early chunks. True streaming-to-disk
     /// needs replay support in gosub-sonar (see the board).
-    /// Hold a spooled download body until the embedder accepts or the tab goes away.
-    ///
-    /// Bounded: an embedder that ignores offers must not accumulate temp files without
-    /// limit, so the oldest is dropped (and deleted) past the cap.
+    /// Hold a spooled body until the embedder accepts or the tab goes away. Bounded, so an
+    /// embedder that ignores offers cannot accumulate temp files without limit.
     fn remember_spooled_download(&mut self, url: Url, path: tempfile::TempPath) {
         const MAX_PENDING: usize = 8;
         // Dropping a `TempPath` deletes its file, so replaced and evicted entries need no
@@ -958,9 +953,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
             return;
         };
 
-        // The offer's body is already on disk: place it, never re-request the URL. A fresh
-        // GET would be wrong here - the navigation may have been a POST, the URL may be
-        // single-use, and re-issuing it can repeat a server-side side effect.
         if let Some(spooled) = self.spooled_downloads.remove(&url) {
             match place_spooled_download(spooled, &target_path) {
                 Ok(received_bytes) => {
@@ -2268,9 +2260,7 @@ impl ControlFlow {
 
 #[cfg(test)]
 mod tests {
-    /// Accepting a download offer must place the body the engine already fetched, never
-    /// re-request the URL: the navigation may have been a POST, the URL may be single-use,
-    /// and re-issuing it can repeat a server-side side effect.
+    /// Accepting an offer places the already-fetched body; it never re-requests the URL.
     mod spooled_downloads {
         use super::super::place_spooled_download;
         use std::io::Write;

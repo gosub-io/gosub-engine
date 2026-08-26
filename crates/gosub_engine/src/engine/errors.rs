@@ -88,15 +88,12 @@ pub enum NavigationError {
 
 /// Why a navigation or a resource load failed.
 ///
-/// Replaces the `Arc<anyhow::Error>` these events used to carry, which forced embedders to
-/// match on error *strings* to tell a policy refusal from a transport failure. The
-/// discriminant is the point: it decides which error page a shell shows, and whether
-/// retrying could help. [`Display`](std::fmt::Display) still gives a human-readable message,
-/// so code that only prints the error needs no change.
+/// Match on the variant to decide what to show and whether retrying could help;
+/// [`Display`](std::fmt::Display) gives the message to show.
 ///
-/// `#[non_exhaustive]`: the network layer collapses DNS, connection and TLS failures into
-/// one opaque error today, so [`Network`](Self::Network) is coarser than it should be.
-/// Splitting it later must not be a breaking change.
+/// `#[non_exhaustive]` because [`Network`](Self::Network) is coarser than it should be - the
+/// HTTP client reports DNS, connect and TLS failures as one error - and splitting it later
+/// must not be breaking.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LoadError {
@@ -208,8 +205,8 @@ impl From<NavigationError> for LoadError {
 mod tests {
     use super::*;
 
-    /// The whole point of the type: an embedder can tell a policy refusal from a transport
-    /// failure without matching on error strings.
+    /// A policy refusal and a transport failure must be distinguishable without matching
+    /// on error strings.
     #[test]
     fn kinds_are_distinguishable_without_parsing_messages() {
         let blocked = LoadError::Blocked {
@@ -320,8 +317,7 @@ mod tests {
         ));
     }
 
-    /// Every refusal the network layer can report must map to a distinct engine reason -
-    /// these used to be flattened into `format!("blocked: {reason:?}")`.
+    /// Every refusal the network layer can report must map to a distinct engine reason.
     #[test]
     fn every_net_block_reason_maps_to_a_distinct_reason() {
         use gosub_sonar::net::types::BlockReason as Net;

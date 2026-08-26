@@ -137,10 +137,8 @@ impl TabHandle {
 
     // ---- Read-side state ----
     //
-    // These read a snapshot the tab worker publishes as it commits navigations, so a shell
-    // building a tab strip or restoring a session does not have to replay the event stream.
-    // They are synchronous and never block on the worker; the value is as of the worker's
-    // last commit, which for an in-flight navigation is still the previous document.
+    // Synchronous; never blocks on the worker. The value is as of the worker's last commit,
+    // so during an in-flight navigation it still describes the previous document.
 
     /// The tab's current document URL, or `None` before the first navigation commits.
     pub fn url(&self) -> Option<Url> {

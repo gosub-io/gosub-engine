@@ -15,9 +15,8 @@ use std::sync::Arc;
 
 /// The outcome of routing a fetch result.
 ///
-/// The subresource payloads below are produced by the router and discarded by the tab worker
-/// today - placeholders until the async resource pipeline consumes them. Dead-code analysis
-/// only sees this now that the enum is crate-private; the fix belongs to that work, not here.
+/// The subresource payloads below are produced here and discarded by the tab worker -
+/// placeholders until the async resource pipeline consumes them.
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum RoutedOutcome<C: RenderConfiguration> {
@@ -40,11 +39,10 @@ pub enum RoutedOutcome<C: RenderConfiguration> {
 
     /// A top-level navigation to non-renderable content: offer it as a download.
     ///
-    /// `spooled` is the temp file the response body was written to. The body is captured
-    /// here rather than re-requested later, because re-requesting is wrong: the navigation
-    /// may have been a POST, the URL may be single-use, and re-issuing it can repeat a
-    /// server-side side effect. `None` means spooling failed and the download will have to
-    /// fall back to a fresh fetch. Boxed to keep the enum's variants of comparable size.
+    /// `spooled` is the temp file the body was written to; `None` if spooling failed, and the
+    /// download falls back to a fresh fetch. See [`TabCommand::StartDownload`](crate::events::TabCommand::StartDownload)
+    /// for why the body is captured rather than re-requested. Boxed to keep the variants of
+    /// comparable size.
     DownloadOffer {
         meta: Box<crate::net::types::FetchResultMeta>,
         spooled: Option<tempfile::TempPath>,
@@ -53,14 +51,8 @@ pub enum RoutedOutcome<C: RenderConfiguration> {
 
 /// Write a response body to a temp file and return its path.
 ///
-/// Streamed rather than buffered: a download offer can be for a file far larger than the
-/// engine should hold in memory, and the embedder may take a long time (a save dialog) to
-/// answer - or never answer at all. Writing to disk immediately also lets the connection
-/// close rather than being held open for the duration.
-///
-/// A [`tempfile::TempPath`] is returned rather than a plain path so the file is removed
-/// whenever the offer is dropped - the embedder ignoring it, the tab closing, or the worker
-/// panicking - without anyone having to remember to clean up.
+/// Streamed, not buffered: an offer can be gigabytes and the embedder may never answer.
+/// Returns a [`tempfile::TempPath`] so the file is removed if the offer is dropped.
 async fn spool_body_to_temp(body: BodyContent, peek_buf: PeekBuf) -> anyhow::Result<tempfile::TempPath> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 

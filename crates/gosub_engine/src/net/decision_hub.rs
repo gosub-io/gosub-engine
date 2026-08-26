@@ -9,8 +9,8 @@
 //! **Only the answering half exists.** Nothing emits `DecisionRequired` today (it is behind
 //! the `unstable-api` feature): the engine classifies the response itself with
 //! `decide_handling` and offers a download via `EngineEvent::DownloadRequested` instead. The
-//! waiter, the token and [`DecisionHub::fulfill`] are all wired and reachable through
-//! `TabCommand::SubmitDecision` - they are simply never triggered.
+//! waiter, the token and [`DecisionHub::fulfill`] are all reachable through
+//! `TabCommand::SubmitDecision`, but nothing triggers them.
 //!
 //! This used to live in the (now removed) `gosub_net` crate; the generic fetching layer
 //! moved to the external `gosub-sonar` crate, which has no notion of UA decisions, so the

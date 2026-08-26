@@ -567,8 +567,7 @@ fn main() {
                 }
                 Ok(_) => {}
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    // The control bus is bounded; falling behind drops the oldest events,
-                    // which can include TabCrashed. Say so rather than silently continuing.
+                    // Dropped events can include TabCrashed, so do not swallow this.
                     log::warn!("event receiver lagged, {n} engine events dropped");
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,

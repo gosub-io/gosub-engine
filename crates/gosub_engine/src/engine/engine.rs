@@ -56,8 +56,7 @@ pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig
 pub struct EngineContext {
     /// Event sender for the low-volume control bus.
     pub event_tx: EventChannel,
-    /// Event sender for the high-volume resource stream, kept apart from `event_tx` so
-    /// per-chunk progress cannot evict control events.
+    /// Event sender for the high-volume resource stream.
     pub resource_tx: ResourceChannel,
     /// Global engine configuration
     pub config: Arc<EngineConfig>,
@@ -113,8 +112,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Command channel on which to send and receive engine commands from the UA.
         let (cmd_tx, cmd_rx) = mpsc::channel::<EngineCommand>(DEFAULT_CHANNEL_CAPACITY);
 
-        // Two broadcast buses: a low-volume control bus, and a separate high-volume resource
-        // stream so per-chunk progress cannot evict crash/lifecycle events from the former.
+        // Separate buses so per-chunk resource progress cannot evict control events.
         let (event_tx, _first_rx) = broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY);
         let (resource_tx, _first_res_rx) = broadcast::channel::<ResourceUpdate>(RESOURCE_CHANNEL_CAPACITY);
 
@@ -171,14 +169,14 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
     /// Return a receiver for engine events.
     ///
-    /// This is the control bus: navigation, tab and zone lifecycle, downloads, input
-    /// feedback, crashes. Low volume, and the events on it are the ones a shell cannot
-    /// afford to miss. Per-resource detail lives on its own stream - see
+    /// The control bus: navigation, tab and zone lifecycle, downloads, input feedback,
+    /// crashes. Per-resource detail is on its own stream - see
     /// [`subscribe_resource_events`](Self::subscribe_resource_events).
     ///
-    /// The channel is bounded, so a receiver that falls behind gets
+    /// Bounded: a receiver that falls behind gets
     /// [`RecvError::Lagged`](broadcast::error::RecvError::Lagged) and loses the oldest
-    /// events. Keep the receive loop short - hand work to your own queue and come back.
+    /// events, which can include [`TabCrashed`](EngineEvent::TabCrashed). Keep the receive
+    /// loop short.
     pub fn subscribe_events(&self) -> broadcast::Receiver<EngineEvent> {
         self.context.event_tx.subscribe()
     }
@@ -186,11 +184,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// Return a receiver for the per-resource stream: one [`ResourceUpdate`] per fetch
     /// lifecycle step, including a `Progress` per chunk of every subresource.
     ///
-    /// Opt-in and separate from [`subscribe_events`](Self::subscribe_events) on purpose.
-    /// These arrive at network rate; on a shared bus a heavy page would push a
-    /// [`TabCrashed`](EngineEvent::TabCrashed) out of the buffer before a busy shell read
-    /// it. A shell that does not display per-resource detail never calls this and pays
-    /// nothing for the traffic.
+    /// Separate from [`subscribe_events`](Self::subscribe_events) because these arrive at
+    /// network rate and would otherwise evict control events from a bounded buffer. Opt-in:
+    /// a shell that shows no per-resource detail never subscribes.
     pub fn subscribe_resource_events(&self) -> broadcast::Receiver<ResourceUpdate> {
         self.context.resource_tx.subscribe()
     }
@@ -402,9 +398,8 @@ mod tests {
         }
     }
 
-    /// The whole point of the split: resource traffic must not be able to evict control
-    /// events. A single shared bus would drop the oldest - which can be `TabCrashed` - once
-    /// more than `DEFAULT_CHANNEL_CAPACITY` events pile up behind a busy shell.
+    /// A shared bus would drop the oldest event - possibly `TabCrashed` - once more than
+    /// `DEFAULT_CHANNEL_CAPACITY` piled up behind a busy shell.
     #[tokio::test(flavor = "current_thread")]
     async fn resource_flood_does_not_evict_control_events() {
         use crate::engine::events::{ResourceEvent, ResourceUpdate};
@@ -413,8 +408,7 @@ mod tests {
         let engine = engine_with_max_zones(1);
         let mut control = engine.subscribe_events();
 
-        // A control event the shell must not miss, then far more resource traffic than the
-        // control bus could ever hold.
+        // A control event, then more resource traffic than the control bus could hold.
         let tab_id = crate::tab::TabId::new();
         let zone_id = ZoneId::new();
         let _ = engine.context.event_tx.send(EngineEvent::TabCrashed {
@@ -435,7 +429,6 @@ mod tests {
             });
         }
 
-        // The crash is still there, and the receiver never lagged.
         match control.try_recv() {
             Ok(EngineEvent::TabCrashed { error, .. }) => assert_eq!(error, "boom"),
             other => panic!("control event was evicted by resource traffic: {other:?}"),
@@ -640,8 +633,7 @@ mod tests {
         let payload: Vec<u8> = (0..700 * 1024).map(|i| (i % 251) as u8).collect();
         let payload_srv = payload.clone();
 
-        // Counts requests the server actually served, so the test can prove that accepting
-        // an offer does not re-request the URL.
+        // Lets the test prove that accepting an offer does not re-request the URL.
         let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let hits_srv = hits.clone();
 
@@ -739,9 +731,6 @@ mod tests {
         .expect("timed out waiting for DownloadFinished");
         assert_eq!(received, payload.len() as u64);
         assert_eq!(std::fs::read(&target).unwrap(), payload, "file content must match");
-        // The point of spooling: the body captured during the navigation is what gets saved.
-        // Re-requesting would be wrong (the navigation may have been a POST, the URL may be
-        // single-use), so the server must not see a second request.
         assert_eq!(
             hits.load(std::sync::atomic::Ordering::SeqCst),
             served_before_accept,

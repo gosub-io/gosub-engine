@@ -183,14 +183,13 @@ pub enum TabCommand {
     /// offer, or directly (save-link-as). Progress arrives as `Download*` events carrying
     /// the same `id`.
     ///
-    /// Accepting an offer moves the body the engine already captured during the navigation
-    /// into place - it does not request `url` again, which would be wrong when the
-    /// navigation was a POST or the URL is single-use. Such a download completes at once,
-    /// so expect [`EngineEvent::DownloadFinished`] with no intervening
+    /// Accepting an offer places the body captured during the navigation rather than
+    /// requesting `url` again - a second request would be wrong when the navigation was a
+    /// POST or the URL is single-use. Such a download finishes at once, with no intervening
     /// [`DownloadProgress`](EngineEvent::DownloadProgress).
     ///
     /// A `url` with no offer pending (save-link-as) is fetched through the zone's fetcher,
-    /// cookies and UA applying, and does report progress as it streams.
+    /// cookies and UA applying, and does report progress.
     StartDownload {
         id: DownloadId,
         url: String,
@@ -427,12 +426,8 @@ pub enum NavigationEvent {
 
 /// One [`ResourceEvent`], tagged with the tab it belongs to.
 ///
-/// Carried by its own broadcast stream
-/// ([`subscribe_resource_events`](crate::GosubEngine::subscribe_resource_events)) rather than
-/// the main event bus: these arrive at network rate - one `Progress` per chunk per
-/// subresource - and would otherwise push low-volume, must-not-miss events like
-/// [`EngineEvent::TabCrashed`] out of a bounded buffer. Subscribing is opt-in; a shell that
-/// does not want per-resource detail simply never asks for it and pays nothing.
+/// Delivered on its own opt-in stream, not the main event bus - see
+/// [`subscribe_resource_events`](crate::GosubEngine::subscribe_resource_events).
 #[derive(Debug, Clone)]
 pub struct ResourceUpdate {
     /// The tab whose load produced this event.

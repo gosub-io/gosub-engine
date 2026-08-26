@@ -72,8 +72,7 @@ async fn main() -> Result<(), EngineError> {
     // Get our event channel to receive events from the engine. Note that you will only receive events
     // send from this point on.
     let mut event_rx = engine.subscribe_events();
-    // Per-resource detail is a separate, opt-in stream: it arrives at network rate and is
-    // deliberately kept off the control bus so it cannot crowd out lifecycle events.
+    // Per-resource detail is a separate, opt-in stream.
     let mut resource_rx = engine.subscribe_resource_events();
 
     // Configure a zone. This works the same way as the engine config, using a builder
