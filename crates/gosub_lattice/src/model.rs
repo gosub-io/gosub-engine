@@ -83,12 +83,12 @@ pub fn build_model<T: TableTree>(tree: &T, table_node: T::NodeId) -> TableModel<
             TableRole::FooterGroup => {
                 model.footer_groups.push(build_row_group(tree, child));
             }
-            // Bare row directly inside the table → anonymous tbody
+            // Bare row directly inside the table -> anonymous tbody
             TableRole::Row => {
                 let group = anon_body_group(&mut model.row_groups);
                 group.rows.push(build_row(tree, child));
             }
-            // Bare cell directly inside the table → anonymous row inside anonymous tbody
+            // Bare cell directly inside the table -> anonymous row inside anonymous tbody
             TableRole::Cell => {
                 let group = anon_body_group(&mut model.row_groups);
                 let row = anon_row(&mut group.rows);
@@ -123,7 +123,7 @@ fn build_row_group<T: TableTree>(tree: &T, node: T::NodeId) -> RowGroup<T::NodeI
     for child in tree.children(node) {
         match tree.table_role(child) {
             TableRole::Row => group.rows.push(build_row(tree, child)),
-            // Cell directly inside row group → anonymous row
+            // Cell directly inside row group -> anonymous row
             TableRole::Cell => {
                 let row = anon_row(&mut group.rows);
                 row.cells.push(build_source_cell(tree, child));

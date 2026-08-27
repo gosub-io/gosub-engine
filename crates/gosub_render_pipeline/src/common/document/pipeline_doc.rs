@@ -14,7 +14,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-// ── Bridge: CssProperty → Value ──────────────────────────────────────────────
+// ── Bridge: CssProperty -> Value ──────────────────────────────────────────────
 
 /// `None` when the property carries no usable value (e.g. `CssValue::None`).
 fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) -> Option<Value> {
@@ -192,7 +192,7 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
             }
         }
 
-        // ── Grid track lists: `repeat(3, 1fr)`, `210px 1fr`, `auto`, … ─────
+        // ── Grid track lists: `repeat(3, 1fr)`, `210px 1fr`, `auto`, ... ─────
         // Stored as a `Function` (repeat/minmax) or a `List` - neither of which `as_string()`
         // returns - and a bare `1fr` is a `Unit`, so the default branch would drop or mis-type
         // them. Re-serialize to canonical CSS text for the layouter's `parse_grid_template`.
@@ -276,7 +276,7 @@ fn css_property_to_value<S: CssSystem>(p: &S::Property, prop: &StyleProperty) ->
 }
 
 /// Serializes one grid track-list value back to canonical CSS text (`1fr`, `minmax(100px, 1fr)`,
-/// …), reconstructing a `grid-template-*` string the layouter can parse.
+/// ...), reconstructing a `grid-template-*` string the layouter can parse.
 fn grid_value_to_string<S: CssSystem>(v: &S::Value) -> String {
     if let Some(s) = v.as_string() {
         return s.to_string();
@@ -539,7 +539,7 @@ enum BgTok {
     /// today a percentage size/position falls back to "fill box" / zero offset.
     #[allow(dead_code)]
     Pct(f32),
-    /// A keyword (`cover`, `center`, `no-repeat`, …), lowercased.
+    /// A keyword (`cover`, `center`, `no-repeat`, ...), lowercased.
     Kw(String),
 }
 
@@ -603,7 +603,7 @@ fn bg_token_groups<S: CssSystem>(p: &S::Property) -> Vec<Vec<BgTok>> {
     }
 }
 
-/// `background-size` group → tile size in px, or `None` for `auto`/`cover`/`contain`/`%`
+/// `background-size` group -> tile size in px, or `None` for `auto`/`cover`/`contain`/`%`
 /// (which mean "fill the box", i.e. no tiling).
 fn resolve_bg_size(group: &[BgTok]) -> Option<(f32, f32)> {
     let mut dims = Vec::new();
@@ -622,7 +622,7 @@ fn resolve_bg_size(group: &[BgTok]) -> Option<(f32, f32)> {
     }
 }
 
-/// `background-position` group → (x, y) px phase offset. Percentages and edge keywords need the
+/// `background-position` group -> (x, y) px phase offset. Percentages and edge keywords need the
 /// box size, so they resolve to 0 for now; px offsets are exact.
 fn resolve_bg_position(group: &[BgTok]) -> (f32, f32) {
     let lens: Vec<f32> = group
@@ -639,7 +639,7 @@ fn resolve_bg_position(group: &[BgTok]) -> (f32, f32) {
     }
 }
 
-/// `background-repeat` group → (repeat_x, repeat_y). Defaults to repeating both axes.
+/// `background-repeat` group -> (repeat_x, repeat_y). Defaults to repeating both axes.
 fn resolve_bg_repeat(group: &[BgTok]) -> (bool, bool) {
     let kws: Vec<&str> = group
         .iter()
@@ -1942,7 +1942,7 @@ where
             return Some(v);
         }
 
-        // HTML presentation attributes (bgcolor, width, …) as lowest-specificity fallback.
+        // HTML presentation attributes (bgcolor, width, ...) as lowest-specificity fallback.
         if let Some(attrs) = self.doc.attributes(id) {
             return crate::common::document::inline_style::html_presentation_attr(attrs, prop);
         }
@@ -1996,7 +1996,7 @@ where
 
         for (i, g) in layers.iter_mut().enumerate() {
             let Some((tw, th)) = pick(&size_groups, i).and_then(|j| resolve_bg_size(&size_groups[j])) else {
-                continue; // no explicit size → fill the box (no tiling)
+                continue; // no explicit size -> fill the box (no tiling)
             };
             if tw <= 0.0 || th <= 0.0 {
                 continue;

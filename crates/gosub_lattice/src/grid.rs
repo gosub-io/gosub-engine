@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn rowspan_clamped_at_section_boundary() {
-        // Section has 2 rows; a cell in row 0 claims rowspan=5 → clamped to 2.
+        // Section has 2 rows; a cell in row 0 claims rowspan=5 -> clamped to 2.
         let rows = vec![make_row(&[(1, 5), (1, 1)]), make_row(&[(1, 1)])];
         let grid = build_section_grid(&rows);
         let spanning = grid.cells_in_row(0).next().expect("first cell");
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn colspan_places_correctly() {
-        // Row 0: A (colspan=2), B (colspan=1)  → 3 columns
+        // Row 0: A (colspan=2), B (colspan=1)  -> 3 columns
         let rows = vec![make_row(&[(2, 1), (1, 1)])];
         let grid = build_section_grid(&rows);
         assert_eq!(grid.n_cols, 3);

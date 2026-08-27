@@ -84,7 +84,7 @@ pub struct TaffyLayouter {
     /// threads (e.g. the rasterizer) can access the font collection between calls. `dyn` so the
     /// same instance can be shared with the rasterizer and swapped for a non-Parley impl.
     font_system: Arc<Mutex<dyn FontSystem>>,
-    /// Taffy calls the measure function 2-4× per node (MinContent, MaxContent, actual width);
+    /// Taffy calls the measure function 2-4x per node (MinContent, MaxContent, actual width);
     /// memoizing eliminates the redundant Parley shaping calls.
     measure_cache: HashMap<MeasureKey, Size<f32>>,
     /// Reverse index used by the table post-processing pass.
@@ -503,7 +503,7 @@ impl TaffyLayouter {
         self.measure_cache.clear();
         self.tree = TaffyTree::new();
         // Taffy's built-in rounding snaps layout values to integer CSS pixels, which causes
-        // text containers to lose sub-pixel width (e.g. 52.344 → 52.0). This makes pango
+        // text containers to lose sub-pixel width (e.g. 52.344 -> 52.0). This makes pango
         // render at a surface too narrow for the text and produces spurious line wraps.
         // Our renderer handles DPR scaling itself via ceil(width) * dpr, so we disable
         // taffy's rounding here.
@@ -666,7 +666,7 @@ impl TaffyLayouter {
             return;
         }
 
-        // Interleave words with single-space tokens: [ ]? w0 [ ] w1 [ ] … [ ]?
+        // Interleave words with single-space tokens: [ ]? w0 [ ] w1 [ ] ... [ ]?
         let mut tokens: Vec<String> = Vec::with_capacity(words.len() * 2 + 1);
         if had_leading {
             tokens.push(" ".to_string());
@@ -992,7 +992,7 @@ impl TaffyLayouter {
         // tile at a box-independent size (its intrinsic size, or an explicit `background-size`
         // length) so it reuses the single raster path for repeat / cover / contain; `compute_bg_tiling`
         // then scales that raster for cover/contain once the box is known. (An SVG intrinsic size is
-        // typically large - e.g. 400×300 - so cover/contain downscale and stay crisp.)
+        // typically large - e.g. 400x300 - so cover/contain downscale and stay crisp.)
         match &*self.media_store.get(media_id, MediaType::Image) {
             Media::Image(mi) => Some(BackgroundMedia::Image {
                 media_id,
@@ -1044,7 +1044,7 @@ impl TaffyLayouter {
 
                     // Non-blocking: an uncached image kicks off a background fetch and returns
                     // Pending without stalling layout. The element is kept with a placeholder size
-                    // (HTML width/height attrs if present, else 0×0); a reflow lands once the fetch
+                    // (HTML width/height attrs if present, else 0x0); a reflow lands once the fetch
                     // completes and installs the real intrinsic size.
                     match self.media_store.request_media(src.as_str()) {
                         MediaRequest::Ready(media_id) => {
@@ -1147,7 +1147,7 @@ impl TaffyLayouter {
                         }
                         MediaRequest::Pending => {
                             // Placeholder size: honour the HTML width/height attributes if present,
-                            // otherwise leave whatever CSS sizing convert() produced (0×0 for a bare
+                            // otherwise leave whatever CSS sizing convert() produced (0x0 for a bare
                             // <img>). The reflow after the fetch completes installs the real size.
                             if let Some(w) = data.get_attribute("width").and_then(|s| parse_px_attr(s)) {
                                 taffy_style.size.width = Dimension::from_length(w);
@@ -1256,7 +1256,7 @@ impl TaffyLayouter {
 
                 // Apply CSS white-space: normal - collapse newlines/runs of whitespace to a
                 // single space and strip leading/trailing whitespace.  Raw HTML text nodes
-                // contain the literal source indentation (e.g. "\n    Red box…\n  ") which
+                // contain the literal source indentation (e.g. "\n    Red box...\n  ") which
                 // pango would render as a blank first line if left untouched.
                 // Whitespace-only source nodes (e.g. "\n  " between </span><span>) collapse
                 // to a single space so they produce an inter-element gap when kept.
@@ -1358,7 +1358,7 @@ impl TaffyLayouter {
 
 // Convert a URI to an absolute URL based on the base URL if this is needed
 fn to_absolute_url(uri: &str, base_uri: &str) -> String {
-    // Already-absolute references (http(s)://, file://, data:, blob:, …) are returned as-is.
+    // Already-absolute references (http(s)://, file://, data:, blob:, ...) are returned as-is.
     if let Ok(parsed) = url::Url::parse(uri) {
         return parsed.to_string();
     }

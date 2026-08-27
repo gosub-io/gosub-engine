@@ -558,7 +558,7 @@ fn split_grid_tokens(s: &str) -> Vec<String> {
 }
 
 /// Parse a grid-template-columns/rows value string ("1fr 1fr 1fr", "200px 1fr 100px",
-/// "repeat(3, 1fr)", …).
+/// "repeat(3, 1fr)", ...).
 fn parse_grid_template(s: &str) -> Option<Vec<GridTemplateComponent<String>>> {
     let mut tracks = Vec::new();
     for token in split_grid_tokens(s) {
@@ -591,7 +591,7 @@ fn parse_grid_template(s: &str) -> Option<Vec<GridTemplateComponent<String>>> {
     }
 }
 
-/// Parse a grid-column/row placement value ("auto", "span 2", "1", "2 / 4", …).
+/// Parse a grid-column/row placement value ("auto", "span 2", "1", "2 / 4", ...).
 fn parse_grid_placement(s: &str) -> Option<Line<GridPlacement>> {
     let s = s.trim();
     if s == "auto" {

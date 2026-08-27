@@ -532,9 +532,9 @@ pub fn post_process_tables(layouter: &mut TaffyLayouter, layout_tree: &mut Layou
 
     log::info!("lattice: post_process_tables found {} table node(s)", table_nodes.len());
 
-    // Two passes. Pass 1 is pre-order (outer→inner): it establishes column widths, which flow
+    // Two passes. Pass 1 is pre-order (outer->inner): it establishes column widths, which flow
     // top-down (a nested table reads its width from its already-sized parent cell). Pass 2 is
-    // post-order (inner→outer): each table is re-laid-out *after* the tables nested inside its
+    // post-order (inner->outer): each table is re-laid-out *after* the tables nested inside its
     // cells, so an outer cell's height now reflects its nested table's true height - height
     // flows bottom-up. A single reverse pass propagates through any table-nesting depth.
     // A nested table's surrounding geometry is owned by its outer table, so

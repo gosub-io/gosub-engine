@@ -114,14 +114,14 @@ pub enum TextWrap {
     Unset,
 }
 
-// ── Value - replaces StyleValue, ≤8 bytes, zero heap ─────────────────────────
+// ── Value - replaces StyleValue, <=8 bytes, zero heap ─────────────────────────
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Unit(f32, Unit),
     /// Each channel 0-255; alpha 255 = fully opaque.
     Color(u8, u8, u8, u8),
-    /// Unitless number (flex-grow, flex-shrink, aspect-ratio, …).
+    /// Unitless number (flex-grow, flex-shrink, aspect-ratio, ...).
     Number(f32),
     Percentage(f32),
     Display(Display),
@@ -129,7 +129,7 @@ pub enum Value {
     TextAlign(TextAlign),
     TextWrap(TextWrap),
     BorderStyle(BorderStyle),
-    /// An interned keyword string (font-family, position, flex-direction, …).
+    /// An interned keyword string (font-family, position, flex-direction, ...).
     Keyword(u32),
 }
 
@@ -1163,7 +1163,7 @@ mod tests {
 
     #[test]
     fn test_id_round_trip() {
-        // Every StyleProperty should round-trip through id → from_id
+        // Every StyleProperty should round-trip through id -> from_id
         let props = [
             StyleProperty::Color,
             StyleProperty::BackgroundColor,

@@ -254,7 +254,7 @@ pub fn compute_table_layout<T: TableTree>(
 
     // Apply positions
     //
-    //    Per CSS: sections are rendered in the order header → body → footer,
+    //    Per CSS: sections are rendered in the order header -> body -> footer,
     //    regardless of their source position.  Each group is positioned
     //    relative to the table.  Each row is positioned relative to its group.
     //    Each cell is positioned relative to its row.

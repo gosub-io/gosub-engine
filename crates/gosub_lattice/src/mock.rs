@@ -640,7 +640,7 @@ fn h_border(
             // Rightmost edge - always a real corner
             '+'
         } else if left_spanned && right_spanned {
-            // Both neighbours are spanning cells → vertical wall between them
+            // Both neighbours are spanning cells -> vertical wall between them
             '|'
         } else if no_right_wall.get(pos - 1).copied().unwrap_or(false) {
             // Inside a colspan - suppress the junction
@@ -677,7 +677,7 @@ fn content_row(
     col_char_w: &[usize],
     n_cols: usize,
 ) -> String {
-    // Map col → placed cell for cells that START in this row.
+    // Map col -> placed cell for cells that START in this row.
     let mut cell_at: HashMap<usize, &PlacedCell<u32>> = HashMap::new();
     for cell in grid.cells_in_row(row_idx) {
         cell_at.insert(cell.col, cell);

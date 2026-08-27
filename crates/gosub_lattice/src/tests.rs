@@ -24,7 +24,7 @@ mod layout_tests {
         };
     }
 
-    // 1. Basic geometry: 2×2 body-only table, no spacing, no border/padding
+    // 1. Basic geometry: 2x2 body-only table, no spacing, no border/padding
     #[test]
     fn basic_2x2_positions() {
         // 100px wide, 2 equal auto columns = 50px each, two rows with explicit heights.
@@ -86,7 +86,7 @@ mod layout_tests {
     #[test]
     fn spacing_shifts_cell_x() {
         // spacing_x=4: gutters are 4px on each side and between columns.
-        // 3 gutters for 2 columns → 12px consumed. 100-12 = 88 for content → 44px each.
+        // 3 gutters for 2 columns -> 12px consumed. 100-12 = 88 for content -> 44px each.
         // col_x[0] = 4, col_x[1] = 4+44+4 = 52.
         let (mut tree, root) = MockTable::new(100.0)
             .spacing(4.0, 0.0)
@@ -112,7 +112,7 @@ mod layout_tests {
     #[test]
     fn explicit_column_width() {
         // First row: cell with explicit width=30px.
-        // Second column: auto → gets (100 - 30) = 70px.
+        // Second column: auto -> gets (100 - 30) = 70px.
         // spacing = 0.
         let (mut tree, root) = MockTable::new(100.0)
             .spacing(0.0, 0.0)
@@ -164,8 +164,8 @@ mod layout_tests {
     // 5. Colspan: cell spans 2 columns, gets combined width
     #[test]
     fn colspan_cell_width() {
-        // Row0: header has 2 cells → 2 columns each 50px
-        // Row1: colspan=2 spanning cell → width = 50+50 = 100px
+        // Row0: header has 2 cells -> 2 columns each 50px
+        // Row1: colspan=2 spanning cell -> width = 50+50 = 100px
         let (mut tree, root) = MockTable::new(100.0)
             .spacing(0.0, 0.0)
             .body_row(vec![
@@ -299,7 +299,7 @@ mod layout_tests {
     // 11. A colspan cell covers the horizontal gutters between its columns.
     #[test]
     fn colspan_covers_gutter() {
-        // spacing_x=4 → available = 100 - 3*4 = 88 → two 44px columns.
+        // spacing_x=4 -> available = 100 - 3*4 = 88 -> two 44px columns.
         let (mut tree, root) = MockTable::new(100.0)
             .spacing(4.0, 0.0)
             .body_row(vec![
@@ -336,7 +336,7 @@ mod layout_tests {
         assert_approx!(span.size.height, 56.0, "20 + 6 (gutter) + 30");
     }
 
-    // 13. Sections render header → body → footer regardless of source order.
+    // 13. Sections render header -> body -> footer regardless of source order.
     #[test]
     fn sections_reordered_from_source_order() {
         use crate::mock::MockTree;
@@ -658,7 +658,7 @@ mod layout_tests {
             .into_tree();
         let host_cell = outer.nodes_with_role(TableRole::Cell)[0];
 
-        // Inner: two columns × two rows, heights 15 and 25.
+        // Inner: two columns x two rows, heights 15 and 25.
         let (inner, inner_root) = MockTable::new(0.0)
             .spacing(0.0, 0.0)
             .body_row(vec![

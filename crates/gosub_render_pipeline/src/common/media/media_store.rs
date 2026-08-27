@@ -199,7 +199,7 @@ impl MediaStore {
         Ok(media_id)
     }
 
-    /// Rasterize an SVG background to a `w`×`h` raster tile and return its media id, so a tiled
+    /// Rasterize an SVG background to a `w`x`h` raster tile and return its media id, so a tiled
     /// `background-image: url(x.svg)` reuses the raster tiling path. Cached per (svg id, w, h) so
     /// it renders once. Returns `None` if the source is not an SVG or the pixmap can't allocate.
     pub fn svg_raster_tile(&self, svg_media_id: MediaId, w: u32, h: u32) -> Option<MediaId> {
@@ -335,7 +335,7 @@ fn decode_data_uri(rest: &str) -> anyhow::Result<(Option<String>, Vec<u8>)> {
             .decode(cleaned.as_bytes())
             .map_err(|e| anyhow::anyhow!("invalid base64 in data URI: {e}"))?
     } else {
-        // Percent-decode a plain (text) payload, e.g. `data:image/svg+xml,<svg …>`.
+        // Percent-decode a plain (text) payload, e.g. `data:image/svg+xml,<svg ...>`.
         percent_decode(data)
     };
 
@@ -363,7 +363,7 @@ fn percent_decode(s: &str) -> Vec<u8> {
     out
 }
 
-/// Rasterize a `usvg` tree to a straight-alpha RGBA [`Image`] of `w`×`h` px (scaling the tree's
+/// Rasterize a `usvg` tree to a straight-alpha RGBA [`Image`] of `w`x`h` px (scaling the tree's
 /// intrinsic size to fit). Returns `None` if the pixmap can't be allocated.
 fn render_svg_tree_to_image(tree: &resvg::usvg::Tree, w: u32, h: u32) -> Option<Image> {
     let size = tree.size();
