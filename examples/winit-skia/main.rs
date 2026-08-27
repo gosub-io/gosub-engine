@@ -3,7 +3,7 @@
 //! Usage: cargo run --example winit-skia -- https://example.com
 //!
 //! No GTK dependency - Skia has its own font system.
-//! Press Ctrl+L to focus the address bar.
+//! The page URL is given as the first argument; there is no in-window chrome.
 
 use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
@@ -15,23 +15,19 @@ use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::{composite_tiles, DefaultCompositor, TileTarget};
 use gosub_renderer_skia::{SkiaBackend, SkiaFontSystem};
 use once_cell::sync::Lazy;
-use skia_safe::{surfaces, Color4f, Font, FontMgr, FontStyle, Paint, Rect as SkRect};
 use softbuffer::Surface;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
 use tokio::sync::watch;
-use url::Url;
 use uuid::uuid;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-00000000000a");
-const ADDRESS_BAR_HEIGHT: u32 = 36;
 const SCROLL_MULTIPLIER: f32 = 134.0;
 
 type AppConfig = DefaultRenderConfig<SkiaBackend, SkiaFontSystem>;
@@ -61,8 +57,6 @@ struct BrowserApp {
     surface: Option<Surface<Arc<Window>, Arc<Window>>>,
     surface_size: (u32, u32),
 
-    url_input: String,
-    addr_focused: bool,
     cursor: PhysicalPosition<f64>,
     scroll: (f32, f32),
     page_height: f32,
@@ -70,22 +64,6 @@ struct BrowserApp {
 }
 
 impl BrowserApp {
-    fn navigate(&mut self) {
-        let mut s = self.url_input.clone();
-        if !s.starts_with("http://") && !s.starts_with("https://") {
-            s = format!("https://{s}");
-            self.url_input = s.clone();
-        }
-        let Ok(_) = Url::parse(&s) else { return };
-        self.scroll = (0.0, 0.0);
-        self.addr_focused = false;
-        let tab = self.tab.clone();
-        TOKIO_RT.spawn(async move {
-            let _ = tab.send(TabCommand::Navigate { url: s }).await;
-            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
-        });
-    }
-
     fn redraw(&mut self) {
         let Some(surface) = &mut self.surface else { return };
         let (win_w, win_h) = self.surface_size;
@@ -103,27 +81,10 @@ impl BrowserApp {
         // Opaque white: a valid premultiplied background for source-over blending.
         buf.fill(0xFFFF_FFFF);
 
-        let content_h = win_h.saturating_sub(ADDRESS_BAR_HEIGHT);
-        if content_h > 0 {
-            if let Some(handle) = self.compositor.frame_for(self.tab_id) {
-                blit_to_buffer(
-                    &mut buf,
-                    win_w,
-                    ADDRESS_BAR_HEIGHT,
-                    content_h,
-                    handle,
-                    &mut self.page_height,
-                    self.scroll,
-                );
-            }
+        if let Some(handle) = self.compositor.frame_for(self.tab_id) {
+            blit_to_buffer(&mut buf, win_w, 0, win_h, handle, &mut self.page_height, self.scroll);
         }
-
-        draw_address_bar(&mut buf, win_w, &self.url_input, self.addr_focused);
         buf.present().unwrap_or_default();
-    }
-
-    fn is_in_address_bar(&self, y: f64) -> bool {
-        y < ADDRESS_BAR_HEIGHT as f64
     }
 
     fn to_css_x(&self, x: f64) -> f32 {
@@ -131,7 +92,7 @@ impl BrowserApp {
     }
 
     fn to_css_y(&self, y: f64) -> f32 {
-        (y - ADDRESS_BAR_HEIGHT as f64) as f32
+        y as f32
     }
 }
 
@@ -151,7 +112,7 @@ impl ApplicationHandler<()> for BrowserApp {
 
         let size = window.inner_size();
         self.surface_size = (size.width, size.height);
-        let content_h = size.height.saturating_sub(ADDRESS_BAR_HEIGHT);
+        let content_h = size.height;
         self.viewport = (size.width, content_h);
 
         let tab = self.tab.clone();
@@ -187,7 +148,7 @@ impl ApplicationHandler<()> for BrowserApp {
                     return;
                 }
                 self.surface_size = (width, height);
-                let content_h = height.saturating_sub(ADDRESS_BAR_HEIGHT);
+                let content_h = height;
                 self.viewport = (width, content_h);
                 self.scroll = (0.0, 0.0);
                 let tab = self.tab.clone();
@@ -208,10 +169,8 @@ impl ApplicationHandler<()> for BrowserApp {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = position;
-                if !self.is_in_address_bar(position.y) {
-                    let (x, y) = (self.to_css_x(position.x), self.to_css_y(position.y));
-                    let _ = self.mouse_tx.send(Some((x, y)));
-                }
+                let (x, y) = (self.to_css_x(position.x), self.to_css_y(position.y));
+                let _ = self.mouse_tx.send(Some((x, y)));
             }
 
             WindowEvent::MouseInput {
@@ -219,25 +178,35 @@ impl ApplicationHandler<()> for BrowserApp {
                 button: WinitMouseButton::Left,
                 ..
             } => {
-                if self.is_in_address_bar(self.cursor.y) {
-                    self.addr_focused = true;
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                } else {
-                    self.addr_focused = false;
-                    let (x, y) = (self.to_css_x(self.cursor.x), self.to_css_y(self.cursor.y));
-                    let tab = self.tab.clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab
-                            .send(TabCommand::MouseDown {
-                                x,
-                                y,
-                                button: MouseButton::Left,
-                            })
-                            .await;
-                    });
-                }
+                let (x, y) = (self.to_css_x(self.cursor.x), self.to_css_y(self.cursor.y));
+                let tab = self.tab.clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseDown {
+                            x,
+                            y,
+                            button: MouseButton::Left,
+                        })
+                        .await;
+                });
+            }
+
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: WinitMouseButton::Left,
+                ..
+            } => {
+                let (x, y) = (self.to_css_x(self.cursor.x), self.to_css_y(self.cursor.y));
+                let tab = self.tab.clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseUp {
+                            x,
+                            y,
+                            button: MouseButton::Left,
+                        })
+                        .await;
+                });
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
@@ -261,39 +230,6 @@ impl ApplicationHandler<()> for BrowserApp {
                     w.request_redraw();
                 }
             }
-
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        logical_key,
-                        text,
-                        state: ElementState::Pressed,
-                        ..
-                    },
-                ..
-            } if self.addr_focused => match &logical_key {
-                Key::Named(NamedKey::Enter) => self.navigate(),
-                Key::Named(NamedKey::Escape) => {
-                    self.addr_focused = false;
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                }
-                Key::Named(NamedKey::Backspace) => {
-                    self.url_input.pop();
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                }
-                _ => {
-                    if let Some(t) = &text {
-                        self.url_input.push_str(t.as_str());
-                        if let Some(w) = &self.window {
-                            w.request_redraw();
-                        }
-                    }
-                }
-            },
 
             _ => {}
         }
@@ -359,73 +295,6 @@ fn blit_to_buffer(
     }
 }
 
-/// Draw the address bar using Skia directly into the top ADDRESS_BAR_HEIGHT rows.
-fn draw_address_bar(buf: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, win_w: u32, url: &str, focused: bool) {
-    let h = ADDRESS_BAR_HEIGHT as i32;
-    let w = win_w as i32;
-
-    let Some(mut surface) = surfaces::raster_n32_premul(skia_safe::ISize::new(w, h)) else {
-        buf[..ADDRESS_BAR_HEIGHT as usize * win_w as usize].fill(0x00D0D0D0);
-        return;
-    };
-
-    let canvas = surface.canvas();
-
-    canvas.clear(if focused {
-        Color4f::new(0.98, 0.98, 0.98, 1.0)
-    } else {
-        Color4f::new(0.93, 0.93, 0.93, 1.0)
-    });
-
-    let box_color = if focused {
-        Color4f::new(1.0, 1.0, 1.0, 1.0)
-    } else {
-        Color4f::new(0.97, 0.97, 0.97, 1.0)
-    };
-    let mut bg = Paint::new(box_color, None);
-    bg.set_anti_alias(true);
-    canvas.draw_rect(SkRect::new(4.0, 5.0, (w - 4) as f32, (h - 5) as f32), &bg);
-
-    let border_color = if focused {
-        Color4f::new(0.26, 0.52, 0.96, 1.0)
-    } else {
-        Color4f::new(0.7, 0.7, 0.7, 1.0)
-    };
-    let mut border = Paint::new(border_color, None);
-    border.set_anti_alias(true);
-    border.set_style(skia_safe::PaintStyle::Stroke);
-    border.set_stroke_width(1.0);
-    canvas.draw_rect(SkRect::new(4.5, 5.5, (w - 5) as f32, (h - 5) as f32), &border);
-
-    thread_local! { static FONT_MGR: FontMgr = FontMgr::new(); }
-    let typeface = FONT_MGR.with(|fm| {
-        fm.legacy_make_typeface(None, FontStyle::normal()).unwrap_or_else(|| {
-            fm.legacy_make_typeface("sans-serif", FontStyle::normal())
-                .expect("no typeface")
-        })
-    });
-    let font = Font::new(typeface, 14.0);
-    let mut text_paint = Paint::new(Color4f::new(0.0, 0.0, 0.0, 1.0), None);
-    text_paint.set_anti_alias(true);
-    canvas.draw_str(url, (10.0f32, h as f32 - 10.0), &font, &text_paint);
-
-    if let Some(peek) = canvas.peek_pixels() {
-        if let Some(bytes) = peek.bytes() {
-            for row in 0..ADDRESS_BAR_HEIGHT as usize {
-                for col in 0..win_w as usize {
-                    let off = row * win_w as usize * 4 + col * 4;
-                    if off + 2 < bytes.len() {
-                        let b = bytes[off] as u32;
-                        let g = bytes[off + 1] as u32;
-                        let r = bytes[off + 2] as u32;
-                        buf[row * win_w as usize + col] = (r << 16) | (g << 8) | b;
-                    }
-                }
-            }
-        }
-    }
-}
-
 fn main() {
     eprintln!(
         "{} v{} — winit browser window, Skia (CPU) rendering via softbuffer",
@@ -463,6 +332,13 @@ fn main() {
 
     let backend = SkiaBackend::new();
     let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
+    // GOSUB_COLOR_SCHEME=dark renders pages and native controls in the dark scheme.
+    if std::env::var("GOSUB_COLOR_SCHEME").is_ok_and(|v| v.eq_ignore_ascii_case("dark")) {
+        let _ = engine.settings().set(
+            "renderer.color_scheme",
+            gosub_config::settings::Setting::String("dark".into()),
+        );
+    }
     let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
 
     let proxy_ev = proxy.clone();
@@ -540,8 +416,6 @@ fn main() {
         window: None,
         surface: None,
         surface_size: (0, 0),
-        url_input: initial_url,
-        addr_focused: false,
         cursor: PhysicalPosition::default(),
         scroll: (0.0, 0.0),
         page_height: 0.0,

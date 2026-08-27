@@ -1,0 +1,725 @@
+//! gosub-mini-browser: the full-featured reference embedder (GTK4 + Cairo). Everything the
+//! engine can do interactively is wired up here - keyboard editing, clipboard, cursor shapes,
+//! kinetic scrolling, dark scheme - which also makes it the vehicle for hand-testing those
+//! features. The `examples/` stay minimal (load a page, scroll, click links); new
+//! embedder-protocol features belong here.
+//!
+//! Usage:  cargo run --release -p gosub-mini-browser -- https://example.com
+
+mod shell;
+
+use gosub_engine::cookies::SqliteCookieStore;
+use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
+use gosub_engine::tab::{TabDefaults, TabId};
+use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
+use gosub_engine::DefaultRenderConfig;
+use gosub_engine::GosubEngine;
+use gosub_render_pipeline::render::backend::{
+    anchored_tile_pos, blend_over_argb_u32, scale_premul_argb_u32, CachedTile, ExternalHandle, PixelFormat,
+};
+use gosub_render_pipeline::render::DefaultCompositor;
+use gosub_render_pipeline::render::DEVICE_PIXEL_RATIO;
+use gosub_renderer_cairo::PangoFontSystem;
+use gtk4::glib;
+use gtk4::prelude::*;
+use gtk4::{Application, ApplicationWindow, Box as GtkBox, DrawingArea, Entry, Label, Orientation};
+use once_cell::sync::Lazy;
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+use std::sync::Arc;
+use tokio::runtime::{Builder, Runtime};
+use tokio::sync::mpsc;
+use url::Url;
+use uuid::uuid;
+
+const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000001");
+/// CSS pixels scrolled per raw GTK scroll unit (`unit=Wheel` delivers `dy=±1` per notch). Calibrated
+/// to Firefox's ~134 CSS px/tick (measured, constant across zoom).
+const SCROLL_MULTIPLIER: f32 = 134.0;
+
+type AppConfig = DefaultRenderConfig<gosub_renderer_cairo::CairoBackend, PangoFontSystem>;
+
+static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
+    Builder::new_multi_thread()
+        .enable_io()
+        .enable_time()
+        .thread_name("gosub-pipeline-rt")
+        .build()
+        .expect("tokio runtime")
+});
+
+/// Cached tile render state extracted from the latest engine TileCache frame.
+/// Lives on the GTK main thread - no locking needed.
+struct TileDrawState {
+    tiles: Arc<Vec<CachedTile>>,
+    dpr: u32,
+}
+
+fn main() {
+    eprintln!(
+        "{} v{} — GTK4 browser window, Cairo (CPU) rendering with Pango text",
+        env!("CARGO_BIN_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .init()
+        .unwrap_or_default();
+
+    let initial_url: String = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "https://stop-ai-slop.com".to_string());
+
+    let app = Application::builder()
+        .application_id("io.gosub.pipeline-browser")
+        .build();
+
+    app.connect_activate(move |app| {
+        let _rt_guard = TOKIO_RT.enter();
+
+        // Cache GSettings-derived values while still on the GTK main thread so the
+        // background rasterizer threads never need to touch GTK globals.
+        gosub_renderer_cairo::init_gtk_resources().expect("failed to init GTK resources");
+
+        // Compositor-driven redraws: each `submit_frame` wakes the GTK main loop via the
+        // thread-safe `glib::idle_add` (no async channel involved, so no tokio-waker issues -
+        // the old tokio-channel signal didn't reliably wake the GTK main loop mid-scroll).
+        // The DrawingArea doesn't exist yet, so the callback resolves it lazily via a OnceLock.
+        let redraw_target: Arc<std::sync::OnceLock<glib::SendWeakRef<DrawingArea>>> =
+            Arc::new(std::sync::OnceLock::new());
+        let compositor = Arc::new(DefaultCompositor::new({
+            let target = redraw_target.clone();
+            move || {
+                if let Some(weak) = target.get() {
+                    let weak = weak.clone();
+                    glib::source::idle_add(move || {
+                        if let Some(da) = weak.upgrade() {
+                            da.queue_draw();
+                        }
+                        glib::ControlFlow::Break
+                    });
+                }
+            }
+        }));
+
+        let backend = gosub_renderer_cairo::CairoBackend::new();
+        let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
+        // Colour scheme: GOSUB_COLOR_SCHEME=dark|light wins; otherwise the desktop preference
+        // (GNOME's color-scheme GSetting, a "-dark" GTK theme, or an app-level prefer-dark flag).
+        if shell::desktop_prefers_dark() {
+            let _ = engine.settings().set(
+                "renderer.color_scheme",
+                gosub_config::settings::Setting::String("dark".into()),
+            );
+        }
+        let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
+        let event_rx = engine.subscribe_events();
+
+        let zone_cfg = ZoneConfig::builder().do_not_track(true).build().expect("ZoneConfig");
+
+        let cookie_store: gosub_engine::cookies::CookieStoreHandle =
+            SqliteCookieStore::new(".pipeline-browser-cookies.db".into())
+                .expect("failed to open cookie store")
+                .into();
+
+        let zone_services = ZoneServices {
+            storage: Arc::new(StorageService::new(
+                Arc::new(SqliteLocalStore::new(".pipeline-browser-local.db").expect("local store")),
+                Arc::new(InMemorySessionStore::new()),
+            )),
+            cookie_store: Some(cookie_store),
+            places: None,
+            cookie_jar: None,
+            partition_policy: PartitionPolicy::None,
+        };
+
+        let zone = Rc::new(RefCell::new(
+            engine
+                .create_zone(Some(zone_cfg), zone_services, Some(ZoneId::from(DEFAULT_ZONE)))
+                .expect("create_zone"),
+        ));
+
+        let tab = {
+            let mut z = zone.borrow_mut();
+            TOKIO_RT
+                .block_on(z.create_tab(
+                    TabDefaults {
+                        url: None,
+                        title: Some("Pipeline Browser".to_string()),
+                        // No initial viewport - let connect_resize set it with the correct DPR.
+                        // If we pre-set a viewport here (DPR=1), the engine won't recreate the
+                        // surface when connect_resize sends the same CSS dimensions with DPR=2.
+                        viewport: None,
+                    },
+                    None,
+                ))
+                .expect("create_tab")
+        };
+
+        let tab_id: TabId = tab.tab_id;
+
+        let tab = Rc::new(RefCell::new(tab));
+
+        // --- Widgets ---
+        let address_entry = Entry::new();
+        address_entry.set_placeholder_text(Some("Enter URL…"));
+        address_entry.set_hexpand(true);
+
+        let drawing_area = DrawingArea::new();
+        drawing_area.set_content_width(1024);
+        drawing_area.set_content_height(768);
+        drawing_area.set_vexpand(true);
+        drawing_area.set_hexpand(true);
+        drawing_area.set_focusable(true);
+
+        // Hook the compositor's redraw wake-up to the now-existing DrawingArea.
+        let _ = redraw_target.set(glib::SendWeakRef::from(drawing_area.downgrade()));
+
+        // --- Draw callback ---
+        //
+        // Reads the latest compositor frame directly; the engine's frame carries its own
+        // authoritative (animated, clamped) scroll, so no local tile/scroll mirroring is needed.
+        let compositor_draw = compositor.clone();
+        drawing_area.set_draw_func(move |_area, cr, w, h| match compositor_draw.frame_for(tab_id) {
+            None => {
+                log::debug!("[draw] no frame yet — placeholder");
+                draw_placeholder(cr, w, h);
+            }
+            Some(handle) => match handle {
+                ExternalHandle::CpuPixelsPtr {
+                    width,
+                    height,
+                    stride,
+                    pixel_buf,
+                } => {
+                    log::debug!(
+                        "[draw] CpuPixelsPtr {}x{} stride={} widget={}x{}",
+                        width,
+                        height,
+                        stride,
+                        w,
+                        h
+                    );
+                    let frame_scale = (width as f64 / w as f64).round() as i32;
+                    let owned = unsafe {
+                        std::slice::from_raw_parts(pixel_buf.as_ptr(), (height as usize) * (stride as usize))
+                    }
+                    .to_vec();
+                    match gtk4::cairo::ImageSurface::create_for_data(
+                        owned,
+                        gtk4::cairo::Format::ARgb32,
+                        width as i32,
+                        height as i32,
+                        stride as i32,
+                    ) {
+                        Ok(surface) => {
+                            surface.flush();
+                            if frame_scale > 1 {
+                                surface.set_device_scale(frame_scale as f64, frame_scale as f64);
+                            }
+                            cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
+                            cr.paint().unwrap_or_default();
+                        }
+                        Err(e) => {
+                            log::warn!("[draw] surface failed: {:?}", e);
+                            draw_placeholder(cr, w, h);
+                        }
+                    }
+                }
+                ExternalHandle::CpuPixelsOwned {
+                    width,
+                    height,
+                    stride,
+                    pixels,
+                    ..
+                } => {
+                    log::debug!(
+                        "[draw] CpuPixelsOwned {}x{} stride={} bytes={} widget={}x{}",
+                        width,
+                        height,
+                        stride,
+                        pixels.len(),
+                        w,
+                        h
+                    );
+                    let frame_scale = (width as f64 / w as f64).round() as i32;
+                    match gtk4::cairo::ImageSurface::create_for_data(
+                        pixels,
+                        gtk4::cairo::Format::ARgb32,
+                        width as i32,
+                        height as i32,
+                        stride as i32,
+                    ) {
+                        Ok(surface) => {
+                            surface.flush();
+                            if frame_scale > 1 {
+                                surface.set_device_scale(frame_scale as f64, frame_scale as f64);
+                            }
+                            cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
+                            cr.paint().unwrap_or_default();
+                        }
+                        Err(e) => {
+                            log::warn!("[draw] surface failed: {:?}", e);
+                            draw_placeholder(cr, w, h);
+                        }
+                    }
+                }
+                ExternalHandle::TileCache {
+                    dpr,
+                    scroll_x,
+                    scroll_y,
+                    tiles,
+                    ..
+                } => {
+                    let state = TileDrawState { tiles, dpr };
+                    draw_tile_cache(cr, w, h, &state, scroll_x, scroll_y);
+                }
+                _ => {
+                    log::debug!("[draw] NullHandle or other — placeholder");
+                    draw_placeholder(cr, w, h);
+                }
+            },
+        });
+
+        // --- Scroll controller ---
+        //
+        // The local scroll offset is updated synchronously here (on the GTK main thread),
+        // so queue_draw() immediately sees the new position - zero async latency.
+        // The engine is also notified via a Tokio task for its own state bookkeeping.
+        // Handle for the active kinetic-scroll glib timeout (if any).
+        let kinetic_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+
+        let scroll_ctl = gtk4::EventControllerScroll::new(
+            gtk4::EventControllerScrollFlags::BOTH_AXES | gtk4::EventControllerScrollFlags::KINETIC,
+        );
+
+        // A new gesture takes over from any momentum still playing out.
+        scroll_ctl.connect_scroll_begin({
+            let kinetic_source = kinetic_source.clone();
+            move |_| {
+                if let Some(id) = kinetic_source.borrow_mut().take() {
+                    id.remove();
+                }
+            }
+        });
+
+        scroll_ctl.connect_scroll({
+            let tab = tab.clone();
+            move |_ctl, dx, dy| {
+                let delta_x = dx as f32 * SCROLL_MULTIPLIER;
+                let delta_y = dy as f32 * SCROLL_MULTIPLIER;
+                // Fire-and-forget one delta per wheel event; the engine accumulates the target,
+                // clamps it to the page, and animates the scroll. Each animated frame arrives via
+                // the compositor redraw wake-up, so the draw follows the engine's position.
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab.send(TabCommand::MouseScroll { delta_x, delta_y }).await;
+                });
+                glib::Propagation::Stop
+            }
+        });
+
+        // Kinetic (momentum) scrolling: after a touchpad flick, keep feeding deltas to the
+        // engine on a ~60fps timer with exponential friction. The engine still owns the actual
+        // scroll position (clamping + smoothing) - this only extends the gesture.
+        scroll_ctl.connect_decelerate({
+            let tab = tab.clone();
+            let kinetic_source = kinetic_source.clone();
+            move |_ctl, vel_x, vel_y| {
+                // Velocities arrive in scroll units per ms - same units as connect_scroll deltas.
+                let vx = Rc::new(Cell::new(vel_x as f32 * SCROLL_MULTIPLIER));
+                let vy = Rc::new(Cell::new(vel_y as f32 * SCROLL_MULTIPLIER));
+                let tab = tab.clone();
+                let kinetic_source_inner = kinetic_source.clone();
+                let id = glib::timeout_add_local(std::time::Duration::from_millis(16), move || {
+                    let (cur_vx, cur_vy) = (vx.get(), vy.get());
+                    if cur_vx.abs() < 2.0 && cur_vy.abs() < 2.0 {
+                        *kinetic_source_inner.borrow_mut() = None;
+                        return glib::ControlFlow::Break;
+                    }
+                    // Decelerates to ~5% in about a second at 60fps.
+                    let friction = 0.93_f32;
+                    vx.set(cur_vx * friction);
+                    vy.set(cur_vy * friction);
+                    let (delta_x, delta_y) = (cur_vx * 0.016, cur_vy * 0.016);
+                    let tab = tab.borrow().clone();
+                    TOKIO_RT.spawn(async move {
+                        let _ = tab.send(TabCommand::MouseScroll { delta_x, delta_y }).await;
+                    });
+                    glib::ControlFlow::Continue
+                });
+                *kinetic_source.borrow_mut() = Some(id);
+            }
+        });
+        drawing_area.add_controller(scroll_ctl);
+
+        // Mouse motion → hover
+        let motion_ctl = gtk4::EventControllerMotion::new();
+        motion_ctl.connect_motion({
+            let tab = tab.clone();
+            move |_, x, y| {
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseMove {
+                            x: x as f32,
+                            y: y as f32,
+                        })
+                        .await;
+                });
+            }
+        });
+        drawing_area.add_controller(motion_ctl);
+
+        // Click → navigate links
+        let click_ctl = gtk4::GestureClick::new();
+        click_ctl.set_button(gtk4::gdk::BUTTON_PRIMARY);
+        click_ctl.connect_pressed({
+            let tab = tab.clone();
+            let kinetic_source = kinetic_source.clone();
+            move |gesture, _n_press, x, y| {
+                // A press anywhere stops any momentum still playing out.
+                if let Some(id) = kinetic_source.borrow_mut().take() {
+                    id.remove();
+                }
+                if let Some(w) = gesture.widget() {
+                    w.grab_focus();
+                }
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseDown {
+                            x: x as f32,
+                            y: y as f32,
+                            button: gosub_engine::events::MouseButton::Left,
+                        })
+                        .await;
+                });
+            }
+        });
+        click_ctl.connect_released({
+            let tab = tab.clone();
+            move |_, _, x, y| {
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseUp {
+                            x: x as f32,
+                            y: y as f32,
+                            button: gosub_engine::events::MouseButton::Left,
+                        })
+                        .await;
+                });
+            }
+        });
+        drawing_area.add_controller(click_ctl);
+
+        // Clicking the page gives the area GTK focus so keys reach it; Tab is swallowed so GTK
+        // doesn't move focus to the address bar.
+        let key_ctl = gtk4::EventControllerKey::new();
+        key_ctl.connect_key_pressed({
+            let tab = tab.clone();
+            move |_, key, _code, state| {
+                let Some(cmd) = shell::key_down_command(key, state) else {
+                    return glib::Propagation::Proceed;
+                };
+                let is_tab = matches!(&cmd, TabCommand::KeyDown { key, .. } if key == "Tab");
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab.send(cmd).await;
+                });
+                if is_tab {
+                    glib::Propagation::Stop
+                } else {
+                    glib::Propagation::Proceed
+                }
+            }
+        });
+        drawing_area.add_controller(key_ctl);
+
+        // Resize → set DPR first so create_surface sees the right value, then notify the engine
+        drawing_area.connect_resize({
+            let tab = tab.clone();
+            move |area, w, h| {
+                let scale = render_dpr(area);
+                DEVICE_PIXEL_RATIO.store(scale, std::sync::atomic::Ordering::Relaxed);
+                let tab = tab.borrow().clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::SetViewport {
+                            x: 0,
+                            y: 0,
+                            width: w as u32,
+                            height: h as u32,
+                        })
+                        .await;
+                });
+            }
+        });
+
+        // Address bar: navigate on Enter
+        address_entry.connect_activate({
+            let tab = tab.clone();
+            let da = drawing_area.clone();
+            move |entry| {
+                let mut s = entry.text().to_string();
+                if !s.starts_with("http://") && !s.starts_with("https://") {
+                    s = format!("https://{s}");
+                    entry.set_text(&s);
+                }
+                let Ok(url) = Url::parse(&s) else { return };
+
+                let tab = tab.borrow().clone();
+                let url_str = url.to_string();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab.send(TabCommand::Navigate { url: url_str }).await;
+                    // 60fps so the per-frame smooth-scroll deltas render as a smooth glide.
+                    let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
+                });
+                da.queue_draw();
+            }
+        });
+
+        // Status bar label (shown at the bottom, like Firefox's link URL preview)
+        let status_label = Label::new(None);
+        status_label.set_halign(gtk4::Align::Start);
+        status_label.set_margin_start(4);
+        status_label.set_margin_end(4);
+        status_label.set_margin_top(2);
+        status_label.set_margin_bottom(2);
+        status_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+
+        // Engine events → UI thread
+        let (ui_tx, mut ui_rx) = mpsc::unbounded_channel::<EngineEvent>();
+        TOKIO_RT.spawn({
+            let ui_tx = ui_tx.clone();
+            let mut rx = event_rx;
+            async move {
+                while let Ok(evt) = rx.recv().await {
+                    let _ = ui_tx.send(evt);
+                }
+            }
+        });
+        {
+            let da = drawing_area.clone();
+            let status_label = status_label.clone();
+            let address_entry = address_entry.clone();
+            let tab = tab.clone();
+            glib::spawn_future_local(async move {
+                while let Some(evt) = ui_rx.recv().await {
+                    if shell::handle_shell_event(&evt, &da, &tab.borrow()) {
+                        continue;
+                    }
+                    match evt {
+                        EngineEvent::Redraw { .. } => da.queue_draw(),
+                        EngineEvent::Navigation { tab_id: _, ref event } => {
+                            log::info!("navigation: {event:?}");
+                            match event {
+                                NavigationEvent::Started { .. } => {
+                                    da.queue_draw();
+                                }
+                                NavigationEvent::Finished { url, .. } => {
+                                    address_entry.set_text(url.as_str());
+                                }
+                                _ => {}
+                            }
+                        }
+                        EngineEvent::HoverUrl { url, .. } => {
+                            status_label.set_text(url.as_deref().unwrap_or(""));
+                        }
+                        _ => {}
+                    }
+                }
+            });
+        }
+
+        // Layout
+        let url_bar = GtkBox::new(Orientation::Horizontal, 0);
+        url_bar.append(&address_entry);
+
+        let vbox = GtkBox::new(Orientation::Vertical, 0);
+        vbox.append(&url_bar);
+        vbox.append(&drawing_area);
+        vbox.append(&status_label);
+
+        let window = ApplicationWindow::builder()
+            .application(app)
+            .title("Gosub Mini Browser")
+            .default_width(1024)
+            .default_height(800)
+            .child(&vbox)
+            .build();
+
+        window.present();
+
+        // Navigate after the window is shown so the viewport is already set.
+        {
+            let tab_init = tab.clone();
+            let url_str = initial_url.clone();
+            glib::idle_add_local_once(move || {
+                let mut s = url_str.clone();
+                if !s.starts_with("http://") && !s.starts_with("https://") {
+                    s = format!("https://{s}");
+                }
+                if let Ok(url) = Url::parse(&s) {
+                    let tab = tab_init.borrow().clone();
+                    TOKIO_RT.spawn(async move {
+                        let _ = tab.send(TabCommand::Navigate { url: url.to_string() }).await;
+                        // 60fps so the per-frame smooth-scroll deltas render as a smooth glide.
+                        let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
+                    });
+                }
+            });
+        }
+    });
+
+    // Pass only argv[0] to GTK so the URL argument isn't treated as a filename.
+    let argv0: Vec<String> = std::env::args().take(1).collect();
+    app.run_with_args(&argv0);
+}
+
+/// Resolve the device-pixel ratio to render at for `widget`.
+///
+/// `GtkWidget::scale_factor()` only ever reports an integer, so on a fractionally scaled
+/// display (e.g. 1.25× or 1.5×, common on Wayland) it returns 1 and the page is rasterized
+/// at logical resolution - the compositor then upscales the whole surface, blurring text.
+///
+/// `GdkSurface::scale()` exposes the true fractional scale. We round it *up* to the next
+/// integer and render at that resolution; downscaling a slightly-too-large buffer to the
+/// display's fractional size stays sharp, whereas upscaling a too-small one does not.
+fn render_dpr(widget: &impl IsA<gtk4::Widget>) -> u32 {
+    let fractional = widget
+        .native()
+        .and_then(|n| n.surface())
+        .map(|s| s.scale())
+        .filter(|s| *s > 0.0)
+        .unwrap_or_else(|| widget.scale_factor() as f64);
+    fractional.ceil().max(1.0) as u32
+}
+
+/// Composite a TileDrawState at the given scroll position into `cr`.
+fn draw_tile_cache(cr: &gtk4::cairo::Context, w: i32, h: i32, state: &TileDrawState, scroll_x: f32, scroll_y: f32) {
+    let dpr_i = state.dpr as i32;
+    let dpr_f = state.dpr as f64;
+
+    let w_phys = w * dpr_i;
+    let h_phys = h * dpr_i;
+
+    // CPU-blit tiles into a single image buffer, then paint it once.
+    // This avoids per-tile Cairo compositing (which can produce 1-pixel seams at
+    // tile boundaries due to bilinear filtering / AA at the source surface edges).
+    let Ok(mut dst) = gtk4::cairo::ImageSurface::create(gtk4::cairo::Format::ARgb32, w_phys, h_phys) else {
+        return;
+    };
+    let stride = dst.stride() as usize;
+
+    {
+        let Ok(mut data) = dst.data() else {
+            return;
+        };
+
+        // White opaque background: every byte 0xFF (premultiplied ARGB32 = 0xFFFF_FFFF per pixel).
+        // `fill` lowers to a single memset - far cheaper than a per-pixel loop, even in debug.
+        data.fill(0xFF);
+
+        for tile in state.tiles.iter() {
+            // Resolve the tile's viewport position in CSS px - handles scroll, fixed and sticky
+            // uniformly - then scale to device px.
+            let (vx, vy) = anchored_tile_pos(
+                tile.page_x as f64,
+                tile.page_y as f64,
+                scroll_x as f64,
+                scroll_y as f64,
+                tile.anchor,
+            );
+            let px = (vx * state.dpr as f64).round() as i64;
+            let py = (vy * state.dpr as f64).round() as i64;
+            let tw = tile.width as i64;
+            let th = tile.height as i64;
+
+            if px >= w_phys as i64 || py >= h_phys as i64 {
+                continue;
+            }
+            if px + tw <= 0 || py + th <= 0 {
+                continue;
+            }
+
+            let tile_col0 = (-px).max(0) as usize;
+            let tile_row0 = (-py).max(0) as usize;
+            let dst_x = px.max(0) as usize;
+            let dst_y0 = py.max(0) as usize;
+            let tw_usize = tw as usize;
+            let th_usize = th as usize;
+            // Hoisted per-tile: a fully-opaque, non-faded tile already in the surface's byte order
+            // can be blitted row-by-row with a plain memcpy - no per-pixel work at all.
+            let faded = tile.opacity < 1.0;
+            let can_memcpy = tile.opaque && !faded && matches!(tile.format, PixelFormat::PreMulArgb32);
+
+            for tile_row in tile_row0..th_usize {
+                let dst_y = dst_y0 + (tile_row - tile_row0);
+                if dst_y >= h_phys as usize {
+                    break;
+                }
+                let copy_w = (tw_usize - tile_col0).min(w_phys as usize - dst_x);
+                if copy_w == 0 {
+                    break;
+                }
+                let src_off = (tile_row * tw_usize + tile_col0) * 4;
+                let dst_off = dst_y * stride + dst_x * 4;
+                let row_bytes = copy_w * 4;
+
+                if can_memcpy {
+                    // Opaque, non-faded, same-format tile: the whole row is a straight copy.
+                    data[dst_off..dst_off + row_bytes].copy_from_slice(&tile.data[src_off..src_off + row_bytes]);
+                    continue;
+                }
+
+                // Otherwise source-over, doing the alpha math only where it's needed: an
+                // opaque pixel overwrites, a transparent one is skipped (keep what's beneath), and
+                // only a partial-alpha pixel runs the full blend. The group fade applies only to
+                // faded layers. (Cairo tiles are PreMulArgb32, so `pixel_to_argb_u32` is the
+                // identity - no per-pixel channel swap.)
+                for col in 0..copy_w {
+                    let s = src_off + col * 4;
+                    let d = dst_off + col * 4;
+                    let src_px =
+                        u32::from_le_bytes([tile.data[s], tile.data[s + 1], tile.data[s + 2], tile.data[s + 3]]);
+                    let mut argb = tile.format.pixel_to_argb_u32(src_px);
+                    if faded {
+                        argb = scale_premul_argb_u32(argb, tile.opacity);
+                    }
+                    match argb >> 24 {
+                        0 => {}                                                      // fully transparent: keep the destination
+                        0xFF => data[d..d + 4].copy_from_slice(&argb.to_le_bytes()), // opaque: overwrite
+                        _ => {
+                            let dst_px = u32::from_le_bytes([data[d], data[d + 1], data[d + 2], data[d + 3]]);
+                            let out = blend_over_argb_u32(argb, dst_px);
+                            data[d..d + 4].copy_from_slice(&out.to_le_bytes());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply device scale so GTK4 maps 1 CSS pixel → dpr physical pixels.
+    dst.set_device_scale(dpr_f, dpr_f);
+
+    cr.set_source_surface(&dst, 0.0, 0.0).unwrap_or_default();
+    // `dst` is rendered at an integer DPR that is the ceil of the display's (possibly
+    // fractional) scale, so the draw context resamples it to the real device resolution.
+    // `Good` keeps that down/up-scale smooth. There are no internal tile seams to worry
+    // about here because all tiles were already CPU-blitted into this single surface.
+    cr.source().set_filter(gtk4::cairo::Filter::Good);
+    cr.paint().unwrap_or_default();
+}
+
+/// Draw a light-grey placeholder while the first frame hasn't arrived yet.
+fn draw_placeholder(cr: &gtk4::cairo::Context, w: i32, h: i32) {
+    cr.set_source_rgb(0.92, 0.92, 0.92);
+    cr.rectangle(0.0, 0.0, w as f64, h as f64);
+    cr.fill().unwrap_or_default();
+}

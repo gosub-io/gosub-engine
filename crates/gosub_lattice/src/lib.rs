@@ -47,10 +47,11 @@ pub trait TableTree {
     /// by the row-height algorithm.
     fn layout_cell(&mut self, id: Self::NodeId, available_width: f32) -> f32;
 
-    /// Returns the natural (pre-pass) border-box width of cell `id` as
-    /// measured by the layout engine in a prior pass (e.g. Taffy).  Used to
-    /// distribute auto column widths proportionally to content width rather
-    /// than equally.  Return `0.0` for mock/test trees.
+    /// Returns the natural (pre-pass) width of cell `id`'s *content* as
+    /// measured by the layout engine in a prior pass (e.g. Taffy), excluding
+    /// the cell's own padding and border (lattice adds those itself). Used to
+    /// size auto-width tables (shrink-to-fit) and distribute auto column
+    /// widths proportionally to content. Return `0.0` for mock/test trees.
     fn cell_content_width(&self, _id: Self::NodeId) -> f32 {
         0.0
     }

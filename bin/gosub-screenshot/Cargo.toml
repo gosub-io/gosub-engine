@@ -8,9 +8,10 @@ name = "gosub-screenshot"
 path = "main.rs"
 
 [dependencies]
-gosub_engine = { path = "../../crates/gosub_engine" }
-gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
 gosub_shared = { path = "../../crates/gosub_shared" }
+gosub_engine = { path = "../../crates/gosub_engine" }
+gosub_config = { path = "../../crates/gosub_config" }
+gosub_render_pipeline = { path = "../../crates/gosub_render_pipeline" }
 gosub_renderer_skia = { path = "../../crates/gosub_renderer_skia", optional = true }
 gosub_renderer_cairo = { path = "../../crates/gosub_renderer_cairo", optional = true }
 image = { workspace = true }

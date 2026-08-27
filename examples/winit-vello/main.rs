@@ -2,7 +2,7 @@
 //!
 //! Usage: cargo run --example winit-vello -- https://example.com
 //!
-//! Press Ctrl+L to focus the address bar (URL shown in window title while typing).
+//! The current URL is shown in the window title; pass a different URL as the first argument.
 //! No GTK/Cairo dependency - pure winit + wgpu.
 //!
 //! Architecture note: the wgpu adapter and device are created inside `resumed()`
@@ -27,14 +27,12 @@ use gosub_winit::{GpuPresenter, WinitWgpuContextProvider};
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
-use url::Url;
 use uuid::uuid;
 use vello::wgpu;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
-use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{WindowAttributes, WindowId};
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000007");
@@ -81,10 +79,7 @@ struct BrowserApp {
     state: Option<RuntimeState>,
 
     // UI state
-    url_input: String,
-    addr_focused: bool,
     current_url: String,
-    modifiers: ModifiersState,
     /// Cursor position in physical pixels, as winit reports it.
     cursor: PhysicalPosition<f64>,
     /// Engine viewport in *logical* (CSS) pixels - physical window size ÷ `scale`.
@@ -97,32 +92,11 @@ struct BrowserApp {
 }
 
 impl BrowserApp {
-    fn navigate(&mut self) {
-        let Some(rt) = &self.state else { return };
-        let tab = rt.tab.clone();
-        let mut s = self.url_input.clone();
-        if !s.starts_with("http://") && !s.starts_with("https://") {
-            s = format!("https://{s}");
-        }
-        let Ok(_) = Url::parse(&s) else { return };
-        self.url_input = s.clone();
-        self.addr_focused = false;
-        self.update_title();
-        TOKIO_RT.spawn(async move {
-            let _ = tab.send(TabCommand::Navigate { url: s }).await;
-            // 60fps so the per-frame smooth-scroll deltas render as a smooth glide, not ~5 steps.
-            let _ = tab.send(TabCommand::ResumeDrawing { fps: 60 }).await;
-        });
-    }
-
     fn update_title(&self) {
         let Some(rt) = &self.state else { return };
-        let title = if self.addr_focused {
-            format!("URL: {} — Gosub (Enter to navigate, Esc to cancel)", self.url_input)
-        } else {
-            format!("Gosub Browser — {}", self.current_url)
-        };
-        rt.gpu.window().set_title(&title);
+        rt.gpu
+            .window()
+            .set_title(&format!("Gosub Browser — {}", self.current_url));
     }
 
     /// Convert a physical pixel length to logical (CSS) pixels for the engine.
@@ -231,6 +205,13 @@ impl ApplicationHandler<()> for BrowserApp {
         };
 
         let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(None, Arc::new(backend), self.compositor.clone());
+        // GOSUB_COLOR_SCHEME=dark renders pages and native controls in the dark scheme.
+        if std::env::var("GOSUB_COLOR_SCHEME").is_ok_and(|v| v.eq_ignore_ascii_case("dark")) {
+            let _ = engine.settings().set(
+                "renderer.color_scheme",
+                gosub_config::settings::Setting::String("dark".into()),
+            );
+        }
         let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
 
         // Forward navigation events → proxy → request_redraw.
@@ -417,6 +398,27 @@ impl ApplicationHandler<()> for BrowserApp {
                 }
             }
 
+            // Release always reaches the engine so drags end.
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: WinitMouseButton::Left,
+                ..
+            } => {
+                if let Some(rt) = &self.state {
+                    let (x, y) = (self.cursor_logical(self.cursor.x), self.cursor_logical(self.cursor.y));
+                    let tab = rt.tab.clone();
+                    TOKIO_RT.spawn(async move {
+                        let _ = tab
+                            .send(TabCommand::MouseUp {
+                                x,
+                                y,
+                                button: MouseButton::Left,
+                            })
+                            .await;
+                    });
+                }
+            }
+
             WindowEvent::MouseWheel { delta, .. } => {
                 let (dx, dy) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_MULTIPLIER, y * SCROLL_MULTIPLIER),
@@ -435,55 +437,6 @@ impl ApplicationHandler<()> for BrowserApp {
                             })
                             .await;
                     });
-                }
-            }
-
-            WindowEvent::ModifiersChanged(mods) => {
-                self.modifiers = mods.state();
-            }
-
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        logical_key,
-                        text,
-                        state: ElementState::Pressed,
-                        ..
-                    },
-                ..
-            } => {
-                if logical_key == Key::Character("l".into()) && self.modifiers.control_key() {
-                    self.addr_focused = true;
-                    self.url_input = self.current_url.clone();
-                    self.update_title();
-                    return;
-                }
-
-                // 't' (when not editing the address bar) dumps the full timing table to the terminal.
-                if !self.addr_focused && logical_key == Key::Character("t".into()) {
-                    gosub_shared::timing::dump(true);
-                    return;
-                }
-
-                if self.addr_focused {
-                    match &logical_key {
-                        Key::Named(NamedKey::Enter) => self.navigate(),
-                        Key::Named(NamedKey::Escape) => {
-                            self.addr_focused = false;
-                            self.url_input = self.current_url.clone();
-                            self.update_title();
-                        }
-                        Key::Named(NamedKey::Backspace) => {
-                            self.url_input.pop();
-                            self.update_title();
-                        }
-                        _ => {
-                            if let Some(t) = &text {
-                                self.url_input.push_str(t.as_str());
-                                self.update_title();
-                            }
-                        }
-                    }
                 }
             }
 
@@ -537,7 +490,6 @@ fn main() {
         }
     }));
 
-    let url_input = initial_url.clone();
     let current_url = initial_url.clone();
 
     let mut app = BrowserApp {
@@ -546,10 +498,7 @@ fn main() {
         proxy,
         initial_url,
         state: None,
-        url_input,
-        addr_focused: false,
         current_url,
-        modifiers: ModifiersState::empty(),
         cursor: PhysicalPosition::default(),
         viewport: (1024, 768),
         scale: 1.0,

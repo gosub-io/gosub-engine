@@ -1133,14 +1133,6 @@ a:-webkit-any-link {
     text-decoration: underline;
     cursor: pointer;
 }
-/* Keyboard focus indication. `outline` is not painted yet, so a background tint
-   stands in until it is. */
-a:focus {
-    background-color: #cce4ff;
-}
-input:focus, textarea:focus, select:focus, button:focus {
-    background-color: #e6f0ff;
-}
 a:-webkit-any-link:active {
     color: -webkit-activelink
 }
@@ -1336,4 +1328,84 @@ a:hover {
 
 dd {
     margin-left: 40px;
+}
+/* ===== Gosub additions: form control metrics =============================
+   Chromium's html.css leaves these to its native theme code (LayoutTheme);
+   we have none, so pin them here. Physical properties only: the pipeline
+   doesn't do padding-inline / inline-size yet. */
+input, textarea, select, button {
+    font-size: 13.3333px;
+}
+input[type="button" i], input[type="submit" i], input[type="reset" i],
+input[type="file" i], button {
+    padding: 1px 6px;
+}
+input[type="checkbox" i], input[type="radio" i] {
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    border: none;
+    background-color: transparent;
+}
+input[type="range" i] {
+    width: 129px;
+    height: 21px;
+    padding: 0;
+    border: none;
+    background-color: transparent;
+}
+input[type="color" i] {
+    width: 50px;
+    height: 27px;
+    padding: 2px;
+    background-color: ButtonFace;
+    border: 1px solid #767676;
+}
+/* Dropdown per the design guide: 32px control, 10px text inset, 28px arrow area, 6px corners. */
+select {
+    height: 32px;
+    padding: 0 28px 0 10px;
+    border: 1px solid light-dark(#c7c7c7, #555555);
+    border-radius: 6px;
+    background-color: light-dark(#ffffff, #2b2b2b);
+    color: light-dark(#111111, #eeeeee);
+    box-sizing: border-box;
+}
+select:hover {
+    border-color: light-dark(#a8a8a8, #777777);
+    background-color: light-dark(#fcfcfc, #303030);
+}
+select:focus-visible {
+    outline: 2px solid light-dark(#3a7afe, #5a95ff);
+    outline-offset: 0;
+}
+/* after :hover so a disabled control keeps its quiet look under the pointer */
+select:disabled {
+    background-color: light-dark(#f2f2f2, #222222);
+    border-color: light-dark(#c7c7c7, #444444);
+    color: light-dark(#888888, #777777);
+    opacity: 1;
+}
+/* Text-entry controls follow the scheme too, so a dark page isn't dotted with white boxes.
+   (The checkbox/radio/range/color rules above outrank this by specificity.) */
+input, textarea {
+    background-color: light-dark(Field, #1e1e1e);
+    color: light-dark(FieldText, #eeeeee);
+    border-color: light-dark(#767676, #555555);
+}
+textarea {
+    resize: both;
+}
+progress {
+    width: 160px;
+    height: 16px;
+}
+meter {
+    width: 80px;
+    height: 16px;
+}
+
+/* `outline-style: auto` paints as a 2px ring in Chromium regardless of width. */
+:focus-visible {
+    outline-width: 2px;
 }

@@ -30,23 +30,20 @@ use gosub_render_pipeline::render::DefaultCompositor;
 use once_cell::sync::Lazy;
 use skia_safe::gpu::ganesh::surface_ganesh;
 use skia_safe::gpu::{self, gl::FramebufferInfo, DirectContext, SurfaceOrigin};
-use skia_safe::{Color4f, ColorType, Font, FontMgr, FontStyle, ImageInfo, Paint, Rect as SkRect, Surface};
+use skia_safe::{ColorType, ImageInfo, Rect as SkRect, Surface};
 use std::ffi::CString;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
-use url::Url;
 use uuid::uuid;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, KeyEvent, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use winit::keyboard::{Key, NamedKey};
 use winit::raw_window_handle::HasWindowHandle;
 use winit::window::{Window, WindowAttributes, WindowId};
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-00000000000d");
-const ADDRESS_BAR_HEIGHT: f32 = 36.0;
 const SCROLL_MULTIPLIER: f32 = 134.0;
 
 static TOKIO_RT: Lazy<Runtime> = Lazy::new(|| {
@@ -110,8 +107,6 @@ struct BrowserApp {
     gl: Option<GlState>,
     surface_size: (u32, u32),
 
-    url_input: String,
-    addr_focused: bool,
     cursor: PhysicalPosition<f64>,
     scroll: (f32, f32),
     page_height: f32,
@@ -119,21 +114,6 @@ struct BrowserApp {
 }
 
 impl BrowserApp {
-    fn navigate(&mut self) {
-        let mut s = self.url_input.clone();
-        if !s.contains("://") {
-            s = format!("https://{s}");
-            self.url_input = s.clone();
-        }
-        let Ok(_) = Url::parse(&s) else { return };
-        self.scroll = (0.0, 0.0);
-        let tab = self.tab.clone();
-        TOKIO_RT.spawn(async move {
-            let _ = tab.send(TabCommand::Navigate { url: s }).await;
-            let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
-        });
-    }
-
     fn redraw(&mut self) {
         let Some(gl) = self.gl.as_mut() else { return };
         let (win_w, win_h) = self.surface_size;
@@ -150,41 +130,24 @@ impl BrowserApp {
         canvas.clear(skia_safe::Color4f::new(1.0, 1.0, 1.0, 1.0));
 
         // Composite page tiles
-        let content_h = win_h.saturating_sub(ADDRESS_BAR_HEIGHT as u32);
-        {
-            if let Some(handle) = self.compositor.frame_for(self.tab_id) {
-                composite_tiles(
-                    canvas,
-                    win_w,
-                    ADDRESS_BAR_HEIGHT,
-                    content_h,
-                    &handle,
-                    &mut self.page_height,
-                );
-            }
+        if let Some(handle) = self.compositor.frame_for(self.tab_id) {
+            composite_tiles(canvas, win_w, 0.0, win_h, &handle, &mut self.page_height);
         }
-
-        // Address bar (drawn on top via Skia)
-        draw_address_bar(
-            canvas,
-            win_w,
-            ADDRESS_BAR_HEIGHT as i32,
-            &self.url_input,
-            self.addr_focused,
-        );
 
         drop(skia_surface);
         gl.flush();
     }
 
-    fn is_addr_bar(&self, y: f64) -> bool {
-        y < ADDRESS_BAR_HEIGHT as f64
-    }
+    // Viewport-relative, *not* page-relative: the engine applies its own scroll when it resolves
+    // a hit (`find_element_at(vp_x, vp_y, scroll_x, scroll_y)`), so adding `self.scroll` here
+    // would count it twice and target the wrong element on any scrolled page. `self.scroll` is
+    // only a local mirror for clamping the wheel; compositing uses the engine's scroll from the
+    // tile-cache handle.
     fn css_x(&self, x: f64) -> f32 {
-        (x + self.scroll.0 as f64) as f32
+        x as f32
     }
     fn css_y(&self, y: f64) -> f32 {
-        (y - ADDRESS_BAR_HEIGHT as f64 + self.scroll.1 as f64) as f32
+        y as f32
     }
 }
 
@@ -210,7 +173,7 @@ impl ApplicationHandler<()> for BrowserApp {
                     return;
                 }
                 self.surface_size = (width, height);
-                let content_h = height.saturating_sub(ADDRESS_BAR_HEIGHT as u32);
+                let content_h = height;
                 self.viewport = (width, content_h);
                 self.scroll = (0.0, 0.0);
                 if let Some(gl) = &self.gl {
@@ -238,13 +201,11 @@ impl ApplicationHandler<()> for BrowserApp {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = position;
-                if !self.is_addr_bar(position.y) {
-                    let (x, y) = (self.css_x(position.x), self.css_y(position.y));
-                    let tab = self.tab.clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab.send(TabCommand::MouseMove { x, y }).await;
-                    });
-                }
+                let (x, y) = (self.css_x(position.x), self.css_y(position.y));
+                let tab = self.tab.clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab.send(TabCommand::MouseMove { x, y }).await;
+                });
             }
 
             WindowEvent::MouseInput {
@@ -252,25 +213,36 @@ impl ApplicationHandler<()> for BrowserApp {
                 button: WinitMouseButton::Left,
                 ..
             } => {
-                if self.is_addr_bar(self.cursor.y) {
-                    self.addr_focused = true;
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                } else {
-                    self.addr_focused = false;
-                    let (x, y) = (self.css_x(self.cursor.x), self.css_y(self.cursor.y));
-                    let tab = self.tab.clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab
-                            .send(TabCommand::MouseDown {
-                                x,
-                                y,
-                                button: MouseButton::Left,
-                            })
-                            .await;
-                    });
-                }
+                let (x, y) = (self.css_x(self.cursor.x), self.css_y(self.cursor.y));
+                let tab = self.tab.clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseDown {
+                            x,
+                            y,
+                            button: MouseButton::Left,
+                        })
+                        .await;
+                });
+            }
+
+            // Release always reaches the engine so drags end.
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: WinitMouseButton::Left,
+                ..
+            } => {
+                let (x, y) = (self.css_x(self.cursor.x), self.css_y(self.cursor.y));
+                let tab = self.tab.clone();
+                TOKIO_RT.spawn(async move {
+                    let _ = tab
+                        .send(TabCommand::MouseUp {
+                            x,
+                            y,
+                            button: MouseButton::Left,
+                        })
+                        .await;
+                });
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
@@ -294,39 +266,6 @@ impl ApplicationHandler<()> for BrowserApp {
                     w.request_redraw();
                 }
             }
-
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        logical_key,
-                        text,
-                        state: ElementState::Pressed,
-                        ..
-                    },
-                ..
-            } if self.addr_focused => match &logical_key {
-                Key::Named(NamedKey::Enter) => self.navigate(),
-                Key::Named(NamedKey::Escape) => {
-                    self.addr_focused = false;
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                }
-                Key::Named(NamedKey::Backspace) => {
-                    self.url_input.pop();
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
-                    }
-                }
-                _ => {
-                    if let Some(t) = &text {
-                        self.url_input.push_str(t.as_str());
-                        if let Some(w) = &self.window {
-                            w.request_redraw();
-                        }
-                    }
-                }
-            },
 
             _ => {}
         }
@@ -418,50 +357,6 @@ fn blit_tile(canvas: &skia_safe::Canvas, tile: &CachedTile, x: f32, y: f32) {
 
 // ── Address bar (drawn via Skia on the GPU canvas) ────────────────────────────
 
-fn draw_address_bar(canvas: &skia_safe::Canvas, win_w: u32, h: i32, url: &str, focused: bool) {
-    let w = win_w as f32;
-    let hf = h as f32;
-
-    let bg = if focused {
-        Color4f::new(0.98, 0.98, 0.98, 1.0)
-    } else {
-        Color4f::new(0.93, 0.93, 0.93, 1.0)
-    };
-    let mut paint = Paint::new(bg, None);
-    canvas.draw_rect(SkRect::from_xywh(0.0, 0.0, w, hf), &paint);
-
-    let field_bg = if focused {
-        Color4f::new(1.0, 1.0, 1.0, 1.0)
-    } else {
-        Color4f::new(0.97, 0.97, 0.97, 1.0)
-    };
-    paint.set_color4f(field_bg, None);
-    paint.set_anti_alias(true);
-    canvas.draw_round_rect(SkRect::from_xywh(6.0, 5.0, w - 12.0, hf - 10.0), 4.0, 4.0, &paint);
-
-    let border = if focused {
-        Color4f::new(0.26, 0.52, 0.96, 1.0)
-    } else {
-        Color4f::new(0.7, 0.7, 0.7, 1.0)
-    };
-    paint.set_color4f(border, None);
-    paint.set_style(skia_safe::PaintStyle::Stroke);
-    paint.set_stroke_width(1.0);
-    canvas.draw_round_rect(SkRect::from_xywh(6.5, 5.5, w - 13.0, hf - 11.0), 4.0, 4.0, &paint);
-
-    thread_local! { static FONT_MGR: FontMgr = FontMgr::new(); }
-    let typeface = FONT_MGR.with(|fm| {
-        fm.legacy_make_typeface(None, FontStyle::normal()).unwrap_or_else(|| {
-            fm.legacy_make_typeface("sans-serif", FontStyle::normal())
-                .expect("typeface")
-        })
-    });
-    let font = Font::new(typeface, 14.0);
-    paint.set_color4f(Color4f::new(0.0, 0.0, 0.0, 1.0), None);
-    paint.set_style(skia_safe::PaintStyle::Fill);
-    canvas.draw_str(url, (12.0f32, hf - 10.0), &font, &paint);
-}
-
 // ── main ──────────────────────────────────────────────────────────────────────
 
 fn main() {
@@ -552,6 +447,13 @@ fn main() {
     // produces no tiles - the engine needs a real rasterizer to emit TileCache frames.)
     let backend = SkiaBackend::new();
     let mut engine = GosubEngine::<AppConfig>::new(None, Arc::new(backend), compositor.clone());
+    // GOSUB_COLOR_SCHEME=dark renders pages and native controls in the dark scheme.
+    if std::env::var("GOSUB_COLOR_SCHEME").is_ok_and(|v| v.eq_ignore_ascii_case("dark")) {
+        let _ = engine.settings().set(
+            "renderer.color_scheme",
+            gosub_config::settings::Setting::String("dark".into()),
+        );
+    }
     let _engine_task = TOKIO_RT.spawn(engine.start().expect("engine start"));
 
     let proxy_ev = proxy.clone();
@@ -606,7 +508,7 @@ fn main() {
     });
 
     let size = gl_window.inner_size();
-    let content_h = size.height.saturating_sub(ADDRESS_BAR_HEIGHT as u32);
+    let content_h = size.height;
     {
         let t = tab.clone();
         TOKIO_RT.block_on(async move {
@@ -634,8 +536,6 @@ fn main() {
         window: Some(window),
         gl: Some(gl_state),
         surface_size: (size.width, size.height),
-        url_input: initial_url,
-        addr_focused: false,
         cursor: PhysicalPosition::default(),
         scroll: (0.0, 0.0),
         page_height: 0.0,

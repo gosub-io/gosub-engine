@@ -4,7 +4,7 @@ use log::warn;
 use crate::node::{Node as CssNode, NodeType};
 use crate::stylesheet::{
     AttributeSelector, Combinator, CssDeclaration, CssRule, CssSelector, CssSelectorPart, CssStylesheet, CssValue,
-    FontFace, MatcherType,
+    FontFace, MatcherType, MediaCondition,
 };
 use gosub_interface::css3::CssOrigin;
 use gosub_shared::errors::{CssError, CssResult};
@@ -63,6 +63,7 @@ vs
 
 fn collect_rule(node: &CssNode) -> CssResult<Option<CssRule>> {
     let mut rule = CssRule {
+        media: None,
         selectors: vec![],
         declarations: vec![],
     };
@@ -220,6 +221,22 @@ fn collect_rules(nodes: &[CssNode], rules: &mut Vec<CssRule>, font_faces: &mut V
             }
             NodeType::AtRule {
                 name,
+                prelude: Some(prelude),
+                block: Some(block),
+            } if name.eq_ignore_ascii_case("media") => {
+                // Only `prefers-color-scheme` queries are evaluated; other media rules stay out
+                // (as they always have) rather than applying unconditionally.
+                if let (Some(cond), Some(children)) = (color_scheme_condition(prelude), block.as_block()) {
+                    let mut inner = Vec::new();
+                    collect_rules(children, &mut inner, font_faces)?;
+                    for mut r in inner {
+                        r.media = Some(cond.clone());
+                        rules.push(r);
+                    }
+                }
+            }
+            NodeType::AtRule {
+                name,
                 block: Some(block),
                 ..
             } if name.eq_ignore_ascii_case("font-face") => {
@@ -233,6 +250,54 @@ fn collect_rules(nodes: &[CssNode], rules: &mut Vec<CssRule>, font_faces: &mut V
         }
     }
     Ok(())
+}
+
+/// `@media (prefers-color-scheme: light|dark)` (optionally with `screen`/`all`) → the condition;
+/// `None` for any other query list.
+fn color_scheme_condition(prelude: &CssNode) -> Option<MediaCondition> {
+    let NodeType::MediaQueryList { media_queries } = &*prelude.node_type else {
+        return None;
+    };
+    let [query] = media_queries.as_slice() else {
+        return None;
+    };
+    let NodeType::MediaQuery {
+        media_type,
+        condition: Some(condition),
+        ..
+    } = &*query.node_type
+    else {
+        return None;
+    };
+    if !matches!(media_type.cow_to_ascii_lowercase().as_ref(), "" | "all" | "screen") {
+        return None;
+    }
+    let NodeType::Condition { list } = &*condition.node_type else {
+        return None;
+    };
+    let [feature] = list.as_slice() else {
+        return None;
+    };
+    let NodeType::Feature {
+        name,
+        value: Some(value),
+        ..
+    } = &*feature.node_type
+    else {
+        return None;
+    };
+    if !name.eq_ignore_ascii_case("prefers-color-scheme") {
+        return None;
+    }
+    let scheme = match &*value.node_type {
+        NodeType::Ident { value } => value.cow_to_ascii_lowercase().into_owned(),
+        _ => return None,
+    };
+    match scheme.as_str() {
+        "dark" => Some(MediaCondition::PrefersColorScheme(true)),
+        "light" => Some(MediaCondition::PrefersColorScheme(false)),
+        _ => None,
+    }
 }
 
 /// Build a [`FontFace`] from the declarations inside an `@font-face` block. Requires a
@@ -471,5 +536,26 @@ mod tests {
                 CssValue::String("black".into())
             ])
         );
+    }
+}
+
+#[cfg(test)]
+mod media_tests {
+    use super::*;
+    use crate::Css3;
+    use gosub_shared::config::ParserConfig;
+
+    #[test]
+    fn prefers_color_scheme_rules_are_kept_conditionally() {
+        let css = "p { color: red } @media (prefers-color-scheme: dark) { p { color: white } } @media (max-width: 10px) { p { color: blue } }";
+        let sheet = Css3::parse_str(css, ParserConfig::default(), CssOrigin::Author, "test.css").unwrap();
+        assert_eq!(sheet.rules.len(), 2, "dark rule kept, width query dropped");
+        assert_eq!(sheet.rules[0].media, None);
+        assert_eq!(sheet.rules[1].media, Some(MediaCondition::PrefersColorScheme(true)));
+        crate::stylesheet::set_prefers_dark(false);
+        assert!(!sheet.rules[1].media.as_ref().unwrap().holds());
+        crate::stylesheet::set_prefers_dark(true);
+        assert!(sheet.rules[1].media.as_ref().unwrap().holds());
+        crate::stylesheet::set_prefers_dark(false);
     }
 }

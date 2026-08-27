@@ -142,9 +142,88 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
         false
     }
 
-    /// Whether `id` is the currently focused element (drives `:focus` matching).
-    /// Implementations use interior mutability, like hover.
+    // Interaction state read by the `:focus`/`:checked` selectors and the painter.
+
     fn is_focused(&self, _id: NodeId) -> bool {
         false
+    }
+    /// Focused and the ring should show (keyboard focus, or a text-entry control).
+    fn is_focus_visible(&self, _id: NodeId) -> bool {
+        false
+    }
+    /// The focused element or one of its ancestors.
+    fn is_focus_within(&self, _id: NodeId) -> bool {
+        false
+    }
+    fn focused_node(&self) -> Option<NodeId> {
+        None
+    }
+    /// Live checkedness; the `checked` attribute is only the default.
+    fn is_checked(&self, id: NodeId) -> bool {
+        self.attribute(id, "checked").is_some()
+    }
+    /// What has been typed into a text control; `None` = untouched (shows its markup value).
+    fn control_edit_state(&self, _id: NodeId) -> Option<ControlEditState> {
+        None
+    }
+    /// The chosen `<option>` of a `<select>` (the `selected` attribute or the first option until
+    /// the user picks another). `None` = not tracked, use the markup.
+    fn selected_option(&self, _select: NodeId) -> Option<NodeId> {
+        None
+    }
+    /// Border-box size the user dragged a resizable control (`<textarea>`) to.
+    fn control_size(&self, _id: NodeId) -> Option<(f64, f64)> {
+        None
+    }
+    /// The open `<select>` dropdown, if any.
+    fn open_select(&self) -> Option<OpenSelect> {
+        None
+    }
+}
+
+/// An open `<select>` dropdown. Row indices count every popup row (options and group labels).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OpenSelect {
+    pub select: NodeId,
+    /// Row under the pointer (light highlight).
+    pub hover: Option<usize>,
+    /// Row the keyboard moved to (strong highlight); committed by Enter/Space.
+    pub active: Option<usize>,
+    /// First row shown when the list is taller than the popup.
+    pub first_row: usize,
+    /// Viewport `(top, height)` in page px when the dropdown opened: decides whether the popup
+    /// opens below or above, and how tall it may be.
+    pub viewport: (f64, f64),
+}
+
+/// The DOM value of a text control (as opposed to its `value` attribute) plus its editing state.
+/// Indices are char indices into `value`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControlEditState {
+    pub value: String,
+    pub caret: usize,
+    /// Other end of the selection; `None` (or equal to `caret`) = nothing selected.
+    pub anchor: Option<usize>,
+    /// First visual row a `<textarea>` shows (the engine keeps the caret inside the view).
+    pub scroll: usize,
+}
+
+impl ControlEditState {
+    pub fn new(value: String, caret: usize) -> Self {
+        ControlEditState {
+            value,
+            caret,
+            anchor: None,
+            scroll: 0,
+        }
+    }
+
+    /// The selected char range `[start, end)`, if anything is selected.
+    pub fn selection(&self) -> Option<(usize, usize)> {
+        let a = self.anchor?;
+        if a == self.caret {
+            return None;
+        }
+        Some((a.min(self.caret), a.max(self.caret)))
     }
 }

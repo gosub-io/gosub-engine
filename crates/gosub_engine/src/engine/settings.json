@@ -265,6 +265,12 @@
       "description": "Background color (#rrggbbaa) used to clear the surface before compositing."
     },
     {
+      "key": "color_scheme",
+      "type": "s",
+      "default": "s:light",
+      "description": "Preferred colour scheme for pages and native controls: 'light' or 'dark'. Drives CSS prefers-color-scheme / light-dark() and the engine-drawn UI (dropdowns)."
+    },
+    {
       "key": "target_fps",
       "type": "u",
       "default": "u:0",

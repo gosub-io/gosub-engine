@@ -128,20 +128,27 @@ impl Rectangle {
             || self.radius_left.y > 0.0
     }
 
+    /// Corner radii in CSS order (top-left, top-right, bottom-right, bottom-left), the field names
+    /// notwithstanding. Radii that would overlap are scaled down per CSS Backgrounds §5.5 so a
+    /// `border-radius: 999px` pill stays a pill on every backend.
     pub fn with_radius_tlrb(mut self, top: Radius, right: Radius, bottom: Radius, left: Radius) -> Self {
-        self.radius_top = top;
-        self.radius_right = right;
-        self.radius_bottom = bottom;
-        self.radius_left = left;
+        let (w, h) = (self.rect.width, self.rect.height);
+        let ratio = |sum: f64, len: f64| if sum > len && sum > 0.0 { len / sum } else { 1.0 };
+        let f = ratio(top.x + right.x, w)
+            .min(ratio(left.x + bottom.x, w))
+            .min(ratio(top.y + left.y, h))
+            .min(ratio(right.y + bottom.y, h))
+            .max(0.0);
+        let scale = |r: Radius| Radius::new_double(r.x * f, r.y * f);
+        self.radius_top = scale(top);
+        self.radius_right = scale(right);
+        self.radius_bottom = scale(bottom);
+        self.radius_left = scale(left);
         self
     }
 
-    pub fn with_radius(mut self, radius: Radius) -> Self {
-        self.radius_top = radius;
-        self.radius_right = radius;
-        self.radius_bottom = radius;
-        self.radius_left = radius;
-        self
+    pub fn with_radius(self, radius: Radius) -> Self {
+        self.with_radius_tlrb(radius, radius, radius, radius)
     }
 
     pub fn with_background(mut self, brush: Brush) -> Self {

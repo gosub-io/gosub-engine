@@ -10,7 +10,7 @@ use crate::events::{IoCommand, TabCommand};
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
 use crate::net::types::{
-    FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, NetError, Priority, ResourceKind,
+    FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, NetError, Priority, RequestBody, ResourceKind,
 };
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
 use crate::storage::types::compute_partition_key;
@@ -242,6 +242,7 @@ pub struct TabWorker<C: RenderConfiguration> {
     scroll: ScrollState,
     /// Timestamp of the last scroll-animation step, for computing `dt`. `None` when not animating.
     scroll_anim_last: Option<std::time::Instant>,
+    /// Last cursor shape sent to the embedder, so moves only emit on change.
     /// Keeps track of the tab worker runtime data
     pub(crate) runtime: TabRuntime,
     /// Current in-flight navigation (if any)
@@ -250,7 +251,6 @@ pub struct TabWorker<C: RenderConfiguration> {
     active_nav: Option<ActiveNav>,
     /// Session history (tree). Fresh navigations push, back/forward move the cursor.
     history: History,
-    /// Last cursor shape reported to the embedder (CursorChanged is emitted on change only).
     reported_cursor: CursorShape,
     /// Scroll to apply once the just-committed document has laid out (positions and page
     /// height are only known then, and `set_scroll` clamps against the latter). Set by
@@ -871,6 +871,21 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// scrolling); the shell has already consumed its own shortcuts before forwarding.
     /// Text editing is not here yet - that arrives with the editing slice of M1.
     fn handle_key_down(&mut self, key: &str, modifiers: Modifiers) -> ControlFlow {
+        // The focused control gets non-Tab keys first (typing; more editing follows).
+        if key != "Tab" {
+            let chord = modifiers.intersects(Modifiers::CONTROL | Modifiers::META);
+            let alt = modifiers.contains(Modifiers::ALT);
+            let shift = modifiers.contains(Modifiers::SHIFT);
+            if self.context.edit_key(key, chord, alt, shift) {
+                self.runtime.dirty = true;
+                self.runtime.render_now = true;
+                self.run_pending_submission();
+                self.run_clipboard_traffic();
+                return ControlFlow::Continue;
+            }
+            // A clipboard chord can ask for a paste without consuming the key visibly.
+            self.run_clipboard_traffic();
+        }
         match key {
             // Focus traversal.
             "Tab" => {
@@ -881,7 +896,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 ControlFlow::Continue
             }
             "Escape" => {
-                if self.context.set_focus(None) {
+                if self.context.set_focus(None, false) {
                     self.runtime.dirty = true;
                     self.runtime.render_now = true;
                     self.emit_focus_changed();
@@ -1169,7 +1184,19 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }
-            TabCommand::MouseScroll { delta_x, delta_y } => self.scroll_page_by(delta_x, delta_y),
+            TabCommand::MouseScroll { delta_x, delta_y } => {
+                // An open dropdown, or a scrolling textarea, under the pointer takes the wheel.
+                if let Some((px, py)) = self.context.pointer() {
+                    if self.context.popup_scroll(px, py, delta_y as f64)
+                        || self.context.area_scroll(px, py, delta_y as f64)
+                    {
+                        self.runtime.dirty = true;
+                        self.runtime.render_now = true;
+                        return ControlFlow::Continue;
+                    }
+                }
+                self.scroll_page_by(delta_x, delta_y)
+            }
             TabCommand::MouseMove { x, y } => {
                 // Process the hit-test immediately so hover doesn't wait for the next tick.
                 let (visual_dirty, url_changed, link_url) = self.context.update_hover(x as f64, y as f64);
@@ -1179,19 +1206,25 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         url: link_url,
                     });
                 }
-                self.report_cursor(self.context.hover_cursor());
-                if visual_dirty {
+                // Each of these must run: a drag doesn't get to skip a move because hover changed.
+                let popup_dirty = self.context.popup_hover_at(x as f64, y as f64);
+                let drag_dirty = self.context.drag_move(x as f64, y as f64);
+                let cursor = self.context.cursor_at(x as f64, y as f64);
+                self.report_cursor(cursor);
+                if visual_dirty || popup_dirty || drag_dirty {
                     self.runtime.dirty = true;
-                    self.runtime.render_now = true;
+                    // A resize re-layouts the page; let the frame tick pace it so a burst of
+                    // pointer events collapses into one render instead of one each.
+                    self.runtime.render_now = !self.context.is_resizing();
                 }
                 ControlFlow::Continue
             }
-            TabCommand::MouseDown { button, x, y } => {
+            TabCommand::MouseDown { x, y, button } => {
                 if matches!(button, crate::events::MouseButton::Left) {
-                    // Click-to-focus: focus the nearest focusable ancestor of the hit element
-                    // (or blur), before any link activation.
-                    if self.context.focus_at(x as f64, y as f64) {
-                        self.runtime.dirty = true;
+                    // Click-to-focus (or blur when the click lands on nothing focusable),
+                    // before any link activation.
+                    let focused = self.context.focus_at(x as f64, y as f64);
+                    if focused {
                         self.emit_focus_changed();
                     }
                     if let Some(href) = self.context.hover_link_url.clone() {
@@ -1204,15 +1237,37 @@ impl<C: RenderConfiguration> TabWorker<C> {
                         self.navigate_to(resolved, false, HistoryIntent::Push);
                         return ControlFlow::Continue;
                     }
+                    // Activation (checkbox/radio toggles) lands in the same render as the focus.
+                    let toggled = self.context.activate_at(x as f64, y as f64);
+                    if focused || toggled {
+                        self.runtime.render_now = true;
+                    }
+                    self.run_pending_submission();
                 }
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }
             TabCommand::KeyDown { key, modifiers, .. } => self.handle_key_down(&key, modifiers),
-            // Key releases and legacy char events need no handling yet; text input arrives
-            // with the editing slice of M1.
-            TabCommand::KeyUp { .. } | TabCommand::CharInput { .. } => ControlFlow::Continue,
+            TabCommand::TextInput { text } => {
+                if self.context.insert_text(&text) {
+                    self.runtime.render_now = true;
+                }
+                self.runtime.dirty = true;
+                ControlFlow::Continue
+            }
+            TabCommand::CharInput { ch } => {
+                if self.context.insert_text(&ch.to_string()) {
+                    self.runtime.render_now = true;
+                }
+                self.runtime.dirty = true;
+                ControlFlow::Continue
+            }
             TabCommand::MouseUp { .. } => {
+                self.context.end_drag();
+                self.runtime.dirty = true;
+                ControlFlow::Continue
+            }
+            TabCommand::KeyUp { .. } => {
                 self.runtime.dirty = true;
                 ControlFlow::Continue
             }
@@ -1277,6 +1332,34 @@ impl<C: RenderConfiguration> TabWorker<C> {
         // The cursor moved even though the load is still in flight: tell the shell now so
         // back/forward buttons track the traversal, not the eventual load.
         self.emit_history_changed();
+    }
+
+    /// Forward Ctrl+C/X text to the embedder and relay a Ctrl+V as a paste request; the
+    /// embedder answers the latter with `TabCommand::TextInput`.
+    fn run_clipboard_traffic(&mut self) {
+        if let Some(text) = self.context.take_clipboard_write() {
+            self.send_event(EngineEvent::ClipboardWrite {
+                tab_id: self.tab_id,
+                text,
+            });
+        }
+        if self.context.take_paste_request() {
+            self.send_event(EngineEvent::PasteRequested { tab_id: self.tab_id });
+        }
+    }
+
+    /// Run a form submission the browsing context queued for the last click/key. Pushes a
+    /// history entry like any fresh navigation.
+    fn run_pending_submission(&mut self) {
+        let Some(sub) = self.context.take_submission() else {
+            return;
+        };
+        let (method, body) = if sub.post {
+            (Method::POST, sub.body.map(RequestBody::form))
+        } else {
+            (Method::GET, None)
+        };
+        self.navigate_request(sub.url.to_string(), method, body, HistoryIntent::Push);
     }
 
     /// Emit `CursorChanged` if the shape differs from the last one reported.
@@ -1373,7 +1456,20 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Navigate to a new URL, cancelling any in-flight navigation. `history` says what the
     /// navigation does to session history once it commits.
-    fn navigate_to(&mut self, url: impl Into<String>, _ignore_cache: bool, history: HistoryIntent) {
+    fn navigate_to(&mut self, url: impl Into<String>, ignore_cache: bool, history: HistoryIntent) {
+        let _ = ignore_cache;
+        self.navigate_request(url, Method::GET, None, history);
+    }
+
+    /// Navigate with an explicit method and optional body (form POSTs), cancelling any
+    /// in-flight navigation.
+    fn navigate_request(
+        &mut self,
+        url: impl Into<String>,
+        method: Method,
+        body: Option<RequestBody>,
+        history: HistoryIntent,
+    ) {
         let url = match self.parse_url(url.into()) {
             Ok(u) => u,
             Err(_) => return,
@@ -1486,7 +1582,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Document, Initiator::Navigation);
-        let req = FetchRequest::builder(Method::GET, url.clone())
+        let mut req = FetchRequest::builder(method, url.clone())
             .with_reference(REF_REGISTRY.to_net(RequestReference::Navigation(nav_id)))
             .with_req_id(req_id)
             .with_headers(fetch_headers)
@@ -1497,8 +1593,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
             // The streaming path has a race where SharedBody can close before parse_stream
             // subscribes, causing truncated HTML (only the 5 KB peek buffer is parsed).
             .with_streaming(false)
-            .with_auto_decode(true)
-            .build();
+            .with_auto_decode(true);
+        if let Some(body) = body {
+            req = req.with_body(body);
+        }
+        let req = req.build();
 
         let (tx_done, rx_done) = oneshot::channel::<NavigationResult<C>>();
 

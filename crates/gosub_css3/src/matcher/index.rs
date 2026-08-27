@@ -125,6 +125,7 @@ mod tests {
         CssRule {
             selectors: vec![CssSelector { parts: selectors }],
             declarations: vec![],
+            media: None,
         }
     }
 

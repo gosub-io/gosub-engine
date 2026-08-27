@@ -125,7 +125,7 @@ fn match_selector_part<C: HasDocument>(
             let mut _got_buf = String::new();
 
             let (wanted_attr_value, got_attr_value): (&str, &str) = if attr.case_insensitive {
-                _wanted_buf = attr.name.cow_to_lowercase().to_string();
+                _wanted_buf = attr.value.cow_to_lowercase().to_string();
                 _got_buf = got_raw.cow_to_lowercase().to_string();
                 (&_wanted_buf, &_got_buf)
             } else {
@@ -232,7 +232,7 @@ fn match_selector_part<C: HasDocument>(
                         .parent(current_id)
                         .is_none_or(|p| doc.node_type(p) != NodeType::ElementNode)
             }
-            "checked" => doc.attribute(current_id, "checked").is_some(),
+            "checked" => doc.is_checked(current_id),
             "disabled" => doc.attribute(current_id, "disabled").is_some(),
             "enabled" => {
                 doc.attribute(current_id, "disabled").is_none() && doc.node_type(current_id) == NodeType::ElementNode
@@ -243,9 +243,9 @@ fn match_selector_part<C: HasDocument>(
                     && doc.attribute(current_id, "disabled").is_none()
                     && doc.node_type(current_id) == NodeType::ElementNode
             }
-            "focus" | "focus-visible" => doc.is_focused(current_id),
-            // :focus-within needs the focus chain; not tracked yet.
-            "focus-within" => false,
+            "focus" => doc.is_focused(current_id),
+            "focus-visible" => doc.is_focus_visible(current_id),
+            "focus-within" => doc.is_focus_within(current_id),
             "active" => false,
             // Unknown / unimplemented pseudo-classes never match.
             _ => false,
@@ -302,11 +302,12 @@ fn match_selector_part<C: HasDocument>(
                     return false;
                 };
 
-                if my_index == 0 {
-                    return false;
-                }
-
-                let Some(&prev_id) = children.get(my_index - 1) else {
+                // Previous *element* sibling: whitespace text between tags doesn't count.
+                let Some(&prev_id) = children[..my_index]
+                    .iter()
+                    .rev()
+                    .find(|&&c| doc.node_type(c) == NodeType::ElementNode)
+                else {
                     return false;
                 };
 
