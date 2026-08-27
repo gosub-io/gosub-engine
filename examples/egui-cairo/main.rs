@@ -434,6 +434,8 @@ impl eframe::App for BrowserApp {
 }
 
 fn main() -> Result<(), eframe::Error> {
+    // First, before any window or thread: a child role must never run this startup.
+    gosub_engine::child_process::dispatch_with::<AppConfig>();
     eprintln!(
         "{} v{} — egui browser window, Cairo (CPU) rendering",
         env!("CARGO_BIN_NAME"),

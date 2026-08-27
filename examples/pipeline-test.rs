@@ -130,8 +130,13 @@ fn check(label: &str, ok: bool) -> bool {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
-#[tokio::main]
-async fn main() -> Result<(), EngineError> {
+fn main() -> Result<(), EngineError> {
+    // First, before the runtime spawns its threads: a child role must never run this startup.
+    gosub_engine::child_process::dispatch_with::<DefaultRenderConfig>();
+    tokio::runtime::Runtime::new().expect("tokio runtime").block_on(run())
+}
+
+async fn run() -> Result<(), EngineError> {
     // Suppress all log/trace noise - we print our own output.
     let _ = tracing_subscriber::fmt().with_env_filter("error").try_init();
 

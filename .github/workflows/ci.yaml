@@ -86,6 +86,12 @@ jobs:
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
       - uses: taiki-e/install-action@nextest
+      - name: Embedders dispatch child roles
+        # Every binary that builds a GosubEngine must call child_process::dispatch()
+        # first thing in main(), or process isolation re-execs its own startup.
+        run: |
+          missing=$(grep -rlE 'GosubEngine(::<|<|::new)' examples bin --include='*.rs' | xargs grep -L 'child_process::dispatch' || true)
+          if [ -n "$missing" ]; then echo "missing child_process::dispatch():"; echo "$missing"; exit 1; fi
       - name: Clippy with all features
         run: cargo clippy --locked --all --all-targets --all-features -- -D warnings
       - name: Test with all features
