@@ -883,6 +883,9 @@ fn resolve_content<S: CssSystem>(p: &S::Property) -> Option<String> {
 
 // ── GosubDocumentAdapter ──────────────────────────────────────────────────────
 
+/// A node's computed property map as held by the style cache.
+type CachedStyles<C> = Arc<<<C as gosub_interface::config::HasCssSystem>::CssSystem as CssSystem>::PropertyMap>;
+
 /// Adapts any `gosub_interface::document::Document<C>` into a `PipelineDocument`.
 pub struct GosubDocumentAdapter<C>
 where
@@ -891,7 +894,7 @@ where
 {
     pub doc: Arc<C::Document>,
     /// Per-node computed-style cache (from CSS selector matching). Populated lazily.
-    style_cache: Mutex<HashMap<NodeId, Arc<<C::CssSystem as CssSystem>::PropertyMap>>>,
+    style_cache: Mutex<HashMap<NodeId, CachedStyles<C>>>,
     /// Per-node inline-style cache (from the `style` attribute, highest specificity).
     inline_style_cache: Mutex<HashMap<NodeId, NodeStyle>>,
     /// Materialized `::before` / `::after` pseudo-boxes, keyed by `(owner, is_after)`.
@@ -959,6 +962,21 @@ where
             styles: Arc::new(prop_map),
             text,
         }))
+    }
+
+    /// Drop every cached style below `id` (not `id` itself), pseudo-boxes included.
+    fn invalidate_subtree(&self, id: NodeId) {
+        let mut cache = self.style_cache.lock();
+        let mut inline_cache = self.inline_style_cache.lock();
+        let mut pseudo_cache = self.pseudo_cache.lock();
+        let mut stack: Vec<NodeId> = self.doc.children(id).to_vec();
+        while let Some(node) = stack.pop() {
+            cache.remove(&node);
+            inline_cache.remove(&node);
+            pseudo_cache.remove(&(node, false));
+            pseudo_cache.remove(&(node, true));
+            stack.extend_from_slice(self.doc.children(node));
+        }
     }
 
     fn cached_styles(&self, id: NodeId) -> Arc<<C::CssSystem as CssSystem>::PropertyMap> {
@@ -1391,15 +1409,31 @@ where
     }
 
     fn invalidate_style_for_nodes(&self, ids: &[NodeId]) {
-        let mut cache = self.style_cache.lock();
-        let mut inline_cache = self.inline_style_cache.lock();
-        let mut pseudo_cache = self.pseudo_cache.lock();
-        for id in ids {
-            cache.remove(id);
-            inline_cache.remove(id);
-            // Drop both pseudo-boxes belonging to this owner.
-            pseudo_cache.remove(&(*id, false));
-            pseudo_cache.remove(&(*id, true));
+        let previous: Vec<(NodeId, Option<CachedStyles<C>>)> = {
+            let mut cache = self.style_cache.lock();
+            let mut inline_cache = self.inline_style_cache.lock();
+            let mut pseudo_cache = self.pseudo_cache.lock();
+            ids.iter()
+                .map(|id| {
+                    inline_cache.remove(id);
+                    // Drop both pseudo-boxes belonging to this owner.
+                    pseudo_cache.remove(&(*id, false));
+                    pseudo_cache.remove(&(*id, true));
+                    (*id, cache.remove(id))
+                })
+                .collect()
+        };
+
+        // Descendants were computed against these nodes' maps. Recompute now and, where the
+        // inherited scope actually changed (a custom property set from `:hover`, say), drop
+        // the subtree too; the common case - only the node's own properties moved - keeps
+        // every descendant entry.
+        for (id, old) in previous {
+            let Some(old) = old else { continue };
+            let fresh = self.cached_styles(id);
+            if !fresh.inherited_scope_eq(&old) {
+                self.invalidate_subtree(id);
+            }
         }
     }
 

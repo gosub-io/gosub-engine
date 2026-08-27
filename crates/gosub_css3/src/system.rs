@@ -4,7 +4,7 @@ use crate::functions::var::resolve_var;
 use crate::matcher::index::ElementKeys;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::shorthands::{FixList, FixListInfo};
-use crate::matcher::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
+use crate::matcher::styling::{cascade_rank, match_selector, CssProperties, CssProperty, DeclarationProperty};
 use crate::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, Css3};
 use cow_utils::CowUtils;
@@ -15,6 +15,7 @@ use gosub_interface::node::NodeType;
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
 use gosub_shared::node::NodeId;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::slice;
 use std::sync::Arc;
@@ -124,36 +125,63 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     for sheet in sheets {
         for rule_idx in sheet.candidate_rules(&keys) {
             let rule = &sheet.rules[rule_idx];
-            for selector in rule.selectors() {
-                let (hit, specificity) = match_selector::<C>(doc, id, selector, pseudo);
-                if hit {
-                    matched.push((sheet, rule, specificity));
-                    break;
-                }
+            // A rule applies with the highest specificity among its matching selectors.
+            let best = rule
+                .selectors()
+                .iter()
+                .filter_map(|selector| match match_selector::<C>(doc, id, selector, pseudo) {
+                    (true, specificity) => Some(specificity),
+                    (false, _) => None,
+                })
+                .max();
+            if let Some(specificity) = best {
+                matched.push((sheet, rule, specificity));
             }
         }
     }
 
-    // Custom properties: the parent's scope, with this node's own declarations layered on in
-    // rule order (later wins), resolved before any `var()` is read. The map is only copied
-    // when the node actually changes something; re-declaring the inherited value (the
-    // `* { --x: 0 }` reset pattern) shares the parent's map.
+    // Custom properties: the parent's scope with this node's own declarations cascaded on
+    // top (origin/importance rank, then specificity, later wins ties), resolved before any
+    // `var()` is read. The map is only copied when the node actually changes something;
+    // re-declaring the inherited value (the `* { --x: 0 }` reset pattern) shares the parent's.
     let inherited_custom = inherited.map(|map| Arc::clone(&map.custom)).unwrap_or_default();
-    let mut own_custom: Option<HashMap<String, CssValue>> = None;
-    for (_, rule, _) in &matched {
+    let mut own_custom: HashMap<&str, ((u8, Specificity), &CssValue)> = HashMap::new();
+    for (sheet, rule, specificity) in &matched {
+        let rank = (cascade_rank(sheet.origin, false), *specificity);
         for decl in rule.declarations() {
             if !decl.property.starts_with("--") {
                 continue;
             }
-            if own_custom.is_none() && inherited_custom.get(&decl.property) == Some(&decl.value) {
-                continue;
+            let rank = if decl.important {
+                (cascade_rank(sheet.origin, true), *specificity)
+            } else {
+                rank
+            };
+            match own_custom.entry(decl.property.as_str()) {
+                Entry::Occupied(mut slot) if slot.get().0 <= rank => {
+                    slot.insert((rank, &decl.value));
+                }
+                Entry::Occupied(_) => {}
+                Entry::Vacant(slot) => {
+                    slot.insert((rank, &decl.value));
+                }
             }
-            own_custom
-                .get_or_insert_with(|| (*inherited_custom).clone())
-                .insert(decl.property.clone(), decl.value.clone());
         }
     }
-    let custom_props = own_custom.map_or(inherited_custom, Arc::new);
+    let changes_scope = own_custom
+        .iter()
+        .any(|(name, (_, value))| inherited_custom.get(*name) != Some(*value));
+    let custom_props = if changes_scope {
+        let mut merged = (*inherited_custom).clone();
+        merged.extend(
+            own_custom
+                .into_iter()
+                .map(|(name, (_, value))| (name.to_string(), value.clone())),
+        );
+        Arc::new(merged)
+    } else {
+        inherited_custom
+    };
     css_map_entry.custom = Arc::clone(&custom_props);
 
     let mut fix_list = FixList::new();

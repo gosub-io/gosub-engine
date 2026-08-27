@@ -15,6 +15,8 @@ pub struct SelectorIndex {
     by_class: HashMap<String, Vec<usize>>,
     by_tag: HashMap<String, Vec<usize>>,
     universal: Vec<usize>,
+    /// Number of rules indexed; a stylesheet whose rule count differs has a stale index.
+    rule_count: usize,
 }
 
 /// The element-side keys an index lookup needs.
@@ -25,8 +27,12 @@ pub struct ElementKeys<'a> {
 }
 
 impl SelectorIndex {
+    /// Bucket every selector of `rules` by its rightmost compound.
     pub fn build(rules: &[CssRule]) -> Self {
-        let mut index = Self::default();
+        let mut index = Self {
+            rule_count: rules.len(),
+            ..Self::default()
+        };
         for (rule_idx, rule) in rules.iter().enumerate() {
             for selector in &rule.selectors {
                 for complex in &selector.parts {
@@ -40,6 +46,12 @@ impl SelectorIndex {
             }
         }
         index
+    }
+
+    /// How many rules this index was built from.
+    #[must_use]
+    pub fn rule_count(&self) -> usize {
+        self.rule_count
     }
 
     /// Rule indices that may match the element, ascending and unique (so the cascade sees

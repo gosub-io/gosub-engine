@@ -3130,6 +3130,7 @@ dependencies = [
  "indexmap",
  "log",
  "nom 8.0.0",
+ "parking_lot",
  "serde_json",
  "simple_logger",
 ]

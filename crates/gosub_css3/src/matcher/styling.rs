@@ -30,6 +30,8 @@ pub(crate) fn match_selector<C: HasDocument>(
     selector: &CssSelector,
     pseudo: Option<&str>,
 ) -> (bool, Specificity) {
+    // A selector list (`a, b`) matches with the highest specificity of its matching parts.
+    let mut best: Option<Specificity> = None;
     for part in &selector.parts {
         // When matching a pseudo-element, the selector must explicitly target it.
         if let Some(target) = pseudo {
@@ -42,11 +44,12 @@ pub(crate) fn match_selector<C: HasDocument>(
         }
 
         if match_selector_parts::<C>(document, node_id, part, pseudo) {
-            return (true, Specificity::from(part.as_slice()));
+            let specificity = Specificity::from(part.as_slice());
+            best = Some(best.map_or(specificity, |b| b.max(specificity)));
         }
     }
 
-    (false, Specificity::new(0, 0, 0))
+    best.map_or((false, Specificity::new(0, 0, 0)), |s| (true, s))
 }
 
 /// Case-insensitive compare of a pseudo-element name against a target (`before`/`after`).
@@ -375,32 +378,23 @@ pub struct DeclarationProperty {
     pub specificity: Specificity,
 }
 
+/// Cascade rank of a declaration from its origin and importance, as defined in
+/// <https://developer.mozilla.org/en-US/docs/Web/CSS/Cascade>: higher wins.
+#[must_use]
+pub fn cascade_rank(origin: CssOrigin, important: bool) -> u8 {
+    match (origin, important) {
+        (CssOrigin::UserAgent, true) => 7,
+        (CssOrigin::User, true) => 6,
+        (CssOrigin::Author, true) => 5,
+        (CssOrigin::Author, false) => 3,
+        (CssOrigin::User, false) => 2,
+        (CssOrigin::UserAgent, false) => 1,
+    }
+}
+
 impl DeclarationProperty {
-    /// Priority of the declaration based on the origin and importance as defined in <https://developer.mozilla.org/en-US/docs/Web/CSS/Cascade>
     fn priority(&self) -> u8 {
-        match self.origin {
-            CssOrigin::UserAgent => {
-                if self.important {
-                    7
-                } else {
-                    1
-                }
-            }
-            CssOrigin::User => {
-                if self.important {
-                    6
-                } else {
-                    2
-                }
-            }
-            CssOrigin::Author => {
-                if self.important {
-                    5
-                } else {
-                    3
-                }
-            }
-        }
+        cascade_rank(self.origin, self.important)
     }
 }
 
@@ -745,6 +739,10 @@ impl CssPropertyMap<Css3System> for CssProperties {
 
     fn is_dirty(&self) -> bool {
         self.dirty
+    }
+
+    fn inherited_scope_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.custom, &other.custom) || *self.custom == *other.custom
     }
 }
 

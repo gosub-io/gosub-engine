@@ -383,4 +383,83 @@ mod rendertree_from_engine {
         }
         None
     }
+
+    /// Width of the element with `id="{id_attr}"`, in px, after the full style path.
+    fn width_px_of(html: &str, id_attr: &str) -> f32 {
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let id = find_node_by_id_attr(&adapter.doc, root, id_attr).expect("element not found");
+        match adapter.get_style(id, &StyleProperty::Width) {
+            Value::Unit(w, Unit::Px) => w,
+            other => panic!("expected a px width, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rule_takes_the_highest_specificity_of_its_matching_selectors() {
+        // `.item, #target` matches twice; the rule must cascade with the id's specificity,
+        // so the later class-only rule does not win.
+        let html = r#"
+            <html><head><style>
+                .item, #target { width: 200px; display: block; }
+                .other { width: 100px; }
+            </style></head>
+            <body><div id="target" class="item other">x</div></body></html>
+        "#;
+        let w = width_px_of(html, "target");
+        assert!((w - 200.0).abs() < 0.5, "expected 200.0px, got {w}");
+    }
+
+    #[test]
+    fn custom_properties_cascade_by_importance_and_specificity() {
+        // A later, plain declaration must not override an earlier `!important` one, and a
+        // class must beat a type selector regardless of order.
+        let html = r#"
+            <html><head><style>
+                .theme { --w: 200px !important; }
+                div { --w: 50px; }
+                .late { --w: 100px; }
+                #target { width: var(--w); display: block; }
+            </style></head>
+            <body><div id="target" class="theme late">x</div></body></html>
+        "#;
+        let w = width_px_of(html, "target");
+        assert!((w - 200.0).abs() < 0.5, "expected 200.0px, got {w}");
+
+        let html = r#"
+            <html><head><style>
+                .theme { --w: 200px; }
+                div { --w: 50px; }
+                #target { width: var(--w); display: block; }
+            </style></head>
+            <body><div id="target" class="theme">x</div></body></html>
+        "#;
+        let w = width_px_of(html, "target");
+        assert!((w - 200.0).abs() < 0.5, "expected 200.0px, got {w}");
+    }
+
+    #[test]
+    fn custom_properties_inherit_from_ancestors() {
+        let html = r#"
+            <html><head><style>
+                body { --w: 300px; }
+                .mid { --w: 120px; }
+                #target { width: var(--w); display: block; }
+                #plain { width: var(--w); display: block; }
+            </style></head>
+            <body>
+                <div class="mid"><div><span id="target">x</span></div></div>
+                <div id="plain">y</div>
+            </body></html>
+        "#;
+        let w = width_px_of(html, "target");
+        assert!((w - 120.0).abs() < 0.5, "expected 120.0px, got {w}");
+        let w = width_px_of(html, "plain");
+        assert!((w - 300.0).abs() < 0.5, "expected 300.0px, got {w}");
+    }
 }

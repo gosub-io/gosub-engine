@@ -72,7 +72,12 @@ impl Css3<'_> {
         // value parser understood and skip the remainder up to the declaration's terminator,
         // rather than erroring. Regular properties still require a parseable value.
         if custom_property {
-            self.skip_custom_property_remainder();
+            // A trailing `!important` is not part of the token stream: leave it for the
+            // importance check below, like any other declaration.
+            self.consume_whitespace_comments();
+            if !self.tokenizer.lookahead(0).is_delim('!') {
+                self.skip_custom_property_remainder();
+            }
         } else if value.is_empty() {
             return Err(CssError::with_location(
                 "Expected value in declaration",

@@ -116,6 +116,13 @@ pub trait CssPropertyMap<S: CssSystem>: Default + Debug + WasmNotSend {
 
     fn make_clean(&mut self);
     fn is_dirty(&self) -> bool;
+
+    /// Whether descendants computed against `other` would compute the same against `self`:
+    /// everything that flows down through the map (custom properties) is equal. Lets a
+    /// style cache tell a local change from one that invalidates the subtree.
+    fn inherited_scope_eq(&self, _other: &Self) -> bool {
+        true
+    }
 }
 
 pub trait CssProperty<S: CssSystem>: Debug + Display + Sized + From<S::Value> {

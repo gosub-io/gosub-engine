@@ -138,7 +138,7 @@ pub struct FontFace {
 }
 
 /// Defines a complete stylesheet with all its rules and the location where it was found
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct CssStylesheet {
     /// List of rules found in this stylesheet
     pub rules: Vec<CssRule>,
@@ -150,8 +150,19 @@ pub struct CssStylesheet {
     pub url: String,
     /// Any issues during parsing of the stylesheet
     pub parse_log: Vec<CssLog>,
-    /// Rule index by rightmost compound, built on first style computation.
-    pub(crate) index: std::sync::OnceLock<SelectorIndex>,
+    /// Rule index by rightmost compound, built on first style computation and rebuilt when
+    /// `rules` changed size since; see [`CssStylesheet::invalidate_index`] for other edits.
+    pub(crate) index: parking_lot::RwLock<Option<SelectorIndex>>,
+}
+
+impl PartialEq for CssStylesheet {
+    fn eq(&self, other: &Self) -> bool {
+        self.rules == other.rules
+            && self.font_faces == other.font_faces
+            && self.origin == other.origin
+            && self.url == other.url
+            && self.parse_log == other.parse_log
+    }
 }
 
 impl CssStylesheet {
@@ -163,14 +174,30 @@ impl CssStylesheet {
             origin,
             url: url.to_string(),
             parse_log: vec![],
-            index: std::sync::OnceLock::new(),
+            index: parking_lot::RwLock::new(None),
         }
+    }
+
+    /// Drop the rule index so the next lookup rebuilds it. Call after editing `rules` in a
+    /// way that keeps their number (reordering, replacing a rule); pushes and removals are
+    /// detected by themselves.
+    pub fn invalidate_index(&mut self) {
+        *self.index.get_mut() = None;
     }
 
     /// The rules that can possibly match an element with these keys, in stylesheet order.
     pub(crate) fn candidate_rules(&self, keys: &ElementKeys<'_>) -> Vec<usize> {
+        if let Some(index) = self
+            .index
+            .read()
+            .as_ref()
+            .filter(|index| index.rule_count() == self.rules.len())
+        {
+            return index.candidates(keys);
+        }
         self.index
-            .get_or_init(|| SelectorIndex::build(&self.rules))
+            .write()
+            .insert(SelectorIndex::build(&self.rules))
             .candidates(keys)
     }
 }
