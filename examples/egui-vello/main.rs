@@ -119,7 +119,11 @@ impl WgpuContextProvider for EguiContextProvider {
 
 enum UiEvent {
     NavigationStarted,
-    NavigationFinished { url: String },
+    /// The navigation ended without a new document (download offer, bad URL); keep the URL bar.
+    NavigationCancelled,
+    NavigationFinished {
+        url: String,
+    },
     HoverUrl(Option<String>),
 }
 
@@ -181,6 +185,10 @@ impl BrowserApp {
                                 event: NavigationEvent::Finished { url, .. } | NavigationEvent::Failed { url, .. },
                                 ..
                             } => Some(UiEvent::NavigationFinished { url: url.to_string() }),
+                            EngineEvent::Navigation {
+                                event: NavigationEvent::Cancelled { .. } | NavigationEvent::FailedUrl { .. },
+                                ..
+                            } => Some(UiEvent::NavigationCancelled),
                             EngineEvent::HoverUrl { url, .. } => Some(UiEvent::HoverUrl(url)),
                             _ => None,
                         };
@@ -367,6 +375,7 @@ impl eframe::App for BrowserApp {
         while let Ok(ev) = self.ui_rx.try_recv() {
             match ev {
                 UiEvent::NavigationStarted => self.is_loading = true,
+                UiEvent::NavigationCancelled => self.is_loading = false,
                 UiEvent::NavigationFinished { url } => {
                     self.is_loading = false;
                     self.url_input = url;
