@@ -82,7 +82,15 @@ impl Css3<'_> {
 
         let t = self.consume_any()?;
         if t.is_delim('!') {
-            self.consume_ident("important")?;
+            // `!important` allows trivia after the `!` and is case-insensitive.
+            self.consume_whitespace_comments();
+            let ident = self.consume_any_ident()?;
+            if !ident.eq_ignore_ascii_case("important") {
+                return Err(CssError::with_location(
+                    format!("Expected important, got {ident}").as_str(),
+                    self.tokenizer.current_location(),
+                ));
+            }
             self.consume_whitespace_comments();
 
             important = true;
@@ -132,12 +140,12 @@ impl Css3<'_> {
             end += 1;
         }
 
-        // Same shape the importance check accepts: `!` directly followed by `important`.
+        // Same shape the importance check accepts: `!`, optional trivia, `important` in any case.
         let stop = match last_two {
             [Some(bang), Some(ident)]
-                if ident == bang + 1
-                    && self.tokenizer.lookahead(bang).is_delim('!')
-                    && matches!(&self.tokenizer.lookahead(ident).token_type, TokenType::Ident(name) if name == "important") =>
+                if self.tokenizer.lookahead(bang).is_delim('!')
+                    && matches!(&self.tokenizer.lookahead(ident).token_type,
+                        TokenType::Ident(name) if name.eq_ignore_ascii_case("important")) =>
             {
                 bang
             }
@@ -200,13 +208,20 @@ mod tests {
         assert_eq!(decls[0].0, "--w");
         assert!(decls[0].2, "custom property must carry !important: {decls:?}");
         assert!(!decls[1].2);
+
+        // Trivia after `!` and any letter case are valid, on custom and regular properties.
+        let decls = declarations(
+            "div { --a: 1 ! important; --b: 2 !/**/IMPORTANT; --c: 3 !Important; width: 1px ! Important }",
+        );
+        assert_eq!(decls.len(), 4, "{decls:?}");
+        assert!(decls.iter().all(|d| d.2), "{decls:?}");
     }
 
     #[test]
     fn custom_property_keeps_arbitrary_bang_tokens() {
         // `!foo` is part of the token stream, not an importance flag, and must not reject the
         // declaration or the ones after it.
-        let decls = declarations("div { --x: value !foo; --y: a ! b !important c; --z: q !Important; width: 1px }");
+        let decls = declarations("div { --x: value !foo; --y: a ! b !important c; --z: q !nope; width: 1px }");
         assert_eq!(decls.len(), 4, "{decls:?}");
         assert_eq!(decls[0].0, "--x");
         assert!(!decls[0].2);
