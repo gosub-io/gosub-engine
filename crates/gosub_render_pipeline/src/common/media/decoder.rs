@@ -163,6 +163,12 @@ pub trait MediaDecoder: Send + Sync {
     fn supports_magic(&self, bytes: &[u8]) -> bool;
 
     fn decode(&self, bytes: &[u8]) -> Result<DecodedMedia, ImageDecodeError>;
+
+    /// The intrinsic size from the header alone, without decoding pixels. `None` when the
+    /// format has no cheap answer (vector formats, or a decoder that does not implement it).
+    fn dimensions(&self, _bytes: &[u8]) -> Option<(u32, u32)> {
+        None
+    }
 }
 
 /// Ordered set of decoders. The MIME hint (e.g. an HTTP `Content-Type`) is treated as a hint
@@ -223,6 +229,18 @@ impl MediaDecoderRegistry {
         }
 
         Err(last_err.unwrap_or(ImageDecodeError::UnsupportedFormat))
+    }
+}
+
+impl MediaDecoderRegistry {
+    /// The intrinsic size of `bytes` from its header, by the same decoder selection as
+    /// [`decode`](Self::decode); `None` when no decoder can answer without decoding.
+    pub fn dimensions(&self, mime: Option<&str>, bytes: &[u8]) -> Option<(u32, u32)> {
+        let by_mime = mime
+            .into_iter()
+            .flat_map(|mime| self.decoders.iter().filter(move |decoder| decoder.supports_mime(mime)));
+        let by_magic = self.decoders.iter().filter(|decoder| decoder.supports_magic(bytes));
+        by_mime.chain(by_magic).find_map(|decoder| decoder.dimensions(bytes))
     }
 }
 

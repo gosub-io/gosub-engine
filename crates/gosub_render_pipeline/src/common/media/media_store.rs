@@ -437,6 +437,29 @@ impl MediaStore {
         } else {
             self.fetch_resource(src)?
         };
+
+        // A synchronous fetch runs on the layout thread (the resident renderer), where
+        // decoding every image of a page as its bytes land costs seconds. Layout only needs
+        // the size: take it from the header and leave the pixels to `get` on first paint -
+        // which, with a raster window, most images off-screen never reach. The asynchronous
+        // path decodes here as before: that is a background thread, and the pixels are wanted
+        // by the reflow that follows.
+        if self.synchronous_fetch.load(Ordering::Relaxed) {
+            if let Some(intrinsic) = self.decoders.dimensions(mime.as_deref(), &bytes) {
+                let media_id = self.allocate_media_id();
+                self.encoded.write().insert(
+                    media_id,
+                    EncodedSource {
+                        src: src.to_string(),
+                        mime,
+                        bytes,
+                        intrinsic,
+                    },
+                );
+                return Ok(media_id);
+            }
+        }
+
         let media = self.decode_media(src, mime.as_deref(), &bytes)?;
 
         let media_id = self.allocate_media_id();
@@ -723,6 +746,24 @@ mod decoded_budget_tests {
             }
         }
         format!("data:image/png;base64,{b64}")
+    }
+
+    #[test]
+    fn synchronous_loads_decode_on_first_use_not_on_load() {
+        let store = Arc::new(MediaStore::new());
+        store.set_synchronous_fetch(true);
+        let before = store.resident_bytes();
+        let MediaRequest::Ready(id) = store.request_media(&data_uri(64, 32, 7)) else {
+            panic!("synchronous load should be ready");
+        };
+        // Layout gets the size; nothing was decoded for it.
+        assert_eq!(store.image_intrinsic_size(id), Some((64, 32)));
+        assert_eq!(store.resident_bytes(), before);
+        assert!(!store.entries.read().contains_key(&id));
+        // Paint asks for pixels: decoded now, at the real size.
+        let image = store.get_image(id);
+        assert_eq!((image.image.width(), image.image.height()), (64, 32));
+        assert!(store.entries.read().contains_key(&id));
     }
 
     #[test]

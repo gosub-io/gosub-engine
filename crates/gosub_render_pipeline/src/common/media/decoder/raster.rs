@@ -52,6 +52,16 @@ impl MediaDecoder for RasterDecoder {
             Err(e) => Err(ImageDecodeError::Decode(e.to_string())),
         }
     }
+
+    fn dimensions(&self, bytes: &[u8]) -> Option<(u32, u32)> {
+        let (width, height) = image::ImageReader::new(std::io::Cursor::new(bytes))
+            .with_guessed_format()
+            .ok()?
+            .into_dimensions()
+            .ok()?;
+        // The same bound `decode` enforces: an absurd header is not a size for layout.
+        (width <= MAX_IMAGE_EDGE && height <= MAX_IMAGE_EDGE).then_some((width, height))
+    }
 }
 
 /// Decode with the size and allocation limits applied by the decoder itself, so an
@@ -157,6 +167,12 @@ mod tests {
         // Aspect ratio survives the downscale.
         let ratio = f64::from(img.width()) / f64::from(img.height());
         assert!((ratio - 4.0 / 3.0).abs() < 0.01, "ratio {ratio}");
+    }
+
+    #[test]
+    fn dimensions_come_from_the_header() {
+        assert_eq!(RasterDecoder.dimensions(&png_of(300, 20)), Some((300, 20)));
+        assert_eq!(RasterDecoder.dimensions(b"not an image"), None);
     }
 
     #[test]

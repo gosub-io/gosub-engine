@@ -2611,9 +2611,17 @@ fn engine_soak<F: FontSystem + Default>() -> i32 {
                         notes.push(format!("RENDERER CRASHED ({site}: {error})"));
                     }
                 }
-                // What the firehose saw for this page.
+                // What the firehose saw for this page. `GOSUB_SOAK_EVENTS=<path>` also
+                // appends every event as NDJSON, for digging into a slow navigation.
+                let mut dump = std::env::var("GOSUB_SOAK_EVENTS").ok().and_then(|path| {
+                    std::fs::OpenOptions::new().create(true).append(true).open(path).ok()
+                });
                 let (mut loads, mut bytes, mut renderer_us, mut navigates) = (0usize, 0usize, 0u64, 0usize);
                 while let Ok(event) = firehose.try_recv() {
+                    if let Some(file) = dump.as_mut() {
+                        use std::io::Write as _;
+                        let _ = writeln!(file, "{}", serde_json::json!({"ts_us": event.ts_us, "site": url, "kind": event.kind, "data": event.data}));
+                    }
                     match event.kind.as_str() {
                         "net.load" => {
                             loads += 1;
