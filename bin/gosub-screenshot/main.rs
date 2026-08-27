@@ -66,6 +66,9 @@ struct Args {
     /// decode and repaint before the capture
     #[arg(long, default_value = "0")]
     settle: u64,
+    /// Print the aggregated pipeline timing table (per stage) after the capture
+    #[arg(long)]
+    timings: bool,
 }
 
 const DEFAULT_ZONE: uuid::Uuid = uuid!("f1234567-abcd-4000-8000-000000000003");
@@ -339,4 +342,7 @@ fn main() {
 
     image::save_buffer(&output, &pixels, page_w, page_h, ColorType::Rgba8).expect("save PNG");
     eprintln!("Saved {output} ({}×{})", page_w, page_h);
+    if args.timings {
+        gosub_shared::timing::dump(false);
+    }
 }

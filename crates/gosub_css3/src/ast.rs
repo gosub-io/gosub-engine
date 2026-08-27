@@ -329,13 +329,7 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
         return Err(CssError::new("CSS AST must start with a stylesheet node"));
     };
 
-    let mut sheet = CssStylesheet {
-        rules: vec![],
-        font_faces: vec![],
-        origin,
-        url: url.to_string(),
-        parse_log: vec![],
-    };
+    let mut sheet = CssStylesheet::new(origin, url);
 
     collect_rules(children, &mut sheet.rules, &mut sheet.font_faces)?;
     Ok(sheet)
