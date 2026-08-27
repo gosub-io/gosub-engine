@@ -69,7 +69,7 @@ sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
 sqlite_places = ["r2d2", "r2d2_sqlite"]
 metrics = []
 # Aspirational message vocabulary: variants the engine declares but does not yet emit or
-# handle. Off by default so the default surface is only what actually works.
+# handle. Off by default so the default surface is only what works.
 unstable-api = []
 
 [lints]

@@ -1,13 +1,8 @@
 //! The engine's message vocabulary: commands flowing in ([`TabCommand`], [`EngineCommand`])
 //! and events flowing out ([`EngineEvent`]), plus the input types they carry.
 //!
-//! # The `unstable-api` feature
-//!
-//! Everything reachable in a default build is wired up: every [`EngineEvent`] variant is
-//! emitted somewhere, and every [`TabCommand`] variant reaches a handler. Variants that are
-//! only declared sit behind the non-default `unstable-api` feature, so matching one without
-//! it is a compile error rather than a runtime no-op. Enabling the feature does not implement
-//! them: those events still never arrive, and those commands are still dropped with a warning.
+//! Variants the engine declares but does not yet emit or handle sit behind the non-default
+//! `unstable-api` feature; see the crate docs.
 
 #[cfg(feature = "unstable-api")]
 use crate::cookies::Cookie;
@@ -227,7 +222,7 @@ pub enum TabCommand {
     },
     /// Set the tab's scroll offset to an absolute position in CSS px, clamped to the page.
     /// Use this when the shell owns the scroll position (smooth scrolling, a scrollbar drag,
-    /// a restored session) and needs to tell the engine where it actually is - as opposed to
+    /// a restored session) and needs to tell the engine where it is - as opposed to
     /// [`Self::MouseScroll`], which hands the engine a delta and lets it animate. Applying it
     /// cancels any scroll animation in flight. See the scroll-ownership section in the crate
     /// docs.
@@ -279,8 +274,7 @@ pub enum TabCommand {
     /// Committed text for the focused control: IME output, or clipboard contents on paste.
     /// This is the only text-input path - there is no per-character command.
     ///
-    /// Declared but not handled: the tab worker logs and drops it. Behind the `unstable-api`
-    /// feature until the editing model lands.
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     TextInput {
         text: String,
     },
@@ -288,52 +282,44 @@ pub enum TabCommand {
     // ****************************************
     // ** Session / zone state
     #[cfg(feature = "unstable-api")]
-    /// Declared but not handled: the tab worker logs and drops it.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     SetCookie {
         cookie: Cookie,
     },
     #[cfg(feature = "unstable-api")]
-    /// Declared but not handled: the tab worker logs and drops it.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     ClearCookies,
     #[cfg(feature = "unstable-api")]
     /// @TODO: local / session??
-    /// Declared but not handled: the tab worker logs and drops it.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     SetStorageItem {
         key: String,
         value: String,
     },
     #[cfg(feature = "unstable-api")]
-    /// Declared but not handled: the tab worker logs and drops it.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     RemoveStorageItem {
         key: String,
     },
     #[cfg(feature = "unstable-api")]
-    /// Declared but not handled: the tab worker logs and drops it.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     ClearStorage,
 
     // ****************************************
     // ** Media / scripting
     #[cfg(feature = "unstable-api")]
     /// Execute given javascript (how about lua?)
-    /// Declared but not handled: the tab worker logs and drops it.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     ExecuteScript {
         source: String,
     },
     #[cfg(feature = "unstable-api")]
-    /// Declared but not handled: the tab worker logs and drops it.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     PlayMedia {
         element_id: u64,
     },
     #[cfg(feature = "unstable-api")]
-    /// Declared but not handled: the tab worker logs and drops it.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     PauseMedia {
         element_id: u64,
     },
@@ -341,8 +327,7 @@ pub enum TabCommand {
     // ****************************************
     // ** Debug / devtools
     #[cfg(feature = "unstable-api")]
-    /// Declared but not handled: the tab worker logs and drops it.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet handled (logged and dropped); behind `unstable-api`.
     DumpDomTree,
 }
 
@@ -366,7 +351,7 @@ pub enum NavigationEvent {
     ///
     /// Declared but never emitted: the engine has no separate commit point yet - a load
     /// goes straight from `Started` to `Finished`.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Behind `unstable-api`.
     #[cfg(feature = "unstable-api")]
     Committed {
         nav_id: NavigationId,
@@ -428,7 +413,7 @@ pub struct ResourceUpdate {
 #[derive(Debug, Clone)]
 pub enum ResourceEvent {
     /// Declared but never emitted: requests currently go straight to `Started`.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Behind `unstable-api`.
     #[cfg(feature = "unstable-api")]
     Queued {
         request_id: RequestId,
@@ -525,21 +510,18 @@ pub enum EngineEvent {
     // ** Engine lifecycle
     EngineStarted,
     #[cfg(feature = "unstable-api")]
-    /// Declared but never emitted by the engine.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet emitted; behind `unstable-api`.
     BackendChanged {
         old: String,
         new: String,
     },
     #[cfg(feature = "unstable-api")]
-    /// Declared but never emitted by the engine.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet emitted; behind `unstable-api`.
     Warning {
         message: String,
     },
     #[cfg(feature = "unstable-api")]
-    /// Declared but never emitted by the engine.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet emitted; behind `unstable-api`.
     EngineShutdown {
         reason: String,
     },
@@ -564,8 +546,7 @@ pub enum EngineEvent {
     },
     #[cfg(feature = "unstable-api")]
     /// Frame has been completed (@TODO: do we need this?)
-    /// Declared but never emitted by the engine.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet emitted; behind `unstable-api`.
     FrameComplete {
         tab_id: TabId,
         frame_id: u64,
@@ -639,7 +620,7 @@ pub enum EngineEvent {
     },
     #[cfg(feature = "unstable-api")]
     /// Declared but never emitted; emission arrives with the pending mac-app patches.
-    /// Behind the `unstable-api` feature until then.
+    /// Behind `unstable-api`.
     TitleChanged {
         tab_id: TabId,
         title: String,
@@ -654,14 +635,13 @@ pub enum EngineEvent {
     },
     #[cfg(feature = "unstable-api")]
     /// Declared but never emitted; emission arrives with the pending mac-app patches.
-    /// Behind the `unstable-api` feature until then.
+    /// Behind `unstable-api`.
     LocationChanged {
         tab_id: TabId,
         url: String,
     },
     #[cfg(feature = "unstable-api")]
-    /// Declared but never emitted by the engine.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet emitted; behind `unstable-api`.
     TabResized {
         tab_id: TabId,
         viewport: Viewport,
@@ -682,8 +662,7 @@ pub enum EngineEvent {
     // ********************************************
     // ** Networking
     #[cfg(feature = "unstable-api")]
-    /// Declared but never emitted by the engine.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet emitted; behind `unstable-api`.
     ConnectionEstablished {
         tab_id: TabId,
         url: String,
@@ -704,8 +683,7 @@ pub enum EngineEvent {
 
     // ** Session / zone state
     #[cfg(feature = "unstable-api")]
-    /// Declared but never emitted by the engine.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet emitted; behind `unstable-api`.
     CookieAdded {
         tab_id: TabId,
         cookie: Cookie,
@@ -722,23 +700,20 @@ pub enum EngineEvent {
     // ****************************************
     // ** Media / scripting
     #[cfg(feature = "unstable-api")]
-    /// Declared but never emitted by the engine.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet emitted; behind `unstable-api`.
     MediaStarted {
         tab_id: TabId,
         element_id: u64,
     },
     #[cfg(feature = "unstable-api")]
-    /// Declared but never emitted by the engine.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet emitted; behind `unstable-api`.
     MediaPaused {
         tab_id: TabId,
         element_id: u64,
     },
     #[cfg(feature = "unstable-api")]
     /// Result of a script is returned (console stuff?)
-    /// Declared but never emitted by the engine.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet emitted; behind `unstable-api`.
     ScriptResult {
         tab_id: TabId,
         result: serde_json::Value,
@@ -747,16 +722,14 @@ pub enum EngineEvent {
     // ****************************************
     // ** Errors / diagnostics
     #[cfg(feature = "unstable-api")]
-    /// Declared but never emitted by the engine.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet emitted; behind `unstable-api`.
     NetworkError {
         tab_id: TabId,
         url: Url,
         message: String,
     },
     #[cfg(feature = "unstable-api")]
-    /// Declared but never emitted by the engine.
-    /// Behind the `unstable-api` feature until it is wired up.
+    /// Not yet emitted; behind `unstable-api`.
     JavaScriptError {
         tab_id: TabId,
         message: String,

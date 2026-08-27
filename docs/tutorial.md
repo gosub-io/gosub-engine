@@ -156,7 +156,7 @@ loop {
 }
 ```
 
-`DownloadRequested` is an offer, not a question - ignoring it simply means no file is saved.
+`DownloadRequested` is an offer, not a question - ignoring it means no file is saved.
 
 ### 7. Shutdown
 

@@ -15,7 +15,7 @@
 //!   (crate-internal: `route_response_for`, `RoutedOutcome`; [`decide_handling`]).
 //! - **Typed events** emitted during fetch & routing phases ([`events`]).
 //!
-//! Most of this is engine plumbing. What an embedder actually touches is [`types`]
+//! Most of this is engine plumbing. What an embedder touches is [`types`]
 //! (carried by navigation and resource events).
 //!
 //! ## Threading model (high level)
