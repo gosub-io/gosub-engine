@@ -5,7 +5,7 @@ use crate::events::{EngineEvent, ResourceUpdate};
 use crate::net::emitter::NetObserver;
 use crate::net::events::NetEvent;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
-use crate::net::types::{Initiator, ResourceKind};
+use crate::net::types::{Initiator, NetError, ResourceKind};
 use crate::net::BlockReason;
 use crate::tab::TabId;
 
@@ -191,8 +191,13 @@ impl NetObserver for EngineEventEmitter {
                     request_id: self.req_id,
                     reference: self.reference,
                     url: url.to_string(),
-                    error: LoadError::Network {
-                        message: format!("{error:#}"),
+                    // The transport wraps its typed error in anyhow; keep the classification
+                    // when it is there.
+                    error: match error.downcast_ref::<NetError>() {
+                        Some(net) => LoadError::from(net),
+                        None => LoadError::Network {
+                            message: format!("{error:#}"),
+                        },
                     },
                 });
             }

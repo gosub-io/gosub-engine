@@ -1,7 +1,7 @@
 use crate::cookies::SameSiteContext;
 use crate::engine::errors::{LoadError, NavigationError};
-use crate::engine::events::Modifiers;
 use crate::engine::events::{CursorShape, EngineEvent, NavigationEvent};
+use crate::engine::events::{DownloadOfferId, Modifiers, PendingDownload};
 use crate::engine::internal_pages::{InternalPages, TabView};
 use crate::engine::resource_pipeline::ResourcePipelines;
 use crate::engine::types::{NavigationId, RequestId};
@@ -51,6 +51,19 @@ fn place_spooled_download(spooled: tempfile::TempPath, target_path: &std::path::
         // `e.path` is still a TempPath, so the source is removed when it drops.
     }
     Ok(std::fs::metadata(target_path).map(|m| m.len()).unwrap_or(0))
+}
+
+/// A download offer whose body is on disk, awaiting the embedder's answer.
+struct PendingOffer {
+    info: PendingDownload,
+    body: tempfile::TempPath,
+}
+
+/// Where a locally loaded document's HTML comes from.
+enum HtmlSource {
+    Text(String),
+    /// A spooled download body, read (bounded) on the load task rather than the worker.
+    Spooled(tempfile::TempPath),
 }
 
 /// Stream a response body to `path`, emitting `DownloadProgress` roughly every 256 KiB
@@ -134,12 +147,12 @@ pub enum NavigationResult<C: RenderConfiguration> {
         error: NavigationError,
     },
     /// The response is non-renderable content: the navigation ends (page stays) and the
-    /// metadata becomes a `DownloadRequested` offer to the embedder. `spooled` holds the body
-    /// already fetched (`None` if spooling failed - accepting then re-fetches).
+    /// metadata becomes a `DownloadRequested` offer to the embedder; `spooled` holds the
+    /// body already fetched.
     Download {
         nav_id: NavigationId,
         meta: FetchResultMeta,
-        spooled: Option<tempfile::TempPath>,
+        spooled: tempfile::TempPath,
     },
 }
 
@@ -240,7 +253,9 @@ pub struct TabWorker<C: RenderConfiguration> {
     pending_scroll: Option<PendingScroll>,
     /// Bodies of download offers awaiting acceptance, keyed by the URL announced in
     /// [`EngineEvent::DownloadRequested`].
-    spooled_downloads: std::collections::HashMap<Url, tempfile::TempPath>,
+    pending_offers: std::collections::VecDeque<PendingOffer>,
+    /// Source of [`DownloadOfferId`]s; unique within the tab.
+    next_offer: u64,
 }
 
 /// Deferred scroll for a freshly committed document.
@@ -449,7 +464,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
             history: History::default(),
             reported_cursor: CursorShape::Default,
             pending_scroll: None,
-            spooled_downloads: std::collections::HashMap::new(),
+            pending_offers: std::collections::VecDeque::new(),
+            next_offer: 0,
         }
     }
 
@@ -821,15 +837,22 @@ impl<C: RenderConfiguration> TabWorker<C> {
                     },
                 });
                 let info = crate::net::types::ResponseInfo::from(&meta);
-                if let Some(path) = spooled {
-                    self.remember_spooled_download(info.final_url.clone(), path);
-                }
-                self.send_event(EngineEvent::DownloadRequested {
-                    tab_id: self.tab_id,
+                self.next_offer += 1;
+                let pending = PendingDownload {
+                    offer: DownloadOfferId(self.next_offer),
                     suggested_filename: info.suggested_filename(),
                     content_type: info.content_type,
                     total_bytes: info.content_length,
                     url: info.final_url,
+                };
+                self.remember_offer(pending.clone(), spooled);
+                self.send_event(EngineEvent::DownloadRequested {
+                    tab_id: self.tab_id,
+                    offer: pending.offer,
+                    url: pending.url,
+                    suggested_filename: pending.suggested_filename,
+                    content_type: pending.content_type,
+                    total_bytes: pending.total_bytes,
                 });
             }
             NavigationResult::Err { nav_id, error } => {
@@ -927,70 +950,58 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// `SharedBody` replays nothing to late subscribers, so a streaming consumer that
     /// attaches after the fetch result arrives misses early chunks. True streaming-to-disk
     /// needs replay support in gosub-sonar (see the board).
-    /// Hold a spooled body until the embedder accepts or the tab goes away. Bounded, so an
-    /// embedder that ignores offers cannot accumulate temp files without limit.
-    fn remember_spooled_download(&mut self, url: Url, path: tempfile::TempPath) {
+    /// Hold an offer's body until the embedder answers or the tab goes away. Bounded, so an
+    /// embedder that ignores offers cannot accumulate temp files without limit; the oldest
+    /// offer is evicted first. Dropping a `TempPath` deletes its file.
+    fn remember_offer(&mut self, info: PendingDownload, body: tempfile::TempPath) {
         const MAX_PENDING: usize = 8;
-        // Dropping a `TempPath` deletes its file, so replaced and evicted entries need no
-        // explicit cleanup.
-        self.spooled_downloads.insert(url, path);
-        while self.spooled_downloads.len() > MAX_PENDING {
-            let Some(victim) = self.spooled_downloads.keys().next().cloned() else {
-                break;
-            };
-            self.spooled_downloads.remove(&victim);
+        self.pending_offers.push_back(PendingOffer { info, body });
+        while self.pending_offers.len() > MAX_PENDING {
+            self.pending_offers.pop_front();
         }
+        self.publish_pending_downloads();
+    }
+
+    fn take_offer(&mut self, offer: DownloadOfferId) -> Option<PendingOffer> {
+        let idx = self.pending_offers.iter().position(|p| p.info.offer == offer)?;
+        let taken = self.pending_offers.remove(idx);
+        self.publish_pending_downloads();
+        taken
+    }
+
+    /// Mirror the pending offers onto the sink so a shell that missed a
+    /// `DownloadRequested` can still find them.
+    fn publish_pending_downloads(&self) {
+        self.sink
+            .set_pending_downloads(self.pending_offers.iter().map(|p| p.info.clone()).collect());
     }
 
     /// Load a spooled download offer as the page. The override for a misclassified
     /// response; see [`TabCommand::RenderDownload`].
-    fn render_download(&mut self, url: String) {
-        let Ok(parsed) = Url::parse(&url) else {
-            self.send_event(EngineEvent::Navigation {
-                tab_id: self.tab_id,
-                event: NavigationEvent::FailedUrl {
-                    nav_id: None,
-                    url,
-                    error: LoadError::InvalidUrl {
-                        message: "not a URL".into(),
-                    },
-                },
-            });
-            return;
-        };
-        let Some(spooled) = self.spooled_downloads.remove(&parsed) else {
+    fn render_download(&mut self, offer: DownloadOfferId) {
+        let Some(PendingOffer { info, body }) = self.take_offer(offer) else {
             self.send_event(EngineEvent::Navigation {
                 tab_id: self.tab_id,
                 event: NavigationEvent::Failed {
                     nav_id: None,
-                    url: parsed,
+                    url: self.current_url.clone().unwrap_or_else(about_blank),
                     error: LoadError::Content {
-                        message: "no pending download offer for this URL".into(),
+                        message: format!("download offer {} is no longer pending", offer.0),
                     },
                 },
             });
             return;
         };
-        // The body is bytes of unknown encoding; the HTML parser's own sniffing would be
-        // better, but `load_html` takes a `String`, so decode lossily for now.
-        let html = match std::fs::read(&spooled) {
-            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-            Err(e) => {
-                self.send_event(EngineEvent::Navigation {
-                    tab_id: self.tab_id,
-                    event: NavigationEvent::Failed {
-                        nav_id: None,
-                        url: parsed,
-                        error: LoadError::Io { message: e.to_string() },
-                    },
-                });
-                return;
-            }
-        };
-        self.load_html(html, url);
+        self.begin_local_load(HtmlSource::Spooled(body), info.url);
     }
 
-    fn start_download(&mut self, id: crate::engine::events::DownloadId, url: String, target_path: std::path::PathBuf) {
+    fn start_download(
+        &mut self,
+        id: crate::engine::events::DownloadId,
+        url: String,
+        target_path: std::path::PathBuf,
+        offer: Option<DownloadOfferId>,
+    ) {
         let Ok(url) = Url::parse(&url) else {
             self.send_event(EngineEvent::DownloadFailed {
                 tab_id: self.tab_id,
@@ -1000,8 +1011,17 @@ impl<C: RenderConfiguration> TabWorker<C> {
             return;
         };
 
-        if let Some(spooled) = self.spooled_downloads.remove(&url) {
-            match place_spooled_download(spooled, &target_path) {
+        if let Some(offer) = offer {
+            let Some(PendingOffer { body, .. }) = self.take_offer(offer) else {
+                // Never fall back to a fetch: the body the shell accepted is gone.
+                self.send_event(EngineEvent::DownloadFailed {
+                    tab_id: self.tab_id,
+                    id,
+                    error: format!("download offer {} is no longer pending", offer.0),
+                });
+                return;
+            };
+            match place_spooled_download(body, &target_path) {
                 Ok(received_bytes) => {
                     self.send_event(EngineEvent::DownloadFinished {
                         tab_id: self.tab_id,
@@ -1021,7 +1041,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             return;
         }
 
-        // No spooled body (a save-link-as, or spooling failed): fetch it now.
+        // Save-link-as: no captured body, fetch it now.
         let req_id = RequestId::new();
         REF_REGISTRY.register_request(req_id, ResourceKind::Other, Initiator::Other);
         // A Download reference routes the transport's per-chunk progress to the shell as
@@ -1220,8 +1240,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
                 ControlFlow::Continue
             }
-            TabCommand::StartDownload { id, url, target_path } => {
-                self.start_download(id, url, target_path);
+            TabCommand::StartDownload {
+                id,
+                url,
+                target_path,
+                offer,
+            } => {
+                self.start_download(id, url, target_path, offer);
                 ControlFlow::Continue
             }
             #[cfg(test)]
@@ -1318,8 +1343,8 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 }
                 ControlFlow::Continue
             }
-            TabCommand::RenderDownload { url } => {
-                self.render_download(url);
+            TabCommand::RenderDownload { offer } => {
+                self.render_download(offer);
                 ControlFlow::Continue
             }
             #[cfg(feature = "unstable-api")]
@@ -1603,6 +1628,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let cookie_jar = self.services.cookie_jar.clone();
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
+        let max_download_spool_bytes = self.zone_context.config_store.get_uint("net.download.max_spool_bytes") as u64;
 
         let span = tracing::info_span!(
             "tab_nav",
@@ -1667,8 +1693,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 allow_download_without_user_activation: false,
             };
 
-            let mut hooks =
-                ResourcePipelines::<C>::new(zone_id, io_tx.clone(), accept_language.clone(), max_document_bytes);
+            let mut hooks = ResourcePipelines::<C>::new(
+                zone_id,
+                io_tx.clone(),
+                accept_language.clone(),
+                max_document_bytes,
+                max_download_spool_bytes,
+            );
 
             let outcome = route_response_for(
                 RequestDestination::Document,
@@ -1761,11 +1792,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
             Ok(u) => u,
             Err(_) => return,
         };
+        self.begin_local_load(HtmlSource::Text(html), url);
+    }
+
+    /// A fresh navigation to locally supplied HTML (LoadHtml, or a rendered download offer).
+    fn begin_local_load(&mut self, source: HtmlSource, url: Url) {
         self.history.set_current_scroll(self.scroll_x, self.scroll_y);
         self.pending_scroll = None;
         self.reset_scroll_for_navigation();
         self.cancel_current_nav();
-        self.load_html_document(html, url, HistoryIntent::Push);
+        self.load_document_source(source, url, HistoryIntent::Push);
     }
 
     /// Reset scroll state at the start of a navigation.
@@ -1782,6 +1818,10 @@ impl<C: RenderConfiguration> TabWorker<C> {
     /// and `gosub://` internal pages (push, reload or traversal like any navigation). The
     /// caller has already reset scroll and cancelled the previous navigation.
     fn load_html_document(&mut self, html: String, url: Url, history: HistoryIntent) {
+        self.load_document_source(HtmlSource::Text(html), url, history);
+    }
+
+    fn load_document_source(&mut self, source: HtmlSource, url: Url, history: HistoryIntent) {
         if let Err(e) = self.bind_storage_for(url.clone()) {
             self.send_event(EngineEvent::Navigation {
                 tab_id: self.tab_id,
@@ -1846,6 +1886,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
         let io_tx = self.zone_context.io_tx.clone();
         let accept_language = self.services.accept_language.clone();
         let max_document_bytes = self.zone_context.config_store.get_uint("net.document.max_bytes");
+        let max_download_spool_bytes = self.zone_context.config_store.get_uint("net.download.max_spool_bytes") as u64;
 
         let span = tracing::info_span!(
             "tab_load_html",
@@ -1862,21 +1903,50 @@ impl<C: RenderConfiguration> TabWorker<C> {
             req_id,
             cancel: parent_cancel.child_token(),
         };
-        let meta = FetchResultMeta {
-            final_url: url.clone(),
-            status: 200,
-            status_text: "OK".into(),
-            headers: HeaderMap::new(),
-            content_length: Some(html.len() as u64),
-            content_type: Some("text/html".into()),
-            has_body: true,
-        };
-
         spawn_named("tab-load-html", async move {
             let _enter = span.enter();
 
-            let mut hooks =
-                ResourcePipelines::<C>::new(zone_id, io_tx.clone(), accept_language.clone(), max_document_bytes);
+            // A spooled body is read here, off the worker, and capped like a fetched document.
+            let html = match source {
+                HtmlSource::Text(html) => html,
+                HtmlSource::Spooled(path) => {
+                    use tokio::io::AsyncReadExt;
+                    let read = async {
+                        let file = tokio::fs::File::open(&path).await?;
+                        let mut bytes = Vec::new();
+                        file.take(max_document_bytes as u64).read_to_end(&mut bytes).await?;
+                        Ok::<_, std::io::Error>(bytes)
+                    };
+                    match read.await {
+                        // Unknown encoding; the parser's own sniffing would be better.
+                        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                        Err(e) => {
+                            let _ = tx_done.send(NavigationResult::Err {
+                                nav_id,
+                                error: NavigationError::Io(e),
+                            });
+                            return;
+                        }
+                    }
+                }
+            };
+            let meta = FetchResultMeta {
+                final_url: url.clone(),
+                status: 200,
+                status_text: "OK".into(),
+                headers: HeaderMap::new(),
+                content_length: Some(html.len() as u64),
+                content_type: Some("text/html".into()),
+                has_body: true,
+            };
+
+            let mut hooks = ResourcePipelines::<C>::new(
+                zone_id,
+                io_tx.clone(),
+                accept_language.clone(),
+                max_document_bytes,
+                max_download_spool_bytes,
+            );
 
             match hooks.html.parse_bytes(req, handle, meta, html.as_bytes()).await {
                 Ok(doc) => {

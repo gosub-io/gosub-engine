@@ -141,7 +141,7 @@ loop {
                 },
                 EngineEvent::DownloadRequested { suggested_filename, .. } => {
                     // Not a page: the engine kept the current document and is offering
-                    // the file. Answer with StartDownload, or ignore it.
+                    // the file. Answer with StartDownload { offer, .. }, or ignore it.
                     println!("download offered: {suggested_filename}");
                 }
                 EngineEvent::Redraw { .. } => {

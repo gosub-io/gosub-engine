@@ -1,5 +1,5 @@
 use crate::engine::types::TabChannel;
-use crate::events::TabCommand;
+use crate::events::{DownloadOfferId, PendingDownload, TabCommand};
 use crate::tab::sink::TabSink;
 use crate::tab::TabId;
 use crate::EngineError;
@@ -110,8 +110,8 @@ impl TabHandle {
     }
 
     /// Load a pending download offer as the page instead. See [`TabCommand::RenderDownload`].
-    pub async fn render_download(&self, url: impl Into<String>) -> Result<(), EngineError> {
-        self.send(TabCommand::RenderDownload { url: url.into() }).await
+    pub async fn render_download(&self, offer: DownloadOfferId) -> Result<(), EngineError> {
+        self.send(TabCommand::RenderDownload { offer }).await
     }
 
     /// Set the scroll offset to an absolute position in CSS px. See [`TabCommand::SetScroll`].
@@ -142,5 +142,12 @@ impl TabHandle {
     /// Whether [`go_forward`](Self::go_forward) would move anywhere.
     pub fn can_go_forward(&self) -> bool {
         self.sink.can_go_forward.load(Ordering::Relaxed)
+    }
+
+    /// Download offers the tab still holds the body for, oldest first. The recovery path
+    /// when a [`DownloadRequested`](crate::events::EngineEvent::DownloadRequested) was lost
+    /// to a lagging receiver: everything listed here can still be accepted or rendered.
+    pub fn pending_downloads(&self) -> Vec<PendingDownload> {
+        self.sink.pending_downloads.read().clone()
     }
 }

@@ -56,6 +56,27 @@ pub struct HitTestToken(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DownloadId(pub u64);
 
+/// Identifies one pending download offer. Minted by the engine when it emits
+/// [`EngineEvent::DownloadRequested`]; the shell passes it back to accept
+/// ([`TabCommand::StartDownload`]) or override ([`TabCommand::RenderDownload`]) that offer.
+/// Unique per tab, so two offers for the same URL never collide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DownloadOfferId(pub u64);
+
+/// A download offer the tab is still holding the body for. Read via
+/// [`TabHandle::pending_downloads`](crate::tab::TabHandle::pending_downloads), which is the
+/// recovery path when a [`DownloadRequested`](EngineEvent::DownloadRequested) was lost to a
+/// lagging receiver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingDownload {
+    pub offer: DownloadOfferId,
+    pub url: Url,
+    /// From `Content-Disposition` when present, else the URL's last path segment.
+    pub suggested_filename: String,
+    pub content_type: Option<String>,
+    pub total_bytes: Option<u64>,
+}
+
 /// What is under a point of the page - the input for a shell's native context menu.
 /// Fields are independent: a linked image yields both `link_url` and `image_url`. URLs are
 /// absolute (resolved against the document URL). Selection and editable-field details grow
@@ -171,29 +192,33 @@ pub enum TabCommand {
     GoToHistoryEntry {
         entry: HistoryEntryId,
     },
-    /// Save `url` to `target_path`. Sent to accept an [`EngineEvent::DownloadRequested`]
-    /// offer, or directly (save-link-as). Progress arrives as `Download*` events carrying
+    /// Save a download to `target_path`. Progress arrives as `Download*` events carrying
     /// the same `id`.
     ///
-    /// Accepting an offer places the body captured during the navigation rather than
-    /// requesting `url` again - a second request would be wrong when the navigation was a
-    /// POST or the URL is single-use. Such a download finishes at once, with no intervening
-    /// [`DownloadProgress`](EngineEvent::DownloadProgress).
+    /// With `offer` set, this accepts an [`EngineEvent::DownloadRequested`]: the body captured
+    /// during the navigation is placed, and `url` is never requested again - a second request
+    /// would be wrong when the navigation was a POST or the URL is single-use. Such a
+    /// download finishes at once, with no intervening
+    /// [`DownloadProgress`](EngineEvent::DownloadProgress). An `offer` that is no longer
+    /// pending fails with [`DownloadFailed`](EngineEvent::DownloadFailed) rather than
+    /// silently fetching.
     ///
-    /// A `url` with no offer pending (save-link-as) is fetched through the zone's fetcher,
+    /// With `offer: None` (save-link-as), `url` is fetched through the zone's fetcher,
     /// cookies and UA applying, and does report progress.
     StartDownload {
         id: DownloadId,
         url: String,
         target_path: std::path::PathBuf,
+        offer: Option<DownloadOfferId>,
     },
     /// Load a pending [`EngineEvent::DownloadRequested`] offer as the page instead of saving
     /// it - the override for a response the engine misclassified (an HTML page served as
     /// `application/octet-stream`, or with `Content-Disposition: attachment`). The spooled
-    /// body is parsed as HTML with `url` as the document URL. With no offer pending for
-    /// `url`, fails the navigation with [`LoadError::Content`].
+    /// body is parsed as HTML with the offer's URL as the document URL, bounded by
+    /// `net.document.max_bytes`. An offer that is no longer pending fails the navigation
+    /// with [`LoadError::Content`].
     RenderDownload {
-        url: String,
+        offer: DownloadOfferId,
     },
     /// Ask what is at viewport point `(x, y)` (CSS px), e.g. on right-click, to build a native
     /// context menu. Answered with [`EngineEvent::HitTestResult`] carrying the same `token`.
@@ -584,16 +609,20 @@ pub enum EngineEvent {
         hit: HitTestResponse,
     },
     /// A navigation turned out to be a download (binary content or an attachment). The
-    /// navigation itself was cancelled (the page stays); the shell decides where to save
-    /// and answers with [`TabCommand::StartDownload`] - or ignores the offer.
+    /// navigation itself was cancelled (the page stays); the shell decides what to do and
+    /// answers with [`TabCommand::StartDownload`] or [`TabCommand::RenderDownload`] carrying
+    /// `offer` - or ignores it.
     ///
     /// The body has already been transferred and spooled to a temp file by the time this
     /// arrives, so accepting is a local move rather than a second request. The temp file is
-    /// released if the offer is never accepted or the tab closes. One consequence: the bytes
-    /// move during the *navigation*, so there is no per-download progress to report on
-    /// accept - watch the navigation's resource events if you need transfer feedback.
+    /// released if the offer is never accepted, evicted by newer offers, or the tab closes.
+    /// The bytes move during the *navigation*, so there is no per-download progress on
+    /// accept. This event travels the bounded control bus; a receiver that lagged can list
+    /// what is still pending with
+    /// [`TabHandle::pending_downloads`](crate::tab::TabHandle::pending_downloads).
     DownloadRequested {
         tab_id: TabId,
+        offer: DownloadOfferId,
         url: Url,
         /// From `Content-Disposition` when present, else the URL's last path segment.
         suggested_filename: String,

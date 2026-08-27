@@ -666,10 +666,10 @@ mod tests {
         tab.navigate(format!("http://127.0.0.1:{port}/page"))
             .await
             .expect("navigate");
-        let offered_url = tokio::time::timeout(Duration::from_secs(10), async {
+        let (offered_url, offer) = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 match events.recv().await {
-                    Ok(EngineEvent::DownloadRequested { url, .. }) => return url,
+                    Ok(EngineEvent::DownloadRequested { url, offer, .. }) => return (url, offer),
                     Ok(_) => continue,
                     Err(e) => panic!("event stream closed: {e}"),
                 }
@@ -678,8 +678,13 @@ mod tests {
         .await
         .expect("timed out waiting for DownloadRequested");
         let served = hits.load(std::sync::atomic::Ordering::SeqCst);
+        // The offer is readable off the handle - the recovery path for a lagged receiver.
+        assert_eq!(
+            tab.pending_downloads().iter().map(|p| p.offer).collect::<Vec<_>>(),
+            vec![offer]
+        );
 
-        tab.render_download(offered_url.to_string()).await.expect("render");
+        tab.render_download(offer).await.expect("render");
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 match events.recv().await {
@@ -700,6 +705,7 @@ mod tests {
         .expect("timed out waiting for the rendered page");
 
         assert_eq!(tab.title(), "Actually a page");
+        assert!(tab.pending_downloads().is_empty(), "rendering consumes the offer");
         assert_eq!(tab.url().map(|u| u.to_string()), Some(offered_url.to_string()));
         assert_eq!(
             hits.load(std::sync::atomic::Ordering::SeqCst),
@@ -708,7 +714,7 @@ mod tests {
         );
 
         // The offer is consumed: a second override has nothing to render.
-        tab.render_download(offered_url.to_string()).await.expect("send");
+        tab.render_download(offer).await.expect("send");
         let error = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 if let Ok(EngineEvent::Navigation {
@@ -914,6 +920,72 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A download body is spooled before the embedder answers, so it is capped: past
+    /// `net.download.max_spool_bytes` the navigation fails instead of filling the temp dir.
+    #[tokio::test(flavor = "current_thread")]
+    async fn oversized_download_fails_instead_of_spooling() {
+        use crate::events::NavigationEvent;
+        use crate::Setting;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let payload: Vec<u8> = vec![7u8; 64 * 1024];
+        let payload_srv = payload.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let payload = payload_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                         Content-Disposition: attachment; filename=\"big.bin\"\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        payload.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(&payload).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        engine
+            .settings()
+            .set("net.download.max_spool_bytes", Setting::UInt(1024))
+            .expect("set cap");
+        let mut zone = engine.zone_builder().create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/big.bin"))
+            .await
+            .expect("navigate");
+
+        let outcome = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { .. }) => return Err("offer was made past the cap"),
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => return Ok(error),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out");
+        let error = outcome.expect("navigation should fail, not offer");
+        assert!(error.to_string().contains("max_spool_bytes"), "got {error}");
+        assert!(tab.pending_downloads().is_empty());
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     fn engine_with_max_zones(max_zones: usize) -> GosubEngine {
         let settings = EngineConfig::builder().max_zones(max_zones).build().unwrap();
         GosubEngine::new(
@@ -1085,8 +1157,9 @@ mod tests {
                         url,
                         suggested_filename,
                         total_bytes,
+                        offer,
                         ..
-                    }) => return (url, suggested_filename, total_bytes, nav_progress),
+                    }) => return (url, suggested_filename, total_bytes, nav_progress, offer),
                     Ok(_) => continue,
                     Err(e) => panic!("event stream closed: {e}"),
                 }
@@ -1100,12 +1173,14 @@ mod tests {
 
         // Accept the offer into a temp dir.
         let served_before_accept = hits.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(tab.pending_downloads().len(), 1, "the offer is listed while pending");
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("saved.bin");
         tab.send(TabCommand::StartDownload {
             id: DownloadId(7),
             url: offer.0.to_string(),
             target_path: target.clone(),
+            offer: Some(offer.4),
         })
         .await
         .expect("start download");
@@ -1142,11 +1217,13 @@ mod tests {
 
         // Save-link-as has no spooled body, so that path still fetches - and still reports
         // progress while it streams.
+        assert!(tab.pending_downloads().is_empty(), "accepting consumes the offer");
         let direct = dir.path().join("direct.bin");
         tab.send(TabCommand::StartDownload {
             id: DownloadId(9),
             url: format!("http://127.0.0.1:{port}/data/other.bin"),
             target_path: direct.clone(),
+            offer: None,
         })
         .await
         .expect("start save-link-as");
@@ -1182,6 +1259,7 @@ mod tests {
             id: DownloadId(8),
             url: "http://127.0.0.1:9/off".into(),
             target_path: dir.path().join("nope.bin"),
+            offer: None,
         })
         .await
         .expect("start failing download");

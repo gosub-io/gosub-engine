@@ -1,3 +1,4 @@
+use crate::engine::events::PendingDownload;
 use crate::engine::types::NavigationId;
 use parking_lot::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -25,6 +26,8 @@ pub struct TabSink {
     pub can_go_back: AtomicBool,
     /// Whether session history has an entry ahead of the current one
     pub can_go_forward: AtomicBool,
+    /// Download offers whose body the tab still holds, oldest first
+    pub pending_downloads: RwLock<Vec<PendingDownload>>,
 }
 
 impl Default for TabSink {
@@ -45,6 +48,7 @@ impl TabSink {
             title: RwLock::new(String::new()),
             can_go_back: AtomicBool::new(false),
             can_go_forward: AtomicBool::new(false),
+            pending_downloads: RwLock::new(Vec::new()),
         }
     }
 
@@ -68,6 +72,9 @@ impl TabSink {
     }
     pub fn set_title(&self, title: String) {
         *self.title.write() = title;
+    }
+    pub fn set_pending_downloads(&self, pending: Vec<PendingDownload>) {
+        *self.pending_downloads.write() = pending;
     }
     pub fn set_history_flags(&self, back: bool, forward: bool) {
         self.can_go_back.store(back, Ordering::Relaxed);

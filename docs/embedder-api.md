@@ -68,8 +68,8 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | `Reload { ignore_cache }` | Always refetches, fragment or not. |
 | `CancelNavigation` | |
 | `GoBack` / `GoForward { entry }` / `GoToHistoryEntry { entry }` | History is a tree rather than a stack. `GoForward { None }` takes the most recently visited child. Entry ids come from `NavigationEvent::HistoryChanged`. |
-| `RenderDownload { url }` | Load a pending `DownloadRequested` offer as the page instead of saving it - the override for a misclassified response. Wrapped by `tab.render_download(url)`. |
-| `StartDownload { id, url, target_path }` | `id` is minted by you. Accepting an offer moves the already-captured body into place rather than re-requesting the URL; a URL with no offer pending is fetched. |
+| `RenderDownload { offer }` | Load a pending `DownloadRequested` offer as the page instead of saving it - the override for a misclassified response. Wrapped by `tab.render_download(offer)`. |
+| `StartDownload { id, url, target_path, offer }` | `id` is minted by you. With `offer` set, the already-captured body is moved into place and the URL is never re-requested; an offer no longer pending fails rather than fetching. With `offer: None` (save-link-as), `url` is fetched. |
 | `CloseTab` | |
 | **Rendering control** | |
 | `ResumeDrawing { fps }` / `SuspendDrawing` | Nothing paints before the first `ResumeDrawing`. |
@@ -111,7 +111,7 @@ Sent with `tab.send(cmd).await`. Some have wrappers on `TabHandle` (`navigate`, 
 | `HitTestResult { token, hit }` | Answers `QueryHitTest` with the same token. |
 | `FavIconChanged { favicon }` | Raw bytes as served (ICO/PNG/SVG); decode them yourself. Emitted once per committed navigation, and not at all when there is no reachable icon, so keep your placeholder. |
 | **Downloads** | |
-| `DownloadRequested { url, suggested_filename, ... }` | The navigation was cancelled and the page stayed. Answer with `StartDownload` or ignore the offer. The body is already transferred and spooled to a temp file, released if you never accept. |
+| `DownloadRequested { offer, url, suggested_filename, ... }` | The navigation was cancelled and the page stayed. Answer with `StartDownload` or `RenderDownload` carrying `offer`, or ignore it. The body is already spooled to a temp file (up to `net.download.max_spool_bytes`), released if you never answer, when newer offers evict it (8 pending per tab), or when the tab closes. Missed it to `Lagged`? `tab.pending_downloads()` lists what is still there. |
 | `DownloadProgress` / `DownloadFinished` / `DownloadFailed { id, ... }` | Correlated by the `DownloadId` you minted. `DownloadProgress` only appears for downloads the engine had to fetch (save-link-as) - an accepted offer is already on disk and finishes at once. `DownloadFailed` may leave a partial file. |
 | **Tab lifecycle** | |
 | `TabCreated` / `TabClosed { tab_id, zone_id }` | |
@@ -160,7 +160,7 @@ Events arrive on two independent broadcast channels. They differ in volume, and 
 | Carries | `EngineEvent` - lifecycle, navigation, downloads, input feedback, crashes | `ResourceUpdate { tab_id, event }` |
 | Volume | A handful per navigation | Network rate: one `Progress` per chunk, per subresource |
 | Buffer | 512 | 4096 |
-| Missing one | Can matter - `TabCrashed` is on here | Usually fine; it is progress detail |
+| Missing one | Can matter - `TabCrashed` and `DownloadRequested` are on here; `tab.pending_downloads()` recovers the latter | `Progress` loss is harmless; a missed `Finished`/`Failed`/`Cancelled` leaves that resource's state unknown, so treat a lag as "re-derive from the next event" |
 
 On a shared bus, a page pulling a hundred subresources can push a `TabCrashed` out of the buffer before a busy shell reads it. Keeping them apart also means a shell that shows no per-resource detail never subscribes to the second channel.
 
@@ -233,7 +233,7 @@ tab.can_go_back()     // bool
 tab.can_go_forward()  // bool
 ```
 
-Every event carries a `TabId`; `zone.tab(id)` turns one back into a `TabHandle`, so a shell does not need its own id-to-handle map.
+Every tab-scoped event - `Navigation`, `Redraw`, the input feedback and download events, `TabCreated`/`TabClosed`/`TabCrashed` - carries a `TabId`; `zone.tab(id)` turns one back into a `TabHandle`, so a shell does not need its own id-to-handle map. `EngineStarted` and the zone events do not.
 
 These are synchronous and never block on the worker. They read a snapshot the worker republishes as it commits navigations, so during an in-flight navigation they still describe the previous document, which is what an address bar should show.
 
@@ -243,7 +243,7 @@ Subscribe to events instead when you need the moment something changes, or detai
 
 ## Contracts
 
--   **Downloads arrive as an offer, not a question, and the bytes are already yours.** When a response is not a renderable page (content-type or `Content-Disposition` says download, or the type is unknown) the engine decides on its own: it cancels the navigation, leaves the page in place, and emits `EngineEvent::DownloadRequested`. Answer with `StartDownload` or ignore it. There is no blocking ask; the offer is the ask, and `RenderDownload` is the answer that overrides the engine's classification. The response body is spooled to a temp file at that point, so accepting places what was already fetched instead of issuing a second request; ignoring the offer releases it.
+-   **Downloads arrive as an offer, not a question, and the bytes are already yours.** When a response is not a renderable page (content-type or `Content-Disposition` says download, or the type is unknown) the engine decides on its own: it cancels the navigation, leaves the page in place, and emits `EngineEvent::DownloadRequested`. Answer with `StartDownload` or ignore it. There is no blocking ask; the offer is the ask, and `RenderDownload` is the answer that overrides the engine's classification. The response body is spooled to a temp file at that point, so accepting places what was already fetched instead of issuing a second request; ignoring the offer releases it. Offers ride the bounded control bus: after a `Lagged`, call `tab.pending_downloads()` - anything listed can still be accepted or rendered by its `offer` id.
 -   **`ResumeDrawing` before anything paints.** See [Lifecycle](#lifecycle-and-ordering) step 7.
 -   **Tokens are yours to mint.** `HitTestToken` and `DownloadId` are chosen by the embedder and echoed back. Uniqueness is your responsibility; the engine does not check.
 -   **`TabCrashed` means the tab is gone.** Stop sending to that handle and recreate the tab.
