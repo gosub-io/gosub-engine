@@ -6,9 +6,11 @@ side of the story is in [fonts.md](fonts.md) ("Confinement tiers"), and the rend
 pipeline the isolated renderers run is described under
 [render-pipeline/](render-pipeline/README.md).
 
-Everything here is opt-in and **off by default** (see [Settings](#settings)).
-The renderer process family is **Linux only**; the network and decoder processes
-also run on macOS and Windows with platform-appropriate confinement.
+Everything here is **on by default on Linux** for an embedder that follows the
+contract below, and off elsewhere until those platforms are verified (see
+[Settings](#settings)). The renderer process family is **Linux only**; the
+network and decoder processes also run on macOS and Windows with
+platform-appropriate confinement.
 
 ## Why
 
@@ -159,15 +161,25 @@ traffic).
 
 | Setting | Default | Effect |
 |---|---|---|
-| `security.network_process` | off | Network stack in its own sandboxed process. Falls back in-process with a warning (network code is trusted engine code; the sandbox is defense in depth). |
-| `security.image_decoder_process` | off | Raster decoding in a throwaway process per image. Falls back in-process with a warning. |
-| `security.renderer_process` | off | The fork server + resident renderer machinery described above. **No fallback for page content**: if it cannot start, pages simply render in-process from the beginning (with a warning at startup); once it *has* started, a page that cannot be rendered out of process stays blank. Linux only. |
+| `security.network_process` | on (Linux) | Network stack in its own sandboxed process. Falls back in-process with a warning (network code is trusted engine code; the sandbox is defense in depth). |
+| `security.image_decoder_process` | on (Linux) | Raster decoding in a throwaway process per image. Falls back in-process with a warning. |
+| `security.renderer_process` | on (Linux, `Full`-tier font systems) | The fork server + resident renderer machinery described above. **No fallback for page content**: if it cannot start, pages simply render in-process from the beginning (with a warning at startup); once it *has* started, a page that cannot be rendered out of process stays blank. Linux only. |
 
-They stay off by default in this series. The reason they were kept off — heavy
-sites took double-digit seconds to style and lay out, which felt broken and made
-same-site tabs queue visibly — is gone since the style-resolution work (a
-theverge-class page went from ~12 s to ~1 s). Flipping them on is the next step,
-together with the per-platform question (the renderer tier is Linux-only).
+The defaults are *offers*: at `start()` the engine keeps each one only where
+it can apply, and says what it decided at `info` level (or `warn`, when the
+embedder set the value explicitly and it still cannot apply):
+
+- none of them without `child_process::dispatch()` in this process;
+- the network and decoder processes on Linux only, until the macOS/Windows
+  backends have run in CI (set them explicitly to try them there);
+- the renderer tier only for font systems that answer `Full` (Parley,
+  cosmic-text) and configurations with a forked rasterizer. `FontPathsReadable`
+  font systems (Skia, Pango) get the exec-per-render tier - a fresh process for
+  every render, no resident renderers - and must opt in explicitly.
+
+What defaults-on buys is crash and memory isolation of untrusted parsing and
+rendering. Data isolation (opaque-response blocking, SSRF policy, the cookie
+vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
 
 ## Observing it
 

@@ -13,11 +13,13 @@
 //!    embedder's configuration type because a renderer runs the pipeline over
 //!    your document and font types; the plain `dispatch` still works for an
 //!    embedder that wants only the network and decoder processes.
-//! 2. Turn on the isolation settings before [`GosubEngine::start`].
-//!    `security.network_process` moves the network stack out;
-//!    `security.image_decoder_process` decodes each image in a throwaway
-//!    process; `security.renderer_process` renders pages out of process. All
-//!    are read once, as the engine starts.
+//! 2. The isolation settings - `security.network_process` moves the network
+//!    stack out; `security.image_decoder_process` decodes each image in a
+//!    throwaway process; `security.renderer_process` renders pages out of
+//!    process - are on by default on Linux, and read once as the engine
+//!    starts. This example still sets them explicitly, so that where a default
+//!    cannot apply (another platform, a font system that cannot be confined)
+//!    the engine warns instead of quietly staying in-process.
 //!
 //! Get (1) wrong and the engine says so and falls back to in-process networking
 //! rather than misbehaving: the child would otherwise re-enter this `main` and
@@ -126,7 +128,9 @@ async fn run(urls: Vec<String>) {
         Arc::new(DefaultCompositor::default()),
     );
 
-    // (2) Before start(): the I/O runtime reads this as it comes up.
+    // (2) Before start(): the I/O runtime reads this as it comes up. Explicit
+    // rather than relying on the defaults, so a default that cannot apply here
+    // is a warning, not a quiet fallback.
     for key in [
         "security.network_process",
         "security.image_decoder_process",
