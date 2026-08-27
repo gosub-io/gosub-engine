@@ -24,7 +24,7 @@ The font system must match the backend (measurement and drawing share one font c
 
 The setup is the same as a GUI embedder's, minus the window (compare [tutorial.md](tutorial.md)):
 
-1.  Create the backend and a `DefaultCompositor` whose redraw callback signals a channel --- this is the "new frame available" notification a GUI would use to schedule a repaint.
+1.  Create the backend and a `DefaultCompositor` whose redraw callback signals a channel --- `DefaultCompositor::new(|| { /* wake the UI */ })` (from `gosub_render_pipeline::render`). This is the "new frame available" notification a GUI would use to schedule a repaint; `DefaultCompositor::default()` is the same thing with no callback.
 2.  `GosubEngine::<AppConfig>::new(…)`, `start()`, `subscribe_events()`.
 3.  Create a zone with throwaway storage (`SqliteLocalStore::new(":memory:")`, in-memory session store, no cookie persistence) and one tab.
 4.  Send `TabCommand::SetViewport`, `Navigate`, and `ResumeDrawing { fps }`.
@@ -36,8 +36,8 @@ One trick worth stealing: the tool sets the initial viewport to `width × 16384`
 The tool runs three phases:
 
 1.  **Wait for content** --- spin on the event stream until `NavigationEvent::Finished`, then wait for the first redraw signal after that (the first frame that actually contains the page). Both waits have timeouts (`--nav-timeout`, `--render-timeout`).
-2.  **Obtain the tile cache** --- ask the compositor for the tab's latest frame (`compositor.frame_for(tab_id)`) and expect an `ExternalHandle::TileCache`, which carries the tiles and the laid-out `page_height`. A 1-px synthetic scroll (`TabCommand::MouseScroll`) nudges the engine into publishing a fresh tile-cache frame if needed.
-3.  **Composite** --- allocate an opaque-white RGBA buffer at `viewport_width × page_height` and blend every tile into it. This is a miniature version of what every host compositor does (see [layering-and-compositing.md](render-pipeline/layering-and-compositing.md)):
+2.  **Obtain the tile cache** --- ask the compositor for the tab's latest frame (`compositor.frame_for(tab_id) -> Option<ExternalHandle>`, with `ExternalHandle` in `gosub_render_pipeline::render::backend`) and expect an `ExternalHandle::TileCache { tiles, page_height, dpr, scroll_x, scroll_y, .. }`, which carries the tiles, the laid-out `page_height`, and the scroll offset the engine rendered at. A 1-px synthetic scroll (`TabCommand::MouseScroll`) nudges the engine into publishing a fresh tile-cache frame if needed.
+3.  **Composite** --- allocate an opaque-white RGBA buffer at `viewport_width × page_height` and blend every tile into it. This is a miniature version of what every host compositor does (see [layering-and-compositing.md](render-pipeline/layering-and-compositing.md)). A windowed UA that only needs the *visible* region can skip writing this itself: `gosub_render_pipeline::render::composite_tiles(&tiles, dpr, (scroll_x, scroll_y), &mut TileTarget { buf, stride, origin_x, origin_y, width, height })` composites the tiles into a `&mut [u32]` 0RGB buffer (the layout softbuffer and most CPU presenters use) --- see `examples/winit-skia/main.rs`. The screenshot tool does the full-page version by hand:
     -   normalize the tile's pixel format to RGBA via `PixelFormat::to_rgba` (tiles are self-describing; Skia produces premultiplied `[B,G,R,A]`);
     -   scale by the tile's layer **group opacity** (a translucent navbar fades as a unit);
     -   **source-over blend** into the buffer rather than overwrite --- a promoted `position: fixed` layer's transparent tile regions must reveal the rows already composited beneath, not erase them.
