@@ -116,6 +116,7 @@ fn main() {
     let scenario = std::env::args().nth(1).unwrap_or_default();
     let code = match scenario.as_str() {
         "direct" => direct(),
+        "resolve" => resolve(),
         "engine" => engine(),
         "guard" => guard(),
         "decode" => decode(),
@@ -3371,6 +3372,81 @@ fn serve_once_with(body: &'static str) -> std::io::Result<(u16, std::thread::Joi
     });
 
     Ok((port, handle))
+}
+
+/// Real hostname resolution inside the sandboxed network process. `127.0.0.1`
+/// never reaches NSS, which is how two syscall denials (`mmap(PROT_EXEC)` from
+/// `dlopen`ing NSS modules, `sendmmsg` from the resolver) survived every test
+/// until an example hit a live URL. A reserved `.invalid` name exercises the
+/// whole resolver path without needing the network: the fetch must fail, and
+/// the process must *survive* it and still serve. The strict fetcher (a
+/// subresource of a public page) must then refuse the loopback test server,
+/// and the permissive one must still reach it.
+fn resolve() -> i32 {
+    use gosub_engine::net::process::client::NetProcess;
+    use gosub_engine::net::process::protocol::FetchOutcome;
+
+    let Ok((port, server)) = serve_once() else {
+        eprintln!("could not start the test server");
+        return 1;
+    };
+    let net = match NetProcess::spawn() {
+        Ok(n) => n,
+        Err(e) => {
+            eprintln!("could not spawn the network process: {e}");
+            return 1;
+        }
+    };
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        eprintln!("could not start a runtime");
+        return 1;
+    };
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let fetch = |url: String, refuse_private: bool| {
+        runtime.block_on(net.fetch(url, "GET".into(), vec![], None, refuse_private, &cancel))
+    };
+
+    // 1. A name that cannot exist (RFC 2606), through the permissive fetcher.
+    match fetch("http://gosub-hostname-probe.invalid/".into(), false) {
+        FetchOutcome::Ok { status, .. } => {
+            eprintln!("a .invalid name must not resolve, got status {status}");
+            net.shutdown();
+            return 1;
+        }
+        FetchOutcome::Error(e) => println!("resolution failed as it should: {e}"),
+    }
+
+    // 2. The strict fetcher classifies the loopback literal at the hop.
+    match fetch(format!("http://127.0.0.1:{port}/"), true) {
+        FetchOutcome::Ok { .. } => {
+            eprintln!("the strict fetcher reached loopback");
+            net.shutdown();
+            return 1;
+        }
+        FetchOutcome::Error(e) if e.contains("blocked") || e.contains("policy") => {
+            println!("strict fetcher refused loopback: {e}");
+        }
+        FetchOutcome::Error(e) => {
+            eprintln!("strict fetcher failed for the wrong reason: {e}");
+            net.shutdown();
+            return 1;
+        }
+    }
+
+    // 3. The process is still alive and serving.
+    let outcome = fetch(format!("http://127.0.0.1:{port}/"), false);
+    net.shutdown();
+    drop(server);
+    match outcome {
+        FetchOutcome::Ok { status: 200, body, .. } if body == BODY.as_bytes() => {
+            println!("network process survived resolution and still serves");
+            0
+        }
+        other => {
+            eprintln!("the network process did not survive: {other:?}");
+            1
+        }
+    }
 }
 
 /// The transport on its own: does a request survive the round trip through a
