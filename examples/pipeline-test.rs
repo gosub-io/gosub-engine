@@ -13,7 +13,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gosub_engine::events::{EngineEvent, NavigationEvent, ResourceEvent, ResourceUpdate};
-use gosub_engine::tab::TabDefaults;
 use gosub_engine::{
     cookies::DefaultCookieJar,
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
@@ -157,14 +156,9 @@ async fn main() -> Result<(), EngineError> {
         .services(zone_services)
         .create()?;
     let tab = zone
-        .create_tab(
-            TabDefaults {
-                url: None,
-                title: None,
-                viewport: Some(Viewport::new(0, 0, 800, 600)),
-            },
-            None,
-        )
+        .tab_builder()
+        .viewport(Viewport::new(0, 0, 800, 600))
+        .create()
         .await
         .expect("create tab");
 

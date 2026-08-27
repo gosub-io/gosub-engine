@@ -39,7 +39,7 @@ async fn redraw_wakeup_fires_and_tab_state_is_readable() {
     let mut events = engine.subscribe_events();
 
     let mut zone = engine.zone_builder().services(services()).create().expect("zone");
-    let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+    let tab = zone.tab_builder().create().await.expect("tab");
 
     tab.send(TabCommand::SetViewport {
         x: 0,

@@ -2,7 +2,6 @@ use crate::wasm::wgpu_context::WasmContextProvider;
 use gosub_engine::cookies::DefaultCookieJar;
 use gosub_engine::events::TabCommand;
 use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
-use gosub_engine::tab::TabDefaults;
 use gosub_engine::zone::{ZoneConfig, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
@@ -97,14 +96,10 @@ impl GosubBrowser {
                     .map_err(|e| e.to_string())?;
 
                 let tab = zone
-                    .create_tab(
-                        TabDefaults {
-                            url: None,
-                            title: Some("New Tab".to_string()),
-                            viewport: Some(Viewport::new(0, 0, width, height)),
-                        },
-                        None,
-                    )
+                    .tab_builder()
+                    .title("New Tab")
+                    .viewport(Viewport::new(0, 0, width, height))
+                    .create()
                     .await
                     .map_err(|e| e.to_string())?;
 

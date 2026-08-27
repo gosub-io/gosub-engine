@@ -1,5 +1,5 @@
-//! Tab configuration: a tab inherits settings from its parent [`Zone`](crate::zone)
-//! ([`TabDefaults`]) unless overridden per tab via [`TabOverrides`].
+//! Tab configuration, behind [`TabBuilder`](crate::TabBuilder): what a tab does first
+//! ([`TabDefaults`]) and how it is isolated from its zone ([`TabOverrides`]).
 
 use crate::cookies::CookieJarHandle;
 use crate::storage::{PartitionKey, StorageService};
@@ -33,15 +33,17 @@ pub struct TabDefaults {
 /// for a single tab. Fields are added here as the engine grows the corresponding
 /// feature - overrides without a consumer don't exist.
 ///
-/// # Example
+/// Set through [`TabBuilder`](crate::TabBuilder):
 /// ```no_run
-/// use gosub_engine::tab::{TabOverrides, TabCookieJar};
-///
-/// let overrides = TabOverrides {
-///     cookie_jar: TabCookieJar::Ephemeral,           // fresh cookie jar for this tab
-///     accept_language: Some("nl-NL,nl;q=0.9".into()), // per-tab Accept-Language
-///     ..Default::default()
-/// };
+/// # use gosub_engine::{tab::TabCookieJar, zone::Zone};
+/// # async fn f(zone: &mut Zone) -> Result<(), gosub_engine::EngineError> {
+/// let tab = zone
+///     .tab_builder()
+///     .cookie_jar(TabCookieJar::Ephemeral)   // fresh cookie jar for this tab
+///     .accept_language("nl-NL,nl;q=0.9")     // per-tab Accept-Language
+///     .create()
+///     .await?;
+/// # Ok(()) }
 /// ```
 #[derive(Clone, Debug, Default)]
 pub struct TabOverrides {

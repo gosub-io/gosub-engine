@@ -8,7 +8,7 @@
 use eframe::{egui, CreationContext};
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
-use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
+use gosub_engine::tab::{TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
@@ -127,14 +127,7 @@ impl BrowserApp {
             .expect("create_zone");
 
         let tab = TOKIO_RT
-            .block_on(zone.create_tab(
-                TabDefaults {
-                    url: None,
-                    title: Some("Gosub".to_string()),
-                    viewport: None,
-                },
-                None,
-            ))
+            .block_on(zone.tab_builder().title("Gosub").create())
             .expect("create_tab");
 
         let tab_id = tab.tab_id;

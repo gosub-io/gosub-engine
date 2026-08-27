@@ -529,7 +529,7 @@ mod tests {
         let mut events = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
         let mut zone = engine.zone_builder().services(services()).create().expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let tab = zone.tab_builder().create().await.expect("tab");
 
         tab.navigate("http://127.0.0.1:9/nope").await.expect("navigate");
 
@@ -570,7 +570,7 @@ mod tests {
         let mut events = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
         let mut zone = engine.zone_builder().services(services()).create().expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let tab = zone.tab_builder().create().await.expect("tab");
 
         tab.navigate("not a url at all").await.expect("navigate");
 
@@ -604,7 +604,7 @@ mod tests {
         let mut engine = engine_with_max_zones(1);
         let _join = tokio::spawn(engine.start().expect("start"));
         let mut zone = engine.zone_builder().services(services()).create().expect("zone");
-        let created = zone.create_tab(Default::default(), None).await.expect("tab");
+        let created = zone.tab_builder().create().await.expect("tab");
 
         let looked_up = zone.tab(created.tab_id).expect("tab exists");
         assert_eq!(looked_up.tab_id, created.tab_id);
@@ -661,7 +661,7 @@ mod tests {
         let mut events = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
         let mut zone = engine.zone_builder().services(services()).create().expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let tab = zone.tab_builder().create().await.expect("tab");
 
         tab.navigate(format!("http://127.0.0.1:{port}/page"))
             .await
@@ -770,7 +770,7 @@ mod tests {
             .expect("set user agent");
 
         let mut zone = engine.zone_builder().services(services()).create().expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let tab = zone.tab_builder().create().await.expect("tab");
         tab.navigate(format!("http://127.0.0.1:{port}/"))
             .await
             .expect("navigate");
@@ -810,7 +810,7 @@ mod tests {
         let _join = tokio::spawn(engine.start().expect("start"));
 
         let mut zone = engine.zone_builder().create().expect("default zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let tab = zone.tab_builder().create().await.expect("tab");
         tab.send(TabCommand::LoadHtml {
             html: "<html><head><title>Default</title></head><body></body></html>".into(),
             base_url: "https://example.test/".into(),
@@ -847,6 +847,73 @@ mod tests {
         engine.shutdown().await.expect("shutdown");
     }
 
+    /// A per-tab `Accept-Language` set through the builder must reach the wire.
+    #[tokio::test(flavor = "current_thread")]
+    async fn tab_builder_accept_language_reaches_the_wire() {
+        use crate::events::NavigationEvent;
+        use cow_utils::CowUtils;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let seen = std::sync::Arc::new(parking_lot::Mutex::new(String::new()));
+        let seen_srv = seen.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let seen_srv = seen_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    *seen_srv.lock() = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    let body = "<html><body>ok</body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().create().expect("zone");
+        let tab = zone
+            .tab_builder()
+            .accept_language("xx-TEST,xx;q=0.5")
+            .url(format!("http://127.0.0.1:{port}/"))
+            .create()
+            .await
+            .expect("tab");
+
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. } | NavigationEvent::Failed { .. },
+                    ..
+                }) = events.recv().await
+                {
+                    return;
+                }
+            }
+        })
+        .await
+        .expect("navigation should complete");
+
+        let request = seen.lock().clone();
+        assert!(
+            request
+                .cow_to_ascii_lowercase()
+                .contains("accept-language: xx-test,xx;q=0.5"),
+            "per-tab Accept-Language missing; request was:\n{request}"
+        );
+        let _ = tab;
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
     fn engine_with_max_zones(max_zones: usize) -> GosubEngine {
         let settings = EngineConfig::builder().max_zones(max_zones).build().unwrap();
         GosubEngine::new(
@@ -871,7 +938,7 @@ mod tests {
         let mut zone = engine.zone_builder().services(zone_services).create().expect("zone");
 
         // Tab creation resolves the persistent per-zone jar from the store.
-        let _tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let _tab = zone.tab_builder().create().await.expect("tab");
 
         // Store a cookie through the zone's (memoized) persistent jar.
         let jar = store.jar_for(zone.id).expect("persistent jar");
@@ -927,7 +994,7 @@ mod tests {
             .services(services())
             .create()
             .expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let tab = zone.tab_builder().create().await.expect("tab");
         tab.navigate(format!("http://127.0.0.1:{port}/"))
             .await
             .expect("navigate");
@@ -999,7 +1066,7 @@ mod tests {
         let mut event_rx = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
         let mut zone = engine.zone_builder().services(services()).create().expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let tab = zone.tab_builder().create().await.expect("tab");
 
         // Navigating to the binary produces an offer, not an error page.
         tab.navigate(format!("http://127.0.0.1:{port}/data/raw.bin"))
@@ -1160,7 +1227,7 @@ mod tests {
         let mut zone_services = services();
         zone_services.places = Some(places.clone());
         let mut zone = engine.zone_builder().services(zone_services).create().expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let tab = zone.tab_builder().create().await.expect("tab");
 
         let url = format!("http://127.0.0.1:{port}/page");
         tab.navigate(url.clone()).await.expect("navigate");
@@ -1209,7 +1276,7 @@ mod tests {
         let mut event_rx = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
         let mut zone = engine.zone_builder().services(services()).create().expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let tab = zone.tab_builder().create().await.expect("tab");
         let tab_id = tab.tab_id;
 
         tab.send(TabCommand::CrashForTest).await.expect("send crash command");
@@ -1271,7 +1338,7 @@ mod tests {
         let mut event_rx = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
         let mut zone = engine.zone_builder().services(services()).create().expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let tab = zone.tab_builder().create().await.expect("tab");
         tab.send(TabCommand::SetViewport {
             x: 0,
             y: 0,
@@ -1403,7 +1470,7 @@ mod tests {
         let mut event_rx = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
         let mut zone = engine.zone_builder().services(services()).create().expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let tab = zone.tab_builder().create().await.expect("tab");
 
         // Collect HistoryChanged snapshots until `pred` holds (or time out).
         async fn next_history(
@@ -1567,7 +1634,7 @@ mod tests {
         zone_services.cookie_store = Some(store.clone());
         let mut zone = engine.zone_builder().services(zone_services).create().expect("zone");
         let zone_id = zone.id;
-        let _tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let _tab = zone.tab_builder().create().await.expect("tab");
 
         // Store a cookie through the zone's persistent jar.
         let jar = store.jar_for(zone_id).expect("persistent jar");

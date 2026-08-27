@@ -11,7 +11,7 @@ use gosub_engine::{
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 
 use gosub_engine::events::{NavigationEvent, ResourceEvent, ResourceUpdate};
-use gosub_engine::tab::{TabDefaults, TabId};
+use gosub_engine::tab::TabId;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -140,14 +140,11 @@ async fn main() -> Result<(), EngineError> {
     // be able to provide tab-specific services (like a different cookie jar, etc.)
     let mut tabs = Vec::new();
     for i in 0..25 {
-        let def_values = TabDefaults {
-            url: None,
-            title: Some(format!("Tab {i}")),
-            viewport: Some(Viewport::new(0, 0, 800, 600)),
-        };
-
         let tab = zone
-            .create_tab(def_values.clone(), None)
+            .tab_builder()
+            .title(format!("Tab {i}"))
+            .viewport(Viewport::new(0, 0, 800, 600))
+            .create()
             .await
             .expect("cannot create tab");
 

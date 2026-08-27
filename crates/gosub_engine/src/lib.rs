@@ -68,7 +68,7 @@
 //!     let mut zone = engine_handle.zone_builder().services(services).create()?;
 //!
 //!     // 4) Create a tab (TabHandle)
-//!     let tab_handle = zone.create_tab(Default::default(), None).await?;
+//!     let tab_handle = zone.tab_builder().create().await?;
 //!
 //!     // 5) Drive the tab
 //!     tab_handle.send(TabCommand::Navigate{ url: "https://example.com".to_string() }).await?;
@@ -208,6 +208,7 @@ pub mod html;
 #[cfg(feature = "metrics")]
 pub mod metrics;
 
+pub use engine::zone::TabBuilder;
 pub use engine::{BrowsingContext, EngineError, GosubEngine, LoadError, ZoneBuilder};
 
 /// The engine's ready-made config: a marker that implements both

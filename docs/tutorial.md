@@ -95,18 +95,15 @@ let mut zone = engine
 
 ``` rust
 use gosub_render_pipeline::render::Viewport;
-use gosub_engine::tab::TabDefaults;
 
-let tab = zone.create_tab(
-    TabDefaults {
-        viewport: Some(Viewport::new(0, 0, 1280, 800)),
-        ..Default::default()
-    },
-    None,
-).await?;
+let tab = zone
+    .tab_builder()
+    .viewport(Viewport::new(0, 0, 1280, 800))
+    .create()
+    .await?;
 ```
 
-`create_tab` returns a `TabHandle`. Hold on to it - you need it to send commands and to match events back to the right tab.
+`create()` returns a `TabHandle`. Hold on to it - you need it to send commands and to match events back to the right tab.
 
 ### 5. Navigate
 

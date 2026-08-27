@@ -46,7 +46,7 @@ Several of these steps only work in one order, and the signatures do not say so.
 
 5.  `engine.zone_builder() … .create()`. Everything is optional: with nothing set you get an ephemeral in-memory profile under the engine's default `ZoneConfig` and a fresh id. Set `.config(..)` for limits, `.id(..)` to restore a persisted profile, and `.services(..)` (or the per-field setters: `.storage`, `.cookie_jar`, `.cookie_store`, `.partition_policy`, `.places`) for the isolation boundary.
 
-6.  `zone.create_tab(TabDefaults, overrides)` returns a `TabHandle`.
+6.  `zone.tab_builder() … .create().await?` returns a `TabHandle`. Optional: `.url(..)` to navigate at once, `.title(..)`, `.viewport(..)`; and per-tab isolation with `.cookie_jar(..)`, `.storage(..)`, `.partition_key(..)`, `.accept_language(..)`.
 
 7.  Send `ResumeDrawing { fps }`. A fresh tab has `drawing_enabled: false`, so without it no frame is rasterized and no `Redraw` fires however much you navigate. This keeps a backgrounded tab free, and it is the usual reason a first integration renders a blank window.
 

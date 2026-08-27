@@ -14,7 +14,6 @@ use gosub_engine::{
     cookies::DefaultCookieJar,
     events::{EngineEvent, NavigationEvent, TabCommand},
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
-    tab::TabDefaults,
     zone::ZoneServices,
     DefaultRenderConfig, EngineConfig, EngineError, GosubEngine,
 };
@@ -68,13 +67,9 @@ async fn main() -> Result<(), EngineError> {
     // A Tab is a single browsing context (like a browser tab). You control it
     // through the returned TabHandle by sending TabCommands.
     let tab = zone
-        .create_tab(
-            TabDefaults {
-                viewport: Some(Viewport::new(0, 0, 1280, 800)),
-                ..Default::default()
-            },
-            None,
-        )
+        .tab_builder()
+        .viewport(Viewport::new(0, 0, 1280, 800))
+        .create()
         .await
         .expect("cannot create tab");
 

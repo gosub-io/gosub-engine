@@ -18,7 +18,7 @@ use glutin::surface::{Surface as GlSurface_, WindowSurface};
 use glutin_winit::{DisplayBuilder, GlWindow};
 use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
-use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
+use gosub_engine::tab::{TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
@@ -595,14 +595,7 @@ fn main() {
         .create()
         .expect("zone");
     let tab = TOKIO_RT
-        .block_on(zone.create_tab(
-            TabDefaults {
-                url: None,
-                title: Some("Gosub".to_string()),
-                viewport: None,
-            },
-            None,
-        ))
+        .block_on(zone.tab_builder().title("Gosub").create())
         .expect("tab");
 
     let tab_id = tab.tab_id;

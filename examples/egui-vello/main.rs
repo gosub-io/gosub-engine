@@ -11,7 +11,7 @@
 use eframe::{egui, CreationContext};
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
-use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
+use gosub_engine::tab::{TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
@@ -219,16 +219,14 @@ impl BrowserApp {
             .expect("create_zone");
 
         let tab = TOKIO_RT
-            .block_on(zone.create_tab(
-                TabDefaults {
-                    url: None,
-                    title: Some("Gosub".to_string()),
+            .block_on(
+                zone.tab_builder()
+                    .title("Gosub")
                     // Vello needs a non-zero viewport to create the wgpu texture.
                     // The real size is sent via SetViewport on the first panel resize.
-                    viewport: Some(Viewport::new(0, 0, 1024, 768)),
-                },
-                None,
-            ))
+                    .viewport(Viewport::new(0, 0, 1024, 768))
+                    .create(),
+            )
             .expect("create_tab");
 
         let tab_id = tab.tab_id;

@@ -38,7 +38,7 @@ The command/event flow is strictly layered: commands travel *down* (UA → engin
 
 ## Tabs
 
-A tab is a browsing context. `zone.create_tab(TabDefaults, overrides)` spawns a **`TabWorker`** --- a dedicated tokio task owning everything about that page --- and returns a `TabHandle`:
+A tab is a browsing context. `zone.tab_builder() … .create().await` spawns a **`TabWorker`** --- a dedicated tokio task owning everything about that page --- and returns a `TabHandle`:
 
 ``` rust
 pub struct TabHandle {

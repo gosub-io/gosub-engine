@@ -8,7 +8,7 @@
 use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
-use gosub_engine::tab::{TabDefaults, TabId};
+use gosub_engine::tab::TabId;
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
@@ -122,17 +122,14 @@ fn main() {
         let tab = {
             let mut z = zone.borrow_mut();
             TOKIO_RT
-                .block_on(z.create_tab(
-                    TabDefaults {
-                        url: None,
-                        title: Some("Gosub Skia".to_string()),
+                .block_on(
+                    z.tab_builder()
+                        .title("Gosub Skia")
                         // No initial viewport - let connect_resize set it with the correct DPR.
                         // If we pre-set a viewport here (DPR=1), the engine won't recreate the
                         // surface when connect_resize sends the same CSS dimensions with DPR=2.
-                        viewport: None,
-                    },
-                    None,
-                ))
+                        .create(),
+                )
                 .expect("create_tab")
         };
 

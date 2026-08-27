@@ -1,7 +1,6 @@
 // Example code: panicking on bad input is the desired behavior, as in any test code.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use gosub_engine::events::{MouseButton, NavigationEvent, ResourceEvent, ResourceUpdate, TabCommand};
-use gosub_engine::tab::TabDefaults;
 use gosub_engine::{
     cookies::DefaultCookieJar,
     events::EngineEvent,
@@ -107,12 +106,13 @@ async fn main() -> Result<(), EngineError> {
 
     // Next, we create a tab in the zone. For now, we don't provide anything, but we should
     // be able to provide tab-specific services (like a different cookie jar, etc.)
-    let def_values = TabDefaults {
-        url: None,
-        title: Some("New Tab".into()),
-        viewport: Some(Viewport::new(0, 0, 800, 600)),
-    };
-    let tab = zone.create_tab(def_values, None).await.expect("cannot create tab");
+    let tab = zone
+        .tab_builder()
+        .title("New Tab")
+        .viewport(Viewport::new(0, 0, 800, 600))
+        .create()
+        .await
+        .expect("cannot create tab");
 
     // From the tab handle, we can now send commands to the engine to control the tab.
     tab.send(TabCommand::SetViewport {
