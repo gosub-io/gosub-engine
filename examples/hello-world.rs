@@ -241,6 +241,8 @@ fn handle_resource(update: ResourceUpdate) {
         ResourceEvent::Cancelled { url, reason, .. } => {
             println!("[res ] cancelled [{t}] {url}  ({reason:?})");
         }
+        // The event enums are non_exhaustive; unknown variants are ignored.
+        _ => {}
     }
 }
 
@@ -291,6 +293,8 @@ async fn handle_event(ev: EngineEvent) {
                         history.forward.len()
                     );
                 }
+                // The event enums are non_exhaustive; unknown variants are ignored.
+                _ => {}
             }
         }
 

@@ -30,6 +30,8 @@ gosub_engine = { version = "0.1", features = ["unstable-api"] }
 
 Gated entries are marked **· gated ·** in the tables below.
 
+Because the variant set depends on features, `EngineEvent`, `NavigationEvent` and `ResourceEvent` are `#[non_exhaustive]`: every `match` on them needs a `_` arm.
+
 ------------------------------------------------------------------------
 
 ## Lifecycle and ordering

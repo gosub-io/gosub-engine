@@ -2,7 +2,8 @@
 //! and events flowing out ([`EngineEvent`]), plus the input types they carry.
 //!
 //! Variants the engine declares but does not yet emit or handle sit behind the non-default
-//! `unstable-api` feature; see the crate docs.
+//! `unstable-api` feature; see the crate docs. The event enums are `#[non_exhaustive]` for
+//! that reason: the variant set an embedder sees depends on features, so matches need a `_` arm.
 
 #[cfg(feature = "unstable-api")]
 use crate::cookies::Cookie;
@@ -342,6 +343,7 @@ pub(crate) enum EngineCommand {
 /// Navigation events. These are the "top" events that will trigger load and resource events. All
 /// events triggered in this navigation will have the same navigation id.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum NavigationEvent {
     Started {
         nav_id: NavigationId,
@@ -411,6 +413,7 @@ pub struct ResourceUpdate {
 /// redirects?) and its `reference` — what the resource belongs to (navigation id, document id,
 /// background task id etc.).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum ResourceEvent {
     /// Declared but never emitted: requests currently go straight to `Started`.
     /// Behind `unstable-api`.
@@ -505,6 +508,7 @@ impl Display for CancelReason {
 
 /// Engine events
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum EngineEvent {
     // ****************************************
     // ** Engine lifecycle

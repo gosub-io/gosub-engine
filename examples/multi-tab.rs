@@ -289,6 +289,8 @@ fn handle_resource(update: ResourceUpdate) {
         }
         ResourceEvent::Failed { url, error, .. } => ui.update(tab_id, format!("res: FAILED {url} ({error})")),
         ResourceEvent::Cancelled { url, reason, .. } => ui.update(tab_id, format!("res: cancelled {url} [{reason:?}]")),
+        // The event enums are non_exhaustive; unknown variants are ignored.
+        _ => {}
     }
 }
 
@@ -360,6 +362,8 @@ fn handle_event(ev: EngineEvent) {
                         ),
                     );
                 }
+                // The event enums are non_exhaustive; unknown variants are ignored.
+                _ => {}
             }
         }
         EngineEvent::Redraw { tab_id, .. } => {

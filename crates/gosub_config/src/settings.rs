@@ -149,11 +149,7 @@ impl Setting {
 
 fn is_bool_value(s: &str) -> bool {
     let us = s.cow_to_uppercase();
-    if ["YES", "ON", "TRUE", "1"].contains(&us.as_ref()) {
-        return true;
-    }
-
-    false
+    ["YES", "ON", "TRUE", "1"].contains(&us.as_ref())
 }
 
 impl Serialize for Setting {
