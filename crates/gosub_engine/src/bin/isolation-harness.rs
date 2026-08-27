@@ -3404,6 +3404,7 @@ fn direct() -> i32 {
         "GET".into(),
         vec![("accept".into(), "text/html".into())],
         None,
+        false,
         &cancel,
     ));
     net.shutdown();

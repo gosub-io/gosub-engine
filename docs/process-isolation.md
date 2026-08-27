@@ -157,6 +157,34 @@ renderer is bounded by the exchange timeouts (60 s for renders — generous on
 purpose, so a slow page is never mistaken for a wedged process — 10 s for control
 traffic).
 
+## What a page may load
+
+Two policies sit in the broker's I/O runtime, on every subresource a page
+loads, in both the in-process and the network-process arrangement. Both are
+decided from the tab's *own* document (the top-level URL the broker recorded
+at navigation), never from anything the requester sent.
+
+- **Private-network protection** (`net::ssrf`). A subresource of a document on
+  the public internet may not reach loopback, private, link-local, CGNAT,
+  multicast or the other reserved ranges - the classic SSRF through
+  `<img src="http://169.254.169.254/…">`. Navigations are never restricted, and
+  a document that itself lives on the private network may load its neighbours.
+  The decision and the connection are one step: such requests go through a
+  *strict* fetcher (one per zone, and one in the network process) whose DNS
+  resolver refuses a name if *any* answer is private and which classifies IP
+  literals - including the `2130706433` / `0x7f000001` / `127.1` spellings and
+  the NAT64/6to4/IPv4-mapped IPv6 embeddings - at every redirect hop. There is
+  no second lookup for a rebinding attack to poison.
+- **Opaque-response blocking** (`net::orb`). A cross-origin response body only
+  reaches a renderer when it is something a page may embed: images, media,
+  CSS, scripts, fonts. HTML, JSON and XML - by declared type, or by what the
+  first bytes sniff as - stay in the broker; the requester sees an error. This
+  is what makes per-site renderer processes mean something: another origin's
+  data never enters a renderer's address space through an `<img>` or `<script>`
+  tag. Mislabelled images (a PNG served as `text/plain`) are recognised by
+  their bytes. There is no CORS input yet; every load the engine issues today
+  is a no-cors subresource load.
+
 ## Settings
 
 | Setting | Default | Effect |
@@ -227,6 +255,5 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
 - **`FontPathsReadable` font systems** (fontconfig-based: Pango, Skia) get a
   weaker arrangement: no fork server, a throwaway renderer exec'd per render,
   with read-only Landlock-scoped font paths. See fonts.md.
-- Net-side policy (opaque-response blocking, SSRF protection), the cookie
-  vault, and streamed bodies over the boundary are tracked as follow-ups from
-  the original PoC.
+- The cookie vault and streamed bodies over the boundary are tracked as
+  follow-ups from the original PoC.

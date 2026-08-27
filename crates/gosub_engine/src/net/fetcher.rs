@@ -88,6 +88,20 @@ pub struct EngineNetContext {
     pub event_tx: EventChannel,
     pub request_reference_map: Arc<RwLock<RequestReferenceMap>>,
     pub request_ref_tracker: Arc<RequestRefTracker>,
+    /// This fetcher serves subresources of public documents: refuse private
+    /// destinations at every hop (see [`crate::net::ssrf`]). Hostnames are
+    /// refused by the strict resolver; this covers the IP literals it never sees.
+    pub refuse_private: bool,
+}
+
+/// The configuration of a fetcher that may not reach the private network:
+/// `cfg` with the strict resolver, which fails closed on any private answer
+/// and, being the only resolver the client has, cannot be rebound around.
+pub fn strict_config(cfg: &FetcherConfig) -> FetcherConfig {
+    FetcherConfig {
+        dns_resolver: Some(Arc::new(crate::net::ssrf::StrictResolver)),
+        ..cfg.clone()
+    }
 }
 
 impl FetcherContext for EngineNetContext {
@@ -123,6 +137,19 @@ impl FetcherContext for EngineNetContext {
                 log::trace!("Cannot find the request reference for reference {:?}", reference);
                 Arc::new(NullEmitter) as Arc<dyn NetObserver + Send + Sync>
             }
+        }
+    }
+
+    fn is_url_allowed(&self, url: &url::Url) -> bool {
+        if !self.refuse_private {
+            return true;
+        }
+        match crate::net::ssrf::literal_verdict(url) {
+            Some(reason) => {
+                log::info!("blocked {url}: {reason}");
+                false
+            }
+            None => true,
         }
     }
 

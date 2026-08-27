@@ -158,6 +158,7 @@ impl NetProcess {
         method: String,
         headers: Vec<(String, String)>,
         body: Option<Vec<u8>>,
+        refuse_private: bool,
         cancel: &CancellationToken,
     ) -> FetchOutcome {
         let permit = tokio::select! {
@@ -178,6 +179,7 @@ impl NetProcess {
             method,
             headers,
             body,
+            refuse_private,
         });
         // The link write can block on a full pipe (bodies can be large), so it
         // runs on a blocking thread rather than a runtime worker.
