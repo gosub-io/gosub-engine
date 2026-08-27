@@ -568,16 +568,24 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             Some(data) => data.attributes.get("id").cloned(),
             None => return, // not an element
         };
-        match id_attr {
-            Some(id_value) => {
-                if is_valid_id_attribute_value(&id_value) {
-                    if let Entry::Vacant(e) = self.named_id_elements.entry(id_value.clone()) {
-                        e.insert(node_id);
-                        self.named_ids_by_node.entry(node_id).or_default().push(id_value);
-                    }
-                }
-            }
-            None => self.unregister_named_ids(node_id),
+        self.register_named_id(node_id, id_attr.as_deref());
+    }
+
+    /// Point `node_id` at `id_attr`, dropping whatever it was registered under before. The
+    /// unregister has to happen even when the new value is valid: otherwise an `a` -> `b` rename
+    /// leaves `a` resolving to this node forever, and no other node can ever claim `a`, because
+    /// the insert below is vacant-only. An absent or invalid value just unregisters.
+    fn register_named_id(&mut self, node_id: NodeId, id_attr: Option<&str>) {
+        self.unregister_named_ids(node_id);
+        let Some(id_value) = id_attr.filter(|v| is_valid_id_attribute_value(v)) else {
+            return;
+        };
+        if let Entry::Vacant(e) = self.named_id_elements.entry(id_value.to_string()) {
+            e.insert(node_id);
+            self.named_ids_by_node
+                .entry(node_id)
+                .or_default()
+                .push(id_value.to_string());
         }
     }
 
@@ -596,20 +604,8 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         let Some(element_data) = node.get_element_data() else {
             return;
         };
-        if let Some(id_value) = element_data.attributes.get("id") {
-            if is_valid_id_attribute_value(id_value) {
-                if let Entry::Vacant(e) = self.named_id_elements.entry(id_value.clone()) {
-                    e.insert(node.id());
-                    self.named_ids_by_node
-                        .entry(node.id())
-                        .or_default()
-                        .push(id_value.clone());
-                }
-            }
-        } else {
-            // The node lost its id attribute.
-            self.unregister_named_ids(node.id());
-        }
+        let id_attr = element_data.attributes.get("id").map(String::as_str);
+        self.register_named_id(node.id(), id_attr);
     }
 
     /// Fetch a node reference by id (internal - not in the Document trait)
@@ -1035,6 +1031,53 @@ mod tests {
 
         doc.delete_node_by_id(select);
         assert!(doc.open_select().is_none(), "the open dropdown closes with its select");
+    }
+
+    /// Change `node`'s `id` attribute in place and run the mutation hook, the way a DOM
+    /// `setAttribute` does.
+    fn set_id(doc: &mut DocumentImpl<Config>, node: NodeId, id: Option<&str>) {
+        let mut n = doc.node_by_id(node).expect("node").clone();
+        let data = n.get_element_data_mut().expect("element");
+        match id {
+            Some(id) => {
+                data.attributes.insert("id".to_string(), id.to_string());
+            }
+            None => {
+                data.attributes.remove("id");
+            }
+        }
+        doc.update_node(n);
+    }
+
+    #[test]
+    fn renaming_an_id_releases_the_old_one() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let a = element_with_id(&mut doc, "div", root, Some("first"));
+        assert_eq!(doc.node_by_named_id("first"), Some(a));
+
+        set_id(&mut doc, a, Some("second"));
+        assert_eq!(doc.node_by_named_id("second"), Some(a));
+        assert_eq!(doc.node_by_named_id("first"), None, "the old id stops resolving");
+
+        // ...and another node can now claim the name the first one gave up.
+        let b = element_with_id(&mut doc, "div", root, Some("first"));
+        assert_eq!(doc.node_by_named_id("first"), Some(b));
+    }
+
+    #[test]
+    fn an_invalid_or_removed_id_unregisters_the_node() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+
+        let a = element_with_id(&mut doc, "div", root, Some("keep"));
+        set_id(&mut doc, a, Some("has space")); // whitespace is not a valid id
+        assert_eq!(doc.node_by_named_id("keep"), None);
+        assert_eq!(doc.node_by_named_id("has space"), None);
+
+        let b = element_with_id(&mut doc, "div", root, Some("gone"));
+        set_id(&mut doc, b, None);
+        assert_eq!(doc.node_by_named_id("gone"), None);
     }
 
     #[test]
