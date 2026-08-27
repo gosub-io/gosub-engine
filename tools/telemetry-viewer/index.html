@@ -16,7 +16,7 @@
     --page: #f9f9f7; --surface: #fcfcfb;
     --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
     --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,.10);
-    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #8e5bd1;
     --good: #0ca30c; --critical: #d03b3b;
   }
   @media (prefers-color-scheme: dark) {
@@ -25,7 +25,7 @@
       --page: #0d0d0d; --surface: #1a1a19;
       --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
       --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,.10);
-      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #a274e0;
     }
   }
   * { box-sizing: border-box; }
@@ -150,7 +150,7 @@
   let controller = null, paused = false, dirty = false;
 
   const STAGES = [
-    ['build.parse', 'parse', '--s1'], ['build.layout', 'layout', '--s2'], ['render.tiling', 'tiling', '--s3'],
+    ['build.parse', 'parse', '--s1'], ['build.render_tree', 'style', '--s7'], ['build.layout', 'layout', '--s2'], ['render.tiling', 'tiling', '--s3'],
     ['render.paint', 'paint', '--s4'], ['render.raster', 'raster', '--s5'], ['transport', 'transport', '--s6'],
   ];
   $('pass-legend').innerHTML = STAGES.map(([, label, v]) => `<span><i style="background:var(${v})"></i>${label}</span>`).join('');

@@ -146,8 +146,9 @@ runs under a 1 GiB `RLIMIT_DATA`; other children get 512 MiB.
 **Crashes** are detected eagerly (a non-blocking liveness probe on every idle
 renderer, ~4×/s) and by any failing exchange; the pool replaces the process,
 emits `RendererCrashed`, and the tab re-renders in the replacement. A wedged
-renderer is bounded by the exchange timeouts (60 s for renders — heavy pages
-legitimately take double-digit seconds today — 10 s for control traffic).
+renderer is bounded by the exchange timeouts (60 s for renders — generous on
+purpose, so a slow page is never mistaken for a wedged process — 10 s for control
+traffic).
 
 ## Settings
 
@@ -157,11 +158,11 @@ legitimately take double-digit seconds today — 10 s for control traffic).
 | `security.image_decoder_process` | off | Raster decoding in a throwaway process per image. Falls back in-process with a warning. |
 | `security.renderer_process` | off | The fork server + resident renderer machinery described above. **No fallback for page content**: if it cannot start, pages simply render in-process from the beginning (with a warning at startup); once it *has* started, a page that cannot be rendered out of process stays blank. Linux only. |
 
-They stay off by default for now, deliberately: the mechanics are ready, but
-heavy sites are layout-bound today (double-digit seconds on the worst pages),
-which both feels broken and makes same-site tabs queue visibly. The switch to
-on-by-default is planned for after the layout-performance work, together with
-the per-platform question (the renderer tier is Linux-only).
+They stay off by default in this series. The reason they were kept off — heavy
+sites took double-digit seconds to style and lay out, which felt broken and made
+same-site tabs queue visibly — is gone since the style-resolution work (a
+theverge-class page went from ~12 s to ~1 s). Flipping them on is the next step,
+together with the per-platform question (the renderer tier is Linux-only).
 
 ## Observing it
 

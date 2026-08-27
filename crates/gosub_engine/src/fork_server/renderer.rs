@@ -203,6 +203,7 @@ impl RetainedPage {
             // tree and the page renders empty.
             log::error!("failed to build render tree in the forked renderer: {e}");
         }
+        let render_tree_us = started.elapsed().as_micros() as u64 - parse_us;
 
         // Stage 2: layout, measured through the inherited font system. The
         // media store must be passed at construction: `with_font_system` builds
@@ -215,7 +216,7 @@ impl RetainedPage {
         let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
         let page_width = layout_tree.root_dimension.width;
         let page_height = layout_tree.root_dimension.height;
-        let layout_us = started.elapsed().as_micros() as u64 - parse_us;
+        let layout_us = started.elapsed().as_micros() as u64 - parse_us - render_tree_us;
 
         // Stage 3: layering.
         let layer_list = Arc::new(LayerList::new(layout_tree));
@@ -223,6 +224,7 @@ impl RetainedPage {
         let hit_regions = collect_hit_regions(&layer_list);
         let build_timings = vec![
             ("build.parse".to_string(), parse_us),
+            ("build.render_tree".to_string(), render_tree_us),
             ("build.layout".to_string(), layout_us),
         ];
 
