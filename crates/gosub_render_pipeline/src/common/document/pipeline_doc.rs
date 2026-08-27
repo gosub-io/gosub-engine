@@ -1269,7 +1269,9 @@ where
     /// Is `id` an improper child of a row container with display `parent_display`
     /// (a table or row group), i.e. must it be wrapped in an anonymous row?
     fn needy_for_row(&self, id: NodeId, parent_display: &Display) -> bool {
-        if self.run_skippable(id) {
+        // Pseudo ids carry PSEUDO_FLAG; OR-ing an anon flag onto one would decode as a
+        // pseudo of a nonexistent owner, so they never become run members.
+        if is_pseudo_id(u64::from(id)) || self.run_skippable(id) {
             return false;
         }
         let d = self.display_of(id);
@@ -1283,7 +1285,9 @@ where
     /// Is `id` an improper (non-cell) child of a row, i.e. must it be wrapped in an
     /// anonymous cell?
     fn needy_for_cell(&self, id: NodeId) -> bool {
-        !self.run_skippable(id) && !matches!(self.display_of(id), Some(Display::TableCell))
+        !is_pseudo_id(u64::from(id))
+            && !self.run_skippable(id)
+            && !matches!(self.display_of(id), Some(Display::TableCell))
     }
 
     /// Generic run-collapser: replace each run of consecutive `needy` children with one
@@ -1403,8 +1407,10 @@ where
         self.collapse_runs(
             kids,
             |id| {
-                self.display_of(id)
-                    .is_some_and(|d| needs_table_parent(&d, parent_display))
+                !is_pseudo_id(u64::from(id))
+                    && self
+                        .display_of(id)
+                        .is_some_and(|d| needs_table_parent(&d, parent_display))
             },
             encode_anon_table,
         )

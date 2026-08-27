@@ -1313,6 +1313,34 @@ mod layout_tests {
         assert_approx!(w_narrow, 100.0, "CAPMIN wins over a narrower containing block");
     }
 
+    // A caption with no rows at all still gets laid out, floors the width (CAPMIN)
+    // and contributes its height.
+    #[test]
+    fn caption_only_table_lays_out_caption() {
+        use crate::mock::MockTree;
+
+        let mut tree = MockTree::new(0.0, 0.0);
+        let root = tree.alloc(TableRole::Table, None, 1, 1, None, None, 0.0, 0.0);
+        let cap = tree.alloc(
+            TableRole::Caption,
+            Some("cap".into()),
+            1,
+            1,
+            Some(100.0),
+            Some(20.0),
+            0.0,
+            0.0,
+        );
+        tree.add_child(root, cap);
+
+        let (w, h) = compute_table_layout(&mut tree, root, 40.0, None).expect("layout");
+        assert_approx!(w, 100.0, "CAPMIN floors a caption-only table");
+        assert_approx!(h, 20.0, "caption height is the table height");
+        let cap_layout = tree.layout(cap).expect("caption gets a layout");
+        assert_approx!(cap_layout.size.width, 100.0, "caption spans the table");
+        assert_approx!(cap_layout.size.height, 20.0, "caption height from its specified height");
+    }
+
     // CSS 2 §17.5.3: baseline-aligned cells share the deepest first-line baseline;
     // shallower cells shift down and the row grows to fit the shifted content.
     #[test]

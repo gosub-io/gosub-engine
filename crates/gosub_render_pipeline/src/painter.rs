@@ -379,7 +379,12 @@ impl Painter {
                 let r = Rectangle::new(border_box)
                     .with_background(brush)
                     .with_blend_mode(self.mix_blend_mode(dom_node_id));
-                let r = self.decorate_with_border_and_radius(dom_node_id, None, r);
+                // Collapsed cells get their border from the TableBorderOverlay.
+                let r = if layout_element.collapsed_borders.is_some() {
+                    r
+                } else {
+                    self.decorate_with_border_and_radius(dom_node_id, None, r)
+                };
                 vec![PaintCommand::rectangle(r)]
             }
             BackgroundMedia::Svg(media_id) => vec![PaintCommand::svg(media_id, Rectangle::new(border_box))],

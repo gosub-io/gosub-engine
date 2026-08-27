@@ -144,24 +144,24 @@ fn draw_double_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine
         return;
     }
 
-    // Two strands inside the border box: [0, w] outer and [w+gap, 2w+gap]
-    // inner, both stroked centered on paths inset to the strand middles.
-    let width = (rect.border().width() as f64 / 2.0).floor();
+    // Two strands inside the border box, split in thirds so strands + gap never
+    // exceed the declared width (the gap absorbs the rounding remainder).
+    let total = rect.border().width() as f64;
+    let strand = (total / 3.0).floor();
+    let gap = total - 2.0 * strand;
     scene.stroke(
-        &kurbo::Stroke::new(width),
+        &kurbo::Stroke::new(strand),
         affine,
         &vello_brush,
         brush_transform,
-        &setup_inset_path(rect, width / 2.0),
+        &setup_inset_path(rect, strand / 2.0),
     );
-
-    let gap_size = 1.0;
     scene.stroke(
-        &kurbo::Stroke::new(width),
+        &kurbo::Stroke::new(strand),
         affine,
         &vello_brush,
         brush_transform,
-        &setup_inset_path(rect, width + gap_size + width / 2.0),
+        &setup_inset_path(rect, strand + gap + strand / 2.0),
     );
 }
 

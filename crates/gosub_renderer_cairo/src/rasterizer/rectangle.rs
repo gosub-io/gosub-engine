@@ -83,19 +83,18 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
             _ = cr.stroke();
         }
         BorderStyle::Double => {
-            if rectangle.border().width() >= 3.0 {
-                let width = (rectangle.border().width() / 2.0).floor();
-                cr.set_line_width(width as f64);
+            let total = rectangle.border().width() as f64;
+            if total >= 3.0 {
+                // The path above is inset for the FULL width; each strand needs its own
+                // inset (half its own width) or the outer band stays unpainted. Thirds
+                // split keeps strands + gap within the declared width.
+                let strand = (total / 3.0).floor();
+                let gap = total - 2.0 * strand;
+                cr.new_path();
+                cr.set_line_width(strand);
+                setup_inset_path(cr, rectangle, strand / 2.0);
                 _ = cr.stroke();
-
-                let gap_size = 1.0;
-
-                cr.rectangle(
-                    rectangle.rect().x + width as f64 + gap_size,
-                    rectangle.rect().y + width as f64 + gap_size,
-                    rectangle.rect().width - 2.0 * (width as f64 + gap_size),
-                    rectangle.rect().height - 2.0 * (width as f64 + gap_size),
-                );
+                setup_inset_path(cr, rectangle, strand + gap + strand / 2.0);
                 _ = cr.stroke();
             } else {
                 _ = cr.stroke();

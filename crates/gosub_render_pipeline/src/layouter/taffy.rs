@@ -1264,9 +1264,14 @@ impl TaffyLayouter {
                 // and newlines verbatim (Pango honors \n as line breaks natively).
                 let is_whitespace_only = !text.is_empty() && text.chars().all(|c: char| c.is_ascii_whitespace());
                 let mut text: String = if preserve_spaces {
-                    // Spaces are significant; substitute NBSP so Pango never elides them at
-                    // line-box edges (same advance width as a regular space).
-                    text.cow_replace(' ', "\u{00A0}").into_owned()
+                    // Spaces are significant; under `pre` substitute NBSP so Pango never elides
+                    // them at line-box edges (same advance width). `pre-wrap` keeps real spaces:
+                    // they must stay line-break opportunities.
+                    if white_space == "pre" {
+                        text.cow_replace(' ', "\u{00A0}").into_owned()
+                    } else {
+                        text.to_string()
+                    }
                 } else {
                     // Preserve one leading/trailing inter-element gap as NBSP (non-breaking) so
                     // pango does not wrap at the boundary space, while still rendering a visible

@@ -55,7 +55,9 @@ pub fn compute_table_layout<T: TableTree>(
         .max()
         .unwrap_or(0);
 
-    if n_cols == 0 {
+    // A caption-only table still needs CAPMIN and the caption's own layout, so it
+    // takes the full path with an empty grid.
+    if n_cols == 0 && model.caption.is_none() {
         // No grid, but the element's specified size still applies (§17.5.2/3: the used
         // size is the greater of the specified size and the grid extent - zero here).
         // Extents are content-box; the caller wraps border and padding around them.

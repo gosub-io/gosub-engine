@@ -7,6 +7,7 @@ use crate::common::geo::{Coordinate, Rect};
 use crate::layouter::box_model::{BoxModel, Edges};
 use crate::layouter::taffy::TaffyLayouter;
 use crate::layouter::{CollapsedCellBorders, ElementContext, LayoutElementId, LayoutElementNode, LayoutTree};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -29,6 +30,9 @@ pub struct PipelineTableTree<'a> {
     /// these get the `content_offset_y` vertical-align shift: their children
     /// are freshly anchored at the cell top, so the shift applies exactly once.
     relaid: HashSet<DomNodeId>,
+    /// Memo for `subtree_contains_table`: `layout_cell` asks per cell per pass, and each
+    /// walk re-materializes anonymous wrappers, so uncached it is superlinear in table size.
+    contains_table_cache: RefCell<HashMap<DomNodeId, bool>>,
 }
 
 impl<'a> PipelineTableTree<'a> {
@@ -46,6 +50,7 @@ impl<'a> PipelineTableTree<'a> {
             pending: HashMap::new(),
             edge_owners: HashMap::new(),
             relaid: HashSet::new(),
+            contains_table_cache: RefCell::new(HashMap::new()),
         }
     }
 
@@ -53,12 +58,17 @@ impl<'a> PipelineTableTree<'a> {
     /// Such cells keep the first-pass height approximation: re-running taffy on
     /// them would clobber the box models lattice computed for the inner table.
     fn subtree_contains_table(&self, id: DomNodeId) -> bool {
-        self.doc.children(id).iter().any(|&child| {
+        if let Some(&hit) = self.contains_table_cache.borrow().get(&id) {
+            return hit;
+        }
+        let hit = self.doc.children(id).iter().any(|&child| {
             matches!(
                 self.doc.get_own_style(child, &StyleProperty::Display),
                 Some(Value::Display(Display::Table | Display::InlineTable))
             ) || self.subtree_contains_table(child)
-        })
+        });
+        self.contains_table_cache.borrow_mut().insert(id, hit);
+        hit
     }
 
     /// Sum of the border-box heights of the nested tables directly contained in a cell (not
@@ -210,7 +220,12 @@ fn apply_recursive(
                 // positioned by the FIRST taffy pass with the raw CSS border widths, but the
                 // collapse geometry replaced those with half the resolved boundary. Shift the
                 // subtree by the difference so content sits at the collapsed content origin.
-                let border_delta = if !relaid.contains(&child_id) && border_corrected.insert(child_id) {
+                // Rows are in `pending` too but never collapsed cells; `edge_owners` is the
+                // exact "collapsed cell" predicate.
+                let border_delta = if !relaid.contains(&child_id)
+                    && edge_owners.contains_key(&child_id)
+                    && border_corrected.insert(child_id)
+                {
                     let raw_left = doc.get_style_f32(child_id, &StyleProperty::BorderLeftWidth) as f64;
                     let raw_top = doc.get_style_f32(child_id, &StyleProperty::BorderTopWidth) as f64;
                     let dl = cell_layout.border.left as f64 - raw_left;
