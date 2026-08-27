@@ -89,13 +89,27 @@ impl HtmlPipelineImpl {
             }
         }
 
+        let doc_url = meta.final_url.clone();
         let mut on_discover = |hint: ResourceHint| {
+            // A remote document must never pull file:// subresources; don't even submit
+            // them (the file loader refuses them again as defense in depth).
+            if hint.url.scheme() == "file" && doc_url.scheme() != "file" {
+                log::warn!(
+                    "refusing file:// subresource {} for remote document {}",
+                    hint.url,
+                    doc_url
+                );
+                return;
+            }
             let sub_req_id = RequestId::new();
             REF_REGISTRY.register_request(sub_req_id, hint.kind, Initiator::Parser);
             let mut headers = sub_headers.clone();
             if let Ok(val) = hint.kind.accept_header().parse() {
                 headers.insert(http::header::ACCEPT, val);
             }
+            // The referrer serves double duty: gosub-sonar computes the Referer header from
+            // it (never for non-http(s) referrers), and the file loader uses it to accept
+            // subresources of file:// documents.
             let sub_req = FetchRequest::builder(Method::GET, hint.url)
                 .with_req_id(sub_req_id)
                 .with_reference(parent_ref)
@@ -103,6 +117,7 @@ impl HtmlPipelineImpl {
                 .with_initiator(Initiator::Parser.to_net())
                 .with_kind(hint.kind.to_net())
                 .with_headers(headers)
+                .with_referrer(doc_url.clone())
                 .with_streaming(true)
                 .with_auto_decode(true)
                 .build();

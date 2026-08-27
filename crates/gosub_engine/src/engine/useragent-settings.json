@@ -12,7 +12,7 @@
       "key": "close_button",
       "type": "m",
       "values": "left,right",
-      "default": "m:left",
+      "default": "m:right",
       "description": "Defines where the close button on tabs is located"
     },
     {

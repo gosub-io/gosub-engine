@@ -55,6 +55,7 @@ mod decision_hub;
 mod emitter;
 pub mod events;
 mod fetcher;
+mod file_loader;
 mod io_runtime;
 pub mod req_ref_tracker;
 mod router;

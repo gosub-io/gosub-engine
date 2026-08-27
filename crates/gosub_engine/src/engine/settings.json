@@ -81,6 +81,12 @@
       "description": "User-Agent string sent with outgoing HTTP requests. Empty (the default) sends the computed compat UA (see net::default_user_agent); embedders set this key to add their product token or send a fully custom UA."
     },
     {
+      "key": "file.enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "Serve file:// URLs from the local filesystem (navigations, downloads, and subresources of file:// documents only; remote pages can never reference local files). Embedders rendering untrusted content in a non-browser setting may want this off."
+    },
+    {
       "key": "timeout.connect_secs",
       "type": "u",
       "default": "u:5",

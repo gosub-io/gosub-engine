@@ -703,6 +703,24 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         Some(node.box_model.border_box.y)
     }
 
+    /// Tile-cache statistics for diagnostics (`gosub://stats`): `(tile count, CPU pixel
+    /// bytes)`. Bytes sum each baked tile's buffer, so shared buffers count once per tile
+    /// (an upper bound, cheap to compute).
+    pub fn tile_stats(&self) -> (usize, usize) {
+        let Some(cache) = self.pipeline_cache.as_ref() else {
+            return (0, 0);
+        };
+        let bytes = cache
+            .tiles
+            .iter()
+            .map(|t| match &t.pixels {
+                TilePixels::Cpu(data) => data.len(),
+                _ => 0,
+            })
+            .sum();
+        (cache.tiles.len(), bytes)
+    }
+
     /// The active full-page height, from whichever cache this tab populates.
     fn active_page_height(&self) -> Option<f64> {
         self.scene_cache

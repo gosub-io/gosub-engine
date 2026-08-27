@@ -1,9 +1,3 @@
-// wgpu's resource types nest deeply enough that the trait solver gives up proving `Send`,
-// `Sync` and the unsizing coercions for anything built on the Vello backend at the default
-// depth. Nightly reports that as a future-compat error rather than backing off, so raise the
-// ceiling. See rust-lang/rust#159228.
-#![recursion_limit = "256"]
-
 //! Minimal browser window: Vello (GPU) rasterizer + winit toolkit.
 //!
 //! Usage: cargo run --example winit-vello -- https://example.com
@@ -15,6 +9,10 @@
 //! after the window exists, so the adapter can be selected for surface compatibility.
 //! On Wayland an incompatible adapter causes `get_current_texture()` to silently fail
 //! every frame, keeping the surface un-committed and the window invisible.
+
+// wgpu's deeply nested generic types push auto-trait (`Send`/`Sync`) solving past the default
+// limit of 128; nightly's `recursion_depth_exceeding_limit` lint makes that a hard error.
+#![recursion_limit = "256"]
 
 use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
