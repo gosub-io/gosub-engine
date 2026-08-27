@@ -41,6 +41,77 @@ mod rendertree_from_engine {
         rt
     }
 
+    /// `border-top: 3px dashed red` (a per-side shorthand) must set that side's width, style
+    /// and color - from a stylesheet and from an inline `style=""` alike.
+    #[test]
+    fn border_side_shorthand_sets_width_style_color() {
+        use crate::common::document::pipeline_doc::PipelineDocument as _;
+        use crate::common::document::style::{BorderStyle, StyleProperty, Unit, Value};
+
+        let html = r#"<html><head><style>
+          #sheet { border-top: 3px dashed red }
+          #multi { border-top: 3px dashed #c00; border-bottom: 6px double #06c; border-left: 4px dotted #080; border-right: 2px solid #000 }
+        </style></head>
+        <body><div id="sheet">a</div><div id="multi">m</div><div id="inline" style="border-left: 4px dotted green">b</div></body></html>"#;
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+
+        let sheet = find_node_by_id_attr(&adapter.doc, root, "sheet").expect("#sheet");
+        let w = adapter.get_style(sheet, &StyleProperty::BorderTopWidth);
+        assert!(
+            matches!(w, Value::Unit(v, Unit::Px) if (v - 3.0).abs() < 0.01),
+            "sheet width: {w:?}"
+        );
+        let st = adapter.get_style(sheet, &StyleProperty::BorderTopStyle);
+        assert!(
+            matches!(st, Value::BorderStyle(BorderStyle::Dashed)),
+            "sheet style: {st:?}"
+        );
+        let c = adapter.get_style(sheet, &StyleProperty::BorderTopColor);
+        assert!(matches!(c, Value::Color(255, 0, 0, _)), "sheet color: {c:?}");
+        // Untouched sides keep the initial (none -> 0 width).
+        let w = adapter.get_style(sheet, &StyleProperty::BorderLeftWidth);
+        assert!(
+            matches!(w, Value::Unit(v, _) if v == 0.0),
+            "sheet untouched side: {w:?}"
+        );
+
+        let multi = find_node_by_id_attr(&adapter.doc, root, "multi").expect("#multi");
+        for (prop, want) in [
+            (StyleProperty::BorderTopStyle, BorderStyle::Dashed),
+            (StyleProperty::BorderRightStyle, BorderStyle::Solid),
+            (StyleProperty::BorderBottomStyle, BorderStyle::Double),
+            (StyleProperty::BorderLeftStyle, BorderStyle::Dotted),
+        ] {
+            let st = adapter.get_style(multi, &prop);
+            assert!(
+                matches!(&st, Value::BorderStyle(s) if *s == want),
+                "multi {prop:?}: {st:?}"
+            );
+        }
+        let w = adapter.get_style(multi, &StyleProperty::BorderBottomWidth);
+        assert!(
+            matches!(w, Value::Unit(v, Unit::Px) if (v - 6.0).abs() < 0.01),
+            "multi bottom width: {w:?}"
+        );
+
+        let inline = find_node_by_id_attr(&adapter.doc, root, "inline").expect("#inline");
+        let w = adapter.get_style(inline, &StyleProperty::BorderLeftWidth);
+        assert!(
+            matches!(w, Value::Unit(v, Unit::Px) if (v - 4.0).abs() < 0.01),
+            "inline width: {w:?}"
+        );
+        let st = adapter.get_style(inline, &StyleProperty::BorderLeftStyle);
+        assert!(
+            matches!(st, Value::BorderStyle(BorderStyle::Dotted)),
+            "inline style: {st:?}"
+        );
+        let c = adapter.get_style(inline, &StyleProperty::BorderLeftColor);
+        assert!(matches!(c, Value::Color(0, 128, 0, _)), "inline color: {c:?}");
+    }
+
     /// CSS 2 §10.3.7 regression: an absolutely-positioned auto-width box must shrink to fit
     /// but never exceed its containing block - an abs div wrapping a wide table once sized
     /// to the table's raw max-content (812px in an 800px viewport).

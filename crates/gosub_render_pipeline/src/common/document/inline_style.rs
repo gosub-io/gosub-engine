@@ -149,7 +149,9 @@ fn is_border_style_keyword(s: &str) -> bool {
     )
 }
 
-fn apply_border_shorthand(style: &mut NodeStyle, value: &str) {
+/// `<line-width> || <line-style> || <color>` in any order; omitted parts take their initial
+/// values (medium = 3px, none, black).
+fn parse_border_parts(value: &str) -> (Value, Value, Value) {
     let mut width = Value::Unit(3.0, Unit::Px);
     let mut bstyle = Value::BorderStyle(BorderStyle::None);
     let mut color = Value::Color(0, 0, 0, 255);
@@ -161,31 +163,49 @@ fn apply_border_shorthand(style: &mut NodeStyle, value: &str) {
             _ => color = parse_named_color(part),
         }
     }
+    (width, bstyle, color)
+}
 
-    for prop in &[
+/// Longhands `[width, style, color]` for one side, `sides` in TRBL order.
+const BORDER_SIDE_LONGHANDS: [[StyleProperty; 3]; 4] = [
+    [
         StyleProperty::BorderTopWidth,
-        StyleProperty::BorderRightWidth,
-        StyleProperty::BorderBottomWidth,
-        StyleProperty::BorderLeftWidth,
-    ] {
-        style.set(prop.clone(), width.clone());
-    }
-    for prop in &[
         StyleProperty::BorderTopStyle,
-        StyleProperty::BorderRightStyle,
-        StyleProperty::BorderBottomStyle,
-        StyleProperty::BorderLeftStyle,
-    ] {
-        style.set(prop.clone(), bstyle.clone());
-    }
-    for prop in &[
         StyleProperty::BorderTopColor,
+    ],
+    [
+        StyleProperty::BorderRightWidth,
+        StyleProperty::BorderRightStyle,
         StyleProperty::BorderRightColor,
+    ],
+    [
+        StyleProperty::BorderBottomWidth,
+        StyleProperty::BorderBottomStyle,
         StyleProperty::BorderBottomColor,
+    ],
+    [
+        StyleProperty::BorderLeftWidth,
+        StyleProperty::BorderLeftStyle,
         StyleProperty::BorderLeftColor,
-    ] {
-        style.set(prop.clone(), color.clone());
+    ],
+];
+
+fn apply_border_shorthand(style: &mut NodeStyle, value: &str) {
+    let (width, bstyle, color) = parse_border_parts(value);
+    for side in &BORDER_SIDE_LONGHANDS {
+        style.set(side[0].clone(), width.clone());
+        style.set(side[1].clone(), bstyle.clone());
+        style.set(side[2].clone(), color.clone());
     }
+}
+
+/// `border-top` / `border-right` / `border-bottom` / `border-left`.
+fn apply_border_side_shorthand(style: &mut NodeStyle, side: usize, value: &str) {
+    let (width, bstyle, color) = parse_border_parts(value);
+    let props = &BORDER_SIDE_LONGHANDS[side];
+    style.set(props[0].clone(), width);
+    style.set(props[1].clone(), bstyle);
+    style.set(props[2].clone(), color);
 }
 
 fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
@@ -257,6 +277,10 @@ fn apply_style_kv(style: &mut NodeStyle, key: &str, value: &str) {
         "padding-bottom" | "padding-block-end" => style.set(StyleProperty::PaddingBottom, parse_style_value(value)),
 
         "border" => apply_border_shorthand(style, value),
+        "border-top" => apply_border_side_shorthand(style, 0, value),
+        "border-right" => apply_border_side_shorthand(style, 1, value),
+        "border-bottom" => apply_border_side_shorthand(style, 2, value),
+        "border-left" => apply_border_side_shorthand(style, 3, value),
 
         "vertical-align" => style.set(StyleProperty::VerticalAlign, parse_style_str(value)),
         "border-collapse" => style.set(StyleProperty::BorderCollapse, parse_style_str(value)),
