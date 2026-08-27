@@ -2,9 +2,10 @@ use crate::colors::RgbColor;
 use crate::functions::attr::resolve_attr;
 use crate::functions::math::resolve_math;
 use crate::functions::var::resolve_var;
+use crate::matcher::index::ElementKeys;
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::shorthands::{FixList, FixListInfo};
-use crate::matcher::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
+use crate::matcher::styling::{cascade_rank, match_selector, CssProperties, CssProperty, DeclarationProperty};
 use crate::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, Css3};
 use cow_utils::CowUtils;
@@ -15,8 +16,10 @@ use gosub_interface::node::NodeType;
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
 use gosub_shared::node::NodeId;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::slice;
+use std::sync::Arc;
 
 /// Strip a vendor prefix (-webkit-, -moz-, -ms-, -o-) from a CSS keyword, returning
 /// the unprefixed form. E.g. "-webkit-match-parent" → "match-parent".
@@ -35,6 +38,16 @@ fn normalize_vendor_prefixes(value: CssValue) -> CssValue {
         CssValue::String(s) => CssValue::String(strip_vendor_prefix(&s).to_string()),
         CssValue::List(values) => CssValue::List(values.into_iter().map(normalize_vendor_prefixes).collect()),
         other => other,
+    }
+}
+
+/// Specificity of the `style` attribute: above any selector.
+const INLINE_SPECIFICITY: Specificity = Specificity::new(u32::MAX, 0, 0);
+
+fn inline_parser_config() -> ParserConfig {
+    ParserConfig {
+        ignore_errors: true,
+        ..Default::default()
     }
 }
 
@@ -57,8 +70,9 @@ impl CssSystem for Css3System {
         doc: &C::Document,
         id: NodeId,
         sheets: &[Self::Stylesheet],
+        parent: Option<&Self::PropertyMap>,
     ) -> Option<Self::PropertyMap> {
-        compute_properties::<C>(doc, id, sheets, None)
+        compute_properties::<C>(doc, id, sheets, None, parent)
     }
 
     fn pseudo_properties_from_node<C: HasDocument<CssSystem = Self>>(
@@ -66,12 +80,13 @@ impl CssSystem for Css3System {
         id: NodeId,
         sheets: &[Self::Stylesheet],
         pseudo: &str,
+        owner: Option<&Self::PropertyMap>,
     ) -> Option<Self::PropertyMap> {
         // Only `::before` / `::after` generate boxes; ignore other pseudo-elements.
         if !matches!(pseudo, "before" | "after") {
             return None;
         }
-        let map = compute_properties::<C>(doc, id, sheets, Some(pseudo))?;
+        let map = compute_properties::<C>(doc, id, sheets, Some(pseudo), owner)?;
         // A pseudo-element only generates a box when a matching rule sets `content`. With no
         // `content` declaration there is nothing to render, so report "no pseudo-element".
         <CssProperties as CssPropertyMap<Css3System>>::get(&map, "content")?;
@@ -90,11 +105,15 @@ impl CssSystem for Css3System {
 /// Shared style-collection core for both real elements (`pseudo == None`) and pseudo-elements
 /// (`pseudo == Some("before"|"after")`). When matching a pseudo-element, selectors are matched
 /// against the originating element `id` but only those carrying the matching `::pseudo` part apply.
+///
+/// `inherited` is the parent's (or, for a pseudo-element, the originating element's) computed
+/// map; custom properties are read from it rather than by re-matching every ancestor.
 fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
     doc: &C::Document,
     id: NodeId,
     sheets: &[CssStylesheet],
     pseudo: Option<&str>,
+    inherited: Option<&CssProperties>,
 ) -> Option<CssProperties> {
     let mut css_map_entry = CssProperties::new();
 
@@ -106,149 +125,195 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
 
     let definitions = get_css_definitions();
 
-    // Pass 1: collect all custom property values visible to this node (with inheritance).
-    let custom_props = collect_custom_props::<C>(doc, id, sheets);
-
-    let mut fix_list = FixList::new();
-
+    // Selector matching is the expensive part: consult only the rules the index says can
+    // match this element, match those once, and keep the hits.
+    let keys = ElementKeys {
+        id: doc.attribute(id, "id"),
+        classes: doc.attribute(id, "class").unwrap_or(""),
+        tag: doc.tag_name(id),
+    };
+    let mut matched: Vec<(&CssStylesheet, &crate::stylesheet::CssRule, Specificity)> = Vec::new();
     for sheet in sheets {
-        for rule in &sheet.rules {
+        for rule_idx in sheet.candidate_rules(&keys) {
+            let rule = &sheet.rules[rule_idx];
             if rule.media.as_ref().is_some_and(|m| !m.holds()) {
                 continue;
             }
-            for selector in rule.selectors() {
-                let (matched, specificity) = match_selector::<C>(doc, id, selector, pseudo);
+            // A rule applies with the highest specificity among its matching selectors.
+            let best = rule
+                .selectors()
+                .iter()
+                .filter_map(|selector| match match_selector::<C>(doc, id, selector, pseudo) {
+                    (true, specificity) => Some(specificity),
+                    (false, _) => None,
+                })
+                .max();
+            if let Some(specificity) = best {
+                matched.push((sheet, rule, specificity));
+            }
+        }
+    }
 
-                if !matched {
-                    continue;
+    // Custom properties: the parent's scope with this node's own declarations cascaded on
+    // top (origin/importance rank, then specificity, later wins ties), resolved before any
+    // `var()` is read. The map is only copied when the node actually changes something;
+    // re-declaring the inherited value (the `* { --x: 0 }` reset pattern) shares the parent's.
+    let inherited_custom = inherited.map(|map| Arc::clone(&map.custom)).unwrap_or_default();
+    let mut own_custom: HashMap<&str, ((u8, Specificity), &CssValue)> = HashMap::new();
+    for (sheet, rule, specificity) in &matched {
+        let rank = (cascade_rank(sheet.origin, false), *specificity);
+        for decl in rule.declarations() {
+            if !decl.property.starts_with("--") {
+                continue;
+            }
+            let rank = if decl.important {
+                (cascade_rank(sheet.origin, true), *specificity)
+            } else {
+                rank
+            };
+            match own_custom.entry(decl.property.as_str()) {
+                Entry::Occupied(mut slot) if slot.get().0 <= rank => {
+                    slot.insert((rank, &decl.value));
                 }
+                Entry::Occupied(_) => {}
+                Entry::Vacant(slot) => {
+                    slot.insert((rank, &decl.value));
+                }
+            }
+        }
+    }
+    // The `style` attribute cascades above every stylesheet rule; it is parsed here only
+    // when it can carry a custom property (it usually cannot), through the real parser.
+    let inline_sheet = pseudo
+        .is_none()
+        .then(|| doc.attribute(id, "style"))
+        .flatten()
+        .filter(|style| style.contains("--"))
+        .and_then(|style| {
+            Css3::parse_str(&format!("*{{{style}}}"), inline_parser_config(), CssOrigin::Author, "").ok()
+        });
+    if let Some(rule) = inline_sheet.as_ref().and_then(|sheet| sheet.rules.first()) {
+        for decl in rule.declarations() {
+            if !decl.property.starts_with("--") {
+                continue;
+            }
+            let rank = (cascade_rank(CssOrigin::Author, decl.important), INLINE_SPECIFICITY);
+            match own_custom.entry(decl.property.as_str()) {
+                Entry::Occupied(mut slot) if slot.get().0 <= rank => {
+                    slot.insert((rank, &decl.value));
+                }
+                Entry::Occupied(_) => {}
+                Entry::Vacant(slot) => {
+                    slot.insert((rank, &decl.value));
+                }
+            }
+        }
+    }
+    let changes_scope = own_custom
+        .iter()
+        .any(|(name, (_, value))| inherited_custom.get(*name) != Some(*value));
+    let custom_props = if changes_scope {
+        let mut merged = (*inherited_custom).clone();
+        merged.extend(
+            own_custom
+                .into_iter()
+                .map(|(name, (_, value))| (name.to_string(), value.clone())),
+        );
+        Arc::new(merged)
+    } else {
+        inherited_custom
+    };
+    css_map_entry.custom = Arc::clone(&custom_props);
 
-                // Selector matched, so we add all declared values to the map
-                for declaration in rule.declarations() {
-                    // Custom property declarations are consumed by collect_custom_props;
-                    // skip them here so they don't clutter the regular property map.
-                    if declaration.property.starts_with("--") {
-                        continue;
-                    }
-                    let value = resolve_functions::<C>(&declaration.value, doc, id, &custom_props);
-                    // Normalize vendor-prefixed values (-webkit-X → X) so they match
-                    // against the standard keyword definitions.
-                    let value = normalize_vendor_prefixes(value);
+    let mut fix_list = FixList::new();
 
-                    // `content` carries arbitrary tokens (strings, `attr()`, counters,
-                    // quotes) that the property-syntax matcher cannot validate - notably the
-                    // empty string `content: ""`. Pass it through verbatim; the render
-                    // pipeline resolves it into generated text itself.
-                    if declaration.property == "content" {
-                        add_property_to_map(
-                            &mut css_map_entry,
-                            sheet,
-                            specificity,
-                            &CssDeclaration {
-                                property: "content".to_string(),
-                                value,
-                                important: declaration.important,
-                            },
-                        );
-                        continue;
-                    }
+    for (sheet, rule, specificity) in matched {
+        // Selector matched, so we add all declared values to the map
+        for declaration in rule.declarations() {
+            // Custom property declarations were consumed above; keep them out of
+            // the regular cascade.
+            if declaration.property.starts_with("--") {
+                continue;
+            }
+            let value = resolve_functions::<C>(&declaration.value, doc, id, &custom_props);
+            // Normalize vendor-prefixed values (-webkit-X → X) so they match
+            // against the standard keyword definitions.
+            let value = normalize_vendor_prefixes(value);
 
-                    // If the property has a definition, validate and expand shorthands.
-                    // If not (e.g. margin-top, padding-bottom - longhand properties not yet
-                    // in the definition list), insert the value directly without validation.
-                    match definitions.find_property(&declaration.property) {
-                        Some(definition) => {
-                            let match_value = if let CssValue::List(value) = &value {
-                                &**value
-                            } else {
-                                slice::from_ref(&value)
-                            };
+            // `content` carries arbitrary tokens (strings, `attr()`, counters,
+            // quotes) that the property-syntax matcher cannot validate - notably the
+            // empty string `content: ""`. Pass it through verbatim; the render
+            // pipeline resolves it into generated text itself.
+            if declaration.property == "content" {
+                add_property_to_map(
+                    &mut css_map_entry,
+                    sheet,
+                    specificity,
+                    &CssDeclaration {
+                        property: "content".to_string(),
+                        value,
+                        important: declaration.important,
+                    },
+                );
+                continue;
+            }
 
-                            // Tag the expanded longhands with this declaration's cascade origin
-                            // and specificity, so e.g. an author `margin: 0` outranks the UA
-                            // `body { margin: 8px }` instead of losing to it on processing order.
-                            fix_list.set_info(FixListInfo::new(
-                                sheet.origin,
-                                declaration.important,
-                                sheet.url.clone(),
-                                specificity,
-                            ));
+            // If the property has a definition, validate and expand shorthands.
+            // If not (e.g. margin-top, padding-bottom - longhand properties not yet
+            // in the definition list), insert the value directly without validation.
+            match definitions.find_property(&declaration.property) {
+                Some(definition) => {
+                    let match_value = if let CssValue::List(value) = &value {
+                        &**value
+                    } else {
+                        slice::from_ref(&value)
+                    };
 
-                            // Each CSS declaration starts with a fresh TRBL multiplier
-                            // counter for this shorthand name. Without this reset, a prior
-                            // rule's `margin: 0` (count→1) would corrupt a later rule's
-                            // `margin: 0 auto` expansion (starting at multi=1 instead of 0).
-                            fix_list.reset_multiplier(&declaration.property);
-                            if !definition.matches_and_shorthands(match_value, &mut fix_list) {
-                                // Special-case: the full `background` shorthand grammar
-                                // (comma-separated `<bg-layer>` lists) is stricter than the
-                                // matcher supports, so common forms like
-                                // `background: url(x) no-repeat` or `background: #fff` fail
-                                // validation and would be dropped entirely. Recover the parts
-                                // the consumer understands - `background-image` (a `url()`)
-                                // and `background-color` (a color) - and emit them as the
-                                // corresponding longhands. Position/repeat/size are still
-                                // ignored.
-                                if declaration.property == "background" {
-                                    let mut recovered = false;
-                                    // `url(...)` or a `*-gradient(...)` both become the
-                                    // `background-image` longhand the consumer reads.
-                                    if let Some(image_value) =
-                                        find_background_url(&value).or_else(|| find_background_gradient(&value))
-                                    {
-                                        add_property_to_map(
-                                            &mut css_map_entry,
-                                            sheet,
-                                            specificity,
-                                            &CssDeclaration {
-                                                property: "background-image".to_string(),
-                                                value: image_value,
-                                                important: declaration.important,
-                                            },
-                                        );
-                                        recovered = true;
-                                    }
-                                    if let Some(color_value) = find_background_color(&value) {
-                                        add_property_to_map(
-                                            &mut css_map_entry,
-                                            sheet,
-                                            specificity,
-                                            &CssDeclaration {
-                                                property: "background-color".to_string(),
-                                                value: color_value,
-                                                important: declaration.important,
-                                            },
-                                        );
-                                        recovered = true;
-                                    }
-                                    if recovered {
-                                        continue;
-                                    }
-                                }
-                                log::debug!("Declaration does not match definition: {declaration:?}");
-                                continue;
+                    // Tag the expanded longhands with this declaration's cascade origin
+                    // and specificity, so e.g. an author `margin: 0` outranks the UA
+                    // `body { margin: 8px }` instead of losing to it on processing order.
+                    fix_list.set_info(FixListInfo::new(
+                        sheet.origin,
+                        declaration.important,
+                        sheet.url.clone(),
+                        specificity,
+                    ));
+
+                    // Each CSS declaration starts with a fresh TRBL multiplier
+                    // counter for this shorthand name. Without this reset, a prior
+                    // rule's `margin: 0` (count→1) would corrupt a later rule's
+                    // `margin: 0 auto` expansion (starting at multi=1 instead of 0).
+                    fix_list.reset_multiplier(&declaration.property);
+                    if !definition.matches_and_shorthands(match_value, &mut fix_list) {
+                        // Special-case: the full `background` shorthand grammar
+                        // (comma-separated `<bg-layer>` lists) is stricter than the
+                        // matcher supports, so common forms like
+                        // `background: url(x) no-repeat` or `background: #fff` fail
+                        // validation and would be dropped entirely. Recover the parts
+                        // the consumer understands - `background-image` (a `url()`)
+                        // and `background-color` (a color) - and emit them as the
+                        // corresponding longhands. Position/repeat/size are still
+                        // ignored.
+                        if declaration.property == "background" {
+                            let mut recovered = false;
+                            // `url(...)` or a `*-gradient(...)` both become the
+                            // `background-image` longhand the consumer reads.
+                            if let Some(image_value) =
+                                find_background_url(&value).or_else(|| find_background_gradient(&value))
+                            {
+                                add_property_to_map(
+                                    &mut css_map_entry,
+                                    sheet,
+                                    specificity,
+                                    &CssDeclaration {
+                                        property: "background-image".to_string(),
+                                        value: image_value,
+                                        important: declaration.important,
+                                    },
+                                );
+                                recovered = true;
                             }
-
-                            let value = if let CssValue::List(mut values) = value {
-                                match values.pop() {
-                                    Some(single) if values.is_empty() => single,
-                                    Some(last) => {
-                                        values.push(last);
-                                        CssValue::List(values)
-                                    }
-                                    None => CssValue::List(values),
-                                }
-                            } else {
-                                value
-                            };
-
-                            // Also emit the color as a `background-color` longhand: the consumer
-                            // reads the longhand key first, so a UA `background-color: ButtonFace`
-                            // would otherwise beat an author `background: #c22`. No color = reset
-                            // to transparent.
-                            if declaration.property == "background" {
-                                let color_value = find_background_color(&value)
-                                    .unwrap_or(CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 0.0)));
+                            if let Some(color_value) = find_background_color(&value) {
                                 add_property_to_map(
                                     &mut css_map_entry,
                                     sheet,
@@ -259,48 +324,86 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
                                         important: declaration.important,
                                     },
                                 );
+                                recovered = true;
                             }
-
-                            add_property_to_map(
-                                &mut css_map_entry,
-                                sheet,
-                                specificity,
-                                &CssDeclaration {
-                                    property: declaration.property.clone(),
-                                    value,
-                                    important: declaration.important,
-                                },
-                            );
+                            if recovered {
+                                continue;
+                            }
                         }
-                        None => {
-                            // No definition: pass the value through as-is so that properties
-                            // like margin-top, padding-left, font-size etc. (which are valid
-                            // CSS but happen not to have their own PropertyDefinition entry)
-                            // still reach the style consumer.
-                            let value = if let CssValue::List(mut values) = value {
-                                match values.pop() {
-                                    Some(single) if values.is_empty() => single,
-                                    Some(last) => {
-                                        values.push(last);
-                                        CssValue::List(values)
-                                    }
-                                    None => CssValue::List(values),
-                                }
-                            } else {
-                                value
-                            };
-                            add_property_to_map(
-                                &mut css_map_entry,
-                                sheet,
-                                specificity,
-                                &CssDeclaration {
-                                    property: declaration.property.clone(),
-                                    value,
-                                    important: declaration.important,
-                                },
-                            );
-                        }
+                        log::debug!("Declaration does not match definition: {declaration:?}");
+                        continue;
                     }
+
+                    let value = if let CssValue::List(mut values) = value {
+                        match values.pop() {
+                            Some(single) if values.is_empty() => single,
+                            Some(last) => {
+                                values.push(last);
+                                CssValue::List(values)
+                            }
+                            None => CssValue::List(values),
+                        }
+                    } else {
+                        value
+                    };
+
+                    // Also emit the color as a `background-color` longhand: the consumer
+                    // reads the longhand key first, so a UA `background-color: ButtonFace`
+                    // would otherwise beat an author `background: #c22`. No color = reset
+                    // to transparent.
+                    if declaration.property == "background" {
+                        let color_value =
+                            find_background_color(&value).unwrap_or(CssValue::Color(RgbColor::new(0.0, 0.0, 0.0, 0.0)));
+                        add_property_to_map(
+                            &mut css_map_entry,
+                            sheet,
+                            specificity,
+                            &CssDeclaration {
+                                property: "background-color".to_string(),
+                                value: color_value,
+                                important: declaration.important,
+                            },
+                        );
+                    }
+
+                    add_property_to_map(
+                        &mut css_map_entry,
+                        sheet,
+                        specificity,
+                        &CssDeclaration {
+                            property: declaration.property.clone(),
+                            value,
+                            important: declaration.important,
+                        },
+                    );
+                }
+                None => {
+                    // No definition: pass the value through as-is so that properties
+                    // like margin-top, padding-left, font-size etc. (which are valid
+                    // CSS but happen not to have their own PropertyDefinition entry)
+                    // still reach the style consumer.
+                    let value = if let CssValue::List(mut values) = value {
+                        match values.pop() {
+                            Some(single) if values.is_empty() => single,
+                            Some(last) => {
+                                values.push(last);
+                                CssValue::List(values)
+                            }
+                            None => CssValue::List(values),
+                        }
+                    } else {
+                        value
+                    };
+                    add_property_to_map(
+                        &mut css_map_entry,
+                        sheet,
+                        specificity,
+                        &CssDeclaration {
+                            property: declaration.property.clone(),
+                            value,
+                            important: declaration.important,
+                        },
+                    );
                 }
             }
         }
@@ -408,42 +511,6 @@ pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bo
         NodeType::TextNode => doc.text_value(id).is_some_and(|v| v.chars().all(char::is_whitespace)),
         _ => false,
     }
-}
-
-/// Collects all custom property (`--*`) values visible to `id`, walking ancestors
-/// root-first so that each element's own declarations override inherited ones.
-fn collect_custom_props<C: HasDocument<CssSystem = Css3System>>(
-    doc: &C::Document,
-    id: NodeId,
-    sheets: &[CssStylesheet],
-) -> HashMap<String, CssValue> {
-    let mut chain = vec![id];
-    let mut cur = id;
-    while let Some(parent) = doc.parent(cur) {
-        chain.push(parent);
-        cur = parent;
-    }
-    chain.reverse(); // root first - descendants override ancestors
-
-    let mut custom_props: HashMap<String, CssValue> = HashMap::new();
-    for node_id in chain {
-        for sheet in sheets {
-            for rule in &sheet.rules {
-                for selector in rule.selectors() {
-                    let (matched, _) = match_selector::<C>(doc, node_id, selector, None);
-                    if !matched {
-                        continue;
-                    }
-                    for decl in rule.declarations() {
-                        if decl.property.starts_with("--") {
-                            custom_props.insert(decl.property.clone(), decl.value.clone());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    custom_props
 }
 
 /// Recursively find the first `url(...)` function inside a (possibly nested/list) CSS value.

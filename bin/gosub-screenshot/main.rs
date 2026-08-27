@@ -1,7 +1,7 @@
 //! Headless screenshot tool: loads a URL through the full gosub render pipeline and
 //! saves the result as a PNG without opening a window.
 //!
-//! Uses the Skia backend for **CPU** rasterization - no GPU, no wgpu adapter, and no
+//! Uses the Skia backend for CPU rasterization - no GPU, no wgpu adapter, and no
 //! system libraries (skia-safe is statically linked). The page is rasterized into small
 //! cached tiles (`ExternalHandle::TileCache`) which we composite here, so there is no
 //! GPU texture-size limit and pages of any height can be captured.
@@ -73,7 +73,7 @@ struct Args {
     /// this run.
     #[arg(short = 'i', long = "interact")]
     interact: Vec<String>,
-    /// Print the engine's timing table on exit
+    /// Print the aggregated pipeline timing table (per stage) after the capture
     #[arg(long)]
     timings: bool,
     /// Render with the dark colour scheme (prefers-color-scheme: dark, dark native controls)

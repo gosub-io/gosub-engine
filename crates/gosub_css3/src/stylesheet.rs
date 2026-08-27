@@ -10,6 +10,7 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 
 use crate::colors::{oklab_to_srgb, oklch_to_srgb, RgbColor};
+use crate::matcher::index::{ElementKeys, SelectorIndex};
 
 thread_local! {
     /// Viewport size (CSS px) used to resolve viewport-relative units (`vw`/`vh`/`vmin`/`vmax`)
@@ -149,7 +150,7 @@ pub struct FontFace {
 }
 
 /// Defines a complete stylesheet with all its rules and the location where it was found
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct CssStylesheet {
     /// List of rules found in this stylesheet
     pub rules: Vec<CssRule>,
@@ -161,6 +162,56 @@ pub struct CssStylesheet {
     pub url: String,
     /// Any issues during parsing of the stylesheet
     pub parse_log: Vec<CssLog>,
+    /// Rule index by rightmost compound, built on first style computation and rebuilt when
+    /// `rules` changed size since; see [`CssStylesheet::invalidate_index`] for other edits.
+    pub(crate) index: parking_lot::RwLock<Option<SelectorIndex>>,
+}
+
+impl PartialEq for CssStylesheet {
+    fn eq(&self, other: &Self) -> bool {
+        self.rules == other.rules
+            && self.font_faces == other.font_faces
+            && self.origin == other.origin
+            && self.url == other.url
+            && self.parse_log == other.parse_log
+    }
+}
+
+impl CssStylesheet {
+    #[must_use]
+    pub fn new(origin: CssOrigin, url: &str) -> Self {
+        Self {
+            rules: vec![],
+            font_faces: vec![],
+            origin,
+            url: url.to_string(),
+            parse_log: vec![],
+            index: parking_lot::RwLock::new(None),
+        }
+    }
+
+    /// Drop the rule index so the next lookup rebuilds it. Call after editing `rules` in a
+    /// way that keeps their number (reordering, replacing a rule); pushes and removals are
+    /// detected by themselves.
+    pub fn invalidate_index(&mut self) {
+        *self.index.get_mut() = None;
+    }
+
+    /// The rules that can possibly match an element with these keys, in stylesheet order.
+    pub(crate) fn candidate_rules(&self, keys: &ElementKeys<'_>) -> Vec<usize> {
+        if let Some(index) = self
+            .index
+            .read()
+            .as_ref()
+            .filter(|index| index.rule_count() == self.rules.len())
+        {
+            return index.candidates(keys);
+        }
+        self.index
+            .write()
+            .insert(SelectorIndex::build(&self.rules))
+            .candidates(keys)
+    }
 }
 
 impl gosub_interface::css3::CssStylesheet for CssStylesheet {
@@ -374,7 +425,7 @@ pub struct Specificity(u32, u32, u32);
 
 impl Specificity {
     #[must_use]
-    pub fn new(a: u32, b: u32, c: u32) -> Self {
+    pub const fn new(a: u32, b: u32, c: u32) -> Self {
         Self(a, b, c)
     }
 }
