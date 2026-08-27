@@ -138,11 +138,16 @@ impl BrowserApp {
         gl.flush();
     }
 
+    // Viewport-relative, *not* page-relative: the engine applies its own scroll when it resolves
+    // a hit (`find_element_at(vp_x, vp_y, scroll_x, scroll_y)`), so adding `self.scroll` here
+    // would count it twice and target the wrong element on any scrolled page. `self.scroll` is
+    // only a local mirror for clamping the wheel; compositing uses the engine's scroll from the
+    // tile-cache handle.
     fn css_x(&self, x: f64) -> f32 {
-        (x + self.scroll.0 as f64) as f32
+        x as f32
     }
     fn css_y(&self, y: f64) -> f32 {
-        (y + self.scroll.1 as f64) as f32
+        y as f32
     }
 }
 

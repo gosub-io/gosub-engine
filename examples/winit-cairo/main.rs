@@ -118,14 +118,24 @@ impl BrowserApp {
         buf.present().unwrap_or_default();
     }
 
+    /// The device-pixel ratio actually in effect. The Cairo rasterizer scales tiles by the
+    /// *integer* `DEVICE_PIXEL_RATIO`, so the viewport and pointer coordinates have to divide by
+    /// that same value - using the fractional `scale_factor()` would land them in a third space.
+    fn dpr(&self) -> f64 {
+        f64::from(DEVICE_PIXEL_RATIO.load(std::sync::atomic::Ordering::Relaxed).max(1))
+    }
+
+    /// A physical pixel length as logical (CSS) px, which is the space the engine lays out in.
+    fn to_logical(&self, physical: u32) -> u32 {
+        ((f64::from(physical) / self.dpr()).round() as u32).max(1)
+    }
+
     fn content_y_to_css(&self, physical_y: f64) -> f32 {
-        let dpr = self.window.as_ref().map(|w| w.scale_factor()).unwrap_or(1.0);
-        (physical_y / dpr) as f32
+        (physical_y / self.dpr()) as f32
     }
 
     fn content_x_to_css(&self, physical_x: f64) -> f32 {
-        let dpr = self.window.as_ref().map(|w| w.scale_factor()).unwrap_or(1.0);
-        (physical_x / dpr) as f32
+        (physical_x / self.dpr()) as f32
     }
 }
 
@@ -150,8 +160,10 @@ impl ApplicationHandler<()> for BrowserApp {
         let size = window.inner_size();
         self.surface_size = (size.width, size.height);
 
-        let content_h = size.height;
-        let content_w = size.width;
+        // The engine lays out in CSS px; the rasterizer scales tiles up by the DPR. Sending the
+        // physical size would lay the page out at DPR times its real size.
+        let content_w = self.to_logical(size.width);
+        let content_h = self.to_logical(size.height);
         self.viewport = (content_w, content_h);
 
         let tab = self.tab.clone();
@@ -192,8 +204,9 @@ impl ApplicationHandler<()> for BrowserApp {
                 let dpr = self.window.as_ref().map(|w| w.scale_factor() as u32).unwrap_or(1);
                 DEVICE_PIXEL_RATIO.store(dpr.max(1), std::sync::atomic::Ordering::Relaxed);
 
-                let content_h = height;
-                self.viewport = (width, content_h);
+                let content_w = self.to_logical(width);
+                let content_h = self.to_logical(height);
+                self.viewport = (content_w, content_h);
                 self.scroll = (0.0, 0.0);
 
                 let tab = self.tab.clone();
@@ -202,7 +215,7 @@ impl ApplicationHandler<()> for BrowserApp {
                         .send(TabCommand::SetViewport {
                             x: 0,
                             y: 0,
-                            width,
+                            width: content_w,
                             height: content_h,
                         })
                         .await;
