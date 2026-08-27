@@ -39,6 +39,7 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 
 /// Move an accepted offer's spooled body to `target_path`, returning the bytes written.
+/// Blocking; callers run it on the blocking pool.
 ///
 /// `persist` renames first (same filesystem, no copy) and falls back to a copy across mount
 /// points - the common case when the temp dir and the download directory differ.
@@ -1022,23 +1023,34 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 });
                 return;
             };
-            match place_spooled_download(body, &target_path) {
-                Ok(received_bytes) => {
-                    self.send_event(EngineEvent::DownloadFinished {
-                        tab_id: self.tab_id,
+            // Placement is a rename at best and a full copy across filesystems at worst
+            // (temp dir vs. download dir is the common case), so it must not run on the
+            // worker: that would stall every command and frame tick for the tab.
+            let tab_id = self.tab_id;
+            let event_tx = self.zone_context.event_tx.clone();
+            spawn_named("tab-download-place", async move {
+                let dest = target_path.clone();
+                let placed = tokio::task::spawn_blocking(move || place_spooled_download(body, &dest)).await;
+                let event = match placed {
+                    Ok(Ok(received_bytes)) => EngineEvent::DownloadFinished {
+                        tab_id,
                         id,
                         path: target_path,
                         received_bytes,
-                    });
-                }
-                Err(e) => {
-                    self.send_event(EngineEvent::DownloadFailed {
-                        tab_id: self.tab_id,
+                    },
+                    Ok(Err(e)) => EngineEvent::DownloadFailed {
+                        tab_id,
                         id,
                         error: format!("{e:#}"),
-                    });
-                }
-            }
+                    },
+                    Err(e) => EngineEvent::DownloadFailed {
+                        tab_id,
+                        id,
+                        error: format!("placing the download failed: {e}"),
+                    },
+                };
+                let _ = event_tx.send(event);
+            });
             return;
         }
 
