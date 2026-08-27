@@ -462,4 +462,39 @@ mod rendertree_from_engine {
         let w = width_px_of(html, "plain");
         assert!((w - 300.0).abs() < 0.5, "expected 300.0px, got {w}");
     }
+
+    #[test]
+    fn inline_custom_properties_join_the_scope() {
+        // Same element, a descendant, and a pseudo-element all resolve `var()` against the
+        // `style` attribute, which outranks any stylesheet rule.
+        let html = r#"
+            <html><head><style>
+                #target { --w: 50px; }
+                #target, #child, #host { width: var(--w); display: block; }
+                #host::before { content: "x"; display: block; width: var(--w); }
+            </style></head>
+            <body>
+                <div id="target" style="--w: 200px">x</div>
+                <div style="--w: 120px"><div id="child">y</div></div>
+                <div id="host" style="--w: 90px">z</div>
+            </body></html>
+        "#;
+        let w = width_px_of(html, "target");
+        assert!((w - 200.0).abs() < 0.5, "expected 200px, got {w}");
+        let w = width_px_of(html, "child");
+        assert!((w - 120.0).abs() < 0.5, "expected 120px, got {w}");
+
+        use crate::common::document::pipeline_doc::PipelineDocument;
+        use crate::common::document::style::{StyleProperty, Unit, Value};
+        let mut doc = html_compile::<Config>(html);
+        doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+        let adapter = GosubDocumentAdapter::<Config>::new(Arc::new(doc));
+        let root = adapter.doc.root();
+        let host = find_node_by_id_attr(&adapter.doc, root, "host").expect("host");
+        let before = adapter.children(host)[0];
+        match adapter.get_style(before, &StyleProperty::Width) {
+            Value::Unit(w, Unit::Px) => assert!((w - 90.0).abs() < 0.5, "expected 90px, got {w}"),
+            other => panic!("expected a px width on ::before, got {other:?}"),
+        }
+    }
 }

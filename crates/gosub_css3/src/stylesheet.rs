@@ -396,7 +396,7 @@ pub struct Specificity(u32, u32, u32);
 
 impl Specificity {
     #[must_use]
-    pub fn new(a: u32, b: u32, c: u32) -> Self {
+    pub const fn new(a: u32, b: u32, c: u32) -> Self {
         Self(a, b, c)
     }
 }

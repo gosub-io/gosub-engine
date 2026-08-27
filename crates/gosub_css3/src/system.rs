@@ -40,6 +40,16 @@ fn normalize_vendor_prefixes(value: CssValue) -> CssValue {
     }
 }
 
+/// Specificity of the `style` attribute: above any selector.
+const INLINE_SPECIFICITY: Specificity = Specificity::new(u32::MAX, 0, 0);
+
+fn inline_parser_config() -> ParserConfig {
+    ParserConfig {
+        ignore_errors: true,
+        ..Default::default()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Css3System;
 
@@ -157,6 +167,33 @@ fn compute_properties<C: HasDocument<CssSystem = Css3System>>(
             } else {
                 rank
             };
+            match own_custom.entry(decl.property.as_str()) {
+                Entry::Occupied(mut slot) if slot.get().0 <= rank => {
+                    slot.insert((rank, &decl.value));
+                }
+                Entry::Occupied(_) => {}
+                Entry::Vacant(slot) => {
+                    slot.insert((rank, &decl.value));
+                }
+            }
+        }
+    }
+    // The `style` attribute cascades above every stylesheet rule; it is parsed here only
+    // when it can carry a custom property (it usually cannot), through the real parser.
+    let inline_sheet = pseudo
+        .is_none()
+        .then(|| doc.attribute(id, "style"))
+        .flatten()
+        .filter(|style| style.contains("--"))
+        .and_then(|style| {
+            Css3::parse_str(&format!("*{{{style}}}"), inline_parser_config(), CssOrigin::Author, "").ok()
+        });
+    if let Some(rule) = inline_sheet.as_ref().and_then(|sheet| sheet.rules.first()) {
+        for decl in rule.declarations() {
+            if !decl.property.starts_with("--") {
+                continue;
+            }
+            let rank = (cascade_rank(CssOrigin::Author, decl.important), INLINE_SPECIFICITY);
             match own_custom.entry(decl.property.as_str()) {
                 Entry::Occupied(mut slot) if slot.get().0 <= rank => {
                     slot.insert((rank, &decl.value));
