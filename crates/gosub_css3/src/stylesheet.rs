@@ -10,6 +10,7 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 
 use crate::colors::{oklab_to_srgb, oklch_to_srgb, RgbColor};
+use crate::matcher::index::{ElementKeys, SelectorIndex};
 
 thread_local! {
     /// Viewport size (CSS px) used to resolve viewport-relative units (`vw`/`vh`/`vmin`/`vmax`)
@@ -149,6 +150,29 @@ pub struct CssStylesheet {
     pub url: String,
     /// Any issues during parsing of the stylesheet
     pub parse_log: Vec<CssLog>,
+    /// Rule index by rightmost compound, built on first style computation.
+    pub(crate) index: std::sync::OnceLock<SelectorIndex>,
+}
+
+impl CssStylesheet {
+    #[must_use]
+    pub fn new(origin: CssOrigin, url: &str) -> Self {
+        Self {
+            rules: vec![],
+            font_faces: vec![],
+            origin,
+            url: url.to_string(),
+            parse_log: vec![],
+            index: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// The rules that can possibly match an element with these keys, in stylesheet order.
+    pub(crate) fn candidate_rules(&self, keys: &ElementKeys<'_>) -> Vec<usize> {
+        self.index
+            .get_or_init(|| SelectorIndex::build(&self.rules))
+            .candidates(keys)
+    }
 }
 
 impl gosub_interface::css3::CssStylesheet for CssStylesheet {

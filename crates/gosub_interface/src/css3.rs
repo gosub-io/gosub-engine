@@ -49,22 +49,28 @@ pub trait CssSystem: Clone + Debug + 'static {
     fn parse_str(str: &str, config: ParserConfig, origin: CssOrigin, source_url: &str) -> CssResult<Self::Stylesheet>;
 
     /// Returns the properties of a node
-    /// If `None` is returned, the node is not renderable
+    /// If `None` is returned, the node is not renderable.
+    ///
+    /// `parent` is the parent element's computed map (`None` at the root): custom properties
+    /// (`--*`) inherit through it, so callers must compute styles top-down.
     fn properties_from_node<C: HasDocument<CssSystem = Self>>(
         doc: &C::Document,
         id: NodeId,
         sheets: &[Self::Stylesheet],
+        parent: Option<&Self::PropertyMap>,
     ) -> Option<Self::PropertyMap>;
 
     /// Returns the properties that apply to the `::before` / `::after` pseudo-element of `id`.
     /// `pseudo` is the pseudo-element name without colons (`"before"` or `"after"`). Returns
     /// `None` when no rule targets that pseudo-element (so no generated box should be created).
+    /// `owner` is the originating element's computed map (custom properties inherit from it).
     /// The default implementation reports no pseudo-element styling.
     fn pseudo_properties_from_node<C: HasDocument<CssSystem = Self>>(
         _doc: &C::Document,
         _id: NodeId,
         _sheets: &[Self::Stylesheet],
         _pseudo: &str,
+        _owner: Option<&Self::PropertyMap>,
     ) -> Option<Self::PropertyMap> {
         None
     }

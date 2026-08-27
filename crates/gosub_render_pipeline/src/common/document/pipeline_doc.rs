@@ -941,7 +941,9 @@ where
         }
         let name = if is_after { "after" } else { "before" };
         let sheets = self.doc.stylesheets();
-        let mut prop_map = C::CssSystem::pseudo_properties_from_node::<C>(&*self.doc, owner, sheets, name)?;
+        let owner_styles = self.cached_styles(owner);
+        let mut prop_map =
+            C::CssSystem::pseudo_properties_from_node::<C>(&*self.doc, owner, sheets, name, Some(&owner_styles))?;
         for (_, prop) in prop_map.iter_mut() {
             prop.compute_value();
         }
@@ -978,7 +980,14 @@ where
             return (Default::default(), NodeStyle::new());
         }
         let sheets = self.doc.stylesheets();
-        let mut prop_map = C::CssSystem::properties_from_node::<C>(&*self.doc, id, sheets).unwrap_or_default();
+        // Styles resolve top-down: the parent's map carries the inherited custom properties.
+        let parent_styles = self
+            .doc
+            .parent(id)
+            .filter(|&p| self.doc.node_type(p) == GosubNodeType::ElementNode)
+            .map(|p| self.cached_styles(p));
+        let mut prop_map = C::CssSystem::properties_from_node::<C>(&*self.doc, id, sheets, parent_styles.as_deref())
+            .unwrap_or_default();
         for (_, prop) in prop_map.iter_mut() {
             prop.compute_value();
         }

@@ -3,6 +3,7 @@ use cow_utils::CowUtils;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::sync::Arc;
 
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3;
@@ -682,6 +683,10 @@ impl css3::CssProperty<Css3System> for CssProperty {
 pub struct CssProperties {
     pub properties: HashMap<String, CssProperty>,
     pub dirty: bool,
+    /// Custom properties (`--*`) in scope for this node, own declarations layered over the
+    /// parent's. Shared with the parent when the node adds nothing: with frameworks that reset
+    /// dozens of `--x` on `*`, copying them per element was the dominant cost of styling.
+    pub custom: Arc<HashMap<String, CssValue>>,
 }
 
 impl Default for CssProperties {
@@ -696,6 +701,7 @@ impl CssProperties {
         Self {
             properties: HashMap::new(),
             dirty: true,
+            custom: Arc::new(HashMap::new()),
         }
     }
 
