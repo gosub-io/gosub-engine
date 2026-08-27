@@ -13,6 +13,7 @@ use gosub_engine::tab::{TabDefaults, TabId};
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
+use gosub_engine::NavigationId;
 use gosub_render_pipeline::render::backend::ExternalHandle;
 use gosub_render_pipeline::render::DefaultCompositor;
 #[cfg(all(feature = "backend_skia", not(feature = "backend_cairo")))]
@@ -22,6 +23,7 @@ use image::ColorType;
 #[cfg(feature = "backend_cairo")]
 use gosub_renderer_cairo::{CairoBackend, PangoFontSystem};
 use once_cell::sync::Lazy;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::{Builder, Runtime};
@@ -85,6 +87,44 @@ struct Args {
 enum Step {
     Send(TabCommand),
     Wait(Duration),
+}
+
+/// Navigation kicked off by a *replayed* interaction - a form submit, a link click. The capture
+/// must not composite until it has finished and repainted, or Phase 2 reads the tile cache of the
+/// page we navigated away from (the forms fixture would show the form, not `Echo: GET /echo`).
+#[derive(Default)]
+struct NavTracker {
+    in_flight: HashSet<NavigationId>,
+    /// A navigation completed here, so a render of the *new* document is still owed.
+    completed: bool,
+}
+
+impl NavTracker {
+    fn observe(&mut self, event: &NavigationEvent) {
+        match event {
+            NavigationEvent::Started { nav_id, .. } => {
+                self.in_flight.insert(*nav_id);
+            }
+            NavigationEvent::Finished { nav_id, .. } => {
+                self.in_flight.remove(nav_id);
+                self.completed = true;
+            }
+            NavigationEvent::Cancelled { nav_id, .. } => {
+                self.in_flight.remove(nav_id);
+            }
+            NavigationEvent::Failed { nav_id, .. } | NavigationEvent::FailedUrl { nav_id, .. } => {
+                if let Some(nav_id) = nav_id {
+                    self.in_flight.remove(nav_id);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Nothing is loading and nothing is waiting to be drawn.
+    fn idle(&self) -> bool {
+        self.in_flight.is_empty() && !self.completed
+    }
 }
 
 fn parse_interaction(spec: &str) -> Vec<Step> {
@@ -360,6 +400,7 @@ fn main() {
         eprintln!("Replaying {} interaction(s)…", args.interact.len());
         // Ctrl+C/X/V in the page go through the embedder; here that is a string.
         let mut clipboard = String::new();
+        let mut nav = NavTracker::default();
         for step in steps {
             let cmd = match step {
                 Step::Wait(d) => {
@@ -424,6 +465,7 @@ fn main() {
                             });
                             clip_pending = false;
                         }
+                        EngineEvent::Navigation { tab_id: tid, event } if tid == tab_id => nav.observe(&event),
                         _ => {}
                     }
                 }
@@ -447,6 +489,50 @@ fn main() {
             if !repainted {
                 eprintln!("(no repaint observed after interaction - focus state may be unchanged)");
             }
+        }
+
+        // A submit or link click navigates. `Started` is queued asynchronously, so it can trail
+        // the repaint accepted above (the button's own active state); give it a moment to land
+        // before concluding that nothing is loading.
+        let grace = Instant::now() + Duration::from_millis(300);
+        while nav.idle() && Instant::now() < grace {
+            while let Ok(ev) = event_rx.try_recv() {
+                if let EngineEvent::Navigation { tab_id: tid, event } = ev {
+                    if tid == tab_id {
+                        nav.observe(&event);
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        if !nav.idle() {
+            eprintln!("Replayed interaction navigated; waiting for it to finish…");
+            let nav_deadline = Instant::now() + Duration::from_secs(args.nav_timeout);
+            while !nav.in_flight.is_empty() {
+                if Instant::now() >= nav_deadline {
+                    eprintln!("Timeout waiting for the replayed navigation ({}s)", args.nav_timeout);
+                    std::process::exit(1);
+                }
+                while let Ok(ev) = event_rx.try_recv() {
+                    if let EngineEvent::Navigation { tab_id: tid, event } = ev {
+                        if tid == tab_id {
+                            nav.observe(&event);
+                        }
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            // Let a trailing repaint land if one is still coming, but don't *require* it: a fast
+            // navigation (anything local) is already painted by the time `Finished` arrives, so
+            // no further redraw is owed and waiting for one would stall until the render timeout.
+            let settle = Instant::now() + Duration::from_secs(1);
+            while Instant::now() < settle && rx_redraw.try_recv().is_err() {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            while rx_redraw.try_recv().is_ok() {}
+            eprintln!("Replayed navigation settled.");
         }
     }
 
