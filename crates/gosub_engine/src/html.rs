@@ -97,6 +97,32 @@ where
     type RenderBackend = B;
     type CompositorSink = S;
     type FontSystem = F;
+
+    /// A CPU tile rasterizer for forked renderers, when one is compiled in
+    /// (`cairo-tiles`, else `skia-tiles`). Independent of `B`: a GPU backend in
+    /// the broker still receives isolated tiles as CPU pixels.
+    fn forked_tile_rasterizer(
+        font_system: std::sync::Arc<parking_lot::Mutex<dyn gosub_interface::font_system::FontSystem>>,
+    ) -> Option<Box<dyn gosub_render_pipeline::rasterizer::Rasterable + Send + Sync>> {
+        #[cfg(feature = "cairo-tiles")]
+        {
+            Some(Box::new(gosub_renderer_cairo::CairoRasterizer::with_font_system(
+                font_system,
+            )))
+        }
+        #[cfg(all(feature = "skia-tiles", not(feature = "cairo-tiles")))]
+        {
+            Some(Box::new(gosub_renderer_skia::SkiaRasterizer::with_font_system(
+                1.0,
+                font_system,
+            )))
+        }
+        #[cfg(not(any(feature = "cairo-tiles", feature = "skia-tiles")))]
+        {
+            let _ = font_system;
+            None
+        }
+    }
 }
 
 /// The parsed document type used by the engine for a given config (defaults to [`DefaultRenderConfig`]).

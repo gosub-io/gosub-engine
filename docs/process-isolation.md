@@ -77,16 +77,21 @@ the tiers and why they exist.
    embedder's own binary with a role flag; dispatch is what routes those
    invocations into the child role instead of the embedder's startup. Plain
    `dispatch()` works for the net and decoder roles but cannot run the fork
-   server, which needs the concrete `RenderConfiguration` type. A child that was
-   never dispatched refuses to spawn further processes (the fork-bomb guard),
-   and the engine falls back with a log line telling you exactly this.
+   server, which needs the concrete `RenderConfiguration` type. The call also
+   registers itself: an engine whose process never dispatched turns the three
+   `security.*` process settings off at `start()` with one warning naming the
+   omission, so a child can never re-exec into the embedder's startup (a child
+   that was somehow started that way refuses to spawn further processes too).
 2. **Flip the settings before `start()`** (they are read once at startup):
    `security.network_process`, `security.image_decoder_process`,
    `security.renderer_process`.
 3. **Provide a forked rasterizer.** Isolated renderers rasterize on the CPU in
-   the child; `RenderConfiguration::forked_tile_rasterizer` must return one
-   (e.g. `CairoRasterizer::with_font_system`). `DefaultRenderConfig` returns
-   `None`, in which case isolated renders produce geometry but no pixels.
+   the child; `RenderConfiguration::forked_tile_rasterizer` must return one.
+   `DefaultRenderConfig` does so when the engine's `cairo-tiles` (or
+   `skia-tiles`) feature is on, whatever the broker's own backend; a custom
+   configuration returns e.g. `CairoRasterizer::with_font_system`. With no
+   rasterizer the renderer tier is not started at all (warning, in-process
+   rendering) rather than producing geometry without pixels.
    Tip from the test embedder (`examples/mini-browser`): use the *null* backend
    for the embedder's own rendering, so that if the isolated path ever broke and
    fell back, tabs would go blank rather than quietly rendering unisolated.

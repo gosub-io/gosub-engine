@@ -37,8 +37,20 @@
 /// Marks the arguments that follow as an engine child role.
 pub const ROLE_FLAG: &str = "--gosub-child-role";
 
+/// Set by [`dispatch`]/[`dispatch_with`] in the broker (a child never returns from
+/// them). The engine consults it before spawning anything: a child of an embedder
+/// that never dispatched would re-exec into that embedder's own startup.
+static DISPATCHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether this process called [`dispatch`] or [`dispatch_with`] - the
+/// precondition for process isolation. `false` in a child role by construction.
+pub fn was_dispatched() -> bool {
+    DISPATCHED.load(std::sync::atomic::Ordering::Acquire)
+}
+
 /// Run a child role if this process was started as one; otherwise return.
 pub fn dispatch() {
+    DISPATCHED.store(true, std::sync::atomic::Ordering::Release);
     let args: Vec<String> = std::env::args().collect();
     let Some(flag_at) = args.iter().position(|a| a == ROLE_FLAG) else {
         return;
@@ -52,6 +64,7 @@ pub fn dispatch() {
 /// Run a child role - including the fork server - if this process was started
 /// as one; otherwise return.
 pub fn dispatch_with<C: crate::html::RenderConfiguration>() {
+    DISPATCHED.store(true, std::sync::atomic::Ordering::Release);
     let args: Vec<String> = std::env::args().collect();
     let Some(flag_at) = args.iter().position(|a| a == ROLE_FLAG) else {
         return;

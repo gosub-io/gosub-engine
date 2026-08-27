@@ -172,6 +172,12 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             return Err(EngineError::AlreadyRunning);
         }
 
+        // Isolation needs the embedder's cooperation; without it every child
+        // would boot the embedder instead. Decided before the I/O thread, which
+        // is what spawns the network process.
+        #[cfg(feature = "process-isolation")]
+        self.isolation_needs_dispatch();
+
         // Start I/O thread, building the fetcher config from the settings store.
         let io_cfg = fetcher_config_from(&self.context.config_store);
         let io_handle = spawn_io_thread(io_cfg, self.context.clone());
@@ -193,6 +199,40 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // spawning it ourselves. `run()` yields `None` only if the loop was already taken, which
         // cannot happen here since `self.running` was false above.
         self.run().ok_or(EngineError::AlreadyRunning)
+    }
+
+    /// Turn the `security.*` process settings off when the embedder never called
+    /// `child_process::dispatch()`: a child is this binary re-exec'd, and without
+    /// dispatch it would run the embedder's own `main()` - for a GUI embedder, a
+    /// phantom window per spawn. One warning names the omission.
+    #[cfg(feature = "process-isolation")]
+    fn isolation_needs_dispatch(&self) {
+        const PROCESS_SETTINGS: [&str; 3] = [
+            "security.network_process",
+            "security.image_decoder_process",
+            "security.renderer_process",
+        ];
+        if crate::child_process::was_dispatched() {
+            return;
+        }
+        let requested: Vec<&str> = PROCESS_SETTINGS
+            .into_iter()
+            .filter(|key| self.context.config_store.get_bool(key))
+            .collect();
+        if requested.is_empty() {
+            return;
+        }
+        log::warn!(
+            "{} requested, but gosub_engine::child_process::dispatch() was not called at the top of \
+             main(); running without process isolation",
+            requested.join(", ")
+        );
+        for key in requested {
+            let _ = self
+                .context
+                .config_store
+                .set(key, gosub_config::settings::Setting::Bool(false));
+        }
     }
 
     /// Spawn the fork server when `security.renderer_process` asks for it.
@@ -227,6 +267,25 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                     );
                     return;
                 }
+            }
+        }
+
+        // A renderer that cannot rasterize would ship geometry and no pixels:
+        // blank tabs with no way back. Better to say so and stay in-process.
+        {
+            let fonts: Arc<Mutex<dyn gosub_interface::font_system::FontSystem>> =
+                Arc::new(Mutex::new(C::FontSystem::default()));
+            if C::forked_tile_rasterizer(fonts).is_none() {
+                log::warn!(
+                    "security.renderer_process is on, but this RenderConfiguration provides no \
+                     forked_tile_rasterizer (enable the engine's `cairo-tiles`/`skia-tiles` feature, \
+                     or implement it); rendering stays in-process"
+                );
+                let _ = self.context.config_store.set(
+                    "security.renderer_process",
+                    gosub_config::settings::Setting::Bool(false),
+                );
+                return;
             }
         }
 
@@ -509,6 +568,32 @@ mod tests {
             cookie_jar: None,
             partition_policy: PartitionPolicy::None,
             places: None,
+        }
+    }
+
+    /// Without `child_process::dispatch()` the process settings must not survive
+    /// `start()`: a child would re-exec into this test binary's own startup.
+    #[cfg(feature = "process-isolation")]
+    #[tokio::test]
+    async fn process_settings_are_dropped_without_dispatch() {
+        use gosub_config::settings::Setting;
+        let mut engine = engine_with_max_zones(1);
+        for key in [
+            "security.network_process",
+            "security.image_decoder_process",
+            "security.renderer_process",
+        ] {
+            engine.settings().set(key, Setting::Bool(true)).expect("set");
+            assert!(engine.settings().get_bool(key));
+        }
+        assert!(!crate::child_process::was_dispatched());
+        let _join = tokio::spawn(engine.start().expect("start"));
+        for key in [
+            "security.network_process",
+            "security.image_decoder_process",
+            "security.renderer_process",
+        ] {
+            assert!(!engine.settings().get_bool(key), "{key} should have been turned off");
         }
     }
 

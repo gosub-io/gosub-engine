@@ -17,6 +17,7 @@ gosub_css3 = { version = "0.1.2", path = "../gosub_css3" }
 gosub_interface = { version = "0.1.2", path = "../gosub_interface" }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 gosub_renderer_cairo = { version = "0.1.0", path = "../gosub_renderer_cairo", registry = "gosub", default-features = false, optional = true }
+gosub_renderer_skia = { version = "0.1.0", path = "../gosub_renderer_skia", registry = "gosub", default-features = false, optional = true }
 gosub_render_pipeline = { version = "0.1.0", path = "../gosub_render_pipeline" }
 uuid = { workspace = true, features = ["v4", "serde"] }
 reqwest = { workspace = true, default-features = true, features = ["json", "gzip", "brotli", "deflate", "cookies", "rustls", "stream"] }
@@ -94,6 +95,8 @@ skia-fonts = ["gosub_fontmanager/skia"]
 # font features — a real embedder supplies its own rasterizer through
 # `RenderConfiguration::forked_tile_rasterizer`.
 cairo-tiles = ["dep:gosub_renderer_cairo"]
+# Same, with Skia's CPU rasterizer (`cairo-tiles` wins when both are on).
+skia-tiles = ["dep:gosub_renderer_skia"]
 
 [lints]
 workspace = true
