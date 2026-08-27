@@ -614,10 +614,11 @@ pub enum EngineEvent {
     /// `offer` - or ignores it.
     ///
     /// The body has already been transferred and spooled to a temp file by the time this
-    /// arrives, so accepting is a local move rather than a second request. The temp file is
-    /// released if the offer is never accepted, evicted by newer offers, or the tab closes.
-    /// The bytes move during the *navigation*, so there is no per-download progress on
-    /// accept. This event travels the bounded control bus; a receiver that lagged can list
+    /// arrives, so accepting is a local move rather than a second request. Ignoring the
+    /// event does not release the file: the tab keeps an offer until it is accepted or
+    /// rendered, evicted by newer offers (eight are kept per tab, oldest out first), or the
+    /// tab closes. The bytes move during the *navigation*, so there is no per-download
+    /// progress on accept. This event travels the bounded control bus; a receiver that lagged can list
     /// what is still pending with
     /// [`TabHandle::pending_downloads`](crate::tab::TabHandle::pending_downloads).
     DownloadRequested {

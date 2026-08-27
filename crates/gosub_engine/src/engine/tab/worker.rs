@@ -251,8 +251,8 @@ pub struct TabWorker<C: RenderConfiguration> {
     /// height are only known then, and `set_scroll` clamps against the latter). Set by
     /// `on_nav_result`, consumed by `tick_draw`.
     pending_scroll: Option<PendingScroll>,
-    /// Bodies of download offers awaiting acceptance, keyed by the URL announced in
-    /// [`EngineEvent::DownloadRequested`].
+    /// Download offers whose body is still held, oldest first; looked up by
+    /// [`DownloadOfferId`]. Bounded by `remember_offer`.
     pending_offers: std::collections::VecDeque<PendingOffer>,
     /// Source of [`DownloadOfferId`]s; unique within the tab.
     next_offer: u64,
@@ -942,14 +942,6 @@ impl<C: RenderConfiguration> TabWorker<C> {
         }
     }
 
-    /// Save `url` to `target_path` through the zone fetcher, with progress/finished/failed
-    /// events carrying `id`. Runs on its own task; tab shutdown does not cancel it (a
-    /// deliberate v1 simplification - there is no cancel command yet).
-    ///
-    /// V1 fetches in **buffered** mode (whole body in memory before writing): sonar's
-    /// `SharedBody` replays nothing to late subscribers, so a streaming consumer that
-    /// attaches after the fetch result arrives misses early chunks. True streaming-to-disk
-    /// needs replay support in gosub-sonar (see the board).
     /// Hold an offer's body until the embedder answers or the tab goes away. Bounded, so an
     /// embedder that ignores offers cannot accumulate temp files without limit; the oldest
     /// offer is evicted first. Dropping a `TempPath` deletes its file.
@@ -995,6 +987,15 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.begin_local_load(HtmlSource::Spooled(body), info.url);
     }
 
+    /// Save a download to `target_path`: an accepted offer's spooled body (moved into place),
+    /// or `url` fetched through the zone fetcher (save-link-as), with progress/finished/failed
+    /// events carrying `id`. The fetch runs on its own task; tab shutdown does not cancel it (a
+    /// deliberate v1 simplification - there is no cancel command yet).
+    ///
+    /// V1 fetches in **buffered** mode (whole body in memory before writing): sonar's
+    /// `SharedBody` replays nothing to late subscribers, so a streaming consumer that
+    /// attaches after the fetch result arrives misses early chunks. True streaming-to-disk
+    /// needs replay support in gosub-sonar (see the board).
     fn start_download(
         &mut self,
         id: crate::engine::events::DownloadId,
