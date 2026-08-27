@@ -1,5 +1,5 @@
 use gosub_render_pipeline::common::media::{MediaId, MediaStore};
-use gosub_render_pipeline::painter::commands::border::BorderStyle;
+use gosub_render_pipeline::painter::commands::border::{per_side_strips, BorderStyle};
 use gosub_render_pipeline::painter::commands::brush::Brush;
 use gosub_render_pipeline::painter::commands::gradient::{Gradient, LinearGradient, Tiling};
 use gosub_render_pipeline::painter::commands::rectangle::{BlendMode as CssBlendMode, Rectangle};
@@ -103,38 +103,23 @@ pub fn do_paint_rectangle(canvas: &Canvas, _tile: &Tile, cmd: &Rectangle, media_
 /// Paints a non-uniform border (e.g. `border-bottom` only) by filling each visible side as a
 /// solid edge rectangle. Side order is `[top, right, bottom, left]`.
 fn paint_per_side_border(canvas: &Canvas, cmd: &Rectangle) {
-    let r = cmd.rect();
-    let widths = cmd.border().widths();
-    let styles = cmd.border().styles();
     let brushes = cmd.border().brushes();
+    let strips = per_side_strips(cmd.rect(), cmd.border().widths(), &cmd.border().styles());
 
-    let edges = [
-        (r.x as f32, r.y as f32, r.width as f32, widths[0]),
-        (
-            r.x as f32 + r.width as f32 - widths[1],
-            r.y as f32,
-            widths[1],
-            r.height as f32,
-        ),
-        (
-            r.x as f32,
-            r.y as f32 + r.height as f32 - widths[2],
-            r.width as f32,
-            widths[2],
-        ),
-        (r.x as f32, r.y as f32, widths[3], r.height as f32),
-    ];
-
-    for i in 0..4 {
-        if widths[i] <= 0.0 || styles[i].is_invisible() {
+    for (i, side) in strips.iter().enumerate() {
+        if side.is_empty() {
             continue;
         }
-        let (x, y, w, h) = edges[i];
         let mut paint = Paint::new(brush_to_color4f(&brushes[i]), None);
         paint.set_anti_alias(true);
         paint.set_blend_mode(to_skia_blend_mode(cmd.blend_mode()));
         paint.set_style(skia_safe::paint::Style::Fill);
-        canvas.draw_rect(Rect::from_xywh(x, y, w, h), &paint);
+        for strip in side {
+            canvas.draw_rect(
+                Rect::from_xywh(strip.x as f32, strip.y as f32, strip.width as f32, strip.height as f32),
+                &paint,
+            );
+        }
     }
 }
 

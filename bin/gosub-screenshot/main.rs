@@ -28,6 +28,10 @@ use tokio::runtime::{Builder, Runtime};
 use url::Url;
 use uuid::uuid;
 
+/// Cap on the composited RGBA buffer (1 GiB): keeps a runaway `--min-height` from
+/// wrapping the size arithmetic or exhausting memory.
+const MAX_CAPTURE_BYTES: usize = 1 << 30;
+
 const BUILD_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (",
@@ -309,7 +313,18 @@ fn main() {
     );
 
     // Fill with opaque white, then alpha-blend each tile (premultiplied).
-    let mut pixels = vec![255u8; (page_w * page_h * 4) as usize];
+    let Some(buf_len) = (page_w as usize)
+        .checked_mul(page_h as usize)
+        .and_then(|n| n.checked_mul(4))
+        .filter(|&n| n <= MAX_CAPTURE_BYTES)
+    else {
+        eprintln!(
+            "Capture of {page_w}x{page_h} px exceeds the supported size ({} MiB); lower the width or --min-height.",
+            MAX_CAPTURE_BYTES / (1024 * 1024)
+        );
+        std::process::exit(1);
+    };
+    let mut pixels = vec![255u8; buf_len];
 
     for tile in tiles.iter() {
         let tx = tile.page_x as u32;

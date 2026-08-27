@@ -1086,6 +1086,10 @@ where
     /// `None` means "no generated box". Populated lazily.
     #[allow(clippy::type_complexity)]
     pseudo_cache: Mutex<HashMap<(NodeId, bool), Option<Arc<PseudoBox<<C::CssSystem as CssSystem>::PropertyMap>>>>>,
+    /// `parent()` resolves anonymous-wrapper parents by scanning the real parent's child
+    /// list; `get_style` calls it per inherited property, which made style resolution
+    /// quadratic in table size. Keyed on the (possibly synthetic) id.
+    parent_cache: Mutex<HashMap<NodeId, Option<NodeId>>>,
 }
 
 impl<C> GosubDocumentAdapter<C>
@@ -1094,12 +1098,73 @@ where
     C::Document: Send + Sync,
     <C::CssSystem as CssSystem>::PropertyMap: Send + Sync,
 {
+    fn parent_uncached(&self, id: NodeId) -> Option<NodeId> {
+        // Synthetic anonymous boxes: parent is the members' real parent when it provides the
+        // right context, else the next synthetic wrapper up - located by finding the enclosing
+        // run's start among the real parent's children.
+        if is_anon_cell_id(u64::from(id)) {
+            let first = decode_anon_box(id);
+            let real_parent = self.doc.parent(first)?;
+            if matches!(self.display_of(real_parent), Some(Display::TableRow)) {
+                return Some(real_parent);
+            }
+            // The enclosing anonymous row wraps the row-level run containing this cell run.
+            let rmembers = self.row_run_members_for(first);
+            return Some(encode_anon_row(rmembers[0]));
+        }
+        if is_anon_row_id(u64::from(id)) {
+            let first = decode_anon_box(id);
+            let real_parent = self.doc.parent(first)?;
+            let parent_display = self.display_of(real_parent);
+            if matches!(
+                parent_display,
+                Some(Display::Table | Display::TableRowGroup | Display::TableHeaderGroup | Display::TableFooterGroup)
+            ) {
+                return Some(real_parent);
+            }
+            // The enclosing anonymous table wraps the table-level run containing this row run.
+            let start = self
+                .run_start_containing(real_parent, first, |c| {
+                    self.display_of(c)
+                        .is_some_and(|d| needs_table_parent(&d, parent_display.as_ref()))
+                })
+                .unwrap_or(first);
+            return Some(encode_anon_table(start));
+        }
+        if is_anon_table_id(u64::from(id)) {
+            return self.doc.parent(decode_anon_box(id));
+        }
+        // Members of a synthesized run report the wrapper as their parent, so the parent
+        // chain matches the child lists children() hands out.
+        if let Some(wrapper) = self.synthetic_parent_of(id) {
+            return Some(wrapper);
+        }
+        if is_pseudo_id(u64::from(id)) {
+            let (owner, role) = decode_pseudo(id);
+            // Text child's parent is its pseudo-element; the pseudo-element's parent is the owner.
+            return Some(if role_is_text(role) {
+                encode_pseudo(
+                    owner,
+                    if role_is_after(role) {
+                        ROLE_AFTER_ELEM
+                    } else {
+                        ROLE_BEFORE_ELEM
+                    },
+                )
+            } else {
+                owner
+            });
+        }
+        self.doc.parent(id)
+    }
+
     pub fn new(doc: Arc<C::Document>) -> Self {
         Self {
             doc,
             style_cache: Mutex::new(HashMap::new()),
             inline_style_cache: Mutex::new(HashMap::new()),
             pseudo_cache: Mutex::new(HashMap::new()),
+            parent_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -1858,63 +1923,12 @@ where
     }
 
     fn parent(&self, id: NodeId) -> Option<NodeId> {
-        // Synthetic anonymous boxes: parent is the members' real parent when it provides the
-        // right context, else the next synthetic wrapper up - located by finding the enclosing
-        // run's start among the real parent's children.
-        if is_anon_cell_id(u64::from(id)) {
-            let first = decode_anon_box(id);
-            let real_parent = self.doc.parent(first)?;
-            if matches!(self.display_of(real_parent), Some(Display::TableRow)) {
-                return Some(real_parent);
-            }
-            // The enclosing anonymous row wraps the row-level run containing this cell run.
-            let rmembers = self.row_run_members_for(first);
-            return Some(encode_anon_row(rmembers[0]));
+        if let Some(&cached) = self.parent_cache.lock().get(&id) {
+            return cached;
         }
-        if is_anon_row_id(u64::from(id)) {
-            let first = decode_anon_box(id);
-            let real_parent = self.doc.parent(first)?;
-            let parent_display = self.display_of(real_parent);
-            if matches!(
-                parent_display,
-                Some(Display::Table | Display::TableRowGroup | Display::TableHeaderGroup | Display::TableFooterGroup)
-            ) {
-                return Some(real_parent);
-            }
-            // The enclosing anonymous table wraps the table-level run containing this row run.
-            let start = self
-                .run_start_containing(real_parent, first, |c| {
-                    self.display_of(c)
-                        .is_some_and(|d| needs_table_parent(&d, parent_display.as_ref()))
-                })
-                .unwrap_or(first);
-            return Some(encode_anon_table(start));
-        }
-        if is_anon_table_id(u64::from(id)) {
-            return self.doc.parent(decode_anon_box(id));
-        }
-        // Members of a synthesized run report the wrapper as their parent, so the parent
-        // chain matches the child lists children() hands out.
-        if let Some(wrapper) = self.synthetic_parent_of(id) {
-            return Some(wrapper);
-        }
-        if is_pseudo_id(u64::from(id)) {
-            let (owner, role) = decode_pseudo(id);
-            // Text child's parent is its pseudo-element; the pseudo-element's parent is the owner.
-            return Some(if role_is_text(role) {
-                encode_pseudo(
-                    owner,
-                    if role_is_after(role) {
-                        ROLE_AFTER_ELEM
-                    } else {
-                        ROLE_BEFORE_ELEM
-                    },
-                )
-            } else {
-                owner
-            });
-        }
-        self.doc.parent(id)
+        let parent = self.parent_uncached(id);
+        self.parent_cache.lock().insert(id, parent);
+        parent
     }
 
     fn get_own_style(&self, id: NodeId, prop: &StyleProperty) -> Option<Value> {
@@ -2101,6 +2115,7 @@ where
         self.style_cache.lock().clear();
         self.inline_style_cache.lock().clear();
         self.pseudo_cache.lock().clear();
+        self.parent_cache.lock().clear();
     }
 
     fn invalidate_style_for_nodes(&self, ids: &[NodeId]) {
@@ -2130,6 +2145,9 @@ where
                 self.invalidate_subtree(id);
             }
         }
+        // A display change on any node can reshape the anonymous-wrapper runs around its
+        // siblings, so the parent memo is dropped wholesale (it is cheap to rebuild).
+        self.parent_cache.lock().clear();
     }
 
     fn html_node_id(&self) -> Option<NodeId> {

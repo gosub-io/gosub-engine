@@ -48,17 +48,14 @@ SCRIPT_RE = re.compile(r'<script\b', re.I)
 
 
 def parse_fuzzy(content):
-    """Parse a WPT fuzzy annotation into (max_channel_diff, max_pixel_count).
+    """Parse one WPT fuzzy annotation into (max_channel_diff, max_pixel_count).
 
-    Content looks like "maxDifference=0-2;totalPixels=0-300", optionally
-    prefixed with "ref-name.html:". We take the upper bounds and, with
-    multiple annotations, the loosest.
+    Content looks like "maxDifference=0-2;totalPixels=0-300"; ranges keep their
+    upper bound. Explicit zeros stay zero: they demand an exact match.
     """
-    spec = content.split(":", 1)[-1] if ("=" in content.split(":", 1)[-1]) else content
     max_diff = pixels = 0
-    for part in spec.split(";"):
-        part = part.strip()
-        m = re.match(r'(maxDifference|totalPixels)\s*=\s*(?:\d+-)?(\d+)', part)
+    for part in content.split(";"):
+        m = re.match(r'(maxDifference|totalPixels)\s*=\s*(?:\d+-)?(\d+)', part.strip())
         if not m:
             continue
         if m.group(1) == "maxDifference":
@@ -66,6 +63,28 @@ def parse_fuzzy(content):
         else:
             pixels = int(m.group(2))
     return max_diff, pixels
+
+
+def parse_fuzzy_meta(text):
+    """Collect every fuzzy annotation in a test: {ref_name_or_None: (max_diff, pixels)}.
+
+    A "ref.html:maxDifference=..." annotation applies only to that reference; an
+    unprefixed one is the default for the rest. Absent metadata means exact match.
+    """
+    out = {}
+    for fm in FUZZY_RE.finditer(text):
+        content = fm.group(1)
+        head, sep, tail = content.partition(":")
+        if sep and "=" in tail and "=" not in head:
+            out[Path(head.strip()).name] = parse_fuzzy(tail)
+        else:
+            out[None] = parse_fuzzy(content)
+    return out
+
+
+def fuzzy_for(fuzzy_meta, ref):
+    """Tolerance for `ref`: its own annotation, else the unprefixed default, else exact."""
+    return fuzzy_meta.get(ref.name, fuzzy_meta.get(None, (0, 0)))
 
 
 def discover(root, target):
@@ -98,11 +117,7 @@ def discover(root, target):
             skip = "reftest-wait (needs script support)"
         elif SCRIPT_RE.search(text):
             skip = "uses <script>"
-        fuzzy = (0, 0)
-        fm = FUZZY_RE.search(text)
-        if fm:
-            fuzzy = parse_fuzzy(fm.group(1))
-        yield f, refs, fuzzy, skip
+        yield f, refs, parse_fuzzy_meta(text), skip
 
 
 class WptHandler(http.server.SimpleHTTPRequestHandler):
@@ -156,14 +171,16 @@ def images_match(a, b, fuzzy):
     bbox = diff.getbbox()
     if bbox is None:
         return True, 0, 0
-    max_diff, pixel_budget = fuzzy
-    # Baseline tolerance: channel differences of 1 are sub-antialiasing rounding noise
-    # (two float layout paths landing 1e-4 apart blend fringes +/-1). The old CSS2 tests
-    # predate WPT fuzzy metadata and say "except for antialiasing issues" in prose.
-    max_diff = max(max_diff, 1)
     hist_max = max(ch.getextrema()[1] for ch in diff.split())
     differing = sum(1 for px in diff.getdata() if px != (0, 0, 0))
-    ok = hist_max <= max_diff and (pixel_budget == 0 or differing <= pixel_budget)
+    if fuzzy is None:
+        # No metadata at all. The old CSS2 tests predate WPT fuzzy annotations and say
+        # "except for antialiasing issues" in prose, so channel differences of 1
+        # (sub-antialiasing rounding noise between two float layout paths) pass.
+        return hist_max <= 1, hist_max, differing
+    # Explicit metadata is taken literally: maxDifference=0;totalPixels=0 is exact.
+    max_diff, pixel_budget = fuzzy
+    ok = hist_max <= max_diff and differing <= pixel_budget
     return ok, hist_max, differing
 
 
@@ -214,7 +231,7 @@ class Renderer:
             raise
 
 
-def run_test(renderer, test, refs, fuzzy):
+def run_test(renderer, test, refs, fuzzy_meta):
     try:
         test_img = to_canvas(renderer.render(test))
     except Exception as e:
@@ -228,6 +245,7 @@ def run_test(renderer, test, refs, fuzzy):
             ref_img = to_canvas(renderer.render(ref))
         except Exception as e:
             return "ERROR", f"ref render: {e}", None
+        fuzzy = fuzzy_for(fuzzy_meta, ref) if fuzzy_meta else None
         equal, max_d, n_px = images_match(test_img, ref_img, fuzzy)
         detail.append(f"{rel} {ref.name}: maxdiff={max_d} pixels={n_px}")
         if rel == "match":

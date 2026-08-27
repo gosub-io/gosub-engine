@@ -1,7 +1,7 @@
 use crate::rasterizer::brush::set_brush;
 use cairo::{Context, Operator};
 use gosub_render_pipeline::common::media::MediaStore;
-use gosub_render_pipeline::painter::commands::border::BorderStyle;
+use gosub_render_pipeline::painter::commands::border::{per_side_strips, BorderStyle};
 use gosub_render_pipeline::painter::commands::rectangle::{BlendMode, Rectangle};
 use gosub_render_pipeline::tiler::Tile;
 
@@ -118,35 +118,17 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
 /// solid fill per side, which is the common case for single-side borders.
 fn paint_per_side_border(cr: &Context, rectangle: &Rectangle, media_store: &MediaStore) {
     let rect = rectangle.rect();
-    let widths = rectangle.border().widths();
-    let styles = rectangle.border().styles();
     let brushes = rectangle.border().brushes();
+    let strips = per_side_strips(rect, rectangle.border().widths(), &rectangle.border().styles());
 
-    // (x, y, w, h) for each side's edge rectangle.
-    let edges = [
-        (rect.x, rect.y, rect.width, widths[0] as f64), // top
-        (
-            rect.x + rect.width - widths[1] as f64,
-            rect.y,
-            widths[1] as f64,
-            rect.height,
-        ), // right
-        (
-            rect.x,
-            rect.y + rect.height - widths[2] as f64,
-            rect.width,
-            widths[2] as f64,
-        ), // bottom
-        (rect.x, rect.y, widths[3] as f64, rect.height), // left
-    ];
-
-    for i in 0..4 {
-        if widths[i] <= 0.0 || styles[i].is_invisible() {
+    for (i, side) in strips.iter().enumerate() {
+        if side.is_empty() {
             continue;
         }
-        let (x, y, w, h) = edges[i];
         cr.new_path();
-        cr.rectangle(x, y, w, h);
+        for strip in side {
+            cr.rectangle(strip.x, strip.y, strip.width, strip.height);
+        }
         set_brush(cr, &brushes[i], rect, media_store);
         _ = cr.fill();
     }

@@ -1,6 +1,6 @@
 use crate::rasterizer::brush::set_brush;
 use gosub_render_pipeline::common::media::MediaStore;
-use gosub_render_pipeline::painter::commands::border::BorderStyle;
+use gosub_render_pipeline::painter::commands::border::{per_side_strips, BorderStyle};
 use gosub_render_pipeline::painter::commands::rectangle::{BlendMode, Rectangle};
 use vello::kurbo;
 use vello::kurbo::{Affine, PathEl, Point, Rect, RoundedRect, Shape};
@@ -85,25 +85,18 @@ fn paint_rectangle_content(scene: &mut vello::Scene, rect: &Rectangle, affine: A
 /// Side order is `[top, right, bottom, left]`.
 fn paint_per_side_border(scene: &mut vello::Scene, rect: &Rectangle, affine: Affine, media_store: &MediaStore) {
     let r = rect.rect();
-    let widths = rect.border().widths();
-    let styles = rect.border().styles();
     let brushes = rect.border().brushes();
+    let strips = per_side_strips(r, rect.border().widths(), &rect.border().styles());
 
-    let edges = [
-        (r.x, r.y, r.width, widths[0] as f64),
-        (r.x + r.width - widths[1] as f64, r.y, widths[1] as f64, r.height),
-        (r.x, r.y + r.height - widths[2] as f64, r.width, widths[2] as f64),
-        (r.x, r.y, widths[3] as f64, r.height),
-    ];
-
-    for i in 0..4 {
-        if widths[i] <= 0.0 || styles[i].is_invisible() {
+    for (i, side) in strips.iter().enumerate() {
+        if side.is_empty() {
             continue;
         }
-        let (x, y, w, h) = edges[i];
         let (vello_brush, brush_transform) = set_brush(&brushes[i], r, media_store);
-        let edge = Rect::new(x, y, x + w, y + h);
-        scene.fill(Fill::NonZero, affine, &vello_brush, brush_transform, &edge);
+        for strip in side {
+            let edge = Rect::new(strip.x, strip.y, strip.x + strip.width, strip.y + strip.height);
+            scene.fill(Fill::NonZero, affine, &vello_brush, brush_transform, &edge);
+        }
     }
 }
 

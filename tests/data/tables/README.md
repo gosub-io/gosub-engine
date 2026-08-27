@@ -20,7 +20,7 @@ cargo run -p gosub-screenshot -- file://$PWD/tests/data/tables/01-basic-grid.htm
 | `03-sections.html` | tfoot before thead in source, multiple tbodies | header->body->footer ordering |
 | `04-anonymous-boxes.html` | `display: table` divs, cells without a row | anonymous box generation |
 | `05-caption.html` | `<caption>`, `caption-side: bottom` | caption layout (done 2026-08-08) |
-| `06-colspan.html` | colspan 2/3/full/overflowing | slot filling, span clamping |
+| `06-colspan.html` | colspan 2/3/full/overflowing | slot filling, trailing empty-column truncation |
 | `07-rowspan.html` | rowspan, tall spanning content, span past last row | rowspan height distribution (done 2026-08-08) |
 | `08-span-mix.html` | interlocking colspan+rowspan block puzzle | slot filling |
 | `09-widths-explicit.html` | px/% cell widths; explicit width on a row-2 cell | column algorithm beyond first row (**gap**) |
@@ -43,7 +43,7 @@ and double as acceptance tests for the corresponding roadmap item.
 
 ## Findings from the first render pass (2026-08-06, Cairo backend)
 
-Solid: slot filling (02, 06, 08 place every span correctly, clamped spans
+Solid: slot filling (02, 06, 08 place every span correctly, overflowing spans
 included), section reordering (03), anonymous boxes (04), first-row px/%
 widths (09, table 1), table width px/%/100% (10), separate borders with
 per-cell overrides (15), and both real-world pages (19, 20) are close.
