@@ -128,6 +128,7 @@ mod tests {
             content_length: None,
             content_type: None,
             has_body: true,
+            tainting: gosub_sonar::ResponseTainting::Basic,
         }
     }
 

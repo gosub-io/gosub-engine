@@ -1704,6 +1704,7 @@ impl<C: RenderConfiguration> TabWorker<C> {
             content_length: Some(html.len() as u64),
             content_type: Some("text/html".into()),
             has_body: true,
+            tainting: gosub_sonar::ResponseTainting::Basic,
         };
 
         spawn_named("tab-load-html", async move {

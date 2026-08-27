@@ -236,8 +236,92 @@ impl Drop for RingProducer {
     }
 }
 
-/// Consumer side (the renderer): validate the received ring fd, then drain
-/// exactly `body_len` bytes from it as the producer streams.
+/// Consumer side: validate a received ring fd, then read from it as the
+/// producer streams, like a blocking pipe. `read` returns `0` once the
+/// producer finished and every byte was taken; a producer that aborts or
+/// makes no progress within [`STALL_TIMEOUT`] is an error.
+pub struct RingConsumer {
+    map: RingMap,
+}
+
+impl RingConsumer {
+    /// Validate the fd's seals and size and map it. The fd itself is dropped:
+    /// the mapping keeps the pages alive.
+    pub fn open(fd: OwnedFd) -> io::Result<Self> {
+        // SAFETY: fcntl/fstat on an fd we own.
+        let seals = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GET_SEALS) };
+        if seals < 0 {
+            return Err(io::Error::last_os_error()); // not a sealable memfd at all
+        }
+        if seals & REQUIRED_SEALS != REQUIRED_SEALS {
+            return Err(corrupt("ring fd is not size-sealed (sender could shrink it)"));
+        }
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::fstat(fd.as_raw_fd(), &mut st) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let size = st.st_size as u128;
+        if size <= HEADER_LEN as u128 || size > (HEADER_LEN as u128 + MAX_CAPACITY as u128) {
+            return Err(corrupt("ring fd size out of range"));
+        }
+        let map = RingMap::map(&fd, size as usize)?;
+        Ok(Self { map })
+    }
+
+    /// Take up to `buf.len()` bytes, blocking (bounded) while the ring is
+    /// empty. `Ok(0)` means the producer finished and nothing is left.
+    pub fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        let map = &self.map;
+        let cap = map.capacity();
+        let deadline = Instant::now() + STALL_TIMEOUT;
+        loop {
+            let r = map.read_pos().load(Ordering::Relaxed); // ours
+            let w = map.write_pos().load(Ordering::Acquire); // theirs: local copy, then validate
+            let avail = w.wrapping_sub(r);
+            if avail > cap {
+                return Err(corrupt("write cursor claims more than the ring holds"));
+            }
+            if avail == 0 {
+                match map.done().load(Ordering::Acquire) {
+                    DONE_STREAMING => {
+                        if Instant::now() >= deadline {
+                            return Err(io::Error::new(io::ErrorKind::TimedOut, "producer stalled"));
+                        }
+                        futex_wait_slice(map.write_pos(), w)?;
+                        continue;
+                    }
+                    DONE_FINISHED => return Ok(0),
+                    _ => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::ConnectionAborted,
+                            "producer aborted the stream",
+                        ))
+                    }
+                }
+            }
+            let n = (avail as usize).min(buf.len());
+            let off = (r % cap) as usize;
+            let first = n.min(cap as usize - off);
+            // SAFETY: both segments lie inside the data window and target
+            // `buf`. Single-pass: these bytes are copied out exactly once,
+            // then the cursor advances and they are never read again.
+            unsafe {
+                std::ptr::copy_nonoverlapping(map.data().add(off), buf.as_mut_ptr(), first);
+                std::ptr::copy_nonoverlapping(map.data(), buf.as_mut_ptr().add(first), n - first);
+            }
+            map.read_pos().store(r.wrapping_add(n as u32), Ordering::Release);
+            futex_wake(map.read_pos());
+            return Ok(n);
+        }
+    }
+}
+
+/// Drain exactly `body_len` bytes from a received ring fd as the producer
+/// streams. A producer that finishes short of the promised length, aborts, or
+/// stalls is an error.
 pub fn consume(fd: OwnedFd, body_len: u64) -> io::Result<Vec<u8>> {
     if body_len > MAX_BODY_LEN {
         return Err(io::Error::new(
@@ -245,69 +329,14 @@ pub fn consume(fd: OwnedFd, body_len: u64) -> io::Result<Vec<u8>> {
             format!("claimed body length {body_len} exceeds the {MAX_BODY_LEN}-byte cap"),
         ));
     }
-
-    // SAFETY: fcntl/fstat on an fd we own.
-    let seals = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GET_SEALS) };
-    if seals < 0 {
-        return Err(io::Error::last_os_error()); // not a sealable memfd at all
-    }
-    if seals & REQUIRED_SEALS != REQUIRED_SEALS {
-        return Err(corrupt("ring fd is not size-sealed (sender could shrink it)"));
-    }
-    let mut st: libc::stat = unsafe { std::mem::zeroed() };
-    if unsafe { libc::fstat(fd.as_raw_fd(), &mut st) } < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let size = st.st_size as u128;
-    if size <= HEADER_LEN as u128 || size > (HEADER_LEN as u128 + MAX_CAPACITY as u128) {
-        return Err(corrupt("ring fd size out of range"));
-    }
-    let map = RingMap::map(&fd, size as usize)?;
-    drop(fd); // the mapping keeps the pages alive
-    let cap = map.capacity();
-
+    let mut consumer = RingConsumer::open(fd)?;
     let mut out = vec![0u8; body_len as usize];
     let mut got = 0usize;
-    let mut deadline = Instant::now() + STALL_TIMEOUT;
     while got < out.len() {
-        let r = map.read_pos().load(Ordering::Relaxed); // ours
-        let w = map.write_pos().load(Ordering::Acquire); // theirs: local copy, then validate
-        let avail = w.wrapping_sub(r);
-        if avail > cap {
-            return Err(corrupt("write cursor claims more than the ring holds"));
+        match consumer.read(&mut out[got..])? {
+            0 => return Err(corrupt("stream finished short of the promised length")),
+            n => got += n,
         }
-        if avail == 0 {
-            match map.done().load(Ordering::Acquire) {
-                DONE_STREAMING => {
-                    if Instant::now() >= deadline {
-                        return Err(io::Error::new(io::ErrorKind::TimedOut, "producer stalled"));
-                    }
-                    futex_wait_slice(map.write_pos(), w)?;
-                    continue;
-                }
-                DONE_FINISHED => return Err(corrupt("stream finished short of the promised length")),
-                _ => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::ConnectionAborted,
-                        "producer aborted the stream",
-                    ))
-                }
-            }
-        }
-        let n = (avail as usize).min(out.len() - got);
-        let off = (r % cap) as usize;
-        let first = n.min(cap as usize - off);
-        // SAFETY: both segments lie inside the data window and target the
-        // Vec's spare room. Single-pass: these bytes are copied out exactly
-        // once, then the cursor advances and they are never read again.
-        unsafe {
-            std::ptr::copy_nonoverlapping(map.data().add(off), out.as_mut_ptr().add(got), first);
-            std::ptr::copy_nonoverlapping(map.data(), out.as_mut_ptr().add(got + first), n - first);
-        }
-        got += n;
-        map.read_pos().store(r.wrapping_add(n as u32), Ordering::Release);
-        futex_wake(map.read_pos());
-        deadline = Instant::now() + STALL_TIMEOUT; // progress resets patience
     }
     Ok(out)
 }

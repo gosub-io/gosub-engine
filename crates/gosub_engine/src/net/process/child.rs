@@ -122,11 +122,35 @@ pub fn serve(link: Endpoint) -> i32 {
                 let link_tx = link_tx.clone();
                 let cancels = cancels.clone();
                 let handle = runtime.spawn(async move {
-                    let outcome = perform(&fetcher, fetch, token).await;
+                    let performed = perform(&fetcher, fetch, token).await;
                     cancels.lock().remove(&tag);
                     // A write error means the broker went away; the recv loop
                     // notices the same and ends the process.
-                    let _ = link_tx.lock().send(&FromNet::Reply { tag, outcome });
+                    match performed {
+                        Performed::Done(outcome) => {
+                            let _ = link_tx.lock().send(&FromNet::Reply { tag, outcome });
+                        }
+                        Performed::Streaming {
+                            outcome,
+                            ring,
+                            producer,
+                            chunks,
+                        } => {
+                            // Head and ring fd back to back, under one lock, so
+                            // nothing else on the link comes between them.
+                            {
+                                use std::os::fd::AsRawFd as _;
+                                let mut tx = link_tx.lock();
+                                if tx.send(&FromNet::Reply { tag, outcome }).is_err()
+                                    || tx.send_fd(ring.as_raw_fd()).is_err()
+                                {
+                                    return;
+                                }
+                            }
+                            drop(ring); // the broker holds its duplicate; the mapping keeps ours
+                            pump(producer, chunks).await;
+                        }
+                    }
                 });
                 let mut tasks = tasks.lock();
                 tasks.retain(|h| !h.is_finished());
@@ -182,15 +206,63 @@ impl gosub_sonar::net::fetcher_context::FetcherContext for NetProcessContext {
     }
 }
 
+/// Ring window for streamed bodies. Small on purpose: a large body wraps
+/// through it many times, and neither side ever holds more than this (plus one
+/// chunk) for the transport.
+const RING_CAPACITY: u32 = 256 * 1024;
+
+/// What `perform` produced: a reply that travels whole, or a response head
+/// whose body is still arriving and will be pumped through a ring.
+enum Performed {
+    Done(FetchOutcome),
+    Streaming {
+        outcome: FetchOutcome,
+        ring: std::os::fd::OwnedFd,
+        producer: gosub_ipc::ring::RingProducer,
+        /// Subscribed the moment the response arrived: the body has no
+        /// replay, so a later subscription would miss its first chunks.
+        chunks: BodyChunks,
+    },
+}
+
+type BodyChunks = futures_util::stream::BoxStream<'static, Result<bytes::Bytes, gosub_sonar::net::types::NetError>>;
+
+/// How many chunks the pump may fall behind the fetcher before the body drops
+/// it as a slow subscriber. The ring's backpressure stalls the pump whenever
+/// the broker is not draining; this queue absorbs that stall (16 KiB chunks:
+/// at most 16 MiB held) so backpressure costs memory here, never bytes.
+const PUMP_QUEUE: usize = 1024;
+
+/// Move a body from the fetcher into the ring as it arrives. The producer's
+/// `write_all` blocks (bounded) when the ring is full - the backpressure that
+/// keeps this process from buffering - so it runs off the async worker. An
+/// error from the fetcher, or a consumer that stopped draining, abandons the
+/// stream: the producer drops unfinished and the consumer sees an abort.
+async fn pump(mut producer: gosub_ipc::ring::RingProducer, mut chunks: BodyChunks) {
+    use futures_util::StreamExt as _;
+    while let Some(chunk) = chunks.next().await {
+        let Ok(chunk) = chunk else {
+            return;
+        };
+        if tokio::task::block_in_place(|| producer.write_all(&chunk)).is_err() {
+            return;
+        }
+    }
+    producer.finish();
+}
+
 /// Perform one request and flatten the result to something that can travel.
-async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationToken) -> FetchOutcome {
+async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationToken) -> Performed {
+    // A ring fd can only travel where the link carries fds.
+    let streaming = fetch.streaming && cfg!(target_os = "linux");
+    let done = Performed::Done;
     let url = match Url::parse(&fetch.url) {
         Ok(u) => u,
-        Err(e) => return FetchOutcome::Error(format!("bad url {}: {e}", fetch.url)),
+        Err(e) => return done(FetchOutcome::Error(format!("bad url {}: {e}", fetch.url))),
     };
     let method = match Method::from_str(&fetch.method) {
         Ok(m) => m,
-        Err(e) => return FetchOutcome::Error(format!("bad method {}: {e}", fetch.method)),
+        Err(e) => return done(FetchOutcome::Error(format!("bad method {}: {e}", fetch.method))),
     };
 
     let mut headers = http::HeaderMap::new();
@@ -203,8 +275,7 @@ async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationTo
 
     let mut builder = FetchRequest::builder(method, url)
         .with_headers(headers)
-        // Buffered: a streamed body cannot cross the link (see `protocol`).
-        .with_streaming(false)
+        .with_streaming(streaming)
         .with_auto_decode(true);
     if let Some(body) = fetch.body {
         // Plain bytes: the Content-Type already travelled in the headers.
@@ -216,25 +287,45 @@ async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationTo
     fetcher.submit(req, cancel.clone(), tx).await;
 
     let result = tokio::select! {
-        _ = cancel.cancelled() => return FetchOutcome::Error("cancelled by the broker".into()),
+        _ = cancel.cancelled() => return done(FetchOutcome::Error("cancelled by the broker".into())),
         r = rx => r,
     };
+    let flat_headers = |headers: &http::HeaderMap| -> Vec<(String, String)> {
+        headers
+            .iter()
+            .filter_map(|(n, v)| v.to_str().ok().map(|v| (n.as_str().to_string(), v.to_string())))
+            .collect()
+    };
     match result {
-        Ok(FetchResult::Buffered { meta, body }) => FetchOutcome::Ok {
+        Ok(FetchResult::Buffered { meta, body }) => done(FetchOutcome::Ok {
             status: meta.status,
             status_text: meta.status_text,
             final_url: meta.final_url.to_string(),
-            headers: meta
-                .headers
-                .iter()
-                .filter_map(|(n, v)| v.to_str().ok().map(|v| (n.as_str().to_string(), v.to_string())))
-                .collect(),
+            headers: flat_headers(&meta.headers),
             body: body.to_vec(),
-        },
-        Ok(FetchResult::Stream { meta, .. }) => {
-            FetchOutcome::Error(format!("unexpected streamed body for {}", meta.final_url))
+        }),
+        Ok(FetchResult::Stream { meta, peek_buf, shared }) => {
+            // First thing, before anything can yield: the fetcher is already
+            // pushing chunks, and nobody replays them.
+            let chunks = shared.subscribe_with_cap(PUMP_QUEUE);
+            let (producer, ring) = match gosub_ipc::ring::RingProducer::create(RING_CAPACITY) {
+                Ok(pair) => pair,
+                Err(e) => return done(FetchOutcome::Error(format!("could not set up a body stream: {e}"))),
+            };
+            Performed::Streaming {
+                outcome: FetchOutcome::Streaming {
+                    status: meta.status,
+                    status_text: meta.status_text,
+                    final_url: meta.final_url.to_string(),
+                    headers: flat_headers(&meta.headers),
+                    peek: peek_buf.as_ref().to_vec(),
+                },
+                ring,
+                producer,
+                chunks,
+            }
         }
-        Ok(FetchResult::Error(e)) => FetchOutcome::Error(e.to_string()),
-        Err(_) => FetchOutcome::Error("the fetcher dropped the request".into()),
+        Ok(FetchResult::Error(e)) => done(FetchOutcome::Error(e.to_string())),
+        Err(_) => done(FetchOutcome::Error("the fetcher dropped the request".into())),
     }
 }

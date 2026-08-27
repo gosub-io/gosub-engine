@@ -427,7 +427,7 @@
       "key": "network_process",
       "type": "b",
       "default": "b:true",
-      "description": "Run the network stack in a separate, sandboxed process. On by default on Linux; elsewhere the default is off until those platforms are verified (set it explicitly to try). Takes effect only when the embedder calls gosub_engine::child_process::dispatch() first thing in main() - without that the engine turns it off at start with a log line; if the child cannot be started the engine falls back to in-process networking (with a warning). Responses are buffered rather than streamed while this is on."
+      "description": "Run the network stack in a separate, sandboxed process. On by default on Linux; elsewhere the default is off until those platforms are verified (set it explicitly to try). Takes effect only when the embedder calls gosub_engine::child_process::dispatch() first thing in main() - without that the engine turns it off at start with a log line; if the child cannot be started the engine falls back to in-process networking (with a warning). Streamed bodies cross the process boundary through a shared-memory ring on Linux, and are buffered on other platforms."
     },
     {
       "key": "image_decoder_process",

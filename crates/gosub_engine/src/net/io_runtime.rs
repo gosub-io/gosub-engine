@@ -301,6 +301,7 @@ fn dispatch_to_net_process(
 
     let url = req.url.to_string();
     let method = req.method.as_str().to_string();
+    let streaming = req.streaming;
     let mut headers: Vec<(String, String)> = req
         .headers
         .iter()
@@ -332,13 +333,21 @@ fn dispatch_to_net_process(
     };
 
     spawn_named("net-process-request", async move {
-        let outcome = net.fetch(url, method, headers, body, refuse_private, &cancel).await;
-        let _ = reply_tx.send(match outcome {
-            FetchOutcome::Ok { .. } => match crate::net::process::client::outcome_to_result(outcome) {
+        let out = crate::net::process::client::Outbound {
+            url,
+            method,
+            headers,
+            body,
+            refuse_private,
+            streaming,
+        };
+        let reply = net.fetch(out, &cancel).await;
+        let _ = reply_tx.send(match reply.outcome {
+            FetchOutcome::Error(e) => FetchResult::Error(net_error(e)),
+            _ => match crate::net::process::client::outcome_to_result(reply) {
                 Ok(result) => result,
                 Err(e) => FetchResult::Error(e),
             },
-            FetchOutcome::Error(e) => FetchResult::Error(net_error(e)),
         });
     });
 }

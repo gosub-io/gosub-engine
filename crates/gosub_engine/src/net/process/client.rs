@@ -11,6 +11,63 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
+/// One request for the network process, as the broker hands it over.
+#[derive(Debug)]
+pub struct Outbound {
+    pub url: String,
+    pub method: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Option<Vec<u8>>,
+    /// Serve through the strict fetcher (see `net::ssrf`).
+    pub refuse_private: bool,
+    /// Deliver the body through a ring as it arrives, where the link can carry one.
+    pub streaming: bool,
+}
+
+impl Outbound {
+    /// A plain GET with no body and no special handling.
+    pub fn get(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            method: "GET".into(),
+            headers: Vec::new(),
+            body: None,
+            refuse_private: false,
+            streaming: false,
+        }
+    }
+}
+
+/// A reply as the broker sees it: the wire outcome plus, for a streamed body,
+/// the ring fd that followed it on the link.
+#[derive(Debug)]
+pub struct NetReply {
+    pub outcome: FetchOutcome,
+    pub ring: Option<std::os::fd::OwnedFd>,
+}
+
+impl NetReply {
+    fn error(msg: impl Into<String>) -> Self {
+        Self {
+            outcome: FetchOutcome::Error(msg.into()),
+            ring: None,
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn recv_ring(rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<std::os::fd::OwnedFd> {
+    rx.recv_fd()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn recv_ring(_rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<std::os::fd::OwnedFd> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "no fd passing on this platform",
+    ))
+}
+
 /// The argv role name the broker re-execs itself with.
 pub const NET_ROLE: &str = "net";
 
@@ -34,7 +91,7 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 /// A running network process and the link to it.
 pub struct NetProcess {
     tx: Arc<Mutex<EndpointTx>>,
-    pending: Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<FetchOutcome>>>>,
+    pending: Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<NetReply>>>>,
     next_tag: AtomicU64,
     child: Mutex<Option<gosub_sandbox::spawn::Child>>,
     /// Bounds concurrent requests (see [`MAX_INFLIGHT`]).
@@ -88,7 +145,7 @@ impl NetProcess {
         let endpoint = Endpoint::from_channel(ours)?;
         let (tx, mut rx) = endpoint.split();
 
-        let pending: Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<FetchOutcome>>>> =
+        let pending: Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<NetReply>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
 
@@ -104,8 +161,20 @@ impl NetProcess {
                             let _ = ready_tx.send(());
                         }
                         FromNet::Reply { tag, outcome } => {
+                            // A streamed head is followed by its ring fd; take it
+                            // now, before the next message, whoever is waiting.
+                            let reply = match outcome {
+                                FetchOutcome::Streaming { .. } => match recv_ring(&mut rx) {
+                                    Ok(ring) => NetReply {
+                                        outcome,
+                                        ring: Some(ring),
+                                    },
+                                    Err(e) => NetReply::error(format!("body stream fd did not arrive: {e}")),
+                                },
+                                outcome => NetReply { outcome, ring: None },
+                            };
                             if let Some(waiter) = waiters.lock().remove(&tag) {
-                                let _ = waiter.send(outcome);
+                                let _ = waiter.send(reply);
                             }
                         }
                     }
@@ -152,25 +221,25 @@ impl NetProcess {
     /// Send a request and wait for the network process to answer. Bounded by
     /// [`MAX_INFLIGHT`]; a caller past the bound waits for a slot. Cancelling
     /// `cancel` abandons the wait and tells the child to drop the request.
-    pub async fn fetch(
-        &self,
-        url: String,
-        method: String,
-        headers: Vec<(String, String)>,
-        body: Option<Vec<u8>>,
-        refuse_private: bool,
-        cancel: &CancellationToken,
-    ) -> FetchOutcome {
+    pub async fn fetch(&self, out: Outbound, cancel: &CancellationToken) -> NetReply {
+        let Outbound {
+            url,
+            method,
+            headers,
+            body,
+            refuse_private,
+            streaming,
+        } = out;
         let permit = tokio::select! {
-            _ = cancel.cancelled() => return FetchOutcome::Error("cancelled".into()),
+            _ = cancel.cancelled() => return NetReply::error("cancelled"),
             p = self.inflight.clone().acquire_owned() => p,
         };
         let Ok(_permit) = permit else {
-            return FetchOutcome::Error("the network process is shutting down".into());
+            return NetReply::error("the network process is shutting down");
         };
 
         let tag = self.next_tag.fetch_add(1, Ordering::Relaxed);
-        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<FetchOutcome>();
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<NetReply>();
         self.pending.lock().insert(tag, reply_tx);
 
         let msg = ToNet::Fetch(NetFetch {
@@ -180,6 +249,7 @@ impl NetProcess {
             headers,
             body,
             refuse_private,
+            streaming,
         });
         // The link write can block on a full pipe (bodies can be large), so it
         // runs on a blocking thread rather than a runtime worker.
@@ -189,11 +259,11 @@ impl NetProcess {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
                 self.pending.lock().remove(&tag);
-                return FetchOutcome::Error(format!("could not reach the network process: {e}"));
+                return NetReply::error(format!("could not reach the network process: {e}"));
             }
             Err(e) => {
                 self.pending.lock().remove(&tag);
-                return FetchOutcome::Error(format!("could not dispatch to the network process: {e}"));
+                return NetReply::error(format!("could not dispatch to the network process: {e}"));
             }
         }
 
@@ -201,17 +271,17 @@ impl NetProcess {
             _ = cancel.cancelled() => {
                 self.pending.lock().remove(&tag);
                 self.send_cancel(tag);
-                FetchOutcome::Error("cancelled".into())
+                NetReply::error("cancelled")
             }
             reply = tokio::time::timeout(REPLY_TIMEOUT, reply_rx) => match reply {
-                Ok(Ok(outcome)) => outcome,
-                Ok(Err(_)) => FetchOutcome::Error("the network process exited".into()),
+                Ok(Ok(reply)) => reply,
+                Ok(Err(_)) => NetReply::error("the network process exited"),
                 Err(_) => {
                     self.pending.lock().remove(&tag);
                     // Without this the child would keep working the request (and
                     // holding its resources) long after anyone cared.
                     self.send_cancel(tag);
-                    FetchOutcome::Error("the network process did not answer".into())
+                    NetReply::error("the network process did not answer")
                 }
             },
         }
@@ -258,20 +328,28 @@ impl Drop for NetProcess {
 }
 
 /// Rebuild the engine's own result type from what came back over the wire.
-pub fn outcome_to_result(outcome: FetchOutcome) -> Result<crate::net::types::FetchResult, NetError> {
-    let FetchOutcome::Ok {
-        status,
-        status_text,
-        final_url,
-        headers,
-        body,
-    } = outcome
-    else {
-        let FetchOutcome::Error(e) = outcome else {
-            // The `else` above already excluded `Ok`.
-            return Err(net_error("unexpected outcome from the network process"));
-        };
-        return Err(net_error(e));
+pub fn outcome_to_result(reply: NetReply) -> Result<crate::net::types::FetchResult, NetError> {
+    let (status, status_text, final_url, headers, body) = match reply.outcome {
+        FetchOutcome::Ok {
+            status,
+            status_text,
+            final_url,
+            headers,
+            body,
+        } => (status, status_text, final_url, headers, Body::Whole(body)),
+        FetchOutcome::Streaming {
+            status,
+            status_text,
+            final_url,
+            headers,
+            peek,
+        } => {
+            let Some(ring) = reply.ring else {
+                return Err(net_error("streamed reply without its ring"));
+            };
+            (status, status_text, final_url, headers, Body::Ring { peek, ring })
+        }
+        FetchOutcome::Error(e) => return Err(net_error(e)),
     };
 
     let final_url = url::Url::parse(&final_url).map_err(|e| net_error(format!("bad final url: {e}")))?;
@@ -295,18 +373,90 @@ pub fn outcome_to_result(outcome: FetchOutcome) -> Result<crate::net::types::Fet
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse().ok());
 
-    Ok(crate::net::types::FetchResult::Buffered {
-        meta: crate::net::types::FetchResultMeta {
-            final_url,
-            status,
-            status_text,
-            headers: header_map,
-            content_length,
-            content_type,
-            has_body: !body.is_empty(),
+    let meta = |has_body: bool| crate::net::types::FetchResultMeta {
+        final_url,
+        status,
+        status_text,
+        headers: header_map,
+        content_length,
+        content_type,
+        has_body,
+        tainting: gosub_sonar::ResponseTainting::Basic,
+    };
+    Ok(match body {
+        Body::Whole(body) => crate::net::types::FetchResult::Buffered {
+            meta: meta(!body.is_empty()),
+            body: bytes::Bytes::from(body),
         },
-        body: bytes::Bytes::from(body),
+        Body::Ring { peek, ring } => crate::net::types::FetchResult::Stream {
+            meta: meta(true),
+            peek_buf: gosub_sonar::types::PeekBuf::from_vec(peek),
+            shared: drain_ring(ring),
+        },
     })
+}
+
+/// A reply's body as it came off the wire.
+enum Body {
+    Whole(Vec<u8>),
+    /// The head arrived; the body streams through this ring.
+    Ring {
+        peek: Vec<u8>,
+        ring: std::os::fd::OwnedFd,
+    },
+}
+
+/// Per-subscriber queue for a ring-fed body, in chunks: the same order of
+/// magnitude gosub-sonar uses for its own streamed responses.
+const RING_BODY_QUEUE: usize = 64;
+
+/// Feed a [`SharedBody`] from a ring on a thread of its own: the ring's reads
+/// block (bounded by its stall timeout), so this is not runtime work. The
+/// body ends when the producer finishes; a producer that aborts or stalls
+/// ends it with an error.
+///
+/// [`SharedBody`]: gosub_sonar::net::shared_body::SharedBody
+fn drain_ring(ring: std::os::fd::OwnedFd) -> Arc<gosub_sonar::net::shared_body::SharedBody> {
+    use gosub_sonar::net::shared_body::SharedBody;
+    let shared = Arc::new(SharedBody::new(RING_BODY_QUEUE));
+    let sink = Arc::clone(&shared);
+    let spawned = std::thread::Builder::new()
+        .name("net-ring-consumer".into())
+        .spawn(move || {
+            #[cfg(target_os = "linux")]
+            {
+                let mut consumer = match gosub_ipc::ring::RingConsumer::open(ring) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        sink.error(net_error(format!("body stream could not be opened: {e}")));
+                        return;
+                    }
+                };
+                let mut buf = vec![0u8; 64 * 1024];
+                loop {
+                    match consumer.read(&mut buf) {
+                        Ok(0) => {
+                            sink.finish();
+                            return;
+                        }
+                        Ok(n) => sink.push(bytes::Bytes::copy_from_slice(&buf[..n])),
+                        Err(e) => {
+                            sink.error(net_error(format!("body stream failed: {e}")));
+                            return;
+                        }
+                    }
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = ring;
+                sink.error(net_error("body streams are not carried on this platform"));
+            }
+        });
+    if spawned.is_err() {
+        shared.error(net_error("could not start the body stream consumer"));
+    }
+    shared
 }
 
 /// A failure that came from (or about) the network process, as the engine's own

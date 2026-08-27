@@ -39,6 +39,9 @@ pub struct NetFetch {
     /// refuses private-network destinations at every hop (`net::ssrf`). The
     /// broker decides this from the tab's document, never the requester.
     pub refuse_private: bool,
+    /// The requester wants the body as it arrives. Honoured where the link can
+    /// carry a ring fd (Linux); elsewhere the reply is buffered as usual.
+    pub streaming: bool,
     // Only these cross. `FetchRequest::origin` / `referrer` / `mixed_content`
     // (sonar 0.2.0) do not: the engine sets none of them yet. When it does, add
     // them here - otherwise the network process rebuilds the request without
@@ -67,6 +70,17 @@ pub enum FetchOutcome {
         final_url: String,
         headers: Vec<(String, String)>,
         body: Vec<u8>,
+    },
+    /// The response head; the body streams through a shared-memory ring
+    /// (`gosub_ipc::ring`) whose fd follows this message on the link, right
+    /// behind it. `peek` is what the network process had already read of the
+    /// body when it answered, for content sniffing before the stream is drained.
+    Streaming {
+        status: u16,
+        status_text: String,
+        final_url: String,
+        headers: Vec<(String, String)>,
+        peek: Vec<u8>,
     },
     /// The request failed. A string rather than a typed error: the broker only
     /// reports it, and a rich error type would be one more thing whose

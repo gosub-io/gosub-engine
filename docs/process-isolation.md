@@ -134,6 +134,16 @@ discipline on both sides means a page of any height streams through a 128-fd
 limit. Tiles are deduplicated by content hash: a tile the broker already holds
 is neither rasterized nor shipped again.
 
+**Bodies stream across the network boundary.** A request that asks for its
+body as it arrives gets it that way from the network process too: the response
+head travels in-band, a sealed shared-memory ring (`gosub_ipc::ring`, 256 KiB
+window) follows as a file descriptor, and the network process writes the body
+into the ring as it reads it from the socket while the broker drains it into
+the same `SharedBody` an in-process fetch would produce. Neither side ever
+holds the whole body for the transport; a consumer that stops draining stalls
+the producer (backpressure) and, after a bounded wait, ends the stream. Linux
+only; elsewhere the network process buffers as before.
+
 **Subresources are brokered.** A confined renderer cannot fetch, so it sends
 `NeedResource { url, deferred }` and blocks; the broker performs the load where
 identity and cookies live and replies with bytes. Stylesheets and fonts are
@@ -255,5 +265,4 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
 - **`FontPathsReadable` font systems** (fontconfig-based: Pango, Skia) get a
   weaker arrangement: no fork server, a throwaway renderer exec'd per render,
   with read-only Landlock-scoped font paths. See fonts.md.
-- The cookie vault and streamed bodies over the boundary are tracked as
-  follow-ups from the original PoC.
+- The cookie vault is tracked as a follow-up from the original PoC.
