@@ -577,13 +577,18 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                     }
                 }
             }
-            None => {
-                if let Some(ids) = self.named_ids_by_node.remove(&node_id) {
-                    for id_value in ids {
-                        self.named_id_elements.remove(&id_value);
-                    }
-                }
-            }
+            None => self.unregister_named_ids(node_id),
+        }
+    }
+
+    /// Unregister every id `node_id` is registered under. Inserts are vacant-only, so each of
+    /// those keys is guaranteed to still map to this node.
+    fn unregister_named_ids(&mut self, node_id: NodeId) {
+        let Some(ids) = self.named_ids_by_node.remove(&node_id) else {
+            return;
+        };
+        for id_value in ids {
+            self.named_id_elements.remove(&id_value);
         }
     }
 
@@ -601,12 +606,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                         .push(id_value.clone());
                 }
             }
-        } else if let Some(ids) = self.named_ids_by_node.remove(&node.id()) {
-            // The node lost its id attribute: unregister every id it was registered under.
-            // (Inserts are vacant-only, so each of these keys is guaranteed to map to this node.)
-            for id_value in ids {
-                self.named_id_elements.remove(&id_value);
-            }
+        } else {
+            // The node lost its id attribute.
+            self.unregister_named_ids(node.id());
         }
     }
 
@@ -645,7 +647,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
 
     /// Register a node and attach it to a parent
     pub fn register_node_at(&mut self, node: NodeImpl, parent_id: NodeId, position: Option<usize>) -> NodeId {
-        self.on_document_node_mutation(&node);
+        // `register_node` runs the mutation hook itself, *after* assigning the id. Running it
+        // here as well would register the node's `id` attribute against `NodeId::default()`, and
+        // since named-id inserts are vacant-only the correct mapping would then be dropped.
         let node_id = self.register_node(node);
         self.attach_node(node_id, parent_id, position);
         node_id
@@ -733,7 +737,37 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
                 self.on_document_node_mutation_by_id(parent_id);
             }
         }
+        // Without this the node stays resolvable by `getElementById` after it is gone.
+        self.unregister_named_ids(node_id);
+        self.clear_interaction_state(node_id);
         self.arena.delete_node(node_id);
+    }
+
+    /// Drop every piece of user-interaction state that names `node_id`. `NodeArena` never reuses
+    /// ids, so nothing can inherit it - but without this the maps grow for the tab's lifetime and
+    /// `focused_node()` / `selected_option()` keep handing out a deleted id. Deliberately *not*
+    /// done in `detach_node`: relocation detaches before reattaching, and must keep the state.
+    fn clear_interaction_state(&self, node_id: NodeId) {
+        self.hovered_nodes.write().remove(&node_id);
+        {
+            let mut focus = self.focus.write();
+            focus.chain.remove(&node_id);
+            if focus.node == Some(node_id) {
+                focus.node = None;
+                focus.visible = false;
+            }
+        }
+        self.edits.write().remove(&node_id);
+        self.checked.write().remove(&node_id);
+        self.sizes.write().remove(&node_id);
+        // Also drop entries that *point at* the node: a deleted `<option>`.
+        self.selected
+            .write()
+            .retain(|select, option| *select != node_id && *option != node_id);
+        let mut open = self.open_select.write();
+        if open.as_ref().is_some_and(|o| o.select == node_id) {
+            *open = None;
+        }
     }
 
     pub fn get_next_sibling(&self, reference_node: NodeId) -> Option<NodeId> {
@@ -935,4 +969,90 @@ fn internal_visit<C: HasDocument<Document = DocumentImpl<C>>>(
         internal_visit(doc, child, visitor);
     }
     visitor.document_leave(node);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::document::builder::DocumentBuilderImpl;
+    use crate::node::HTML_NAMESPACE;
+    use crate::parser::Html5Parser;
+    use gosub_css3::system::Css3System;
+    use gosub_interface::config::ModuleConfiguration;
+    use gosub_interface::document::OpenSelect;
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct Config;
+
+    impl ModuleConfiguration for Config {
+        type CssSystem = Css3System;
+        type Document = DocumentImpl<Self>;
+        type HtmlParser = Html5Parser<'static, Self>;
+    }
+
+    fn element(doc: &mut DocumentImpl<Config>, name: &str, parent: NodeId) -> NodeId {
+        element_with_id(doc, name, parent, None)
+    }
+
+    fn element_with_id(doc: &mut DocumentImpl<Config>, name: &str, parent: NodeId, id: Option<&str>) -> NodeId {
+        let mut attributes = HashMap::new();
+        if let Some(id) = id {
+            attributes.insert("id".to_string(), id.to_string());
+        }
+        let node =
+            DocumentImpl::<Config>::new_element_node(name, Some(HTML_NAMESPACE), attributes, Location::default());
+        doc.register_node_at(node, parent, None)
+    }
+
+    #[test]
+    fn deleting_a_node_clears_its_interaction_state() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let select = element(&mut doc, "select", root);
+        let option = element(&mut doc, "option", select);
+        let input = element(&mut doc, "input", root);
+
+        doc.set_focused_node(Some(input), true);
+        doc.set_checked(input, Some(true));
+        doc.set_control_size(input, Some((10.0, 20.0)));
+        doc.set_selected_option(select, Some(option));
+        doc.set_open_select(Some(OpenSelect {
+            select,
+            hover: None,
+            active: None,
+            first_row: 0,
+            viewport: (0.0, 100.0),
+        }));
+
+        doc.delete_node_by_id(input);
+        assert_eq!(doc.focused_node(), None, "focus does not survive its node");
+        assert!(!doc.is_checked(input));
+        assert_eq!(doc.control_size(input), None);
+
+        // Deleting the *option* clears the select's choice, which points at it.
+        doc.delete_node_by_id(option);
+        assert_eq!(doc.selected_option(select), None);
+
+        doc.delete_node_by_id(select);
+        assert!(doc.open_select().is_none(), "the open dropdown closes with its select");
+    }
+
+    #[test]
+    fn deleting_a_node_unregisters_its_named_id() {
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
+        let root = doc.root();
+        let div = element_with_id(&mut doc, "div", root, Some("gone"));
+        assert_eq!(doc.node_by_named_id("gone"), Some(div));
+
+        doc.delete_node_by_id(div);
+        assert_eq!(
+            doc.node_by_named_id("gone"),
+            None,
+            "a deleted node is not resolvable by id"
+        );
+
+        // The id is free again for a replacement node.
+        let replacement = element_with_id(&mut doc, "div", root, Some("gone"));
+        assert_eq!(doc.node_by_named_id("gone"), Some(replacement));
+    }
 }

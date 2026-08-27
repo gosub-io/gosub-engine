@@ -31,6 +31,11 @@ use taffy::NodeId as TaffyNodeId;
 const DEFAULT_FONT_SIZE: f64 = 16.0;
 const DEFAULT_FONT_FAMILY: &str = "sans-serif";
 
+/// Upper bound on the `size`, `cols` and `rows` attributes. Markup is untrusted, and `size`
+/// drives a `"0".repeat(size)` prototype string that is then shaped - an unbounded value is a
+/// denial-of-service path through the layout pass. Browsers cap the rendered size too.
+const MAX_CONTROL_CHARS: usize = 1000;
+
 /// Parse an HTML presentational length attribute (e.g. `<img width="80">`) into pixels.
 /// Accepts a bare integer/float or a trailing `px`; ignores `%` and other units.
 fn parse_px_attr(v: &str) -> Option<f32> {
@@ -472,11 +477,20 @@ impl TaffyLayouter {
             .width
             .max(widest + 20.0 + 24.0 + if scrolls { 10.0 } else { 0.0 });
         let height = row_height * visible_rows as f64 + chrome;
+        // Tiles are only generated for the page box, and the popup's *margin* box carries the drop
+        // shadow, so the whole thing has to fit inside it - anything outside silently never paints.
+        // A long option label can make `width` exceed the page, and `popup_placement` floors the
+        // height at two rows, so opening above a control near the top of the viewport can put `y`
+        // below zero. Clamp the width first, then the position on both axes.
+        let page_w = layout_tree.root_dimension.width;
+        let width = width.min((page_w - sx * 2.0).max(1.0));
+        let x = anchor.x.clamp(sx, (page_w - width - sx).max(sx));
         let y = if open_above {
             anchor.y - height - 2.0
         } else {
             anchor.y + anchor.height + 2.0
         };
+        let y = y.max(st);
         let shadow = control_icons::drop_shadow(&self.media_store, width, height, 6.0);
         let check = control_icons::check(&self.media_store, false);
 
@@ -497,7 +511,7 @@ impl TaffyLayouter {
                 children: Vec::new(),
                 // The shadow lives in the margin area so tiling and hit-testing cover it.
                 box_model: box_model::BoxModel::new(
-                    geo::Rect::new(anchor.x, y, width, height),
+                    geo::Rect::new(x, y, width, height),
                     Edges {
                         top: pad_y,
                         right: 0.0,
@@ -1528,6 +1542,7 @@ impl TaffyLayouter {
                         let size = attr("size")
                             .and_then(|s| s.parse::<usize>().ok())
                             .filter(|n| *n > 0)
+                            .map(|n| n.min(MAX_CONTROL_CHARS))
                             .unwrap_or(20);
                         // Chromium: `size` (default 20) average-char advances plus edge insets.
                         let proto = "0".repeat(size);
@@ -1553,10 +1568,12 @@ impl TaffyLayouter {
                 let cols = attr("cols")
                     .and_then(|s| s.parse::<usize>().ok())
                     .filter(|n| *n > 0)
+                    .map(|n| n.min(MAX_CONTROL_CHARS))
                     .unwrap_or(20);
                 let rows = attr("rows")
                     .and_then(|s| s.parse::<usize>().ok())
                     .filter(|n| *n > 0)
+                    .map(|n| n.min(MAX_CONTROL_CHARS))
                     .unwrap_or(2);
                 let cell = self.measure_control_text("0", &font_info);
                 // Rows are `line-height` apart in the painter; size the box in the same units.

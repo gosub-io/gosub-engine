@@ -274,7 +274,16 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         };
         let open = doc.open_select();
 
-        if key.chars().count() == 1 && !key.chars().next().is_some_and(char::is_control) {
+        // Space opens a closed select and commits the active row, so it only types ahead while a
+        // prefix is already being typed - "New " keeps matching "New York", a bare Space does not.
+        let space_extends_prefix = self
+            .typeahead
+            .as_ref()
+            .is_some_and(|(_, at)| Instant::now().duration_since(*at) < TYPEAHEAD_WINDOW);
+        if key.chars().count() == 1
+            && !key.chars().next().is_some_and(char::is_control)
+            && (key != " " || space_extends_prefix)
+        {
             return self.select_typeahead(select, key);
         }
         self.typeahead = None;

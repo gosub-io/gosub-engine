@@ -179,6 +179,26 @@ fn positive_tabindex_comes_first() {
 }
 
 #[test]
+fn contenteditable_false_is_not_focusable() {
+    let mut ctx = page(
+        r#"<div id="on" contenteditable>on</div>
+           <div id="empty" contenteditable="">empty</div>
+           <div id="off" contenteditable="false">off</div>
+           <div id="plain">plain</div>"#,
+    );
+    let mut seen = Vec::new();
+    for _ in 0..3 {
+        key(&mut ctx, "Tab");
+        seen.push(focused_id(&ctx).unwrap_or_default());
+    }
+    assert_eq!(
+        seen,
+        ["on", "empty", "on"],
+        "contenteditable=false opts out, like the empty and `true` values opt in"
+    );
+}
+
+#[test]
 fn click_focuses_and_clicking_elsewhere_blurs() {
     let mut ctx = page(r#"<input id="t" type="text"><p id="p" style="margin-top:60px">plain text</p>"#);
     click(&mut ctx, "t");
@@ -346,6 +366,46 @@ fn select_closed_keys_change_selection_and_typeahead_matches() {
         selected(&ctx, "s").as_deref(),
         Some("o3"),
         "type-ahead picks the first 'ch…'"
+    );
+}
+
+#[test]
+fn select_space_opens_and_commits() {
+    let mut ctx = page(SELECT);
+    let d = doc(&ctx);
+    click(&mut ctx, "s");
+    key(&mut ctx, "Escape");
+    assert!(d.open_select().is_none());
+
+    key(&mut ctx, " ");
+    assert!(d.open_select().is_some(), "Space opens a closed select");
+
+    key(&mut ctx, "ArrowDown");
+    key(&mut ctx, " ");
+    assert!(d.open_select().is_none());
+    assert_eq!(
+        selected(&ctx, "s").as_deref(),
+        Some("o4"),
+        "Space commits the active row"
+    );
+}
+
+#[test]
+fn select_space_continues_an_active_typeahead_prefix() {
+    let mut ctx = page(
+        r#"<select id="s">
+        <option id="o1">Cherry Pie</option>
+        <option id="o2">Cherry Tart</option>
+    </select>"#,
+    );
+    click(&mut ctx, "s");
+    key(&mut ctx, "Escape");
+    // "cherry t" must stay one prefix: the space extends it rather than committing.
+    type_text(&mut ctx, "cherry t");
+    assert_eq!(selected(&ctx, "s").as_deref(), Some("o2"));
+    assert!(
+        doc(&ctx).open_select().is_none(),
+        "the space typed ahead, it did not open"
     );
 }
 

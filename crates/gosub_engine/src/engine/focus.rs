@@ -19,6 +19,13 @@ pub enum Focusability {
 
 const FORM_CONTROLS: [&str; 4] = ["input", "textarea", "select", "button"];
 
+/// `contenteditable` makes an element editable only when the attribute is empty or `true`;
+/// `contenteditable="false"` explicitly opts out. Matching `is_text_input` in `context.rs`.
+pub fn is_contenteditable<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> bool {
+    doc.attribute(id, "contenteditable")
+        .is_some_and(|v| v.is_empty() || v.eq_ignore_ascii_case("true"))
+}
+
 pub fn focusability<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId) -> Focusability {
     if doc.node_type(id) != NodeType::ElementNode {
         return Focusability::No;
@@ -43,7 +50,7 @@ pub fn focusability<C: RenderConfiguration>(doc: &EngineDocument<C>, id: NodeId)
             .is_some_and(|t| t.eq_ignore_ascii_case("hidden")),
         "textarea" | "select" | "button" | "summary" | "iframe" => true,
         "a" | "area" => doc.attribute(id, "href").is_some(),
-        _ => doc.attribute(id, "contenteditable").is_some(),
+        _ => is_contenteditable(doc, id),
     };
     if natural {
         Focusability::Sequential(0)
@@ -63,7 +70,7 @@ pub fn click_shows_ring<C: RenderConfiguration>(doc: &EngineDocument<C>, id: Nod
                 "button" | "submit" | "reset" | "checkbox" | "radio" | "range" | "color" | "file" | "image"
             )
         }),
-        _ => doc.attribute(id, "contenteditable").is_some(),
+        _ => is_contenteditable(doc, id),
     }
 }
 

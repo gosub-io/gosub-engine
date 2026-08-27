@@ -112,7 +112,10 @@ fn parse_interaction(spec: &str) -> Vec<Step> {
                 } else if ["meta", "cmd", "super"].iter().any(|k| m.eq_ignore_ascii_case(k)) {
                     Modifiers::META
                 } else {
-                    break;
+                    // Don't fold it into the key name - the engine would silently ignore the
+                    // resulting `KeyDown` and the replay would do nothing.
+                    eprintln!("Unknown modifier '{m}' in '{spec}': expected ctrl | shift | alt | meta");
+                    std::process::exit(2);
                 };
                 name = tail;
             }
@@ -366,9 +369,14 @@ fn main() {
                 }
                 Step::Send(cmd) => cmd,
             };
+            // MouseUp is in here too: checkbox toggles, submits and drag completion commit on
+            // release, so without the wait the capture can race ahead of the effect.
             let is_input = matches!(
                 cmd,
-                TabCommand::MouseDown { .. } | TabCommand::KeyDown { .. } | TabCommand::MouseScroll { .. }
+                TabCommand::MouseDown { .. }
+                    | TabCommand::MouseUp { .. }
+                    | TabCommand::KeyDown { .. }
+                    | TabCommand::MouseScroll { .. }
             );
             let is_move = matches!(cmd, TabCommand::MouseMove { .. });
             // Ctrl+C/X/V: wait for the clipboard event (not a possibly stale repaint) first.

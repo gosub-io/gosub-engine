@@ -34,6 +34,13 @@ pub fn key_down_command(key: gtk4::gdk::Key, state: gtk4::gdk::ModifierType) -> 
         "Right" => "ArrowRight".to_string(),
         "Up" => "ArrowUp".to_string(),
         "Down" => "ArrowDown".to_string(),
+        // GDK reports the keypad Page Down as `KP_Next` (`KP_Page_Down` is the alias), and the
+        // engine's `<select>` and textarea key handling matches on the DOM names.
+        "Page_Up" | "KP_Page_Up" | "Prior" => "PageUp".to_string(),
+        "Page_Down" | "KP_Next" | "KP_Page_Down" | "Next" => "PageDown".to_string(),
+        "Home" | "KP_Home" => "Home".to_string(),
+        "End" | "KP_End" => "End".to_string(),
+        "Delete" | "KP_Delete" => "Delete".to_string(),
         "space" => " ".to_string(),
         _ => match key.to_unicode() {
             Some(c) if !c.is_control() => c.to_string(),

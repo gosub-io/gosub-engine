@@ -105,9 +105,7 @@ fn is_text_input<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeI
             .iter()
             .any(|k| t.eq_ignore_ascii_case(k))
         }),
-        _ => doc
-            .attribute(node_id, "contenteditable")
-            .is_some_and(|v| v.is_empty() || v.eq_ignore_ascii_case("true")),
+        _ => focus::is_contenteditable(doc, node_id),
     }
 }
 
