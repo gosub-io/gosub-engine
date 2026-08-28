@@ -118,6 +118,7 @@ fn main() {
         "direct" => direct(),
         "resolve" => resolve(),
         "vault" => vault(),
+        "storage" => storage(),
         "engine-cookie-vault" => engine_cookie_vault(),
         "stream" => stream(),
         "engine" => engine(),
@@ -3395,6 +3396,85 @@ fn streamed_body() -> Vec<u8> {
     (0..(1024 * 1024 + 12345usize))
         .map(|i| (i.wrapping_mul(131) ^ (i >> 7)) as u8)
         .collect()
+}
+
+/// Storage service round trip, origin isolation, a refused oversize write,
+/// persistence across a restart of the service.
+fn storage() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::storage::{LocalStore as _, PartitionKey, ServiceLocalStore};
+        use gosub_engine::zone::ZoneId;
+
+        let dir = std::env::temp_dir().join(format!("gosub-storage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let origin = |s: &str| url::Url::parse(s).map(|u| u.origin());
+        let (Ok(a_origin), Ok(b_origin)) = (origin("https://a.test"), origin("https://b.test")) else {
+            eprintln!("bad test origins");
+            return 1;
+        };
+        let zone = ZoneId::new();
+
+        let run = |expect_remote: bool| -> Result<(), String> {
+            let store = ServiceLocalStore::new(&dir).map_err(|e| e.to_string())?;
+            let a = store
+                .area(zone, &PartitionKey::None, &a_origin)
+                .map_err(|e| e.to_string())?;
+            if expect_remote && !store.is_remote() {
+                return Err("the storage service did not start; areas are in-process".into());
+            }
+            if a.get_item("k").is_none() {
+                a.set_item("k", "1").map_err(|e| e.to_string())?;
+                a.set_item("k2", "2").map_err(|e| e.to_string())?;
+                let b = store
+                    .area(zone, &PartitionKey::None, &b_origin)
+                    .map_err(|e| e.to_string())?;
+                if b.get_item("k").is_some() {
+                    return Err("another origin must not see this origin's item".into());
+                }
+                if a.len() != 2 || a.get_item("k2").as_deref() != Some("2") {
+                    return Err(format!("len/get wrong: len {} k2 {:?}", a.len(), a.get_item("k2")));
+                }
+                a.remove_item("k2").map_err(|e| e.to_string())?;
+                if a.keys() != vec!["k".to_string()] {
+                    return Err(format!("keys after remove: {:?}", a.keys()));
+                }
+                let huge = "v".repeat(gosub_engine::storage::file_store::MAX_VALUE_BYTES + 1);
+                if a.set_item("huge", &huge).is_ok() {
+                    return Err("an oversize value must be refused".into());
+                }
+                if a.get_item("k").as_deref() != Some("1") {
+                    return Err("the service must survive a refused write".into());
+                }
+                println!("set/get/keys/remove/quota through the service ok");
+            } else {
+                if a.get_item("k").as_deref() != Some("1") || a.len() != 1 {
+                    return Err(format!("state did not persist across a restart: {:?}", a.keys()));
+                }
+                a.clear().map_err(|e| e.to_string())?;
+                if !a.is_empty() {
+                    return Err("clear must empty the area".into());
+                }
+                println!("state persisted across a service restart");
+            }
+            store.shutdown();
+            Ok(())
+        };
+        let outcome = run(true).and_then(|()| run(true));
+        let _ = std::fs::remove_dir_all(&dir);
+        match outcome {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("{e}");
+                1
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the storage service is Linux-only");
+        2
+    }
 }
 
 /// The cookie vault on its own: a jar that forwards, the HttpOnly split, zone

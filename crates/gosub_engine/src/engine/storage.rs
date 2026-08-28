@@ -54,6 +54,7 @@ pub mod service;
 pub mod types;
 
 pub mod local {
+    pub mod file_store;
     pub mod in_memory;
     pub mod sqlite_store;
 }
@@ -71,8 +72,12 @@ pub struct StorageHandles {
     pub session: Arc<dyn StorageArea>,
 }
 
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub use crate::storage_service::client::ServiceLocalStore;
 pub use area::{LocalStore, SessionStore, StorageArea};
 pub use event::StorageEvent;
+pub use local::file_store;
+pub use local::file_store::FileLocalStore;
 pub use local::in_memory::InMemoryLocalStore;
 pub use local::sqlite_store::SqliteLocalStore;
 pub use service::{StorageService, Subscription};

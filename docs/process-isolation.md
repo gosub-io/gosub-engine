@@ -37,6 +37,7 @@ naming, because the code defends them everywhere:
 broker (the embedder's process: engine, zones, tabs, DOM, cookies, storage, compositing)
 ├── gosub-net           network stack; the engine's only network capability
 ├── gosub-vault         the cookie jars (`security.cookie_vault`); talks to gosub-net directly
+├── gosub-storage       localStorage areas on files (embedders using `ServiceLocalStore`)
 ├── gosub-decoder       raster image decoding; one throwaway process per image
 └── gosub-forksrv       the fork server: fonts warmed once, renderers forked from it
     ├── pidns-anchor    PID 1 of the renderers' private PID namespace
@@ -62,6 +63,13 @@ is what you actually see on a running system.
   the vault never opens a file and any embedder-supplied store works. An
   embedder-supplied *jar* stays where the embedder put it. Off by default
   while it soaks.
+- **gosub-storage** serves `localStorage` from one JSON file per
+  `(zone, partition, origin)` area, under the service profile (baseline plus
+  `openat`, Landlock-scoped to its directory). Opt-in: give the
+  `StorageService` a `ServiceLocalStore`; it spawns on first use and falls
+  back in-process on the same files. Area names are stamped by the broker,
+  page keys stay inside the file, values and areas are capped. Session
+  storage stays in the broker.
 - **gosub-decoder** is spawned per image, fed bytes, and exits. Its SVG decoder
   runs without any fonts: it only *validates* (the broker re-parses accepted SVG
   with real fonts), so the tightest profile applies.

@@ -45,6 +45,18 @@ fn a_request_completes_through_the_network_process() {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn local_storage_is_served_by_the_storage_service() {
+    let out = run("storage");
+    assert!(
+        out.status.success(),
+        "storage scenario failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// The cookie vault on its own: jar that forwards, HttpOnly split, zone
 /// partitioning, persistence brokered through a real SQLite store.
 #[cfg(target_os = "linux")]
