@@ -76,8 +76,8 @@ cargo run --example metrics-cli
 
 These open a real window. Each is its own package with a single binary, so they run with
 `cargo run -p example-<name>`, and all accept a URL as the first argument. They require system
-graphics libraries — see the [installation instructions](../README.md#running-the-examples) in
-the root README. The full toolkit × backend matrix (winit / GTK4 / egui × Cairo / Skia /
+graphics libraries — see the [installation instructions](../docs/examples.md#installing-dependencies) in
+`docs/examples.md`. The full toolkit × backend matrix (winit / GTK4 / egui × Cairo / Skia /
 Skia-GPU / Vello) is documented in [`docs/examples.md`](../docs/examples.md):
 
 ```bash
