@@ -10,8 +10,8 @@ use gosub_engine::{
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
 
-use gosub_engine::events::{NavigationEvent, ResourceEvent};
-use gosub_engine::tab::{TabDefaults, TabId};
+use gosub_engine::events::{NavigationEvent, ResourceEvent, ResourceUpdate};
+use gosub_engine::tab::TabId;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -100,6 +100,8 @@ async fn main() -> Result<(), EngineError> {
     // Get our event channel to receive events from the engine. Note that you will only receive events
     // send from this point on.
     let mut event_rx = engine.subscribe_events();
+    // Per-resource detail is a separate, opt-in stream.
+    let mut resource_rx = engine.subscribe_resource_events();
 
     // Configure a zone. This works the same way as the engine config, using a builder
     // pattern to set up the configuration before building it.
@@ -126,7 +128,11 @@ async fn main() -> Result<(), EngineError> {
     // Create the zone. Note that we can define our own zone ID to keep zones deterministic
     // (like a user profile), and we give the zone handle to the event channel so we can
     // receive events related to the zone.
-    let mut zone = engine.create_zone(Some(zone_cfg), zone_services, None)?;
+    let mut zone = engine
+        .zone_builder()
+        .config(zone_cfg)
+        .services(zone_services)
+        .create()?;
 
     let mut tab_id_to_idx: HashMap<TabId, usize> = HashMap::new();
 
@@ -134,14 +140,11 @@ async fn main() -> Result<(), EngineError> {
     // be able to provide tab-specific services (like a different cookie jar, etc.)
     let mut tabs = Vec::new();
     for i in 0..25 {
-        let def_values = TabDefaults {
-            url: None,
-            title: Some(format!("Tab {i}")),
-            viewport: Some(Viewport::new(0, 0, 800, 600)),
-        };
-
         let tab = zone
-            .create_tab(def_values.clone(), None)
+            .tab_builder()
+            .title(format!("Tab {i}"))
+            .viewport(Viewport::new(0, 0, 800, 600))
+            .create()
             .await
             .expect("cannot create tab");
 
@@ -220,6 +223,9 @@ async fn main() -> Result<(), EngineError> {
                 }
                 handle_event(ev);
             }
+            Ok(update) = resource_rx.recv() => {
+                handle_resource(update);
+            }
             _ = tokio::signal::ctrl_c() => {
                 break;
             }
@@ -241,6 +247,51 @@ async fn main() -> Result<(), EngineError> {
 
     println!("Done. Exiting. Seen frames: {}", seen_frames);
     Ok(())
+}
+
+/// The opt-in resource stream: one update per fetch lifecycle step, `Progress` per chunk.
+fn handle_resource(update: ResourceUpdate) {
+    let ResourceUpdate { tab_id, event } = update;
+
+    // Build a compact one-line summary per event
+    let mut ui = UI.lock();
+    match event {
+        ResourceEvent::Started { url, .. } => ui.update(tab_id, format!("res: started {url}")),
+        ResourceEvent::Redirected { from, to, status, .. } => {
+            ui.update(tab_id, format!("res: redirect {status} {from} → {to}"))
+        }
+        ResourceEvent::Progress { received_bytes, .. } => ui.update(tab_id, format!("res: {received_bytes} bytes…")),
+        ResourceEvent::Headers {
+            status,
+            content_length,
+            content_type,
+            ..
+        } => {
+            let mut s = String::new();
+            let _ = write!(
+                s,
+                "res: headers {status} len={} type={}",
+                content_length
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "unknown".into()),
+                content_type.unwrap_or_default()
+            );
+            ui.update(tab_id, s);
+        }
+        ResourceEvent::Finished {
+            url,
+            received_bytes,
+            elapsed,
+            ..
+        } => {
+            let kb = received_bytes as f64 / 1024.0;
+            ui.update(tab_id, format!("res: finished {} {:.2}Kb ({:?})", url, kb, elapsed))
+        }
+        ResourceEvent::Failed { url, error, .. } => ui.update(tab_id, format!("res: FAILED {url} ({error})")),
+        ResourceEvent::Cancelled { url, reason, .. } => ui.update(tab_id, format!("res: cancelled {url} [{reason:?}]")),
+        // The event enums are non_exhaustive; unknown variants are ignored.
+        _ => {}
+    }
 }
 
 fn handle_event(ev: EngineEvent) {
@@ -276,11 +327,13 @@ fn handle_event(ev: EngineEvent) {
             let mut ui = UI.lock();
             match event {
                 NavigationEvent::Started { url, .. } => ui.update(tab_id, format!("nav: → {url}")),
-                NavigationEvent::Committed { url, .. } => ui.update(tab_id, format!("nav: committed {url}")),
                 NavigationEvent::Finished { url, .. } => ui.update(tab_id, format!("nav: finished {url}")),
                 NavigationEvent::Failed { url, error, .. } => ui.update(tab_id, format!("nav: FAILED {url} ({error})")),
                 NavigationEvent::Cancelled { url, reason, .. } => {
                     ui.update(tab_id, format!("nav: cancelled {url} [{reason:?}]"))
+                }
+                NavigationEvent::FailedUrl { url, error, .. } => {
+                    ui.update(tab_id, format!("nav: failed: {} {}", url, error));
                 }
                 NavigationEvent::Progress {
                     received_bytes,
@@ -298,16 +351,6 @@ fn handle_event(ev: EngineEvent) {
                         ),
                     );
                 }
-                NavigationEvent::FailedUrl { url, error, .. } => {
-                    ui.update(tab_id, format!("nav: failed: {} {}", url, error));
-                }
-                NavigationEvent::DecisionRequired {
-                    nav_id,
-                    meta,
-                    decision_token,
-                } => {
-                    println!("nav: decision required: {} {:?} {:?}", nav_id, meta, decision_token);
-                }
                 NavigationEvent::HistoryChanged { history } => {
                     ui.update(
                         tab_id,
@@ -319,52 +362,8 @@ fn handle_event(ev: EngineEvent) {
                         ),
                     );
                 }
-            }
-        }
-        EngineEvent::Resource { tab_id, event } => {
-            // Build a compact one-line summary per event
-            let mut ui = UI.lock();
-            match event {
-                ResourceEvent::Queued { kind, priority, .. } => {
-                    ui.update(tab_id, format!("res: queued {kind:?} pri={priority}"))
-                }
-                ResourceEvent::Started { url, .. } => ui.update(tab_id, format!("res: started {url}")),
-                ResourceEvent::Redirected { from, to, status, .. } => {
-                    ui.update(tab_id, format!("res: redirect {status} {from} → {to}"))
-                }
-                ResourceEvent::Progress { received_bytes, .. } => {
-                    ui.update(tab_id, format!("res: {received_bytes} bytes…"))
-                }
-                ResourceEvent::Headers {
-                    status,
-                    content_length,
-                    content_type,
-                    ..
-                } => {
-                    let mut s = String::new();
-                    let _ = write!(
-                        s,
-                        "res: headers {status} len={} type={}",
-                        content_length
-                            .map(|n| n.to_string())
-                            .unwrap_or_else(|| "unknown".into()),
-                        content_type.unwrap_or_default()
-                    );
-                    ui.update(tab_id, s);
-                }
-                ResourceEvent::Finished {
-                    url,
-                    received_bytes,
-                    elapsed,
-                    ..
-                } => {
-                    let kb = received_bytes as f64 / 1024.0;
-                    ui.update(tab_id, format!("res: finished {} {:.2}Kb ({:?})", url, kb, elapsed))
-                }
-                ResourceEvent::Failed { url, error, .. } => ui.update(tab_id, format!("res: FAILED {url} ({error})")),
-                ResourceEvent::Cancelled { url, reason, .. } => {
-                    ui.update(tab_id, format!("res: cancelled {url} [{reason:?}]"))
-                }
+                // The event enums are non_exhaustive; unknown variants are ignored.
+                _ => {}
             }
         }
         EngineEvent::Redraw { tab_id, .. } => {

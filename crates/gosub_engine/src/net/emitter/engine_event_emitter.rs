@@ -1,12 +1,13 @@
 use crate::engine::events::{CancelReason, ResourceEvent};
-use crate::engine::types::{EventChannel, RequestId};
-use crate::events::EngineEvent;
+use crate::engine::types::{EventChannel, RequestId, ResourceChannel};
+use crate::engine::LoadError;
+use crate::events::{EngineEvent, ResourceUpdate};
 use crate::net::emitter::NetObserver;
 use crate::net::events::NetEvent;
 use crate::net::req_ref_tracker::{RequestReference, REF_REGISTRY};
-use crate::net::types::{Initiator, ResourceKind};
+use crate::net::types::{Initiator, NetError, ResourceKind};
+use crate::net::BlockReason;
 use crate::tab::TabId;
-use std::sync::Arc;
 
 /// Converts NetEvents into EngineEvents and send them over to the event_tx channel back to the UA
 pub struct EngineEventEmitter {
@@ -16,7 +17,9 @@ pub struct EngineEventEmitter {
     req_id: RequestId,
     /// The request reference to correlate the event with
     reference: RequestReference,
-    /// The channel to send the events to
+    /// Per-resource events go to the resource stream.
+    resource_tx: ResourceChannel,
+    /// Throttled navigation and download progress goes to the control bus.
     event_tx: EventChannel,
     /// The resource kind (e.g., Document, Script, Image, etc.)
     kind: ResourceKind,
@@ -35,6 +38,7 @@ impl EngineEventEmitter {
         tab_id: TabId,
         req_id: RequestId,
         reference: RequestReference,
+        resource_tx: ResourceChannel,
         event_tx: EventChannel,
         kind: ResourceKind,
         initiator: Initiator,
@@ -43,6 +47,7 @@ impl EngineEventEmitter {
             tab_id,
             req_id,
             reference,
+            resource_tx,
             event_tx,
             kind,
             initiator,
@@ -66,7 +71,7 @@ impl EngineEventEmitter {
 
     /// Emit a resource event
     fn emit(&self, ev: ResourceEvent) {
-        let _ = self.event_tx.send(EngineEvent::Resource {
+        let _ = self.resource_tx.send(ResourceUpdate {
             tab_id: self.tab_id,
             event: ev,
         });
@@ -175,7 +180,9 @@ impl NetObserver for EngineEventEmitter {
                     request_id: self.req_id,
                     reference: self.reference,
                     url: url.to_string(),
-                    error: Arc::new(anyhow::anyhow!("blocked: {reason:?}")),
+                    error: LoadError::Blocked {
+                        reason: BlockReason::from_net(reason),
+                    },
                 });
             }
             NetEvent::Failed { url, error } => {
@@ -184,7 +191,14 @@ impl NetObserver for EngineEventEmitter {
                     request_id: self.req_id,
                     reference: self.reference,
                     url: url.to_string(),
-                    error: error.into(),
+                    // The transport wraps its typed error in anyhow; keep the classification
+                    // when it is there.
+                    error: match error.downcast_ref::<NetError>() {
+                        Some(net) => LoadError::from(net),
+                        None => LoadError::Network {
+                            message: format!("{error:#}"),
+                        },
+                    },
                 });
             }
             NetEvent::Cancelled { url, reason } => {

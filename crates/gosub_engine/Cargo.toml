@@ -58,15 +58,19 @@ mimetype-detector = "0.3.11"
 image = { workspace = true }
 async-trait = "0.1.89"
 allsorts = "0.17"
+# Download bodies are spooled to a temp file while the embedder decides (see net::router).
+tempfile = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 
 [features]
 default = ["sqlite_cookie_store"]
 sqlite_cookie_store = ["r2d2", "r2d2_sqlite"]
 sqlite_places = ["r2d2", "r2d2_sqlite"]
 metrics = []
+# Aspirational message vocabulary: variants the engine declares but does not yet emit or
+# handle. Off by default so the default surface is only what works.
+unstable-api = []
 
 [lints]
 workspace = true

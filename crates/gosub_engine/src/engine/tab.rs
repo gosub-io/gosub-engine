@@ -13,8 +13,8 @@ pub use handle::TabHandle;
 pub use tab::*;
 
 pub use options::TabCookieJar;
-pub use options::TabDefaults;
-pub use options::TabOverrides;
+pub(crate) use options::TabDefaults;
+pub(crate) use options::TabOverrides;
 pub use options::TabStorageScope;
 
 pub use sink::TabSink;

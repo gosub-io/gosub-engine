@@ -1,8 +1,10 @@
+use crate::engine::events::PendingDownload;
 use crate::engine::types::NavigationId;
 use parking_lot::RwLock;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::Instant;
+use url::Url;
 
 /// Things shared upwards to the zone
 pub struct TabSink {
@@ -16,6 +18,16 @@ pub struct TabSink {
     pub nav_id: RwLock<Option<NavigationId>>,
     /// Last time we painted a frame
     pub last_paint: RwLock<Option<Instant>>,
+    /// The tab's current document URL (`None` before the first commit)
+    pub url: RwLock<Option<Url>>,
+    /// The tab's current title
+    pub title: RwLock<String>,
+    /// Whether session history has an entry behind the current one
+    pub can_go_back: AtomicBool,
+    /// Whether session history has an entry ahead of the current one
+    pub can_go_forward: AtomicBool,
+    /// Download offers whose body the tab still holds, oldest first
+    pub pending_downloads: RwLock<Vec<PendingDownload>>,
 }
 
 impl Default for TabSink {
@@ -32,6 +44,11 @@ impl TabSink {
             last_fps_times100: AtomicU32::new(0),
             nav_id: RwLock::new(None),
             last_paint: RwLock::new(None),
+            url: RwLock::new(None),
+            title: RwLock::new(String::new()),
+            can_go_back: AtomicBool::new(false),
+            can_go_forward: AtomicBool::new(false),
+            pending_downloads: RwLock::new(Vec::new()),
         }
     }
 
@@ -49,5 +66,18 @@ impl TabSink {
     }
     pub fn set_nav(&self, id: NavigationId) {
         *self.nav_id.write() = Some(id);
+    }
+    pub fn set_url(&self, url: Option<Url>) {
+        *self.url.write() = url;
+    }
+    pub fn set_title(&self, title: String) {
+        *self.title.write() = title;
+    }
+    pub fn set_pending_downloads(&self, pending: Vec<PendingDownload>) {
+        *self.pending_downloads.write() = pending;
+    }
+    pub fn set_history_flags(&self, back: bool, forward: bool) {
+        self.can_go_back.store(back, Ordering::Relaxed);
+        self.can_go_forward.store(forward, Ordering::Relaxed);
     }
 }

@@ -1,3 +1,6 @@
+> Engine-internal. The types below (`IoHandle`, `IoCommand`, the fetcher wiring) are
+> `pub(crate)`; embedders drive networking by navigating a tab.
+
 Looking at the code structure, here's a schematic diagram of how the net module works:
 
 ```ascii

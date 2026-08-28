@@ -88,6 +88,23 @@ pub struct ZoneServices {
     pub places: Option<crate::places::PlacesHandle>,
 }
 
+impl Default for ZoneServices {
+    /// An ephemeral profile: in-memory storage and cookie jar, nothing persisted, nothing
+    /// partitioned, no history. The starting point for [`ZoneBuilder`](crate::ZoneBuilder).
+    fn default() -> Self {
+        Self {
+            storage: Arc::new(StorageService::new(
+                Arc::new(crate::storage::InMemoryLocalStore::new()),
+                Arc::new(crate::storage::InMemorySessionStore::new()),
+            )),
+            cookie_store: None,
+            cookie_jar: Some(crate::cookies::DefaultCookieJar::new().into()),
+            partition_policy: PartitionPolicy::None,
+            places: None,
+        }
+    }
+}
+
 /// Zone context we can share downwards to tabs
 pub struct ZoneContext<C: RenderConfiguration = crate::html::DefaultRenderConfig> {
     /// Zone services (storage, cookies, etc)
@@ -167,7 +184,6 @@ struct TabInfo {
     cmd_tx: TabChannel,
     /// Worker join handle, awaited when the tab is closed.
     join_handle: tokio::task::JoinHandle<()>,
-    #[allow(unused)]
     sink: Arc<TabSink>,
 }
 
@@ -186,7 +202,7 @@ pub struct SharedFlags {
 
 impl<C: RenderConfiguration> Zone<C> {
     /// Creates a new zone with a specific zone ID
-    pub fn new_with_id(
+    pub(crate) fn new_with_id(
         // Unique ID for the zone
         zone_id: ZoneId,
         // Configuration for the zone
@@ -254,7 +270,7 @@ impl<C: RenderConfiguration> Zone<C> {
     }
 
     /// Creates a new zone with a random ID and the provided configuration
-    pub fn new(
+    pub(crate) fn new(
         config: ZoneConfig,
         services: ZoneServices,
         engine_context: Arc<EngineContext>,
@@ -298,7 +314,24 @@ impl<C: RenderConfiguration> Zone<C> {
 
     /// Create a new tab in the zone. Will set any initial values provided in `initial`
     /// and apply any overrides to the default services for the tab if any are required.
-    pub async fn create_tab(
+    /// Start building a tab. With nothing set you get a blank tab with the zone's services
+    /// and a default viewport; call [`create`](TabBuilder::create) to spawn it.
+    ///
+    /// ```rust,no_run
+    /// # use gosub_engine::zone::Zone;
+    /// # async fn f(zone: &mut Zone) -> Result<(), gosub_engine::EngineError> {
+    /// let tab = zone.tab_builder().url("https://example.com").create().await?;
+    /// # Ok(()) }
+    /// ```
+    pub fn tab_builder(&mut self) -> TabBuilder<'_, C> {
+        TabBuilder {
+            zone: self,
+            init: TabDefaults::default(),
+            config: TabOverrides::default(),
+        }
+    }
+
+    pub(crate) async fn create_tab(
         &mut self,
         initial: TabDefaults,
         overrides: Option<TabOverrides>,
@@ -416,6 +449,77 @@ impl<C: RenderConfiguration> Zone<C> {
     /// Lists all tab IDs in this zone.
     pub fn list_tabs(&self) -> Vec<TabId> {
         self.tabs.keys().cloned().collect()
+    }
+
+    /// A handle to one of this zone's tabs, by id. Every event carries a `TabId`; this is
+    /// how a shell gets from one back to something it can command or query.
+    pub fn tab(&self, tab_id: TabId) -> Option<TabHandle> {
+        self.tabs.get(&tab_id).map(|info| TabHandle {
+            tab_id,
+            cmd_tx: info.cmd_tx.clone(),
+            sink: info.sink.clone(),
+        })
+    }
+}
+
+/// Builds a tab; obtained from [`Zone::tab_builder`].
+///
+/// Two kinds of setting: what the tab does first (`url`, `title`, `viewport`), and how it is
+/// isolated from its zone (`cookie_jar`, `storage`, `partition_key`, `accept_language`).
+/// Everything defaults to "blank tab, inherit from the zone".
+pub struct TabBuilder<'a, C: RenderConfiguration> {
+    zone: &'a mut Zone<C>,
+    init: TabDefaults,
+    config: TabOverrides,
+}
+
+impl<C: RenderConfiguration> TabBuilder<'_, C> {
+    /// Navigate here once the tab exists.
+    pub fn url(mut self, url: impl Into<String>) -> Self {
+        self.init.url = Some(url.into());
+        self
+    }
+
+    /// Title until the document supplies one.
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.init.title = Some(title.into());
+        self
+    }
+
+    /// Initial viewport in CSS px. Without one the tab starts at the default size and
+    /// waits for [`SetViewport`](crate::events::TabCommand::SetViewport).
+    pub fn viewport(mut self, viewport: gosub_render_pipeline::render::Viewport) -> Self {
+        self.init.viewport = Some(viewport);
+        self
+    }
+
+    /// Cookie jar: inherit the zone's, a fresh ephemeral one, or a custom handle.
+    pub fn cookie_jar(mut self, jar: crate::tab::TabCookieJar) -> Self {
+        self.config.cookie_jar = jar;
+        self
+    }
+
+    /// Local/session storage: inherit the zone's, ephemeral, or custom.
+    pub fn storage(mut self, scope: crate::tab::TabStorageScope) -> Self {
+        self.config.storage_scope = scope;
+        self
+    }
+
+    /// Storage partition key, overriding the zone's policy for this tab.
+    pub fn partition_key(mut self, key: crate::storage::PartitionKey) -> Self {
+        self.config.partition_key = Some(key);
+        self
+    }
+
+    /// Per-tab `Accept-Language`, overriding the zone's.
+    pub fn accept_language(mut self, value: impl Into<String>) -> Self {
+        self.config.accept_language = Some(value.into());
+        self
+    }
+
+    /// Spawn the tab. Fails with [`EngineError::TabLimitExceeded`] past the zone's `max_tabs`.
+    pub async fn create(self) -> Result<TabHandle, EngineError> {
+        self.zone.create_tab(self.init, Some(self.config)).await
     }
 }
 

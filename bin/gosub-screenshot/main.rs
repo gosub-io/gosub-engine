@@ -9,7 +9,7 @@
 use clap::Parser;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
-use gosub_engine::tab::{TabDefaults, TabId};
+use gosub_engine::tab::TabId;
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
@@ -139,18 +139,15 @@ fn main() {
     };
 
     let mut zone = engine
-        .create_zone(Some(zone_cfg), zone_services, Some(ZoneId::from(DEFAULT_ZONE)))
+        .zone_builder()
+        .config(zone_cfg)
+        .id(ZoneId::from(DEFAULT_ZONE))
+        .services(zone_services)
+        .create()
         .expect("create_zone");
 
     let tab = TOKIO_RT
-        .block_on(zone.create_tab(
-            TabDefaults {
-                url: None,
-                title: Some("screenshot".to_string()),
-                viewport: None,
-            },
-            None,
-        ))
+        .block_on(zone.tab_builder().title("screenshot").create())
         .expect("create_tab");
 
     let tab_id: TabId = tab.tab_id;

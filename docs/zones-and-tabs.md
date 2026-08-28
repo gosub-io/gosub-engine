@@ -1,6 +1,6 @@
 # Zones and tabs
 
-How the engine organizes running state: one `GosubEngine`, containing isolated **zones**, each containing **tabs** that run as independent tasks. This is the architecture view; for a hands-on walkthrough see [tutorial.md](tutorial.md).
+How the engine organizes running state: one `GosubEngine`, containing isolated **zones**, each containing **tabs** that run as independent tasks. This is the architecture view; for a hands-on walkthrough see [tutorial.md](tutorial.md), and for the API surface itself see [embedder-api.md](embedder-api.md).
 
 ``` text
 GosubEngine<C>                        (owns backend, compositor, font system, event bus)
@@ -17,7 +17,7 @@ A zone is a **browser profile/container** (in the Firefox-containers sense): it 
 
 Isolation is the default; sharing is opt-in per data class via `SharedFlags` (autocomplete, bookmarks, passwords, cookie jar).
 
-A zone is created with:
+A zone is created through `engine.zone_builder()`, from:
 
 -   **`ZoneConfig`** --- limits and settings (e.g. maximum tabs);
 -   **`ZoneServices`** --- the isolation boundary made concrete: a `StorageService` (local + session stores --- see [datastores.md](datastores.md)), an optional cookie store/jar (see [cookies.md](cookies.md)), and a `PartitionPolicy` describing how storage is keyed (e.g. per-origin partitioning);
@@ -32,39 +32,42 @@ Internally the zone builds a `ZoneContext` that flows down to every tab it creat
 -   the **render backend** and **compositor sink** (one instance each, per the config);
 -   the **font system** --- one instance, handed to both layout and rasterization so measurement and drawing agree (see [fonts.md](fonts.md));
 -   the **network I/O thread** --- networking runs on its own thread with an `IoChannel`; responses are routed back to the right tab via a request-reference map;
--   the **command channel** (`EngineCommand`, mpsc into the engine run loop) and the **event bus** (`EngineEvent`, a tokio broadcast channel --- `subscribe_events()` gives every listener its own receiver).
+-   the **command channel** (`EngineCommand`, mpsc into the engine run loop --- crate-internal; embedders use methods on `GosubEngine`) and the **event bus** (`EngineEvent`, a tokio broadcast channel --- `subscribe_events()` gives every listener its own receiver), and a **separate resource stream** (`ResourceUpdate`, via `subscribe_resource_events()`) so per-chunk fetch progress cannot crowd must-not-miss events like `TabCrashed` out of the bounded control bus.
 
-The command/event flow is strictly layered: commands travel *down* (UA → engine → zone → tab, each over its own mpsc channel), events travel *up* onto the one broadcast bus, tagged with their `tab_id`/`zone_id` so the UA can demultiplex.
+The command/event flow is strictly layered: commands travel *down* (UA → engine → zone → tab, each over its own mpsc channel), events travel *up* on two broadcast channels - the control bus and the resource stream - tagged with their `tab_id`/`zone_id` so the UA can demultiplex.
 
 ## Tabs
 
-A tab is a browsing context. `zone.create_tab(TabDefaults, overrides)` spawns a **`TabWorker`** --- a dedicated tokio task owning everything about that page --- and returns a `TabHandle`:
+A tab is a browsing context. `zone.tab_builder() … .create().await` spawns a **`TabWorker`** --- a dedicated tokio task owning everything about that page --- and returns a `TabHandle`:
 
 ``` rust
 pub struct TabHandle {
     pub tab_id: TabId,
-    pub cmd_tx: TabChannel,   // mpsc of TabCommand into the worker
-    pub sink: Arc<TabSink>,   // tab outputs
+    pub(crate) cmd_tx: TabChannel,   // mpsc of TabCommand into the worker
+    pub(crate) sink: Arc<TabSink>,   // tab outputs, read via url()/title()/...
 }
 ```
 
-The handle is the *entire* control surface: everything is a `TabCommand` message (convenience methods like `navigate()` / `set_viewport()` wrap `send()`). The command set falls into four groups:
+`zone.tab(id)` returns a fresh handle for any live tab, so the `TabId` on an event is enough to act on it. The handle is the *entire* control surface: everything is a `TabCommand` message (convenience methods like `navigate()` / `set_viewport()` wrap `send()`). The command set falls into four groups:
 
 | Group | Commands |
 |-------|----------|
-| Navigation | `Navigate { url: String }`, `Reload { ignore_cache: bool }`, `CancelNavigation`, `GoBack`, `GoForward { entry }`, `SubmitDecision { nav_id, decision_token, action }` |
+| Navigation | `Navigate { url: String }`, `Reload { ignore_cache: bool }`, `CancelNavigation`, `GoBack`, `GoForward { entry }`, `GoToHistoryEntry { entry }` |
+| Downloads | `StartDownload { id, url, target_path, offer }`, `RenderDownload { offer }` |
 | Lifecycle | `CloseTab`, `SetTitle { title }` |
-| Drawing | `ResumeDrawing { fps: u16 }`, `SuspendDrawing`, `SetViewport { x: i32, y: i32, width: u32, height: u32 }` |
+| Drawing | `ResumeDrawing { fps: u16 }`, `SuspendDrawing`, `SetViewport { x: i32, y: i32, width: u32, height: u32 }`, `SetScroll { x: i32, y: i32 }` |
 | Input | `MouseMove { x: f32, y: f32 }`, `MouseDown/Up { x, y, button: MouseButton }`, `MouseScroll { delta_x, delta_y }` (a delta, in CSS px), `KeyDown/Up { key, code, modifiers }`, `TextInput { text }` |
 
 This table is a summary; the full, current list with every field is the `TabCommand` rustdoc (`cargo doc -p gosub_engine --open`). Mouse coordinates are CSS pixels relative to the viewport's top-left, so a UA with its own chrome (address bar, tab strip) subtracts that offset before forwarding.
 
 Inside the worker:
 
--   **Navigation is a cancellable async job.** Each navigation gets a `NavigationId` and a `CancellationToken`; the fetch/parse runs concurrently and reports back over a oneshot channel, so a new `Navigate` (or `CancelNavigation`) cleanly aborts the old one. Progress is published as `NavigationEvent`s (`Started`, `Finished`, `Failed`, ...).
--   **`DecisionRequired`**: when a response arrives that isn't obviously a renderable page (content-type/disposition says download, unknown type, ...), the worker emits a `NavigationEvent::DecisionRequired` and waits for the UA's `SubmitDecision` --- render it, download it, or cancel. The engine never decides this on its own.
--   **Drawing is pull-based and rate-limited.** Nothing paints until the UA sends `ResumeDrawing { fps }`; the worker then runs a tick loop at that rate, driving the [render pipeline](render-pipeline/README.md) (per the backend's `RasterStrategy`) and submitting finished frames to the compositor sink, which notifies the UA (e.g. `EngineEvent::Redraw` with an `ExternalHandle`). `SuspendDrawing` stops the ticks --- a backgrounded tab costs nothing.
--   The worker owns the tab's `BrowsingContext` --- document, styles, pipeline caches, scroll state --- none of which is reachable from outside except through commands and events.
+-   **Navigation is a cancellable async job.** Each navigation gets a `NavigationId` and a `CancellationToken`; the fetch/parse runs concurrently and reports back over a oneshot channel, so a new `Navigate` (or `CancelNavigation`) cleanly aborts the old one. Lifecycle is published as `NavigationEvent`s (`Started`, `Finished`, `Failed`, ...); per-resource fetch detail goes to the separate resource stream as `ResourceUpdate`s.
+-   **Downloads**: when a response arrives that isn't obviously a renderable page (content-type/disposition says download, unknown type, ...), the worker classifies it itself via `decide_handling`, cancels the navigation so the current document stays, and emits `EngineEvent::DownloadRequested` as an offer the UA can accept with `StartDownload` or ignore. The body is spooled to a temp file at that point, so accepting places bytes already fetched rather than re-requesting the URL --- which would be wrong for a POST-produced or single-use download --- and an offer that is never accepted releases the file. A `RenderDownload` answer loads the spooled body as the page instead, for responses the engine misclassified.
+-   **Drawing is pull-based and rate-limited.** Nothing paints until the UA sends `ResumeDrawing { fps }`; the worker then runs a tick loop at that rate, driving the [render pipeline](render-pipeline/README.md) (per the backend's `RasterStrategy`) and submitting finished frames to the compositor sink. `SuspendDrawing` stops the ticks --- a backgrounded tab costs nothing.
+-   **The sink carries frames; `Redraw` is only the wakeup.** Every `submit_frame` to the compositor sink is followed by an `EngineEvent::Redraw { tab_id }` that carries no frame data. UAs paint by reading the current frame out of the sink they own, and map `Redraw` onto their toolkit's invalidate call. The event bus is a `broadcast` channel that drops messages for slow consumers, so a lost wakeup costs one coalesced repaint while a lost frame would cost the frame.
+-   **Scroll position is tracked on both sides.** The engine is authoritative: it clamps to the page, restores per-history-entry offsets, and runs the smooth-scroll animation. A UA may keep its own offset as well, so it can shift already-rasterized tiles at input rate without a round trip through the worker; the tile cache handed to the sink carries the offset it was composited at, which is how the two converge. Send `MouseScroll` (a delta; the engine decides where it lands and may animate) for raw wheel and trackpad input, and `SetScroll` (an absolute offset, cancelling any animation) for a scrollbar drag, UA-side kinetic scrolling, or a restored session. Don't mix the two within one gesture.
+-   The worker owns the tab's `BrowsingContext` --- document, styles, pipeline caches, scroll state --- none of which is reachable from outside except through commands and events. What a shell needs synchronously is mirrored onto the tab's `TabSink` and read back through `TabHandle::{url, title, can_go_back, can_go_forward}`, so building a tab strip or restoring a session does not mean replaying the event stream.
 
 ## Why this shape
 

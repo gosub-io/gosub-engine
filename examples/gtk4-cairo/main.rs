@@ -9,7 +9,7 @@
 use gosub_engine::cookies::SqliteCookieStore;
 use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
-use gosub_engine::tab::{TabDefaults, TabId};
+use gosub_engine::tab::TabId;
 use gosub_engine::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
@@ -128,24 +128,25 @@ fn main() {
 
         let zone = Rc::new(RefCell::new(
             engine
-                .create_zone(Some(zone_cfg), zone_services, Some(ZoneId::from(DEFAULT_ZONE)))
+                .zone_builder()
+                .config(zone_cfg)
+                .id(ZoneId::from(DEFAULT_ZONE))
+                .services(zone_services)
+                .create()
                 .expect("create_zone"),
         ));
 
         let tab = {
             let mut z = zone.borrow_mut();
             TOKIO_RT
-                .block_on(z.create_tab(
-                    TabDefaults {
-                        url: None,
-                        title: Some("Pipeline Browser".to_string()),
+                .block_on(
+                    z.tab_builder()
+                        .title("Pipeline Browser")
                         // No initial viewport - let connect_resize set it with the correct DPR.
                         // If we pre-set a viewport here (DPR=1), the engine won't recreate the
                         // surface when connect_resize sends the same CSS dimensions with DPR=2.
-                        viewport: None,
-                    },
-                    None,
-                ))
+                        .create(),
+                )
                 .expect("create_tab")
         };
 
@@ -180,46 +181,6 @@ fn main() {
                 draw_placeholder(cr, w, h);
             }
             Some(handle) => match handle {
-                ExternalHandle::CpuPixelsPtr {
-                    width,
-                    height,
-                    stride,
-                    pixel_buf,
-                } => {
-                    log::debug!(
-                        "[draw] CpuPixelsPtr {}x{} stride={} widget={}x{}",
-                        width,
-                        height,
-                        stride,
-                        w,
-                        h
-                    );
-                    let frame_scale = (width as f64 / w as f64).round() as i32;
-                    let owned = unsafe {
-                        std::slice::from_raw_parts(pixel_buf.as_ptr(), (height as usize) * (stride as usize))
-                    }
-                    .to_vec();
-                    match gtk4::cairo::ImageSurface::create_for_data(
-                        owned,
-                        gtk4::cairo::Format::ARgb32,
-                        width as i32,
-                        height as i32,
-                        stride as i32,
-                    ) {
-                        Ok(surface) => {
-                            surface.flush();
-                            if frame_scale > 1 {
-                                surface.set_device_scale(frame_scale as f64, frame_scale as f64);
-                            }
-                            cr.set_source_surface(&surface, 0.0, 0.0).unwrap_or_default();
-                            cr.paint().unwrap_or_default();
-                        }
-                        Err(e) => {
-                            log::warn!("[draw] surface failed: {:?}", e);
-                            draw_placeholder(cr, w, h);
-                        }
-                    }
-                }
                 ExternalHandle::CpuPixelsOwned {
                     width,
                     height,

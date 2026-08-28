@@ -1,19 +1,9 @@
-use crate::events::{EngineEvent, IoCommand, TabCommand};
+use crate::engine::events::IoCommand;
+use crate::events::{EngineEvent, TabCommand};
 
 pub use gosub_sonar::types::{PeekBuf, RequestId};
 use std::fmt::Display;
 use uuid::Uuid;
-
-/// What the engine should do with a response once the UA has decided
-#[derive(Debug, Clone, PartialEq)]
-pub enum Action {
-    /// Engine will render the stream
-    Render,
-    /// Stream will be downloaded to the specified path
-    Download { dest: std::path::PathBuf },
-    /// Stream will be cancelled
-    Cancel,
-}
 
 /// Navigation ID is the same for each complete load, including iframes, resources redirect etc
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -39,5 +29,7 @@ impl Display for NavigationId {
 
 // Defined channels for communication
 pub type EventChannel = tokio::sync::broadcast::Sender<EngineEvent>;
+/// Sender for the high-volume resource stream - see [`ResourceUpdate`](crate::events::ResourceUpdate).
+pub type ResourceChannel = tokio::sync::broadcast::Sender<crate::events::ResourceUpdate>;
 pub type IoChannel = tokio::sync::mpsc::UnboundedSender<IoCommand>;
 pub type TabChannel = tokio::sync::mpsc::Sender<TabCommand>;

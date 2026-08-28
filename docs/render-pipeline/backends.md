@@ -34,7 +34,6 @@ When only the scroll offset changed (no content or layout change), `take_scroll_
 pub enum ExternalHandle {
     NullHandle        { width, height, frame_id },
     CpuPixelsOwned    { width, height, stride, pixels: Vec<u8>, format: PixelFormat },
-    CpuPixelsPtr      { width, height, stride, pixel_buf: NonNull<u8> },
     TileCache         { viewport_width, viewport_height, dpr,
                         scroll_x, scroll_y, page_height,
                         tiles: Arc<Vec<CachedTile>> },

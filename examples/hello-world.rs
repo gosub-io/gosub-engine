@@ -1,20 +1,15 @@
 // Example code: panicking on bad input is the desired behavior, as in any test code.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use cow_utils::CowUtils;
-use gosub_engine::events::{MouseButton, NavigationEvent, ResourceEvent, TabCommand};
-use gosub_engine::net::types::FetchResultMeta;
-use gosub_engine::net::DecisionToken;
-use gosub_engine::tab::{TabDefaults, TabHandle};
+use gosub_engine::events::{MouseButton, NavigationEvent, ResourceEvent, ResourceUpdate, TabCommand};
 use gosub_engine::{
     cookies::DefaultCookieJar,
     events::EngineEvent,
     storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService},
     zone::ZoneConfig,
     zone::ZoneServices,
-    Action, DefaultRenderConfig, EngineConfig, EngineError, GosubEngine, NavigationId,
+    DefaultRenderConfig, EngineConfig, EngineError, GosubEngine,
 };
 use gosub_render_pipeline::render::{DefaultCompositor, Viewport};
-use http::header;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -76,6 +71,8 @@ async fn main() -> Result<(), EngineError> {
     // Get our event channel to receive events from the engine. Note that you will only receive events
     // send from this point on.
     let mut event_rx = engine.subscribe_events();
+    // Per-resource detail is a separate, opt-in stream.
+    let mut resource_rx = engine.subscribe_resource_events();
 
     // Configure a zone. This works the same way as the engine config, using a builder
     // pattern to set up the configuration before building it.
@@ -101,16 +98,21 @@ async fn main() -> Result<(), EngineError> {
     // Create the zone. Note that we can define our own zone ID to keep zones deterministic
     // (like a user profile), and we give the zone handle to the event channel so we can
     // receive events related to the zone.
-    let mut zone = engine.create_zone(Some(zone_cfg), zone_services, None)?;
+    let mut zone = engine
+        .zone_builder()
+        .config(zone_cfg)
+        .services(zone_services)
+        .create()?;
 
     // Next, we create a tab in the zone. For now, we don't provide anything, but we should
     // be able to provide tab-specific services (like a different cookie jar, etc.)
-    let def_values = TabDefaults {
-        url: None,
-        title: Some("New Tab".into()),
-        viewport: Some(Viewport::new(0, 0, 800, 600)),
-    };
-    let tab = zone.create_tab(def_values, None).await.expect("cannot create tab");
+    let tab = zone
+        .tab_builder()
+        .title("New Tab")
+        .viewport(Viewport::new(0, 0, 800, 600))
+        .create()
+        .await
+        .expect("cannot create tab");
 
     // From the tab handle, we can now send commands to the engine to control the tab.
     tab.send(TabCommand::SetViewport {
@@ -153,12 +155,14 @@ async fn main() -> Result<(), EngineError> {
 
     let mut seen_intervals = 0usize;
     let mut interval = tokio::time::interval(Duration::from_secs(1));
-    let tab_clone = tab.clone();
 
     loop {
         tokio::select! {
             Ok(ev) = event_rx.recv() => {
-                handle_event(ev, tab_clone.clone()).await;
+                handle_event(ev).await;
+            }
+            Ok(update) = resource_rx.recv() => {
+                handle_resource(update);
             }
             _ = tokio::signal::ctrl_c() => {
                 println!("Shutting down...");
@@ -184,48 +188,65 @@ async fn main() -> Result<(), EngineError> {
     Ok(())
 }
 
-async fn on_decision_required(
-    tab_handle: TabHandle,
-    nav_id: NavigationId,
-    meta: FetchResultMeta,
-    decision_token: DecisionToken,
-) {
-    let ct: String = meta
-        .headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/octet-stream")
-        .to_string();
+/// The opt-in resource stream: one update per fetch lifecycle step, `Progress` per chunk.
+fn handle_resource(update: ResourceUpdate) {
+    let ResourceUpdate { tab_id, event } = update;
 
-    let action = if let Some(disp) = meta.headers.get(http::header::CONTENT_DISPOSITION) {
-        let s = disp.to_str().unwrap_or_default().cow_to_ascii_lowercase();
-        if s.contains("attachment") {
-            Action::Download {
-                dest: std::path::PathBuf::from("/tmp/downloaded.bin"),
-            }
-        } else {
-            Action::Render
+    let t = short(&tab_id);
+    match event {
+        ResourceEvent::Started { url, .. } => {
+            println!("[res ] started   [{t}] {url}");
         }
-    } else if ct.starts_with("text/html") || ct.starts_with("text/") || ct == "application/json" {
-        Action::Render
-    } else {
-        Action::Download {
-            dest: std::path::PathBuf::from("/tmp/downloaded.bin"),
+        ResourceEvent::Redirected { from, to, status, .. } => {
+            println!("[res ] redirect  [{t}] {status}  {from}  →  {to}");
         }
-    };
-
-    // Send back to the engine what we like to do with this navigation
-    let _ = tab_handle
-        .cmd_tx
-        .send(TabCommand::SubmitDecision {
-            nav_id,
-            decision_token,
-            action,
-        })
-        .await;
+        ResourceEvent::Headers {
+            url,
+            status,
+            content_type,
+            content_length,
+            ..
+        } => {
+            let ct = content_type.as_deref().unwrap_or("-");
+            let cl = content_length
+                .map(|n| format!("{n} B"))
+                .unwrap_or_else(|| "unknown".into());
+            println!("[res ] headers   [{t}] {status}  {ct}  {cl}  {url}");
+        }
+        ResourceEvent::Progress {
+            received_bytes,
+            expected_length,
+            elapsed,
+            ..
+        } => {
+            let kb = received_bytes / 1024;
+            let total = expected_length
+                .map(|n| format!("{} KB", n / 1024))
+                .unwrap_or_else(|| "?".into());
+            println!("[res ] progress  [{t}] {kb} KB / {total}  ({})", fmt_elapsed(elapsed));
+        }
+        ResourceEvent::Finished {
+            url,
+            received_bytes,
+            elapsed,
+            ..
+        } => {
+            let kb = received_bytes as f64 / 1024.0;
+            let elapsed = elapsed.map(fmt_elapsed).unwrap_or_else(|| "-".into());
+            println!("[res ] finished  [{t}] {kb:.1} KB  {elapsed}  {url}");
+        }
+        ResourceEvent::Failed { url, error, .. } => {
+            println!("[res ] FAILED    [{t}] {url}  ({error})");
+        }
+        ResourceEvent::Cancelled { url, reason, .. } => {
+            println!("[res ] cancelled [{t}] {url}  ({reason:?})");
+        }
+        // The event enums are non_exhaustive; unknown variants are ignored.
+        _ => {}
+    }
 }
 
-async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
+async fn handle_event(ev: EngineEvent) {
     match ev {
         EngineEvent::ZoneCreated { zone_id } => {
             println!("[zone] created   {}", short(&zone_id));
@@ -239,9 +260,6 @@ async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
             match event {
                 NavigationEvent::Started { url, .. } => {
                     println!("[nav ] →         [{t}] {url}");
-                }
-                NavigationEvent::Committed { url, .. } => {
-                    println!("[nav ] committed [{t}] {url}");
                 }
                 NavigationEvent::Finished { url, .. } => {
                     println!("[nav ] finished  [{t}] {url}");
@@ -267,20 +285,6 @@ async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
                         .unwrap_or_else(|| "?".into());
                     println!("[nav ] progress  [{t}] {kb} KB / {total}  ({})", fmt_elapsed(elapsed));
                 }
-                NavigationEvent::DecisionRequired {
-                    nav_id,
-                    meta,
-                    decision_token,
-                } => {
-                    // The engine fetched response headers and needs us to decide: render or download?
-                    // We inspect content-type and content-disposition and reply with Action::Render or Action::Download.
-                    println!("[nav ] decision  [{t}] {}", short(&nav_id));
-                    if tab_id != tab_handle.tab_id {
-                        eprintln!("[nav ] warning: DecisionRequired for unexpected tab {t}");
-                        return;
-                    }
-                    on_decision_required(tab_handle, nav_id, meta, decision_token).await;
-                }
                 NavigationEvent::HistoryChanged { history } => {
                     println!(
                         "[nav ] history   [{t}] {} entries, back={}, forward={}",
@@ -289,64 +293,8 @@ async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
                         history.forward.len()
                     );
                 }
-            }
-        }
-
-        EngineEvent::Resource { tab_id, event } => {
-            let t = short(&tab_id);
-            match event {
-                ResourceEvent::Queued {
-                    url, kind, priority, ..
-                } => {
-                    println!("[res ] queued    [{t}] {kind:?} pri={priority}  {url}");
-                }
-                ResourceEvent::Started { url, .. } => {
-                    println!("[res ] started   [{t}] {url}");
-                }
-                ResourceEvent::Redirected { from, to, status, .. } => {
-                    println!("[res ] redirect  [{t}] {status}  {from}  →  {to}");
-                }
-                ResourceEvent::Headers {
-                    url,
-                    status,
-                    content_type,
-                    content_length,
-                    ..
-                } => {
-                    let ct = content_type.as_deref().unwrap_or("-");
-                    let cl = content_length
-                        .map(|n| format!("{n} B"))
-                        .unwrap_or_else(|| "unknown".into());
-                    println!("[res ] headers   [{t}] {status}  {ct}  {cl}  {url}");
-                }
-                ResourceEvent::Progress {
-                    received_bytes,
-                    expected_length,
-                    elapsed,
-                    ..
-                } => {
-                    let kb = received_bytes / 1024;
-                    let total = expected_length
-                        .map(|n| format!("{} KB", n / 1024))
-                        .unwrap_or_else(|| "?".into());
-                    println!("[res ] progress  [{t}] {kb} KB / {total}  ({})", fmt_elapsed(elapsed));
-                }
-                ResourceEvent::Finished {
-                    url,
-                    received_bytes,
-                    elapsed,
-                    ..
-                } => {
-                    let kb = received_bytes as f64 / 1024.0;
-                    let elapsed = elapsed.map(fmt_elapsed).unwrap_or_else(|| "-".into());
-                    println!("[res ] finished  [{t}] {kb:.1} KB  {elapsed}  {url}");
-                }
-                ResourceEvent::Failed { url, error, .. } => {
-                    println!("[res ] FAILED    [{t}] {url}  ({error})");
-                }
-                ResourceEvent::Cancelled { url, reason, .. } => {
-                    println!("[res ] cancelled [{t}] {url}  ({reason:?})");
-                }
+                // The event enums are non_exhaustive; unknown variants are ignored.
+                _ => {}
             }
         }
 

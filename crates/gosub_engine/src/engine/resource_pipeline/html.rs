@@ -213,7 +213,7 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::IoCommand;
+    use crate::engine::events::IoCommand;
     use crate::html::DefaultRenderConfig;
     use crate::net::req_ref_tracker::RequestReference;
     use crate::net::types::{Priority, ResourceKind};
@@ -288,7 +288,6 @@ mod tests {
                         // drop the sender to unblock the pipeline's `rx.await` without crafting a FetchResult
                         drop(reply_tx);
                     }
-                    IoCommand::Decision { .. } => { /* not used here */ }
                     IoCommand::ShutdownZone { reply_tx, .. } => {
                         let _ = reply_tx.send(());
                     }

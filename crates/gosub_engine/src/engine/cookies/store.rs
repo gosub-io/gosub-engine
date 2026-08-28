@@ -33,7 +33,7 @@
 //!     partition_policy: PartitionPolicy::None,
 //!     places: None,
 //! };
-//! let _zone = engine.create_zone(None, services, None)?;
+//! let _zone = engine.zone_builder().services(services).create()?;
 //! # Ok(()) }
 //! ```
 //!
@@ -57,7 +57,7 @@
 //!     partition_policy: PartitionPolicy::None,
 //!     places: None,
 //! };
-//! let _zone = engine.create_zone(None, services, None)?;
+//! let _zone = engine.zone_builder().services(services).create()?;
 //! # Ok(()) }
 //! ```
 //!
@@ -81,7 +81,7 @@
 //!     partition_policy: PartitionPolicy::None,
 //!     places: None,
 //! };
-//! let _zone = engine.create_zone(None, services, None)?;
+//! let _zone = engine.zone_builder().services(services).create()?;
 //! # Ok(()) }
 //! ```
 //!

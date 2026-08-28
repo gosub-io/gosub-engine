@@ -68,7 +68,7 @@ pub fn default_user_agent(product: Option<&str>) -> String {
     }
 }
 
-use crate::engine::types::EventChannel;
+use crate::engine::types::{EventChannel, ResourceChannel};
 use crate::net::emitter::engine_event_emitter::EngineEventEmitter;
 use crate::net::emitter::null_emitter::NullEmitter;
 use crate::net::req_ref_tracker::{RequestRefTracker, RequestReferenceMap, REF_REGISTRY};
@@ -86,6 +86,9 @@ use std::sync::Arc;
 /// engine's rich [`RequestReference`](crate::net::req_ref_tracker::RequestReference) via
 /// [`REF_REGISTRY`] before touching engine state.
 pub struct EngineNetContext {
+    /// Per-resource events go to the resource stream; throttled navigation and download
+    /// progress goes to the control bus.
+    pub resource_tx: ResourceChannel,
     pub event_tx: EventChannel,
     pub request_reference_map: Arc<RwLock<RequestReferenceMap>>,
     pub request_ref_tracker: Arc<RequestRefTracker>,
@@ -116,6 +119,7 @@ impl FetcherContext for EngineNetContext {
                 tab_id,
                 req_id,
                 reference,
+                self.resource_tx.clone(),
                 self.event_tx.clone(),
                 kind,
                 initiator,

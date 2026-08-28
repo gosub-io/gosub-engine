@@ -131,6 +131,79 @@ mod tests {
         }
     }
 
+    mod response_info {
+        use super::super::ResponseInfo;
+        use url::Url;
+
+        fn info(url: &str, headers: &[(&str, &str)]) -> ResponseInfo {
+            ResponseInfo {
+                final_url: Url::parse(url).unwrap(),
+                status: 200,
+                status_text: "OK".into(),
+                headers: headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+                content_length: None,
+                content_type: None,
+                has_body: true,
+            }
+        }
+
+        #[test]
+        fn header_lookup_ignores_case() {
+            let i = info("https://example.org/", &[("Content-Disposition", "attachment")]);
+            assert_eq!(i.header("content-disposition"), Some("attachment"));
+            assert_eq!(i.header("CONTENT-DISPOSITION"), Some("attachment"));
+            assert_eq!(i.header("content-type"), None);
+        }
+
+        #[test]
+        fn attachment_detection_ignores_case() {
+            assert!(info(
+                "https://example.org/",
+                &[("content-disposition", "ATTACHMENT; filename=\"a\"")]
+            )
+            .is_attachment());
+            assert!(!info("https://example.org/", &[("content-disposition", "inline")]).is_attachment());
+            assert!(!info("https://example.org/", &[]).is_attachment());
+        }
+
+        #[test]
+        fn filename_prefers_disposition_then_url_then_fallback() {
+            assert_eq!(
+                info(
+                    "https://example.org/x.bin",
+                    &[("content-disposition", "attachment; filename=\"real.pdf\"")]
+                )
+                .suggested_filename(),
+                "real.pdf"
+            );
+            assert_eq!(info("https://example.org/dir/x.bin", &[]).suggested_filename(), "x.bin");
+            // No usable path segment and no disposition.
+            assert_eq!(info("https://example.org/", &[]).suggested_filename(), "download");
+        }
+
+        #[test]
+        fn filename_is_percent_decoded_from_the_url() {
+            assert_eq!(
+                info("https://example.org/my%20file%20(1).txt", &[]).suggested_filename(),
+                "my file (1).txt"
+            );
+        }
+
+        /// A hostile `Content-Disposition` must not escape the directory the embedder picked.
+        #[test]
+        fn filename_never_carries_path_separators() {
+            for hostile in [
+                "attachment; filename=\"../../etc/passwd\"",
+                "attachment; filename=\"/etc/passwd\"",
+                "attachment; filename=\"..\\\\windows\\\\system32\\\\evil.dll\"",
+            ] {
+                let name = info("https://example.org/x", &[("content-disposition", hostile)]).suggested_filename();
+                assert!(!name.contains('/'), "{hostile} -> {name}");
+                assert!(!name.contains('\\'), "{hostile} -> {name}");
+            }
+        }
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn bodystream_from_bytes_reads_all() {
         let data = Bytes::from_static(b"hello world");
@@ -168,6 +241,101 @@ mod tests {
                 assert_eq!(&b[..], b"DATA");
             }
             _ => panic!("expected buffered"),
+        }
+    }
+}
+
+use cow_utils::CowUtils;
+
+/// What the server said about a response, in the engine's own vocabulary.
+///
+/// Same story as [`ResourceKind`] and [`Initiator`]: the network layer's `FetchResultMeta`
+/// comes from the external gosub-sonar crate, and putting it in a public event would pin the
+/// engine's API to that crate's struct layout. This is the engine-owned shape, built from it
+/// at the event boundary. Headers are a plain list rather than a `HeaderMap`, matching
+/// [`ResourceEvent::Headers`](crate::events::ResourceEvent::Headers).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResponseInfo {
+    /// Final URL, after any redirects.
+    pub final_url: url::Url,
+    /// HTTP status code.
+    pub status: u16,
+    /// HTTP status reason phrase.
+    pub status_text: String,
+    /// Response headers, in the order received. Names are as served; use
+    /// [`header`](Self::header) for case-insensitive lookup.
+    pub headers: Vec<(String, String)>,
+    /// `Content-Length`, when the server gave one.
+    pub content_length: Option<u64>,
+    /// `Content-Type`, without parameters stripped.
+    pub content_type: Option<String>,
+    /// Whether a body follows (a `HEAD` response has none).
+    pub has_body: bool,
+}
+
+impl ResponseInfo {
+    /// Case-insensitive header lookup, returning the first match.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// Whether `Content-Disposition` marks this as an attachment - i.e. the server asked for
+    /// it to be saved rather than displayed.
+    pub fn is_attachment(&self) -> bool {
+        self.header("content-disposition")
+            .is_some_and(|v| v.cow_to_ascii_lowercase().contains("attachment"))
+    }
+
+    /// The filename to offer when saving: `Content-Disposition`'s `filename` when present,
+    /// otherwise the URL's last path segment, otherwise `"download"`. Never a path - any
+    /// directory components are stripped.
+    pub fn suggested_filename(&self) -> String {
+        let from_disposition = self.header("content-disposition").and_then(|v| {
+            v.split(';').find_map(|part| {
+                let part = part.trim();
+                part.strip_prefix("filename=")
+                    .map(|f| f.trim_matches('"').to_string())
+                    .filter(|f| !f.is_empty())
+            })
+        });
+        let name = from_disposition.or_else(|| {
+            self.final_url
+                .path_segments()
+                .and_then(|mut segments| segments.next_back())
+                .filter(|segment| !segment.is_empty())
+                .map(|segment| {
+                    percent_encoding::percent_decode_str(segment)
+                        .decode_utf8_lossy()
+                        .into_owned()
+                })
+        });
+        let name = name.unwrap_or_default();
+        let name = name.rsplit(['/', '\\']).next().unwrap_or("").trim().to_string();
+        if name.is_empty() {
+            "download".to_string()
+        } else {
+            name
+        }
+    }
+}
+
+impl From<&FetchResultMeta> for ResponseInfo {
+    fn from(meta: &FetchResultMeta) -> Self {
+        Self {
+            final_url: meta.final_url.clone(),
+            status: meta.status,
+            status_text: meta.status_text.clone(),
+            headers: meta
+                .headers
+                .iter()
+                .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or_default().to_string()))
+                .collect(),
+            content_length: meta.content_length,
+            content_type: meta.content_type.clone(),
+            has_body: meta.has_body,
         }
     }
 }

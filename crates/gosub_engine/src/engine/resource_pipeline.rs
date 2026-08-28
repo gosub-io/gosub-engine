@@ -31,14 +31,24 @@ pub struct ResourcePipelines<C: RenderConfiguration> {
     pub js: Box<dyn JsPipeline + Send>,
     pub images: Box<dyn ImagePipeline + Send>,
     pub fonts: Box<dyn FontPipeline + Send>,
+    /// `net.download.max_spool_bytes`: cap on a download body spooled before the embedder
+    /// accepts it. 0 = unlimited.
+    pub(crate) max_download_spool_bytes: u64,
     // pub viewer: &'a mut dyn ViewerPipeline,
     // pub download: &'a mut dyn DownloadManager,
     // pub external: &'a mut dyn ExternalOpener,
 }
 
 impl<C: RenderConfiguration> ResourcePipelines<C> {
-    pub fn new(zone_id: ZoneId, io_tx: IoChannel, accept_language: Option<String>, max_document_bytes: usize) -> Self {
+    pub(crate) fn new(
+        zone_id: ZoneId,
+        io_tx: IoChannel,
+        accept_language: Option<String>,
+        max_document_bytes: usize,
+        max_download_spool_bytes: u64,
+    ) -> Self {
         Self {
+            max_download_spool_bytes,
             html: Box::new(HtmlPipelineImpl::new(
                 zone_id,
                 io_tx,

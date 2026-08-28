@@ -7,7 +7,7 @@
 
 use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
-use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
+use gosub_engine::tab::{TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
@@ -477,7 +477,10 @@ fn main() {
                     let _ = proxy_ev.send_event(());
                 }
                 Ok(_) => {}
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    // Dropped events can include TabCrashed, so do not swallow this.
+                    log::warn!("event receiver lagged, {n} engine events dropped");
+                }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
@@ -496,18 +499,15 @@ fn main() {
     };
 
     let mut zone = engine
-        .create_zone(Some(zone_cfg), zone_services, Some(ZoneId::from(DEFAULT_ZONE)))
+        .zone_builder()
+        .config(zone_cfg)
+        .id(ZoneId::from(DEFAULT_ZONE))
+        .services(zone_services)
+        .create()
         .expect("create_zone");
 
     let tab = TOKIO_RT
-        .block_on(zone.create_tab(
-            TabDefaults {
-                url: None,
-                title: Some("Gosub".to_string()),
-                viewport: None,
-            },
-            None,
-        ))
+        .block_on(zone.tab_builder().title("Gosub").create())
         .expect("create_tab");
 
     let tab_id = tab.tab_id;

@@ -8,7 +8,7 @@
 
 use gosub_engine::events::{EngineEvent, MouseButton, NavigationEvent, TabCommand};
 use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
-use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
+use gosub_engine::tab::{TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine::DefaultRenderConfig;
 use gosub_engine::GosubEngine;
@@ -429,27 +429,6 @@ fn blit_handle_to_buffer(
                 },
             );
         }
-        ExternalHandle::CpuPixelsPtr {
-            width,
-            height,
-            stride,
-            pixel_buf,
-        } => {
-            let pixels = unsafe { std::slice::from_raw_parts(pixel_buf.as_ptr(), height as usize * stride as usize) };
-            let copy_rows = height.min(content_h) as usize;
-            for row in 0..copy_rows {
-                for col in 0..(width as usize).min(win_w as usize) {
-                    let src_off = row * stride as usize + col * 4;
-                    let b = pixels[src_off] as u32;
-                    let g = pixels[src_off + 1] as u32;
-                    let r = pixels[src_off + 2] as u32;
-                    let dst_idx = (addr_h as usize + row) * win_w as usize + col;
-                    if dst_idx < buf.len() {
-                        buf[dst_idx] = (r << 16) | (g << 8) | b;
-                    }
-                }
-            }
-        }
         _ => {}
     }
 }
@@ -577,7 +556,10 @@ fn main() {
                     let _ = proxy_ev.send_event(());
                 }
                 Ok(_) => {}
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    // Dropped events can include TabCrashed, so do not swallow this.
+                    log::warn!("event receiver lagged, {n} engine events dropped");
+                }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
@@ -596,18 +578,15 @@ fn main() {
     };
 
     let mut zone = engine
-        .create_zone(Some(zone_cfg), zone_services, Some(ZoneId::from(DEFAULT_ZONE)))
+        .zone_builder()
+        .config(zone_cfg)
+        .id(ZoneId::from(DEFAULT_ZONE))
+        .services(zone_services)
+        .create()
         .expect("create_zone");
 
     let tab = TOKIO_RT
-        .block_on(zone.create_tab(
-            TabDefaults {
-                url: None,
-                title: Some("Gosub".to_string()),
-                viewport: None,
-            },
-            None,
-        ))
+        .block_on(zone.tab_builder().title("Gosub").create())
         .expect("create_tab");
 
     let tab_id = tab.tab_id;

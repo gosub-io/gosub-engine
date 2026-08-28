@@ -2,13 +2,13 @@
 //! [`EngineCommand`]/[`EngineEvent`] bus.
 
 use crate::cookies::CookieStoreHandle;
-use crate::engine::events::{EngineCommand, EngineEvent};
+use crate::engine::events::{EngineCommand, EngineEvent, ResourceUpdate};
 use crate::engine::internal_pages::InternalPages;
-use crate::engine::types::{EventChannel, IoChannel};
-use crate::engine::DEFAULT_CHANNEL_CAPACITY;
+use crate::engine::types::{EventChannel, IoChannel, ResourceChannel};
+use crate::engine::{DEFAULT_CHANNEL_CAPACITY, RESOURCE_CHANNEL_CAPACITY};
 use crate::html::RenderConfiguration;
 use crate::net::req_ref_tracker::RequestReferenceMap;
-use crate::net::{fetcher_config_from, spawn_io_thread, IoHandle};
+use crate::net::{spawn_io_thread, IoHandle};
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineConfig, EngineError};
 use anyhow::Result;
@@ -54,8 +54,10 @@ pub struct GosubEngine<C: RenderConfiguration = crate::html::DefaultRenderConfig
 // network I/O runtime can share this context without being generic.
 #[derive(Clone)]
 pub struct EngineContext {
-    /// Event sender
+    /// Event sender for the low-volume control bus.
     pub event_tx: EventChannel,
+    /// Event sender for the high-volume resource stream.
+    pub resource_tx: ResourceChannel,
     /// Global engine configuration
     pub config: Arc<EngineConfig>,
     /// Per-engine settings store (key/value config with persistence and change subscriptions).
@@ -65,7 +67,7 @@ pub struct EngineContext {
     /// zone at creation. A `OnceLock` rather than `Arc<RwLock<Option<..>>>`: it is set exactly once
     /// and never swapped, and `EngineContext` is already shared behind an `Arc`, so no inner lock
     /// or `Arc` is needed. Reading before `start()` yields `None` (`EngineError::IoNotStarted`).
-    pub io_tx: OnceLock<IoChannel>,
+    pub(crate) io_tx: OnceLock<IoChannel>,
     /// Map for requests to tabs
     pub request_reference_map: Arc<RwLock<RequestReferenceMap>>,
     /// `gosub://` page registry (built-ins + embedder overrides), shared with every tab.
@@ -76,6 +78,7 @@ impl Default for EngineContext {
     fn default() -> Self {
         Self {
             event_tx: broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY).0,
+            resource_tx: broadcast::channel::<ResourceUpdate>(RESOURCE_CHANNEL_CAPACITY).0,
             config: Arc::new(EngineConfig::default()),
             config_store: crate::engine::settings_store::default_config(),
             io_tx: OnceLock::new(),
@@ -109,12 +112,14 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Command channel on which to send and receive engine commands from the UA.
         let (cmd_tx, cmd_rx) = mpsc::channel::<EngineCommand>(DEFAULT_CHANNEL_CAPACITY);
 
-        // Broadcast event bus. Subscribe to receive engine events (including zone and tab events)
+        // Separate buses so per-chunk resource progress cannot evict control events.
         let (event_tx, _first_rx) = broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY);
+        let (resource_tx, _first_res_rx) = broadcast::channel::<ResourceUpdate>(RESOURCE_CHANNEL_CAPACITY);
 
         Self {
             context: Arc::new(EngineContext {
                 event_tx: event_tx.clone(),
+                resource_tx,
                 config: Arc::new(resolved_config),
                 config_store: crate::engine::settings_store::default_config(),
                 io_tx: OnceLock::new(),
@@ -145,9 +150,7 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             return Err(EngineError::AlreadyRunning);
         }
 
-        // Start I/O thread, building the fetcher config from the settings store.
-        let io_cfg = fetcher_config_from(&self.context.config_store);
-        let io_handle = spawn_io_thread(io_cfg, self.context.clone());
+        let io_handle = spawn_io_thread(self.context.clone());
         // Set once; `start()` already refuses to run twice, so this never races or overwrites.
         let _ = self.context.io_tx.set(io_handle.subscribe());
         self.io_handle = Some(io_handle);
@@ -163,19 +166,40 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     }
 
     /// Return a receiver for engine events.
+    ///
+    /// The control bus: navigation, tab and zone lifecycle, downloads, input feedback,
+    /// crashes. Per-resource detail is on its own stream - see
+    /// [`subscribe_resource_events`](Self::subscribe_resource_events).
+    ///
+    /// Bounded: a receiver that falls behind gets
+    /// [`RecvError::Lagged`](broadcast::error::RecvError::Lagged) and loses the oldest
+    /// events, which can include [`TabCrashed`](EngineEvent::TabCrashed). Keep the receive
+    /// loop short.
     pub fn subscribe_events(&self) -> broadcast::Receiver<EngineEvent> {
         self.context.event_tx.subscribe()
     }
 
+    /// Return a receiver for the per-resource stream: one [`ResourceUpdate`] per fetch
+    /// lifecycle step, including a `Progress` per chunk of every subresource.
+    ///
+    /// Separate from [`subscribe_events`](Self::subscribe_events) because these arrive at
+    /// network rate and would otherwise evict control events from a bounded buffer. Opt-in:
+    /// a shell that shows no per-resource detail never subscribes.
+    pub fn subscribe_resource_events(&self) -> broadcast::Receiver<ResourceUpdate> {
+        self.context.resource_tx.subscribe()
+    }
+
     /// The `gosub://` page registry. Register a provider to add an internal page or override
-    /// a built-in one (e.g. a branded `home`); see [`InternalPages`].
+    /// a built-in one (e.g. a branded `home`); see [`InternalPages`]. Registration works at
+    /// any time - pages are resolved when navigated to.
     pub fn internal_pages(&self) -> &InternalPages {
         &self.context.internal_pages
     }
 
     /// The engine's settings store, for reading or overriding settings (e.g.
-    /// `net.user_agent`). Network settings are read once when [`start`](Self::start)
-    /// builds the I/O runtime, so overrides must land before then.
+    /// `net.user_agent`). Usable before or after [`start`](Self::start). `net.*` settings
+    /// are read when a zone makes its first request, so an override applies to zones that
+    /// start fetching after it; zones already fetching keep the values they were built with.
     pub fn settings(&self) -> &Config {
         &self.context.config_store
     }
@@ -274,7 +298,25 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// The returned handle contains the [`ZoneId`] and a clone of the engine’s
     /// command sender, allowing the caller to send zone commands without holding
     /// a reference to the engine.
-    pub fn create_zone(
+    /// Start building a zone. Everything is optional: the default is an ephemeral profile
+    /// with the engine's default [`ZoneConfig`] and a fresh id.
+    ///
+    /// ```rust,no_run
+    /// # use gosub_engine::GosubEngine;
+    /// # fn f(engine: &mut GosubEngine) -> Result<(), gosub_engine::EngineError> {
+    /// let zone = engine.zone_builder().create()?;
+    /// # Ok(()) }
+    /// ```
+    pub fn zone_builder(&mut self) -> ZoneBuilder<'_, C> {
+        ZoneBuilder {
+            engine: self,
+            config: None,
+            id: None,
+            services: ZoneServices::default(),
+        }
+    }
+
+    pub(crate) fn create_zone(
         &mut self,
         config: Option<ZoneConfig>,
         services: ZoneServices,
@@ -312,10 +354,9 @@ impl<C: RenderConfiguration> GosubEngine<C> {
             self.cookie_stores.insert(zone_id, store);
         }
 
-        self.context
-            .event_tx
-            .send(EngineEvent::ZoneCreated { zone_id })
-            .map_err(|e| EngineError::Internal(e.into()))?;
+        // A broadcast send only fails when nobody is subscribed, which is not an error:
+        // a headless embedder may never listen for events at all.
+        let _ = self.context.event_tx.send(EngineEvent::ZoneCreated { zone_id });
 
         Ok(zone)
     }
@@ -354,6 +395,72 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     }
 }
 
+/// Builds a [`Zone`]; obtained from [`GosubEngine::zone_builder`].
+///
+/// Starts from [`ZoneServices::default`] (ephemeral, in-memory). Either replace the whole
+/// services struct with [`services`](Self::services), or adjust one piece at a time.
+pub struct ZoneBuilder<'a, C: RenderConfiguration> {
+    engine: &'a mut GosubEngine<C>,
+    config: Option<ZoneConfig>,
+    id: Option<ZoneId>,
+    services: ZoneServices,
+}
+
+impl<C: RenderConfiguration> ZoneBuilder<'_, C> {
+    /// Limits and settings for the zone. Defaults to the engine's `default_zone_config`.
+    pub fn config(mut self, config: ZoneConfig) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    /// A fixed id, to restore a persisted profile across runs. Defaults to a fresh UUID.
+    pub fn id(mut self, id: ZoneId) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    /// Replace the whole services struct.
+    pub fn services(mut self, services: ZoneServices) -> Self {
+        self.services = services;
+        self
+    }
+
+    /// Local and session storage.
+    pub fn storage(mut self, storage: Arc<crate::storage::StorageService>) -> Self {
+        self.services.storage = storage;
+        self
+    }
+
+    /// The cookie jar. `None` means the zone sends and stores no cookies.
+    pub fn cookie_jar(mut self, jar: Option<crate::cookies::CookieJarHandle>) -> Self {
+        self.services.cookie_jar = jar;
+        self
+    }
+
+    /// A persistent cookie store, for cookies that survive the process.
+    pub fn cookie_store(mut self, store: Option<CookieStoreHandle>) -> Self {
+        self.services.cookie_store = store;
+        self
+    }
+
+    /// How storage is keyed (e.g. per top-level origin).
+    pub fn partition_policy(mut self, policy: crate::storage::PartitionPolicy) -> Self {
+        self.services.partition_policy = policy;
+        self
+    }
+
+    /// Bookmarks and visited history. `None` records nothing, as a private profile would.
+    pub fn places(mut self, places: Option<crate::places::PlacesHandle>) -> Self {
+        self.services.places = places;
+        self
+    }
+
+    /// Create the zone. Fails with [`EngineError::ZoneLimitExceeded`] past `max_zones`.
+    pub fn create(self) -> Result<Zone<C>, EngineError> {
+        self.engine.create_zone(self.config, self.services, self.id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,6 +479,511 @@ mod tests {
             partition_policy: PartitionPolicy::None,
             places: None,
         }
+    }
+
+    /// A shared bus would drop the oldest event - possibly `TabCrashed` - once more than
+    /// `DEFAULT_CHANNEL_CAPACITY` piled up behind a busy shell.
+    #[tokio::test(flavor = "current_thread")]
+    async fn resource_flood_does_not_evict_control_events() {
+        use crate::engine::events::{ResourceEvent, ResourceUpdate};
+        use crate::net::req_ref_tracker::RequestReference;
+
+        let engine = engine_with_max_zones(1);
+        let mut control = engine.subscribe_events();
+
+        // A control event, then more resource traffic than the control bus could hold.
+        let tab_id = crate::tab::TabId::new();
+        let zone_id = ZoneId::new();
+        let _ = engine.context.event_tx.send(EngineEvent::TabCrashed {
+            tab_id,
+            zone_id,
+            error: "boom".into(),
+        });
+        for i in 0..(DEFAULT_CHANNEL_CAPACITY * 4) {
+            let _ = engine.context.resource_tx.send(ResourceUpdate {
+                tab_id,
+                event: ResourceEvent::Progress {
+                    request_id: crate::engine::types::RequestId::new(),
+                    reference: RequestReference::Navigation(crate::engine::types::NavigationId::new()),
+                    received_bytes: i as u64,
+                    expected_length: None,
+                    elapsed: Duration::from_millis(1),
+                },
+            });
+        }
+
+        match control.try_recv() {
+            Ok(EngineEvent::TabCrashed { error, .. }) => assert_eq!(error, "boom"),
+            other => panic!("control event was evicted by resource traffic: {other:?}"),
+        }
+    }
+
+    /// A failing navigation must reach the embedder classified, not as a string it has to
+    /// parse. Port 9 (discard) refuses connections, so this is a transport failure.
+    #[tokio::test(flavor = "current_thread")]
+    async fn failed_navigation_reports_a_typed_error() {
+        use crate::events::NavigationEvent;
+        use crate::LoadError;
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        tab.navigate("http://127.0.0.1:9/nope").await.expect("navigate");
+
+        let error = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => return error,
+                    Ok(_) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for NavigationEvent::Failed");
+
+        assert!(
+            matches!(error, LoadError::Network { .. }),
+            "a refused connection should classify as Network, got {error:?}"
+        );
+        // And it still prints something a shell can show.
+        assert!(!error.to_string().is_empty());
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// An unparseable URL is a different kind of failure from a transport one.
+    #[tokio::test(flavor = "current_thread")]
+    async fn unparseable_url_reports_invalid_url() {
+        use crate::events::NavigationEvent;
+        use crate::LoadError;
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        tab.navigate("not a url at all").await.expect("navigate");
+
+        let error = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::FailedUrl { error, .. },
+                        ..
+                    }) => return error,
+                    Ok(_) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for NavigationEvent::FailedUrl");
+
+        assert!(
+            matches!(error, LoadError::InvalidUrl { .. }),
+            "expected InvalidUrl, got {error:?}"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn zone_tab_looks_up_a_live_handle_by_id() {
+        let mut engine = engine_with_max_zones(1);
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let created = zone.tab_builder().create().await.expect("tab");
+
+        let looked_up = zone.tab(created.tab_id).expect("tab exists");
+        assert_eq!(looked_up.tab_id, created.tab_id);
+        // Same sink, so state read through either handle agrees.
+        looked_up.set_title("via lookup").await.expect("send");
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while created.title() != "via lookup" {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("title should propagate");
+
+        assert!(zone.tab(crate::tab::TabId::new()).is_none(), "unknown id yields None");
+        assert!(zone.close_tab(created.tab_id).await);
+        assert!(zone.tab(created.tab_id).is_none(), "closed tab is gone");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A page served as an attachment is offered as a download; `RenderDownload` overrides
+    /// that and loads the already-spooled body as the page. No second request is made.
+    #[tokio::test(flavor = "current_thread")]
+    async fn render_download_loads_a_misclassified_page() {
+        use crate::events::NavigationEvent;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let hits_srv = hits.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let hits_srv = hits_srv.clone();
+                tokio::spawn(async move {
+                    hits_srv.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let body = "<html><head><title>Actually a page</title></head><body>hi</body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                         Content-Disposition: attachment; filename=\"page.bin\"\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+
+        tab.navigate(format!("http://127.0.0.1:{port}/page"))
+            .await
+            .expect("navigate");
+        let (offered_url, offer) = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { url, offer, .. }) => return (url, offer),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for DownloadRequested");
+        let served = hits.load(std::sync::atomic::Ordering::SeqCst);
+        // The offer is readable off the handle - the recovery path for a lagged receiver.
+        assert_eq!(
+            tab.pending_downloads().iter().map(|p| p.offer).collect::<Vec<_>>(),
+            vec![offer]
+        );
+
+        tab.render_download(offer).await.expect("render");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. },
+                        ..
+                    }) => return,
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => panic!("render failed: {error}"),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the rendered page");
+
+        assert_eq!(tab.title(), "Actually a page");
+        assert!(tab.pending_downloads().is_empty(), "rendering consumes the offer");
+        assert_eq!(tab.url().map(|u| u.to_string()), Some(offered_url.to_string()));
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            served,
+            "must not re-fetch"
+        );
+
+        // The offer is consumed: a second override has nothing to render.
+        tab.render_download(offer).await.expect("send");
+        let error = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Failed { error, .. },
+                    ..
+                }) = events.recv().await
+                {
+                    return error;
+                }
+            }
+        })
+        .await
+        .expect("expected a Failed for a consumed offer");
+        assert!(matches!(error, crate::LoadError::Content { .. }), "got {error:?}");
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// `net.*` settings are read when a zone first fetches, so an override made after
+    /// `start()` must reach the wire for a zone created afterwards.
+    #[tokio::test(flavor = "current_thread")]
+    async fn user_agent_set_after_start_is_used_by_new_zones() {
+        use crate::events::NavigationEvent;
+        use crate::Setting;
+        use cow_utils::CowUtils;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let seen = std::sync::Arc::new(parking_lot::Mutex::new(String::new()));
+        let seen_srv = seen.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let seen_srv = seen_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    *seen_srv.lock() = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    let body = "<html><body>ok</body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+
+        // After start, before any zone exists.
+        engine
+            .settings()
+            .set("net.user_agent", Setting::String("GosubTest/9.0".into()))
+            .expect("set user agent");
+
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/"))
+            .await
+            .expect("navigate");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Finished { .. } | NavigationEvent::Failed { .. },
+                        ..
+                    }) => return,
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for navigation");
+
+        let request = seen.lock().clone();
+        assert!(
+            request.cow_to_ascii_lowercase().contains("user-agent: gosubtest/9.0"),
+            "override did not reach the wire; request was:\n{request}"
+        );
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// The builder with nothing set must yield a working zone: an embedder's first program
+    /// should not need to know what `ZoneServices` is.
+    #[tokio::test(flavor = "current_thread")]
+    async fn zone_builder_defaults_produce_a_usable_zone() {
+        use crate::events::{NavigationEvent, TabCommand};
+
+        let mut engine = engine_with_max_zones(2);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+
+        let mut zone = engine.zone_builder().create().expect("default zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.send(TabCommand::LoadHtml {
+            html: "<html><head><title>Default</title></head><body></body></html>".into(),
+            base_url: "https://example.test/".into(),
+        })
+        .await
+        .expect("load");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. },
+                    ..
+                }) = events.recv().await
+                {
+                    return;
+                }
+            }
+        })
+        .await
+        .expect("navigation should finish");
+        assert_eq!(tab.title(), "Default");
+
+        // A fixed id is honoured; a per-field override replaces just that field.
+        let wanted = ZoneId::new();
+        let custom = engine
+            .zone_builder()
+            .id(wanted)
+            .cookie_jar(None)
+            .create()
+            .expect("custom zone");
+        assert_eq!(custom.id, wanted);
+
+        engine.close_zone(custom).await;
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A per-tab `Accept-Language` set through the builder must reach the wire.
+    #[tokio::test(flavor = "current_thread")]
+    async fn tab_builder_accept_language_reaches_the_wire() {
+        use crate::events::NavigationEvent;
+        use cow_utils::CowUtils;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let seen = std::sync::Arc::new(parking_lot::Mutex::new(String::new()));
+        let seen_srv = seen.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let seen_srv = seen_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    *seen_srv.lock() = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    let body = "<html><body>ok</body></html>";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(body.as_bytes()).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        let mut zone = engine.zone_builder().create().expect("zone");
+        let tab = zone
+            .tab_builder()
+            .accept_language("xx-TEST,xx;q=0.5")
+            .url(format!("http://127.0.0.1:{port}/"))
+            .create()
+            .await
+            .expect("tab");
+
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Ok(EngineEvent::Navigation {
+                    event: NavigationEvent::Finished { .. } | NavigationEvent::Failed { .. },
+                    ..
+                }) = events.recv().await
+                {
+                    return;
+                }
+            }
+        })
+        .await
+        .expect("navigation should complete");
+
+        let request = seen.lock().clone();
+        assert!(
+            request
+                .cow_to_ascii_lowercase()
+                .contains("accept-language: xx-test,xx;q=0.5"),
+            "per-tab Accept-Language missing; request was:\n{request}"
+        );
+        let _ = tab;
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
+    }
+
+    /// A download body is spooled before the embedder answers, so it is capped: past
+    /// `net.download.max_spool_bytes` the navigation fails instead of filling the temp dir.
+    #[tokio::test(flavor = "current_thread")]
+    async fn oversized_download_fails_instead_of_spooling() {
+        use crate::events::NavigationEvent;
+        use crate::Setting;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let payload: Vec<u8> = vec![7u8; 64 * 1024];
+        let payload_srv = payload.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let payload = payload_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                         Content-Disposition: attachment; filename=\"big.bin\"\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n",
+                        payload.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(&payload).await;
+                });
+            }
+        });
+
+        let mut engine = engine_with_max_zones(1);
+        let mut events = engine.subscribe_events();
+        let _join = tokio::spawn(engine.start().expect("start"));
+        engine
+            .settings()
+            .set("net.download.max_spool_bytes", Setting::UInt(1024))
+            .expect("set cap");
+        let mut zone = engine.zone_builder().create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
+        tab.navigate(format!("http://127.0.0.1:{port}/big.bin"))
+            .await
+            .expect("navigate");
+
+        let outcome = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::DownloadRequested { .. }) => return Err("offer was made past the cap"),
+                    Ok(EngineEvent::Navigation {
+                        event: NavigationEvent::Failed { error, .. },
+                        ..
+                    }) => return Ok(error),
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out");
+        let error = outcome.expect("navigation should fail, not offer");
+        assert!(error.to_string().contains("max_spool_bytes"), "got {error}");
+        assert!(tab.pending_downloads().is_empty());
+
+        engine.close_zone(zone).await;
+        engine.shutdown().await.expect("shutdown");
     }
 
     fn engine_with_max_zones(max_zones: usize) -> GosubEngine {
@@ -395,10 +1007,10 @@ mod tests {
 
         let mut zone_services = services();
         zone_services.cookie_store = Some(store.clone());
-        let mut zone = engine.create_zone(None, zone_services, None).expect("zone");
+        let mut zone = engine.zone_builder().services(zone_services).create().expect("zone");
 
         // Tab creation resolves the persistent per-zone jar from the store.
-        let _tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let _tab = zone.tab_builder().create().await.expect("tab");
 
         // Store a cookie through the zone's (memoized) persistent jar.
         let jar = store.jar_for(zone.id).expect("persistent jar");
@@ -448,8 +1060,13 @@ mod tests {
             .accept_languages("fr-CH, fr;q=0.9")
             .build()
             .unwrap();
-        let mut zone = engine.create_zone(Some(zone_cfg), services(), None).expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let mut zone = engine
+            .zone_builder()
+            .config(zone_cfg)
+            .services(services())
+            .create()
+            .expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
         tab.navigate(format!("http://127.0.0.1:{port}/"))
             .await
             .expect("navigate");
@@ -491,12 +1108,18 @@ mod tests {
         let payload: Vec<u8> = (0..700 * 1024).map(|i| (i % 251) as u8).collect();
         let payload_srv = payload.clone();
 
+        // Lets the test prove that accepting an offer does not re-request the URL.
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let hits_srv = hits.clone();
+
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {
             while let Ok((mut stream, _)) = listener.accept().await {
                 let payload = payload_srv.clone();
+                let hits_srv = hits_srv.clone();
                 tokio::spawn(async move {
+                    hits_srv.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     let mut buf = vec![0u8; 4096];
                     let _ = stream.read(&mut buf).await;
                     let head = format!(
@@ -514,8 +1137,8 @@ mod tests {
         let mut engine = engine_with_max_zones(1);
         let mut event_rx = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
-        let mut zone = engine.create_zone(None, services(), None).expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
 
         // Navigating to the binary produces an offer, not an error page.
         tab.navigate(format!("http://127.0.0.1:{port}/data/raw.bin"))
@@ -534,8 +1157,9 @@ mod tests {
                         url,
                         suggested_filename,
                         total_bytes,
+                        offer,
                         ..
-                    }) => return (url, suggested_filename, total_bytes, nav_progress),
+                    }) => return (url, suggested_filename, total_bytes, nav_progress, offer),
                     Ok(_) => continue,
                     Err(e) => panic!("event stream closed: {e}"),
                 }
@@ -548,34 +1172,24 @@ mod tests {
         assert_eq!(offer.2, Some(payload.len() as u64));
 
         // Accept the offer into a temp dir.
+        let served_before_accept = hits.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(tab.pending_downloads().len(), 1, "the offer is listed while pending");
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("saved.bin");
         tab.send(TabCommand::StartDownload {
             id: DownloadId(7),
             url: offer.0.to_string(),
             target_path: target.clone(),
+            offer: Some(offer.4),
         })
         .await
         .expect("start download");
 
-        let (progress_seen, partial_seen, received) = tokio::time::timeout(Duration::from_secs(10), async {
+        let (_progress_seen, received) = tokio::time::timeout(Duration::from_secs(10), async {
             let mut progress_seen = false;
-            let mut partial_seen = false;
             loop {
                 match event_rx.recv().await {
-                    Ok(EngineEvent::DownloadProgress {
-                        id: DownloadId(7),
-                        received_bytes,
-                        total_bytes,
-                        ..
-                    }) => {
-                        progress_seen = true;
-                        // Granular progress: at least one event mid-transfer, not only the
-                        // final full-size report.
-                        if total_bytes.is_some_and(|t| received_bytes < t) {
-                            partial_seen = true;
-                        }
-                    }
+                    Ok(EngineEvent::DownloadProgress { id: DownloadId(7), .. }) => progress_seen = true,
                     Ok(EngineEvent::DownloadFinished {
                         id: DownloadId(7),
                         received_bytes,
@@ -583,7 +1197,7 @@ mod tests {
                         ..
                     }) => {
                         assert_eq!(path, target);
-                        return (progress_seen, partial_seen, received_bytes);
+                        return (progress_seen, received_bytes);
                     }
                     Ok(EngineEvent::DownloadFailed { error, .. }) => panic!("download failed: {error}"),
                     Ok(_) => continue,
@@ -593,19 +1207,59 @@ mod tests {
         })
         .await
         .expect("timed out waiting for DownloadFinished");
-        assert!(progress_seen, "expected at least one progress event");
-        assert!(
-            partial_seen,
-            "expected granular mid-transfer progress, not only the final report"
-        );
         assert_eq!(received, payload.len() as u64);
         assert_eq!(std::fs::read(&target).unwrap(), payload, "file content must match");
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            served_before_accept,
+            "accepting a download offer must not re-fetch the URL"
+        );
+
+        // Save-link-as has no spooled body, so that path still fetches - and still reports
+        // progress while it streams.
+        assert!(tab.pending_downloads().is_empty(), "accepting consumes the offer");
+        let direct = dir.path().join("direct.bin");
+        tab.send(TabCommand::StartDownload {
+            id: DownloadId(9),
+            url: format!("http://127.0.0.1:{port}/data/other.bin"),
+            target_path: direct.clone(),
+            offer: None,
+        })
+        .await
+        .expect("start save-link-as");
+        let direct_progress = tokio::time::timeout(Duration::from_secs(10), async {
+            let mut progress_seen = false;
+            loop {
+                match event_rx.recv().await {
+                    Ok(EngineEvent::DownloadProgress { id: DownloadId(9), .. }) => progress_seen = true,
+                    Ok(EngineEvent::DownloadFinished { id: DownloadId(9), .. }) => return progress_seen,
+                    Ok(EngineEvent::DownloadFailed {
+                        id: DownloadId(9),
+                        error,
+                        ..
+                    }) => {
+                        panic!("save-link-as failed: {error}")
+                    }
+                    Ok(_) => continue,
+                    Err(e) => panic!("event stream closed: {e}"),
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for save-link-as to finish");
+        assert!(direct_progress, "a fetched download still reports progress");
+        assert_eq!(std::fs::read(&direct).unwrap(), payload);
+        assert!(
+            hits.load(std::sync::atomic::Ordering::SeqCst) > served_before_accept,
+            "save-link-as must actually fetch"
+        );
 
         // The failed-fetch path reports too (connection refused port).
         tab.send(TabCommand::StartDownload {
             id: DownloadId(8),
             url: "http://127.0.0.1:9/off".into(),
             target_path: dir.path().join("nope.bin"),
+            offer: None,
         })
         .await
         .expect("start failing download");
@@ -650,8 +1304,8 @@ mod tests {
         let _join = tokio::spawn(engine.start().expect("start"));
         let mut zone_services = services();
         zone_services.places = Some(places.clone());
-        let mut zone = engine.create_zone(None, zone_services, None).expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let mut zone = engine.zone_builder().services(zone_services).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
 
         let url = format!("http://127.0.0.1:{port}/page");
         tab.navigate(url.clone()).await.expect("navigate");
@@ -699,8 +1353,8 @@ mod tests {
         let mut engine = engine_with_max_zones(1);
         let mut event_rx = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
-        let mut zone = engine.create_zone(None, services(), None).expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
         let tab_id = tab.tab_id;
 
         tab.send(TabCommand::CrashForTest).await.expect("send crash command");
@@ -761,8 +1415,8 @@ mod tests {
         let mut engine = engine_with_max_zones(1);
         let mut event_rx = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
-        let mut zone = engine.create_zone(None, services(), None).expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
         tab.send(TabCommand::SetViewport {
             x: 0,
             y: 0,
@@ -893,8 +1547,8 @@ mod tests {
         let mut engine = engine_with_max_zones(1);
         let mut event_rx = engine.subscribe_events();
         let _join = tokio::spawn(engine.start().expect("start"));
-        let mut zone = engine.create_zone(None, services(), None).expect("zone");
-        let tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let mut zone = engine.zone_builder().services(services()).create().expect("zone");
+        let tab = zone.tab_builder().create().await.expect("tab");
 
         // Collect HistoryChanged snapshots until `pred` holds (or time out).
         async fn next_history(
@@ -1056,9 +1710,9 @@ mod tests {
 
         let mut zone_services = services();
         zone_services.cookie_store = Some(store.clone());
-        let mut zone = engine.create_zone(None, zone_services, None).expect("zone");
+        let mut zone = engine.zone_builder().services(zone_services).create().expect("zone");
         let zone_id = zone.id;
-        let _tab = zone.create_tab(Default::default(), None).await.expect("tab");
+        let _tab = zone.tab_builder().create().await.expect("tab");
 
         // Store a cookie through the zone's persistent jar.
         let jar = store.jar_for(zone_id).expect("persistent jar");
@@ -1069,7 +1723,7 @@ mod tests {
 
         // The single max_zones slot is taken.
         assert!(matches!(
-            engine.create_zone(None, services(), None),
+            engine.zone_builder().services(services()).create(),
             Err(EngineError::ZoneLimitExceeded)
         ));
 
@@ -1086,7 +1740,9 @@ mod tests {
 
         // The slot is free again.
         let zone2 = engine
-            .create_zone(None, services(), None)
+            .zone_builder()
+            .services(services())
+            .create()
             .expect("slot freed after close");
 
         // The closed zone's cookies survived on disk (release, not remove).
@@ -1103,15 +1759,17 @@ mod tests {
     #[tokio::test]
     async fn create_zone_enforces_max_zones() {
         let mut engine = engine_with_max_zones(1);
-        // Keep a receiver alive: create_zone emits ZoneCreated on the broadcast bus.
-        let _event_rx = engine.subscribe_events();
         // Zones need the I/O runtime.
         let _join = tokio::spawn(engine.start().expect("start"));
 
         // `None` config also exercises the default_zone_config fallback.
-        engine.create_zone(None, services(), None).expect("first zone fits");
+        engine
+            .zone_builder()
+            .services(services())
+            .create()
+            .expect("first zone fits");
 
-        let err = engine.create_zone(None, services(), None).unwrap_err();
+        let err = engine.zone_builder().services(services()).create().unwrap_err();
         assert!(matches!(err, EngineError::ZoneLimitExceeded));
 
         engine.shutdown().await.expect("shutdown");

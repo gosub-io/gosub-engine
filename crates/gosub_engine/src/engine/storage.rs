@@ -69,7 +69,7 @@
 //!     places: None,
 //! };
 //!
-//! let _zone = engine_handle.create_zone(None, services, None)?;
+//! let _zone = engine_handle.zone_builder().services(services).create()?;
 //! # Ok(()) }
 //! ```
 //!

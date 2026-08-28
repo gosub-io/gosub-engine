@@ -2,6 +2,8 @@
 
 This tutorial walks you through the core lifecycle of the Gosub engine. By the end you will have a working program that starts the engine, opens a tab, navigates to a URL, and reacts to events - the same pattern used by every embedding that builds on Gosub.
 
+For the surface itself rather than a walkthrough --- the full command and event vocabularies, the frame and scroll contracts, and the ordering rules --- see [embedder-api.md](embedder-api.md).
+
 The companion runnable example lives at [`examples/tutorial.rs`](../examples/tutorial.rs). Run it directly with:
 
 ``` bash
@@ -30,9 +32,9 @@ A **Tab** is a single browsing context, like a browser tab. Every tab lives insi
 
 The engine is **event-driven**. It communicates with your application by emitting `EngineEvent` values over a channel. Your application receives these events and reacts - rendering a frame, updating a progress bar, following a redirect. You never poll the engine directly; you wait for events.
 
-### DecisionRequired
+### Downloads
 
-Most responses are obviously renderable (an HTML page) and the engine just renders them. When a response is *not* obviously a page - the content-type is unknown, or a `Content-Disposition: attachment` header says it is a download - the engine can't decide on its own (it doesn't know your UI), so it pauses that navigation and emits a `NavigationEvent::DecisionRequired` event. Your application replies with `TabCommand::SubmitDecision` carrying either `Action::Render` or `Action::Download`. Only that navigation waits for the reply; ordinary page loads never raise the event. A UA that doesn't handle it still browses normal pages fine, but navigations to downloads will hang.
+Most responses are obviously renderable (an HTML page) and the engine just renders them. When a response is *not* obviously a page - the content-type is unknown, or a `Content-Disposition: attachment` header says it is a download - the engine decides on its own: it cancels the navigation so the current page stays put, and emits an `EngineEvent::DownloadRequested` carrying a suggested filename and content type. That event is an *offer*: reply with `TabCommand::StartDownload` to save it, `TabCommand::RenderDownload` to render it as a page anyway, or ignore it entirely. Nothing stalls if you do nothing, so a UA that doesn't handle the event still browses normal pages fine - it just never saves a file.
 
 ------------------------------------------------------------------------
 
@@ -83,44 +85,34 @@ let mut events = engine.subscribe_events();
 ### 3. Create a zone
 
 ``` rust
-use gosub_engine::cookies::DefaultCookieJar;
-use gosub_engine::storage::{
-    InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService,
-};
-use gosub_engine::zone::ZoneServices;
-
-let services = ZoneServices {
-    storage: Arc::new(StorageService::new(
-        Arc::new(InMemoryLocalStore::new()),
-        Arc::new(InMemorySessionStore::new()),
-    )),
-    cookie_store: None,
-    cookie_jar: Some(DefaultCookieJar::new().into()),
-    partition_policy: PartitionPolicy::None,
-    places: None, // no bookmarks / visited-history store
-};
-
-let mut zone = engine.create_zone(None, services, None)?;
+let mut zone = engine.zone_builder().create()?;
 ```
 
-`InMemoryLocalStore` and `InMemorySessionStore` give you ephemeral storage that disappears when the zone is dropped. For persistent cookies, pass a `CookieStore` in `ZoneServices::cookie_store` and set `cookie_jar` to `None`. The first argument to `create_zone` is an optional `ZoneConfig` (built with `ZoneConfig::builder()`) for per-profile settings such as `do_not_track` or `accept_languages`.
+With nothing set, the zone is an ephemeral profile: in-memory storage and cookie jar, both gone when the zone is dropped. For persistent cookies, give it a `CookieStore` and no in-memory jar:
+
+``` rust
+let mut zone = engine
+    .zone_builder()
+    .cookie_store(Some(store))
+    .cookie_jar(None)
+    .create()?;
+```
+
+The builder also takes a `ZoneConfig` (built with `ZoneConfig::builder()`) via `.config()`, for per-profile settings such as `do_not_track` or `accept_languages`, and a `.places()` handle for a bookmarks / visited-history store.
 
 ### 4. Open a tab
 
 ``` rust
 use gosub_render_pipeline::render::Viewport;
-use gosub_engine::tab::TabDefaults;
 
-let tab = zone.create_tab(
-    TabDefaults {
-        viewport: Some(Viewport::new(0, 0, 1280, 800)),
-        ..Default::default()
-    },
-    None,
-).await?;
+let tab = zone
+    .tab_builder()
+    .viewport(Viewport::new(0, 0, 1280, 800))
+    .create()
+    .await?;
 ```
 
-`create_tab` returns a `TabHandle`. Hold on to it - you need it to send commands and to match events back to the right tab.
+`create()` returns a `TabHandle`. Hold on to it - you need it to send commands and to match events back to the right tab.
 
 ### 5. Navigate
 
@@ -154,20 +146,16 @@ loop {
                         println!("failed:   {url}  ({error})");
                         break;
                     }
-                    NavigationEvent::DecisionRequired {
-                        nav_id, decision_token, ..
-                    } => {
-                        // Always render (never download) in this example.
-                        tab.cmd_tx.send(TabCommand::SubmitDecision {
-                            nav_id,
-                            decision_token,
-                            action: gosub_engine::Action::Render,
-                        }).await?;
-                    }
                     _ => {}
                 },
+                EngineEvent::DownloadRequested { suggested_filename, .. } => {
+                    // Not a page: the engine kept the current document and is offering
+                    // the file. Answer with StartDownload { offer, .. }, or ignore it.
+                    println!("download offered: {suggested_filename}");
+                }
                 EngineEvent::Redraw { .. } => {
-                    // Composite a frame into your window here.
+                    // Wakeup only - the frame itself went to your compositor sink.
+                    // Ask the sink for this tab's current frame and present it.
                 }
                 _ => {}
             }
@@ -177,7 +165,7 @@ loop {
 }
 ```
 
-The `DecisionRequired` arm only fires for responses that aren't obviously a page (see [Key concepts](#decisionrequired)); without it those particular navigations stall because the engine is waiting for your reply.
+`DownloadRequested` is an offer, not a question - ignoring it means no file is saved, and the navigation is already cancelled by the time you see it.
 
 ### 7. Shutdown
 

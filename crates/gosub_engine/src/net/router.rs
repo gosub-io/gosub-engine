@@ -9,12 +9,16 @@ use crate::net::decision::types::BlockReason;
 use crate::net::decision::ResponseClass;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
 use crate::net::{decide_handling, stream_to_bytes, HandlingDecision, RenderTarget, RequestDestination, SharedBody};
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use std::sync::Arc;
 
 /// The outcome of routing a fetch result.
+///
+/// The subresource payloads below are produced here and discarded by the tab worker -
+/// placeholders until the async resource pipeline consumes them.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum RoutedOutcome<C: RenderConfiguration> {
     /// The main document has been parsed and is ready.
     MainDocument(Arc<EngineDocument<C>>),
@@ -33,11 +37,69 @@ pub enum RoutedOutcome<C: RenderConfiguration> {
     /// The request was blocked (with reason).
     Blocked(BlockReason),
 
-    /// A top-level navigation to non-renderable content: offer it as a download. Carries
-    /// the response metadata (final URL, headers, size); the body is dropped - the actual
-    /// download re-fetches once the embedder picks a target path. Boxed to keep the
-    /// enum's variants of comparable size.
-    DownloadOffer(Box<crate::net::types::FetchResultMeta>),
+    /// A top-level navigation to non-renderable content: offer it as a download.
+    ///
+    /// `spooled` is the temp file the body was written to; `None` if spooling failed, and the
+    /// download falls back to a fresh fetch. See [`TabCommand::StartDownload`](crate::events::TabCommand::StartDownload)
+    /// for why the body is captured rather than re-requested. Boxed to keep the variants of
+    /// comparable size.
+    DownloadOffer {
+        meta: Box<crate::net::types::FetchResultMeta>,
+        spooled: tempfile::TempPath,
+    },
+}
+
+/// Write a response body to a temp file and return its path.
+///
+/// Streamed, not buffered: an offer can be gigabytes and the embedder may never answer.
+/// Returns a [`tempfile::TempPath`] so the file is removed if the offer is dropped.
+async fn spool_body_to_temp(
+    body: BodyContent,
+    peek_buf: PeekBuf,
+    max_bytes: u64,
+) -> anyhow::Result<tempfile::TempPath> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    // An unaccepted offer occupies the temp filesystem; refuse to spool past the cap.
+    let over = |n: u64| max_bytes > 0 && n > max_bytes;
+    let too_large = || anyhow!("download exceeds net.download.max_spool_bytes ({max_bytes} bytes)");
+
+    let path = tempfile::Builder::new()
+        .prefix("gosub-download-")
+        .tempfile()
+        .context("create download temp file")?
+        .into_temp_path();
+
+    let mut file = tokio::fs::File::create(&path)
+        .await
+        .with_context(|| format!("open {}", path.display()))?;
+
+    match body {
+        BodyContent::Buffered { body } => {
+            if over(body.len() as u64) {
+                return Err(too_large());
+            }
+            file.write_all(&body).await.context("write download temp file")?;
+        }
+        BodyContent::Stream { shared } => {
+            let mut reader = SharedBody::combined_reader(peek_buf, shared);
+            let mut buf = vec![0u8; 64 * 1024];
+            let mut total: u64 = 0;
+            loop {
+                let n = reader.read(&mut buf).await.context("read download body")?;
+                if n == 0 {
+                    break;
+                }
+                total += n as u64;
+                if over(total) {
+                    return Err(too_large());
+                }
+                file.write_all(&buf[..n]).await.context("write download temp file")?;
+            }
+        }
+    }
+    file.flush().await.context("flush download temp file")?;
+    Ok(path)
 }
 
 fn html_escape(text: &str) -> String {
@@ -220,8 +282,16 @@ pub async fn route_response_for<C: RenderConfiguration>(
                 return Ok(RoutedOutcome::MainDocument(Arc::new(doc)));
             }
             // Binary content or an explicit attachment: offer it to the embedder as a
-            // download instead of failing the navigation.
-            Ok(RoutedOutcome::DownloadOffer(Box::new(meta)))
+            // download instead of failing the navigation. The body is spooled to disk now,
+            // while we still have it - see `DownloadOffer`.
+            // If the body cannot be captured the navigation fails: an offer without its body
+            // would have to re-request the URL on accept, which is exactly what spooling exists
+            // to avoid.
+            let spooled = spool_body_to_temp(body_content, peek_buf, hooks.max_download_spool_bytes).await?;
+            Ok(RoutedOutcome::DownloadOffer {
+                meta: Box::new(meta),
+                spooled,
+            })
         }
 
         // -------- Sub resources (no UA prompts) --------
