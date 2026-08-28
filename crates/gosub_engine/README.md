@@ -8,7 +8,7 @@ embedder drives it with `TabCommand` (per tab, via `TabHandle`) and methods on
 
 ## The model
 
-- **`GosubEngine`** — create, `start()`/`run()`, `create_zone()`, and two event streams:
+- **`GosubEngine`** — create, `start()`/`run()`, `zone_builder()`, and two event streams:
   `subscribe_events()` for the control bus and `subscribe_resource_events()` for the
   high-volume per-resource detail.
 - **Zones** — separate profiles. Each `Zone` owns its cookie jar and storage isolation;

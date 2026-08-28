@@ -3010,6 +3010,7 @@ dependencies = [
  "gosub_render_pipeline",
  "gosub_renderer_cairo",
  "gosub_renderer_skia",
+ "gosub_shared",
  "image",
  "log",
  "once_cell",
@@ -3129,6 +3130,7 @@ dependencies = [
  "indexmap",
  "log",
  "nom 8.0.0",
+ "parking_lot",
  "serde_json",
  "simple_logger",
 ]

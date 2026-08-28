@@ -52,11 +52,13 @@ pub struct TabHandle {
 
 | Group | Commands |
 |-------|----------|
-| Navigation | `Navigate`, `Reload`, `CancelNavigation` |
-| Downloads | `StartDownload`, `RenderDownload` |
-| Lifecycle | `CloseTab`, `SetTitle` |
-| Drawing | `ResumeDrawing { fps }`, `SuspendDrawing`, `SetViewport`, `SetScroll` |
-| Input | `MouseMove/Down/Up/Scroll`, `KeyDown/Up` |
+| Navigation | `Navigate { url: String }`, `Reload { ignore_cache: bool }`, `CancelNavigation`, `GoBack`, `GoForward { entry }`, `GoToHistoryEntry { entry }` |
+| Downloads | `StartDownload { id, url, target_path, offer }`, `RenderDownload { offer }` |
+| Lifecycle | `CloseTab`, `SetTitle { title }` |
+| Drawing | `ResumeDrawing { fps: u16 }`, `SuspendDrawing`, `SetViewport { x: i32, y: i32, width: u32, height: u32 }`, `SetScroll { x: i32, y: i32 }` |
+| Input | `MouseMove { x: f32, y: f32 }`, `MouseDown/Up { x, y, button: MouseButton }`, `MouseScroll { delta_x, delta_y }` (a delta, in CSS px), `KeyDown/Up { key, code, modifiers }`, `TextInput { text }` |
+
+This table is a summary; the full, current list with every field is the `TabCommand` rustdoc (`cargo doc -p gosub_engine --open`). Mouse coordinates are CSS pixels relative to the viewport's top-left, so a UA with its own chrome (address bar, tab strip) subtracts that offset before forwarding.
 
 Inside the worker:
 

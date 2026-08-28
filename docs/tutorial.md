@@ -34,7 +34,7 @@ The engine is **event-driven**. It communicates with your application by emittin
 
 ### Downloads
 
-When the engine fetches a URL that turns out not to be a renderable page - the content-type or `Content-Disposition` says download, or the type is unknown - it decides on its own: the navigation is cancelled, the current page stays put, and an `EngineEvent::DownloadRequested` arrives carrying a suggested filename and content type. Reply with `TabCommand::StartDownload` to accept, or ignore it. Nothing stalls if you do nothing.
+Most responses are obviously renderable (an HTML page) and the engine just renders them. When a response is *not* obviously a page - the content-type is unknown, or a `Content-Disposition: attachment` header says it is a download - the engine decides on its own: it cancels the navigation so the current page stays put, and emits an `EngineEvent::DownloadRequested` carrying a suggested filename and content type. That event is an *offer*: reply with `TabCommand::StartDownload` to save it, `TabCommand::RenderDownload` to render it as a page anyway, or ignore it entirely. Nothing stalls if you do nothing, so a UA that doesn't handle the event still browses normal pages fine - it just never saves a file.
 
 ------------------------------------------------------------------------
 
@@ -47,25 +47,32 @@ In your `Cargo.toml`:
 ``` toml
 [dependencies]
 gosub_engine = { git = "https://github.com/gosub-io/gosub-engine", package = "gosub_engine" }
+# Provides the render backends, `DefaultCompositor` and `Viewport` used below.
+gosub_render_pipeline = { git = "https://github.com/gosub-io/gosub-engine", package = "gosub_render_pipeline" }
 tokio = { version = "1", features = ["full"] }
 ```
+
+If you work from a local checkout, use `path = "…/gosub-engine/crates/gosub_engine"` (and the same for `gosub_render_pipeline`) instead of `git`.
 
 ### 2. Create the engine
 
 ``` rust
-use std::sync::{Arc, RwLock};
-use gosub_engine::{EngineSettings, GosubEngine};
+use std::sync::Arc;
+use gosub_engine::{DefaultRenderConfig, EngineConfig, GosubEngine};
 use gosub_render_pipeline::render::{backends::null::NullBackend, DefaultCompositor};
 
 let backend = NullBackend::new();
-let mut engine = GosubEngine::new(
-    Some(EngineSettings::default()),
+let mut engine = GosubEngine::<DefaultRenderConfig<_>>::new(
+    Some(EngineConfig::default()),
     Arc::new(backend),
-    Arc::new(RwLock::new(DefaultCompositor::default())),
+    Arc::new(DefaultCompositor::default()),
 );
 
-let join_handle = engine.start().expect("cannot start engine");
+// start() returns the engine's run-loop future; spawn it on your runtime.
+let join_handle = tokio::spawn(engine.start().expect("cannot start engine"));
 ```
+
+`DefaultRenderConfig<_>` names the component set at compile time (backend, font system, compositor); with the `NullBackend` the remaining parameters take their headless defaults. `EngineConfig` holds set-once limits such as `max_zones`; `EngineConfig::builder()` lets you change them.
 
 `NullBackend` skips all pixel rendering - useful for headless scenarios or whenever you just want navigation and events without a visible window. Swap it for `CairoBackend` or `VelloBackend` to get an actual rendered surface --- see [`configuration.md`](configuration.md) for how to wire a real backend into the engine config.
 
@@ -81,7 +88,7 @@ let mut events = engine.subscribe_events();
 let mut zone = engine.zone_builder().create()?;
 ```
 
-With nothing set, the zone is an ephemeral profile: in-memory storage and cookie jar, gone when the zone is dropped. For persistent cookies, give it a `CookieStore` and no in-memory jar:
+With nothing set, the zone is an ephemeral profile: in-memory storage and cookie jar, both gone when the zone is dropped. For persistent cookies, give it a `CookieStore` and no in-memory jar:
 
 ``` rust
 let mut zone = engine
@@ -90,6 +97,8 @@ let mut zone = engine
     .cookie_jar(None)
     .create()?;
 ```
+
+The builder also takes a `ZoneConfig` (built with `ZoneConfig::builder()`) via `.config()`, for per-profile settings such as `do_not_track` or `accept_languages`, and a `.places()` handle for a bookmarks / visited-history store.
 
 ### 4. Open a tab
 
@@ -156,15 +165,13 @@ loop {
 }
 ```
 
-`DownloadRequested` is an offer, not a question - ignoring it means no file is saved.
+`DownloadRequested` is an offer, not a question - ignoring it means no file is saved, and the navigation is already cancelled by the time you see it.
 
 ### 7. Shutdown
 
 ``` rust
 engine.shutdown().await?;
-if let Some(handle) = join_handle {
-    let _ = handle.await;
-}
+let _ = join_handle.await;
 ```
 
 Always shut down cleanly. This drains in-flight network requests and flushes any pending state before the process exits.
