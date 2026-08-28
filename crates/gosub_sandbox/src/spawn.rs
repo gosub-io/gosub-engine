@@ -20,6 +20,11 @@ pub struct ContainerProfile<'a> {
     /// [`DEFAULT_CHILD_DATA_LIMIT`](crate::DEFAULT_CHILD_DATA_LIMIT). The
     /// renderer family is the one role that legitimately holds a lot.
     pub data_limit: Option<u64>,
+    /// Further descriptors the child inherits besides its primary link (a
+    /// second channel, named in `args`). Made inheritable only in the child,
+    /// after the fork, so no other child spawned meanwhile can receive them.
+    /// Unix only.
+    pub extra_fds: &'a [i32],
 }
 
 #[cfg(unix)]

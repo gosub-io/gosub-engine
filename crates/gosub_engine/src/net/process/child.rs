@@ -18,7 +18,8 @@ use url::Url;
 const DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Run as the network process until the broker disconnects or says to stop.
-pub fn serve(link: Endpoint) -> i32 {
+pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
+    let vault: Option<Arc<Mutex<Endpoint>>> = vault.map(|ep| Arc::new(Mutex::new(ep)));
     gosub_sandbox::capture_process_title_region();
     gosub_sandbox::set_process_title("gosub-net", "gosub: network process");
 
@@ -121,8 +122,9 @@ pub fn serve(link: Endpoint) -> i32 {
                 };
                 let link_tx = link_tx.clone();
                 let cancels = cancels.clone();
+                let vault = vault.clone();
                 let handle = runtime.spawn(async move {
-                    let performed = perform(&fetcher, fetch, token).await;
+                    let performed = perform(&fetcher, fetch, token, vault.as_deref()).await;
                     cancels.lock().remove(&tag);
                     // A write error means the broker went away; the recv loop
                     // notices the same and ends the process.
@@ -251,11 +253,68 @@ async fn pump(mut producer: gosub_ipc::ring::RingProducer, mut chunks: BodyChunk
     producer.finish();
 }
 
+/// The `Cookie` header for a request, from the vault.
+fn vault_cookies(
+    vault: &Mutex<Endpoint>,
+    scope: &crate::net::process::protocol::CookieScope,
+    url: &str,
+) -> Option<String> {
+    use crate::cookie_vault::protocol::{FromVault, ToVault};
+    let mut link = vault.lock();
+    link.send(&ToVault::Get {
+        tag: 0,
+        scope: scope.clone(),
+        url: url.to_string(),
+        visible_only: false,
+    })
+    .ok()?;
+    match link.recv::<FromVault>().ok()? {
+        FromVault::Cookies { header, .. } => header,
+        _ => None,
+    }
+}
+
+/// Hand a response's `Set-Cookie` headers to the vault.
+fn vault_store(
+    vault: &Mutex<Endpoint>,
+    scope: &crate::net::process::protocol::CookieScope,
+    meta: &gosub_sonar::net::types::FetchResultMeta,
+) {
+    use crate::cookie_vault::protocol::ToVault;
+    let set_cookie: Vec<String> = meta
+        .headers
+        .get_all(http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok().map(str::to_string))
+        .collect();
+    if set_cookie.is_empty() {
+        return;
+    }
+    let _ = vault.lock().send(&ToVault::Store {
+        zone: scope.zone.clone(),
+        url: meta.final_url.to_string(),
+        top_level: scope.top_level.clone(),
+        set_cookie,
+    });
+}
+
 /// Perform one request and flatten the result to something that can travel.
-async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationToken) -> Performed {
+async fn perform(
+    fetcher: &Arc<Fetcher>,
+    fetch: NetFetch,
+    cancel: CancellationToken,
+    vault: Option<&Mutex<Endpoint>>,
+) -> Performed {
     // A ring fd can only travel where the link carries fds.
     let streaming = fetch.streaming && cfg!(target_os = "linux");
     let done = Performed::Done;
+    // Cookies come from the vault, never from the broker, when this process
+    // has its own line to it. The scope is the broker's word on whose they are.
+    let scope = fetch.cookies.clone();
+    let cookie_header = match (vault, &scope) {
+        (Some(vault), Some(scope)) => tokio::task::block_in_place(|| vault_cookies(vault, scope, &fetch.url)),
+        _ => None,
+    };
     let url = match Url::parse(&fetch.url) {
         Ok(u) => u,
         Err(e) => return done(FetchOutcome::Error(format!("bad url {}: {e}", fetch.url))),
@@ -271,6 +330,10 @@ async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationTo
         if let Some((name, value)) = parsed {
             headers.insert(name, value);
         }
+    }
+    headers.remove(http::header::COOKIE);
+    if let Some(value) = cookie_header.as_deref().and_then(|v| v.parse().ok()) {
+        headers.insert(http::header::COOKIE, value);
     }
 
     let mut builder = FetchRequest::builder(method, url)
@@ -296,6 +359,10 @@ async fn perform(fetcher: &Arc<Fetcher>, fetch: NetFetch, cancel: CancellationTo
             .filter_map(|(n, v)| v.to_str().ok().map(|v| (n.as_str().to_string(), v.to_string())))
             .collect()
     };
+    // `Set-Cookie` goes to the vault from here; the broker never sees it.
+    if let (Some(vault), Some(scope), Some(meta)) = (vault, &scope, result.as_ref().ok().and_then(|r| r.meta())) {
+        vault_store(vault, scope, meta);
+    }
     match result {
         Ok(FetchResult::Buffered { meta, body }) => done(FetchOutcome::Ok {
             status: meta.status,

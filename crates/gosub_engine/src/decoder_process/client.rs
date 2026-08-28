@@ -55,6 +55,7 @@ fn decode_in_child(mime: Option<&str>, bytes: &[u8]) -> Result<BrokeredDecode, D
             internet: false,
             fs_grant: None,
             data_limit: None,
+            extra_fds: &[],
         },
     )
     .map_err(|e| DecodeError::Failed(format!("could not spawn a decoder: {e}")))?;

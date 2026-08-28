@@ -483,6 +483,7 @@ impl ForkServer {
                 // a laid-out page, its tiles, and a bounded decoded-image cache,
                 // and still needs room for one large image decode on top.
                 data_limit: Some(RENDERER_DATA_LIMIT),
+                extra_fds: &[],
             },
         )?;
         if let Err(e) = gosub_sandbox::confine_spawned_child(&child) {

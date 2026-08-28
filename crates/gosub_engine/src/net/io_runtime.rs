@@ -269,7 +269,16 @@ fn start_net_process(engine_ctx: &Arc<EngineContext>) -> Option<Arc<crate::net::
         return None;
     }
 
-    match crate::net::process::client::NetProcess::spawn() {
+    // The vault's line for this process, if the engine started a vault with one.
+    #[cfg(target_os = "linux")]
+    let vault_line = engine_ctx
+        .net_vault_link
+        .lock()
+        .take()
+        .map(|link| crate::net::process::client::VaultLine(link.0));
+    #[cfg(not(target_os = "linux"))]
+    let vault_line = None;
+    match crate::net::process::client::NetProcess::spawn(vault_line) {
         Ok(net) => {
             log::info!("network stack running in a separate, sandboxed process");
             Some(Arc::new(net))
@@ -293,6 +302,7 @@ fn dispatch_to_net_process(
     net: Arc<crate::net::process::client::NetProcess>,
     req: FetchRequest,
     refuse_private: bool,
+    cookies: Option<crate::net::process::protocol::CookieScope>,
     cancel: tokio_util::sync::CancellationToken,
     reply_tx: oneshot::Sender<FetchResult>,
 ) {
@@ -340,6 +350,7 @@ fn dispatch_to_net_process(
             body,
             refuse_private,
             streaming,
+            cookies,
         };
         let reply = net.fetch(out, &cancel).await;
         let _ = reply_tx.send(match reply.outcome {
@@ -357,9 +368,43 @@ fn dispatch_to_net_process(
     _net: std::convert::Infallible,
     _req: FetchRequest,
     _refuse_private: bool,
+    _cookies: Option<crate::net::process::protocol::CookieScope>,
     _cancel: tokio_util::sync::CancellationToken,
     _reply_tx: oneshot::Sender<FetchResult>,
 ) {
+}
+
+/// The scope a request carries instead of a cookie header: only when the
+/// network process has its own line to the vault *and* this tab's jar is a
+/// vault jar (an embedder-supplied jar stays the broker's business).
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+fn cookie_scope_for(
+    router: &IoRouter,
+    identity: Option<&TabIdentity>,
+    req: &FetchRequest,
+) -> Option<crate::net::process::protocol::CookieScope> {
+    let identity = identity?;
+    if !router.net_process().is_some_and(|net| net.vault_linked()) {
+        return None;
+    }
+    let jar = identity.cookie_jar.read();
+    let vaulted = jar
+        .as_any()
+        .downcast_ref::<crate::cookie_vault::client::VaultCookieJar>()?;
+    Some(crate::net::process::protocol::CookieScope {
+        zone: vaulted.zone().to_string(),
+        top_level: identity.top_level.as_ref().map(|u| u.to_string()),
+        samesite: same_site_context(identity.top_level.as_ref(), &req.url).into(),
+    })
+}
+
+#[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+fn cookie_scope_for(
+    _router: &IoRouter,
+    _identity: Option<&TabIdentity>,
+    _req: &FetchRequest,
+) -> Option<crate::net::process::protocol::CookieScope> {
+    None
 }
 
 /// Put the requesting tab's cookies on an outbound request.
@@ -546,6 +591,13 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                             // network, and its cross-origin bytes pass through ORB.
                             let subresource = req.kind != gosub_sonar::net::types::ResourceKind::Primary;
                             let document = identity.as_ref().and_then(|id| id.top_level.clone());
+                            // With a vault the network process talks to directly, the
+                            // request carries whose cookies it wants and this process
+                            // neither attaches nor stores any.
+                            let cookie_scope = cookie_scope_for(&router, identity.as_ref(), &req);
+                            if cookie_scope.is_some() {
+                                req.headers.remove(http::header::COOKIE);
+                            }
                             let refuse_private = subresource
                                 && match &document {
                                     Some(top) => router.address_space.classify(top).await == AddressSpace::Public,
@@ -554,9 +606,9 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
 
                             // The reply is intercepted so `Set-Cookie` is stored on this
                             // side too; the requester still receives the untouched result.
-                            let reply_tx = match identity {
-                                Some(id) => store_response_cookies_then_forward(id, reply_tx),
-                                None => reply_tx,
+                            let reply_tx = match (identity, cookie_scope.is_some()) {
+                                (Some(id), false) => store_response_cookies_then_forward(id, reply_tx),
+                                _ => reply_tx,
                             };
                             let reply_tx = match (subresource, document) {
                                 (true, Some(top)) => block_opaque_responses_then_forward(top, reply_tx),
@@ -566,9 +618,14 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                             // Out of process where isolation is on, in-process otherwise;
                             // identity and cookies were attached above either way.
                             match router.net_process() {
-                                Some(net) => {
-                                    dispatch_to_net_process(net, req, refuse_private, handle.cancel.clone(), reply_tx)
-                                }
+                                Some(net) => dispatch_to_net_process(
+                                    net,
+                                    req,
+                                    refuse_private,
+                                    cookie_scope,
+                                    handle.cancel.clone(),
+                                    reply_tx,
+                                ),
                                 // The I/O thread must keep running; drop the request on fetcher failure.
                                 None => match router.get_or_spawn_zone_fetcher(zone_id, refuse_private) {
                                     Ok(fetcher) => fetcher.submit(req, handle.cancel.clone(), reply_tx).await,

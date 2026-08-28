@@ -147,6 +147,8 @@ mod engine;
 pub mod child_process;
 
 /// Image decoding in a throwaway, sandboxed process.
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+pub mod cookie_vault;
 #[cfg(feature = "process-isolation")]
 pub mod decoder_process;
 

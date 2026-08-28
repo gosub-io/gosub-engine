@@ -36,6 +36,7 @@ naming, because the code defends them everywhere:
 ```
 broker (the embedder's process: engine, zones, tabs, DOM, cookies, storage, compositing)
 ├── gosub-net           network stack; the engine's only network capability
+├── gosub-vault         the cookie jars (`security.cookie_vault`); talks to gosub-net directly
 ├── gosub-decoder       raster image decoding; one throwaway process per image
 └── gosub-forksrv       the fork server: fonts warmed once, renderers forked from it
     ├── pidns-anchor    PID 1 of the renderers' private PID namespace
@@ -49,6 +50,18 @@ is what you actually see on a running system.
 - **gosub-net** is the only process allowed to reach the network. Tabs never
   fetch: their loads are brokered requests that the I/O runtime performs with the
   tab's cookies attached on the way through — tab code never sees a cookie value.
+- **gosub-vault** holds the cookie jars, in the least-authority profile of the
+  model (no network, no files, no devices). The rule behind it: no one process
+  should hold both large secrets and a large hostile-input surface, and the
+  broker deserializes frames from every other child. Tabs and the embedder API
+  see an ordinary jar that forwards; the network process gets its own line to
+  the vault, so the cookie values attached to requests and the `Set-Cookie`
+  headers coming back flow between those two and never through the broker.
+  Persistence is brokered: the vault sends a snapshot of a zone's jar after
+  every change and the broker writes it through the zone's cookie store, so
+  the vault never opens a file and any embedder-supplied store works. An
+  embedder-supplied *jar* stays where the embedder put it. Off by default
+  while it soaks.
 - **gosub-decoder** is spawned per image, fed bytes, and exits. Its SVG decoder
   runs without any fonts: it only *validates* (the broker re-parses accepted SVG
   with real fonts), so the tightest profile applies.
@@ -201,6 +214,7 @@ at navigation), never from anything the requester sent.
 |---|---|---|
 | `security.network_process` | on (Linux) | Network stack in its own sandboxed process. Falls back in-process with a warning (network code is trusted engine code; the sandbox is defense in depth). |
 | `security.image_decoder_process` | on (Linux) | Raster decoding in a throwaway process per image. Falls back in-process with a warning. |
+| `security.cookie_vault` | off | The cookie jars in their own sandboxed process, with a direct line from the network process (see the process model). Linux only; falls back to in-process jars with a warning. |
 | `security.renderer_process` | on (Linux, `Full`-tier font systems) | The fork server + resident renderer machinery described above. **No fallback for page content**: if it cannot start, pages simply render in-process from the beginning (with a warning at startup); once it *has* started, a page that cannot be rendered out of process stays blank. Linux only. |
 
 The defaults are *offers*: at `start()` the engine keeps each one only where
@@ -265,4 +279,6 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
 - **`FontPathsReadable` font systems** (fontconfig-based: Pango, Skia) get a
   weaker arrangement: no fork server, a throwaway renderer exec'd per render,
   with read-only Landlock-scoped font paths. See fonts.md.
-- The cookie vault is tracked as a follow-up from the original PoC.
+- The vault's `document.cookie` view (`visible_only`) has no consumer yet; it
+  starts to matter when scripts can read cookies. A zone using an
+  embedder-supplied jar is not vaulted.

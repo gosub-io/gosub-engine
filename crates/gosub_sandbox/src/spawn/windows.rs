@@ -155,6 +155,8 @@ pub fn spawn(
         fs_grant,
         // Memory is capped by the job object, one size for every role.
         data_limit: _,
+        // Extra inherited descriptors are a Unix mechanism.
+        extra_fds: _,
     } = container;
     let _ = isolation; // the container profile, not this mode, drives the split here
     let identity = if std::env::var_os("GOSUB_WIN_APPCONTAINER").is_some() {

@@ -72,6 +72,7 @@ pub fn spawn(
     }
 
     let raw = child_end.raw();
+    let extra_fds: Vec<i32> = container.extra_fds.to_vec();
     // SAFETY: the closure runs post-fork/pre-exec and calls only
     // async-signal-safe operations (setrlimit, setpriority, unshare, fcntl).
     unsafe {
@@ -82,6 +83,9 @@ pub fn spawn(
             // honest refusal to start.
             crate::isolate_namespaces(isolation)?;
             gosub_ipc::channel::Channel::make_inheritable(raw)?;
+            for fd in &extra_fds {
+                gosub_ipc::channel::Channel::make_inheritable(*fd)?;
+            }
             Ok(())
         });
     }

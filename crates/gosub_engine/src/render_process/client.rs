@@ -52,6 +52,7 @@ pub fn render_page(
             internet: false,
             fs_grant: None,
             data_limit: None,
+            extra_fds: &[],
         },
     )?;
     if let Err(e) = gosub_sandbox::confine_spawned_child(&child) {

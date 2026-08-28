@@ -1,7 +1,7 @@
 //! The broker's side of the network process: spawn it, talk to it, notice when
 //! it dies.
 
-use crate::net::process::protocol::{FetchOutcome, FromNet, NetFetch, RequestTag, ToNet};
+use crate::net::process::protocol::{CookieScope, FetchOutcome, FromNet, NetFetch, RequestTag, ToNet};
 use crate::net::types::NetError;
 use gosub_ipc::{Endpoint, EndpointTx};
 use parking_lot::Mutex;
@@ -22,6 +22,9 @@ pub struct Outbound {
     pub refuse_private: bool,
     /// Deliver the body through a ring as it arrives, where the link can carry one.
     pub streaming: bool,
+    /// Whose cookies to attach, resolved by the network process against the
+    /// cookie vault. `None` when the broker attached the header itself.
+    pub cookies: Option<CookieScope>,
 }
 
 impl Outbound {
@@ -34,6 +37,7 @@ impl Outbound {
             body: None,
             refuse_private: false,
             streaming: false,
+            cookies: None,
         }
     }
 }
@@ -71,6 +75,10 @@ fn recv_ring(_rx: &mut gosub_ipc::EndpointRx) -> std::io::Result<std::os::fd::Ow
 /// The argv role name the broker re-execs itself with.
 pub const NET_ROLE: &str = "net";
 
+/// The network process's end of a line to the cookie vault (Linux); an opaque
+/// channel elsewhere, never created.
+pub struct VaultLine(pub gosub_ipc::channel::Channel);
+
 /// How long a caller waits for a reply before giving up on the network process.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -96,6 +104,9 @@ pub struct NetProcess {
     child: Mutex<Option<gosub_sandbox::spawn::Child>>,
     /// Bounds concurrent requests (see [`MAX_INFLIGHT`]).
     inflight: Arc<tokio::sync::Semaphore>,
+    /// The child holds a direct line to the cookie vault: requests may carry a
+    /// cookie scope instead of a header.
+    vault_linked: bool,
 }
 
 impl std::fmt::Debug for NetProcess {
@@ -105,8 +116,9 @@ impl std::fmt::Debug for NetProcess {
 }
 
 impl NetProcess {
-    /// Re-exec this binary as the network process and connect to it.
-    pub fn spawn() -> anyhow::Result<Self> {
+    /// Re-exec this binary as the network process and connect to it. With
+    /// `vault`, the child also inherits its line to the cookie vault.
+    pub fn spawn(vault: Option<VaultLine>) -> anyhow::Result<Self> {
         // A process that carries a child role but is running broker code got here
         // because the embedder never dispatched, so re-exec put it into its own
         // `main`. Spawning from here would do the same thing again, and again:
@@ -123,9 +135,18 @@ impl NetProcess {
         let exe = std::env::current_exe()?;
         let (ours, theirs) = gosub_ipc::channel::Channel::pair()?;
 
+        // The vault line rides along as an extra inherited fd, named in argv
+        // before the primary link (which `spawn` appends).
+        let vault_spec = vault.as_ref().map(|line| line.0.to_argv());
+        let mut args: Vec<&str> = vec![crate::child_process::ROLE_FLAG, NET_ROLE];
+        if let Some(spec) = vault_spec.as_deref() {
+            args.push(spec);
+        }
+        let extra_fds: Vec<i32> = vault.iter().map(|line| line.0.raw()).collect();
+
         let child = gosub_sandbox::spawn::spawn(
             &exe,
-            &[crate::child_process::ROLE_FLAG, NET_ROLE],
+            &args,
             theirs,
             // The one component that keeps its network namespace: isolating it
             // would leave the engine unable to reach anything at all.
@@ -135,8 +156,10 @@ impl NetProcess {
                 internet: true,
                 fs_grant: None,
                 data_limit: None,
+                extra_fds: &extra_fds,
             },
         )?;
+        drop(vault); // the child holds its copy of the vault line
 
         if let Err(e) = gosub_sandbox::confine_spawned_child(&child) {
             log::warn!("could not apply parent-side confinement to the network process: {e}");
@@ -191,6 +214,7 @@ impl NetProcess {
             next_tag: AtomicU64::new(1),
             child: Mutex::new(Some(child)),
             inflight: Arc::new(tokio::sync::Semaphore::new(MAX_INFLIGHT)),
+            vault_linked: !extra_fds.is_empty(),
         };
 
         // Confirm the child really is a network process before returning it as
@@ -218,6 +242,11 @@ impl NetProcess {
         Ok(net)
     }
 
+    /// Whether the child resolves cookies against the vault itself.
+    pub fn vault_linked(&self) -> bool {
+        self.vault_linked
+    }
+
     /// Send a request and wait for the network process to answer. Bounded by
     /// [`MAX_INFLIGHT`]; a caller past the bound waits for a slot. Cancelling
     /// `cancel` abandons the wait and tells the child to drop the request.
@@ -229,6 +258,7 @@ impl NetProcess {
             body,
             refuse_private,
             streaming,
+            cookies,
         } = out;
         let permit = tokio::select! {
             _ = cancel.cancelled() => return NetReply::error("cancelled"),
@@ -250,6 +280,7 @@ impl NetProcess {
             body,
             refuse_private,
             streaming,
+            cookies,
         });
         // The link write can block on a full pipe (bodies can be large), so it
         // runs on a blocking thread rather than a runtime worker.

@@ -87,6 +87,14 @@ pub struct EngineContext {
     /// together with `renderer_process`. Tabs render through this.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     pub renderer_pool: OnceLock<Arc<crate::fork_server::pool::RendererPool>>,
+    /// The cookie vault, when `security.cookie_vault` started one: zones the
+    /// engine provisions jars for keep them there.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub cookie_vault: OnceLock<Arc<crate::cookie_vault::client::CookieVault>>,
+    /// The network process's end of its line to the vault, waiting for the I/O
+    /// thread to spawn that process.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub net_vault_link: Arc<Mutex<Option<crate::cookie_vault::client::NetVaultLink>>>,
 }
 
 impl Default for EngineContext {
@@ -103,6 +111,10 @@ impl Default for EngineContext {
             renderer_process: OnceLock::new(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             renderer_pool: OnceLock::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            cookie_vault: OnceLock::new(),
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            net_vault_link: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -147,6 +159,10 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 renderer_process: OnceLock::new(),
                 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
                 renderer_pool: OnceLock::new(),
+                #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                cookie_vault: OnceLock::new(),
+                #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+                net_vault_link: Arc::new(Mutex::new(None)),
             }),
             render_backend: backend,
             compositor,
@@ -175,6 +191,11 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         // Which `security.*` process settings survive into this run. Decided
         // before the I/O thread, which is what spawns the network process.
         self.resolve_isolation_settings();
+
+        // The vault before the I/O thread: the network process, spawned there,
+        // inherits its line to the vault.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.start_cookie_vault();
 
         // Start I/O thread, building the fetcher config from the settings store.
         let io_cfg = fetcher_config_from(&self.context.config_store);
@@ -226,10 +247,11 @@ impl<C: RenderConfiguration> GosubEngine<C> {
     /// backends have run in CI; the renderer tier has conditions of its own,
     /// checked in `start_renderer_process`.
     fn resolve_isolation_settings(&self) {
-        const PROCESS_SETTINGS: [&str; 3] = [
+        const PROCESS_SETTINGS: [&str; 4] = [
             "security.network_process",
             "security.image_decoder_process",
             "security.renderer_process",
+            "security.cookie_vault",
         ];
         let store = &self.context.config_store;
 
@@ -277,6 +299,37 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                         "process isolation was requested explicitly on a platform where it is not on by default"
                     );
                 }
+            }
+        }
+    }
+
+    /// Spawn the cookie vault when `security.cookie_vault` asks for it. With
+    /// the network process also on, the two get a direct line so cookie values
+    /// on requests bypass this process entirely.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn start_cookie_vault(&self) {
+        use crate::cookie_vault::client::CookieVault;
+        let store = &self.context.config_store;
+        if !store.get_bool("security.cookie_vault") {
+            return;
+        }
+        let with_net = store.get_bool("security.network_process");
+        match CookieVault::spawn(with_net) {
+            Ok((vault, net_link)) => {
+                log::info!(
+                    "cookie jars live in a separate, sandboxed vault process{}",
+                    if with_net {
+                        " (the network process talks to it directly)"
+                    } else {
+                        ""
+                    }
+                );
+                *self.context.net_vault_link.lock() = net_link;
+                let _ = self.context.cookie_vault.set(Arc::new(vault));
+            }
+            Err(e) => {
+                log::error!("security.cookie_vault is on but the vault could not start ({e}); cookies stay in-process");
+                self.turn_off("security.cookie_vault");
             }
         }
     }
@@ -502,6 +555,10 @@ impl<C: RenderConfiguration> GosubEngine<C> {
                 log::trace!("signal: shutting down the renderer fork server");
                 server.lock().shutdown();
             }
+            if let Some(vault) = self.context.cookie_vault.get() {
+                log::trace!("signal: shutting down the cookie vault");
+                vault.shutdown();
+            }
         }
 
         // Shutdown I/O thread
@@ -555,6 +612,36 @@ impl<C: RenderConfiguration> GosubEngine<C> {
         let config = config.unwrap_or_else(|| self.context.config.default_zone_config.clone());
         let cookie_store = services.cookie_store.clone();
 
+        // A zone whose jar the engine provisions keeps it in the vault, behind a
+        // jar handle that forwards; an embedder-supplied jar is the embedder's.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        let services = match self.context.cookie_vault.get() {
+            Some(vault) if services.cookie_jar.is_none() => {
+                let id = zone_id.unwrap_or_default();
+                vault.open_zone(id, cookie_store.clone());
+                let jar = crate::cookie_vault::client::VaultCookieJar::new(Arc::clone(vault), id).handle();
+                return self.create_zone_with_services(
+                    config,
+                    ZoneServices {
+                        cookie_jar: Some(jar),
+                        ..services
+                    },
+                    Some(id),
+                    cookie_store,
+                );
+            }
+            _ => services,
+        };
+        self.create_zone_with_services(config, services, zone_id, cookie_store)
+    }
+
+    fn create_zone_with_services(
+        &mut self,
+        config: ZoneConfig,
+        services: ZoneServices,
+        zone_id: Option<ZoneId>,
+        cookie_store: Option<crate::cookies::CookieStoreHandle>,
+    ) -> Result<Zone<C>, EngineError> {
         let zone = match zone_id {
             Some(zone_id) => Zone::new_with_id(
                 zone_id,
@@ -601,6 +688,12 @@ impl<C: RenderConfiguration> GosubEngine<C> {
 
         // Stop all tab workers first, so nothing fetches or mutates cookies below.
         zone.close().await;
+
+        // The vault drops the zone's jar; its last snapshot is already with the store.
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if let Some(vault) = self.context.cookie_vault.get() {
+            vault.close_zone(zone_id);
+        }
 
         // Shut down the zone's fetcher on the I/O thread (ack'd).
         if let Some(io) = &self.io_handle {
