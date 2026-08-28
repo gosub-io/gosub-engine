@@ -188,7 +188,8 @@ fn spawn_resident<C: RenderConfiguration>(
         Err(e) => Err(format!("fork failed: {e}")),
         Ok(gosub_sandbox::Forked::Child) => {
             drop(ours);
-            gosub_sandbox::set_process_title(&resident::comm_for(label), "gosub: renderer (idle)");
+            let _ = &label;
+            gosub_sandbox::set_process_title(&resident::comm(), &resident::title());
             let Ok(link) = Endpoint::from_channel(theirs) else {
                 gosub_sandbox::exit_now(1);
             };
@@ -374,9 +375,9 @@ fn fork_and_render<C: RenderConfiguration>(
         Err(e) => Err(format!("fork failed: {e}")),
         Ok(gosub_sandbox::Forked::Child) => {
             drop(ours);
-            // Fork keeps the parent's name; say who this really is. The tab
-            // id is display-only here - `ps` legibility, nothing keys on it.
-            gosub_sandbox::set_process_title(&resident::comm_for(tab), &format!("gosub: renderer {page_url}"));
+            // Fork keeps the parent's name; say who this really is.
+            let _ = (&tab, &page_url);
+            gosub_sandbox::set_process_title(&resident::comm(), &resident::title());
             let Ok(link) = Endpoint::from_channel(theirs) else {
                 gosub_sandbox::exit_now(1);
             };

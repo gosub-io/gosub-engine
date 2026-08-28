@@ -41,8 +41,8 @@ broker (the embedder's process: engine, zones, tabs, DOM, cookies, storage, comp
 ├── gosub-decoder       raster image decoding; one throwaway process per image
 └── gosub-forksrv       the fork server: fonts warmed once, renderers forked from it
     ├── pidns-anchor    PID 1 of the renderers' private PID namespace
-    ├── render-<site>   resident renderer for one (zone, site), e.g. render-example.
-    └── render-<site>   … one per site with open tabs
+    ├── renderer-<id>   resident renderer for one (zone, site)
+    └── renderer-<id>   … one per site with open tabs
 ```
 
 Every child renames itself for `ps`/`pstree` (comm + cmdline), so the tree above
@@ -79,7 +79,7 @@ is what you actually see on a running system.
   forks renderers that inherit the warmed state copy-on-write. It also lazily
   unshares a PID namespace; whatever forks first becomes that namespace's PID 1
   and must outlive every renderer, which is the anchor's whole job.
-- **render-\<site\>** processes are *resident*: one per `(zone, site)` — site
+- **renderer-\<id\>** processes are *resident*: one per `(zone, site)` — site
   being scheme + eTLD+1, Chromium's definition — hosting every tab of that site
   in that zone, alive until the site's last tab closes. They are forked from the
   fork server on demand; the broker then talks to each renderer directly over a
@@ -245,9 +245,11 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
 
 ## Observing it
 
-- `ps`/`pstree` show the named processes; renderers update their cmdline with
-  the URL they last rendered. `NSpid` in `/proc/<pid>/status` shows a
-  renderer's pid inside the private PID namespace.
+- `ps`/`pstree` show the named processes. Renderers are `renderer-<id>`, on
+  purpose without the site or URL: the process list is readable by every
+  user on the machine. Which renderer serves which site is on `/renderers`
+  and in the telemetry. `NSpid` in `/proc/<pid>/status` shows a renderer's
+  pid inside the private PID namespace.
 - With the engine's `metrics` feature, `127.0.0.1:9090` serves `/metrics`
   (timing aggregates), `/renderers` (the pool: site, pid, tabs, RSS), and
   `/events` — the **telemetry firehose**, newline-delimited JSON of engine

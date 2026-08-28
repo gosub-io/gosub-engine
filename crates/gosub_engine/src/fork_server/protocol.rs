@@ -44,9 +44,8 @@ pub enum ToForkServer {
         /// The page's URL - the base against which the renderer resolves
         /// relative subresource URLs (stylesheets, images, fonts).
         url: String,
-        /// The tab this render is for. Display only: it names the renderer
-        /// process in `ps`/`pstree` (`render-<first 8 chars>`), nothing else
-        /// keys on it. Empty when the caller has no tab (tests, harnesses).
+        /// The tab this render is for. Display only (telemetry, logs); the
+        /// process name never carries it. Empty when the caller has no tab.
         tab: String,
         viewport_width: f64,
         viewport_height: f64,
@@ -71,8 +70,8 @@ pub enum ToForkServer {
     /// file descriptor. From then on the broker and that renderer talk
     /// directly; the fork server is out of the loop.
     SpawnRenderer {
-        /// Names the process in `ps`/`pstree` (`render-<first 8 chars>`).
-        /// Display only.
+        /// The pool's key for this renderer (zone + site). Display only; the
+        /// process names itself `renderer-<id>`.
         label: String,
     },
     /// Collect any resident renderers that have exited (they are this

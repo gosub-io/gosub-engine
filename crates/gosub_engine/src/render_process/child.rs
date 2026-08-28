@@ -125,13 +125,11 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
     // Display only, like the forked path: name the process after its tab.
     // PR_SET_NAME is on this filter's allowlist; the cmdline rewrite is
     // plain memory writes into the region captured above.
-    let short: String = tab.chars().take(8).collect();
-    let comm = if short.is_empty() {
-        "render".to_string()
-    } else {
-        format!("render-{short}")
-    };
-    gosub_sandbox::set_process_title(&comm, &format!("gosub: renderer {url}"));
+    // Not the tab or the URL: the process list is visible to every user on the machine.
+    let _ = (&tab, &url);
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    let comm = format!("renderer-{}", &id[..6]);
+    gosub_sandbox::set_process_title(&comm, &format!("gosub: {comm}"));
 
     let shared: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(fonts));
     let (summary, tiles, hit_regions) = renderer::render_page::<C>(

@@ -30,14 +30,21 @@ const MAX_RETAINED_PAGES: usize = 3;
 /// One incremental request, bound to run against a tab's retained page.
 type PagePass = Box<dyn FnOnce(&mut RetainedPage) -> renderer::RenderPass>;
 
-/// The `comm` (15-byte `ps` name) for a renderer labelled `label`.
-pub(super) fn comm_for(label: &str) -> String {
-    let short: String = label.chars().take(8).collect();
-    if short.is_empty() {
-        "render".to_string()
-    } else {
-        format!("render-{short}")
-    }
+/// This renderer's `ps` name: `renderer-<6 hex>`, drawn once per process.
+/// Deliberately not the site or tab: the process list is visible to every
+/// user on the machine, and what a renderer renders is not their business.
+pub(super) fn comm() -> String {
+    static ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ID.get_or_init(|| {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        format!("renderer-{}", &id[..6])
+    })
+    .clone()
+}
+
+/// The cmdline to go with [`comm`].
+pub(super) fn title() -> String {
+    format!("gosub: {}", comm())
 }
 
 /// Serve [`ToRenderer`] requests over `link` until told to stop or the link
@@ -56,7 +63,8 @@ pub fn serve<C: RenderConfiguration>(
     let link = Arc::new(Mutex::new(link));
     forked_loader.connect(Arc::clone(&link));
     let fonts: Arc<Mutex<dyn FontSystem>> = Arc::new(Mutex::new(fonts));
-    let comm = comm_for(label);
+    let _ = label; // the pool's key; the process is named after itself
+    let comm = comm();
 
     let mut pages: HashMap<String, RetainedPage> = HashMap::new();
     // Tab names, most recently used last; parallel to `pages`.
@@ -90,7 +98,8 @@ pub fn serve<C: RenderConfiguration>(
                 known_tiles,
                 hovered_node,
             } => {
-                gosub_sandbox::set_process_title(&comm, &format!("gosub: renderer {url}"));
+                let _ = &url;
+                gosub_sandbox::set_process_title(&comm, &title());
                 // A new page: what earlier pages decoded is dead weight past
                 // the budget, and this process lives as long as the site's tabs.
                 media_store.trim(MEDIA_CACHE_BUDGET);

@@ -805,7 +805,7 @@ fn print_process_tree() {
     }
 
     println!();
-    println!("process tree — broker {me} (tabs, DOM, cookies, storage live here):");
+    println!("process tree — broker {me} (tabs and the DOM live here):");
     println!("{me}  broker");
     print_children(&procs, me, 1);
     println!();
