@@ -14,6 +14,13 @@
 //! cargo run -p example-mini-browser -- https://example.com https://gosub.io
 //! ```
 //!
+//! Storage and cookies are out of process too: the zone's localStorage is a
+//! `FileLocalStore` under `~/.cache/gosub-mini-browser` (served by
+//! `gosub-storage`), its cookie jar lives in `gosub-vault` and persists through
+//! a SQLite store there. With no scripts to touch localStorage, the browser
+//! stands in for one: every finished navigation bumps a per-origin `visits`
+//! counter and prints it, with the cookie count the vault reports.
+//!
 //! Keys: Ctrl+T new tab, Ctrl+W close tab (middle-click a tab also closes it),
 //! Ctrl+L focus the address bar, F5/Ctrl+R reload, Ctrl+P print the renderer
 //! pool and the live process tree to the terminal. Or watch from outside:
@@ -29,8 +36,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use gosub_config::settings::Setting;
+use gosub_engine::cookies::{CookieStoreHandle, SqliteCookieStore};
 use gosub_engine::events::{EngineEvent, MouseButton as GosubMouseButton, NavigationEvent, TabCommand};
-use gosub_engine::storage::{InMemoryLocalStore, InMemorySessionStore, PartitionPolicy, StorageService};
+use gosub_engine::storage::{FileLocalStore, InMemorySessionStore, PartitionKey, PartitionPolicy, StorageService};
 use gosub_engine::tab::{TabHandle, TabId};
 use gosub_engine::zone::{Zone, ZoneServices};
 use gosub_engine::GosubEngine;
@@ -158,6 +166,9 @@ struct BrowserApp {
     engine: GosubEngine<MiniConfig>,
     zone: Zone<MiniConfig>,
     compositor: Arc<DefaultCompositor>,
+    /// The zone's storage, to play the role of a script using localStorage.
+    storage: Arc<StorageService>,
+    cookie_store: Option<CookieStoreHandle>,
 
     tabs: Vec<TabState>,
     active: usize,
@@ -172,6 +183,36 @@ struct BrowserApp {
 }
 
 impl BrowserApp {
+    /// What a page script would do with localStorage: count this origin's
+    /// visits. The area lives in the storage process; the jar count comes from
+    /// the store the vault snapshots into.
+    fn note_visit(&self, url: &str) {
+        let Some(origin) = Url::parse(url).ok().map(|u| u.origin()) else {
+            return;
+        };
+        let Ok(area) = self.storage.local_for(self.zone.id, &PartitionKey::None, &origin) else {
+            return;
+        };
+        let visits = area.get_item("visits").and_then(|v| v.parse::<u64>().ok()).unwrap_or(0) + 1;
+        if let Err(e) = area.set_item("visits", &visits.to_string()) {
+            println!(
+                "[storage] {} could not record the visit: {e}",
+                origin.ascii_serialization()
+            );
+            return;
+        }
+        let cookies = self
+            .cookie_store
+            .as_ref()
+            .and_then(|store| store.jar_for(self.zone.id))
+            .map(|jar| jar.read().get_all_cookies().len())
+            .unwrap_or(0);
+        println!(
+            "[storage] {}: visit #{visits} (localStorage in gosub-storage); {cookies} cookie origin(s) in the vault",
+            origin.ascii_serialization()
+        );
+    }
+
     fn active_tab(&mut self) -> Option<&mut TabState> {
         self.tabs.get_mut(self.active)
     }
@@ -410,6 +451,7 @@ impl ApplicationHandler<UiEvent> for BrowserApp {
                 }
             }
             UiEvent::NavFinished { tab, url } => {
+                self.note_visit(&url);
                 if let Some(i) = self.tab_index(tab) {
                     let t = &mut self.tabs[i];
                     t.loading = false;
@@ -855,6 +897,7 @@ fn main() {
         "security.network_process",
         "security.image_decoder_process",
         "security.renderer_process",
+        "security.cookie_vault",
     ] {
         engine
             .settings()
@@ -899,22 +942,35 @@ fn main() {
         }
     });
 
+    // Persistent, so a second run shows the counters and cookies survived.
+    let data_dir = std::env::var_os("HOME")
+        .map(|h| std::path::PathBuf::from(h).join(".cache").join("gosub-mini-browser"))
+        .unwrap_or_else(|| std::env::temp_dir().join("gosub-mini-browser"));
+    let local_store = FileLocalStore::open(data_dir.join("storage")).expect("storage directory");
+    let cookie_store = SqliteCookieStore::new(data_dir.join("cookies.db"))
+        .map(CookieStoreHandle::from)
+        .map_err(|e| eprintln!("no persistent cookie store ({e}); cookies stay for this run only"))
+        .ok();
+    let storage = Arc::new(StorageService::new(
+        Arc::new(local_store),
+        Arc::new(InMemorySessionStore::new()),
+    ));
     let services = ZoneServices {
-        storage: Arc::new(StorageService::new(
-            Arc::new(InMemoryLocalStore::new()),
-            Arc::new(InMemorySessionStore::new()),
-        )),
-        cookie_store: None,
+        storage: Arc::clone(&storage),
+        cookie_store: cookie_store.clone(),
         cookie_jar: None,
         partition_policy: PartitionPolicy::None,
         places: None,
     };
     let zone = engine.create_zone(None, services, None).expect("create zone");
+    println!("storage and cookies under {}", data_dir.display());
 
     let mut app = BrowserApp {
         engine,
         zone,
         compositor,
+        storage,
+        cookie_store,
         tabs: Vec::new(),
         active: 0,
         window: None,
