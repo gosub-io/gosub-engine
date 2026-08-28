@@ -34,6 +34,7 @@ type Jars = Arc<Mutex<HashMap<String, DefaultCookieJar>>>;
 /// Entry point for the `vault` role. `net_link` is the network process's
 /// direct line, when there is one.
 pub fn serve(broker: Endpoint, net_link: Option<Endpoint>) -> i32 {
+    gosub_sandbox::set_process_title("gosub-vault", "gosub: cookie vault");
     let jars: Jars = Arc::new(Mutex::new(HashMap::new()));
     let (broker_tx, mut broker_rx) = broker.split();
     let broker_tx = Arc::new(Mutex::new(broker_tx));

@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 /// `dir` exists: the broker created it.
 pub fn serve(mut link: Endpoint, dir: PathBuf) -> i32 {
+    gosub_sandbox::set_process_title("gosub-storage", "gosub: storage service");
     gosub_sandbox::lock_down_service(
         "storage",
         gosub_sandbox::ServiceCaps {

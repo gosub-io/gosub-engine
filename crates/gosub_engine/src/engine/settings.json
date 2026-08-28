@@ -448,6 +448,12 @@
       "description": "Keep the engine's cookie jars in a separate, sandboxed vault process (Linux). Tabs and the embedder API see an ordinary jar that forwards; the network process, when it runs, gets a direct line to the vault so cookie values attached to requests never pass through the engine process. Persistence stays with the zone's cookie store: the vault sends it a snapshot after every change and never touches a file itself. Off by default while it soaks; takes effect only when the embedder calls gosub_engine::child_process::dispatch() first thing in main()."
     },
     {
+      "key": "storage_service",
+      "type": "b",
+      "default": "b:true",
+      "description": "Serve a zone's localStorage from a separate, sandboxed storage process when its local store can be (a FileLocalStore, or a ServiceLocalStore): one process per directory, confined to opening files there. Stores of other kinds stay in-process. Linux; takes effect only when the embedder calls gosub_engine::child_process::dispatch() first thing in main()."
+    },
+    {
       "key": "sandbox_mode",
       "type": "s",
       "values": "off,balanced,strict",

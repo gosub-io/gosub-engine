@@ -34,6 +34,13 @@ pub trait StorageArea: Send + Sync {
 pub trait LocalStore: Send + Sync {
     /// Retrieves a storage area for the given zone, partition, and origin.
     fn area(&self, zone: ZoneId, part: &PartitionKey, origin: &url::Origin) -> Result<Arc<dyn StorageArea>>;
+
+    /// The directory a sandboxed storage service could serve this store's
+    /// files from, for stores whose format allows it (see `FileLocalStore`).
+    /// `None` keeps the store in-process.
+    fn service_directory(&self) -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 /// Store for sessionStorage-like areas (isolated per (zone, tab, partition, origin)).

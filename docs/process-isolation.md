@@ -65,9 +65,10 @@ is what you actually see on a running system.
   while it soaks.
 - **gosub-storage** serves `localStorage` from one JSON file per
   `(zone, partition, origin)` area, under the service profile (baseline plus
-  `openat`, Landlock-scoped to its directory). Opt-in: give the
-  `StorageService` a `ServiceLocalStore`; it spawns on first use and falls
-  back in-process on the same files. Area names are stamped by the broker,
+  `openat`, Landlock-scoped to its directory). A zone whose `StorageService`
+  holds a `FileLocalStore` is routed through it at zone creation
+  (`security.storage_service`, one process per directory); other store kinds
+  stay in-process. Area names are stamped by the broker,
   page keys stay inside the file, values and areas are capped. Session
   storage stays in the broker.
 - **gosub-decoder** is spawned per image, fed bytes, and exits. Its SVG decoder
@@ -222,6 +223,7 @@ at navigation), never from anything the requester sent.
 |---|---|---|
 | `security.network_process` | on (Linux) | Network stack in its own sandboxed process. Falls back in-process with a warning (network code is trusted engine code; the sandbox is defense in depth). |
 | `security.image_decoder_process` | on (Linux) | Raster decoding in a throwaway process per image. Falls back in-process with a warning. |
+| `security.storage_service` | on (Linux) | A zone's `localStorage` served by the storage process when its local store is a `FileLocalStore` (one process per directory). Other stores stay in-process. |
 | `security.cookie_vault` | off | The cookie jars in their own sandboxed process, with a direct line from the network process (see the process model). Linux only; falls back to in-process jars with a warning. |
 | `security.renderer_process` | on (Linux, `Full`-tier font systems) | The fork server + resident renderer machinery described above. **No fallback for page content**: if it cannot start, pages simply render in-process from the beginning (with a warning at startup); once it *has* started, a page that cannot be rendered out of process stays blank. Linux only. |
 

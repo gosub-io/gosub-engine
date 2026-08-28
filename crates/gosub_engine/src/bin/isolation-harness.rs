@@ -119,6 +119,7 @@ fn main() {
         "resolve" => resolve(),
         "vault" => vault(),
         "storage" => storage(),
+        "engine-storage-service" => engine_storage_service(),
         "engine-cookie-vault" => engine_cookie_vault(),
         "stream" => stream(),
         "engine" => engine(),
@@ -3396,6 +3397,155 @@ fn streamed_body() -> Vec<u8> {
     (0..(1024 * 1024 + 12345usize))
         .map(|i| (i.wrapping_mul(131) ^ (i >> 7)) as u8)
         .collect()
+}
+
+/// A zone built with a plain `FileLocalStore` gets its local storage served
+/// by the storage process without the embedder asking: the setting's default.
+fn engine_storage_service() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        use gosub_engine::storage::{
+            FileLocalStore, InMemorySessionStore, PartitionKey, PartitionPolicy, StorageService,
+        };
+        use gosub_engine::zone::ZoneServices;
+        use gosub_engine::GosubEngine;
+        use gosub_render_pipeline::render::backends::null::NullBackend;
+        use gosub_render_pipeline::render::DefaultCompositor;
+
+        let dir = std::env::temp_dir().join(format!("gosub-engine-storage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let Ok(store) = FileLocalStore::open(&dir) else {
+            eprintln!("could not open the file store");
+            return 1;
+        };
+        let Ok(origin) = url::Url::parse("https://app.test").map(|u| u.origin()) else {
+            return 1;
+        };
+        let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("could not build a runtime: {e}");
+                return 1;
+            }
+        };
+        let code = runtime.block_on(async move {
+            let mut engine: GosubEngine = GosubEngine::new(
+                None,
+                Arc::new(NullBackend::new()),
+                Arc::new(DefaultCompositor::default()),
+            );
+            let _events = engine.subscribe_events();
+            let Ok(run) = engine.start() else {
+                eprintln!("engine failed to start");
+                return 1;
+            };
+            tokio::spawn(run);
+            let storage = Arc::new(StorageService::new(
+                Arc::new(store),
+                Arc::new(InMemorySessionStore::new()),
+            ));
+            let services = ZoneServices {
+                storage: Arc::clone(&storage),
+                cookie_store: None,
+                cookie_jar: None,
+                partition_policy: PartitionPolicy::None,
+                places: None,
+            };
+            let zone = match engine.create_zone(None, services, None) {
+                Ok(zone) => zone,
+                Err(e) => {
+                    eprintln!("could not create a zone: {e}");
+                    return 1;
+                }
+            };
+            // The embedder's own handle sees the routed store.
+            let area = match storage.local_for(zone.id, &PartitionKey::None, &origin) {
+                Ok(area) => area,
+                Err(e) => {
+                    eprintln!("no area: {e}");
+                    return 1;
+                }
+            };
+            if let Err(e) = area.set_item("k", "v") {
+                eprintln!("set failed: {e}");
+                return 1;
+            }
+            if area.get_item("k").as_deref() != Some("v") {
+                eprintln!("get did not round-trip");
+                return 1;
+            }
+            if !has_child_named("gosub-storage") {
+                eprintln!(
+                    "no gosub-storage child process: storage stayed in-process (children: {:?}, routed dir: {:?})",
+                    child_names(),
+                    storage.local_store().service_directory()
+                );
+                return 1;
+            }
+            println!("localStorage of a FileLocalStore zone is served by gosub-storage");
+            let _ = engine.shutdown().await;
+            0
+        });
+        let files = std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(0);
+        let _ = std::fs::remove_dir_all(&dir);
+        if code == 0 && files == 0 {
+            eprintln!("the service wrote nothing to the storage directory");
+            return 1;
+        }
+        code
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("the storage service is Linux-only");
+        2
+    }
+}
+
+/// The `comm` of every direct child of this process.
+#[cfg(target_os = "linux")]
+fn child_names() -> Vec<String> {
+    let me = std::process::id().to_string();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let status = std::fs::read_to_string(entry.path().join("status")).ok()?;
+            let mut comm = String::new();
+            let mut ppid = String::new();
+            for line in status.lines() {
+                if let Some(v) = line.strip_prefix("Name:\t") {
+                    comm = v.trim().to_string();
+                } else if let Some(v) = line.strip_prefix("PPid:\t") {
+                    ppid = v.trim().to_string();
+                }
+            }
+            (ppid == me).then_some(comm)
+        })
+        .collect()
+}
+
+/// Whether this process has a direct child whose `comm` is `name`.
+#[cfg(target_os = "linux")]
+fn has_child_named(name: &str) -> bool {
+    let me = std::process::id().to_string();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let status = std::fs::read_to_string(entry.path().join("status")).unwrap_or_default();
+        let mut comm = "";
+        let mut ppid = "";
+        for line in status.lines() {
+            if let Some(v) = line.strip_prefix("Name:\t") {
+                comm = v.trim();
+            } else if let Some(v) = line.strip_prefix("PPid:\t") {
+                ppid = v.trim();
+            }
+        }
+        ppid == me && comm == name
+    })
 }
 
 /// Storage service round trip, origin isolation, a refused oversize write,

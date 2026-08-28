@@ -190,6 +190,10 @@ impl ServiceLocalStore {
 }
 
 impl LocalStore for ServiceLocalStore {
+    fn service_directory(&self) -> Option<PathBuf> {
+        Some(self.dir.clone())
+    }
+
     fn area(&self, zone: ZoneId, part: &PartitionKey, origin: &url::Origin) -> Result<Arc<dyn StorageArea>> {
         match self.backend() {
             Backend::Local(store) => store.area(zone, part, origin),

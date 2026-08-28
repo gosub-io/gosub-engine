@@ -86,6 +86,10 @@ impl LocalStore for FileLocalStore {
     fn area(&self, zone: ZoneId, part: &PartitionKey, origin: &url::Origin) -> Result<Arc<dyn StorageArea>> {
         Ok(self.area_for(&zone.to_string(), &partition_name(part), &origin.ascii_serialization()))
     }
+
+    fn service_directory(&self) -> Option<PathBuf> {
+        Some(self.dir.clone())
+    }
 }
 
 /// Items in memory, file rewritten on every change.

@@ -37,7 +37,9 @@ impl StorageBus {
 
 #[derive(Clone)]
 pub struct StorageService {
-    local: Arc<dyn LocalStore>,
+    /// Behind a lock so the engine can route it through the storage service
+    /// process after the embedder built this; clones share the routing.
+    local: Arc<parking_lot::RwLock<Arc<dyn LocalStore>>>,
     session: Arc<dyn SessionStore>,
     bus: Arc<StorageBus>,
 }
@@ -51,10 +53,20 @@ impl Debug for StorageService {
 impl StorageService {
     pub fn new(local: Arc<dyn LocalStore>, session: Arc<dyn SessionStore>) -> Self {
         Self {
-            local,
+            local: Arc::new(parking_lot::RwLock::new(local)),
             session,
             bus: Arc::new(StorageBus::default()),
         }
+    }
+
+    pub fn local_store(&self) -> Arc<dyn LocalStore> {
+        Arc::clone(&self.local.read())
+    }
+
+    /// Serve local areas from `store` from now on (the engine's storage
+    /// service over the same files). Areas handed out before keep their store.
+    pub fn route_local_through(&self, store: Arc<dyn LocalStore>) {
+        *self.local.write() = store;
     }
 
     pub fn subscribe(&self) -> Subscription {
@@ -62,7 +74,7 @@ impl StorageService {
     }
 
     pub fn local_for(&self, zone: ZoneId, part: &PartitionKey, origin: &url::Origin) -> Result<Arc<dyn StorageArea>> {
-        let inner = self.local.area(zone, part, origin)?;
+        let inner = self.local_store().area(zone, part, origin)?;
         Ok(self.wrap_notifying(inner, zone, None, part.clone(), origin.clone(), StorageScope::Local))
     }
 
