@@ -61,6 +61,21 @@ pub fn apply_child_rlimits_with(data_limit: u64) -> std::io::Result<()> {
     imp::apply_child_rlimits_with(data_limit)
 }
 
+/// Cap the largest file the child may write (`RLIMIT_FSIZE` where it exists).
+/// Called from `pre_exec`.
+#[cfg(feature = "multi-process")]
+pub fn apply_child_file_size_limit(bytes: u64) -> std::io::Result<()> {
+    imp::apply_child_file_size_limit(bytes)
+}
+
+/// Mark every descriptor above stderr close-on-exec, so only what the spawner
+/// explicitly re-enables survives into the child. Called from `pre_exec`;
+/// best-effort where the kernel lacks `close_range`.
+#[cfg(feature = "multi-process")]
+pub fn mark_all_fds_close_on_exec() {
+    imp::mark_all_fds_close_on_exec()
+}
+
 /// Which namespaces a child is dropped into at spawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NamespaceIsolation {
@@ -190,8 +205,8 @@ pub fn confine_spawned_child(child: &crate::spawn::Child) -> std::io::Result<()>
     }
     #[cfg(target_os = "linux")]
     {
-        // Best-effort cgroup memory bound (never fatal); see the backend.
-        return imp::confine_spawned_child(child.id());
+        // Best-effort cgroup memory and task bounds (never fatal); see the backend.
+        return imp::confine_spawned_child(child.id(), child.data_limit, child.max_tasks);
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
@@ -396,6 +411,20 @@ pub use imp::PidNamespaceAnchor;
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn hold_pid_namespace_anchor() -> std::io::Result<PidNamespaceAnchor> {
     imp::hold_pid_namespace_anchor()
+}
+
+/// A private, writable scratch directory for a renderer that must stage files
+/// (`TMPDIR`). Created fresh - a pre-existing entry, a symlink planted at the
+/// predictable name included, is a refusal - and set before any thread exists,
+/// since `set_var` is not thread-safe.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn claim_scratch_dir(role: &str) -> std::io::Result<std::path::PathBuf> {
+    use std::os::unix::fs::DirBuilderExt as _;
+    let scratch = std::env::temp_dir().join(format!("gosub-{role}-scratch-{}", std::process::id()));
+    std::fs::DirBuilder::new().mode(0o700).create(&scratch)?;
+    let scratch = std::fs::canonicalize(&scratch)?;
+    std::env::set_var("TMPDIR", &scratch);
+    Ok(scratch)
 }
 
 /// In a forked child: close descriptors inherited from the parent that the

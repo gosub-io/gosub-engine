@@ -279,6 +279,8 @@ mod probe_inventory {
         "net-socket-af-unix",
         "net-socket-inet",
         "net-namespaces",
+        "net-clone-newuser",
+        "net-thread",
         "service-fs-openat",
         "service-fs-no-socket",
         "service-device-ioctl",
@@ -481,6 +483,24 @@ mod sandbox_enforcement {
         assert!(
             st.success(),
             "expected fresh ipc/uts/user with the host netns, got {st:?}"
+        );
+    }
+
+    /// The net role threads (tokio) but never forks or unshares: `clone3` is
+    /// ENOSYS'd and `clone` flag-filtered, so a thread works and a namespace
+    /// clone traps.
+    #[test]
+    fn net_role_threads_but_cannot_clone_into_a_namespace() {
+        let st = probe("net-thread");
+        assert!(
+            st.success(),
+            "expected thread creation to work in the net role, got {st:?}"
+        );
+        let st = probe("net-clone-newuser");
+        assert_eq!(
+            st.signal(),
+            Some(SIGSYS),
+            "expected SIGSYS (clone flag filter), got {st:?}"
         );
     }
 

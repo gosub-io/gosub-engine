@@ -719,3 +719,11 @@ fn set_low_integrity_label(path: &std::path::Path) -> std::io::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(feature = "multi-process")]
+pub fn apply_child_file_size_limit(_bytes: u64) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(feature = "multi-process")]
+pub fn mark_all_fds_close_on_exec() {}

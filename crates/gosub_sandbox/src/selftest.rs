@@ -112,6 +112,10 @@ pub const PROBES: &[&str] = &[
     #[cfg(target_os = "linux")]
     "net-namespaces",
     #[cfg(target_os = "linux")]
+    "net-clone-newuser",
+    #[cfg(target_os = "linux")]
+    "net-thread",
+    #[cfg(target_os = "linux")]
     "service-fs-openat",
     #[cfg(target_os = "linux")]
     "service-fs-no-socket",
@@ -1289,12 +1293,27 @@ fn run_platform_probe(probe: &str) {
         }
     }
 
-    if let Some(probe) = probe.strip_prefix("net-socket-") {
+    if let Some(probe) = probe.strip_prefix("net-") {
         crate::lock_down_net(&[]);
         match probe {
+            // Threads yes (the runtime needs them)...
+            "thread" => {
+                let joined = std::thread::spawn(|| 40 + 2).join();
+                assert_eq!(joined.ok(), Some(42), "thread creation failed under the net filter");
+                std::process::exit(0);
+            }
+            // ...new namespaces no: `clone` is flag-filtered like the fork server's.
+            "clone-newuser" => unsafe {
+                let flags = (libc::CLONE_NEWUSER | libc::SIGCHLD) as libc::c_long;
+                let ret = libc::syscall(libc::SYS_clone, flags, 0, 0, 0, 0);
+                if ret == 0 {
+                    libc::_exit(0);
+                }
+                std::process::exit(0);
+            },
             // Outside the internet families the call fails, quietly: the
             // resolver probes nscd's unix socket and must not die for it.
-            "af-unix" => unsafe {
+            "socket-af-unix" => unsafe {
                 let fd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
                 assert_eq!(fd, -1, "AF_UNIX socket was created in the net role");
                 assert_eq!(
@@ -1307,7 +1326,7 @@ fn run_platform_probe(probe: &str) {
                 std::process::exit(0);
             },
             // The positive half: the families it exists for still work.
-            "inet" => unsafe {
+            "socket-inet" => unsafe {
                 assert!(
                     libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0) >= 0,
                     "AF_INET refused"

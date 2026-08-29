@@ -114,6 +114,8 @@ impl CookieVault {
                 fs_grant: None,
                 data_limit: None,
                 extra_fds: &extra_fds,
+                max_tasks: 16,
+                file_size_limit: None,
             },
         )?;
         if let Err(e) = gosub_sandbox::confine_spawned_child(&child) {

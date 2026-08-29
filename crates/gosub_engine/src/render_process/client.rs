@@ -53,6 +53,8 @@ pub fn render_page(
             fs_grant: None,
             data_limit: None,
             extra_fds: &[],
+            max_tasks: 256,
+            file_size_limit: None,
         },
     )?;
     if let Err(e) = gosub_sandbox::confine_spawned_child(&child) {

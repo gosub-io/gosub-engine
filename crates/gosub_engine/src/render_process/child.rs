@@ -66,6 +66,15 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
     // request can rewrite the cmdline too.
     gosub_sandbox::capture_process_title_region();
 
+    // Before the font system, which may start a thread: `TMPDIR` is set here.
+    let scratch = match gosub_sandbox::claim_scratch_dir("renderer") {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("[renderer] could not create a private scratch directory: {e}");
+            return 1;
+        }
+    };
+
     let mut fonts = C::FontSystem::default();
     let _ = fonts.families();
     let answer = fonts.prepare_for_confinement();
@@ -89,9 +98,6 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
     // The font-readable tier, whatever the instance answered: a `Full` system
     // routed here still works under the weaker profile, and this role exists
     // for the systems that need it.
-    let scratch = std::env::temp_dir().join(format!("gosub-renderer-scratch-{}", std::process::id()));
-    let _ = std::fs::create_dir_all(&scratch);
-    std::env::set_var("TMPDIR", &scratch);
     let paths = gosub_sandbox::font_filesystem_paths();
     let mut refs: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
     refs.push((scratch.as_path(), true));

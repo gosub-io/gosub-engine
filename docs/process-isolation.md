@@ -48,6 +48,15 @@ broker (the embedder's process: engine, zones, tabs, navigation, compositing)
 Every child renames itself for `ps`/`pstree` (comm + cmdline), so the tree above
 is what you actually see on a running system.
 
+Every child starts with an allowlisted environment (`HOME`, `TMPDIR`, locale,
+`XDG_*`, `SSL_CERT_*`, `RUST_LOG`, `GOSUB_*` and little else), no stdin, and
+only the descriptors the spawner named — everything else is marked
+close-on-exec first. Each has a task ceiling (`pids.max`) and a memory ceiling
+sized for its role in its own cgroup, where cgroup v2 is delegated. Roles that
+may write files (the storage service) or read and reach the network (gosub-net)
+refuse to start on a kernel without Landlock rather than run unscoped; the
+engine then falls back in-process and says so.
+
 - **gosub-net** is the only process allowed to reach the network. Tabs never
   fetch: their loads are brokered requests that the I/O runtime performs with the
   tab's cookies attached on the way through — tab code never sees a cookie value.

@@ -231,3 +231,11 @@ fn set_rlimit(resource: c_int, limit: libc::rlim_t) -> std::io::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(feature = "multi-process")]
+pub fn apply_child_file_size_limit(_bytes: u64) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(feature = "multi-process")]
+pub fn mark_all_fds_close_on_exec() {}

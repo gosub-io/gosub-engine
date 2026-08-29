@@ -25,6 +25,12 @@ pub struct ContainerProfile<'a> {
     /// after the fork, so no other child spawned meanwhile can receive them.
     /// Unix only.
     pub extra_fds: &'a [i32],
+    /// Tasks (processes and threads) this role may have at once - the
+    /// fork-bomb bound, enforced by the child's cgroup where one exists.
+    pub max_tasks: u32,
+    /// Largest file the role may write (`RLIMIT_FSIZE`); `None` leaves the
+    /// inherited limit. Only the storage service writes files at all.
+    pub file_size_limit: Option<u64>,
 }
 
 #[cfg(unix)]

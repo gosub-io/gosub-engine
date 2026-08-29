@@ -229,7 +229,7 @@ pub fn canary_must_detect_a_missing_syscall() -> ! {
     let full: Vec<libc::c_long> = BASELINE.iter().chain(FORK_SERVER_EXTRA).copied().collect();
     // `fork_server: false` here: the gap under test is the missing
     // `F_DUPFD_CLOEXEC`, and the `clone` argument-filter is orthogonal to it.
-    if install_with(full, false, false, false).is_err() {
+    if install_with(full, false, false, false, false).is_err() {
         eprintln!("could not install the crippled filter");
         std::process::exit(2);
     }
@@ -662,11 +662,20 @@ pub fn lock_down_net(fs_allow: &[(&std::path::Path, bool)]) {
     // So `openat` is allowed and Landlock decides which paths it may reach:
     // seccomp bounds the operation, Landlock bounds the target. Landlock's
     // absence is reported, since without it the filesystem is unscoped.
+    // Fail-closed: this role has `openat` and the network, and without
+    // Landlock nothing bounds what it could read and send. The engine then
+    // falls back to in-process networking, and says so.
     if !fs_allow.is_empty() {
         match landlock::restrict(fs_allow) {
             Ok(true) => eprintln!("[net] landlock active (filesystem scoped to resolver and CA paths)"),
-            Ok(false) => eprintln!("[net] landlock unavailable on this kernel; filesystem NOT path-scoped"),
-            Err(e) => eprintln!("[net] landlock could not be applied ({e}); filesystem NOT path-scoped"),
+            Ok(false) => {
+                eprintln!("[net] landlock unavailable on this kernel; refusing to run with an unscoped filesystem");
+                exit_now(1);
+            }
+            Err(e) => {
+                eprintln!("[net] landlock could not be applied ({e}); refusing to run with an unscoped filesystem");
+                exit_now(1);
+            }
         }
     }
 
@@ -679,7 +688,10 @@ pub fn lock_down_net(fs_allow: &[(&std::path::Path, bool)]) {
         .collect();
     // Socket-mode fcntls permitted: the runtime toggles O_NONBLOCK per socket.
     enforce("net", install_socket_family_filter());
-    enforce("net", install_with(allowed, false, false, true));
+    // `clone3` → ENOSYS so thread creation reaches the kernel as `clone`,
+    // where its flags can be checked (glibc and musl both fall back).
+    enforce("net", install_clone3_enosys());
+    enforce("net", install_with(allowed, false, false, true, true));
 }
 
 /// Before the net allowlist: `socket()` for any family but `AF_INET`/`AF_INET6`
@@ -742,7 +754,9 @@ pub fn net_filesystem_paths() -> Vec<std::path::PathBuf> {
         "/etc/host.conf",
         "/etc/services",
         // System trust stores, as the major distributions arrange them.
-        "/etc/ssl",
+        "/etc/ssl/certs",
+        "/etc/ssl/cert.pem",
+        "/etc/ssl/openssl.cnf",
         "/etc/pki",
         "/etc/ca-certificates",
         "/usr/share/ca-certificates",
@@ -1019,11 +1033,9 @@ mod cgroup {
     /// Either way [`place_child`] degrades to a no-op.
     static WORKERS: OnceLock<Option<PathBuf>> = OnceLock::new();
 
-    /// Graceful-reclaim threshold (`memory.high`) and the hard ceiling
-    /// (`memory.max`, 25% headroom, where the scoped OOM kill fires). Values
-    /// are illustrative for the PoC.
+    /// The reference ceiling: a role's `memory.high` is its data limit, no
+    /// lower than an eighth of this, and `memory.max` adds 25% headroom.
     const HIGH_BYTES: u64 = 1024 * 1024 * 1024;
-    const MAX_BYTES: u64 = HIGH_BYTES + HIGH_BYTES / 4;
 
     /// This process's cgroup-v2 directory, from the sole `0::<path>` line of
     /// `/proc/self/cgroup`. `None` if the host is cgroup v1 / hybrid.
@@ -1119,14 +1131,20 @@ mod cgroup {
     /// Place a freshly-spawned child into its own memory-limited cgroup. A no-op
     /// where the subtree was never set up, and only logged (never fatal) on error
     /// - the child still runs, just rlimit-bounded, exactly as before cgroups.
-    pub fn place_child(pid: u32) {
+    pub fn place_child(pid: u32, data_limit: u64, max_tasks: u32) {
         let Some(Some(workers)) = WORKERS.get() else { return };
         let dir = workers.join(format!("c-{pid}"));
+        // The role's committed-memory limit, with the same headroom the
+        // defaults carry, so a small service is not given a renderer's ceiling.
+        let high = data_limit.max(HIGH_BYTES / 8);
+        let max = high + high / 4;
         if let Err(e) = (|| -> std::io::Result<()> {
             let _ = std::fs::create_dir(&dir);
-            write_file(&dir.join("memory.max"), &MAX_BYTES.to_string())?;
+            write_file(&dir.join("memory.max"), &max.to_string())?;
             // Graceful reclaim before the hard cap; best-effort (old kernels).
-            let _ = write_file(&dir.join("memory.high"), &HIGH_BYTES.to_string());
+            let _ = write_file(&dir.join("memory.high"), &high.to_string());
+            // Processes and threads together: the fork-bomb bound.
+            let _ = write_file(&dir.join("pids.max"), &max_tasks.to_string());
             // Writing the pid moves the child out of the inherited leader cgroup
             // into its own bounded one.
             write_file(&dir.join("cgroup.procs"), &pid.to_string())
@@ -1134,7 +1152,7 @@ mod cgroup {
             eprintln!("[broker] cgroup: could not confine child {pid} ({e}); it runs rlimit-bounded only");
         } else if std::env::var_os("GOSUB_DEBUG_CGROUP").is_some() {
             eprintln!(
-                "[broker] cgroup: child {pid} confined to {} (memory.max={MAX_BYTES})",
+                "[broker] cgroup: child {pid} confined to {} (memory.max={max}, pids.max={max_tasks})",
                 dir.display()
             );
         }
@@ -1163,8 +1181,8 @@ mod cgroup {
 /// [`cgroup`]). The Linux half of the parent-side [`crate::confine_spawned_child`]
 /// seam - the analogue of the Windows job-object memory cap.
 #[cfg(feature = "multi-process")]
-pub fn confine_spawned_child(pid: u32) -> std::io::Result<()> {
-    cgroup::place_child(pid);
+pub fn confine_spawned_child(pid: u32, data_limit: u64, max_tasks: u32) -> std::io::Result<()> {
+    cgroup::place_child(pid, data_limit, max_tasks);
     Ok(())
 }
 
@@ -1350,8 +1368,19 @@ pub fn lock_down_service(name: &str, filesystem: bool, device: bool, fs_allow: &
     // without Landlock leaves seccomp + application-level path scoping as the
     // guard rather than refusing to start.
     if !fs_allow.is_empty() {
+        // A role that may *write* somewhere must not run unscoped: without
+        // Landlock it could write anywhere `openat` reaches.
+        let writes = fs_allow.iter().any(|(_, writable)| *writable);
         match landlock::restrict(fs_allow) {
             Ok(true) => eprintln!("[{name}] landlock active (filesystem scoped to its own paths)"),
+            Ok(false) if writes => {
+                eprintln!("[{name}] landlock unavailable on this kernel; refusing to run with write access unscoped");
+                exit_now(1);
+            }
+            Err(e) if writes => {
+                eprintln!("[{name}] landlock could not be applied ({e}); refusing to run with write access unscoped");
+                exit_now(1);
+            }
             Ok(false) => {
                 eprintln!("[{name}] landlock unavailable on this kernel; seccomp + path scoping only")
             }
@@ -1387,7 +1416,7 @@ fn enforce(role: &str, result: Result<(), Box<dyn std::error::Error>>) {
 /// arguments fail its filter - is a fatal `SIGSYS`.
 #[cfg(feature = "multi-process")]
 fn install(allowed: Vec<libc::c_long>) -> Result<(), Box<dyn std::error::Error>> {
-    install_with(allowed, false, false, false)
+    install_with(allowed, false, false, false, false)
 }
 
 /// The fork server's main filter: as [`install`], but `F_DUPFD_CLOEXEC` is
@@ -1396,7 +1425,7 @@ fn install(allowed: Vec<libc::c_long>) -> Result<(), Box<dyn std::error::Error>>
 /// Pair with [`install_clone3_enosys`], installed first.
 #[cfg(feature = "multi-process")]
 fn install_fork_server(allowed: Vec<libc::c_long>) -> Result<(), Box<dyn std::error::Error>> {
-    install_with(allowed, true, true, false)
+    install_with(allowed, true, true, false, false)
 }
 
 /// As [`install`], but `allow_dup_fd` additionally permits
@@ -1408,6 +1437,7 @@ fn install_with(
     allow_dup_fd: bool,
     fork_server: bool,
     allow_socket_fcntl: bool,
+    threads_only: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use seccompiler::{
         apply_filter_all_threads, BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition,
@@ -1487,6 +1517,38 @@ fn install_with(
         let is_set_name =
             SeccompCondition::new(0, SeccompCmpArgLen::Qword, SeccompCmpOp::Eq, libc::PR_SET_NAME as u64)?;
         rules.insert(libc::SYS_prctl as i64, vec![SeccompRule::new(vec![is_set_name])?]);
+    }
+
+    // `prlimit64` may query or lower limits of this process only (`pid`,
+    // argument 0, is 0 for "self"); another process's limits are not its business.
+    if allowed.contains(&libc::SYS_prlimit64) {
+        let self_only = SeccompCondition::new(0, SeccompCmpArgLen::Dword, SeccompCmpOp::Eq, 0)?;
+        rules.insert(libc::SYS_prlimit64 as i64, vec![SeccompRule::new(vec![self_only])?]);
+    }
+
+    // A role that threads but never forks (the net stack) gets `clone`
+    // argument-filtered to "no new namespace": threads pass, `CLONE_NEW*`
+    // hits the default action. Paired with `clone3` → ENOSYS by the caller,
+    // so the flags are register-visible.
+    if threads_only && !fork_server {
+        const CLONE_NEWTIME: u64 = 0x0000_0080;
+        const CLONE_NEWNS: u64 = 0x0002_0000;
+        const CLONE_NEWCGROUP: u64 = 0x0200_0000;
+        const CLONE_NEWUTS: u64 = 0x0400_0000;
+        const CLONE_NEWIPC: u64 = 0x0800_0000;
+        const CLONE_NEWUSER: u64 = 0x1000_0000;
+        const CLONE_NEWPID: u64 = 0x2000_0000;
+        const CLONE_NEWNET: u64 = 0x4000_0000;
+        const NEW_NAMESPACE: u64 = CLONE_NEWTIME
+            | CLONE_NEWNS
+            | CLONE_NEWCGROUP
+            | CLONE_NEWUTS
+            | CLONE_NEWIPC
+            | CLONE_NEWUSER
+            | CLONE_NEWPID
+            | CLONE_NEWNET;
+        let no_namespace = SeccompCondition::new(0, SeccompCmpArgLen::Qword, SeccompCmpOp::MaskedEq(NEW_NAMESPACE), 0)?;
+        rules.insert(libc::SYS_clone as i64, vec![SeccompRule::new(vec![no_namespace])?]);
     }
 
     // tgkill is permitted only to deliver SIGSYS to *this* process (what
@@ -1996,6 +2058,19 @@ pub fn apply_child_rlimits_with(data_limit: u64) -> std::io::Result<()> {
     Ok(())
 }
 
+pub fn apply_child_file_size_limit(bytes: u64) -> std::io::Result<()> {
+    set_rlimit(libc::RLIMIT_FSIZE, bytes as libc::rlim_t)
+}
+
+/// `close_range(3, ~0, CLOSE_RANGE_CLOEXEC)`: flags rather than closes, so
+/// the spawner can still pick the links that survive. Kernels before 5.11
+/// lack it; then the child inherits what was left without CLOEXEC, as before.
+pub fn mark_all_fds_close_on_exec() {
+    const CLOSE_RANGE_CLOEXEC: libc::c_uint = 1 << 2;
+    // SAFETY: a plain syscall with integer arguments; affects only this process.
+    let _ = unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, CLOSE_RANGE_CLOEXEC) };
+}
+
 /// Move the calling process into fresh, empty namespaces when `enable` is set
 /// (content processes and the engine-spawned services); a no-op otherwise (the
 /// net component, the one role that must keep the host network).
@@ -2036,7 +2111,13 @@ pub fn isolate_namespaces(mode: crate::NamespaceIsolation) -> std::io::Result<()
     }
     // NoPidNamespace, or the PID attempt was refused: the load-bearing network
     // isolation alone. `unshare` is all-or-nothing, so a failed attempt above
-    // changed nothing.
+    // changed nothing. Said once, since nothing else records the difference.
+    if matches!(mode, NamespaceIsolation::Full) {
+        // Async-signal-safe: a single write of a static line.
+        const LINE: &[u8] = b"[sandbox] PID namespace refused by the kernel; renderers share the host PID namespace\n";
+        // SAFETY: fd 2 is open; the buffer is a static slice.
+        unsafe { libc::write(2, LINE.as_ptr().cast(), LINE.len()) };
+    }
     if unsafe { libc::unshare(flags) } < 0 {
         return Err(std::io::Error::last_os_error());
     }

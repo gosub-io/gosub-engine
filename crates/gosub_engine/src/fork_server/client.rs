@@ -627,6 +627,9 @@ impl ForkServer {
                 // and still needs room for one large image decode on top.
                 data_limit: Some(RENDERER_DATA_LIMIT),
                 extra_fds: &[],
+                // Every resident renderer and its threads live under this one.
+                max_tasks: 4096,
+                file_size_limit: None,
             },
         )?;
         if let Err(e) = gosub_sandbox::confine_spawned_child(&child) {

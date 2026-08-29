@@ -31,6 +31,16 @@ pub fn serve<C: RenderConfiguration>(link: Endpoint) -> i32 {
 /// The warmed zygote: build, prepare, confine per the instance answer, fork on
 /// request.
 fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
+    // Before the font system, which may start a thread: `TMPDIR` is set here.
+    // Shared by every forked renderer, so it is granted read-only to them
+    // below; only the fork server's own warm-up may stage files in it.
+    let scratch = match gosub_sandbox::claim_scratch_dir("fork-server") {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("[fork-server] could not create a private scratch directory: {e}");
+            return 1;
+        }
+    };
     let mut fonts = C::FontSystem::default();
     // Populate lazily-built databases before asking anything of them.
     let _ = fonts.families();
@@ -77,7 +87,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
     let mut parent_only = link.raw_fds();
     parent_only.push(anchor.raw_fd());
 
-    let font_access = confine_self(&answer);
+    let font_access = confine_self(&answer, &scratch);
 
     // Announced only now, so `Ready` also means "still alive under the filter
     // the answer selected" - a wrong tier mapping dies here, at startup,
@@ -274,18 +284,15 @@ fn decline(mut link: Endpoint, answer: &Confinement) -> i32 {
 
 /// Apply the fork-server lockdown the answer calls for; returns whether forked
 /// renderers get the file-reading tier.
-fn confine_self(answer: &Confinement) -> bool {
+fn confine_self(answer: &Confinement, scratch: &std::path::Path) -> bool {
     match answer {
         Confinement::FontPathsReadable => {
-            // The scratch must exist and be named before Landlock freezes the
-            // ruleset; `TMPDIR` points file-staging backends into it.
-            let scratch = std::env::temp_dir().join(format!("gosub-fork-server-scratch-{}", std::process::id()));
-            let _ = std::fs::create_dir_all(&scratch);
-            std::env::set_var("TMPDIR", &scratch);
-
+            // The ruleset is inherited by every forked renderer: the scratch
+            // is readable there, never a channel one site's renderer can
+            // write into for another's.
             let paths = gosub_sandbox::font_filesystem_paths();
             let mut refs: Vec<(&std::path::Path, bool)> = paths.iter().map(|p| (p.as_path(), false)).collect();
-            refs.push((scratch.as_path(), true));
+            refs.push((scratch, false));
             gosub_sandbox::lock_down_fork_server_with_font_access(&refs);
             true
         }

@@ -157,6 +157,9 @@ pub fn spawn(
         data_limit: _,
         // Extra inherited descriptors are a Unix mechanism.
         extra_fds: _,
+        // Task and file-size bounds are the job object's business, one size for every role.
+        max_tasks: _,
+        file_size_limit: _,
     } = container;
     let _ = isolation; // the container profile, not this mode, drives the split here
     let identity = if std::env::var_os("GOSUB_WIN_APPCONTAINER").is_some() {

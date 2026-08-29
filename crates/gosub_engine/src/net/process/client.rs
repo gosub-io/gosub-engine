@@ -156,6 +156,9 @@ impl NetProcess {
                 fs_grant: None,
                 data_limit: None,
                 extra_fds: &extra_fds,
+                // A multi-thread runtime plus its blocking pool.
+                max_tasks: 1024,
+                file_size_limit: None,
             },
         )?;
         drop(vault); // the child holds its copy of the vault line

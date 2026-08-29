@@ -57,6 +57,9 @@ impl StorageProcess {
                 fs_grant: Some((dir.as_path(), true)),
                 data_limit: None,
                 extra_fds: &[],
+                max_tasks: 64,
+                // Whole-file rewrites of areas: a few of them at most.
+                file_size_limit: Some(4 * crate::storage::file_store::MAX_AREA_BYTES as u64),
             },
         )?;
         if let Err(e) = gosub_sandbox::confine_spawned_child(&child) {

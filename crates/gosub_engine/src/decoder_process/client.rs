@@ -78,6 +78,8 @@ fn ask_child(request: ToDecoder) -> Result<Answer, DecodeError> {
             fs_grant: None,
             data_limit: None,
             extra_fds: &[],
+            max_tasks: 16,
+            file_size_limit: None,
         },
     )
     .map_err(|e| DecodeError::Failed(format!("could not spawn a decoder: {e}")))?;

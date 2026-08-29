@@ -46,3 +46,11 @@ pub fn isolate_namespaces(_mode: crate::NamespaceIsolation) -> std::io::Result<(
 
 /// No anti-debugging primitive wired up here.
 pub fn deny_debugger_attach() {}
+
+#[cfg(feature = "multi-process")]
+pub fn apply_child_file_size_limit(_bytes: u64) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(feature = "multi-process")]
+pub fn mark_all_fds_close_on_exec() {}
