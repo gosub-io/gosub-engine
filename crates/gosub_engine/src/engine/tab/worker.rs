@@ -147,7 +147,8 @@ pub enum NavigationResult<C: RenderConfiguration> {
         nav_id: NavigationId,
         final_url: Url,
         title: Option<String>,
-        doc: Arc<crate::html::EngineDocument<C>>,
+        /// `None` when a renderer process parses the document instead.
+        doc: Option<Arc<crate::html::EngineDocument<C>>>,
         /// The document's source text, captured when this engine renders
         /// out-of-process (the renderer re-parses it there).
         source: Option<Arc<str>>,
@@ -498,52 +499,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
         self.services.storage.drop_tab(self.zone_id, self.tab_id);
     }
 
-    /// Resolve the document's icon URL: the first `<link>` whose `rel` contains `icon`
-    /// (covers `icon`, `shortcut icon`, `apple-touch-icon`) with an `href`, resolved against
-    /// the document URL; else the well-known `/favicon.ico` for http(s) documents.
-    fn favicon_url(doc: &C::Document, base_url: &Url) -> Option<Url> {
-        use gosub_interface::document::Document as _;
-
-        fn walk<C: RenderConfiguration>(
-            doc: &C::Document,
-            node: gosub_shared::node::NodeId,
-            base: &Url,
-        ) -> Option<Url> {
-            for &child in doc.children(node) {
-                if doc.tag_name(child).is_some_and(|t| t.eq_ignore_ascii_case("link")) {
-                    // `icon`, `shortcut icon` (space-separated tokens) and the hyphenated
-                    // `apple-touch-icon` / `apple-touch-icon-precomposed`.
-                    let is_icon = doc.attribute(child, "rel").is_some_and(|rel| {
-                        rel.split_ascii_whitespace().any(|t| {
-                            t.eq_ignore_ascii_case("icon")
-                                || t.len() >= 16 && t[..16].eq_ignore_ascii_case("apple-touch-icon")
-                        })
-                    });
-                    if is_icon {
-                        if let Some(url) = doc.attribute(child, "href").and_then(|h| base.join(h).ok()) {
-                            return Some(url);
-                        }
-                    }
-                }
-                if let Some(found) = walk::<C>(doc, child, base) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-
-        walk::<C>(doc, doc.root(), base_url).or_else(|| {
-            matches!(base_url.scheme(), "http" | "https")
-                .then(|| base_url.join("/favicon.ico").ok())
-                .flatten()
-        })
-    }
-
     /// Fetch the document's icon through the zone fetcher (so it carries the UA, cookies and
     /// shows up in resource events) and emit `FavIconChanged` with its bytes on success.
     /// Fire-and-forget: runs on its own task, cancelled with the navigation.
-    fn fetch_favicon(&self, doc: &C::Document, base_url: &Url, nav_cancel: &CancellationToken) {
-        let Some(icon_url) = Self::favicon_url(doc, base_url) else {
+    fn fetch_favicon(&self, icon_url: Url, nav_cancel: &CancellationToken) {
+        let Some(base_url) = self.context.document_url().cloned() else {
             return;
         };
         let req_id = RequestId::new();
@@ -681,15 +641,30 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 doc,
                 source,
             } => {
-                self.context.set_document(Arc::clone(&doc), source);
-                self.load_web_fonts(&doc, &final_url);
-                if let Some(cancel) = self
+                let nav_cancel = self
                     .active_nav
                     .as_ref()
                     .filter(|a| a.nav_id == nav_id)
-                    .map(|a| a.cancel.clone())
-                {
-                    self.fetch_favicon(&doc, &final_url, &cancel);
+                    .map(|a| a.cancel.clone());
+                match (doc, source) {
+                    (Some(doc), source) => {
+                        self.context.set_document(Arc::clone(&doc), source);
+                        self.load_web_fonts(&doc, &final_url);
+                        if let Some(cancel) = &nav_cancel {
+                            if let Some(icon) = crate::html::favicon_url::<C>(&doc, &final_url) {
+                                self.fetch_favicon(icon, cancel);
+                            }
+                        }
+                    }
+                    // The renderer process parses; title and icon arrive with
+                    // its first render (see `apply_remote_document_meta`).
+                    (None, Some(source)) => self.context.set_document_source(final_url.clone(), source),
+                    (None, None) => {
+                        log::error!(
+                            "Tab[{:?}] navigation produced neither a document nor its source",
+                            self.tab_id
+                        );
+                    }
                 }
                 self.current_url = Some(final_url.clone());
                 if let Some(t) = title.clone() {
@@ -1510,6 +1485,11 @@ impl<C: RenderConfiguration> TabWorker<C> {
                 capture_source,
             );
 
+            // The URL a source-only document lands on: the response's, after redirects.
+            let document_final_url = fetch_result
+                .meta()
+                .map(|meta| meta.final_url.clone())
+                .unwrap_or_else(about_blank);
             let outcome = route_response_for(
                 RequestDestination::Document,
                 handle,
@@ -1521,10 +1501,13 @@ impl<C: RenderConfiguration> TabWorker<C> {
             .await;
 
             match outcome {
-                Ok(RoutedOutcome::MainDocument(doc, source)) => {
+                Ok(RoutedOutcome::MainDocument { doc, source }) => {
                     use gosub_interface::document::Document as _;
-                    let final_url = doc.url().unwrap_or_else(about_blank);
-                    let title = crate::html::document_title(&doc);
+                    let final_url = doc
+                        .as_ref()
+                        .and_then(|doc| doc.url())
+                        .unwrap_or_else(|| document_final_url.clone());
+                    let title = doc.as_ref().and_then(|doc| crate::html::document_title(doc));
                     let _ = tx_done.send(NavigationResult::Ok {
                         nav_id,
                         final_url,
@@ -1720,11 +1703,12 @@ impl<C: RenderConfiguration> TabWorker<C> {
             );
 
             match hooks.html.parse_bytes(req, handle, meta, html.as_bytes()).await {
-                Ok((doc, source)) => {
+                Ok(parsed) => {
                     use gosub_interface::document::Document as _;
-                    let doc = Arc::new(doc);
-                    let final_url = doc.url().unwrap_or(url);
-                    let title = crate::html::document_title(&doc);
+                    let (doc, source) = parsed.into_parts();
+                    let doc = doc.map(Arc::new);
+                    let final_url = doc.as_ref().and_then(|doc| doc.url()).unwrap_or(url);
+                    let title = doc.as_ref().and_then(|doc| crate::html::document_title(doc));
                     let _ = tx_done.send(NavigationResult::Ok {
                         nav_id,
                         final_url,
@@ -1750,7 +1734,35 @@ impl<C: RenderConfiguration> TabWorker<C> {
 
     /// Do a draw tick. This will be called based on the FPS that is requested
     #[allow(unreachable_code)] // cfg-conditional tile-cache returns make the display-list path unreachable for some feature combos
+    /// Title and icon of a document the renderer process parsed, once its
+    /// first render reports them.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn apply_remote_document_meta(&mut self) {
+        let Some((title, favicon)) = self.context.take_remote_document_meta() else {
+            return;
+        };
+        if let Some(title) = title.filter(|t| *t != self.title) {
+            self.title = title.clone();
+            self.history.set_current_title(Some(title.clone()));
+            if let (Some(places), Some(url)) = (&self.services.places, &self.current_url) {
+                if matches!(url.scheme(), "http" | "https") {
+                    places.record_visit(url.as_str(), &title);
+                }
+            }
+            self.send_event(EngineEvent::TitleChanged {
+                tab_id: self.tab_id,
+                title,
+            });
+        }
+        if let Some(icon) = favicon.and_then(|f| Url::parse(&f).ok()) {
+            let cancel = self.active_nav.as_ref().map(|a| a.cancel.clone()).unwrap_or_default();
+            self.fetch_favicon(icon, &cancel);
+        }
+    }
+
     async fn tick_draw(&mut self) -> anyhow::Result<()> {
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        self.apply_remote_document_meta();
         // Deferred scroll for a freshly committed document (history restore or URL fragment),
         // once it has laid out: page height and element positions are only known then. The
         // first dirty tick after `set_document` runs layout; this applies on the tick after
@@ -2191,13 +2203,12 @@ mod tests {
 
     mod favicon_url {
         use crate::html::DefaultRenderConfig;
-        use crate::tab::worker::TabWorker;
         use url::Url;
 
         fn resolve(html: &str, base: &str) -> Option<String> {
             let doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
             let base = Url::parse(base).unwrap();
-            TabWorker::<DefaultRenderConfig>::favicon_url(&doc, &base).map(|u| u.to_string())
+            crate::html::favicon_url::<DefaultRenderConfig>(&doc, &base).map(|u| u.to_string())
         }
 
         #[test]

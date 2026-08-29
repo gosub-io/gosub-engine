@@ -46,15 +46,20 @@ impl<C: RenderConfiguration> ResourcePipelines<C> {
         max_document_bytes: usize,
         capture_source: bool,
     ) -> Self {
+        // A renderer process that will re-parse the document is also the only
+        // process that should parse it: keep just the source here.
         Self {
-            html: Box::new(HtmlPipelineImpl::new(
-                zone_id,
-                tab_id,
-                io_tx,
-                accept_language,
-                max_document_bytes,
-                capture_source,
-            )),
+            html: Box::new(
+                HtmlPipelineImpl::new(
+                    zone_id,
+                    tab_id,
+                    io_tx,
+                    accept_language,
+                    max_document_bytes,
+                    capture_source,
+                )
+                .source_only(capture_source),
+            ),
             css: Box::new(CssPipelineImpl {}),
             js: Box::new(JsPipelineImpl {}),
             images: Box::new(ImagePipelineImpl {}),

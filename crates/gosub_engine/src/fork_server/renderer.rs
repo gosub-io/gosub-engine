@@ -8,7 +8,7 @@
 //! touches, and letting go of tiles that drift too far.
 
 use crate::fork_server::protocol::{HitRegion, PageSummary, MAX_HIT_REGIONS};
-use crate::html::RenderConfiguration;
+use crate::html::{EngineDocument, RenderConfiguration};
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::parser::{Html5Parser, Html5ParserOptions};
 use gosub_interface::css3::CssSystem as _;
@@ -107,6 +107,8 @@ struct Shipped {
 /// later passes can tile, paint and rasterize any window of it without
 /// parsing again.
 pub struct RetainedPage {
+    title: Option<String>,
+    favicon: Option<String>,
     layer_list: Arc<LayerList>,
     layer_ids: Vec<LayerId>,
     fonts: Arc<Mutex<dyn FontSystem>>,
@@ -189,9 +191,15 @@ impl RetainedPage {
             });
         }
         let parse_us = started.elapsed().as_micros() as u64;
+        let title = crate::html::document_title::<C>(&doc);
+        let favicon = base_url
+            .as_ref()
+            .and_then(|base| crate::html::favicon_url::<C>(&doc, base))
+            .map(|url| url.to_string());
 
         // Stage 1: render tree.
         let doc = Arc::new(doc);
+        let doc_for_regions = Arc::clone(&doc);
         let set_hovered: Box<dyn Fn(Option<NodeId>) + Send + Sync> = {
             let doc = Arc::clone(&doc);
             Box::new(move |leaf| doc.set_hovered_nodes(leaf))
@@ -221,7 +229,7 @@ impl RetainedPage {
         // Stage 3: layering.
         let layer_list = Arc::new(LayerList::new(layout_tree));
         let layer_ids = layer_list.layer_ids.read().clone();
-        let hit_regions = collect_hit_regions(&layer_list);
+        let hit_regions = collect_hit_regions::<C>(&layer_list, &doc_for_regions, base_url.as_ref());
         let build_timings = vec![
             ("build.parse".to_string(), parse_us),
             ("build.render_tree".to_string(), render_tree_us),
@@ -229,6 +237,8 @@ impl RetainedPage {
         ];
 
         Self {
+            title,
+            favicon,
             layer_list,
             layer_ids,
             rasterizer: C::forked_tile_rasterizer(Arc::clone(&fonts)),
@@ -331,6 +341,8 @@ impl RetainedPage {
 
     fn summary(&self, painted_tiles: u64, paint_commands: u64, timings_us: Vec<(String, u64)>) -> PageSummary {
         PageSummary {
+            title: self.title.clone(),
+            favicon: self.favicon.clone(),
             page_width: self.page_width,
             page_height: self.page_height,
             layer_count: self.layer_ids.len() as u64,
@@ -544,7 +556,58 @@ struct TilePlan {
 }
 
 /// Flatten the layer list into hit-test geometry for the broker.
-fn collect_hit_regions(layer_list: &LayerList) -> Vec<HitRegion> {
+/// Everything the broker needs to answer hit tests and hovers without a DOM
+/// of its own, resolved here per box.
+fn describe_hit<C: RenderConfiguration>(
+    doc: &EngineDocument<C>,
+    node: NodeId,
+    base_url: Option<&Url>,
+) -> (
+    Option<String>,
+    Option<String>,
+    crate::fork_server::protocol::HitCursor,
+    bool,
+) {
+    use crate::fork_server::protocol::HitCursor;
+    use gosub_interface::node::NodeType;
+    let resolve = |raw: &str| base_url.and_then(|b| b.join(raw).ok()).map(|u| u.to_string());
+    let mut link = None;
+    let mut image = None;
+    let mut editable = false;
+    let mut cursor = if doc.node_type(node) == NodeType::TextNode {
+        HitCursor::Text
+    } else {
+        HitCursor::Default
+    };
+    let mut id = Some(node);
+    while let Some(current) = id {
+        if link.is_none() && doc.tag_name(current) == Some("a") {
+            if let Some(href) = doc.attribute(current, "href") {
+                link = Some(resolve(href).unwrap_or_else(|| href.to_string()));
+                cursor = HitCursor::Pointer;
+            }
+        }
+        if image.is_none() && doc.tag_name(current) == Some("img") {
+            image = doc
+                .attribute(current, "src")
+                .map(|src| resolve(src).unwrap_or_else(|| src.to_string()));
+        }
+        if crate::html::is_text_input::<C>(doc, current) {
+            editable = true;
+            if cursor != HitCursor::Pointer {
+                cursor = HitCursor::Text;
+            }
+        }
+        id = doc.parent(current);
+    }
+    (link, image, cursor, editable)
+}
+
+fn collect_hit_regions<C: RenderConfiguration>(
+    layer_list: &LayerList,
+    doc: &EngineDocument<C>,
+    base_url: Option<&Url>,
+) -> Vec<HitRegion> {
     let mut regions = Vec::new();
     let layer_ids = layer_list.layer_ids.read();
     let layers = layer_list.layers.read();
@@ -564,6 +627,7 @@ fn collect_hit_regions(layer_list: &LayerList) -> Vec<HitRegion> {
                 break 'outer;
             }
             let margin = &element.box_model.margin_box;
+            let (link, image, cursor, editable) = describe_hit::<C>(doc, element.dom_node_id, base_url);
             regions.push(HitRegion {
                 x: margin.x,
                 y: margin.y,
@@ -571,6 +635,10 @@ fn collect_hit_regions(layer_list: &LayerList) -> Vec<HitRegion> {
                 height: margin.height,
                 node_id: element.dom_node_id.into(),
                 anchor: layer.anchor.into(),
+                link,
+                image,
+                cursor,
+                editable,
             });
         }
     }

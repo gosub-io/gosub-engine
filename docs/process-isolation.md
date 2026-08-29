@@ -34,7 +34,7 @@ naming, because the code defends them everywhere:
 ## The process model
 
 ```
-broker (the embedder's process: engine, zones, tabs, DOM, cookies, storage, compositing)
+broker (the embedder's process: engine, zones, tabs, navigation, compositing)
 ├── gosub-net           network stack; the engine's only network capability
 ├── gosub-vault         the cookie jars (`security.cookie_vault`); talks to gosub-net directly
 ├── gosub-storage       localStorage areas on files (embedders using `ServiceLocalStore`)
@@ -127,10 +127,13 @@ the tiers and why they exist.
 
 ## How a page gets rendered
 
-The tab worker (broker) captures the fetched document source and sends the
-renderer `Navigate { tab, html, url, viewport, scroll_y, known_tiles, … }`. The
+The tab worker (broker) fetches the document and keeps only its source: it
+does not run the HTML parser on page content. It sends the renderer
+`Navigate { tab, html, url, viewport, scroll_y, known_tiles, … }`; the
 renderer parses, styles and lays out the page — fetching stylesheets, web fonts
-and images through the broker, see below — then keeps that laid-out page
+and images through the broker, see below — reports the document's title and
+icon URL in its render summary (the broker raises `TitleChanged` and fetches
+the icon from that), then keeps that laid-out page
 retained per tab and rasterizes **only the raster window** around the viewport
 (scroll ± one viewport height, the same policy as the in-process tile budget).
 

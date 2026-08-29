@@ -74,21 +74,7 @@ fn hover_matches<C: RenderConfiguration>(fp: &HoverFingerprints, doc: &EngineDoc
     false
 }
 /// True for elements whose content is edited as text (they show the I-beam cursor).
-fn is_text_input<C: RenderConfiguration>(doc: &EngineDocument<C>, node_id: NodeId) -> bool {
-    match doc.tag_name(node_id) {
-        Some("textarea") => true,
-        Some("input") => !doc.attribute(node_id, "type").is_some_and(|t| {
-            [
-                "button", "submit", "reset", "checkbox", "radio", "range", "color", "file", "image", "hidden",
-            ]
-            .iter()
-            .any(|k| t.eq_ignore_ascii_case(k))
-        }),
-        _ => doc
-            .attribute(node_id, "contenteditable")
-            .is_some_and(|v| v.is_empty() || v.eq_ignore_ascii_case("true")),
-    }
-}
+use crate::html::is_text_input;
 
 /// True for elements that participate in keyboard focus: links, form controls,
 /// editable regions, and anything with a non-negative `tabindex`.
@@ -222,6 +208,12 @@ pub struct BrowsingContext<C: RenderConfiguration = crate::html::DefaultRenderCo
     /// The source text of the current document, kept when a renderer process
     /// will re-parse it there. `None` when rendering in-process.
     document_source: Option<std::sync::Arc<str>>,
+    /// The current document's URL, whether or not this process parsed it.
+    document_url: Option<Url>,
+    /// Title and icon URL the renderer reported for the current document,
+    /// not yet handed to the tab.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    remote_document_meta: Option<(Option<String>, Option<String>)>,
     /// Tiles from the last remote render, keyed by content hash; offered to the
     /// next render so unchanged tiles are neither rasterized nor shipped again.
     /// Remote counterpart of `tile_pixel_cache`.
@@ -346,6 +338,9 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             tile_budget: TileBudget::new(),
             loader,
             document_source: None,
+            document_url: None,
+            #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+            remote_document_meta: None,
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
             remote_tile_memory: Default::default(),
             #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -435,10 +430,43 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     }
 
     pub fn set_document(&mut self, doc: Arc<EngineDocument<C>>, source: Option<std::sync::Arc<str>>) {
+        let url = {
+            use gosub_interface::document::Document as _;
+            doc.url()
+        };
+        self.replace_document(Some(doc), url, source);
+    }
+
+    /// A document this process did not parse: the renderer process will, from
+    /// `source`. Nothing here holds a DOM for it.
+    pub fn set_document_source(&mut self, url: Url, source: std::sync::Arc<str>) {
+        self.replace_document(None, Some(url), Some(source));
+    }
+
+    pub fn document_url(&self) -> Option<&Url> {
+        self.document_url.as_ref()
+    }
+
+    /// Title and icon URL the renderer reported since the last call.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    pub fn take_remote_document_meta(&mut self) -> Option<(Option<String>, Option<String>)> {
+        self.remote_document_meta.take()
+    }
+
+    fn replace_document(
+        &mut self,
+        doc: Option<Arc<EngineDocument<C>>>,
+        url: Option<Url>,
+        source: Option<std::sync::Arc<str>>,
+    ) {
         #[cfg(all(feature = "process-isolation", target_os = "linux"))]
-        self.remote_media.clear();
+        {
+            self.remote_media.clear();
+            self.remote_document_meta = None;
+        }
         self.note_invalidate("document");
-        self.document = Some(doc);
+        self.document = doc;
+        self.document_url = url;
         self.document_source = source;
         self.dom_dirty = true;
         self.style_dirty = true;
@@ -698,10 +726,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// Whether the current document is one of the engine's own pages.
     #[cfg(all(feature = "process-isolation", target_os = "linux"))]
     fn is_internal_page(&self) -> bool {
-        use gosub_interface::document::Document as _;
-        self.document
+        self.document_url
             .as_ref()
-            .and_then(|doc| doc.url())
             .is_some_and(|url| matches!(url.scheme(), "gosub" | "about"))
     }
 
@@ -723,14 +749,11 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
 
         // The document's own URL is the renderer's base for relative
         // subresource URLs; about:blank when it has none.
-        let page_url = {
-            use gosub_interface::document::Document as _;
-            self.document
-                .as_ref()
-                .and_then(|doc| doc.url())
-                .map(|url| url.to_string())
-                .unwrap_or_else(|| "about:blank".to_string())
-        };
+        let page_url = self
+            .document_url
+            .as_ref()
+            .map(|url| url.to_string())
+            .unwrap_or_else(|| "about:blank".to_string());
         let viewport = (self.viewport.width as f64, self.viewport.height as f64);
         let started = std::time::Instant::now();
         let resources = crate::fork_server::client::TabResources {
@@ -812,6 +835,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 self.remote_tile_memory
                     .replace_with(page.tiles.into_iter().map(kept_tile));
                 self.remote_layer_order = page.summary.layer_order.clone();
+                self.remote_document_meta = Some((page.summary.title.clone(), page.summary.favicon.clone()));
                 let baked = self.remote_tile_memory.baked_tiles(&self.remote_layer_order);
                 let cached_tiles = Arc::new(gosub_render_pipeline::rasterizer::cpu_cached_tiles(&baked));
                 self.pipeline_cache = Some(PipelineCache {
@@ -859,10 +883,7 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
             }
             return true;
         }
-        let Some(page_url) = self.document.as_ref().and_then(|doc| {
-            use gosub_interface::document::Document as _;
-            doc.url().map(|url| url.to_string())
-        }) else {
+        let Some(page_url) = self.document_url.as_ref().map(|url| url.to_string()) else {
             return false;
         };
 
@@ -1426,6 +1447,15 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     /// content. URLs are resolved against `base`. Read-only: does not touch hover state.
     pub fn hit_test(&self, vp_x: f64, vp_y: f64, base: Option<&Url>) -> HitTestResponse {
         let mut out = HitTestResponse::default();
+        #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+        if let Some(regions) = self.remote_hit_regions() {
+            if let Some(region) = hit_region_at(regions, vp_x, vp_y, self.scroll_x, self.scroll_y) {
+                out.link_url = region.link.clone();
+                out.image_url = region.image.clone();
+                out.is_editable = region.editable;
+            }
+            return out;
+        }
         let (Some(layer_list), Some(doc)) = (self.active_layer_list(), self.document.as_ref()) else {
             return out;
         };
@@ -1491,8 +1521,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         // list; the layout element id is unavailable there, which costs hover
         // repaint, not hit testing (see `PipelineCache::hit_regions`).
         if let Some(regions) = self.remote_hit_regions() {
-            let node = hit_test_regions(regions, vp_x, vp_y, scroll_x, scroll_y);
-            return self.apply_hover(node, None);
+            let hit = hit_region_at(regions, vp_x, vp_y, scroll_x, scroll_y).cloned();
+            return self.apply_remote_hover(hit.as_ref());
         }
 
         let (new_leaf, new_lei) = self.active_layer_list().map_or((None, None), |layer_list| {
@@ -1513,6 +1543,32 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
     fn remote_hit_regions(&self) -> Option<&[crate::fork_server::protocol::HitRegion]> {
         let cache = self.pipeline_cache.as_ref()?;
         (cache.layer_list.is_none() && !cache.hit_regions.is_empty()).then_some(cache.hit_regions.as_slice())
+    }
+
+    /// Hover over a remotely rendered page: the region carries what the
+    /// renderer resolved (link, cursor); the renderer's own `Hover` pass does
+    /// the restyle and repaint, so any change of element is visually dirty.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn apply_remote_hover(
+        &mut self,
+        hit: Option<&crate::fork_server::protocol::HitRegion>,
+    ) -> (bool, bool, Option<String>) {
+        use crate::fork_server::protocol::HitCursor;
+        let new_leaf = hit.map(|r| NodeId::from(r.node_id));
+        if new_leaf == self.hover_leaf {
+            return (false, false, self.hover_link_url.clone());
+        }
+        self.hover_leaf = new_leaf;
+        self.hover_layout_element = None;
+        let link = hit.and_then(|r| r.link.clone());
+        self.hover_cursor = match hit.map(|r| r.cursor) {
+            Some(HitCursor::Pointer) => CursorShape::Pointer,
+            Some(HitCursor::Text) => CursorShape::Text,
+            _ => CursorShape::Default,
+        };
+        let url_changed = link != self.hover_link_url;
+        self.hover_link_url = link.clone();
+        (true, url_changed, link)
     }
 
     /// Fold a hit-test result into hover state: ancestor walk for the link and
@@ -2030,13 +2086,13 @@ fn kept_tile(tile: crate::fork_server::client::PageTile) -> (u64, crate::fork_se
 }
 
 /// Which node a point lands on, per a remotely rendered page's geometry.
-fn hit_test_regions(
+fn hit_region_at(
     regions: &[crate::fork_server::protocol::HitRegion],
     vp_x: f64,
     vp_y: f64,
     scroll_x: f64,
     scroll_y: f64,
-) -> Option<NodeId> {
+) -> Option<&crate::fork_server::protocol::HitRegion> {
     use crate::fork_server::protocol::TileWireAnchor;
     use gosub_render_pipeline::render::backend::StickyConstraint;
 
@@ -2062,7 +2118,7 @@ fn hit_test_regions(
             }
         };
         if x >= region.x && x < region.x + region.width && y >= region.y && y < region.y + region.height {
-            return Some(NodeId::from(region.node_id));
+            return Some(region);
         }
     }
     None

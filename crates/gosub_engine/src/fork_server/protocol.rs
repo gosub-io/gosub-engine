@@ -193,6 +193,10 @@ pub struct ProofReply {
 /// painter produces no commands).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PageSummary {
+    /// The document's `<title>` and icon URL, from the renderer's parse: the
+    /// broker does not parse page content itself.
+    pub title: Option<String>,
+    pub favicon: Option<String>,
     pub page_width: f64,
     pub page_height: f64,
     pub layer_count: u64,
@@ -218,13 +222,27 @@ pub struct HitRegion {
     pub y: f64,
     pub width: f64,
     pub height: f64,
-    /// The DOM node this box belongs to, as the broker's document numbers it -
-    /// both processes parsed the same bytes with the same parser, so the ids
-    /// agree.
+    /// The node in the renderer's DOM; only meaningful back in that renderer
+    /// (`Hover { node }`).
     pub node_id: u64,
     /// How the region's layer responds to scroll; the broker inverts the same
     /// composite mapping the tiles use.
     pub anchor: TileWireAnchor,
+    /// What the broker would otherwise read off a DOM it no longer holds:
+    /// the nearest enclosing `<a href>` (absolute), the `<img src>` at or
+    /// around the box, the cursor for the box, and whether it is editable.
+    pub link: Option<String>,
+    pub image: Option<String>,
+    pub cursor: HitCursor,
+    pub editable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum HitCursor {
+    #[default]
+    Default,
+    Pointer,
+    Text,
 }
 
 /// Upper bound on regions shipped for one page. A pathological page (tens of

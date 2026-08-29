@@ -84,6 +84,46 @@ impl Default for HtmlParseConfig {
 
 /// Main entry point: buffer the HTML stream, parse it into a real DOM document,
 /// and report discovered sub-resources via `on_discover`.
+/// Read a document's bytes as source text, without parsing it: what a tab
+/// keeps when a renderer process does the parsing. Same size cap and lossy
+/// UTF-8 as the captured source of a parsed document.
+pub async fn read_document_source<R>(
+    base_url: &Url,
+    mut reader: R,
+    cancel: CancellationToken,
+    max_bytes: usize,
+) -> Result<std::sync::Arc<str>, DocumentError>
+where
+    R: AsyncRead + Unpin + Send,
+{
+    let mut buf: Vec<u8> = Vec::new();
+    let mut tmp = [0u8; 16 * 1024];
+    loop {
+        if cancel.is_cancelled() {
+            return Err(DocumentError::Cancelled);
+        }
+        let n = reader.read(&mut tmp).await?;
+        if n == 0 {
+            break;
+        }
+        let remaining = max_bytes.saturating_sub(buf.len()).min(n);
+        if remaining > 0 {
+            buf.extend_from_slice(&tmp[..remaining]);
+        }
+        if buf.len() >= max_bytes {
+            log::warn!("Document {base_url} exceeds the {max_bytes} byte limit (net.document.max_bytes); truncated");
+            let mut drain = [0u8; 16 * 1024];
+            while reader.read(&mut drain).await? != 0 {
+                if cancel.is_cancelled() {
+                    return Err(DocumentError::Cancelled);
+                }
+            }
+            break;
+        }
+    }
+    Ok(std::sync::Arc::<str>::from(String::from_utf8_lossy(&buf).as_ref()))
+}
+
 pub async fn parse_main_document_stream<C, R, F>(
     base_url: Url,
     mut reader: R,

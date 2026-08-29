@@ -19,7 +19,11 @@ pub enum RoutedOutcome<C: RenderConfiguration> {
     /// The main document has been parsed and is ready. The second field is
     /// the document's source text, captured when the engine renders
     /// out-of-process (its renderer re-parses; a DOM cannot cross a fork).
-    MainDocument(Arc<EngineDocument<C>>, Option<Arc<str>>),
+    MainDocument {
+        /// `None` when the renderer process parses instead of this one.
+        doc: Option<Arc<EngineDocument<C>>>,
+        source: Option<Arc<str>>,
+    },
     /// The resource has been rendered in a viewer (text, image, pdf, etc.).
     ViewerRendered(Bytes),
 
@@ -180,7 +184,7 @@ pub async fn route_response_for<C: RenderConfiguration>(
     match (dest, outcome.decision, body_content) {
         (RequestDestination::Document, HandlingDecision::Render(target), body_content) => match target {
             RenderTarget::HtmlParser => {
-                let (doc, source) = match body_content {
+                let parsed = match body_content {
                     BodyContent::Stream { shared } => {
                         hooks.html.parse_stream(request, handle, meta, peek_buf, shared).await?
                     }
@@ -188,7 +192,11 @@ pub async fn route_response_for<C: RenderConfiguration>(
                         hooks.html.parse_bytes(request, handle, meta, body.as_ref()).await?
                     }
                 };
-                Ok(RoutedOutcome::MainDocument(Arc::new(doc), source))
+                let (doc, source) = parsed.into_parts();
+                Ok(RoutedOutcome::MainDocument {
+                    doc: doc.map(Arc::new),
+                    source,
+                })
             }
             RenderTarget::CssParser => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
             RenderTarget::JsEngine => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
@@ -217,8 +225,15 @@ pub async fn route_response_for<C: RenderConfiguration>(
                 meta.content_type = Some("text/html; charset=utf-8".into());
                 // The synthesized viewer page is a document like any other: its
                 // source travels along so a renderer process can re-parse it too.
-                let (doc, source) = hooks.html.parse_bytes(request, handle, meta, html.as_bytes()).await?;
-                return Ok(RoutedOutcome::MainDocument(Arc::new(doc), source));
+                let (doc, source) = hooks
+                    .html
+                    .parse_bytes(request, handle, meta, html.as_bytes())
+                    .await?
+                    .into_parts();
+                return Ok(RoutedOutcome::MainDocument {
+                    doc: doc.map(Arc::new),
+                    source,
+                });
             }
             // Binary content or an explicit attachment: offer it to the embedder as a
             // download instead of failing the navigation.

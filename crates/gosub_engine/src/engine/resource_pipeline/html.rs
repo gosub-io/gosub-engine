@@ -19,6 +19,26 @@ use tokio::io::AsyncRead;
 use tokio::task::JoinHandle;
 use tokio_util::io::StreamReader;
 
+/// What the pipeline made of a document body.
+pub enum ParsedDocument<C: RenderConfiguration> {
+    /// Parsed here, with its source when a renderer process may re-parse it.
+    Parsed {
+        doc: Box<EngineDocument<C>>,
+        source: Option<Arc<str>>,
+    },
+    /// Not parsed here: the renderer process parses. Only the source is kept.
+    SourceOnly { source: Arc<str> },
+}
+
+impl<C: RenderConfiguration> ParsedDocument<C> {
+    pub fn into_parts(self) -> (Option<EngineDocument<C>>, Option<Arc<str>>) {
+        match self {
+            Self::Parsed { doc, source } => (Some(*doc), source),
+            Self::SourceOnly { source } => (None, Some(source)),
+        }
+    }
+}
+
 #[async_trait]
 pub trait HtmlPipeline<C: RenderConfiguration> {
     async fn parse_stream(
@@ -28,7 +48,7 @@ pub trait HtmlPipeline<C: RenderConfiguration> {
         meta: FetchResultMeta,
         peek_buf: PeekBuf,
         body: Arc<SharedBody>,
-    ) -> anyhow::Result<(EngineDocument<C>, Option<Arc<str>>)>;
+    ) -> anyhow::Result<ParsedDocument<C>>;
 
     async fn parse_bytes(
         &mut self,
@@ -36,7 +56,7 @@ pub trait HtmlPipeline<C: RenderConfiguration> {
         handle: FetchHandle,
         meta: FetchResultMeta,
         body: &[u8],
-    ) -> anyhow::Result<(EngineDocument<C>, Option<Arc<str>>)>;
+    ) -> anyhow::Result<ParsedDocument<C>>;
 }
 
 pub struct HtmlPipelineImpl {
@@ -53,9 +73,18 @@ pub struct HtmlPipelineImpl {
     /// `HtmlParseConfig::capture_source`) - on when the engine renders
     /// out-of-process and its renderer will need to re-parse.
     capture_source: bool,
+    /// Keep only the source: the renderer process parses, this process never
+    /// runs the HTML parser on page content.
+    source_only: bool,
 }
 
 impl HtmlPipelineImpl {
+    /// Skip parsing here and keep the source for a renderer process.
+    pub fn source_only(mut self, on: bool) -> Self {
+        self.source_only = on;
+        self
+    }
+
     pub fn new(
         zone_id: ZoneId,
         tab_id: TabId,
@@ -65,6 +94,7 @@ impl HtmlPipelineImpl {
         capture_source: bool,
     ) -> Self {
         Self {
+            source_only: false,
             io_tx,
             zone_id,
             tab_id,
@@ -80,11 +110,23 @@ impl HtmlPipelineImpl {
         handle: FetchHandle,
         meta: FetchResultMeta,
         reader: R,
-    ) -> anyhow::Result<(EngineDocument<C>, Option<Arc<str>>)>
+    ) -> anyhow::Result<ParsedDocument<C>>
     where
         C: RenderConfiguration,
         R: AsyncRead + Unpin + Send + 'static,
     {
+        if self.source_only {
+            let source = crate::html::read_document_source(
+                &meta.final_url,
+                reader,
+                handle.cancel.clone(),
+                self.max_document_bytes,
+            )
+            .await
+            .map_err(|e| anyhow!("Failed to read HTML document: {:?}", e))?;
+            handle.cancel.cancel();
+            return Ok(ParsedDocument::SourceOnly { source });
+        }
         let io_tx = self.io_tx.clone();
         let zone_id = self.zone_id;
         let tab_id = self.tab_id;
@@ -206,7 +248,11 @@ impl HtmlPipelineImpl {
             }
         }
 
-        res.map_err(|e| anyhow!("Failed to parse HTML document: {:?}", e))
+        res.map(|(doc, source)| ParsedDocument::Parsed {
+            doc: Box::new(doc),
+            source,
+        })
+        .map_err(|e| anyhow!("Failed to parse HTML document: {:?}", e))
     }
 }
 
@@ -219,7 +265,7 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl {
         meta: FetchResultMeta,
         peek_buf: PeekBuf,
         shared: Arc<SharedBody>,
-    ) -> anyhow::Result<(EngineDocument<C>, Option<Arc<str>>)> {
+    ) -> anyhow::Result<ParsedDocument<C>> {
         let reader = SharedBody::combined_reader(peek_buf, shared);
         self.parse_with_reader::<C, _>(request, handle, meta, reader).await
     }
@@ -230,7 +276,7 @@ impl<C: RenderConfiguration> HtmlPipeline<C> for HtmlPipelineImpl {
         handle: FetchHandle,
         meta: FetchResultMeta,
         body: &[u8],
-    ) -> anyhow::Result<(EngineDocument<C>, Option<Arc<str>>)> {
+    ) -> anyhow::Result<ParsedDocument<C>> {
         // parsing bytes is just creating a stream of those bytes and passing it to the stream reader
         let stream = stream::iter(vec![Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(body))]);
         let reader = StreamReader::new(stream);
@@ -347,7 +393,9 @@ mod tests {
         // Act
         let (doc, _source) = HtmlPipeline::<DefaultRenderConfig>::parse_bytes(&mut pipeline, req, handle, meta, body)
             .await
-            .expect("parse_bytes should succeed");
+            .expect("parse_bytes should succeed")
+            .into_parts();
+        let doc = doc.expect("parsed in-process");
 
         // Allow spawned tasks to submit to IO and be recorded
         sleep(Duration::from_millis(10)).await;
