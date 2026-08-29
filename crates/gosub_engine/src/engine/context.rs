@@ -1096,6 +1096,7 @@ fn pipeline_build_scene<C: RenderConfiguration>(
     layouter.set_media_store(Arc::clone(&media_store));
     let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
     let page_height = layout_tree.root_dimension.height;
+    let page_width = layout_tree.root_dimension.width;
 
     // Stage 3: layering
     let layer_list = Arc::new(LayerList::new(layout_tree));
@@ -1103,7 +1104,11 @@ fn pipeline_build_scene<C: RenderConfiguration>(
     // Stage 5′: paint every element into one ordered list (no tiling). Paint over the full page
     // so scrolling reveals already-painted content without a rebuild.
     let layer_count = layer_list.layer_ids.read().len();
-    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, page_height.max(1.0));
+    // Paint across the full tile-grid width, not the viewport width: the grid's column count
+    // comes from the LAYOUT width (`root_dimension.width`), so a viewport narrower than the
+    // layout (horizontal overflow, or a not-yet-allocated 0-width viewport) would collapse this
+    // rect and leave every column but the first unpainted and unrasterized.
+    let full_page_rect = PipelineRect::new(0.0, 0.0, page_width.max(viewport.width as f64), page_height.max(1.0));
     let state = BrowserState {
         visible_layer_list: vec![true; layer_count],
         wireframed: WireframeState::None,
@@ -1182,6 +1187,7 @@ fn pipeline_build_cache<C: RenderConfiguration>(
     let layout_tree = layouter.layout(render_tree, vp_dim, 1.0);
     timing_stop!(ts2);
     let page_height = layout_tree.root_dimension.height;
+    let page_width = layout_tree.root_dimension.width;
 
     // Stage 3: layering
     let ts3 = timing_start!("pipeline.layering");
@@ -1201,7 +1207,11 @@ fn pipeline_build_cache<C: RenderConfiguration>(
 
     let render_height = page_height;
     let ts5 = timing_start!("pipeline.painting");
-    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, render_height.max(1.0));
+    // Paint across the full tile-grid width, not the viewport width: the grid's column count
+    // comes from the LAYOUT width (`root_dimension.width`), so a viewport narrower than the
+    // layout (horizontal overflow, or a not-yet-allocated 0-width viewport) would collapse this
+    // rect and leave every column but the first unpainted and unrasterized.
+    let full_page_rect = PipelineRect::new(0.0, 0.0, page_width.max(viewport.width as f64), render_height.max(1.0));
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
     paint_dirty_tiles(&mut tile_list, &layer_ids, full_page_rect, rasterizer);
     timing_stop!(ts5);
@@ -1279,7 +1289,12 @@ fn pipeline_extend_raster(
     }
     defer_tiles_outside_window(&mut tile_list, scroll_y, viewport.height as f64);
 
-    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, page_height.max(1.0));
+    // Paint across the full tile-grid width, not the viewport width: the grid's column count
+    // comes from the LAYOUT width (`root_dimension.width`), so a viewport narrower than the
+    // layout (horizontal overflow, or a not-yet-allocated 0-width viewport) would collapse this
+    // rect and leave every column but the first unpainted and unrasterized.
+    let page_width = tile_list.layer_list.layout_tree.root_dimension.width;
+    let full_page_rect = PipelineRect::new(0.0, 0.0, page_width.max(viewport.width as f64), page_height.max(1.0));
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
 
     // Stage 5: only the newly in-window tiles are still dirty.
@@ -1387,7 +1402,12 @@ fn pipeline_hover_repaint(
 
     // Full-page paint rect and back-to-front layer order - used both to re-emit carried tiles in
     // order (below / in the early-return) and by stages 5–6 further down.
-    let full_page_rect = PipelineRect::new(0.0, 0.0, viewport.width as f64, page_height.max(1.0));
+    // Paint across the full tile-grid width, not the viewport width: the grid's column count
+    // comes from the LAYOUT width (`root_dimension.width`), so a viewport narrower than the
+    // layout (horizontal overflow, or a not-yet-allocated 0-width viewport) would collapse this
+    // rect and leave every column but the first unpainted and unrasterized.
+    let page_width = tile_list.layer_list.layout_tree.root_dimension.width;
+    let full_page_rect = PipelineRect::new(0.0, 0.0, page_width.max(viewport.width as f64), page_height.max(1.0));
     let layer_ids = tile_list.layer_list.layer_ids.read().clone();
 
     // Mark tiles that DON'T intersect the hover region as Clean.  For Clean tiles we
@@ -1949,6 +1969,247 @@ mod tests {
                 assert!(has_tile_near(cache, y, VP_H as f64), "viewport not baked at scroll {y}");
                 y += VP_H as f64;
             }
+        }
+
+        /// Repro attempt for "the bottom-right tile is white": every grid cell that overlaps the
+        /// visible viewport must come back baked, including the partial cells on the right and
+        /// bottom edges when the viewport is not a whole number of tiles.
+        #[test]
+        fn every_tile_cell_covering_the_viewport_is_baked() {
+            const VW: u32 = 1000;
+            const VH: u32 = 700;
+
+            let config = settings_store::default_config();
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(config);
+            let calls = Arc::new(AtomicUsize::new(0));
+            ctx.set_rasterizer(
+                Box::new(SolidRasterizer {
+                    calls: Arc::clone(&calls),
+                }),
+                RasterStrategy::ParallelCached,
+            );
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: VW,
+                height: VH,
+            });
+
+            let html = r#"<html><body style="margin:0"><div style="width:1000px;height:2000px;background:#ddd"></div></body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            let Some(cache) = ctx.pipeline_cache.as_ref() else {
+                unreachable!("pipeline cache must exist after rebuild");
+            };
+            let present: std::collections::HashSet<(i64, i64)> =
+                cache.tiles.iter().map(|t| (t.page_x as i64, t.page_y as i64)).collect();
+
+            let mut missing = Vec::new();
+            let mut y = 0i64;
+            while y < VH as i64 {
+                let mut x = 0i64;
+                while x < VW as i64 {
+                    if !present.contains(&(x, y)) {
+                        missing.push((x, y));
+                    }
+                    x += 256;
+                }
+                y += 256;
+            }
+            assert!(
+                missing.is_empty(),
+                "tile cells overlapping the viewport were never baked: {missing:?}; baked = {:?}",
+                {
+                    let mut v: Vec<_> = present.iter().copied().collect();
+                    v.sort();
+                    v
+                }
+            );
+        }
+
+        /// The startup sequence: a tab is built at one viewport (the engine fallback, or the
+        /// host's first guess) and then resized to the real one. Every cell covering the new
+        /// viewport must be baked afterwards -- a hole here is a white tile on screen.
+        #[test]
+        fn viewport_change_keeps_every_visible_tile_baked() {
+            fn missing_cells(ctx: &BrowsingContext<DefaultRenderConfig>, vw: u32, vh: u32) -> Vec<(i64, i64)> {
+                let cache = ctx.pipeline_cache.as_ref().expect("pipeline cache");
+                let present: std::collections::HashSet<(i64, i64)> =
+                    cache.tiles.iter().map(|t| (t.page_x as i64, t.page_y as i64)).collect();
+                let mut missing = Vec::new();
+                let mut y = 0i64;
+                while y < vh as i64 {
+                    let mut x = 0i64;
+                    while x < vw as i64 {
+                        if !present.contains(&(x, y)) {
+                            missing.push((x, y));
+                        }
+                        x += 256;
+                    }
+                    y += 256;
+                }
+                missing
+            }
+
+            let config = settings_store::default_config();
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(config);
+            let calls = Arc::new(AtomicUsize::new(0));
+            ctx.set_rasterizer(
+                Box::new(SolidRasterizer {
+                    calls: Arc::clone(&calls),
+                }),
+                RasterStrategy::ParallelCached,
+            );
+
+            // Built at the fallback size first, exactly like a tab created before its host
+            // window is allocated.
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 1280,
+                height: 800,
+            });
+            let html = r#"<html><body style="margin:0"><div style="width:100%;height:2000px;background:#ddd"></div></body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+            ctx.rebuild_pipeline_cache_if_needed();
+            assert!(
+                missing_cells(&ctx, 1280, 800).is_empty(),
+                "holes already at the fallback size: {:?}",
+                missing_cells(&ctx, 1280, 800)
+            );
+
+            // Now the real GLArea size lands.
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 1000,
+                height: 700,
+            });
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            let missing = missing_cells(&ctx, 1000, 700);
+            assert!(missing.is_empty(), "white tiles after the viewport change: {missing:?}");
+        }
+
+        /// A hover repaint reuses the cached layout and carries unaffected tiles forward. If the
+        /// carry-over drops one, that tile turns white on screen and stays white until another
+        /// repaint happens to cover it -- which is exactly "the bottom-right tile is white until
+        /// I move the mouse".
+        #[test]
+        fn hover_repaint_does_not_drop_visible_tiles() {
+            const VW: u32 = 1000;
+            const VH: u32 = 700;
+
+            fn cells(ctx: &BrowsingContext<DefaultRenderConfig>) -> std::collections::BTreeSet<(i64, i64)> {
+                ctx.pipeline_cache
+                    .as_ref()
+                    .expect("pipeline cache")
+                    .tiles
+                    .iter()
+                    .map(|t| (t.page_x as i64, t.page_y as i64))
+                    .collect()
+            }
+
+            let config = settings_store::default_config();
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(config);
+            let calls = Arc::new(AtomicUsize::new(0));
+            ctx.set_rasterizer(
+                Box::new(SolidRasterizer {
+                    calls: Arc::clone(&calls),
+                }),
+                RasterStrategy::ParallelCached,
+            );
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: VW,
+                height: VH,
+            });
+
+            let html = r#"<html><body style="margin:0">
+                <a href="https://example.com" style="display:block;width:300px;height:100px">hover me</a>
+                <div style="width:1000px;height:2000px;background:#ddd"></div>
+                </body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            let before = cells(&ctx);
+            assert!(!before.is_empty(), "nothing baked on the first pass");
+
+            // Hover the link in the top-left, then repaint. Tiles far from the pointer must be
+            // carried forward untouched, not dropped.
+            let _ = ctx.update_hover(50.0, 50.0);
+            ctx.rebuild_pipeline_cache_if_needed();
+            let after = cells(&ctx);
+
+            let lost: Vec<_> = before.difference(&after).copied().collect();
+            assert!(
+                lost.is_empty(),
+                "hover repaint dropped tiles that were baked before: {lost:?}"
+            );
+        }
+
+        /// Regression: a viewport narrower than the laid-out page must still paint every tile
+        /// COLUMN, not just the one at x = 0.
+        ///
+        /// A zero width makes the layouter fall back to `MAX_CONTENT`, so the page lays out far
+        /// wider than the viewport. The painter's page rect used to take its width from the
+        /// viewport, which collapsed it to a degenerate zero-width envelope; the r-tree query
+        /// then matched only tiles whose left edge touches x = 0, so exactly one 256 px column
+        /// was ever painted and rasterized. A host that creates a tab before its window is
+        /// allocated (GTK reports 0x0 for an unallocated widget) hit this on every tab switch.
+        #[test]
+        fn narrow_viewport_still_paints_every_tile_column() {
+            let config = settings_store::default_config();
+            let mut ctx: BrowsingContext<DefaultRenderConfig> = BrowsingContext::new(config);
+            let calls = Arc::new(AtomicUsize::new(0));
+            ctx.set_rasterizer(
+                Box::new(SolidRasterizer {
+                    calls: Arc::clone(&calls),
+                }),
+                RasterStrategy::ParallelCached,
+            );
+            // Width 0 is the shape an unallocated host window reports; height is kept non-zero
+            // so the raster window still admits the top rows and the test isolates the width.
+            ctx.set_viewport(Viewport {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: VP_H,
+            });
+
+            let html = r#"<html><body style="margin:0"><div style="width:2000px;height:300px;background:#ddd"></div></body></html>"#;
+            let mut doc = gosub_html5::html_compile::<DefaultRenderConfig>(html);
+            doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+            ctx.set_document(Arc::new(doc));
+
+            ctx.rebuild_pipeline_cache_if_needed();
+
+            let Some(cache) = ctx.pipeline_cache.as_ref() else {
+                unreachable!("pipeline cache must exist after rebuild");
+            };
+            assert!(
+                cache.page_height > 0.0,
+                "page must lay out with a real height, got {}",
+                cache.page_height
+            );
+            let columns: std::collections::BTreeSet<i64> = cache.tiles.iter().map(|t| t.page_x as i64).collect();
+            assert!(
+                columns.iter().any(|&x| x > 0),
+                "only the x=0 column was rasterized ({columns:?}); the page rect collapsed to zero width"
+            );
+            assert!(
+                columns.len() >= 2,
+                "expected several tile columns across a 2000px page, got {columns:?}"
+            );
         }
     }
 

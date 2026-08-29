@@ -2065,7 +2065,16 @@ impl<C: RenderConfiguration> TabWorker<C> {
     }
 
     /// Set a new viewport and schedule a re-render by transitioning to [`TabState::PendingRendering`].
+    ///
+    /// Zero-sized viewports are ignored rather than applied: they are never a state worth
+    /// rendering (a minimized or not-yet-allocated host window reports one), and applying one
+    /// would drop the whole tile cache and re-layout the page at `MAX_CONTENT`. Keeping the last
+    /// good viewport means the tab still holds a valid frame when the host comes back.
     pub fn set_viewport(&mut self, vp: Viewport) {
+        if vp.width == 0 || vp.height == 0 {
+            log::debug!("[render] ignoring zero-sized viewport {vp:?} for tab {:?}", self.tab_id);
+            return;
+        }
         // Already at the viewport we want, then we can skip
         if vp == self.desired_viewport {
             return;
