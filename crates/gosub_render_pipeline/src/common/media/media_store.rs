@@ -317,23 +317,22 @@ impl MediaStore {
         self.completed.swap(false, Ordering::Relaxed)
     }
 
-    /// Shared by the data, source and inline decode paths.
+    /// Shared by the data, source and inline decode paths. With a decoder
+    /// installed the bytes are never decoded here: a failure - including one
+    /// the decoder could not even start on - is the image's failure, not a
+    /// reason to decode locally after all.
     fn decode_media(&self, src: &str, mime: Option<&str>, data: &[u8]) -> anyhow::Result<Media> {
         if let Some(decoder) = &self.decoder {
-            match decoder.decode(mime, data) {
+            return match decoder.decode(mime, data) {
                 Ok(BrokeredDecode::Raster(raster)) => {
                     // Length is checked against the dimensions rather than
                     // trusted: the producer may be a compromised decoder.
                     let image = DecodedImage::new_rgba8(raster.width, raster.height, raster.rgba.to_vec())
                         .map_err(|e| anyhow::anyhow!("brokered decode of '{}' returned bad pixels: {}", src, e))?;
-                    return Ok(Media::image(src, image));
+                    Ok(Media::image(src, image))
                 }
-                // Vector data: fall through and parse it here.
-                Ok(BrokeredDecode::Vector) => {}
-                Err(e) => {
-                    log::debug!("brokered decode of '{src}' did not produce an image ({e}); decoding locally");
-                }
-            }
+                Err(e) => Err(anyhow::anyhow!("brokered decode of '{}' failed: {}", src, e)),
+            };
         }
 
         match self.decoders.decode(mime, data) {
@@ -445,7 +444,12 @@ impl MediaStore {
         // path decodes here as before: that is a background thread, and the pixels are wanted
         // by the reflow that follows.
         if self.synchronous_fetch.load(Ordering::Relaxed) {
-            if let Some(intrinsic) = self.decoders.dimensions(mime.as_deref(), &bytes) {
+            // Header parsing is decoding too: through the decoder when there is one.
+            let intrinsic = match &self.decoder {
+                Some(decoder) => decoder.dimensions(mime.as_deref(), &bytes).ok(),
+                None => self.decoders.dimensions(mime.as_deref(), &bytes),
+            };
+            if let Some(intrinsic) = intrinsic {
                 let media_id = self.allocate_media_id();
                 self.encoded.write().insert(
                     media_id,
@@ -642,7 +646,7 @@ fn percent_decode(s: &str) -> Vec<u8> {
 
 /// Rasterize a `usvg` tree to a straight-alpha RGBA [`Image`] of `w`×`h` px (scaling the tree's
 /// intrinsic size to fit). Returns `None` if the pixmap can't be allocated.
-fn render_svg_tree_to_image(tree: &resvg::usvg::Tree, w: u32, h: u32) -> Option<Image> {
+pub fn render_svg_tree_to_image(tree: &resvg::usvg::Tree, w: u32, h: u32) -> Option<Image> {
     let size = tree.size();
     let (iw, ih) = (size.width().max(1.0), size.height().max(1.0));
     let (sx, sy) = (w as f32 / iw, h as f32 / ih);

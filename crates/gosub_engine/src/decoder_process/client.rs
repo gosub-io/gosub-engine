@@ -27,11 +27,33 @@ pub struct ProcessImageDecoder;
 
 impl ImageDecoder for ProcessImageDecoder {
     fn decode(&self, mime: Option<&str>, bytes: &[u8]) -> Result<BrokeredDecode, DecodeError> {
-        decode_in_child(mime, bytes)
+        match ask_child(ToDecoder::Decode {
+            mime: mime.map(str::to_string),
+            bytes: bytes.to_vec(),
+        })? {
+            Answer::Raster(image) => Ok(BrokeredDecode::Raster(image)),
+            Answer::Dimensions(..) => Err(DecodeError::Failed("the decoder answered the wrong question".into())),
+        }
+    }
+
+    fn dimensions(&self, mime: Option<&str>, bytes: &[u8]) -> Result<(u32, u32), DecodeError> {
+        match ask_child(ToDecoder::Dimensions {
+            mime: mime.map(str::to_string),
+            bytes: bytes.to_vec(),
+        })? {
+            Answer::Dimensions(width, height) => Ok((width, height)),
+            Answer::Raster(_) => Err(DecodeError::Failed("the decoder answered the wrong question".into())),
+        }
     }
 }
 
-fn decode_in_child(mime: Option<&str>, bytes: &[u8]) -> Result<BrokeredDecode, DecodeError> {
+/// What one decoder process answered.
+enum Answer {
+    Raster(RasterImage),
+    Dimensions(u32, u32),
+}
+
+fn ask_child(request: ToDecoder) -> Result<Answer, DecodeError> {
     // Same guard as the network process: a child that never dispatched is
     // running embedder startup, and spawning from there would repeat forever.
     if crate::child_process::is_child_process() {
@@ -64,7 +86,7 @@ fn decode_in_child(mime: Option<&str>, bytes: &[u8]) -> Result<BrokeredDecode, D
         log::warn!("could not apply parent-side confinement to the decoder: {e}");
     }
 
-    let result = exchange(ours, mime, bytes);
+    let result = exchange(ours, request);
 
     // Kill before reaping, on every path: a decoder that will not exit - wedged
     // or hostile - must not be able to hold this thread open.
@@ -75,11 +97,7 @@ fn decode_in_child(mime: Option<&str>, bytes: &[u8]) -> Result<BrokeredDecode, D
 }
 
 /// Send the image and read back what the decoder makes of it.
-fn exchange(
-    channel: gosub_ipc::channel::Channel,
-    mime: Option<&str>,
-    bytes: &[u8],
-) -> Result<BrokeredDecode, DecodeError> {
+fn exchange(channel: gosub_ipc::channel::Channel, request: ToDecoder) -> Result<Answer, DecodeError> {
     let mut link = gosub_ipc::Endpoint::from_channel(channel).map_err(|e| DecodeError::Failed(e.to_string()))?;
 
     let deadline = Instant::now() + DECODE_TIMEOUT;
@@ -88,10 +106,6 @@ fn exchange(
     let _ = link.tx.set_write_timeout(Some(DECODE_TIMEOUT));
     let _ = link.rx.set_read_timeout(Some(DECODE_TIMEOUT));
 
-    let request = ToDecoder::Decode {
-        mime: mime.map(str::to_string),
-        bytes: bytes.to_vec(),
-    };
     link.send(&request)
         .map_err(|e| DecodeError::Failed(format!("could not hand the image to the decoder: {e}")))?;
 
@@ -109,8 +123,15 @@ fn exchange(
         })?;
 
         match msg {
-            FromDecoder::Vector => return Ok(BrokeredDecode::Vector),
             FromDecoder::Failed(why) => return Err(DecodeError::Unsupported(why)),
+            FromDecoder::Dimensions { width, height } => {
+                if width == 0 || height == 0 || width > MAX_DIMENSION || height > MAX_DIMENSION {
+                    return Err(DecodeError::Failed(format!(
+                        "implausible image dimensions {width}x{height}"
+                    )));
+                }
+                return Ok(Answer::Dimensions(width, height));
+            }
             FromDecoder::RasterHeader { width, height, len } => {
                 if pending.is_some() {
                     return Err(DecodeError::Failed("the decoder sent two headers".into()));
@@ -160,7 +181,7 @@ fn exchange(
                         buffer.len()
                     )));
                 }
-                return Ok(BrokeredDecode::Raster(RasterImage {
+                return Ok(Answer::Raster(RasterImage {
                     width,
                     height,
                     rgba: bytes::Bytes::from(buffer),

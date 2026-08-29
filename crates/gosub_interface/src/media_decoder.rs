@@ -23,12 +23,12 @@ impl fmt::Debug for RasterImage {
     }
 }
 
-/// What a decoder made of the input.
+/// What a decoder made of the input. Vector formats come back rasterized at
+/// their intrinsic size: a parsed tree does not cross a process boundary, and
+/// the caller must not parse untrusted bytes itself.
 #[derive(Debug, Clone)]
 pub enum BrokeredDecode {
     Raster(RasterImage),
-    /// Vector data, which the caller must parse itself - see the module docs.
-    Vector,
 }
 
 /// Why a decode produced nothing.
@@ -61,4 +61,8 @@ pub trait ImageDecoder: Send + Sync + fmt::Debug {
     /// Decode `bytes`. `mime` is a hint from the response and may be absent or
     /// wrong; a decoder is expected to sniff rather than trust it.
     fn decode(&self, mime: Option<&str>, bytes: &[u8]) -> Result<BrokeredDecode, DecodeError>;
+
+    /// The intrinsic size of `bytes` without decoding the pixels, from the
+    /// same place `decode` would run: header parsing is decoding too.
+    fn dimensions(&self, mime: Option<&str>, bytes: &[u8]) -> Result<(u32, u32), DecodeError>;
 }

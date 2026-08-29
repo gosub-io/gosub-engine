@@ -80,9 +80,12 @@ is what you actually see on a running system.
   stay in-process. Area names are stamped by the broker,
   page keys stay inside the file, values and areas are capped. Session
   storage stays in the broker.
-- **gosub-decoder** is spawned per image, fed bytes, and exits. Its SVG decoder
-  runs without any fonts: it only *validates* (the broker re-parses accepted SVG
-  with real fonts), so the tightest profile applies.
+- **gosub-decoder** is spawned per image, fed bytes, and exits with pixels (or
+  an intrinsic size, when only that was asked). SVG is rasterized there at its
+  intrinsic size, without fonts — a parsed tree never leaves the process — so
+  the tightest profile applies. Whatever it answers is bounded and checked on
+  receipt; a decode it refuses or cannot start is a failed image, never one
+  decoded in the caller instead.
 - **gosub-forksrv** exists for font warm-up, not fork speed: it builds and
   prepares the configured font system once (see fonts.md), confines itself, and
   forks renderers that inherit the warmed state copy-on-write. It also lazily

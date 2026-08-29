@@ -180,24 +180,28 @@ fn decode() -> i32 {
                 return 1;
             }
         }
-        Ok(BrokeredDecode::Vector) => {
-            eprintln!("a PNG should not decode as a vector");
-            return 1;
-        }
         Err(e) => {
             eprintln!("decode in a separate process failed: {e}");
             return 1;
         }
     }
 
-    // SVG is the format whose decoder discovers system fonts on first use -
-    // a filesystem walk the decoder sandbox forbids, so it has to happen
-    // before the lockdown. A logo-sized SVG (with text, to make the fontdb
-    // matter) must come back as a vector, not as a dead decoder.
+    // Header parsing runs in the child too.
+    match ProcessImageDecoder.dimensions(Some("image/png"), SAMPLE_PNG) {
+        Ok((2, 2)) => {}
+        other => {
+            eprintln!("expected 2x2 from the decoder's header parse, got {other:?}");
+            return 1;
+        }
+    }
+
+    // SVG comes back rasterized at its intrinsic size: the tree never leaves
+    // the child. A logo-sized SVG (with text) must produce pixels, not a
+    // dead decoder.
     match ProcessImageDecoder.decode(Some("image/svg+xml"), SAMPLE_SVG) {
-        Ok(BrokeredDecode::Vector) => 0,
-        Ok(BrokeredDecode::Raster(_)) => {
-            eprintln!("an SVG should decode as a vector, not a raster");
+        Ok(BrokeredDecode::Raster(image)) if image.width > 1 && image.height > 1 => 0,
+        Ok(BrokeredDecode::Raster(image)) => {
+            eprintln!("an SVG rasterized to {}x{}", image.width, image.height);
             1
         }
         Err(e) => {

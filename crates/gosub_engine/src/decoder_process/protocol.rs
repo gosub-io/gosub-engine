@@ -26,6 +26,8 @@ pub enum ToDecoder {
         mime: Option<String>,
         bytes: Vec<u8>,
     },
+    /// The intrinsic size only, from the header.
+    Dimensions { mime: Option<String>, bytes: Vec<u8> },
 }
 
 /// Decoder → broker.
@@ -42,8 +44,10 @@ pub enum FromDecoder {
     Chunk(Vec<u8>),
     /// All chunks sent.
     RasterEnd,
-    /// The bytes are a vector format. No payload: a parsed tree cannot cross the
-    /// boundary, so the broker parses it (see `gosub_interface::media_decoder`).
-    Vector,
+    /// Answer to [`ToDecoder::Dimensions`]; claims, to be bounded like a header.
+    Dimensions {
+        width: u32,
+        height: u32,
+    },
     Failed(String),
 }

@@ -2,7 +2,12 @@
 
 use crate::decoder_process::protocol::{FromDecoder, ToDecoder, CHUNK_BYTES};
 use gosub_ipc::Endpoint;
-use gosub_render_pipeline::common::media::{DecodedMedia, MediaDecoderRegistry, RasterDecoder, SvgDecoder};
+use gosub_render_pipeline::common::media::{
+    render_svg_tree_to_image, DecodedMedia, MediaDecoderRegistry, RasterDecoder, SvgDecoder,
+};
+
+/// An SVG is rasterized at its intrinsic size, scaled down to fit this.
+const MAX_SVG_SIDE: f32 = 4096.0;
 
 /// Decode one image for the broker, then return the process exit code.
 pub fn serve(mut link: Endpoint) -> i32 {
@@ -12,19 +17,26 @@ pub fn serve(mut link: Endpoint) -> i32 {
     gosub_sandbox::set_process_title("gosub-decoder", "gosub: image decoder");
 
     // The default set, minus system fonts for SVG: discovering and lazily
-    // loading them walks the filesystem, which the lockdown below forbids -
-    // and a font-less parse is all this process owes the broker (see
-    // `FromDecoder::Vector`). Nothing here opens a file, a socket or a
-    // program, so the tightest profile applies, installed before the
-    // untrusted bytes are so much as read.
+    // loading them walks the filesystem, which the lockdown below forbids.
+    // SVG text therefore renders without fonts here; the alternative is
+    // parsing untrusted SVG in the caller. Nothing here opens a file, a
+    // socket or a program, so the tightest profile applies, installed before
+    // the untrusted bytes are so much as read.
     let mut registry = MediaDecoderRegistry::new();
     registry.register(Box::new(SvgDecoder::without_system_fonts()));
     registry.register(Box::new(RasterDecoder));
 
     gosub_sandbox::lock_down_decoder();
 
-    let ToDecoder::Decode { mime, bytes } = match link.recv::<ToDecoder>() {
-        Ok(msg) => msg,
+    let (mime, bytes) = match link.recv::<ToDecoder>() {
+        Ok(ToDecoder::Decode { mime, bytes }) => (mime, bytes),
+        Ok(ToDecoder::Dimensions { mime, bytes }) => {
+            let reply = match registry.dimensions(mime.as_deref(), &bytes) {
+                Some((width, height)) => FromDecoder::Dimensions { width, height },
+                None => FromDecoder::Failed("not an image".into()),
+            };
+            return if link.send(&reply).is_ok() { 0 } else { 1 };
+        }
         // The broker went away before asking for anything; nothing to do.
         Err(_) => return 0,
     };
@@ -34,7 +46,17 @@ pub fn serve(mut link: Endpoint) -> i32 {
         Ok(DecodedMedia::Raster(image)) => {
             return send_raster(&mut link, image.width(), image.height(), image.as_raw());
         }
-        Ok(DecodedMedia::Vector(_)) => FromDecoder::Vector,
+        // A tree cannot cross the boundary: pixels at the intrinsic size do.
+        Ok(DecodedMedia::Vector(tree)) => {
+            let size = tree.size();
+            let (w, h) = (size.width().max(1.0), size.height().max(1.0));
+            let scale = (MAX_SVG_SIDE / w).min(MAX_SVG_SIDE / h).min(1.0);
+            let (w, h) = ((w * scale).round().max(1.0) as u32, (h * scale).round().max(1.0) as u32);
+            match render_svg_tree_to_image(&tree, w, h) {
+                Some(image) => return send_raster(&mut link, image.width(), image.height(), image.as_raw()),
+                None => FromDecoder::Failed("could not rasterize the SVG".into()),
+            }
+        }
         Err(e) => FromDecoder::Failed(e.to_string()),
     };
 
