@@ -81,11 +81,18 @@ impl From<SameSite> for crate::engine::cookies::SameSiteContext {
     }
 }
 
+/// A random, single-use request capability (see [`CookieScope::ticket`]).
+pub type Ticket = u128;
+
 /// Whose cookies a request is about: the tab's zone and the document it is
 /// loading, as the broker recorded them. Travels in place of the cookie
 /// header when the network process asks the cookie vault itself.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CookieScope {
+    /// A per-request capability the broker granted to the vault before
+    /// dispatch; the vault answers the network process for granted tickets
+    /// only, and from the grant's own scope. `0` on the broker's link.
+    pub ticket: Ticket,
     pub zone: String,
     pub top_level: Option<String>,
     pub samesite: SameSite,

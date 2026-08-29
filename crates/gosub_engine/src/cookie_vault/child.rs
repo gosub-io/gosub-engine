@@ -20,16 +20,26 @@
 //! *values* attached to requests flow network process ↔ vault directly and
 //! never through the broker.
 
-use crate::cookie_vault::protocol::{FromVault, ToVault};
+use crate::cookie_vault::protocol::{CookieScope, FromVault, Ticket, ToVault};
 use crate::engine::cookies::{CookieJar as _, DefaultCookieJar};
 use gosub_ipc::{Endpoint, EndpointTx};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use url::Url;
 
 /// Every zone's jar, keyed by the zone id the broker stamps.
 type Jars = Arc<Mutex<HashMap<String, DefaultCookieJar>>>;
+
+/// Tickets the broker granted, each for one request of the network process.
+type Grants = Arc<Mutex<HashMap<Ticket, (CookieScope, Instant)>>>;
+
+/// Longer than any request may live; a grant the broker never revoked
+/// (it died mid-request) goes away on its own.
+const GRANT_TTL: Duration = Duration::from_secs(300);
+/// More outstanding grants than this is a broker gone wrong, not load.
+const MAX_GRANTS: usize = 4096;
 
 /// Entry point for the `vault` role. `net_link` is the network process's
 /// direct line, when there is one.
@@ -37,6 +47,7 @@ pub fn serve(broker: Endpoint, net_link: Option<Endpoint>) -> i32 {
     gosub_sandbox::capture_process_title_region();
     gosub_sandbox::set_process_title("gosub-vault", "gosub: cookie vault");
     let jars: Jars = Arc::new(Mutex::new(HashMap::new()));
+    let grants: Grants = Arc::new(Mutex::new(HashMap::new()));
     let (broker_tx, mut broker_rx) = broker.split();
     let broker_tx = Arc::new(Mutex::new(broker_tx));
 
@@ -45,11 +56,12 @@ pub fn serve(broker: Endpoint, net_link: Option<Endpoint>) -> i32 {
     // not carry, so the filter waits until the thread says it is past them.
     if let Some(link) = net_link {
         let jars = Arc::clone(&jars);
+        let grants = Arc::clone(&grants);
         let snapshots = Arc::clone(&broker_tx);
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel::<()>(1);
         let spawned = std::thread::Builder::new().name("vault-net".into()).spawn(move || {
             let _ = started_tx.send(());
-            serve_net(link, jars, snapshots)
+            serve_net(link, jars, grants, snapshots)
         });
         if let Err(e) = spawned {
             eprintln!("[vault] could not start the network link: {e}");
@@ -72,6 +84,24 @@ pub fn serve(broker: Endpoint, net_link: Option<Endpoint>) -> i32 {
                 }
             }
             ToVault::Shutdown => break,
+            ToVault::Grant { tag, scope } => {
+                let mut grants = grants.lock();
+                grants.retain(|_, (_, since)| since.elapsed() < GRANT_TTL);
+                let reply = if grants.len() >= MAX_GRANTS {
+                    eprintln!("[vault] refusing a grant: {MAX_GRANTS} outstanding");
+                    FromVault::Refused { tag }
+                } else {
+                    grants.insert(scope.ticket, (scope, Instant::now()));
+                    FromVault::Granted { tag }
+                };
+                drop(grants);
+                if broker_tx.lock().send(&reply).is_err() {
+                    break;
+                }
+            }
+            ToVault::Revoke { ticket } => {
+                grants.lock().remove(&ticket);
+            }
             msg => {
                 if let Some(reply) = handle(msg, &jars, &broker_tx) {
                     if broker_tx.lock().send(&reply).is_err() {
@@ -84,11 +114,18 @@ pub fn serve(broker: Endpoint, net_link: Option<Endpoint>) -> i32 {
     0
 }
 
-/// The network process's line: `Get`/`Store` only. A `Store` still publishes
+/// The network process's line: `Get`/`Store` only, each under a granted
+/// ticket, and acted on with the grant's scope - the zone and document the
+/// broker recorded, whatever the message claims. A `Store` still publishes
 /// its snapshot on the broker link, which is where persistence happens.
-fn serve_net(link: Endpoint, jars: Jars, snapshots: Arc<Mutex<EndpointTx>>) {
+fn serve_net(link: Endpoint, jars: Jars, grants: Grants, snapshots: Arc<Mutex<EndpointTx>>) {
     let (tx, mut rx) = link.split();
     let tx = Arc::new(Mutex::new(tx));
+    let granted = |claimed: &CookieScope| -> Option<CookieScope> {
+        let grants = grants.lock();
+        let (scope, since) = grants.get(&claimed.ticket)?;
+        (since.elapsed() < GRANT_TTL).then(|| scope.clone())
+    };
     while let Ok(msg) = rx.recv::<ToVault>() {
         match msg {
             ToVault::Ping => {
@@ -96,11 +133,58 @@ fn serve_net(link: Endpoint, jars: Jars, snapshots: Arc<Mutex<EndpointTx>>) {
                     return;
                 }
             }
-            msg @ (ToVault::Get { .. } | ToVault::Store { .. }) => {
-                if let Some(reply) = handle(msg, &jars, &snapshots) {
+            ToVault::Get {
+                tag,
+                scope,
+                url,
+                visible_only,
+            } => {
+                let reply = match granted(&scope) {
+                    Some(scope) => handle(
+                        ToVault::Get {
+                            tag,
+                            scope,
+                            url,
+                            visible_only,
+                        },
+                        &jars,
+                        &snapshots,
+                    ),
+                    None => {
+                        eprintln!("[vault] cookies asked for without a grant; none given");
+                        Some(FromVault::Cookies { tag, header: None })
+                    }
+                };
+                if let Some(reply) = reply {
                     if tx.lock().send(&reply).is_err() {
                         return;
                     }
+                }
+            }
+            ToVault::Store {
+                tag,
+                scope,
+                url,
+                set_cookie,
+            } => {
+                match granted(&scope) {
+                    Some(scope) => {
+                        handle(
+                            ToVault::Store {
+                                tag,
+                                scope,
+                                url,
+                                set_cookie,
+                            },
+                            &jars,
+                            &snapshots,
+                        );
+                    }
+                    None => eprintln!("[vault] cookies stored without a grant; dropped"),
+                }
+                // Acknowledged either way: the asker is waiting.
+                if tx.lock().send(&FromVault::Stored { tag }).is_err() {
+                    return;
                 }
             }
             // Anything else is the broker's business; a network process asking
@@ -147,15 +231,16 @@ fn handle(msg: ToVault, jars: &Jars, snapshots: &Arc<Mutex<EndpointTx>>) -> Opti
             Some(FromVault::Cookies { tag, header })
         }
         ToVault::Store {
-            zone,
+            tag: _,
+            scope,
             url,
-            top_level,
             set_cookie,
         } => {
             let Ok(url) = Url::parse(&url) else {
                 return None;
             };
-            let top = top_level.as_deref().and_then(|t| Url::parse(t).ok());
+            let zone = scope.zone;
+            let top = scope.top_level.as_deref().and_then(|t| Url::parse(t).ok());
             let mut headers = http::HeaderMap::new();
             for value in set_cookie {
                 if let Ok(value) = http::HeaderValue::from_str(&value) {
@@ -196,7 +281,7 @@ fn handle(msg: ToVault, jars: &Jars, snapshots: &Arc<Mutex<EndpointTx>>) -> Opti
             }
         }),
         ToVault::PurgeExpired { zone } => mutate(jars, snapshots, &zone, |jar| jar.purge_expired()),
-        ToVault::Ping | ToVault::Shutdown => None,
+        ToVault::Ping | ToVault::Shutdown | ToVault::Grant { .. } | ToVault::Revoke { .. } => None,
     }
 }
 

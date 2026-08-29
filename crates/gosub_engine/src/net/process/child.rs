@@ -1,5 +1,6 @@
 //! The network process: the only part of the engine that may open a socket.
 
+use crate::cookie_vault::protocol::{FromVault, ToVault};
 use crate::net::fetcher::{Fetcher, FetcherConfig};
 use crate::net::process::protocol::{FetchOutcome, FromNet, NetFetch, RequestTag, ToNet};
 use crate::net::types::{FetchRequest, FetchResult, RequestBody};
@@ -299,33 +300,43 @@ struct VaultLink {
     next_tag: u64,
 }
 
-/// The `Cookie` header for a request, from the vault. Any failure - timeout,
-/// a reply for another tag - is "no cookies"; a following request starts clean.
+impl VaultLink {
+    /// One tagged exchange. Any failure - timeout, a reply for another tag -
+    /// is `None`; replies for an earlier, timed-out request are skipped.
+    fn exchange(&mut self, build: impl FnOnce(u64) -> ToVault) -> Option<FromVault> {
+        let tag = self.next_tag;
+        self.next_tag += 1;
+        self.link.send(&build(tag)).ok()?;
+        loop {
+            let reply = self.link.recv::<FromVault>().ok()?;
+            let got = match &reply {
+                FromVault::Cookies { tag, .. } | FromVault::Stored { tag } => *tag,
+                _ => return None,
+            };
+            if got == tag {
+                return Some(reply);
+            }
+            if got > tag {
+                return None;
+            }
+        }
+    }
+}
+
+/// The `Cookie` header for a request, from the vault; any failure is "no cookies".
 fn vault_cookies(
     vault: &Mutex<VaultLink>,
     scope: &crate::net::process::protocol::CookieScope,
     url: &str,
 ) -> Option<String> {
-    use crate::cookie_vault::protocol::{FromVault, ToVault};
-    let mut vault = vault.lock();
-    let tag = vault.next_tag;
-    vault.next_tag += 1;
-    vault
-        .link
-        .send(&ToVault::Get {
-            tag,
-            scope: scope.clone(),
-            url: url.to_string(),
-            visible_only: false,
-        })
-        .ok()?;
-    // Replies for an earlier, timed-out request are skipped, not answered with.
-    loop {
-        match vault.link.recv::<FromVault>().ok()? {
-            FromVault::Cookies { tag: got, header } if got == tag => return header,
-            FromVault::Cookies { tag: got, .. } if got < tag => continue,
-            _ => return None,
-        }
+    match vault.lock().exchange(|tag| ToVault::Get {
+        tag,
+        scope: scope.clone(),
+        url: url.to_string(),
+        visible_only: false,
+    })? {
+        FromVault::Cookies { header, .. } => header,
+        _ => None,
     }
 }
 
@@ -335,7 +346,6 @@ fn vault_store(
     scope: &crate::net::process::protocol::CookieScope,
     meta: &gosub_sonar::net::types::FetchResultMeta,
 ) {
-    use crate::cookie_vault::protocol::ToVault;
     let set_cookie: Vec<String> = meta
         .headers
         .get_all(http::header::SET_COOKIE)
@@ -345,10 +355,11 @@ fn vault_store(
     if set_cookie.is_empty() {
         return;
     }
-    let _ = vault.lock().link.send(&ToVault::Store {
-        zone: scope.zone.clone(),
+    // Waited for: the reply to the broker must not overtake the store.
+    let _ = vault.lock().exchange(|tag| ToVault::Store {
+        tag,
+        scope: scope.clone(),
         url: meta.final_url.to_string(),
-        top_level: scope.top_level.clone(),
         set_cookie,
     });
 }

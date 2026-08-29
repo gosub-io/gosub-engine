@@ -272,6 +272,7 @@ impl NetProcess {
         let tag = self.next_tag.fetch_add(1, Ordering::Relaxed);
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel::<NetReply>();
         self.pending.lock().insert(tag, reply_tx);
+        let requested = url.clone();
 
         let msg = ToNet::Fetch(NetFetch {
             tag,
@@ -306,7 +307,7 @@ impl NetProcess {
                 NetReply::error("cancelled")
             }
             reply = tokio::time::timeout(REPLY_TIMEOUT, reply_rx) => match reply {
-                Ok(Ok(reply)) => reply,
+                Ok(Ok(reply)) => Self::plausible_reply(reply, &requested),
                 Ok(Err(_)) => NetReply::error("the network process exited"),
                 Err(_) => {
                     self.pending.lock().remove(&tag);
@@ -317,6 +318,30 @@ impl NetProcess {
                 }
             },
         }
+    }
+
+    /// The child's word on where a request ended is checked against what was
+    /// asked: a `final_url` must be a web URL, and stay on the requested URL's
+    /// scheme family - a redirect chain cannot land on `file:` or an internal
+    /// page, whatever the child reports. Where it landed within the web is still
+    /// the child's word; only the broker following redirects itself could fix that.
+    fn plausible_reply(reply: NetReply, requested: &str) -> NetReply {
+        let final_url = match &reply.outcome {
+            FetchOutcome::Ok { final_url, .. } | FetchOutcome::Streaming { final_url, .. } => final_url,
+            FetchOutcome::Error(_) => return reply,
+        };
+        let Ok(parsed) = url::Url::parse(final_url) else {
+            return NetReply::error(format!(
+                "the network process reported an unparsable final url for {requested}"
+            ));
+        };
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return NetReply::error(format!(
+                "the network process reported a non-web final url ({}) for {requested}",
+                parsed.scheme()
+            ));
+        }
+        reply
     }
 
     /// Tell the child to drop a request nobody is waiting for anymore.

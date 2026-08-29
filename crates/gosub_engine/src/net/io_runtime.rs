@@ -392,10 +392,57 @@ fn cookie_scope_for(
         .as_any()
         .downcast_ref::<crate::cookie_vault::client::VaultCookieJar>()?;
     Some(crate::net::process::protocol::CookieScope {
+        ticket: uuid::Uuid::new_v4().as_u128(),
         zone: vaulted.zone().to_string(),
         top_level: identity.top_level.as_ref().map(|u| u.to_string()),
         samesite: same_site_context(identity.top_level.as_ref(), &req.url).into(),
     })
+}
+
+/// What a granted scope hands back: the scope to send, and the wrapper that
+/// revokes the grant once the reply has passed through.
+type Revoke = Box<dyn FnOnce(oneshot::Sender<FetchResult>) -> oneshot::Sender<FetchResult> + Send>;
+
+#[cfg(all(feature = "process-isolation", target_os = "linux"))]
+async fn grant_scope(
+    identity: Option<&TabIdentity>,
+    scope: crate::net::process::protocol::CookieScope,
+) -> Option<(crate::net::process::protocol::CookieScope, Revoke)> {
+    let vault = {
+        let jar = identity?.cookie_jar.read();
+        Arc::clone(
+            jar.as_any()
+                .downcast_ref::<crate::cookie_vault::client::VaultCookieJar>()?
+                .vault(),
+        )
+    };
+    let granting = Arc::clone(&vault);
+    let granted_scope = scope.clone();
+    let granted = tokio::task::spawn_blocking(move || granting.grant(&granted_scope)).await;
+    if !matches!(granted, Ok(true)) {
+        return None;
+    }
+    let revoke_scope = scope.clone();
+    let revoke: Revoke = Box::new(move |reply_tx| {
+        let (inner_tx, inner_rx) = oneshot::channel::<FetchResult>();
+        spawn_named("io-cookie-revoke", async move {
+            let result = inner_rx.await;
+            vault.revoke(&revoke_scope);
+            if let Ok(result) = result {
+                let _ = reply_tx.send(result);
+            }
+        });
+        inner_tx
+    });
+    Some((scope, revoke))
+}
+
+#[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
+async fn grant_scope(
+    _identity: Option<&TabIdentity>,
+    _scope: crate::net::process::protocol::CookieScope,
+) -> Option<(crate::net::process::protocol::CookieScope, Revoke)> {
+    None
 }
 
 #[cfg(not(all(feature = "process-isolation", target_os = "linux")))]
@@ -612,6 +659,15 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                             spawn_named("io-fetch", async move {
                                 let subresource = req.kind != gosub_sonar::net::types::ResourceKind::Primary;
                                 let document = identity.as_ref().and_then(|id| id.top_level.clone());
+                                // The vault must hold the grant before the network process
+                                // can ask under it; a refused grant means no cookies at all.
+                                let (cookie_scope, reply_tx) = match cookie_scope {
+                                    Some(scope) => match grant_scope(identity.as_ref(), scope).await {
+                                        Some((scope, revoke)) => (Some(scope), revoke(reply_tx)),
+                                        None => (None, reply_tx),
+                                    },
+                                    None => (None, reply_tx),
+                                };
                                 if cookie_scope.is_some() {
                                     req.headers.remove(http::header::COOKIE);
                                 } else {

@@ -3630,6 +3630,11 @@ fn storage() -> i32 {
 /// The cookie vault on its own: a jar that forwards, the HttpOnly split, zone
 /// partitioning, and persistence brokered through a real SQLite store - the
 /// vault never opens the file, the broker does, from the snapshots it is sent.
+#[cfg(target_os = "linux")]
+fn line_channel(line: gosub_engine::cookie_vault::client::NetVaultLink) -> gosub_ipc::channel::Channel {
+    line.0
+}
+
 fn vault() -> i32 {
     #[cfg(target_os = "linux")]
     {
@@ -3675,6 +3680,7 @@ fn vault() -> i32 {
             return 1;
         }
         let scope = CookieScope {
+            ticket: 0,
             zone: zone.to_string(),
             top_level: None,
             samesite: SameSite::SameSite,
@@ -3705,6 +3711,68 @@ fn vault() -> i32 {
             return 1;
         }
         println!("attach/visible/partition views correct");
+
+        // The network process's line answers granted tickets only, and from
+        // the grant's scope - not from what the line claims.
+        let (net_vault, net_line) = match CookieVault::spawn(true) {
+            Ok((v, Some(line))) => (Arc::new(v), line),
+            _ => {
+                eprintln!("could not spawn a vault with a network line");
+                return 1;
+            }
+        };
+        let Ok(mut net_link) = gosub_ipc::Endpoint::from_channel(line_channel(net_line)) else {
+            eprintln!("could not open the network line");
+            return 1;
+        };
+        net_vault.open_zone(zone, None);
+        let mut net_jar = VaultCookieJar::new(Arc::clone(&net_vault), zone);
+        net_jar.store_response_cookies(&url, &set_cookie(&["sid=abc; Path=/"]), None);
+        use gosub_engine::cookie_vault::protocol::{FromVault, ToVault};
+        let ask = |link: &mut gosub_ipc::Endpoint, scope: CookieScope| -> Option<String> {
+            link.send(&ToVault::Get {
+                tag: 7,
+                scope,
+                url: url.to_string(),
+                visible_only: false,
+            })
+            .ok()?;
+            match link.recv::<FromVault>().ok()? {
+                FromVault::Cookies { header, .. } => header,
+                _ => None,
+            }
+        };
+        let claimed = CookieScope {
+            ticket: 424242,
+            zone: zone.to_string(),
+            top_level: None,
+            samesite: SameSite::SameSite,
+        };
+        if ask(&mut net_link, claimed.clone()).is_some() {
+            eprintln!("the network line answered a ticket nobody granted");
+            return 1;
+        }
+        if !net_vault.grant(&claimed) {
+            eprintln!("the broker could not grant a ticket");
+            return 1;
+        }
+        // Under the grant, the zone the line names is ignored: the grant's counts.
+        let lying = CookieScope {
+            zone: other.to_string(),
+            ..claimed.clone()
+        };
+        let got = ask(&mut net_link, lying).unwrap_or_default();
+        if !got.contains("sid=abc") {
+            eprintln!("a granted ticket should answer from the grant's zone, got {got:?}");
+            return 1;
+        }
+        net_vault.revoke(&claimed);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if ask(&mut net_link, claimed).is_some() {
+            eprintln!("the network line answered a revoked ticket");
+            return 1;
+        }
+        println!("network line honours grants only");
 
         // A zone with a SQLite store: the vault's snapshots reach the file
         // through the broker, and a fresh store on the same file has them.

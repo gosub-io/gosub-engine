@@ -62,6 +62,11 @@ is what you actually see on a running system.
   see an ordinary jar that forwards; the network process gets its own line to
   the vault, so the cookie values attached to requests and the `Set-Cookie`
   headers coming back flow between those two and never through the broker.
+  That line is not trusted to name zones: before dispatching a request the
+  broker grants the vault a random per-request ticket bound to the tab's zone
+  and document, the network process asks under the ticket, and the vault
+  answers from the grant. The broker also accepts a jar snapshot only for a
+  zone with a live request or a mutation of its own outstanding.
   Persistence is brokered: the vault sends a snapshot of a zone's jar after
   every change and the broker writes it through the zone's cookie store, so
   the vault never opens a file and any embedder-supplied store works. An

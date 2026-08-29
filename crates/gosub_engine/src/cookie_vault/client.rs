@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use url::Url;
 
 /// How long a query waits for the vault. Generous: the vault does no I/O, so
@@ -26,7 +26,26 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 enum Reply {
     Cookies(Option<String>),
     All(Vec<(String, String)>),
+    Granted(bool),
 }
+
+/// Why a zone's snapshot would be expected right now. A snapshot for a zone
+/// with none of these is the vault's claim alone, and is dropped: a
+/// compromised vault must not write into arbitrary zones' stores.
+#[derive(Default)]
+struct Activity {
+    /// Requests granted a ticket and not yet revoked.
+    grants: usize,
+    /// When the last grant was revoked: its snapshot may still be in flight.
+    released: Option<Instant>,
+    /// Mutations this side sent, each answered by one snapshot.
+    credits: usize,
+}
+
+/// How long after a request ends its `Store` snapshot may still arrive.
+const RELEASE_GRACE: Duration = Duration::from_secs(10);
+
+type Activities = Arc<Mutex<HashMap<String, Activity>>>;
 
 /// A running vault and the broker's link to it.
 pub struct CookieVault {
@@ -35,6 +54,8 @@ pub struct CookieVault {
     next_tag: AtomicU64,
     /// The zones' persisting stores, for the snapshots the vault sends back.
     stores: Arc<Mutex<HashMap<String, (ZoneId, CookieStoreHandle)>>>,
+    /// Per zone, what makes a snapshot expected (see [`Activity`]).
+    activity: Activities,
     child: Mutex<Option<gosub_sandbox::spawn::Child>>,
     /// Whether a network process was given its own line to this vault.
     net_linked: bool,
@@ -109,10 +130,12 @@ impl CookieVault {
 
         let pending: Arc<Mutex<HashMap<Tag, mpsc::SyncSender<Reply>>>> = Arc::new(Mutex::new(HashMap::new()));
         let stores: Arc<Mutex<HashMap<String, (ZoneId, CookieStoreHandle)>>> = Arc::new(Mutex::new(HashMap::new()));
+        let activity: Activities = Arc::new(Mutex::new(HashMap::new()));
         let (ready_tx, ready_rx) = mpsc::sync_channel::<()>(1);
 
         let waiters = Arc::clone(&pending);
         let persist = Arc::clone(&stores);
+        let expected = Arc::clone(&activity);
         std::thread::Builder::new()
             .name("cookie-vault-reader".into())
             .spawn(move || {
@@ -131,7 +154,27 @@ impl CookieVault {
                                 let _ = waiter.send(Reply::All(cookies));
                             }
                         }
-                        FromVault::Snapshot { zone, jar } => persist_snapshot(&persist, &zone, jar),
+                        FromVault::Granted { tag } => {
+                            if let Some(waiter) = waiters.lock().remove(&tag) {
+                                let _ = waiter.send(Reply::Granted(true));
+                            }
+                        }
+                        // The broker's own stores are fire-and-forget.
+                        FromVault::Stored { .. } => {}
+                        FromVault::Refused { tag } => {
+                            if let Some(waiter) = waiters.lock().remove(&tag) {
+                                let _ = waiter.send(Reply::Granted(false));
+                            }
+                        }
+                        FromVault::Snapshot { zone, jar } => {
+                            if snapshot_expected(&expected, &zone) {
+                                persist_snapshot(&persist, &zone, jar);
+                            } else {
+                                log::warn!(
+                                    "the cookie vault sent a snapshot for zone {zone} nothing asked for; dropped"
+                                );
+                            }
+                        }
                     }
                 }
                 waiters.lock().clear();
@@ -142,6 +185,7 @@ impl CookieVault {
             pending,
             next_tag: AtomicU64::new(1),
             stores,
+            activity,
             child: Mutex::new(Some(child)),
             net_linked: net_link.is_some(),
         };
@@ -202,7 +246,7 @@ impl CookieVault {
             visible_only,
         })? {
             Reply::Cookies(header) => header,
-            Reply::All(_) => None,
+            Reply::All(_) | Reply::Granted(_) => None,
         }
     }
 
@@ -210,12 +254,50 @@ impl CookieVault {
         if set_cookie.is_empty() {
             return;
         }
+        self.expect_snapshot(zone);
         let _ = self.tx.lock().send(&ToVault::Store {
-            zone: zone.to_string(),
+            tag: 0,
+            scope: CookieScope {
+                ticket: 0,
+                zone: zone.to_string(),
+                top_level: top_level.map(|u| u.to_string()),
+                samesite: SameSite::SameSite,
+            },
             url: url.to_string(),
-            top_level: top_level.map(|u| u.to_string()),
             set_cookie,
         });
+    }
+
+    /// Let the network process act on `scope` for one request. `false` means
+    /// the request goes without cookies.
+    pub fn grant(&self, scope: &CookieScope) -> bool {
+        let granted = matches!(
+            self.ask(|tag| ToVault::Grant {
+                tag,
+                scope: scope.clone(),
+            }),
+            Some(Reply::Granted(true))
+        );
+        if granted {
+            self.activity.lock().entry(scope.zone.clone()).or_default().grants += 1;
+        }
+        granted
+    }
+
+    /// The request is over; its `Store` snapshot, if any, may still be on its way.
+    pub fn revoke(&self, scope: &CookieScope) {
+        {
+            let mut activity = self.activity.lock();
+            let zone = activity.entry(scope.zone.clone()).or_default();
+            zone.grants = zone.grants.saturating_sub(1);
+            zone.released = Some(Instant::now());
+        }
+        let _ = self.tx.lock().send(&ToVault::Revoke { ticket: scope.ticket });
+    }
+
+    /// A mutation sent from this side is answered by one snapshot.
+    fn expect_snapshot(&self, zone: &str) {
+        self.activity.lock().entry(zone.to_string()).or_default().credits += 1;
     }
 
     fn get_all(&self, zone: &str) -> Vec<(String, String)> {
@@ -228,7 +310,15 @@ impl CookieVault {
         }
     }
 
+    /// A mutation on the broker's link (every `tell` is one).
     fn tell(&self, msg: ToVault) {
+        if let ToVault::Clear { zone }
+        | ToVault::Remove { zone, .. }
+        | ToVault::RemoveForUrl { zone, .. }
+        | ToVault::PurgeExpired { zone } = &msg
+        {
+            self.expect_snapshot(zone);
+        }
         let _ = self.tx.lock().send(&msg);
     }
 
@@ -278,6 +368,20 @@ fn persisted_snapshot(store: &CookieStoreHandle, zone: ZoneId) -> Option<Default
     guard.as_any().downcast_ref::<DefaultCookieJar>().cloned()
 }
 
+/// Whether a snapshot for `zone` answers something this side caused: a
+/// live (or just-ended) granted request, or a mutation credit, which it consumes.
+fn snapshot_expected(activity: &Activities, zone: &str) -> bool {
+    let mut activity = activity.lock();
+    let Some(zone) = activity.get_mut(zone) else {
+        return false;
+    };
+    if zone.credits > 0 {
+        zone.credits -= 1;
+        return true;
+    }
+    zone.grants > 0 || zone.released.is_some_and(|at| at.elapsed() < RELEASE_GRACE)
+}
+
 /// A snapshot from the vault: written through the zone's store, and mirrored
 /// into the store's own cached jar so its `release_zone`/`persist_all` paths
 /// (which snapshot that cache) cannot resurrect stale state.
@@ -323,6 +427,10 @@ impl VaultCookieJar {
         &self.zone
     }
 
+    pub fn vault(&self) -> &Arc<CookieVault> {
+        &self.vault
+    }
+
     pub fn handle(self) -> CookieJarHandle {
         self.into()
     }
@@ -354,6 +462,7 @@ impl CookieJar for VaultCookieJar {
 
     fn get_request_cookies(&self, url: &Url, top_level: Option<&Url>, samesite: SameSiteContext) -> Option<String> {
         let scope = CookieScope {
+            ticket: 0,
             zone: self.zone.clone(),
             top_level: top_level.map(|u| u.to_string()),
             samesite: SameSite::from(samesite),
