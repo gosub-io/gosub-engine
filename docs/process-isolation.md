@@ -79,8 +79,7 @@ engine then falls back in-process and says so.
   Persistence is brokered: the vault sends a snapshot of a zone's jar after
   every change and the broker writes it through the zone's cookie store, so
   the vault never opens a file and any embedder-supplied store works. An
-  embedder-supplied *jar* stays where the embedder put it. Off by default
-  while it soaks.
+  embedder-supplied *jar* stays where the embedder put it.
 - **gosub-storage** serves `localStorage` from one JSON file per
   `(zone, partition, origin)` area, under the service profile (baseline plus
   `openat`, Landlock-scoped to its directory). A zone whose `StorageService`
@@ -251,7 +250,7 @@ at navigation), never from anything the requester sent.
 | `security.network_process` | on (Linux) | Network stack in its own sandboxed process. Falls back in-process with a warning (network code is trusted engine code; the sandbox is defense in depth). |
 | `security.image_decoder_process` | on (Linux) | Raster decoding in a throwaway process per image. Falls back in-process with a warning. |
 | `security.storage_service` | on (Linux) | A zone's `localStorage` served by the storage process when its local store is a `FileLocalStore` (one process per directory). Other stores stay in-process. |
-| `security.cookie_vault` | off | The cookie jars in their own sandboxed process, with a direct line from the network process (see the process model). Linux only; falls back to in-process jars with a warning. |
+| `security.cookie_vault` | on (Linux) | The cookie jars in their own sandboxed process, with a direct line from the network process (see the process model). Linux only; falls back to in-process jars with a warning. |
 | `security.renderer_process` | on (Linux, `Full`-tier font systems) | The fork server + resident renderer machinery described above. **No fallback for page content**: if it cannot start, pages simply render in-process from the beginning (with a warning at startup); once it *has* started, a page that cannot be rendered out of process stays blank. Linux only. |
 
 The defaults are *offers*: at `start()` the engine keeps each one only where
