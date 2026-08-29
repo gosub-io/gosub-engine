@@ -841,26 +841,32 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 self.remote_generation = self.remote_generation.wrapping_add(1);
                 self.remote_inflight = None;
                 self.remote_hover_pending = false;
-                // This page's tiles are exactly what came back: what an
-                // earlier page of this tab kept cannot help it.
-                self.remote_tile_memory
-                    .replace_with(page.tiles.into_iter().map(kept_tile));
-                self.remote_layer_order = page.summary.layer_order.clone();
-                self.remote_document_meta = Some((page.summary.title.clone(), page.summary.favicon.clone()));
-                let baked = self.remote_tile_memory.baked_tiles(&self.remote_layer_order);
-                let cached_tiles = Arc::new(gosub_render_pipeline::rasterizer::cpu_cached_tiles(&baked));
-                self.pipeline_cache = Some(PipelineCache {
-                    tiles: baked,
-                    page_height: page.summary.page_height,
-                    cached_tiles,
-                    layer_list: None,
-                    hit_regions: page.hit_regions,
-                    tile_pixel_cache: Default::default(),
-                });
+                self.adopt_remote_page(page);
                 Ok(())
             }
             Err(e) => Err(e.to_string()),
         }
+    }
+
+    /// A whole page from a renderer replaces what this tab holds.
+    #[cfg(all(feature = "process-isolation", target_os = "linux"))]
+    fn adopt_remote_page(&mut self, page: crate::fork_server::client::RenderedPage) {
+        // This page's tiles are exactly what came back: what an
+        // earlier page of this tab kept cannot help it.
+        self.remote_tile_memory
+            .replace_with(page.tiles.into_iter().map(kept_tile));
+        self.remote_layer_order = page.summary.layer_order.clone();
+        self.remote_document_meta = Some((page.summary.title.clone(), page.summary.favicon.clone()));
+        let baked = self.remote_tile_memory.baked_tiles(&self.remote_layer_order);
+        let cached_tiles = Arc::new(gosub_render_pipeline::rasterizer::cpu_cached_tiles(&baked));
+        self.pipeline_cache = Some(PipelineCache {
+            tiles: baked,
+            page_height: page.summary.page_height,
+            cached_tiles,
+            layer_list: None,
+            hit_regions: page.hit_regions,
+            tile_pixel_cache: Default::default(),
+        });
     }
 
     /// The viewport moved on a page a resident renderer retains: fetch what
@@ -907,6 +913,8 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         let scroll_y = self.scroll_y;
         let hovered = self.hover_leaf.map(|id| id.into());
         let url = page_url.clone();
+        let source = self.document_source.clone();
+        let viewport = (self.viewport.width as f64, self.viewport.height as f64);
         let (tx, rx) = std::sync::mpsc::channel();
         let spawned = std::thread::Builder::new()
             .name("gosub-remote-pass".into())
@@ -924,6 +932,21 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                     match what {
                         RemotePass::Scroll => renderer.scroll(&remote_tab, scroll_y, &resources, &known),
                         RemotePass::Hover => renderer.hover(&remote_tab, hovered, &resources, &known),
+                        RemotePass::Media => {
+                            let Some(source) = source.as_deref() else {
+                                anyhow::bail!("no document source to render again");
+                            };
+                            renderer.navigate(
+                                source,
+                                &url,
+                                &remote_tab,
+                                viewport,
+                                scroll_y,
+                                &resources,
+                                &known,
+                                hovered,
+                            )
+                        }
                     }
                 })();
                 let _ = tx.send((result, started.elapsed()));
@@ -959,10 +982,15 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
         if self
             .remote_media_landed
             .is_some_and(|since| since.elapsed() >= REMOTE_MEDIA_SETTLE)
+            && self.remote_inflight.is_none()
         {
             self.remote_media_landed = None;
             self.note_invalidate("remote-media");
-            self.render_dirty = true;
+            // Off the tab thread where a resident renderer allows; the
+            // blocking full render is the fallback for the other modes.
+            if !self.try_remote_pass(RemotePass::Media) {
+                self.render_dirty = true;
+            }
             changed = true;
         }
 
@@ -995,6 +1023,21 @@ impl<C: RenderConfiguration> BrowsingContext<C> {
                 {
                     log::warn!("resident renderer has no retained page for this tab; rendering it again");
                     self.render_dirty = true;
+                } else if matches!(inflight.what, RemotePass::Media) {
+                    // A whole page, like a navigate: what came back replaces
+                    // this tab's tiles and geometry.
+                    report_remote_pass(
+                        inflight.what.event_kind(),
+                        &self.remote_tab,
+                        &inflight.page_url,
+                        inflight.scroll_y,
+                        &page,
+                        exchange,
+                    );
+                    self.adopt_remote_page(page);
+                    self.tile_budget.note_full_raster();
+                    self.note_rastered_window();
+                    self.scroll_dirty = true;
                 } else {
                     report_remote_pass(
                         inflight.what.event_kind(),
@@ -2026,6 +2069,9 @@ fn pipeline_extend_raster(
 enum RemotePass {
     Scroll,
     Hover,
+    /// Images the renderer went without have arrived: render the page again
+    /// off the tab thread, so the next navigation is not queued behind it.
+    Media,
 }
 
 #[cfg(all(feature = "process-isolation", target_os = "linux"))]
@@ -2034,6 +2080,7 @@ impl RemotePass {
         match self {
             RemotePass::Scroll => "remote.scroll",
             RemotePass::Hover => "remote.hover",
+            RemotePass::Media => "remote.media",
         }
     }
 }

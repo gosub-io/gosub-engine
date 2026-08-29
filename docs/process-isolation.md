@@ -279,7 +279,7 @@ vault) is tracked separately; see [Known limits](#known-limits-and-roadmap).
 - With the engine's `metrics` feature, `127.0.0.1:9090` serves `/metrics`
   (timing aggregates), `/renderers` (the pool: site, pid, tabs, RSS), and
   `/events` — the **telemetry firehose**, newline-delimited JSON of engine
-  events: `remote.navigate`/`remote.scroll`/`remote.hover` (exchange time,
+  events: `remote.navigate`/`remote.media`/`remote.scroll`/`remote.hover` (exchange time,
   tiles, per-stage renderer timings), `net.load` (every brokered fetch:
   outcome, status, bytes, duration), `remote.resource` (every subresource a
   renderer asked for), `tab.frame`, `tab.invalidate` (why a full render

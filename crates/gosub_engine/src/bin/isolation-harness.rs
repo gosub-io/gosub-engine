@@ -2458,6 +2458,17 @@ fn renderer_soak<F: FontSystem + Default>() -> i32 {
 /// in turn, reporting per site what it cost and what it took to render, and
 /// at the end what the renderer processes hold. Exit 1 only if a renderer
 /// crashed or a page could not be rendered out of process.
+/// The firehose names pages in normalized form (`https://example.com/`).
+fn same_page(reported: Option<&str>, asked: &str) -> bool {
+    match (
+        reported.and_then(|r| url::Url::parse(r).ok()),
+        url::Url::parse(asked).ok(),
+    ) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
+}
+
 fn engine_soak<F: FontSystem + Default>() -> i32 {
     println!("font backend: {}", std::any::type_name::<F>());
     #[cfg(target_os = "linux")]
@@ -2565,6 +2576,8 @@ fn engine_soak<F: FontSystem + Default>() -> i32 {
                 // The navigation, on a clock.
                 let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(40);
                 let mut nav_ms: Option<u128> = None;
+                // Where the navigation ended (redirects): the renderer reports that URL.
+                let mut page_url = url.clone();
                 loop {
                     let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
                     if remaining.is_zero() {
@@ -2573,10 +2586,11 @@ fn engine_soak<F: FontSystem + Default>() -> i32 {
                     }
                     match tokio::time::timeout(remaining, events.recv()).await {
                         Ok(Ok(EngineEvent::Navigation {
-                            event: NavigationEvent::Finished { .. },
+                            event: NavigationEvent::Finished { url: finished, .. },
                             ..
                         })) => {
                             nav_ms = Some(started.elapsed().as_millis());
+                            page_url = finished.to_string();
                             break;
                         }
                         Ok(Ok(EngineEvent::Navigation {
@@ -2594,56 +2608,60 @@ fn engine_soak<F: FontSystem + Default>() -> i32 {
                         _ => break,
                     }
                 }
-                // The first frame, then a grace period for deferred images and
-                // the re-render they cause.
-                let frame_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+                // The page's own out-of-process render, seen on the firehose
+                // (`remote.navigate` names the page), then a grace period for
+                // deferred images and the re-render they cause. The compositor
+                // keeps showing the previous page until then, so its frame is
+                // no signal on its own.
+                let render_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
                 let mut frame_ms: Option<u128> = None;
                 let mut tiles = 0usize;
+                let mut dump = std::env::var("GOSUB_SOAK_EVENTS").ok().and_then(|path| {
+                    std::fs::OpenOptions::new().create(true).append(true).open(path).ok()
+                });
+                let (mut loads, mut bytes, mut renderer_us, mut navigates) = (0usize, 0usize, 0u64, 0usize);
+                let mut grace_until: Option<tokio::time::Instant> = None;
                 if nav_ms.is_some() {
                     loop {
-                        if tokio::time::Instant::now() >= frame_deadline {
-                            notes.push("no frame".into());
+                        let now = tokio::time::Instant::now();
+                        let until = grace_until.unwrap_or(render_deadline);
+                        if now >= until {
+                            if grace_until.is_none() {
+                                notes.push("no render within 60 s".into());
+                            }
                             break;
                         }
-                        if let Some(ExternalHandle::TileCache { tiles: t, .. }) = compositor.frame_for(tab.tab_id) {
-                            frame_ms = Some(started.elapsed().as_millis());
-                            tiles = t.len();
-                            break;
+                        let Ok(Ok(event)) = tokio::time::timeout(until - now, firehose.recv()).await else {
+                            continue;
+                        };
+                        if let Some(file) = dump.as_mut() {
+                            use std::io::Write as _;
+                            let _ = writeln!(file, "{}", serde_json::json!({"ts_us": event.ts_us, "site": url, "kind": event.kind, "data": event.data}));
                         }
-                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                        match event.kind.as_str() {
+                            "net.load" => {
+                                loads += 1;
+                                bytes += event.data["bytes"].as_u64().unwrap_or(0) as usize;
+                            }
+                            "remote.navigate" | "remote.media" if same_page(event.data["url"].as_str(), &page_url) => {
+                                navigates += 1;
+                                if let Some(map) = event.data["renderer_us"].as_object() {
+                                    renderer_us += map.values().filter_map(|v| v.as_u64()).sum::<u64>();
+                                }
+                                if frame_ms.is_none() {
+                                    frame_ms = Some(started.elapsed().as_millis());
+                                    grace_until = Some(tokio::time::Instant::now() + std::time::Duration::from_secs(3));
+                                }
+                            }
+                            _ => {}
+                        }
                     }
                 }
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                 // Drain the engine events that arrived meanwhile (crashes).
                 while let Ok(event) = events.try_recv() {
                     if let EngineEvent::RendererCrashed { site, error, .. } = event {
                         crashes += 1;
                         notes.push(format!("RENDERER CRASHED ({site}: {error})"));
-                    }
-                }
-                // What the firehose saw for this page. `GOSUB_SOAK_EVENTS=<path>` also
-                // appends every event as NDJSON, for digging into a slow navigation.
-                let mut dump = std::env::var("GOSUB_SOAK_EVENTS").ok().and_then(|path| {
-                    std::fs::OpenOptions::new().create(true).append(true).open(path).ok()
-                });
-                let (mut loads, mut bytes, mut renderer_us, mut navigates) = (0usize, 0usize, 0u64, 0usize);
-                while let Ok(event) = firehose.try_recv() {
-                    if let Some(file) = dump.as_mut() {
-                        use std::io::Write as _;
-                        let _ = writeln!(file, "{}", serde_json::json!({"ts_us": event.ts_us, "site": url, "kind": event.kind, "data": event.data}));
-                    }
-                    match event.kind.as_str() {
-                        "net.load" => {
-                            loads += 1;
-                            bytes += event.data["bytes"].as_u64().unwrap_or(0) as usize;
-                        }
-                        "remote.navigate" => {
-                            navigates += 1;
-                            if let Some(map) = event.data["renderer_us"].as_object() {
-                                renderer_us += map.values().filter_map(|v| v.as_u64()).sum::<u64>();
-                            }
-                        }
-                        _ => {}
                     }
                 }
                 if let Some(ExternalHandle::TileCache { tiles: t, .. }) = compositor.frame_for(tab.tab_id) {

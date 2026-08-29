@@ -173,7 +173,7 @@
         outcome: d.outcome || '', status: d.status ?? '', bytes: d.bytes || 0,
         us: ev.kind === 'net.load' ? (d.duration_us || 0) : (d.renderer_waited_us || 0), error: d.error || '' });
       if (loads.length > MAX_LOADS) loads.shift();
-    } else if (ev.kind === 'remote.navigate' || ev.kind === 'remote.scroll' || ev.kind === 'remote.hover') {
+    } else if (ev.kind === 'remote.navigate' || ev.kind === 'remote.media' || ev.kind === 'remote.scroll' || ev.kind === 'remote.hover') {
       const stages = {};
       let sum = 0;
       for (const [key] of STAGES) {
@@ -308,7 +308,7 @@
         out += `<rect x="${x}" y="${y1 + (h ? 2 : 0)}" width="${bw}" height="${h}" rx="${si === STAGES.length - 1 ? 1.5 : 0}" fill="${css(v)}" data-i="${i}" data-s="${si}"/>`;
         acc += val;
       });
-      const mark = { 'remote.navigate': 'N', 'remote.hover': 'H' }[p.kind];
+      const mark = { 'remote.navigate': 'N', 'remote.media': 'M', 'remote.hover': 'H' }[p.kind];
       if (mark) {
         out += `<text x="${x + bw / 2}" y="${H - 6}" text-anchor="middle" font-size="10" fill="${css('--muted')}">${mark}</text>`;
       }
