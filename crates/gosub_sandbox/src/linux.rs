@@ -467,6 +467,26 @@ pub struct PidNamespaceAnchor {
 }
 
 #[cfg(feature = "multi-process")]
+impl PidNamespaceAnchor {
+    /// The pipe end a forked renderer must close: one byte written to it
+    /// releases the anchor and kills every sibling.
+    pub fn raw_fd(&self) -> libc::c_int {
+        self.write_fd
+    }
+}
+
+/// Close descriptors a forked child inherited but must not carry (the fork
+/// server's broker link, the anchor pipe). `pipe2(O_CLOEXEC)` and friends only
+/// cover `exec`; a fork keeps everything.
+#[cfg(feature = "multi-process")]
+pub fn close_inherited(fds: &[libc::c_int]) {
+    for &fd in fds {
+        // SAFETY: closing descriptors the caller named as its own.
+        unsafe { libc::close(fd) };
+    }
+}
+
+#[cfg(feature = "multi-process")]
 impl Drop for PidNamespaceAnchor {
     fn drop(&mut self) {
         // SAFETY: closing a descriptor this struct exclusively owns.
@@ -491,9 +511,11 @@ pub fn hold_pid_namespace_anchor() -> std::io::Result<PidNamespaceAnchor> {
             unsafe { libc::close(write_fd) };
             set_process_title("pidns-anchor", "gosub: pid-namespace anchor");
             // Confine quietly (no lockdown banner - this is plumbing, not a
-            // component); an install failure leaves an idle read loop, which
-            // is not worth killing the namespace over.
-            let _ = install(BASELINE.to_vec());
+            // component). PID 1 of the renderers' namespace with the fork
+            // server's pre-lockdown fds: unconfined is not an option.
+            if install(BASELINE.to_vec()).is_err() {
+                exit_now(1);
+            }
             loop {
                 let mut byte = 0u8;
                 // SAFETY: reading one byte into a valid buffer from an fd we own.
@@ -656,7 +678,52 @@ pub fn lock_down_net(fs_allow: &[(&std::path::Path, bool)]) {
         .copied()
         .collect();
     // Socket-mode fcntls permitted: the runtime toggles O_NONBLOCK per socket.
+    enforce("net", install_socket_family_filter());
     enforce("net", install_with(allowed, false, false, true));
+}
+
+/// Before the net allowlist: `socket()` for any family but `AF_INET`/`AF_INET6`
+/// fails with `EAFNOSUPPORT`, and `socketpair()` for anything but `AF_UNIX`.
+/// This process keeps the host network namespace, where `AF_UNIX` (abstract
+/// names, D-Bus, agents) and `AF_NETLINK` are reachable and out of scope. An
+/// errno rather than a trap because glibc's resolver probes nscd's socket.
+#[cfg(feature = "multi-process")]
+fn install_socket_family_filter() -> Result<(), Box<dyn std::error::Error>> {
+    use seccompiler::{
+        apply_filter_all_threads, BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition,
+        SeccompFilter, SeccompRule,
+    };
+    use std::collections::BTreeMap;
+
+    #[cfg(target_arch = "x86_64")]
+    let arch = seccompiler::TargetArch::x86_64;
+    #[cfg(target_arch = "aarch64")]
+    let arch = seccompiler::TargetArch::aarch64;
+
+    let family_ne =
+        |family: libc::c_int| SeccompCondition::new(0, SeccompCmpArgLen::Dword, SeccompCmpOp::Ne, family as u64);
+    let mut rules: BTreeMap<i64, Vec<SeccompRule>> = BTreeMap::new();
+    // Conditions within a rule AND together: matched = neither internet family.
+    rules.insert(
+        libc::SYS_socket as i64,
+        vec![SeccompRule::new(vec![
+            family_ne(libc::AF_INET)?,
+            family_ne(libc::AF_INET6)?,
+        ])?],
+    );
+    rules.insert(
+        libc::SYS_socketpair as i64,
+        vec![SeccompRule::new(vec![family_ne(libc::AF_UNIX)?])?],
+    );
+    let filter = SeccompFilter::new(
+        rules,
+        SeccompAction::Allow, // mismatch: defer to the main filter
+        SeccompAction::Errno(libc::EAFNOSUPPORT as u32),
+        arch,
+    )?;
+    let program: BpfProgram = filter.try_into()?;
+    apply_filter_all_threads(&program)?;
+    Ok(())
 }
 
 /// The read-only paths a network stack needs on a typical Linux system:
@@ -1422,11 +1489,25 @@ fn install_with(
         rules.insert(libc::SYS_prctl as i64, vec![SeccompRule::new(vec![is_set_name])?]);
     }
 
-    // tgkill is permitted only to deliver SIGSYS (what `sigsys_handler` uses
-    // to re-raise after logging). `sig` is argument index 2; any other signal
-    // or target hits the Trap default.
+    // tgkill is permitted only to deliver SIGSYS to *this* process (what
+    // `sigsys_handler` uses to re-raise after logging). `tgid` is argument 0,
+    // `sig` argument 2; anything else hits the Trap default. Roles that share
+    // the host PID namespace could otherwise SIGSYS the broker. The fork
+    // server's filter is inherited by renderers with other pids, so it pins
+    // the signal only; each renderer pins the pid in its own filter.
     let sig_is_sigsys = SeccompCondition::new(2, SeccompCmpArgLen::Qword, SeccompCmpOp::Eq, libc::SIGSYS as u64)?;
-    rules.insert(libc::SYS_tgkill as i64, vec![SeccompRule::new(vec![sig_is_sigsys])?]);
+    let mut tgkill = vec![sig_is_sigsys];
+    if !fork_server {
+        // SAFETY: getpid has no preconditions.
+        let own = unsafe { libc::getpid() } as u64;
+        tgkill.push(SeccompCondition::new(
+            0,
+            SeccompCmpArgLen::Qword,
+            SeccompCmpOp::Eq,
+            own,
+        )?);
+    }
+    rules.insert(libc::SYS_tgkill as i64, vec![SeccompRule::new(tgkill)?]);
 
     // …and, for the fork server only, `clone` - argument-filtered to a plain
     // fork. With `clone3` ENOSYS'd ([`install_clone3_enosys`]), glibc's
@@ -1923,6 +2004,16 @@ pub fn isolate_namespaces(mode: crate::NamespaceIsolation) -> std::io::Result<()
     use crate::NamespaceIsolation;
 
     if matches!(mode, NamespaceIsolation::None) {
+        return Ok(());
+    }
+    // `KeepNetwork` unshares everything but the network: the new user
+    // namespace owns only the new IPC/UTS namespaces, so the process gains no
+    // capability over the host network it keeps.
+    if matches!(mode, NamespaceIsolation::KeepNetwork) {
+        // SAFETY: unshare with valid flags; affects only the calling process.
+        if unsafe { libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWIPC | libc::CLONE_NEWUTS) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
         return Ok(());
     }
     let flags = libc::CLONE_NEWUSER | libc::CLONE_NEWNET | libc::CLONE_NEWIPC | libc::CLONE_NEWUTS;

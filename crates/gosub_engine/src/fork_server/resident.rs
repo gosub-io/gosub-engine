@@ -142,22 +142,20 @@ pub fn serve<C: RenderConfiguration>(
                 };
                 // A tab with no retained page (never navigated, or closed)
                 // gets an empty pass, so the exchange still completes.
-                let (pass, hit_regions) = match pages.get_mut(&tab) {
+                let pass = match pages.get_mut(&tab) {
                     Some(page) => {
                         touch(&mut recent, &tab);
-                        let pass = run(page);
-                        (pass, page.hit_regions.clone())
+                        run(page)
                     }
-                    None => (
-                        renderer::RenderPass {
-                            summary: PageSummary::default(),
-                            tiles: Vec::new(),
-                            evicted: Vec::new(),
-                        },
-                        Vec::new(),
-                    ),
+                    None => renderer::RenderPass {
+                        summary: PageSummary::default(),
+                        tiles: Vec::new(),
+                        evicted: Vec::new(),
+                    },
                 };
-                if !stream_rendered(&mut link.lock(), &pass.tiles, &pass.evicted, pass.summary, hit_regions) {
+                // Hit regions travel with the navigate pass only; the broker
+                // keeps those and ignores any sent here.
+                if !stream_rendered(&mut link.lock(), &pass.tiles, &pass.evicted, pass.summary, Vec::new()) {
                     gosub_sandbox::exit_now(1);
                 }
             }

@@ -64,13 +64,18 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
     // namespace, whose PID 1 is whatever forks first - and must then outlive
     // every renderer, or `fork` starts failing with `ENOMEM`. Held for the
     // whole serve loop.
-    let _anchor = match gosub_sandbox::hold_pid_namespace_anchor() {
+    let anchor = match gosub_sandbox::hold_pid_namespace_anchor() {
         Ok(anchor) => anchor,
         Err(e) => {
             eprintln!("[fork-server] could not anchor the PID namespace: {e}");
             return 1;
         }
     };
+    // What a forked renderer inherits but may not keep: this process's link
+    // to the broker (it could forge messages and read brokered replies) and
+    // the anchor pipe (one byte kills every sibling renderer).
+    let mut parent_only = link.raw_fds();
+    parent_only.push(anchor.raw_fd());
 
     let font_access = confine_self(&answer);
 
@@ -104,7 +109,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                 ConfinementTier::Unsupported(reason) => {
                     FromForkServer::Refused(format!("this font system cannot run isolated: {reason}"))
                 }
-                _ => fork_and_prove(&mut fonts, font_access),
+                _ => fork_and_prove(&mut fonts, font_access, &parent_only),
             },
             ToForkServer::SpawnRenderer { label } => match &tier {
                 ConfinementTier::Unsupported(reason) => {
@@ -112,8 +117,15 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                 }
                 // Replies for itself (`RendererSpawned` + the link fd).
                 _ => {
-                    match spawn_resident::<C>(&mut link, &mut fonts, &media_store, &forked_loader, font_access, &label)
-                    {
+                    match spawn_resident::<C>(
+                        &mut link,
+                        &mut fonts,
+                        &media_store,
+                        &forked_loader,
+                        font_access,
+                        &parent_only,
+                        &label,
+                    ) {
                         Ok(()) => continue,
                         Err(e) => FromForkServer::Refused(e),
                     }
@@ -147,6 +159,7 @@ fn serve_warmed<C: RenderConfiguration>(mut link: Endpoint) -> i32 {
                         &media_store,
                         &forked_loader,
                         font_access,
+                        &parent_only,
                         &html,
                         &url,
                         &tab,
@@ -177,6 +190,7 @@ fn spawn_resident<C: RenderConfiguration>(
     media_store: &Arc<gosub_render_pipeline::common::media::MediaStore>,
     forked_loader: &Arc<ForkedResourceLoader>,
     font_access: bool,
+    parent_only: &[i32],
     label: &str,
 ) -> Result<(), String> {
     let (ours, theirs) = match gosub_ipc::channel::Channel::pair() {
@@ -188,6 +202,7 @@ fn spawn_resident<C: RenderConfiguration>(
         Err(e) => Err(format!("fork failed: {e}")),
         Ok(gosub_sandbox::Forked::Child) => {
             drop(ours);
+            gosub_sandbox::close_inherited(parent_only);
             let _ = &label;
             gosub_sandbox::set_process_title(&resident::comm(), &resident::title());
             let Ok(link) = Endpoint::from_channel(theirs) else {
@@ -285,7 +300,7 @@ fn confine_self(answer: &Confinement) -> bool {
 
 /// Fork a renderer, confine it to its tier, run `task` in it, and return what
 /// the child sent back over their private pair.
-fn fork_confined_task<R, T>(font_access: bool, task: T) -> Result<R, String>
+fn fork_confined_task<R, T>(font_access: bool, parent_only: &[i32], task: T) -> Result<R, String>
 where
     R: serde::Serialize + serde::de::DeserializeOwned,
     T: FnOnce() -> Option<R>,
@@ -299,6 +314,7 @@ where
         Err(e) => Err(format!("fork failed: {e}")),
         Ok(gosub_sandbox::Forked::Child) => {
             drop(ours);
+            gosub_sandbox::close_inherited(parent_only);
             let Ok(mut link) = Endpoint::from_channel(theirs) else {
                 gosub_sandbox::exit_now(1);
             };
@@ -330,8 +346,8 @@ where
 
 /// The smallest fork: shape one line with the inherited fonts and report the
 /// measured box.
-fn fork_and_prove<F: FontSystem>(fonts: &mut Option<F>, font_access: bool) -> FromForkServer {
-    let result = fork_confined_task(font_access, || {
+fn fork_and_prove<F: FontSystem>(fonts: &mut Option<F>, font_access: bool, parent_only: &[i32]) -> FromForkServer {
+    let result = fork_confined_task(font_access, parent_only, || {
         let fonts = fonts.as_mut()?;
         let (width, height) = fonts.measure(
             "Shaped in a forked renderer with inherited fonts",
@@ -358,6 +374,7 @@ fn fork_and_render<C: RenderConfiguration>(
     media_store: &Arc<gosub_render_pipeline::common::media::MediaStore>,
     forked_loader: &Arc<ForkedResourceLoader>,
     font_access: bool,
+    parent_only: &[i32],
     html: &str,
     page_url: &str,
     tab: &str,
@@ -375,6 +392,7 @@ fn fork_and_render<C: RenderConfiguration>(
         Err(e) => Err(format!("fork failed: {e}")),
         Ok(gosub_sandbox::Forked::Child) => {
             drop(ours);
+            gosub_sandbox::close_inherited(parent_only);
             // Fork keeps the parent's name; say who this really is.
             let _ = (&tab, &page_url);
             gosub_sandbox::set_process_title(&resident::comm(), &resident::title());

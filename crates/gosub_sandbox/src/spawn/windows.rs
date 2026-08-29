@@ -268,7 +268,10 @@ pub fn spawn(
         }
         eprintln!(
             "[spawn] AppContainer active (network={})",
-            isolation == crate::NamespaceIsolation::None
+            matches!(
+                isolation,
+                crate::NamespaceIsolation::None | crate::NamespaceIsolation::KeepNetwork
+            )
         );
     }
 

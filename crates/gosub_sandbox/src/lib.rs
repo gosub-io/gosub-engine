@@ -64,8 +64,11 @@ pub fn apply_child_rlimits_with(data_limit: u64) -> std::io::Result<()> {
 /// Which namespaces a child is dropped into at spawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NamespaceIsolation {
-    /// No unsharing - the net component, which must reach the network.
+    /// No unsharing at all.
     None,
+    /// User, IPC and UTS namespaces only - the net component, which must keep
+    /// the host network but has no business with its IPC or hostname.
+    KeepNetwork,
     /// Empty network namespace (the load-bearing one) plus IPC and UTS as
     /// defense in depth, and (best-effort) a PID namespace - which, because
     /// the unshare is lazy, isolates the *fork server's forked renderers*
@@ -393,6 +396,13 @@ pub use imp::PidNamespaceAnchor;
 #[cfg(all(feature = "multi-process", target_os = "linux"))]
 pub fn hold_pid_namespace_anchor() -> std::io::Result<PidNamespaceAnchor> {
     imp::hold_pid_namespace_anchor()
+}
+
+/// In a forked child: close descriptors inherited from the parent that the
+/// child must not hold (fork ignores `FD_CLOEXEC`). Call before lockdown.
+#[cfg(all(feature = "multi-process", target_os = "linux"))]
+pub fn close_inherited(fds: &[i32]) {
+    imp::close_inherited(fds)
 }
 
 /// Verify at startup that the fork-server filter permits what a forked

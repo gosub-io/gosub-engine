@@ -223,6 +223,20 @@ impl Endpoint {
     pub fn split(self) -> (EndpointTx, EndpointRx) {
         (self.tx, self.rx)
     }
+
+    /// The descriptors behind this link, for a forked child that must close
+    /// them; empty for an in-process channel.
+    #[cfg(all(feature = "multi-process", target_os = "linux"))]
+    pub fn raw_fds(&self) -> Vec<RawFd> {
+        let mut fds = Vec::new();
+        if let EndpointTx::Socket(s) = &self.tx {
+            fds.push(s.as_raw_fd());
+        }
+        if let EndpointRx::Socket(s) = &self.rx {
+            fds.push(s.as_raw_fd());
+        }
+        fds
+    }
 }
 
 /// A connected pair of in-process endpoints (single-process mode's stand-in

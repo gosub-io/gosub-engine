@@ -51,6 +51,10 @@ is what you actually see on a running system.
 - **gosub-net** is the only process allowed to reach the network. Tabs never
   fetch: their loads are brokered requests that the I/O runtime performs with the
   tab's cookies attached on the way through — tab code never sees a cookie value.
+  It keeps the host network namespace and nothing else (fresh user, IPC and UTS
+  namespaces), and `socket()` there is limited to `AF_INET`/`AF_INET6`: unix,
+  netlink and the rest fail with `EAFNOSUPPORT`, so D-Bus, agents and the like
+  are out of reach.
 - **gosub-vault** holds the cookie jars, in the least-authority profile of the
   model (no network, no files, no devices). The rule behind it: no one process
   should hold both large secrets and a large hostile-input surface, and the
@@ -78,7 +82,10 @@ is what you actually see on a running system.
   prepares the configured font system once (see fonts.md), confines itself, and
   forks renderers that inherit the warmed state copy-on-write. It also lazily
   unshares a PID namespace; whatever forks first becomes that namespace's PID 1
-  and must outlive every renderer, which is the anchor's whole job.
+  and must outlive every renderer, which is the anchor's whole job. A forked
+  renderer closes the fork server's broker link and the anchor pipe before its
+  own lockdown — fork ignores `FD_CLOEXEC`, and either fd in a renderer would
+  let it forge broker traffic or kill every sibling.
 - **renderer-\<id\>** processes are *resident*: one per `(zone, site)` — site
   being scheme + eTLD+1, Chromium's definition — hosting every tab of that site
   in that zone, alive until the site's last tab closes. They are forked from the

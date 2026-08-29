@@ -104,6 +104,14 @@ pub const PROBES: &[&str] = &[
     #[cfg(target_os = "linux")]
     "forkserver-no-newuser-clone",
     #[cfg(target_os = "linux")]
+    "tgkill-other-process",
+    #[cfg(target_os = "linux")]
+    "net-socket-af-unix",
+    #[cfg(target_os = "linux")]
+    "net-socket-inet",
+    #[cfg(target_os = "linux")]
+    "net-namespaces",
+    #[cfg(target_os = "linux")]
     "service-fs-openat",
     #[cfg(target_os = "linux")]
     "service-fs-no-socket",
@@ -864,6 +872,22 @@ fn run_platform_probe(probe: &str) {
     // namespace is empty means enumerating interfaces, and a locked-down
     // renderer has no `openat`/`socket` with which to look. It asserts the
     // layer underneath the filter, so it is checked underneath it too.
+    // The net role's mode: network kept, everything else fresh. Checked here
+    // for the same reason as `netns` (needs files and sockets to look).
+    if probe == "net-namespaces" {
+        let ns_link = |kind: &str| std::fs::read_link(format!("/proc/self/ns/{kind}")).expect("read ns link");
+        let (net0, ipc0, uts0, user0) = (ns_link("net"), ns_link("ipc"), ns_link("uts"), ns_link("user"));
+        crate::isolate_namespaces(crate::NamespaceIsolation::KeepNetwork).expect("unshare namespaces");
+        assert_eq!(net0, ns_link("net"), "the net role lost its network namespace");
+        assert_ne!(ipc0, ns_link("ipc"), "still in the host IPC namespace");
+        assert_ne!(uts0, ns_link("uts"), "still in the host UTS namespace");
+        assert_ne!(user0, ns_link("user"), "still in the host user namespace");
+        // And the network still works from there.
+        let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0) };
+        assert!(fd >= 0, "AF_INET socket refused after unshare");
+        std::process::exit(0);
+    }
+
     if probe == "netns" {
         // Read the interface list from procfs, NOT `/sys/class/net`: sysfs
         // reports the namespace it was *mounted* in, so it keeps showing the
@@ -1265,6 +1289,42 @@ fn run_platform_probe(probe: &str) {
         }
     }
 
+    if let Some(probe) = probe.strip_prefix("net-socket-") {
+        crate::lock_down_net(&[]);
+        match probe {
+            // Outside the internet families the call fails, quietly: the
+            // resolver probes nscd's unix socket and must not die for it.
+            "af-unix" => unsafe {
+                let fd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
+                assert_eq!(fd, -1, "AF_UNIX socket was created in the net role");
+                assert_eq!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(libc::EAFNOSUPPORT),
+                    "wrong errno"
+                );
+                let fd = libc::socket(libc::AF_NETLINK, libc::SOCK_RAW, 0);
+                assert_eq!(fd, -1, "AF_NETLINK socket was created in the net role");
+                std::process::exit(0);
+            },
+            // The positive half: the families it exists for still work.
+            "inet" => unsafe {
+                assert!(
+                    libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0) >= 0,
+                    "AF_INET refused"
+                );
+                assert!(
+                    libc::socket(libc::AF_INET6, libc::SOCK_DGRAM, 0) >= 0,
+                    "AF_INET6 refused"
+                );
+                std::process::exit(0);
+            },
+            other => {
+                eprintln!("unknown net probe: {other}");
+                std::process::exit(2);
+            }
+        }
+    }
+
     // Drop to the renderer's privileges, exactly as a real renderer does.
     crate::lock_down_renderer();
 
@@ -1292,6 +1352,14 @@ fn run_platform_probe(probe: &str) {
         // be fatal. Reached only if the allowlist let it through.
         "socket" => unsafe {
             let _ = libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0);
+            std::process::exit(0);
+        },
+
+        // `tgkill` exists for the SIGSYS re-raise and nothing else: another
+        // process as target must trap, even with the permitted signal.
+        "tgkill-other-process" => unsafe {
+            // pid 1: EPERM if the filter let it through, never a real kill.
+            let _ = libc::syscall(libc::SYS_tgkill, 1, 1, libc::SIGSYS);
             std::process::exit(0);
         },
 

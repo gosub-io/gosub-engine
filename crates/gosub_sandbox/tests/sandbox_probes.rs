@@ -275,6 +275,10 @@ mod probe_inventory {
         "forkserver-no-exec",
         "forkserver-no-socket",
         "forkserver-no-newuser-clone",
+        "tgkill-other-process",
+        "net-socket-af-unix",
+        "net-socket-inet",
+        "net-namespaces",
         "service-fs-openat",
         "service-fs-no-socket",
         "service-device-ioctl",
@@ -443,6 +447,41 @@ mod sandbox_enforcement {
     fn startup_canary_detects_a_missing_syscall() {
         let st = probe("forkserver-canary-gap");
         assert_eq!(st.code(), Some(1), "canary should abort with exit 1, got {st:?}");
+    }
+
+    /// `tgkill` is on every allowlist for the SIGSYS re-raise. Pinned to the
+    /// caller's own pid: the vault, net and exec'd renderer share the host PID
+    /// namespace and could otherwise signal the broker.
+    #[test]
+    fn tgkill_cannot_target_another_process() {
+        let st = probe("tgkill-other-process");
+        assert_eq!(
+            st.signal(),
+            Some(SIGSYS),
+            "expected SIGSYS (tgkill pid filter), got {st:?}"
+        );
+    }
+
+    /// The net role keeps the host network namespace, so `socket()` is
+    /// family-filtered: unix, netlink and the rest fail with `EAFNOSUPPORT`
+    /// (an errno, not a kill, because glibc's resolver probes nscd).
+    #[test]
+    fn net_role_socket_is_internet_only() {
+        let st = probe("net-socket-af-unix");
+        assert!(st.success(), "expected AF_UNIX refused with an errno, got {st:?}");
+        let st = probe("net-socket-inet");
+        assert!(st.success(), "expected AF_INET/AF_INET6 to work, got {st:?}");
+    }
+
+    /// `KeepNetwork`: the net role's user/IPC/UTS namespaces are fresh while
+    /// the network namespace is the host's.
+    #[test]
+    fn net_role_keeps_only_the_network_namespace() {
+        let st = probe("net-namespaces");
+        assert!(
+            st.success(),
+            "expected fresh ipc/uts/user with the host netns, got {st:?}"
+        );
     }
 
     #[test]
