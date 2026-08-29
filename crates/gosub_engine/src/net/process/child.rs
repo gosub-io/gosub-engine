@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -19,7 +20,13 @@ const DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Run as the network process until the broker disconnects or says to stop.
 pub fn serve(link: Endpoint, vault: Option<Endpoint>) -> i32 {
-    let vault: Option<Arc<Mutex<Endpoint>>> = vault.map(|ep| Arc::new(Mutex::new(ep)));
+    // A vault that stops answering must cost one request its cookies, not
+    // wedge every request behind the mutex.
+    let vault: Option<Arc<Mutex<VaultLink>>> = vault.map(|mut ep| {
+        let _ = ep.rx.set_read_timeout(Some(VAULT_TIMEOUT));
+        let _ = ep.tx.set_write_timeout(Some(VAULT_TIMEOUT));
+        Arc::new(Mutex::new(VaultLink { link: ep, next_tag: 1 }))
+    });
     gosub_sandbox::capture_process_title_region();
     gosub_sandbox::set_process_title("gosub-net", "gosub: network process");
 
@@ -253,30 +260,48 @@ async fn pump(mut producer: gosub_ipc::ring::RingProducer, mut chunks: BodyChunk
     producer.finish();
 }
 
-/// The `Cookie` header for a request, from the vault.
+const VAULT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The direct line to the vault: one request in flight at a time, each
+/// answer checked against the tag it was asked with.
+struct VaultLink {
+    link: Endpoint,
+    next_tag: u64,
+}
+
+/// The `Cookie` header for a request, from the vault. Any failure - timeout,
+/// a reply for another tag - is "no cookies"; a following request starts clean.
 fn vault_cookies(
-    vault: &Mutex<Endpoint>,
+    vault: &Mutex<VaultLink>,
     scope: &crate::net::process::protocol::CookieScope,
     url: &str,
 ) -> Option<String> {
     use crate::cookie_vault::protocol::{FromVault, ToVault};
-    let mut link = vault.lock();
-    link.send(&ToVault::Get {
-        tag: 0,
-        scope: scope.clone(),
-        url: url.to_string(),
-        visible_only: false,
-    })
-    .ok()?;
-    match link.recv::<FromVault>().ok()? {
-        FromVault::Cookies { header, .. } => header,
-        _ => None,
+    let mut vault = vault.lock();
+    let tag = vault.next_tag;
+    vault.next_tag += 1;
+    vault
+        .link
+        .send(&ToVault::Get {
+            tag,
+            scope: scope.clone(),
+            url: url.to_string(),
+            visible_only: false,
+        })
+        .ok()?;
+    // Replies for an earlier, timed-out request are skipped, not answered with.
+    loop {
+        match vault.link.recv::<FromVault>().ok()? {
+            FromVault::Cookies { tag: got, header } if got == tag => return header,
+            FromVault::Cookies { tag: got, .. } if got < tag => continue,
+            _ => return None,
+        }
     }
 }
 
 /// Hand a response's `Set-Cookie` headers to the vault.
 fn vault_store(
-    vault: &Mutex<Endpoint>,
+    vault: &Mutex<VaultLink>,
     scope: &crate::net::process::protocol::CookieScope,
     meta: &gosub_sonar::net::types::FetchResultMeta,
 ) {
@@ -290,7 +315,7 @@ fn vault_store(
     if set_cookie.is_empty() {
         return;
     }
-    let _ = vault.lock().send(&ToVault::Store {
+    let _ = vault.lock().link.send(&ToVault::Store {
         zone: scope.zone.clone(),
         url: meta.final_url.to_string(),
         top_level: scope.top_level.clone(),
@@ -303,7 +328,7 @@ async fn perform(
     fetcher: &Arc<Fetcher>,
     fetch: NetFetch,
     cancel: CancellationToken,
-    vault: Option<&Mutex<Endpoint>>,
+    vault: Option<&Mutex<VaultLink>>,
 ) -> Performed {
     // A ring fd can only travel where the link carries fds.
     let streaming = fetch.streaming && cfg!(target_os = "linux");

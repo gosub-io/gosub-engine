@@ -106,9 +106,10 @@ impl BrokeredLoader {
             .with_auto_decode(true)
             .build();
 
+        let cancel = self.cancel.child_token();
         let handle = FetchHandle {
             req_id: req.req_id,
-            cancel: self.cancel.child_token(),
+            cancel: cancel.clone(),
         };
 
         // A std channel, not a tokio one: the receiver blocks a plain thread and
@@ -159,6 +160,8 @@ impl BrokeredLoader {
         };
         let result = result.map_err(|_| {
             log::warn!("brokered load of {url} produced no reply within {BROKER_REPLY_TIMEOUT:?}");
+            // Nobody is waiting anymore: free the in-flight slot and the child's work.
+            cancel.cancel();
             LoadError::TimedOut
         })?;
 

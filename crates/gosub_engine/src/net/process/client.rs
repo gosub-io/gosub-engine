@@ -164,7 +164,9 @@ impl NetProcess {
             log::warn!("could not apply parent-side confinement to the network process: {e}");
         }
 
-        let endpoint = Endpoint::from_channel(ours)?;
+        let mut endpoint = Endpoint::from_channel(ours)?;
+        // A child that stops reading must not pin blocking-pool threads forever.
+        let _ = endpoint.tx.set_write_timeout(Some(REPLY_TIMEOUT));
         let (tx, mut rx) = endpoint.split();
 
         let pending: Arc<Mutex<HashMap<RequestTag, tokio::sync::oneshot::Sender<NetReply>>>> =

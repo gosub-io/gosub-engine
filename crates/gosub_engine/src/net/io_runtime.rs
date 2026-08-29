@@ -104,7 +104,7 @@ pub struct IoRouter {
     /// so they emit the same resource events a gosub-sonar fetch would.
     local_ctx: EngineNetContext,
     /// Which documents live on the private network, for the subresource policy.
-    address_space: AddressSpaceCache,
+    address_space: Arc<AddressSpaceCache>,
     /// The network process, if `security.network_process` is on and it started.
     /// One for the whole engine: it holds no per-zone state, and the connection
     /// pooling that *is* per-zone lives inside it.
@@ -129,7 +129,7 @@ impl IoRouter {
             engine_ctx,
             decision_hub: Arc::new(DecisionHub::new()),
             local_ctx,
-            address_space: AddressSpaceCache::new(),
+            address_space: Arc::new(AddressSpaceCache::new()),
             #[cfg(feature = "process-isolation")]
             net_process,
         }
@@ -408,18 +408,20 @@ fn cookie_scope_for(
 }
 
 /// Put the requesting tab's cookies on an outbound request.
-fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIdentity>) {
+/// A vault jar answers over IPC, so the lookup runs on a blocking thread.
+async fn attach_request_cookies(req: &mut FetchRequest, identity: Option<&TabIdentity>) {
     req.headers.remove(http::header::COOKIE);
 
     let Some(identity) = identity else {
         return;
     };
     let context = same_site_context(identity.top_level.as_ref(), &req.url);
-    let Some(cookies) = identity
-        .cookie_jar
-        .read()
-        .get_request_cookies(&req.url, identity.top_level.as_ref(), context)
-    else {
+    let jar = identity.cookie_jar.clone();
+    let url = req.url.clone();
+    let top_level = identity.top_level.clone();
+    let cookies =
+        tokio::task::spawn_blocking(move || jar.read().get_request_cookies(&url, top_level.as_ref(), context)).await;
+    let Ok(Some(cookies)) = cookies else {
         return;
     };
     if let Ok(value) = cookies.parse() {
@@ -579,59 +581,80 @@ pub fn spawn_io_thread(cfg: FetcherConfig, engine_ctx: Arc<EngineContext>) -> Io
                                 router.serve_file_request(req, reply_tx);
                                 continue;
                             }
-                            // Cookies are attached here, never by the requester: see
-                            // `net::tab_identity`. `identity` is None for a tab that has
-                            // closed or never registered, which sends no cookies.
+                            // `identity` is None for a tab that has closed or never
+                            // registered, which sends no cookies (see `net::tab_identity`).
                             let identity = tab_id.and_then(|id| router.tab_identities().get(id));
-                            attach_request_cookies(&mut req, identity.as_ref());
-
-                            // Policy for what a page loads, decided from the tab's own
-                            // document - never from anything the requester sent. A
-                            // subresource of a public document may not reach the private
-                            // network, and its cross-origin bytes pass through ORB.
-                            let subresource = req.kind != gosub_sonar::net::types::ResourceKind::Primary;
-                            let document = identity.as_ref().and_then(|id| id.top_level.clone());
                             // With a vault the network process talks to directly, the
                             // request carries whose cookies it wants and this process
                             // neither attaches nor stores any.
                             let cookie_scope = cookie_scope_for(&router, identity.as_ref(), &req);
-                            if cookie_scope.is_some() {
-                                req.headers.remove(http::header::COOKIE);
-                            }
-                            let refuse_private = subresource
-                                && match &document {
-                                    Some(top) => router.address_space.classify(top).await == AddressSpace::Public,
-                                    None => true,
+                            let net = router.net_process();
+                            // Both of the zone's fetchers: which one serves the request
+                            // is decided in the task, after the address-space lookup.
+                            let fetchers = match &net {
+                                Some(_) => None,
+                                None => match (
+                                    router.get_or_spawn_zone_fetcher(zone_id, false),
+                                    router.get_or_spawn_zone_fetcher(zone_id, true),
+                                ) {
+                                    (Ok(lenient), Ok(strict)) => Some((lenient, strict)),
+                                    (Err(e), _) | (_, Err(e)) => {
+                                        log::error!("Failed to create fetcher for zone {zone_id}: {e}");
+                                        continue;
+                                    }
+                                },
+                            };
+                            let address_space = Arc::clone(&router.address_space);
+
+                            // The rest may block - a vault round trip for the cookies, a
+                            // DNS lookup for the policy - so it runs off this loop, which
+                            // must stay free for every other tab's requests.
+                            spawn_named("io-fetch", async move {
+                                let subresource = req.kind != gosub_sonar::net::types::ResourceKind::Primary;
+                                let document = identity.as_ref().and_then(|id| id.top_level.clone());
+                                if cookie_scope.is_some() {
+                                    req.headers.remove(http::header::COOKIE);
+                                } else {
+                                    attach_request_cookies(&mut req, identity.as_ref()).await;
+                                }
+
+                                // Policy for what a page loads, decided from the tab's own
+                                // document - never from anything the requester sent. A
+                                // subresource of a public document may not reach the private
+                                // network, and its cross-origin bytes pass through ORB.
+                                let refuse_private = subresource
+                                    && match &document {
+                                        Some(top) => address_space.classify(top).await == AddressSpace::Public,
+                                        None => true,
+                                    };
+
+                                // The reply is intercepted so `Set-Cookie` is stored on this
+                                // side too; the requester still receives the untouched result.
+                                let reply_tx = match (identity, cookie_scope.is_some()) {
+                                    (Some(id), false) => store_response_cookies_then_forward(id, reply_tx),
+                                    _ => reply_tx,
+                                };
+                                let reply_tx = match (subresource, document) {
+                                    (true, Some(top)) => block_opaque_responses_then_forward(top, reply_tx),
+                                    _ => reply_tx,
                                 };
 
-                            // The reply is intercepted so `Set-Cookie` is stored on this
-                            // side too; the requester still receives the untouched result.
-                            let reply_tx = match (identity, cookie_scope.is_some()) {
-                                (Some(id), false) => store_response_cookies_then_forward(id, reply_tx),
-                                _ => reply_tx,
-                            };
-                            let reply_tx = match (subresource, document) {
-                                (true, Some(top)) => block_opaque_responses_then_forward(top, reply_tx),
-                                _ => reply_tx,
-                            };
-
-                            // Out of process where isolation is on, in-process otherwise;
-                            // identity and cookies were attached above either way.
-                            match router.net_process() {
-                                Some(net) => dispatch_to_net_process(
-                                    net,
-                                    req,
-                                    refuse_private,
-                                    cookie_scope,
-                                    handle.cancel.clone(),
-                                    reply_tx,
-                                ),
-                                // The I/O thread must keep running; drop the request on fetcher failure.
-                                None => match router.get_or_spawn_zone_fetcher(zone_id, refuse_private) {
-                                    Ok(fetcher) => fetcher.submit(req, handle.cancel.clone(), reply_tx).await,
-                                    Err(e) => log::error!("Failed to create fetcher for zone {zone_id}: {e}"),
-                                },
-                            }
+                                match (net, fetchers) {
+                                    (Some(net), _) => dispatch_to_net_process(
+                                        net,
+                                        req,
+                                        refuse_private,
+                                        cookie_scope,
+                                        handle.cancel.clone(),
+                                        reply_tx,
+                                    ),
+                                    (None, Some((lenient, strict))) => {
+                                        let fetcher = if refuse_private { strict } else { lenient };
+                                        fetcher.submit(req, handle.cancel.clone(), reply_tx).await;
+                                    }
+                                    (None, None) => {}
+                                }
+                            });
                         }
                         Some(IoCommand::Decision { token, action }) => {
                             // Decisions are engine-owned (gosub-sonar has no decision hub);
@@ -692,29 +715,29 @@ mod tests {
             })
         }
 
-        #[test]
-        fn a_tab_gets_its_own_cookies() {
+        #[tokio::test]
+        async fn a_tab_gets_its_own_cookies() {
             let identity = TabIdentity {
                 cookie_jar: jar_with("https://example.com/", "sid=abc; Path=/"),
                 top_level: Some(Url::parse("https://example.com/page").unwrap()),
             };
             let mut req = request_to("https://example.com/api");
-            attach_request_cookies(&mut req, Some(&identity));
+            attach_request_cookies(&mut req, Some(&identity)).await;
 
             assert_eq!(cookie_header(&req), Some("sid=abc"));
         }
 
-        #[test]
-        fn no_identity_means_no_cookies() {
+        #[tokio::test]
+        async fn no_identity_means_no_cookies() {
             // A closed or unregistered tab must not borrow anyone else's jar.
             let mut req = request_to("https://example.com/api");
-            attach_request_cookies(&mut req, None);
+            attach_request_cookies(&mut req, None).await;
 
             assert_eq!(cookie_header(&req), None);
         }
 
-        #[test]
-        fn a_cookie_header_from_the_requester_is_discarded() {
+        #[tokio::test]
+        async fn a_cookie_header_from_the_requester_is_discarded() {
             // The property the whole inversion rests on: a compromised tab cannot
             // send cookies of its own choosing, not even for its own origin.
             let identity = TabIdentity {
@@ -725,17 +748,17 @@ mod tests {
             req.headers
                 .insert(http::header::COOKIE, "sid=forged; admin=1".parse().unwrap());
 
-            attach_request_cookies(&mut req, Some(&identity));
+            attach_request_cookies(&mut req, Some(&identity)).await;
 
             assert_eq!(cookie_header(&req), Some("sid=real"));
         }
 
-        #[test]
-        fn a_forged_header_is_dropped_even_with_no_identity() {
+        #[tokio::test]
+        async fn a_forged_header_is_dropped_even_with_no_identity() {
             let mut req = request_to("https://example.com/api");
             req.headers.insert(http::header::COOKIE, "sid=forged".parse().unwrap());
 
-            attach_request_cookies(&mut req, None);
+            attach_request_cookies(&mut req, None).await;
 
             assert_eq!(cookie_header(&req), None, "an unidentified tab must send nothing");
         }
